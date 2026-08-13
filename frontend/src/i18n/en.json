@@ -1,0 +1,27 @@
+{
+  "app": { "name": "Keeppix" },
+  "setup": {
+    "title": "Welcome to Keeppix",
+    "subtitle": "Create the administrator account to get started.",
+    "displayName": "Name",
+    "username": "Username",
+    "email": "Email (optional)",
+    "password": "Password",
+    "passwordHint": "At least 10 characters.",
+    "submit": "Create account",
+    "errors": {
+      "invalidUsername": "Invalid username: use 3 to 32 characters from letters, digits, dot, hyphen and underscore.",
+      "invalidPassword": "The password must be at least 10 characters long.",
+      "alreadyInitialised": "This instance is already set up."
+    }
+  },
+  "login": {
+    "title": "Sign in",
+    "username": "Username",
+    "password": "Password",
+    "submit": "Sign in",
+    "errors": { "invalidCredentials": "Incorrect username or password." }
+  },
+  "home": { "greeting": "Hello, {name}", "logout": "Sign out" },
+  "common": { "loading": "Loading…", "unexpectedError": "An unexpected error occurred." }
+}
