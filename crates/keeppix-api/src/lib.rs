@@ -35,6 +35,14 @@ pub fn router_without_state() -> Router {
 
 fn common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {
     router
+        // `fallback` must be set *before* the `.layer(...)` calls below: in
+        // axum 0.8, `Router::fallback` replaces the router's fallback
+        // service directly, while `.layer()` only wraps whatever fallback
+        // is already present at the time it's called. If `.fallback()` ran
+        // last, the security headers, compression and tracing layers would
+        // never apply to unmatched routes (404s) — silently reintroducing
+        // that bug by moving this call is easy, so don't reorder it.
+        .fallback(not_found)
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::HeaderName::from_static("x-content-type-options"),
             HeaderValue::from_static("nosniff"),
@@ -53,7 +61,6 @@ fn common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<
         ))
         .layer(CompressionLayer::new().br(true).gzip(true))
         .layer(TraceLayer::new_for_http())
-        .fallback(not_found)
 }
 
 fn base_router() -> Router<AppState> {
