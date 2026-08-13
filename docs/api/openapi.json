@@ -1,0 +1,296 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Keeppix API",
+    "description": "API di Keeppix. Contratto congelato: solo aggiunte entro /api/v1.",
+    "license": {
+      "name": "AGPL-3.0-or-later",
+      "identifier": "AGPL-3.0-or-later"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "# Errors\n`401 invalid-credentials` per utente inesistente, password errata o account\ndisabilitato: le tre situazioni sono indistinguibili dall'esterno.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Sessione aperta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenziali non valide"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sempre `204`, anche senza cookie: uscire deve funzionare comunque.",
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "Sessione chiusa e cookie ripulito"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "# Errors\n`401` se non autenticato, `404` se l'utente è stato nel frattempo rimosso.",
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "Utente della sessione corrente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "# Errors\n`401 unauthenticated` se il cookie manca, è scaduto o è stato riusato dopo\nil consumo — in quest'ultimo caso l'intera famiglia è già stata revocata.",
+        "operationId": "refresh",
+        "responses": {
+          "204": {
+            "description": "Sessione ruotata, nuovo cookie emesso"
+          },
+          "401": {
+            "description": "Cookie assente, scaduto o già consumato"
+          }
+        }
+      }
+    },
+    "/api/v1/setup": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Crea il primo amministratore e apre subito una sessione.",
+        "description": "# Errors\n`409 already-initialised` se l'istanza è già configurata;\n`422 invalid-username` / `422 invalid-password` sui dati non validi.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Amministratore creato e sessione aperta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Istanza già inizializzata"
+          },
+          "422": {
+            "description": "Username o password non validi"
+          }
+        }
+      }
+    },
+    "/api/v1/setup/status": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "# Errors\n`Problem` se il conteggio degli utenti fallisce.",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "Stato di inizializzazione dell'istanza",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserView"
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserView"
+          }
+        }
+      },
+      "SetupRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "display_name",
+          "password"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "SetupResponse": {
+        "type": "object",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserView"
+          }
+        }
+      },
+      "SetupStatus": {
+        "type": "object",
+        "required": [
+          "initialised"
+        ],
+        "properties": {
+          "initialised": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UserView": {
+        "type": "object",
+        "description": "Rappresentazione pubblica dell'utente. Non contiene l'hash della password\nné il segreto TOTP: quei campi non lasciano mai il database.",
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "role"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "setup",
+      "description": "Configurazione iniziale dell'istanza"
+    },
+    {
+      "name": "auth",
+      "description": "Autenticazione e sessioni"
+    }
+  ]
+}

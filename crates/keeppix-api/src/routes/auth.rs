@@ -14,12 +14,15 @@ use crate::state::AppState;
 
 /// Rappresentazione pubblica dell'utente. Non contiene l'hash della password
 /// né il segreto TOTP: quei campi non lasciano mai il database.
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct UserView {
     pub id: String,
     pub username: String,
     pub display_name: String,
     pub email: Option<String>,
+    // Il campo resta `&'static str` (è una costante scelta dal server, non un
+    // dato allocato): al documento basta sapere che sul filo è una stringa.
+    #[schema(value_type = String)]
     pub role: &'static str,
     pub locale: Option<String>,
 }
@@ -40,13 +43,13 @@ impl From<&User> for UserView {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct LoginRequest {
     username: String,
     password: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct LoginResponse {
     user: UserView,
 }
@@ -54,6 +57,16 @@ pub struct LoginResponse {
 /// # Errors
 /// `401 invalid-credentials` per utente inesistente, password errata o account
 /// disabilitato: le tre situazioni sono indistinguibili dall'esterno.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/login",
+    tag = "auth",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Sessione aperta", body = LoginResponse),
+        (status = 401, description = "Credenziali non valide")
+    )
+)]
 pub async fn login(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -118,6 +131,15 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
 /// # Errors
 /// `401 unauthenticated` se il cookie manca, è scaduto o è stato riusato dopo
 /// il consumo — in quest'ultimo caso l'intera famiglia è già stata revocata.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/refresh",
+    tag = "auth",
+    responses(
+        (status = 204, description = "Sessione ruotata, nuovo cookie emesso"),
+        (status = 401, description = "Cookie assente, scaduto o già consumato")
+    )
+)]
 pub async fn refresh(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -140,6 +162,12 @@ pub async fn refresh(
 }
 
 /// Sempre `204`, anche senza cookie: uscire deve funzionare comunque.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/logout",
+    tag = "auth",
+    responses((status = 204, description = "Sessione chiusa e cookie ripulito"))
+)]
 pub async fn logout(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -155,13 +183,22 @@ pub async fn logout(
     (StatusCode::NO_CONTENT, jar.add(clearing_cookie(secure)))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct MeResponse {
     user: UserView,
 }
 
 /// # Errors
 /// `401` se non autenticato, `404` se l'utente è stato nel frattempo rimosso.
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/me",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Utente della sessione corrente", body = MeResponse),
+        (status = 401, description = "Non autenticato")
+    )
+)]
 pub async fn me(
     State(state): State<AppState>,
     Auth(ctx): Auth,

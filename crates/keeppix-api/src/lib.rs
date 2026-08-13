@@ -3,6 +3,7 @@
 
 pub mod cookie;
 pub mod extract;
+pub mod openapi;
 pub mod problem;
 pub mod routes;
 pub mod state;
@@ -74,16 +75,25 @@ fn api_routes() -> Router<AppState> {
         .route("/auth/me", get(routes::auth::me))
 }
 
+// La rotta del documento OpenAPI va aggiunta **dentro** l'argomento di
+// `common_layers`, come le altre: concatenarla dopo la chiamata la lascerebbe
+// fuori dai `.layer(...)`, cioè senza header di sicurezza — stessa classe di
+// bug del `.fallback()` commentato sopra.
 fn base_router() -> Router<AppState> {
     common_layers(
         Router::new()
             .route("/health", get(routes::health::get))
+            .route("/api/openapi.json", get(openapi::serve))
             .nest("/api/v1", api_routes()),
     )
 }
 
 fn base_router_stateless() -> Router {
-    common_layers(Router::new().route("/health", get(routes::health::get)))
+    common_layers(
+        Router::new()
+            .route("/health", get(routes::health::get))
+            .route("/api/openapi.json", get(openapi::serve)),
+    )
 }
 
 async fn not_found() -> Problem {
