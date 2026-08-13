@@ -1,0 +1,27 @@
+{
+  "app": { "name": "Keeppix" },
+  "setup": {
+    "title": "Benvenuto in Keeppix",
+    "subtitle": "Crea l'account amministratore per iniziare.",
+    "displayName": "Nome",
+    "username": "Nome utente",
+    "email": "Email (facoltativa)",
+    "password": "Password",
+    "passwordHint": "Almeno 10 caratteri.",
+    "submit": "Crea account",
+    "errors": {
+      "invalidUsername": "Nome utente non valido: usa da 3 a 32 caratteri fra lettere, numeri, punto, trattino e trattino basso.",
+      "invalidPassword": "La password deve avere almeno 10 caratteri.",
+      "alreadyInitialised": "Questa istanza è già configurata."
+    }
+  },
+  "login": {
+    "title": "Accedi",
+    "username": "Nome utente",
+    "password": "Password",
+    "submit": "Accedi",
+    "errors": { "invalidCredentials": "Nome utente o password non corretti." }
+  },
+  "home": { "greeting": "Ciao, {name}", "logout": "Esci" },
+  "common": { "loading": "Caricamento…", "unexpectedError": "Si è verificato un errore imprevisto." }
+}
