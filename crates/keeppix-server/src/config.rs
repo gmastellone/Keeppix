@@ -39,7 +39,7 @@ struct Defaults {
 impl Default for Defaults {
     fn default() -> Self {
         Self {
-            bind: "0.0.0.0:5673".parse().expect("literal socket address"),
+            bind: SocketAddr::from(([0, 0, 0, 0], 5673)),
             data_dir: PathBuf::from("/data"),
             db_max_connections: 10,
             session_ttl_secs: 60 * 60 * 24 * 30,
