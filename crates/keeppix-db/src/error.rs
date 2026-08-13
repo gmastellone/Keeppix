@@ -12,6 +12,8 @@ pub enum DbError {
     Conflict(String),
     #[error("forbidden")]
     Forbidden,
+    #[error("corrupted row: {0}")]
+    Corrupted(String),
 }
 
 impl From<sqlx::migrate::MigrateError> for DbError {
