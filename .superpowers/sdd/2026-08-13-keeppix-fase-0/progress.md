@@ -241,3 +241,45 @@ della fase in corso — `fase-0` — invece del branch `claude/...` imposto di
 default dall'harness della sessione cloud. Il branch `claude/keeppix-fase-0-4c0lku`
 e stato cancellato in locale e su origin dopo aver verificato che i suoi commit
 fossero tutti contenuti in `fase-0`.
+
+## Allineamento al protocollo superpowers (2026-08-13, sessione cloud)
+
+Il plugin `superpowers@superpowers-marketplace` (6.3.0) non era installato in
+questa sessione: i Task 10-11 sono stati eseguiti con una versione a mano del
+metodo. Installato su richiesta dell'utente e riallineato il flusso alla skill
+`subagent-driven-development`. La directory di workspace che gli script
+risolvono (`.superpowers/sdd/2026-08-13-keeppix-fase-0/`) coincide con quella
+gia in uso, quindi non c'e stata migrazione. Brief canonici rigenerati con
+`scripts/task-brief` per i Task 12-15; le mie note di pre-volo per il Task 12
+sono state spostate in `task-12-preflight.md` e viaggiano nel dispatch, non nel
+brief, come prescrive la skill.
+
+Ruling R11: la skill impone `rm -rf <workspace>` alla fine, perche "la storia di
+git e il record". Questo repository ha deliberatamente fatto la scelta opposta —
+`.gitignore` documenta che `.superpowers/` NON e ignorato e i file sono
+force-added — e l'utente ha esplicitamente chiesto di mantenerli. Vince la scelta
+del repository: il workspace non viene cancellato. Costo se sbagliato: ~600 KB di
+testo versionato.
+
+Ruling R12: nel dispatch della review del Task 11 ho elencato i Minor gia noti
+chiedendo di non ri-segnalarli come nuovi. La skill lo vieta esplicitamente
+("Do not pre-judge findings for the reviewer"): il rischio e che il reviewer
+taccia un difetto che avrebbe classificato piu grave. Ho mitigato invitandolo a
+contestare la classificazione, e la review va comunque letta sapendolo. Dai
+Task 12-15 in poi si usano i template canonici, che non contengono questa
+istruzione. Costo se sbagliato: un finding sottopesato nel Task 11, da
+recuperare nel review finale del branch.
+
+Ruling R13 (conflitto spec<->piano, trovato nella scansione pre-volo del
+Task 12): lo spec §9.5 chiede come difesa CSRF `SameSite=Lax` **piu** obbligo di
+`Content-Type: application/json` e di un header custom sulle mutazioni. Lo step 6
+del Task 12 fa inviare `x-keeppix-client: web` da `apiFetch`, ma **nessun task
+del backend verifica quell'header**: la meta client-side esiste, la meta
+server-side no. Non lo infilo nel Task 12, il cui elenco di file e tutto sotto
+`frontend/` e che non possiede la superficie HTTP: sarebbe un cambiamento di
+interfaccia del backend senza review dedicata. Lo porto invece alla fix wave del
+review finale del branch, dove un middleware unico puo coprire tutte le rotte —
+incluse quelle che il Task 13 aggiunge. La meta client-side implementata ora non
+va sprecata: quando l'enforcement arrivera, il frontend sara gia conforme.
+Costo se sbagliato: la Fase 0 chiude con la difesa CSRF a meta, mitigata da
+`SameSite=Lax`, che gia impedisce l'invio del cookie su POST cross-site.
