@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[lib]
+name = "keeppix_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "keeppix"
 path = "src/main.rs"
@@ -16,6 +20,15 @@ keeppix-api = { path = "../keeppix-api" }
 anyhow.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+figment = { version = "0.10.19", features = ["toml", "env"] }
+clap = { version = "4.6.6", features = ["derive", "env"] }
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+axum = "0.8.9"
+tower-http = { version = "0.7.0", features = ["fs", "trace", "compression-br", "set-header", "cors"] }
+serde.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"

@@ -1,3 +1,104 @@
-fn main() {
-    println!("keeppix {}", env!("CARGO_PKG_VERSION"));
+use std::path::PathBuf;
+
+use anyhow::Context as _;
+use clap::{Parser, Subcommand};
+use keeppix_db::Db;
+use keeppix_server::config::Config;
+use keeppix_server::telemetry;
+
+#[derive(Parser)]
+#[command(name = "keeppix", version)]
+struct Cli {
+    /// Percorso del file di configurazione.
+    #[arg(long, env = "KEEPPIX_CONFIG", default_value = "/data/config.toml")]
+    config: PathBuf,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Avvia il server (comportamento predefinito).
+    Serve,
+    /// Applica le migrazioni ed esce.
+    Migrate,
+    /// Verifica che il server locale risponda. Usato da HEALTHCHECK in Docker,
+    /// dove non esistono né shell né curl.
+    Healthcheck,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    if matches!(cli.command, Some(Command::Healthcheck)) {
+        return healthcheck().await;
+    }
+
+    let config = Config::load(Some(&cli.config))?;
+    telemetry::init(config.log_format);
+
+    let db = Db::connect(&config.database_url, config.db_max_connections)
+        .await
+        .context("connessione al database")?;
+    db.migrate()
+        .await
+        .context("applicazione delle migrazioni")?;
+
+    match cli.command {
+        Some(Command::Migrate) => {
+            tracing::info!("migrations applied");
+            Ok(())
+        }
+        _ => serve(config, db).await,
+    }
+}
+
+async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(config.bind).await?;
+    tracing::info!(addr = %config.bind, "keeppix listening");
+
+    let app = keeppix_api::router(keeppix_api::AppState::new(db, config.session_ttl_secs));
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    Ok(())
+}
+
+/// Chiusura garbata su SIGTERM (Docker) e Ctrl-C (sviluppo).
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await.ok();
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        if let Ok(mut sig) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            sig.recv().await;
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
+    tracing::info!("shutting down");
+}
+
+async fn healthcheck() -> anyhow::Result<()> {
+    let port = std::env::var("KEEPPIX_BIND")
+        .ok()
+        .and_then(|b| b.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()))
+        .unwrap_or(5673);
+
+    let stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+    drop(stream);
+    Ok(())
 }
