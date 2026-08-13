@@ -542,3 +542,14 @@ suo doc comment lo dichiara onestamente; nessuna logica condizionale residua;
 i #[utoipa::path] di refresh/logout non documentavano `headers`, quindi la
 rimozione del parametro non tocca lo schema e lo snapshot OpenAPI resta verde;
 nessuna rottura nuova; commits d047d44..b3b1b32)
+Task 12: fix round 1/5 (1 addressed secondo l'implementer, re-review scoped in
+corso — Important su signOut chiuso spostando la correzione in
+`useSessionStore.logout()` invece che nella vista: azzera `user` in un `finally`
+e non rilancia piu, esponendo un flag `logoutError` che LoginView consuma al
+mount. HomeView non ha richiesto modifiche, perche il suo push('/login')
+incondizionato era gia corretto una volta che logout() ha smesso di rigettare —
+il fix e finito dove vive lo stato, non dove il difetto si manifestava, che e
+meglio di quanto avessi prescritto io. 2 test nuovi su entrambi i rami, 8/8
+vitest verdi, tsc e lint puliti, bundle 76.893 byte gzip. Riverificato dal
+controller. Corretta anche la caratterizzazione imprecisa di ApiProblem nel
+report. Commit c6b82f0)
