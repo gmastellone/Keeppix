@@ -625,3 +625,23 @@ stato, cosi che `mount_stateless()` diventi `mount(Router::new())` e i test
 esistenti esercitino davvero il codice di produzione — chiude Critical e
 duplicazione insieme. Se la genericita non regge per una ragione tecnica reale,
 l'implementer risolve altrimenti e lo motiva.
+Task 14: implementato (commit 19d9f22) — Dockerfile multi-stage
+(node -> rust:1.88-bookworm -> distroless cc-debian12:nonroot), .dockerignore,
+compose.yaml con profilo `bundled`, docs/DEPLOY.md. Entrambi i ruling vincolanti
+applicati (R2 toolchain 1.88, R4 rimozione di SQLX_OFFLINE e COPY .sqlx/, con un
+commento onesto al posto di quello che descriveva una cache inesistente).
+Task 14: l'implementer ha corretto altre 6 incoerenze trovate nella verifica
+statica: commento falso sul caching degli strati, default RUST_LOG disallineato
+dal codice, versione minima di Compose imprecisa (serve v2.20+ per
+`required: false`), sezione "Aggiornamento" che prometteva un flusso `pull`
+incoerente col compose locale, nota mancante su healthcheck+DATABASE_URL, e un
+tag `:1-debug` promesso ma non prodotto da nessuna pipeline.
+Task 14: **nulla e stato verificato con Docker** — policy di egress, come da
+ruling F9/P2. Il report elenca 9 comandi che restano da eseguire su una macchina
+con Docker reale (build, dimensione immagine, assenza di shell, avvio stack,
+healthcheck, persistenza dei dati dopo riavvio). Questi punti coincidono con
+altrettanti criteri di completamento della Fase 0, che quindi **non possono
+essere spuntati in questo ambiente**: vanno spuntati dall'utente o dalla CI.
+Task 14: finding fuori confine segnalato dall'implementer e non corretto:
+`.env.example` dichiara `RUST_LOG=info,sqlx=warn` ma `telemetry.rs` usa
+`info,sqlx=warn,tower_http=info` come default. Da triare nel review finale.
