@@ -61,10 +61,12 @@ pub struct LoginResponse {
     post,
     path = "/api/v1/auth/login",
     tag = "auth",
+    operation_id = "auth_login",
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Sessione aperta", body = LoginResponse),
-        (status = 401, description = "Credenziali non valide")
+        (status = 401, description = "Credenziali non valide", body = Problem),
+        (status = 500, description = "Errore del database o nella creazione della sessione", body = Problem)
     )
 )]
 pub async fn login(
@@ -131,13 +133,18 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
 /// # Errors
 /// `401 unauthenticated` se il cookie manca, è scaduto o è stato riusato dopo
 /// il consumo — in quest'ultimo caso l'intera famiglia è già stata revocata.
+// Ogni errore di `rotate` — database compreso — è mappato su 401: il client non
+// deve distinguere una rotazione fallita da un token già consumato, quindi qui
+// non c'è nessun 500 da dichiarare.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/refresh",
     tag = "auth",
+    operation_id = "auth_refresh",
+    security(("session_cookie" = [])),
     responses(
         (status = 204, description = "Sessione ruotata, nuovo cookie emesso"),
-        (status = 401, description = "Cookie assente, scaduto o già consumato")
+        (status = 401, description = "Cookie assente, scaduto o già consumato", body = Problem)
     )
 )]
 pub async fn refresh(
@@ -162,10 +169,14 @@ pub async fn refresh(
 }
 
 /// Sempre `204`, anche senza cookie: uscire deve funzionare comunque.
+// Nessun `security(...)`: la rotta è deliberatamente utilizzabile anche senza
+// cookie, e l'errore di revoca viene loggato, non restituito — 204 è l'unico
+// esito possibile.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/logout",
     tag = "auth",
+    operation_id = "auth_logout",
     responses((status = 204, description = "Sessione chiusa e cookie ripulito"))
 )]
 pub async fn logout(
@@ -194,9 +205,13 @@ pub struct MeResponse {
     get,
     path = "/api/v1/auth/me",
     tag = "auth",
+    operation_id = "auth_me",
+    security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Utente della sessione corrente", body = MeResponse),
-        (status = 401, description = "Non autenticato")
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 404, description = "Utente rimosso mentre la sessione era aperta", body = Problem),
+        (status = 500, description = "Errore del database", body = Problem)
     )
 )]
 pub async fn me(
