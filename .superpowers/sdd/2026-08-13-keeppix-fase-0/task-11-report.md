@@ -177,3 +177,229 @@ che manipolano l'ambiente di processo. Nessun harness è stato modificato.
    mano lo renderebbe incoerente con ciò che il test riscrive dopo un
    `rm docs/api/openapi.json && cargo test`, quindi ho lasciato il file esattamente come il
    test lo genera.
+
+---
+
+# Task 11 — fix round 1/5 — report
+
+Commit: `adca7c6 fix(api): tie the openapi document to the routes it claims to describe`
+su `fase-0` (HEAD precedente `990a512`). Albero pulito, nessun push.
+Chiusi tutti e cinque gli Important della review; nessun Minor differito è stato
+riaperto, con l'eccezione dichiarata sotto (m1).
+
+## I1 — Documento e rotte montate non possono più divergere in silenzio
+
+**Test nuovo: `documented_operations_are_all_mounted`** in
+`crates/keeppix-api/tests/openapi.rs`. Avvia `TestServer` (Postgres reale,
+`keeppix_api::router(state)` — il **router vero con stato**, non
+`router_without_state()`), scarica `/api/openapi.json` dal server, e per ogni
+coppia (path, method) letta dal documento esegue la richiesta corrispondente
+asserendo che lo status non sia 404 (percorso inesistente) né 405 (metodo
+sbagliato). Il file di test ha ora `mod harness;` come `tests/auth.rs`.
+
+Due dettagli non ovvi:
+
+- Le chiavi di un Path Item non sono tutte operazioni (`summary`, `parameters`,
+  `servers`, …): il ciclo filtra sugli otto metodi HTTP tramite `HTTP_METHODS`.
+- `assert_eq!(checked, 6)` chiude la vacuità: senza quel contatore un documento
+  vuoto — o un `paths` che smette di essere un oggetto di operazioni — farebbe
+  passare il test a ciclo mai eseguito. È esattamente il modo in cui questo test
+  potrebbe mentire.
+
+**Direzione non coperta, dichiarata nel commento del test** come da ruling:
+rotta montata e non documentata. Servirebbe enumerare le rotte, e axum 0.8 non
+espone la propria tabella (`Router` non ha API di introspezione). Il commento
+dice che il controllo va fatto in review o in CI quando axum lo renderà
+leggibile — nessuna finzione di copertura.
+
+Ho anche corretto il commento di `fn app()` in cima al file: dice ora
+esplicitamente che `router_without_state()` **non monta `/api/v1`**, la trappola
+che aveva reso ingannevole il test dei percorsi.
+
+**Messaggio dello snapshot riscritto.** Prima:
+`"la specifica è cambiata: rigenerare con `rm docs/api/openapi.json && cargo test`"`
+— cioè le istruzioni per disattivare il controllo. Ora dice che il contratto
+pubblico è cambiato, che da quel file si generano i client Kotlin/Swift/Dart/TS,
+che lo spec lo dichiara congelato, e — testualmente — «Non rigenerarlo per far
+tornare verde il test: guarda che cosa è cambiato e decidi»; la rigenerazione è
+presentata come decisione condizionata al fatto che il cambiamento sia voluto e
+compatibile, da motivare nel commit. Nessun comando pronto da copiare.
+
+## I2 — `responses` allineate a ciò che gli handler possono restituire
+
+| Operazione | Prima | Ora | Perché |
+| --- | --- | --- | --- |
+| `setup_status` | 200 | 200, **500** | `count()` → `Problem::from(DbError)` |
+| `setup_create` | 201, 409, 422 | 201, 409, 422, **500** | `Problem::internal()` sull'hashing + `DbError` non-Conflict |
+| `auth_login` | 200, 401 | 200, 401, **500** | `find_by_username` e `SessionRepo::create` propagano `?` |
+| `auth_refresh` | 204, 401 | 204, 401 (invariato) | ogni errore di `rotate` è mappato su 401 via `map_err`: **non** c'è 500 da dichiarare, e ora un commento nel codice lo dice |
+| `auth_logout` | 204 | 204 (invariato) | l'errore di revoca è loggato, non restituito |
+| `auth_me` | 200, 401 | 200, 401, **404**, **500** | `find_by_id` → `DbError::NotFound` → 404, altri `DbError` → 500 |
+
+`me` può in teoria produrre anche 403 (`DbError::Forbidden`), ma solo se
+`ctx.user_id() != id`: l'id **viene** da `ctx.user_id()`, quindi il ramo è
+irraggiungibile e dichiararlo descriverebbe un comportamento inesistente. Non
+l'ho aggiunto; lo segnalo perché è una scelta, non una svista.
+
+## I3 — `operation_id` espliciti
+
+`setup_status`, `setup_create`, `auth_login`, `auth_refresh`, `auth_logout`,
+`auth_me`. Nuovo test `operation_ids_are_explicit_and_unique`: raccoglie gli id
+dal documento, verifica che non ci siano duplicati e li confronta con l'elenco
+atteso, così un `albums::create` futuro non può reintrodurre la collisione senza
+che qualcuno se ne accorga.
+
+## I4 — `Problem` nei components e come corpo degli errori
+
+`#[derive(utoipa::ToSchema)]` su `Problem` (`crates/keeppix-api/src/problem.rs`)
+e `body = Problem` su tutte e otto le risposte d'errore. Lo schema generato è
+esattamente ciò che va sul filo:
+
+```json
+"Problem": { "required": ["type","title","status"],
+  "properties": { "type": {"type":"string","example":"keeppix/unauthenticated"},
+                  "title": {"type":"string"}, "status": {"type":"integer","format":"int32","minimum":0},
+                  "detail": {"type":["string","null"]} } }
+```
+
+Il campo privato `status_code: StatusCode` non compare: utoipa rispetta
+`#[serde(skip)]`, quindi non è servito nessun `#[schema(ignore)]`. `type_slug`
+compare come `type` grazie a `#[serde(rename)]`, sempre letto dal derive.
+L'`example` sul campo `type` è l'unica aggiunta non richiesta: rende evidente al
+generatore che il campo porta gli slug stabili su cui §9.2 dice che il client
+ramifica.
+
+## I5 — Schema di sicurezza a cookie
+
+`SecurityAddon` (un `utoipa::Modify`) registra lo schema
+`apiKey` / `in: cookie` con il nome preso da `crate::extract::SESSION_COOKIE` —
+il documento riporta `"name": "__Host-kpx_session"`, che è il cookie reale (la
+review lo chiamava `__Host-keeppix_session`: prendere la costante invece di
+riscriverla ha evitato l'errore). `security(("session_cookie" = []))` su
+`auth_me` e `auth_refresh`; `auth_logout` resta pubblica di proposito, con un
+commento che spiega perché (funziona anche senza cookie, 204 in ogni caso).
+
+Il nome dello schema è un letterale dentro le macro e non può riferirsi a
+`openapi::SESSION_SCHEME`: il nuovo test
+`security_requirements_name_a_declared_scheme` verifica che ogni requisito punti
+a uno schema dichiarato in `components`, che le rotte protette siano esattamente
+`me` e `refresh`, e che il cookie descritto sia quello che l'extractor legge.
+
+## Prove che i nuovi test sono vivi (mutazione → rosso → ripristino)
+
+Quattro mutazioni, una alla volta, ognuna ripristinata subito dopo. Output
+reale:
+
+**M1 — `post` → `put` nel solo `#[utoipa::path]` di `login`** (la prova B della
+review, quella che prima tornava verde dopo la rigenerazione):
+
+```
+test documented_operations_are_all_mounted ... FAILED
+thread '...' panicked at crates/keeppix-api/tests/openapi.rs:147:13:
+assertion `left != right` failed: il documento dichiara put /api/v1/auth/login, ma la rotta non accetta quel metodo
+  left: 405
+ right: 405
+```
+
+**M2 — `path = "/api/v1/auth/me"` → `"/api/v1/auth/whoami"`** (rotta invariata):
+
+```
+test documented_operations_are_all_mounted ... FAILED
+assertion `left != right` failed: il documento dichiara get /api/v1/auth/whoami, ma quel percorso non è montato
+  left: 404
+ right: 404
+```
+
+Da notare: questa mutazione ora è intercettata dal **router**, non più solo
+dalla lista di percorsi scritta a mano nel test.
+
+**M3 — nome dello schema divergente** (`security(("session" = []))` in `me`,
+addon invariato):
+
+```
+test security_requirements_name_a_declared_scheme ... FAILED
+get /api/v1/auth/me richiede lo schema session, che non è dichiarato in components
+```
+
+**M4 — `operation_id` collidente** (`setup_status` → `setup_create`):
+
+```
+test operation_ids_are_explicit_and_unique ... FAILED
+assertion `left == right` failed: operationId duplicato: ["auth_login", "auth_logout", "auth_me", "auth_refresh", "setup_create"]
+  left: 5
+ right: 6
+```
+
+## Esito dei comandi
+
+| Comando | Esito |
+| --- | --- |
+| `cargo test -p keeppix-api --test openapi` (file toccato: `tests/openapi.rs`) | **6/6 ok**: `openapi_document_is_served_and_complete`, `openapi_document_carries_the_security_headers`, `documented_operations_are_all_mounted`, `security_requirements_name_a_declared_scheme`, `operation_ids_are_explicit_and_unique`, `openapi_snapshot_matches_the_committed_file` |
+| `cargo test -p keeppix-api` (copre anche `problem.rs`, `routes/auth.rs`, `routes/setup.rs`, `openapi.rs`) | lib 4/4, `tests/auth.rs` 13/13, `tests/health.rs` 3/3, `tests/openapi.rs` 6/6 |
+| `cargo test --workspace -- --test-threads=1` | **23 gruppi `test result: ok`, 0 falliti**, eseguito due volte dopo il commit |
+| `cargo clippy --workspace --all-targets -- -D warnings` | pulito. Una violazione emersa e corretta in corsa: `clippy::doc_markdown` su «Path Item Object di OpenAPI 3.1» nel commento di `HTTP_METHODS` |
+| `cargo fmt --check` | pulito |
+| `git status --porcelain` dopo ognuna delle due suite | **0 righe** |
+| `git diff --exit-code -- docs/api` | nessuna differenza: lo snapshot non si riscrive da solo |
+
+Postgres locale era spento all'inizio del round (`no response`): riavviato con
+`pg_ctlcluster 16 main start` (aveva lasciato un pid file stantio). I test di
+`keeppix-api` che toccano il DB ora includono anche `documented_operations_are_all_mounted`.
+
+## Snapshot rigenerato di proposito
+
+`docs/api/openapi.json` passa da 295 a 428 righe. Il documento committato ora è:
+
+```
+POST  /api/v1/auth/login       auth_login    [200, 401, 500]        sec=[]
+POST  /api/v1/auth/logout      auth_logout   [204]                  sec=[]
+GET   /api/v1/auth/me          auth_me       [200, 401, 404, 500]   sec=[session_cookie]
+POST  /api/v1/auth/refresh     auth_refresh  [204, 401]             sec=[session_cookie]
+POST  /api/v1/setup            setup_create  [201, 409, 422, 500]   sec=[]
+GET   /api/v1/setup/status     setup_status  [200, 500]             sec=[]
+schemas: LoginRequest, LoginResponse, MeResponse, Problem, SetupRequest, SetupResponse, SetupStatus, UserView
+securitySchemes: {"session_cookie": {"type":"apiKey","in":"cookie","name":"__Host-kpx_session", …}}
+```
+
+Le modifiche al contratto sono tutte additive tranne il rename degli
+`operationId`, che è il punto di I3: si fa adesso perché nessun client è ancora
+generato.
+
+## Scostamenti e decisioni da mettere a verbale
+
+1. **m1 toccato, ma non come lo propone la review.** Chiudendo I4 il blocco
+   `components(schemas(...))` andava comunque guardato: ho aggiunto
+   `crate::problem::Problem` all'elenco **e verificato che sia ridondante** —
+   togliendo quella voce il documento resta identico byte per byte, perché
+   `body = Problem` basta a far raccogliere lo schema (`openapi_snapshot_matches_the_committed_file`
+   passa senza di essa). Ho tenuto il blocco (m1 resta differito) aggiungendoci
+   il commento che la review stessa proponeva come alternativa: dice che è un
+   indice leggibile, non configurazione, e che elencare lì un tipo non
+   referenziato da nessuna operazione **non** lo fa comparire — la trappola che
+   la review indicava.
+2. **403 non dichiarato su `me`**: ramo irraggiungibile, vedi I2.
+3. **`auth_logout` senza `security(...)`**: è pubblica per costruzione.
+4. **Incidente di percorso, senza conseguenze sul risultato.** Durante le prove
+   di mutazione un mio helper di shell faceva `git checkout -- crates/keeppix-api/src`
+   per ripristinare il file mutato: ha cancellato **tutte** le modifiche ai
+   sorgenti di questo round (i test e lo snapshot, fuori da `src/`, sono
+   sopravvissuti). Le ho riscritte e la prova che il ripristino è esatto è
+   oggettiva: `docs/api/openapi.json` non è stato più toccato e
+   `openapi_snapshot_matches_the_committed_file` passa, quindi i sorgenti
+   riprodotti generano lo stesso documento byte per byte. Le mutazioni
+   successive (M2-M4) usano backup con `cp`, non `git checkout`.
+
+## Difetti noti non toccati in questo round
+
+Restano differiti e confermati: m2 (nessun test confronta il documento *servito*
+con quello *committato* — nota però che `documented_operations_are_all_mounted`
+ora **legge** il documento servito dal server reale, quindi un `serve()` che
+inventasse percorsi verrebbe intercettato da lì se quei percorsi non fossero
+montati), m3 (nessun `enum` su `role`, nessun `format: uuid` su `id`, nessun
+`servers`), m4 (`info.version` è la versione del crate), e i sei difetti già
+dichiarati nel report precedente — fra cui il più fastidioso resta il n. 1, i
+rustdoc `# Errors` pubblicati come `summary`: ora che le `responses` sono
+complete quei summary sono anche **ridondanti**, il che rende la correzione più
+attraente di prima, ma resta fuori dal perimetro di questo round.
+
+Nessuna preoccupazione aperta sul codice consegnato.

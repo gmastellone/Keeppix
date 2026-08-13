@@ -327,3 +327,26 @@ senza che nessun test se ne accorga
 Task 11: nota di provenienza: il primo tentativo di fix round si e interrotto per
 limite di sessione dell'API prima di produrre qualsiasi modifica (albero pulito a
 327b44f, commit 9d88cb4 intatto); il round e stato rilanciato
+Task 11: fix round 1/5 (5 addressed secondo l'implementer, re-review in corso —
+I1 test `documented_operations_are_all_mounted` che scarica il documento dal
+server reale e colpisce ogni coppia (path, method) sul router con stato, con
+`assert_eq!(checked, 6)` contro il ciclo a vuoto, piu messaggio dello snapshot
+riscritto senza il comando che disattivava il controllo; I2 404+500 su me, 500 su
+login/setup_create/setup_status, con commento sul perche refresh e logout non
+hanno 500; I3 operation_id espliciti piu test di unicita; I4 ToSchema su Problem
+e body = Problem sulle risposte d'errore; I5 SecurityAddon apiKey/cookie con nome
+preso da SESSION_COOKIE piu test che lega il letterale della macro alla costante.
+Snapshot rigenerato di proposito, 295 -> 428 righe; tests/openapi.rs da 3 a 6
+test; commit adca7c6)
+Task 11: nota: il nome reale del cookie e `__Host-kpx_session`, non
+`__Host-keeppix_session` come scritto nella review (refuso del reviewer, senza
+conseguenze: l'implementer ha preso il valore dalla costante SESSION_COOKIE)
+Task 11: nota di provenienza: durante le mutazioni di verifica un helper
+dell'implementer ha eseguito `git checkout -- crates/keeppix-api/src`,
+cancellando le modifiche del round, che sono state riscritte. La coerenza del
+ripristino e verificata dallo snapshot, mai toccato in quel frangente e ancora
+combaciante byte per byte; la re-review scoped e comunque il controllo che
+conta
+Task 11: nota: 403 non e dichiarato su `me` — il ramo DbError::Forbidden e
+irraggiungibile perche l'id viene da ctx.user_id(). Scelta dell'implementer,
+dichiarata
