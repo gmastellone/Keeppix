@@ -1,0 +1,952 @@
+# Review package: fix round Task 15
+
+## Commits
+91904fb fix(ci): build frontend inside the backend job and sign the correct image ref
+20664de docs(sdd): registra la review del task 15 e i due Critical della CI
+3fa682a docs(sdd): registra il task 15 e l'esito di cargo-deny
+
+## Files changed
+ .github/workflows/ci.yml                           |  39 ++-
+ .github/workflows/release.yml                      |  14 +-
+ .../sdd/2026-08-13-keeppix-fase-0/progress.md      |  49 ++++
+ .../review-4bb22e4..9b6bb70.diff                   | 173 +++++++++++++
+ .../2026-08-13-keeppix-fase-0/task-15-report.md    | 258 +++++++++++++++++++
+ .../2026-08-13-keeppix-fase-0/task-15-review.md    | 285 +++++++++++++++++++++
+ 6 files changed, 814 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index f2cea69..bdec847 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -5,20 +5,35 @@ on:
+   pull_request:
+ 
+ env:
+   CARGO_TERM_COLOR: always
+ 
+ jobs:
+   backend:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
++
++      # keeppix-server incorpora frontend/dist nel binario tramite
++      # `#[derive(Embed)]` (rust-embed): se la cartella manca, il crate non
++      # compila affatto (non un test che si salta). Il job `frontend` gira su
++      # un runner separato e non condivide filesystem con questo job, quindi
++      # il frontend va ricostruito qui, indipendentemente da lì — pochi
++      # secondi in più, nessun accoppiamento fra i due job via artifact.
++      - uses: actions/setup-node@v4
++        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
++      - name: Build frontend (richiesto da rust-embed per compilare keeppix-server)
++        working-directory: frontend
++        run: |
++          npm ci
++          npm run build
++
+       - uses: dtolnay/rust-toolchain@1.88.0
+         with: { components: rustfmt, clippy }
+       - uses: Swatinem/rust-cache@v2
+ 
+       - name: Formattazione
+         run: cargo fmt --all --check
+ 
+       - name: Lint
+         run: cargo clippy --workspace --all-targets -- -D warnings
+ 
+@@ -45,22 +60,42 @@ jobs:
+       - run: npm ci
+       - name: Tipi
+         run: npx vue-tsc --noEmit
+       - name: Test
+         run: npx vitest run
+       - name: Build
+         run: npm run build
+ 
+       - name: Budget del bundle iniziale (150 KB gzip)
+         run: |
+-          SIZE=$(find dist/assets -name '*.js' -exec gzip -c {} \; | wc -c)
+-          echo "bundle gzip: $SIZE byte"
++          # "Iniziale" = solo gli asset che dist/index.html carica subito
++          # (lo script d'ingresso e il foglio di stile che Vite vi inietta).
++          # I chunk per-rotta caricati pigramente via import() (vedi
++          # src/router.ts) restano fuori di proposito: lo spec vuole mappa,
++          # culling, impostazioni e player video in chunk separati, fuori dal
++          # budget iniziale (design §10.9).
++          test -f dist/index.html || { echo "::error::dist/index.html non trovato"; exit 1; }
++
++          ASSETS=$(grep -oE '(src|href)="/assets/[^"]+\.(js|css)"' dist/index.html | sed -E 's/^(src|href)="//; s/"$//')
++          if [ -z "$ASSETS" ]; then
++            echo "::error::nessun asset d'ingresso trovato in dist/index.html"
++            exit 1
++          fi
++
++          SIZE=0
++          while IFS= read -r asset; do
++            FILE="dist${asset}"
++            test -f "$FILE" || { echo "::error::asset referenziato in index.html assente: $FILE"; exit 1; }
++            SIZE=$((SIZE + $(gzip -c "$FILE" | wc -c)))
++          done <<< "$ASSETS"
++
++          echo "bundle iniziale gzip: $SIZE byte"
+           if [ "$SIZE" -gt 153600 ]; then
+             echo "::error::bundle oltre il budget di 153600 byte"
+             exit 1
+           fi
+ 
+   audit:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: EmbarkStudios/cargo-deny-action@v2
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 6e62389..5382cdb 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -19,35 +19,45 @@ jobs:
+     steps:
+       - uses: actions/checkout@v4
+       - uses: docker/setup-qemu-action@v3
+       - uses: docker/setup-buildx-action@v3
+       - uses: docker/login-action@v3
+         with:
+           registry: ghcr.io
+           username: ${{ github.actor }}
+           password: ${{ secrets.GITHUB_TOKEN }}
+ 
++      # `github.repository` conserva il case esatto del nome del repo
++      # (qui gmastellone/Keeppix), ma i path immagine OCI/ghcr.io sono
++      # sempre minuscoli. `docker/metadata-action` normalizza da sé il
++      # campo `images:`, ma `cosign sign` più sotto no: calcolando qui
++      # un'unica variabile minuscola e riusandola in entrambi i punti,
++      # il riferimento firmato è garantito identico a quello pubblicato,
++      # invece di dipendere dalla normalizzazione interna di un'azione.
++      - name: Nome immagine (minuscolo, richiesto dallo spec OCI)
++        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
++
+       - id: meta
+         uses: docker/metadata-action@v5
+         with:
+-          images: ghcr.io/${{ github.repository }}
++          images: ${{ env.IMAGE }}
+           tags: |
+             type=semver,pattern={{version}}
+             type=semver,pattern={{major}}
+             type=raw,value=latest,enable={{is_default_branch}}
+ 
+       - id: build
+         uses: docker/build-push-action@v6
+         with:
+           context: .
+           platforms: linux/amd64,linux/arm64
+           push: true
+           tags: ${{ steps.meta.outputs.tags }}
+           labels: ${{ steps.meta.outputs.labels }}
+           sbom: true
+           provenance: mode=max
+ 
+       - uses: sigstore/cosign-installer@v3
+       - name: Firma l'immagine
+         run: |
+           cosign sign --yes \
+-            ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
++            ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+diff --git a/.superpowers/sdd/2026-08-13-keeppix-fase-0/progress.md b/.superpowers/sdd/2026-08-13-keeppix-fase-0/progress.md
+index 46721da..ed35a0b 100644
+--- a/.superpowers/sdd/2026-08-13-keeppix-fase-0/progress.md
++++ b/.superpowers/sdd/2026-08-13-keeppix-fase-0/progress.md
+@@ -709,10 +709,59 @@ prometteva un comando mai ripercorso. Confermata la persistenza reale di
+ DB_PASSWORD fra sessioni di shell separate, e che una variabile non referenziata
+ dal compose non filtra nel container. L'intera struttura di sicurezza
+ (read_only, cap_drop, security_opt, depends_on, volumi, porte, healthcheck)
+ invariata nel config risolto. Effetto collaterale del .env locale riprodotto e
+ avvertenza giudicata accurata. Nessuna rottura nuova; commits 19d9f22..f6d1e34)
+ Task 14: complete (commits 17a1a28..f6d1e34, review clean dopo 1 fix round —
+ spec OK dopo il fix, qualita approvata). **Riserva esplicita**: nulla e stato
+ costruito o avviato con Docker; restano da eseguire su una macchina con Docker i
+ 9 comandi elencati nel report, che coincidono con altrettanti criteri di
+ completamento della Fase 0.
++Task 15: implementato (commit 9b6bb70) — .github/workflows/ci.yml (job backend,
++frontend, audit, image), release.yml, deny.toml. Applicate tutte e quattro le
++correzioni del preflight: SQLX_OFFLINE rimosso (R4), toolchain 1.88.0 (R2),
++nessun push su main (F12), deny.toml corretto ed effettivamente eseguito.
++Task 15: `cargo deny check advisories bans licenses` passa —
++`advisories ok, bans ok, licenses ok`, riverificato in proprio dal controller.
++Lista licenze finale: quella del brief con `AGPL-3.0` -> `AGPL-3.0-or-later`
++(identificatore SPDX reale dei crate keeppix-*, che altrimenti il progetto
++rifiutava sé stesso) piu `CDLA-Permissive-2.0` per i bundle CA di webpki-roots,
++dipendenza transitiva di sqlx/TLS. Nessuna advisory RUSTSEC, nessun crate yanked.
++Task 15: verifiche locali dell'implementer: fmt/clippy puliti, 96/96 test verdi
++con embed.rs realmente eseguito (4/4, frontend precostruito), bundle 76.893 byte
++gzip su budget 153.600, `git diff --exit-code docs/api/openapi.json` a zero.
++Task 15: **non eseguiti e dichiarati tali**: il job `image` (pull immagini
++bloccato), `release.yml` per intero (richiede tag/cron/ghcr.io/cosign OIDC), e
++lo step 6 del brief (guardare la pagina Actions), che puo avvenire solo dopo il
++push. L'implementer non afferma da nessuna parte che la CI sia verde.
++Task 15: nota dell'implementer: i warning `duplicate` di cargo-deny bans (piu
++versioni di syn, windows_*, base64) vengono soprattutto da
++testcontainers/bollard in dev-dependency; benigni con
++`multiple-versions = "warn"`, ma da sapere presenti.
++Task 15: review (spec ❌, qualita da correggere) — 2 Critical, 1 Important,
++2 Minor. Il reviewer ha validato empiricamente anche cio che era corretto:
++ha ricreato in isolamento sia il rifiuto di `AGPL-3.0` senza `-or-later` sia
++quello di webpki-roots senza `CDLA-Permissive-2.0`, confermando che entrambe le
++aggiunte a deny.toml sono necessarie e sufficienti.
++Task 15: fix round 1/5 avviato — **Critical 1**: il job `backend` non costruisce
++il frontend prima di clippy/test e non condivide `frontend/dist` col job
++`frontend` (nessun needs:, nessun artifact). Non e il self-skip che il controller
++temeva: senza quella cartella `#[derive(Embed)]` **non compila affatto** —
++verificato in proprio dal controller (`mv frontend/dist /tmp && cargo check -p
++keeppix-server` -> 3 errori, "could not compile keeppix-server (lib)"). La CI
++fallirebbe allo step Lint alla primissima esecuzione. **Critical 2**: in
++release.yml `cosign sign` ricostruisce il riferimento con
++`ghcr.io/${{ github.repository }}`, che conserva il case originale
++(`gmastellone/Keeppix`), mentre docker/metadata-action normalizza in minuscolo:
++il comando punta a un path inesistente e fallisce a ogni release reale e a ogni
++ricostruzione settimanale da cron. Difetto che nessuno scopre finche non serve.
++Task 15: Ruling (finding Important plan-mandated, decisione del controller): lo
++script del budget bundle somma anche i chunk lazy per-rotta, in conflitto con lo
++spec riga 707 che li vuole fuori dal budget iniziale. Oggi pesa ~2,6 KB, ma alla
++prima fase con un chunk lazy grosso la CI diventerebbe rossa per il motivo
++sbagliato, e la reazione naturale sarebbe alzare il tetto — cioe disattivare
++proprio la protezione. Decisione: tentare la correzione ora misurando il solo
++bundle d'ingresso (manifest di Vite o lo script referenziato da dist/index.html);
++se costa piu di poche righe o introduce fragilita, lasciare lo script e
++**dichiarare il limite in un commento nel workflow**. Un limite dichiarato vale
++piu di una correzione arzigogolata. Costo se sbagliato: il budget resta una
++misura approssimata per eccesso, che e il verso conservativo.
+diff --git a/.superpowers/sdd/2026-08-13-keeppix-fase-0/review-4bb22e4..9b6bb70.diff b/.superpowers/sdd/2026-08-13-keeppix-fase-0/review-4bb22e4..9b6bb70.diff
+new file mode 100644
+index 0000000..37f479d
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-13-keeppix-fase-0/review-4bb22e4..9b6bb70.diff
+@@ -0,0 +1,173 @@
++# Review package: Task 15 (.github/workflows, deny.toml)
++
++## Commits
++9b6bb70 ci: add build, test, audit and release pipelines
++
++## Files changed
++ .github/workflows/ci.yml      | 80 +++++++++++++++++++++++++++++++++++++++++++
++ .github/workflows/release.yml | 53 ++++++++++++++++++++++++++++
++ deny.toml                     | 10 ++++++
++ 3 files changed, 143 insertions(+)
++
++## Diff
++diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
++new file mode 100644
++index 0000000..f2cea69
++--- /dev/null
+++++ b/.github/workflows/ci.yml
++@@ -0,0 +1,80 @@
+++name: CI
+++
+++on:
+++  push: { branches: [main] }
+++  pull_request:
+++
+++env:
+++  CARGO_TERM_COLOR: always
+++
+++jobs:
+++  backend:
+++    runs-on: ubuntu-latest
+++    steps:
+++      - uses: actions/checkout@v4
+++      - uses: dtolnay/rust-toolchain@1.88.0
+++        with: { components: rustfmt, clippy }
+++      - uses: Swatinem/rust-cache@v2
+++
+++      - name: Formattazione
+++        run: cargo fmt --all --check
+++
+++      - name: Lint
+++        run: cargo clippy --workspace --all-targets -- -D warnings
+++
+++      # I test di integrazione avviano Postgres via testcontainers (immagine
+++      # postgis/postgis:17-3.5): Docker è già disponibile sui runner GitHub, e
+++      # il container usa-e-getta viene creato e distrutto automaticamente. In
+++      # locale, dove testcontainers non è raggiungibile, l'harness usa invece
+++      # la variabile KEEPPIX_TEST_DATABASE_URL per puntare a un Postgres già
+++      # in esecuzione: qui in CI non va impostata.
+++      - name: Test
+++        run: cargo test --workspace -- --test-threads=1
+++
+++      - name: La specifica OpenAPI è aggiornata
+++        run: git diff --exit-code docs/api/openapi.json
+++
+++  frontend:
+++    runs-on: ubuntu-latest
+++    defaults: { run: { working-directory: frontend } }
+++    steps:
+++      - uses: actions/checkout@v4
+++      - uses: actions/setup-node@v4
+++        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+++
+++      - run: npm ci
+++      - name: Tipi
+++        run: npx vue-tsc --noEmit
+++      - name: Test
+++        run: npx vitest run
+++      - name: Build
+++        run: npm run build
+++
+++      - name: Budget del bundle iniziale (150 KB gzip)
+++        run: |
+++          SIZE=$(find dist/assets -name '*.js' -exec gzip -c {} \; | wc -c)
+++          echo "bundle gzip: $SIZE byte"
+++          if [ "$SIZE" -gt 153600 ]; then
+++            echo "::error::bundle oltre il budget di 153600 byte"
+++            exit 1
+++          fi
+++
+++  audit:
+++    runs-on: ubuntu-latest
+++    steps:
+++      - uses: actions/checkout@v4
+++      - uses: EmbarkStudios/cargo-deny-action@v2
+++        with: { command: check advisories bans licenses }
+++
+++  image:
+++    runs-on: ubuntu-latest
+++    steps:
+++      - uses: actions/checkout@v4
+++      - uses: docker/setup-buildx-action@v3
+++      - name: Build immagine (senza push)
+++        uses: docker/build-push-action@v6
+++        with:
+++          context: .
+++          push: false
+++          cache-from: type=gha
+++          cache-to: type=gha,mode=max
++diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
++new file mode 100644
++index 0000000..6e62389
++--- /dev/null
+++++ b/.github/workflows/release.yml
++@@ -0,0 +1,53 @@
+++name: Release
+++
+++on:
+++  push:
+++    tags: ["v*"]
+++  schedule:
+++    # Ricostruzione settimanale: raccoglie le patch di sicurezza delle immagini
+++    # di base senza attendere una release.
+++    - cron: "0 4 * * 1"
+++
+++permissions:
+++  contents: read
+++  packages: write
+++  id-token: write
+++
+++jobs:
+++  publish:
+++    runs-on: ubuntu-latest
+++    steps:
+++      - uses: actions/checkout@v4
+++      - uses: docker/setup-qemu-action@v3
+++      - uses: docker/setup-buildx-action@v3
+++      - uses: docker/login-action@v3
+++        with:
+++          registry: ghcr.io
+++          username: ${{ github.actor }}
+++          password: ${{ secrets.GITHUB_TOKEN }}
+++
+++      - id: meta
+++        uses: docker/metadata-action@v5
+++        with:
+++          images: ghcr.io/${{ github.repository }}
+++          tags: |
+++            type=semver,pattern={{version}}
+++            type=semver,pattern={{major}}
+++            type=raw,value=latest,enable={{is_default_branch}}
+++
+++      - id: build
+++        uses: docker/build-push-action@v6
+++        with:
+++          context: .
+++          platforms: linux/amd64,linux/arm64
+++          push: true
+++          tags: ${{ steps.meta.outputs.tags }}
+++          labels: ${{ steps.meta.outputs.labels }}
+++          sbom: true
+++          provenance: mode=max
+++
+++      - uses: sigstore/cosign-installer@v3
+++      - name: Firma l'immagine
+++        run: |
+++          cosign sign --yes \
+++            ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
++diff --git a/deny.toml b/deny.toml
++new file mode 100644
++index 0000000..a4dd7c1
++--- /dev/null
+++++ b/deny.toml
++@@ -0,0 +1,10 @@
+++[advisories]
+++yanked = "deny"
+++
+++[licenses]
+++allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause",
+++         "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0",
+++         "AGPL-3.0-or-later", "CDLA-Permissive-2.0"]
+++
+++[bans]
+++multiple-versions = "warn"
+diff --git a/.superpowers/sdd/2026-08-13-keeppix-fase-0/task-15-report.md b/.superpowers/sdd/2026-08-13-keeppix-fase-0/task-15-report.md
+new file mode 100644
+index 0000000..9cbe2b3
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-13-keeppix-fase-0/task-15-report.md
+@@ -0,0 +1,258 @@
++# Task 15 — Integrazione continua — Report
++
++## Cosa è stato implementato
++
++Creati i tre file previsti dal brief, con le quattro correzioni imposte dal
++preflight applicate fin da subito (non come fix successivo):
++
++- `.github/workflows/ci.yml`
++- `.github/workflows/release.yml`
++- `deny.toml`
++
++### Scostamenti dal brief (per ruling del preflight)
++
++1. **`SQLX_OFFLINE: "true"` rimosso dal blocco `env:` di `ci.yml`** (ruling R4).
++   Non esiste alcuna cache `.sqlx/` nel repository; il codice usa le forme
++   funzione di sqlx (`sqlx::query(...)` a runtime), non le macro
++   `query!`/`query_as!` che richiederebbero verifica a compile-time contro un
++   DB o una cache offline. La variabile non serve e mentiva su come funziona
++   la build.
++
++2. **Toolchain portato a `dtolnay/rust-toolchain@1.88.0`** (ruling R2).
++   Verificato che `rust-toolchain.toml` fissa `channel = "1.88.0"` e che
++   `Cargo.toml` del workspace dichiara `rust-version = "1.88"`: il codice usa
++   let-chain, stabili solo da 1.88. Con 1.85 la build non compilerebbe.
++
++3. **Nessun `git push`.** Step 5 eseguito solo fino al commit; il push
++   resta al controller, come da nota P2.
++
++4. **Lista licenze di `deny.toml` corretta e ampliata a valle di
++   `cargo deny check` reale** (vedi sezione dedicata sotto), non copiata dal
++   brief.
++
++Il resto dei due workflow è stato scritto identico al brief (job `backend`,
++`frontend`, `audit`, `image` in `ci.yml`; job `publish` in `release.yml`),
++perché non c'erano altri problemi individuati in fase di lettura o di
++verifica locale. `ci.yml` include ora un commento nello step "Test" del job
++`backend` che spiega dove/come viene usata `KEEPPIX_TEST_DATABASE_URL` (P4):
++non è impostata nel workflow, perché su GitHub Actions Docker è disponibile
++e l'harness usa testcontainers di default.
++
++## `deny.toml` — verifica reale, non teorica
++
++Ho installato `cargo-deny` in locale (`cargo install cargo-deny --locked`,
++completato in ~2m14s — crates.io raggiungibile come previsto) ed eseguito
++`cargo deny check advisories bans licenses` iterando fino al verde.
++
++**Primo giro** (con la lista del brief, corretta solo nell'identificatore
++AGPL): due errori `rejected: failed to satisfy license requirements`,
++entrambi per `CDLA-Permissive-2.0` dichiarata da `webpki-roots` (versioni
++0.26.11 e 1.0.9, dipendenza transitiva di `sqlx-postgres` via
++`rustls-platform-verifier`/TLS). Nessun altro errore di licenza: la
++correzione `AGPL-3.0` → `AGPL-3.0-or-later` (vedi sotto) da sola bastava per
++far accettare i crate del progetto.
++
++**Lista finale in `deny.toml`:**
++
++```toml
++allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause",
++         "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0",
++         "AGPL-3.0-or-later", "CDLA-Permissive-2.0"]
++```
++
++Motivazione di ogni voce aggiunta/modificata rispetto al brief:
++
++- **`AGPL-3.0-or-later`** (sostituisce `AGPL-3.0` del brief): è la licenza
++  dichiarata da tutti i crate `keeppix-*` del workspace
++  (`license = "AGPL-3.0-or-later"` in `Cargo.toml`). `AGPL-3.0` (senza
++  `-or-later`) è un identificatore SPDX diverso e non copre i crate del
++  progetto stesso — con la lista del brief, `cargo deny` li avrebbe respinti.
++  Accettarla è ovviamente coerente con un progetto che è esso stesso AGPL.
++- **`CDLA-Permissive-2.0`** (nuova, non nel brief): licenza dei bundle di
++  root CA Mozilla ridistribuiti da `webpki-roots`, dipendenza transitiva di
++  `sqlx-postgres`/TLS. È una licenza permissiva stile Creative Commons
++  pensata proprio per dataset come elenchi di certificati; nessuna clausola
++  copyleft, nessun conflitto con AGPL-3.0-or-later del progetto. Compatibile
++  con l'uso in un binario proprietario o AGPL indifferentemente.
++
++Le altre voci del brief (MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception,
++BSD-2-Clause, BSD-3-Clause, ISC, Unicode-3.0, Zlib, MPL-2.0) sono risultate
++tutte necessarie e sufficienti: rimuovendole una alla volta in una prova
++locale (non committata) l'albero delle dipendenze le richiede davvero
++(es. Unicode-3.0 per `unicode-ident`/`icu_*`, MPL-2.0 per `webpki-roots`
++stesso in alcune versioni precedenti, Zlib per `foldhash`). Non ho aggiunto
++nessun'altra licenza oltre a queste due modifiche: il comando tace con
++esattamente questa lista.
++
++**Esito finale:**
++
++```
++$ cargo deny check advisories bans licenses
++...
++advisories ok, bans ok, licenses ok
++```
++
++**Advisories:** `advisories ok` — nessuna vulnerabilità RUSTSEC, nessuna
++licenza yanked segnalata (`yanked = "deny"` non ha trovato nulla da
++respingere). Nessun finding di sicurezza da riportare.
++
++**Bans:** `bans ok`. Ci sono numerosi warning `duplicate` (più versioni
++della stessa crate nell'albero: `base64`, `windows_*`, `syn`, `rand`, ecc.),
++tutti attesi e non bloccanti perché `multiple-versions = "warn"` nel brief è
++corretto così com'è — sono conseguenza fisiologica di un albero con
++`testcontainers`/`bollard` (usati solo in dev-dependency per i test) accanto
++alle dipendenze di produzione, non un problema da risolvere in questo task.
++
++## Verifiche eseguite in locale (job `backend` e `frontend`)
++
++Ambiente: nessun Docker disponibile in questa sandbox (confermato:
++`docker ps` fallisce con "cannot connect to the Docker daemon"), ma un
++Postgres locale è raggiungibile su `127.0.0.1:5432` — uso quindi
++`KEEPPIX_TEST_DATABASE_URL` **solo per l'esecuzione locale**, esattamente
++come previsto da P4; questa variabile **non** è nel workflow committato.
++
++Frontend buildato **prima** della suite Rust, come richiesto, così che i
++test di `crates/keeppix-server/tests/embed.rs` non si auto-saltino:
++
++```
++$ cd frontend && npm ci
++added 351 packages ... found 0 vulnerabilities
++
++$ npx vue-tsc --noEmit
++(nessun output — nessun errore di tipo)
++
++$ npx vitest run
++ Test Files  3 passed (3)
++      Tests  8 passed (8)
++
++$ npm run build
++✓ 60 modules transformed.
++dist/assets/index-CumzRq_k.js      202.51 kB │ gzip: 74.60 kB
++✓ built in 528ms
++```
++
++Budget bundle, calcolato esattamente come nello step CI (concatenazione gzip
++di tutti i `.js` in `dist/assets`, non somma dei singoli valori riportati da
++Vite):
++
++```
++$ SIZE=$(find dist/assets -name '*.js' -exec gzip -c {} \; | wc -c)
++bundle gzip: 76893 byte (budget 153600)
++```
++
++~77 KB gzip, in linea con la stima del preflight, ben sotto il tetto di
++150 KB (153600 byte).
++
++Poi, con `frontend/dist` presente:
++
++```
++$ export KEEPPIX_TEST_DATABASE_URL="postgres://keeppix:keeppix@127.0.0.1:5432/postgres"
++$ cargo fmt --all --check
++(nessun output — nessuna differenza)
++
++$ cargo clippy --workspace --all-targets -- -D warnings
++    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s
++(nessun warning)
++
++$ cargo test --workspace -- --test-threads=1
++```
++
++Riepilogo per crate/file di test (tutti `ok`, 0 falliti, 0 ignorati):
++
++| suite | esito |
++|---|---|
++| keeppix-api (unit) | 1 passed |
++| tests/auth.rs | 17 passed |
++| tests/health.rs | 3 passed |
++| tests/openapi.rs | 6 passed |
++| keeppix-db tests/migrations.rs | 7 passed |
++| keeppix-db tests/sessions.rs | 14 passed |
++| keeppix-db tests/settings.rs | 6 passed |
++| keeppix-db tests/users.rs | 12 passed |
++| keeppix-domain (unit) | 22 passed |
++| keeppix-server tests/config.rs | 4 passed |
++| keeppix-server tests/embed.rs | **4 passed** (non saltato: `frontend/dist` presente) |
++
++Totale: **96 test, 0 falliti**. Confermato che `embed.rs` ha eseguito i 4
++test reali (`index_is_served_at_root`, `client_routes_fall_back_to_index`,
++`api_paths_never_fall_back_to_index`, `assets_are_served_as_immutable`) e
++non li ha saltati — l'output non contiene la riga
++`"frontend/dist assente: test saltato"`.
++
++```
++$ git diff --exit-code docs/api/openapi.json
++(exit 0 — nessuna differenza, albero pulito)
++```
++
++Confermata la sequenza descritta in P7: `cargo test` include
++`openapi_snapshot_matches_the_committed_file`, che fallisce se lo snapshot
++diverge; il `git diff` successivo è la seconda rete e qui non ha trovato
++nulla da segnalare.
++
++Verifica extra non richiesta esplicitamente ma utile e a costo zero:
++`docker compose config` (puramente client-side, non richiede il daemon) è
++stato eseguito su `compose.yaml` e ha restituito exit 0 — sintassi Compose
++valida.
++
++## Cosa NON è stato verificato, e perché
++
++- **Job `image` di `ci.yml`** (`docker/build-push-action` sul `Dockerfile`
++  del repository): non eseguibile in questa sandbox, il pull delle immagini
++  di base è bloccato dalla policy di egress. Non è un problema transitorio,
++  non ho ritentato.
++- **Step 6 del brief / verifica su GitHub Actions**: la CI gira solo dopo il
++  push sul branch remoto, che è compito del controller, non mio. Non ho
++  aperto né posso aprire la pagina Actions del repository.
++- **`release.yml` nella sua interezza**: nessuna parte di questo workflow è
++  eseguibile localmente (richiede tag `v*` o cron, push su `ghcr.io`, build
++  multi-arch con QEMU, firma cosign). Verificato solo per lettura/coerenza
++  con `ci.yml` e con le convenzioni GitHub Actions correnti.
++
++**Non dichiaro in nessun punto di questo report che la CI su GitHub è
++verde: non lo so**, perché non è mai girata. Ho verificato solo ciò che è
++eseguibile in locale, elencato sopra.
++
++## File creati
++
++- `/home/user/Keeppix/.github/workflows/ci.yml`
++- `/home/user/Keeppix/.github/workflows/release.yml`
++- `/home/user/Keeppix/deny.toml`
++
++Nessun file fuori da questi tre è stato toccato. `crates/`, `frontend/`,
++`docs/`, `Dockerfile`, `compose.yaml` non sono stati modificati (verificato
++con `git status --porcelain`: solo `.github/` e `deny.toml` risultano non
++tracciati prima del commit).
++
++## Auto-revisione
++
++- Completezza: i tre file coprono tutto quanto richiesto dal brief, con le
++  quattro correzioni del preflight applicate. Il commento su
++  `KEEPPIX_TEST_DATABASE_URL` richiesto da P4 è presente nello step "Test"
++  del job `backend`.
++- Qualità: nessuna modifica strutturale oltre a quanto necessario; niente
++  job o step aggiuntivi non richiesti.
++- Disciplina: non ho ampliato la lista licenze oltre a quanto il comando
++  richiedeva effettivamente (due sole voci aggiunte/corrette, entrambe
++  motivate sopra). Non ho toccato `crates/`, `frontend/`, `docs/`.
++- Test: suite Rust e frontend eseguite realmente, non assunte verdi;
++  l'output è pulito (nessun warning clippy, nessuna differenza fmt, nessun
++  test saltato per assenza di build frontend).
++
++## Preoccupazioni
++
++Nessuna preoccupazione bloccante. Due punti da tenere presente per chi
++seguirà la CI dopo il push:
++
++1. Il job `image` e l'intero `release.yml` non sono mai stati eseguiti in
++   alcun ambiente da me controllato: la prima esecuzione reale sarà quella
++   su GitHub Actions dopo il push del controller. Vale la pena osservarne
++   l'esito con attenzione particolare, specialmente il passaggio
++   `cosign sign` in `release.yml` (dipende da OIDC/`id-token: write`, mai
++   testato qui).
++2. I warning `duplicate` di `cargo-deny bans` (più versioni della stessa
++   crate, es. `windows_x86_64_msvc`, `syn`, `base64`) sono benigni e attesi
++   con `multiple-versions = "warn"`, ma è bene sapere che sono presenti fin
++   da subito: se in futuro qualcuno alza la severità a `deny`, il job
++   `audit` inizierà a fallire per motivi indipendenti dal codice applicativo
++   (sono causati soprattutto da `testcontainers`/`bollard`, usati solo nei
++   test).
+diff --git a/.superpowers/sdd/2026-08-13-keeppix-fase-0/task-15-review.md b/.superpowers/sdd/2026-08-13-keeppix-fase-0/task-15-review.md
+new file mode 100644
+index 0000000..d325a0b
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-13-keeppix-fase-0/task-15-review.md
+@@ -0,0 +1,285 @@
++# Task 15 — Integrazione continua — Review
++
++## Spec Compliance
++
++❌ **Issues found.** I tre file richiesti dal brief (`ci.yml`, `release.yml`,
++`deny.toml`) sono stati creati, con le quattro correzioni imposte dal
++preflight (R4, R2, P2, P4) applicate correttamente e verificate — vedi
++Strengths. Ma il brief promette, in "Interfaces → Produces": *"CI che
++blocca il merge su fmt, clippy, test... e una pipeline di release che
++pubblica l'immagine multi-arch firmata"*. Ho verificato che entrambe le
++metà di questa promessa sono rotte:
++
++- il job `backend` **non compila** in CI (vedi Critical #1) — non "blocca
++  il merge sui test", semplicemente non arriva mai a eseguirli;
++- il passaggio `cosign sign` di `release.yml` **fallisce sempre** su una
++  release reale (vedi Critical #2) — l'immagine viene pubblicata ma **non
++  firmata**, il contrario esatto di quanto promesso.
++
++Non sono scostamenti di perimetro (nessun file mancante, nessuna feature
++extra), sono difetti funzionali nei file consegnati. Per questo la
++compliance è ❌ e non ⚠️: sono verificabili dal diff stesso, non richiedono
++di allargare la ricerca fuori da esso.
++
++- ⚠️ Cannot verify from diff: il job `image` di `ci.yml` (build Docker senza
++  push) — bloccato dalla policy di egress anche per me, come per
++  l'implementer. Ho letto il `Dockerfile` (fuori diff, per un rischio
++  nominato: "il job `backend` ha lo stesso problema di ordine frontend/
++  backend del job `image`?") e la risposta è no: il `Dockerfile` builda il
++  frontend in un proprio stage multi-fase indipendente da questo workflow,
++  quindi quel job non eredita il difetto Critical #1. Non ho potuto
++  eseguirlo per confermare che builda con successo.
++
++## Strengths
++
++- **`deny.toml` — verificato riga per riga, non solo letto.** Ho eseguito
++  io stesso `cargo deny check advisories bans licenses` con la lista del
++  diff: `advisories ok, bans ok, licenses ok`. Ho anche testato in
++  isolamento le due modifiche dichiarate nel report, rimuovendole una alla
++  volta da una copia locale del file:
++  - senza `AGPL-3.0-or-later` (lasciando `AGPL-3.0` come da brief),
++    `cargo deny` rigetta davvero tutti i crate `keeppix-*` del workspace
++    (`license = "AGPL-3.0-or-later"` in `Cargo.toml:9`, radice del
++    workspace);
++  - senza `CDLA-Permissive-2.0`, `cargo deny` rigetta davvero
++    `webpki-roots` 0.26.11 e 1.0.9 (`license = "CDLA-Permissive-2.0"` nel
++    loro `Cargo.toml`).
++  Entrambe le motivazioni nel report (`task-15-report.md:65-76`) sono
++  esatte e la lista non è più ampia del necessario — nessuna licenza
++  aggiunta "per sicurezza".
++- **Ruling del preflight tutti applicati e verificabili nel diff**:
++  `SQLX_OFFLINE` rimosso (R4, `ci.yml` non contiene più la chiave),
++  toolchain `@1.88.0` (R2, coerente con `rust-toolchain.toml:2` e
++  `Cargo.toml:8` `rust-version = "1.88"`), nessun `git push` (P2, branch
++  `fase-0` ancora 1 commit avanti a `origin/fase-0`), commento su
++  `KEEPPIX_TEST_DATABASE_URL` presente nello step "Test" (P4).
++- **`release.yml`: permessi minimi e coerenti con quanto fa** — `contents:
++  read` (checkout), `packages: write` (push su ghcr.io), `id-token: write`
++  (OIDC per `cosign sign --yes` keyless). Nessun permesso superfluo.
++- **`sbom: true` / `provenance: mode=max`** in `release.yml` implementano
++  correttamente il requisito di spec "SBOM a ogni release" (design
++  §9, riga 639).
++- Ho verificato (fuori diff, rischio nominato: *"`ghcr.io/${{
++  github.repository }}` con un repo che si chiama `Keeppix` — maiuscola —
++  produce un riferimento immagine non valido?"*) che `docker/
++  metadata-action@v5` normalizza automaticamente in minuscolo il valore di
++  `images:` (confermato dal README ufficiale dell'azione). Quindi
++  `steps.meta.outputs.tags`, usato per il push, è corretto. Il problema è
++  altrove — vedi Critical #2.
++
++## Issues
++
++### Critical (Must Fix)
++
++#### 1. Il job `backend` di `ci.yml` non compila in CI: nessuno step builda il frontend prima di `cargo clippy`/`cargo test`
++
++`.github/workflows/ci.yml`, job `backend` (righe ~40-61 del diff): gli step
++sono `checkout` → toolchain → `rust-cache` → `fmt` → `clippy` → `test` →
++`git diff openapi.json`. Non c'è nessun `npm ci && npm run build`, nessun
++`needs: [frontend]`, nessun `actions/upload-artifact`/`download-artifact`
++che porti `frontend/dist` da un job all'altro. Il job `frontend` è
++completamente separato e gira su un runner diverso: il suo `dist/` non è
++visibile al job `backend`.
++
++`crates/keeppix-server/src/embed.rs:13` usa `#[derive(Embed)]` con
++`#[folder = "$CARGO_MANIFEST_DIR/../../frontend/dist"]` (rust-embed 8.12,
++non in modalità debug). **Ho riprodotto in locale** cosa succede quando
++quella cartella non esiste (come accadrà su un checkout pulito in CI, dato
++che `frontend/dist` è in `.gitignore:10` e non è mai tracciato):
++
++```
++$ mv frontend/dist /tmp/dist-backup && cargo check -p keeppix-server
++error[E0599]: no function or associated item named `get` found for struct `Assets`
++  --> crates/keeppix-server/src/embed.rs:33:19
++   |
++14 | struct Assets;
++   | ------------- function or associated item `get` not found for this struct
++...
++error: could not compile `keeppix-server` (lib) due to 3 previous errors
++```
++
++Non è un fallback silenzioso: `#[derive(Embed)]` su una cartella assente
++**non implementa il trait**, e ogni chiamata a `Assets::get` diventa un
++errore di compilazione. Poiché `cargo clippy --workspace --all-targets`
++compila l'intero workspace incluso `keeppix-server`, questo è lo step
++"Lint" che fallirà, subito dopo "Formattazione" — non un test rosso isolato
++ma un **hard failure del job**, prima ancora di arrivare a `cargo test`.
++
++**Quando si manifesta:** alla primissima esecuzione della CI su GitHub,
++sul primo push. Il job `backend` non passerà mai finché non si aggiunge un
++passo di build frontend (o un artifact condiviso) prima di "Lint".
++
++Nota collaterale: anche se si "risolvesse" solo evitando l'errore di
++compilazione (es. una cartella `frontend/dist/` vuota placeholder), il
++problema non sparirebbe del tutto — diventerebbe il secondo scenario
++descritto dal commento in `crates/keeppix-server/tests/embed.rs:5-6`
++("Il test gira solo quando il frontend è stato compilato: in CI la build
++del frontend precede quella del backend" — affermazione che, con questo
++`ci.yml`, è falsa): i 4 test di `embed.rs` si auto-salterebbero
++silenziosamente, ed è esattamente il falso verde permanente descritto nel
++task. Il fix corretto è far compilare davvero il frontend nel job
++`backend` prima di `cargo clippy`/`cargo test` (o unificare i due job, o
++condividere `dist/` come artifact), non solo evitare l'errore hard.
++
++Il report dell'implementer (`task-15-report.md:33-39`) dichiara "non
++c'erano altri problemi individuati in fase di lettura o di verifica
++locale": questo è impreciso — la verifica locale è stata eseguita
++costruendo sempre il frontend *prima* a mano (`task-15-report.md:114-115`),
++riproducendo il flusso corretto ma non l'effettivo grafo dei job GitHub
++Actions, dove `backend` e `frontend` sono job indipendenti e paralleli.
++
++#### 2. `release.yml`: il passaggio `cosign sign` firma un riferimento immagine sbagliato — fallisce sempre su una release reale
++
++`.github/workflows/release.yml`, step "Firma l'immagine" (ultime righe del
++diff):
++
++```yaml
++- name: Firma l'immagine
++  run: |
++    cosign sign --yes \
++      ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
++```
++
++Il repository si chiama `gmastellone/Keeppix` (K maiuscola — verificato
++con `git remote -v`). `github.repository` **preserva il case esatto** del
++nome del repo (documentazione GitHub Actions ufficiale: l'esempio dato è
++letteralmente `octocat/Hello-World`). Il passaggio "meta" (`docker/
++metadata-action@v5`, righe ~139-146) **normalizza in minuscolo** il campo
++`images:` prima di generare `steps.meta.outputs.tags` — confermato dal
++README ufficiale dell'azione ("this action will automatically: Lowercase
++the image name"). Quindi l'immagine viene **davvero pubblicata** su
++`ghcr.io/gmastellone/keeppix:...` (minuscolo), come dovrebbe.
++
++Ma lo step di firma **non usa `steps.meta.outputs.tags`**: ricostruisce il
++riferimento a mano interpolando di nuovo `github.repository`, che non passa
++mai dalla normalizzazione di `metadata-action`. Il comando eseguito è quindi:
++
++```
++cosign sign --yes ghcr.io/gmastellone/Keeppix@sha256:...
++```
++
++— un riferimento con la maiuscola, che punta a un repository path diverso
++da quello realmente pubblicato (le specifiche OCI/Docker non ammettono
++maiuscole nei nomi immagine: quel path non esiste su ghcr.io). `cosign
++sign` fallirà con un errore di manifest/repository non trovato, **ad ogni
++release e ad ogni rebuild settimanale**, senza eccezioni: non dipende dal
++contenuto del codice, dipende solo dal nome del repository.
++
++**Effetto pratico**: l'immagine multi-arch viene pubblicata (lo step
++`build-push-action` con `push: true` va a buon fine, perché usa i tag già
++normalizzati), ma **non viene mai firmata**, e il job `publish` termina in
++rosso all'ultimo step — l'esatto contrario di "pipeline di release che
++pubblica l'immagine multi-arch firmata" promesso dal brief.
++
++**Fix suggerito** (da applicare nel branch, non qui): usare il digest
++qualificato che `docker/metadata-action`/`build-push-action` già
++espongono in forma corretta, ad es. costruendo il riferimento dal primo
++tag generato (`(steps.meta.outputs.tags | fromJSON... )` in bash, o più
++semplicemente derivando l'immagine base da una variabile calcolata in
++minuscolo con `${GITHUB_REPOSITORY,,}` in uno step precedente) invece di
++reinterpolare `github.repository` grezzo.
++
++**Quando si manifesta:** al primo tag `v*` pushato o al primo cron
++settimanale — cioè esattamente il momento descritto nel prompt come "nessuno
++lo scoprirà prima di un tag di release". Non è verificabile eseguendo il
++job in locale (richiede push reale su ghcr.io), ma è un difetto di lettura
++puro: la stringa è deterministicamente sbagliata indipendentemente
++dall'ambiente.
++
++### Important (Should Fix)
++
++#### 3. Il budget bundle misura "tutto il JS in `dist/assets`", non "il bundle iniziale" — corretto oggi, strutturalmente sbagliato appena arrivano chunk lazy grandi (plan-mandated)
++
++`.github/workflows/ci.yml`, step "Budget del bundle iniziale" nel job
++`frontend`:
++
++```bash
++SIZE=$(find dist/assets -name '*.js' -exec gzip -c {} \; | wc -c)
++```
++
++Ho eseguito lo stesso identico comando sulla build reale prodotta
++dall'implementer: `dist/assets/` contiene oggi **6 file JS**, non uno solo
++come lascia intendere l'output parziale citato nel report
++(`task-15-report.md:129-131`, che mostra solo `index-CumzRq_k.js`):
++
++```
++Button-BQTkaF0V.js     355 byte gzip
++HomeView-icDcHuHT.js    443 byte gzip
++LoginView-DyNHOm4z.js   843 byte gzip
++SetupView-D5tbduPr.js   977 byte gzip
++TextField-BxL5NRZb.js   682 byte gzip
++index-CumzRq_k.js    73593 byte gzip
++--------------------------------
++totale                76893 byte  (= il numero riportato, confermato)
++```
++
++`HomeView`, `LoginView`, `SetupView` sono chunk **lazy per-rotta** creati
++da `import()` dinamici in `frontend/src/router.ts:8-10` — cioè esattamente
++il pattern di code-splitting che la spec prevede (design
++riga 707: *"Budget bundle iniziale: 150 KB gzip; mappa, culling,
++impostazioni e player video in chunk separati"*). Il numero del report è
++matematicamente corretto (l'ho riprodotto byte per byte), ma la
++**metrica** somma indiscriminatamente bundle iniziale + tutti i chunk
++lazy esistenti. Oggi l'impatto è trascurabile (~2.6 KB su 76.9 KB), ma è
++lo stesso meccanismo che, quando in una fase futura verrà aggiunto il
++chunk MapLibre (~230 KB gzip dichiarati a riga 507 della spec, lazy per
++design), farà fallire il budget anche se il bundle *realmente iniziale*
++resta sotto i 150 KB — il contrario dell'intento dichiarato dal nome dello
++step.
++
++Questo script è identico, carattere per carattere, a quello del brief
++(Step 2): l'implementer non lo ha modificato né discusso, e nel report non
++compare alcuna nota su questo punto nonostante il preflight non lo
++escluda. Per la regola "plan-mandated" del protocollo di review, lo segnalo
++come Important e non come difetto introdotto dall'implementer.
++
++**Quando si manifesta:** a un push futuro (una fase successiva che
++aggiunge un chunk lazy sopra ~75 KB gzip, es. la mappa) — non blocca Task
++15 né la Fase 0 attuale, ma romperà la CI per un motivo indipendente dalla
++dimensione reale del bundle iniziale, ed è bene che il controller lo sappia
++prima di scoprirlo da un fallimento CI apparentemente incomprensibile in
++una fase futura.
++
++### Minor (Nice to Have)
++
++#### 4. Il budget bundle non verifica l'esistenza di `dist/assets`: un `find` senza corrispondenze vale 0, sotto qualsiasi soglia
++
++Stesso step di cui sopra. Se in futuro un refactor di `vite.config.ts`
++spostasse l'output (`build.outDir` o la struttura interna di
++`assets/`), `find dist/assets -name '*.js'` non troverebbe nulla, `gzip`
++non verrebbe mai invocato, `wc -c` restituirebbe `0`, e `0 -gt 153600` è
++falso: lo step passerebbe silenziosamente anche se il bundle reale non è
++mai stato misurato. Oggi non succede (config Vite di default, verificato
++in `frontend/vite.config.ts:11-15` — nessun `outDir` personalizzato), quindi
++non è un difetto attivo, ma non c'è alcuna riga che verifichi `[ -d
++dist/assets ]` prima di procedere. Suggerimento: `test -d dist/assets ||
++{ echo "::error::dist/assets non trovato"; exit 1; }` prima del `find`.
++
++#### 5. Il budget conta solo `.js`, non `.css`
++
++Lo stesso step ignora `dist/assets/index-*.css` (~9.5 KB non compresso
++nella build reale). Se "bundle iniziale" nella spec (design riga 44, 707)
++è inteso come intero payload critico servito al primo render, il numero
++riportato dalla CI sottostima leggermente il costo reale. Impatto minimo
++allo stato attuale (qualche KB gzip), non bloccante, ma vale una nota per
++chi in futuro leggerà "150 KB" e assumerà che includa tutto.
++
++## Assessment
++
++**Task quality:** Needs fixes.
++
++**Reasoning:** Il lavoro su `deny.toml` è solido, verificato in modo
++indipendente e ben motivato — nessun problema lì. Ma i due file workflow
++contengono ciascuno un difetto che rompe esattamente la garanzia che il
++brief chiede loro di fornire: il job `backend` non compila mai in CI per
++un problema di ordinamento fra i job `frontend`/`backend` (riproducibile
++con un `cargo check` locale), e il passaggio `cosign sign` di
++`release.yml` firma sistematicamente un riferimento immagine con il case
++sbagliato, quindi fallisce ad ogni release reale. Entrambi sono bug di
++lettura pura, verificabili senza eseguire i job stessi, e nessuno dei due
++si sarebbe manifestato come "test rosso" nel senso comune — il primo
++sarebbe apparso come un errore di compilazione alla prima Lint CI (non
++catastrofico, ma bloccante), il secondo sarebbe passato inosservato fino
++al primo tag di release, con un'immagine pubblicata ma silenziosamente
++non firmata se qualcuno non avesse letto l'ultimo step del job fino in
++fondo.
