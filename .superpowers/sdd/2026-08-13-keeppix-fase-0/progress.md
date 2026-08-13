@@ -603,3 +603,25 @@ costo misurato: ha fatto fallire una suite e bruciato tempo di diagnosi in un
 task non correlato. In CI il problema non si manifesta (container nuovo a ogni
 run), quindi e un difetto di ergonomia locale, non di correttezza — ma la
 diagnosi e tutt'altro che ovvia per chi la incontra.
+Task 13: review (spec OK, qualita da correggere) — 1 Critical, 1 Important,
+2 Minor. Il reviewer ha ripetuto la prova per mutazione su **tutti e quattro**
+i punti di montaggio, uno alla volta, invece che su uno solo — ed e cosi che ha
+trovato il buco: invertendo l'ordine fallback/layer in `embed::mount()`, cioe la
+funzione che `main.rs:62` usa per costruire il binario spedito, l'intera
+`cargo test --workspace` resta verde. Idem per `router(state)`. La logica
+implementata e corretta; e la rete di test che non la blinda su due dei quattro
+punti.
+Task 13: minor (deferred): `assert_security_headers` e triplicato nel repository
+(coerente con la convenzione preesistente: ogni file in tests/ e un binario a se,
+e non esiste un crate di test-support)
+Task 13: minor (deferred): `router_parts()` si riduce a un alias di una riga per
+`all_routes()`; il nome e imposto dal brief
+Task 13: fix round 1/5 avviato — Critical: `embed::mount()` (funzione di
+produzione) senza copertura automatica, la verifica manuale via curl
+dell'implementer non e riproducibile in CI; Important: `router(state)` senza
+copertura sugli header di sicurezza, benche alimenti 22 test via TestServer.
+Direzione suggerita al posto di un test in piu: rendere `mount` generica sullo
+stato, cosi che `mount_stateless()` diventi `mount(Router::new())` e i test
+esistenti esercitino davvero il codice di produzione — chiude Critical e
+duplicazione insieme. Se la genericita non regge per una ragione tecnica reale,
+l'implementer risolve altrimenti e lo motiva.
