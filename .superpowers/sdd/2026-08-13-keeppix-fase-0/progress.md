@@ -645,3 +645,31 @@ essere spuntati in questo ambiente**: vanno spuntati dall'utente o dalla CI.
 Task 14: finding fuori confine segnalato dall'implementer e non corretto:
 `.env.example` dichiara `RUST_LOG=info,sqlx=warn` ma `telemetry.rs` usa
 `info,sqlx=warn,tower_http=info` come default. Da triare nel review finale.
+Task 13: fix round 1/5 (2 addressed secondo l'implementer, re-review in corso —
+C1 chiuso rendendo `mount<S>` generica sullo stato, cosi che `mount_stateless()`
+sia letteralmente `mount(Router::new())`: una sola implementazione
+dell'invariante invece di due, e i test esistenti esercitano finalmente il
+codice di produzione. I1 chiuso con `assert_security_headers` spostato
+nell'harness condiviso piu un test nuovo su `router(state)` via TestServer, su
+rotta reale e su 404. Mutazioni verificate rosse su entrambi i punti. Effetto
+collaterale voluto: le copie duplicate dell'helper scendono da 3 a 2.
+96 test verdi; commits d6c74d6..e1f72b3)
+Task 14: review statica (spec ❌, qualita da correggere) — 1 Critical,
+1 Important, 1 Minor. Verificati positivamente e in proprio dal reviewer:
+entrambi i ruling vincolanti, l'esistenza di tutti i percorsi COPY (incluso
+crates/keeppix-db/migrations/, necessario a sqlx::migrate! a compile-time),
+`.dockerignore` che non esclude nulla di necessario, l'esistenza reale del
+sottocomando healthcheck, l'assenza di qualunque scrittura su filesystem in
+tutti i crate (quindi `read_only: true` e sicuro in Fase 0), e la sostanza delle
+6 correzioni di coerenza dell'implementer.
+Task 14: fix round 1/5 avviato — **Critical**: `docs/DEPLOY.md:24` promette
+`DATABASE_URL=... docker compose up -d` per il Postgres esterno, ma
+`compose.yaml:8-11` fissa DATABASE_URL a un letterale YAML: Compose interpola
+`${DB_PASSWORD}`, non `${DATABASE_URL}`. Chi segue la guida ottiene un container
+in crash loop contro un hostname `db` inesistente, con un sintomo che non punta
+alla causa. Il bug era gia nel testo letterale del brief; e arrivato fin qui
+perche il report dichiarava verificato lo scenario *bundled* ma non quello
+*esterno* documentato due righe sopra. Important: DB_PASSWORD non persistita in
+un file .env — dopo il primo initdb Postgres ignora POSTGRES_PASSWORD, quindi un
+aggiornamento da un'altra sessione produce un mismatch di autenticazione su
+un'installazione che funzionava.

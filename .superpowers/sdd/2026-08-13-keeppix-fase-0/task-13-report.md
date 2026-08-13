@@ -265,3 +265,164 @@ repository.
   (`spa_fallback()`) e il codice d'esempio che il brief stesso fornisce (che
   non la definisce): nessuna azione richiesta da parte mia, ma vale la pena
   che il controller lo sappia per tarare i brief futuri.
+
+---
+
+# Fix round 1/5 — risposta alla review
+
+**Commit:** vedi hash in coda a questo file dopo il commit.
+
+La review (`.superpowers/sdd/2026-08-13-keeppix-fase-0/task-13-review.md`)
+conferma la ristrutturazione (deviazione dal brief, lettura di axum 0.8,
+`spa_fallback()` come refuso) e apre 1 Critical + 1 Important + 2 Minor,
+tutti sulla rete di test attorno all'invariante, non sulla logica.
+
+## C1 — `embed::mount()` senza copertura
+
+Ho seguito la direzione suggerita nella review: reso `mount` generico sullo
+stato,
+```rust
+pub fn mount<S: Clone + Send + Sync + 'static>(router: axum::Router<S>) -> axum::Router<S> {
+    keeppix_api::with_common_layers(router.fallback(get(serve)))
+}
+
+pub fn mount_stateless() -> axum::Router {
+    mount(axum::Router::new())
+}
+```
+`with_common_layers` in `keeppix-api` era già generica su `S` (non l'ho
+dovuta toccare), quindi la genericità di `mount` regge senza problemi:
+`serve` non estrae stato (solo `Uri`), quindi il vincolo `Clone + Send +
+Sync + 'static` gli basta per qualunque `S`. `main.rs` continua a compilare
+senza modifiche: `S` viene inferito `AppState` da `router_parts()`. Ho
+dovuto solo togliere l'import ora inutilizzato di `AppState` in `embed.rs`
+(non serviva più annotare esplicitamente il tipo).
+
+Ora esiste **una sola** implementazione dell'invariante: `mount_stateless()`
+non è più un secondo corpo di funzione scritto a mano, è letteralmente
+`mount()` applicata a un router vuoto. I 4 test di `tests/embed.rs`, che
+chiamano tutti `mount_stateless()`, esercitano quindi lo stesso codice che
+`main.rs:62` mette in produzione.
+
+**Prova per mutazione, sulla `mount()` reale** (esattamente come richiesto
+dal contratto del round — non su `mount_stateless()`, che ora è lo stesso
+codice):
+```rust
+pub fn mount<S: Clone + Send + Sync + 'static>(router: axum::Router<S>) -> axum::Router<S> {
+    keeppix_api::with_common_layers(router).fallback(get(serve))   // mutato
+}
+```
+```
+$ cargo test --workspace -- --test-threads=1
+...
+     Running tests/embed.rs (target/debug/deps/embed-84d4bb8e498d4b35)
+test client_routes_fall_back_to_index ... FAILED
+test index_is_served_at_root ... FAILED
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+error: test failed, to rerun pass `-p keeppix-server --test embed`
+```
+Panic reale:
+```
+thread 'index_is_served_at_root' panicked at crates/keeppix-server/tests/embed.rs:21:54:
+called `Option::unwrap()` on a `None` value
+```
+(header di sicurezza assente — stesso pattern del Task 9/R5, questa volta
+sulla `mount()` di produzione). Ripristinato il codice corretto, rieseguita
+`cargo test --workspace -- --test-threads=1`: **96/96 verdi**, nessun
+warning.
+
+## I1 — `router(state)` senza copertura sugli header
+
+Aggiunto `assert_security_headers` in
+`crates/keeppix-api/tests/harness/mod.rs` (usa `&reqwest::header::HeaderMap`
+— stesso crate `http` v1.5.0 di axum, un solo `http` nel lockfile, quindi
+interscambiabile con `&axum::http::HeaderMap`) e un nuovo test in
+`tests/auth.rs`, `router_with_state_carries_the_security_headers`, che passa
+da `TestServer` (quindi da `keeppix_api::router(state)`, il router *con*
+stato) e verifica i quattro header sia su una rotta esistente
+(`/api/v1/setup/status`) sia sul fallback 404 (`/api/v1/questa-rotta-non-esiste`).
+
+**Prova per mutazione, su `router(state)`:**
+```rust
+pub fn router(state: AppState) -> Router {
+    with_common_layers(all_routes()).fallback(not_found).with_state(state)   // mutato
+}
+```
+```
+$ cargo test -p keeppix-api --test auth -- --test-threads=1
+...
+failures:
+    router_with_state_carries_the_security_headers
+test result: FAILED. 16 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out
+```
+Panic reale:
+```
+thread 'router_with_state_carries_the_security_headers' panicked at crates/keeppix-api/tests/harness/mod.rs:66:54:
+called `Option::unwrap()` on a `None` value
+```
+Ripristinato, rieseguito `cargo test -p keeppix-api --test auth -- --test-threads=1`:
+**17/17 verdi** (16 preesistenti + il nuovo).
+
+## M1 — triplicazione dell'helper
+
+Non era un'azione richiesta, ma nel chiudere I1 mi sono trovato a dover
+evitare che `assert_security_headers` in `harness/mod.rs` risultasse
+`dead_code` nel binario di test `openapi.rs` (che dichiara anch'esso `mod
+harness;` ma non la chiamava). Invece di silenziare con un `#[allow]`, ho
+fatto usare a `openapi.rs` la stessa `harness::assert_security_headers` al
+posto della sua copia locale (rimossa: 13 righe in meno). Effetto collaterale
+positivo non richiesto: le copie identiche scendono da 3 a 2 (`harness/mod.rs`,
+condivisa da `auth.rs` e `openapi.rs`; `tests/health.rs`, che non dichiara
+`mod harness` e resta con la sua copia, non toccata). `tests/openapi.rs` non
+era nella lista dei file del task originale: l'ho modificato solo per questo
+motivo puntuale, nessun'altra riga toccata.
+
+## M2
+
+Nessuna azione, come indicato dalla review ("solo un'osservazione").
+
+## Test eseguiti (round di fix)
+
+```
+cd frontend && npm run build   # rifatto prima di ogni run, come da contratto
+export KEEPPIX_TEST_DATABASE_URL="postgres://keeppix:keeppix@127.0.0.1:5432/postgres"
+cargo fmt --check                                          # pulito
+cargo clippy --workspace --all-targets -- -D warnings      # pulito
+cargo test --workspace -- --test-threads=1                 # 96/96 ok, 0 falliti
+```
+Riepilogo per suite (delta rispetto al round precedente: `auth.rs` 16→17,
+`openapi.rs` invariato a 6 con una copia dell'helper in meno):
+- `keeppix-api` (unit): 1/1
+- `keeppix-api/tests/auth.rs`: **17/17** (nuovo: `router_with_state_carries_the_security_headers`)
+- `keeppix-api/tests/health.rs`: 3/3
+- `keeppix-api/tests/openapi.rs`: 6/6
+- `keeppix-db/tests/migrations.rs`: 7/7
+- `keeppix-db/tests/sessions.rs`: 14/14
+- `keeppix-db/tests/settings.rs`: 6/6
+- `keeppix-db/tests/users.rs`: 12/12
+- `keeppix-domain` (unit): 22/22
+- `keeppix-server/tests/config.rs`: 4/4
+- `keeppix-server/tests/embed.rs`: 4/4
+
+`df -h /`: 11 GB liberi a fine sessione (nessun accumulo di database residui
+in questo round).
+
+## Commit
+
+Solo i 4 file toccati sono stati aggiunti con `git add` esplicito (mai `-A`
+né `-a`): `crates/keeppix-api/tests/auth.rs`,
+`crates/keeppix-api/tests/harness/mod.rs`,
+`crates/keeppix-api/tests/openapi.rs`, `crates/keeppix-server/src/embed.rs`.
+Non ho toccato `Dockerfile`, `.dockerignore`, `compose.yaml`,
+`docs/DEPLOY.md` (lavoro di un altro agente, già committato su questo branch
+mentre ero al lavoro: `19d9f22 feat: add distroless docker image and compose
+stack`).
+
+## Preoccupazioni (round di fix)
+
+Nessuna nuova. Il fix di M1 su `openapi.rs` è l'unica modifica fuori dai
+quattro file esplicitamente indicati dalla review (`embed.rs`, e
+implicitamente `harness/mod.rs`/`auth.rs` per I1) — l'ho fatto solo perché
+necessario a mantenere `cargo clippy -D warnings` pulito senza un
+`#[allow(dead_code)]` di comodo, non per iniziativa di refactoring
+autonoma.
