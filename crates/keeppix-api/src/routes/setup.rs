@@ -11,13 +11,19 @@ use crate::problem::Problem;
 use crate::routes::auth::UserView;
 use crate::state::AppState;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct SetupStatus {
     initialised: bool,
 }
 
 /// # Errors
 /// `Problem` se il conteggio degli utenti fallisce.
+#[utoipa::path(
+    get,
+    path = "/api/v1/setup/status",
+    tag = "setup",
+    responses((status = 200, description = "Stato di inizializzazione dell'istanza", body = SetupStatus))
+)]
 pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, Problem> {
     let count = UserRepo::new(&state.db).count().await?;
     Ok(Json(SetupStatus {
@@ -25,7 +31,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
     }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct SetupRequest {
     username: String,
     display_name: String,
@@ -33,7 +39,7 @@ pub struct SetupRequest {
     password: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct SetupResponse {
     user: UserView,
 }
@@ -43,6 +49,17 @@ pub struct SetupResponse {
 /// # Errors
 /// `409 already-initialised` se l'istanza è già configurata;
 /// `422 invalid-username` / `422 invalid-password` sui dati non validi.
+#[utoipa::path(
+    post,
+    path = "/api/v1/setup",
+    tag = "setup",
+    request_body = SetupRequest,
+    responses(
+        (status = 201, description = "Amministratore creato e sessione aperta", body = SetupResponse),
+        (status = 409, description = "Istanza già inizializzata"),
+        (status = 422, description = "Username o password non validi")
+    )
+)]
 pub async fn create(
     State(state): State<AppState>,
     jar: CookieJar,
