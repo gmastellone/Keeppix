@@ -1,10 +1,25 @@
 use axum::body::Body;
-use axum::http::{Request, StatusCode, header};
+use axum::http::{HeaderMap, Request, StatusCode, header};
 use tower::ServiceExt as _;
 
 /// `/health` non tocca il database, quindi il test non ha bisogno di Postgres.
 fn app() -> axum::Router {
     keeppix_api::router_without_state()
+}
+
+/// Asserzioni condivise sui quattro header di sicurezza. Usata sia per una
+/// rotta esistente (`/health`) sia per il fallback 404, così che i due
+/// percorsi siano dimostrabilmente coperti dagli stessi controlli: se i
+/// layer smettono di avvolgere una delle due rotte, uno dei due test fallisce.
+#[allow(clippy::unwrap_used)]
+fn assert_security_headers(headers: &HeaderMap) {
+    assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
+    assert_eq!(headers.get("referrer-policy").unwrap(), "no-referrer");
+    assert!(headers.get("content-security-policy").is_some());
+    assert_eq!(
+        headers.get("permissions-policy").unwrap(),
+        "camera=(), microphone=(), geolocation=()"
+    );
 }
 
 #[tokio::test]
@@ -36,14 +51,7 @@ async fn security_headers_are_present() {
         .await
         .unwrap();
 
-    let headers = response.headers();
-    assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
-    assert_eq!(headers.get("referrer-policy").unwrap(), "no-referrer");
-    assert!(headers.get("content-security-policy").is_some());
-    assert_eq!(
-        headers.get("permissions-policy").unwrap(),
-        "camera=(), microphone=(), geolocation=()"
-    );
+    assert_security_headers(response.headers());
 }
 
 #[tokio::test]
@@ -64,6 +72,10 @@ async fn unknown_api_path_returns_problem_json() {
         response.headers().get(header::CONTENT_TYPE).unwrap(),
         "application/problem+json"
     );
+    // Regression coverage: the fallback route must be wrapped by the same
+    // security-header layers as matched routes (see the comment on
+    // `.fallback(not_found)` in `lib.rs`).
+    assert_security_headers(response.headers());
 
     let body = http_body_util::BodyExt::collect(response.into_body())
         .await
