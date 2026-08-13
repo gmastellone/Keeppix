@@ -350,10 +350,15 @@ async fn logout_invalidates_the_session() {
     );
 }
 
-/// Host fittizio di produzione. Contro l'harness l'header `Host` reale è
-/// `127.0.0.1:<porta>`, e lì `should_be_secure` restituisce — legittimamente —
-/// `false`: un test che non contraffacesse l'header osserverebbe un cookie
-/// senza `Secure` e non proverebbe nulla.
+/// Host fittizio di produzione. Serve solo da guardia di regressione: con il
+/// fix `Secure` è incondizionato, quindi qualunque valore dichiari l'header
+/// `Host` — reale (`127.0.0.1:<porta>`, l'host effettivo dell'harness) o
+/// contraffatto come questo — l'attributo deve comparire comunque. Se in
+/// futuro qualcuno reintroducesse una logica condizionata dall'host, questo
+/// test continuerebbe a passare quanto quello sul default e non lo
+/// distinguerebbe: il test che davvero prova la proprietà rotta è
+/// `login_issues_the_cookie_with_a_valid_host_prefix_on_the_default_test_host`
+/// più sotto, contro l'host reale dell'harness senza alcuna contraffazione.
 const PRODUCTION_HOST: &str = "photos.example.com";
 
 #[tokio::test]
@@ -394,6 +399,93 @@ async fn login_issues_the_cookie_with_a_valid_host_prefix() {
     assert_host_prefix_attributes(&response, "Max-Age=3600");
 }
 
+/// Il test che dimostra davvero il difetto corretto da questo fix round: con
+/// il client di default (nessun `Host` contraffatto, header reale
+/// `127.0.0.1:<porta>` — l'host effettivo su cui ascolta `TestServer`) il
+/// cookie di sessione emesso da `logout` porta comunque `Secure`. Prima del
+/// fix, `should_be_secure` riconosceva `127.0.0.1` come loopback e ometteva
+/// `Secure`: quel cookie sarebbe stato scartato per intero da un browser
+/// reale, anche in chiaro su loopback (vedi il commento su `cookie.rs`).
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn logout_clears_the_cookie_with_a_valid_host_prefix_on_the_default_test_host() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/auth/logout"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 204);
+    assert_host_prefix_attributes(&response, "Max-Age=0");
+}
+
+/// Come sopra, ma per `login`: prova che il cookie emesso contro l'host reale
+/// dei test (loopback, non contraffatto) è comunque valido secondo il
+/// prefisso `__Host-`.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn login_issues_the_cookie_with_a_valid_host_prefix_on_the_default_test_host() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/auth/login"))
+        .json(&json!({ "username": "giovanni", "password": "correct horse battery staple" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_host_prefix_attributes(&response, "Max-Age=3600");
+}
+
+/// Test comportamentale che affianca `assert_host_prefix_attributes`
+/// (letterale, sull'header): dopo un login riuscito contro l'host reale
+/// dell'harness (nessun `Host` contraffatto), lo **stesso client `reqwest`**
+/// con cookie-jar automatico — non un cookie riattaccato a mano — riesce a
+/// chiamare `/api/v1/auth/me`. È la sequenza "login → richiesta successiva
+/// resta autenticata" del criterio di completamento della Fase 0, ed è
+/// esattamente la proprietà che era rotta: prima del fix, `cookie_store`
+/// riceveva un `Set-Cookie` senza `Secure`, e — coerentemente con la regola
+/// del prefisso `__Host-` che nessuna libreria HTTP generica implementa — lo
+/// avrebbe comunque riaccettato (`cookie_store` non conosce `__Host-`); il
+/// bug era osservabile solo in un browser reale, mai in questo round-trip.
+/// Questo test da solo quindi *non* troverebbe una regressione a
+/// `should_be_secure`: la sua funzione è pinnare che il flusso normale
+/// funziona, non sostituire `assert_host_prefix_attributes`.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn login_then_me_stays_authenticated_on_the_same_client() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let login = server
+        .client
+        .post(server.url("/api/v1/auth/login"))
+        .json(&json!({ "username": "giovanni", "password": "correct horse battery staple" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200);
+
+    let me = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        me.status(),
+        200,
+        "il client con cookie-jar deve restare autenticato"
+    );
+}
+
 /// Verifica sull'header `set-cookie` grezzo tutti gli attributi che rendono
 /// accettabile un cookie con prefisso `__Host-`: un browser conforme scarta
 /// **per intero** un `__Host-` privo di `Secure` o di `Path=/`
@@ -402,9 +494,18 @@ async fn login_issues_the_cookie_with_a_valid_host_prefix() {
 /// che il cookie viaggia anche in chiaro. Nessuna delle due cose si vede in
 /// test — l'harness parla HTTP su 127.0.0.1 — quindi la si pinna qui.
 ///
-/// Si legge la risposta, non il cookie store di `reqwest`: quello scarterebbe
-/// un cookie `Secure` arrivato su HTTP in chiaro, nascondendo proprio ciò che
-/// si vuole osservare.
+/// Si legge la risposta, non il cookie store di `reqwest`, per un motivo
+/// diverso da quanto si potrebbe pensare: **non** è che `reqwest` scarti un
+/// cookie `Secure` ricevuto in chiaro su loopback — verificato empiricamente,
+/// non lo fa: `cookie_store` (la libreria che `reqwest` usa per il jar)
+/// applica alla lettera la stessa eccezione di "origine potenzialmente
+/// affidabile" dei browser reali per loopback. Il motivo è che il cookie
+/// store non implementa affatto la validazione del prefisso `__Host-` (è
+/// un'estensione specifica dei browser, non parte del nucleo di RFC 6265):
+/// leggere il jar non potrebbe mai rilevare l'assenza di `Secure`,
+/// `Path=/` o `Domain`, qualunque cosa faccia il server. Solo ispezionare
+/// l'header letterale (o un vero motore browser, come nella verifica a mano
+/// con Playwright del Task 12) prova questa proprietà.
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 fn assert_host_prefix_attributes(response: &reqwest::Response, expected_max_age: &str) {
     let set_cookie = response
