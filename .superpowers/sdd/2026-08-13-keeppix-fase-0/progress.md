@@ -283,3 +283,47 @@ incluse quelle che il Task 13 aggiunge. La meta client-side implementata ora non
 va sprecata: quando l'enforcement arrivera, il frontend sara gia conforme.
 Costo se sbagliato: la Fase 0 chiude con la difesa CSRF a meta, mitigata da
 `SameSite=Lax`, che gia impedisce l'invio del cookie su POST cross-site.
+Task 11: complete-pending-review (commit 9d88cb4) — implementer: utoipa 5.5.0,
+ToSchema sui 7 tipi pubblici, #[utoipa::path] sui 6 handler, openapi.rs, rotta
+/api/openapi.json montata DENTRO common_layers in entrambi i router, snapshot
+docs/api/openapi.json, 3 test. Red-then-green di N1 documentato
+Task 11: minor (deferred): i rustdoc `# Errors` finiscono come `summary` nel
+contratto pubblico; si toglierebbero solo con summary/description espliciti
+Task 11: minor (deferred): il ramo "scrivi se manca" dello snapshot test passa a
+vuoto su un checkout senza il file; la protezione reale e il git diff --exit-code
+del Task 15
+Task 11: minor (deferred): il fallimento dello snapshot stampa due volte il
+documento escapato invece di un diff
+Task 11: minor (deferred): docs/api/openapi.json non termina con newline (e cio
+che scrive il test; aggiungerlo a mano lo renderebbe incoerente dopo una
+rigenerazione)
+Task 11: minor (deferred, m1 della review): `components(schemas(...))` e
+interamente ridondante — rimuovendo tutte e sette le voci il documento e identico
+byte per byte, perche utoipa 5 auto-raccoglie gli schemi referenziati
+Task 11: minor (deferred, m2 della review): nessun test confronta il documento
+*servito* con quello *committato* — iniettando un percorso fittizio dentro
+`serve()` tutti e tre i test restano verdi
+Task 11: minor (deferred, m4 della review): `info.version` e la versione del
+crate, non dell'API
+Task 11: review (spec OK, qualita da correggere) — 0 Critical, 5 Important.
+Il reviewer ha risposto alla domanda centrale del task per esecuzione: il
+documento **puo** divergere dalle rotte montate. Prova A: rotta aggiunta e non
+annotata, suite interamente verde. Prova B: `post`->`put` nel solo
+#[utoipa::path] di login — lo snapshot fallisce ma il suo messaggio istruisce a
+disattivarlo, e dopo `rm docs/api/openapi.json && cargo test` il contratto
+dichiara PUT su una rotta POST con la suite verde. Formulazione corretta: non puo
+divergere dalla forma dei dati, puo divergere dalla superficie HTTP
+Task 11: fix round 1/5 avviato — I1 divergenza documento<->rotte piu messaggio
+dello snapshot che suggerisce la scorciatoia; I2 responses non allineate agli
+handler (404 su me, 500 mai dichiarato); I3 operationId generici e collidibili
+(`create` e `status` collidono gia con la tabella §9.1); I4 Problem fuori dai
+components; I5 nessun securitySchemes
+Task 11: Ruling (copertura di I1): la direzione "rotta montata e non
+documentata" non e verificabile meccanicamente — axum 0.8 non espone la tabella
+delle rotte. Si implementa la sola direzione documento->router e si documenta nel
+commento del test quale meta resta scoperta, invece di lasciar credere che il
+buco sia chiuso. Costo se sbagliato: una rotta non documentata puo restare tale
+senza che nessun test se ne accorga
+Task 11: nota di provenienza: il primo tentativo di fix round si e interrotto per
+limite di sessione dell'API prima di produrre qualsiasi modifica (albero pulito a
+327b44f, commit 9d88cb4 intatto); il round e stato rilanciato
