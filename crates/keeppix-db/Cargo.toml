@@ -14,6 +14,9 @@ chrono.workspace = true
 tracing.workspace = true
 tokio.workspace = true
 uuid.workspace = true
+serde_json.workspace = true
+base64 = "0.23.1"
+rand = { version = "0.10.2", features = ["std", "std_rng"] }
 
 [lints]
 workspace = true
