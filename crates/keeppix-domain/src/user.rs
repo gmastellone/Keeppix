@@ -114,4 +114,36 @@ mod tests {
     fn username_accepts_allowed_punctuation() {
         assert!(Username::parse("gio.mastellone_94-x").is_ok());
     }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn user_is_active_when_disabled_at_is_none() {
+        let user = User {
+            id: UserId::new(),
+            username: Username::parse("testuser").unwrap(),
+            email: None,
+            display_name: "Test User".to_owned(),
+            role: SystemRole::User,
+            locale: None,
+            created_at: Utc::now(),
+            disabled_at: None,
+        };
+        assert!(user.is_active());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn user_is_inactive_when_disabled_at_is_some() {
+        let user = User {
+            id: UserId::new(),
+            username: Username::parse("testuser").unwrap(),
+            email: None,
+            display_name: "Test User".to_owned(),
+            role: SystemRole::User,
+            locale: None,
+            created_at: Utc::now(),
+            disabled_at: Some(Utc::now()),
+        };
+        assert!(!user.is_active());
+    }
 }
