@@ -6,4 +6,6 @@ pub enum DomainError {
     InvalidUsername(String),
     #[error("invalid password: {0}")]
     InvalidPassword(String),
+    #[error("password hashing failed: {0}")]
+    PasswordHashing(String),
 }
