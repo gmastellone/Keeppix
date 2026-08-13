@@ -48,6 +48,7 @@ async fn setup_creates_the_first_admin_and_logs_in() {
     assert!(cookie.contains("__Host-kpx_session="));
     assert!(cookie.contains("HttpOnly"));
     assert!(cookie.contains("SameSite=Lax"));
+    assert!(cookie.contains("Path=/"));
 
     let me: serde_json::Value = server
         .client
@@ -228,13 +229,83 @@ async fn refresh_rotates_the_session_cookie() {
         .await
         .unwrap();
     assert_eq!(me.status(), 200);
+
+    // Il vecchio cookie, invece, non deve più valere: la rotazione deve aver
+    // consumato il genitore, non solo emesso un figlio in parallelo. Un
+    // client fresco senza cookie store, con il valore pre-refresh presentato
+    // esplicitamente, è l'unico modo di dimostrarlo — il cookie store di
+    // `server.client` ha già sostituito `before` con `after`.
+    let replay_me = reqwest::Client::new()
+        .get(server.url("/api/v1/auth/me"))
+        .header("cookie", format!("__Host-kpx_session={before}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        replay_me.status(),
+        401,
+        "il token pre-refresh deve essere stato consumato, non solo affiancato da uno nuovo"
+    );
+}
+
+/// `SessionRepo::rotate` revoca l'intera famiglia quando un token già
+/// consumato viene ripresentato — il segnale che una copia sia finita in
+/// mano a qualcun altro. La documentazione di `refresh` lo promette
+/// esplicitamente, ma senza questo test la copertura HTTP di quel ramo era
+/// nulla.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn refresh_rejects_a_reused_token() {
+    let server = TestServer::start().await;
+
+    let setup_response = server
+        .client
+        .post(server.url("/api/v1/setup"))
+        .json(&json!({
+            "username": "giovanni",
+            "display_name": "Giovanni",
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await
+        .unwrap();
+    let before = session_value_from(&setup_response);
+
+    // Consuma il token una prima volta con il flusso normale.
+    let first_refresh = server
+        .client
+        .post(server.url("/api/v1/auth/refresh"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first_refresh.status(), 204);
+
+    // Ripresentare il token pre-refresh, già consumato, deve essere rifiutato.
+    let reused = reqwest::Client::new()
+        .post(server.url("/api/v1/auth/refresh"))
+        .header("cookie", format!("__Host-kpx_session={before}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reused.status(), 401);
 }
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn logout_invalidates_the_session() {
     let server = TestServer::start().await;
-    setup(&server).await;
+    let setup_response = server
+        .client
+        .post(server.url("/api/v1/setup"))
+        .json(&json!({
+            "username": "giovanni",
+            "display_name": "Giovanni",
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await
+        .unwrap();
+    let session_value = session_value_from(&setup_response);
 
     let response = server
         .client
@@ -244,13 +315,21 @@ async fn logout_invalidates_the_session() {
         .unwrap();
     assert_eq!(response.status(), 204);
 
-    let me = server
-        .client
+    // Client fresco, senza cookie store: replica esplicitamente il cookie
+    // pre-logout. Se ci affidassimo al cookie store di `server.client`, la
+    // richiesta successiva partirebbe senza alcun cookie — il logout locale
+    // del client, non la revoca lato server, spiegherebbe il 401.
+    let replay_me = reqwest::Client::new()
         .get(server.url("/api/v1/auth/me"))
+        .header("cookie", format!("__Host-kpx_session={session_value}"))
         .send()
         .await
         .unwrap();
-    assert_eq!(me.status(), 401);
+    assert_eq!(
+        replay_me.status(),
+        401,
+        "la sessione deve essere invalidata lato server, non solo dimenticata dal client"
+    );
 }
 
 #[allow(clippy::unwrap_used)]

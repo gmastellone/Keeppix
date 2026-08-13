@@ -1,0 +1,223 @@
+# Review package: c0382a0..HEAD
+
+## Commits
+db82b8c feat(domain): add argon2id password hashing
+
+## Files changed
+ crates/keeppix-domain/Cargo.toml      |   1 +
+ crates/keeppix-domain/src/error.rs    |   2 +
+ crates/keeppix-domain/src/lib.rs      |   2 +
+ crates/keeppix-domain/src/password.rs | 151 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 156 insertions(+)
+
+## Diff
+diff --git a/crates/keeppix-domain/Cargo.toml b/crates/keeppix-domain/Cargo.toml
+index 3ed1243..1f98002 100644
+--- a/crates/keeppix-domain/Cargo.toml
++++ b/crates/keeppix-domain/Cargo.toml
+@@ -3,13 +3,14 @@ name = "keeppix-domain"
+ version.workspace = true
+ edition.workspace = true
+ rust-version.workspace = true
+ license.workspace = true
+ 
+ [dependencies]
+ thiserror.workspace = true
+ serde.workspace = true
+ uuid.workspace = true
+ chrono.workspace = true
++argon2 = { version = "0.5.3", features = ["std"] }
+ 
+ [lints]
+ workspace = true
+diff --git a/crates/keeppix-domain/src/error.rs b/crates/keeppix-domain/src/error.rs
+index 3e8ec48..6e36c48 100644
+--- a/crates/keeppix-domain/src/error.rs
++++ b/crates/keeppix-domain/src/error.rs
+@@ -1,9 +1,11 @@
+ use thiserror::Error;
+ 
+ #[derive(Debug, Error, PartialEq, Eq)]
+ pub enum DomainError {
+     #[error("invalid username: {0}")]
+     InvalidUsername(String),
+     #[error("invalid password: {0}")]
+     InvalidPassword(String),
++    #[error("password hashing failed: {0}")]
++    PasswordHashing(String),
+ }
+diff --git a/crates/keeppix-domain/src/lib.rs b/crates/keeppix-domain/src/lib.rs
+index 760a0a0..0628a17 100644
+--- a/crates/keeppix-domain/src/lib.rs
++++ b/crates/keeppix-domain/src/lib.rs
+@@ -1,11 +1,13 @@
+ //! Tipi ed entità pure di Keeppix. Nessun I/O, nessun SQL, nessuna rete.
+ 
+ pub mod auth;
+ pub mod error;
+ pub mod ids;
++pub mod password;
+ pub mod user;
+ 
+ pub use auth::{Actor, AuthContext};
+ pub use error::DomainError;
+ pub use ids::{GroupId, UserId};
++pub use password::{Password, PasswordHash, hash_password, verify_password};
+ pub use user::{NewUser, SystemRole, User, Username};
+diff --git a/crates/keeppix-domain/src/password.rs b/crates/keeppix-domain/src/password.rs
+new file mode 100644
+index 0000000..badb269
+--- /dev/null
++++ b/crates/keeppix-domain/src/password.rs
+@@ -0,0 +1,151 @@
++use argon2::password_hash::{PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng};
++use argon2::{Algorithm, Argon2, Params, Version};
++
++use crate::error::DomainError;
++
++const PASSWORD_MIN: usize = 10;
++const PASSWORD_MAX: usize = 1024;
++
++// Parametri OWASP: 19 MiB di memoria, 2 iterazioni, parallelismo 1.
++const ARGON_M_COST: u32 = 19_456;
++const ARGON_T_COST: u32 = 2;
++const ARGON_P_COST: u32 = 1;
++
++/// Password in chiaro, viva solo il tempo necessario a produrne l'hash.
++#[derive(Clone)]
++pub struct Password(String);
++
++impl Password {
++    /// # Errors
++    /// `DomainError::InvalidPassword` se fuori dai limiti di lunghezza.
++    pub fn parse(raw: &str) -> Result<Self, DomainError> {
++        let len = raw.chars().count();
++        if len < PASSWORD_MIN {
++            return Err(DomainError::InvalidPassword(format!(
++                "must be at least {PASSWORD_MIN} characters"
++            )));
++        }
++        if len > PASSWORD_MAX {
++            return Err(DomainError::InvalidPassword(format!(
++                "must be at most {PASSWORD_MAX} characters"
++            )));
++        }
++        Ok(Self(raw.to_owned()))
++    }
++
++    fn expose(&self) -> &[u8] {
++        self.0.as_bytes()
++    }
++}
++
++// Impedisce che una password finisca nei log per distrazione.
++impl std::fmt::Debug for Password {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.write_str("Password(***)")
++    }
++}
++
++/// Hash PHC-encoded, pronto per la persistenza.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct PasswordHash(String);
++
++impl PasswordHash {
++    #[must_use]
++    pub const fn from_stored(value: String) -> Self {
++        Self(value)
++    }
++
++    #[must_use]
++    pub fn as_str(&self) -> &str {
++        &self.0
++    }
++}
++
++fn argon2() -> Result<Argon2<'static>, DomainError> {
++    let params = Params::new(ARGON_M_COST, ARGON_T_COST, ARGON_P_COST, None)
++        .map_err(|e| DomainError::PasswordHashing(e.to_string()))?;
++    Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
++}
++
++/// # Errors
++/// `DomainError::PasswordHashing` se i parametri o il generatore di sale falliscono.
++pub fn hash_password(password: &Password) -> Result<PasswordHash, DomainError> {
++    let salt = SaltString::generate(&mut OsRng);
++    let hash = argon2()?
++        .hash_password(password.expose(), &salt)
++        .map_err(|e| DomainError::PasswordHashing(e.to_string()))?;
++    Ok(PasswordHash(hash.to_string()))
++}
++
++/// Restituisce `false` — mai un errore — se l'hash memorizzato è illeggibile,
++/// così un record corrotto nega l'accesso invece di far esplodere il login.
++#[must_use]
++pub fn verify_password(password: &Password, hash: &PasswordHash) -> bool {
++    let Ok(parsed) = argon2::PasswordHash::new(hash.as_str()) else {
++        return false;
++    };
++    let Ok(hasher) = argon2() else {
++        return false;
++    };
++    hasher.verify_password(password.expose(), &parsed).is_ok()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn password_rejects_short_input() {
++        assert!(Password::parse("corta").is_err());
++    }
++
++    #[test]
++    fn password_accepts_ten_characters() {
++        assert!(Password::parse("abcdefghij").is_ok());
++    }
++
++    #[test]
++    #[allow(clippy::unwrap_used)]
++    fn hash_is_verifiable() {
++        let pw = Password::parse("correct horse battery staple").unwrap();
++        let hash = hash_password(&pw).unwrap();
++        assert!(verify_password(&pw, &hash));
++    }
++
++    #[test]
++    #[allow(clippy::unwrap_used)]
++    fn hash_rejects_wrong_password() {
++        let pw = Password::parse("correct horse battery staple").unwrap();
++        let other = Password::parse("incorrect horse battery").unwrap();
++        let hash = hash_password(&pw).unwrap();
++        assert!(!verify_password(&other, &hash));
++    }
++
++    #[test]
++    #[allow(clippy::unwrap_used)]
++    fn same_password_produces_different_hashes() {
++        let pw = Password::parse("correct horse battery staple").unwrap();
++        assert_ne!(
++            hash_password(&pw).unwrap().as_str(),
++            hash_password(&pw).unwrap().as_str(),
++            "il salt deve essere casuale"
++        );
++    }
++
++    #[test]
++    #[allow(clippy::unwrap_used)]
++    fn malformed_hash_returns_false_without_panicking() {
++        let pw = Password::parse("correct horse battery staple").unwrap();
++        let broken = PasswordHash::from_stored("non-un-hash".to_owned());
++        assert!(!verify_password(&pw, &broken));
++    }
++
++    #[test]
++    #[allow(clippy::unwrap_used)]
++    fn hash_is_argon2id_with_owasp_parameters() {
++        let pw = Password::parse("correct horse battery staple").unwrap();
++        let hash = hash_password(&pw).unwrap();
++        assert!(hash.as_str().starts_with("$argon2id$"));
++        assert!(hash.as_str().contains("m=19456,t=2,p=1"));
++    }
++}

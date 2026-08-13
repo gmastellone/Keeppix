@@ -1,0 +1,57 @@
+# Review package: 26ec9f5..HEAD
+
+## Commits
+362af6e fix(db): use DbError::Corrupted for malformed stored secrets
+
+## Files changed
+ crates/keeppix-db/src/settings.rs | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/crates/keeppix-db/src/settings.rs b/crates/keeppix-db/src/settings.rs
+index d45b75d..73d8dda 100644
+--- a/crates/keeppix-db/src/settings.rs
++++ b/crates/keeppix-db/src/settings.rs
+@@ -13,21 +13,21 @@ impl<'a> SettingsRepo<'a> {
+     #[must_use]
+     pub const fn new(db: &'a Db) -> Self {
+         Self { db }
+     }
+ 
+     /// Restituisce il segreto associato alla chiave, generandolo al primo
+     /// accesso. `ON CONFLICT DO NOTHING` più rilettura rende l'operazione
+     /// sicura anche se due processi partono insieme.
+     ///
+     /// # Errors
+-    /// `DbError::Connection` se la query fallisce; `DbError::Migration` se il
++    /// `DbError::Connection` se la query fallisce; `DbError::Corrupted` se il
+     /// valore memorizzato non è decodificabile.
+     pub async fn get_or_create_secret(&self, key: &str) -> Result<[u8; 32], DbError> {
+         let mut fresh = [0u8; 32];
+         rand::rng().fill_bytes(&mut fresh);
+         let encoded = STANDARD.encode(fresh);
+ 
+         sqlx::query(
+             "INSERT INTO system_settings (key, value) VALUES ($1, to_jsonb($2::text)) \
+              ON CONFLICT (key) DO NOTHING",
+         )
+@@ -37,17 +37,17 @@ impl<'a> SettingsRepo<'a> {
+         .await?;
+ 
+         let row = sqlx::query("SELECT value #>> '{}' AS value FROM system_settings WHERE key = $1")
+             .bind(key)
+             .fetch_one(self.db.pool())
+             .await?;
+ 
+         let stored: String = row.try_get("value")?;
+         let bytes = STANDARD
+             .decode(&stored)
+-            .map_err(|e| DbError::Migration(format!("stored secret is not base64: {e}")))?;
++            .map_err(|e| DbError::Corrupted(format!("stored secret is not base64: {e}")))?;
+ 
+         bytes
+             .try_into()
+-            .map_err(|_| DbError::Migration("stored secret is not 32 bytes".to_owned()))
++            .map_err(|_| DbError::Corrupted("stored secret is not 32 bytes".to_owned()))
+     }
+ }
