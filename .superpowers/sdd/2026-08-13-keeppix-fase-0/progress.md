@@ -673,3 +673,31 @@ perche il report dichiarava verificato lo scenario *bundled* ma non quello
 un file .env — dopo il primo initdb Postgres ignora POSTGRES_PASSWORD, quindi un
 aggiornamento da un'altra sessione produce un mismatch di autenticazione su
 un'installazione che funzionava.
+Task 13: fix round 1/5 (2 addressed, 0 open — re-review scoped che ha rifatto in
+proprio entrambe le mutazioni, questa volta su `mount()` reale e non sulla
+gemella: rosso su embed (2/2 falliti per header assenti) e rosso sul nuovo test
+di auth.rs, mentre prima del fix entrambe le inversioni lasciavano la suite
+verde. Il tocco fuori-lista su tests/openapi.rs giudicato legittimo e non
+refactoring travestito: 18 righe quasi tutte di rimozione, motivato dall'evitare
+un dead_code per-binario, coerente col fatto che health.rs — che non dichiara
+`mod harness;` — mantiene volutamente la propria copia. Nessuna rottura nuova;
+commits d6c74d6..e1f72b3)
+Task 13: complete (commits 9c6d380..e1f72b3, review clean dopo 1 fix round —
+spec OK, qualita approvata)
+Task 14: fix round 1/5 (3 addressed, 0 open — Critical chiuso con
+l'interpolazione annidata
+`${DATABASE_URL:-postgres://keeppix:${DB_PASSWORD:-changeme}@db/keeppix}`,
+Important con il passaggio da `export` a file `.env`, Minor chiarendo nella
+tabella quali variabili sono davvero sovrascrivibili; commit f6d1e34)
+Task 14: **scoperta di ambiente utile**: `docker compose config` e puramente
+client-side e funziona senza daemon (confermato: `docker info` fallisce a
+connettersi al socket, `config` no). Non sblocca build/run, ma rende
+**verificabile empiricamente** tutta l'interpolazione del compose. L'implementer
+lo ha usato su 4 combinazioni; il controller ha riverificato in proprio: default
+`changeme`, `.env` che persiste la password sia in POSTGRES_PASSWORD sia dentro
+DATABASE_URL, e DATABASE_URL esterno che vince quando impostato.
+Task 14: effetto collaterale trovato e documentato dall'implementer mentre
+chiudeva il Critical: un `.env` di sviluppo locale con `DATABASE_URL=...localhost...`
+(copiato da .env.example per `cargo run`) verrebbe letto anche da `docker compose`
+nella stessa cartella e romperebbe l'avvio bundled. Riprodotto, avvertenza
+aggiunta in docs/DEPLOY.md. `.env.example` non toccato (fuori dai confini).
