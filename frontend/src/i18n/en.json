@@ -20,7 +20,10 @@
     "username": "Username",
     "password": "Password",
     "submit": "Sign in",
-    "errors": { "invalidCredentials": "Incorrect username or password." }
+    "errors": { "invalidCredentials": "Incorrect username or password." },
+    "notices": {
+      "signedOutOffline": "You were signed out locally; we couldn't confirm it with the server (likely a network issue)."
+    }
   },
   "home": { "greeting": "Hello, {name}", "logout": "Sign out" },
   "common": { "loading": "Loading…", "unexpectedError": "An unexpected error occurred." }
