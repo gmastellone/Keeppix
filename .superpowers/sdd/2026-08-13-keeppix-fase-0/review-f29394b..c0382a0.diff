@@ -1,0 +1,58 @@
+# Review package: f29394bcf5011ca060d81db54900d29d4dcfb885..HEAD
+
+## Commits
+c0382a0 test(domain): add coverage for User::is_active() method
+
+## Files changed
+ crates/keeppix-domain/src/user.rs | 32 ++++++++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
+
+## Diff
+diff --git a/crates/keeppix-domain/src/user.rs b/crates/keeppix-domain/src/user.rs
+index 54a8a82..e70df92 100644
+--- a/crates/keeppix-domain/src/user.rs
++++ b/crates/keeppix-domain/src/user.rs
+@@ -107,11 +107,43 @@ mod tests {
+     #[test]
+     fn username_rejects_invalid_characters() {
+         assert!(Username::parse("gio vanni").is_err());
+         assert!(Username::parse("gio@vanni").is_err());
+     }
+ 
+     #[test]
+     fn username_accepts_allowed_punctuation() {
+         assert!(Username::parse("gio.mastellone_94-x").is_ok());
+     }
++
++    #[test]
++    #[allow(clippy::unwrap_used)]
++    fn user_is_active_when_disabled_at_is_none() {
++        let user = User {
++            id: UserId::new(),
++            username: Username::parse("testuser").unwrap(),
++            email: None,
++            display_name: "Test User".to_owned(),
++            role: SystemRole::User,
++            locale: None,
++            created_at: Utc::now(),
++            disabled_at: None,
++        };
++        assert!(user.is_active());
++    }
++
++    #[test]
++    #[allow(clippy::unwrap_used)]
++    fn user_is_inactive_when_disabled_at_is_some() {
++        let user = User {
++            id: UserId::new(),
++            username: Username::parse("testuser").unwrap(),
++            email: None,
++            display_name: "Test User".to_owned(),
++            role: SystemRole::User,
++            locale: None,
++            created_at: Utc::now(),
++            disabled_at: Some(Utc::now()),
++        };
++        assert!(!user.is_active());
++    }
+ }

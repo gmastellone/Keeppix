@@ -3,9 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::{Json, response::IntoResponse};
 use axum_extra::extract::CookieJar;
 use keeppix_db::{SessionRepo, UserRepo};
-use keeppix_domain::{
-    AuthContext, Password, SessionToken, SystemRole, User, Username, verify_password,
-};
+use keeppix_domain::{Password, SessionToken, SystemRole, User, Username, verify_password};
 use serde::{Deserialize, Serialize};
 
 use crate::cookie::{clearing_cookie, session_cookie, should_be_secure};
@@ -142,14 +140,19 @@ pub async fn refresh(
 }
 
 /// Sempre `204`, anche senza cookie: uscire deve funzionare comunque.
-pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
+pub async fn logout(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> impl IntoResponse {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
         let token = SessionToken::from_string(cookie.value().to_owned());
         if let Err(e) = SessionRepo::new(&state.db).revoke(&token).await {
             tracing::warn!(error = %e, "revoca sessione fallita");
         }
     }
-    (StatusCode::NO_CONTENT, jar.add(clearing_cookie()))
+    let secure = should_be_secure(host(&headers));
+    (StatusCode::NO_CONTENT, jar.add(clearing_cookie(secure)))
 }
 
 #[derive(Serialize)]
@@ -170,28 +173,41 @@ pub async fn me(
     }))
 }
 
-/// Riesportato per gli handler che devono costruire un contesto a mano.
-pub type Ctx = AuthContext;
-
 #[cfg(test)]
 mod tests {
     use super::dummy_hash;
     use keeppix_domain::{Password, verify_password};
 
+    /// Plaintext usato una tantum per generare la costante `dummy_hash()`.
+    /// Pubblicarlo qui è innocuo: nessun account usa questa password, e la
+    /// difesa ha bisogno di *tempo* di verifica comparabile, non di segretezza.
+    const DUMMY_HASH_PLAINTEXT: &str = "this password is never used to log in";
+
     /// Pin sul bug che questa funzione corregge: il `dummy_hash()` originale
     /// della brief era un PHC malformato, quindi `verify_password` falliva
     /// nel *parsing* e non eseguiva mai Argon2 — la differenza di tempo tra
-    /// "utente inesistente" e "password errata" restava intera. Questo test
-    /// verifica che l'hash sia sintatticamente un Argon2id valido (altrimenti
-    /// lo stesso bug potrebbe ripresentarsi in silenzio con una futura
-    /// modifica della costante) e che, comunque, non verifichi mai nessuna
-    /// password reale.
+    /// "utente inesistente" e "password errata" restava intera.
+    ///
+    /// `starts_with("$argon2id$")`, `contains("m=19456,t=2,p=1")` e
+    /// `!verify_password(altra_password, ..)` da soli non bastano a pinnare
+    /// questo: un hash corrotto proprio nell'ultimo segmento — cioè lo stesso
+    /// identico bug — supererebbe comunque tutti e tre, perché un fallimento
+    /// di parsing restituisce `false` in modo indistinguibile da un mismatch
+    /// reale. Solo un match **positivo** contro il plaintext che ha generato
+    /// l'hash dimostra che il parsing è riuscito e che Argon2 ha girato per
+    /// intero.
     #[test]
     #[allow(clippy::unwrap_used)]
     fn dummy_hash_is_a_valid_argon2id_phc_string() {
         let hash = dummy_hash();
         assert!(hash.as_str().starts_with("$argon2id$"));
         assert!(hash.as_str().contains("m=19456,t=2,p=1"));
+
+        let matching = Password::parse(DUMMY_HASH_PLAINTEXT).unwrap();
+        assert!(
+            verify_password(&matching, &hash),
+            "il parsing dell'hash deve riuscire e Argon2 deve girare per intero"
+        );
 
         // Nessuna password reale di login deve verificare contro l'hash
         // fittizio: il suo plaintext non corrisponde a nessun account.

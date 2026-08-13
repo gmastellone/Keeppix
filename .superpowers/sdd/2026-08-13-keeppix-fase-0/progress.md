@@ -1,0 +1,176 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-08-13-keeppix-fase-0.md
+
+Spec: docs/superpowers/specs/2026-08-13-keeppix-design.md (letto)
+Branch: fase-0 (da main @ 7b38c1d)
+Workspace: .superpowers/sdd/2026-08-13-keeppix-fase-0/
+
+Ruling: lavoro su branch `fase-0` in-place invece che in un worktree separato —
+il repo non ha remote (EnterWorktree baseRef `fresh` punta a origin/<default> e
+fallirebbe), l'albero era pulito, non c'è lavoro parallelo, e il vincolo SDD è
+"non su main", che un branch soddisfa. Costo se sbagliato: l'utente deve spostare
+il branch in un worktree, operazione di un comando.
+
+## Scansione pre-volo
+
+### Coppie di task che condividono file o interfacce
+
+| Task A | Task B | Cosa produce A / consuma B | Esito |
+|---|---|---|---|
+| 1 | 2,3,6 | `keeppix-domain/src/lib.rs`, `Cargo.toml` — creati poi estesi | ok, sempre additivo |
+| 2 | 3 | `DomainError` — 3 aggiunge `PasswordHashing` | ok, variante aggiunta |
+| 2 | 5 | `NewUser.password_hash: String` (non `PasswordHash`) | ok, voluto: il dominio non impone l'algoritmo al repo |
+| 3 | 5 | `hash_password(&Password) -> PasswordHash`, `.as_str()` | ok |
+| 4 | 5,6,7 | `tests/harness::TestDb`, `Db`, `DbError` | ok, tutti dichiarano `mod harness;` |
+| 4 | 5 | `DbError` — 5 aggiunge `Forbidden` | ok, variante aggiunta |
+| 5 | 10 | `find_by_username -> Option<(User, PasswordHash)>` | ok |
+| 6 | 7 | `SessionToken::digest() -> [u8;32]` ↔ `bytea` | ok |
+| 7 | 10 | `SessionRepo::create(UserId, Duration, Option<&str>)` | ok, `user_agent(&headers)` restituisce `Option<&str>` |
+| 8 | 9 | `AppState::new(db, session_ttl_secs: u64)` | ok |
+| 8 | 13 | `main.rs` passa da `router(state)` a `router_parts().with_state()` | ok, 13 modifica esplicitamente main.rs |
+| 9 | 10,11,13 | `keeppix-api/src/lib.rs` riscritto tre volte | ok ma churn; 13 fissa la forma finale |
+| 9 | 11 | `router_without_state()` deve esporre `/api/openapi.json` | ok, step 6 di 11 lo aggiunge a entrambi i router |
+| 10 | 11 | `routes/setup.rs`, `routes/auth.rs` annotati con `ToSchema` | ok, additivo |
+| 11 | 15 | `docs/api/openapi.json` committato ↔ `git diff --exit-code` in CI | ok |
+| 12 | 13 | `frontend/dist` ↔ `rust-embed` folder | ok |
+| 12 | 14 | `frontend/package-lock.json` ↔ `COPY` nel Dockerfile | ok, non escluso da `.dockerignore` |
+| 13 | 14 | binario con frontend incorporato ↔ immagine | ok |
+| 1 | 14 | `rust-toolchain.toml` 1.85 ↔ `rust:1.85-bookworm` | vedi F2 |
+| **setup** | **1** | `.gitignore` creato dal setup (`.superpowers/`) ↔ step 9 di 1 lo crea da zero | **F1** |
+
+### Coerenza interna di ciascun task
+
+| Task | Test contro codice, file creati contro file toccati | Esito |
+|---|---|---|
+| 1 | nessun test, solo build | ok |
+| 2 | 8 test ↔ `Username`, `UserId`, `AuthContext` | ok |
+| 3 | 7 test ↔ `Password`, `hash_password`, `verify_password` | ok |
+| 4 | 4 test ↔ migrazioni e `Db` | ok |
+| 5 | 8 test ↔ 5 metodi di `UserRepo` | **F2** (let-chain in `map_unique_violation`) |
+| 6 | 5+3 test ↔ `SessionToken`, `SettingsRepo` | ok |
+| 7 | 8 test ↔ 5 metodi di `SessionRepo` | ok |
+| 8 | 4 test ↔ `Config::load` | **F2** (let-chain in `Config::load`) |
+| 9 | 3 test ↔ router, header, problem | ok |
+| 10 | 10 test ↔ 6 endpoint | **F3** (`dummy_hash` non fa ciò che dichiara) |
+| 11 | 2 test ↔ documento OpenAPI | ok |
+| 12 | 6 test ↔ `apiFetch`, traduzioni | ok |
+| 13 | 3 test ↔ fallback SPA | ok |
+| 14 | verifiche manuali ↔ immagine | ok |
+| 15 | workflow ↔ comandi eseguibili in locale | ok |
+
+### Rulings pre-volo
+
+**F1 — `.gitignore` sovrascritto.** Il setup ha creato `.gitignore` con
+`.superpowers/`; lo step 9 del Task 1 lo crea da zero con altro contenuto,
+cancellando la riga.
+Ruling: il Task 1 **estende** il `.gitignore` esistente invece di sovrascriverlo,
+mantenendo `.superpowers/`. Costo se sbagliato: il workspace SDD finirebbe nei
+commit — visibile subito in `git status`.
+
+**F2 — let-chain con toolchain 1.85.** Il piano fissa `rust-toolchain.toml` a
+1.85.0, ma il codice di `keeppix-db/src/users.rs` (`map_unique_violation`) e di
+`keeppix-server/src/config.rs` (`Config::load`) usa `if let … && …`, che è
+stabile solo da **Rust 1.88**. Con 1.85 entrambi i task falliscono a compilare.
+Ruling: **alzare la toolchain a 1.88.0** in `rust-toolchain.toml` (Task 1),
+`rust-version` del workspace, `rust:1.88-bookworm` nel Dockerfile (Task 14) e
+`dtolnay/rust-toolchain@1.88.0` in CI (Task 15). Preferito alla riscrittura del
+codice perché tocca 4 righe invece di due funzioni, e i let-chain rendono quel
+codice più leggibile. Costo se sbagliato: nessuno noto — 1.88 è stabile da tempo
+e non introduce breaking change rispetto a 1.85.
+
+**F3 — `dummy_hash()` non pareggia i tempi.** In `routes/auth.rs` la verifica
+fittizia per utente inesistente usa una stringa PHC malformata: `verify_password`
+fallisce il parsing e ritorna subito, quindi **non** esegue Argon2 e non elimina
+la differenza di tempo che dovrebbe mascherare. Il commento dichiara una
+protezione che il codice non fornisce.
+Ruling: il Task 10 deve usare un **hash Argon2id valido** di una password fissa,
+generato una volta e incollato come costante, così la verifica fittizia svolge lo
+stesso lavoro di quella vera. Il test `login_fails_identically_for_unknown_user`
+resta valido. Costo se sbagliato: l'esistenza di un utente resta deducibile dai
+tempi di risposta — difetto reale ma non critico su un'istanza familiare.
+
+## Avanzamento
+
+Task 1: minor (deferred): i sette lib.rs contengono un `\n` invece di essere a 0 byte (artefatto dello strumento di scrittura, funzionalmente identico)
+Task 1: complete (commits d90022f..fcd5368, review clean — spec ✅, quality approved; build/clippy riverificati dal controller, rustc 1.88.0)
+Task 2: minor (deferred): `Username::parse` misura la lunghezza in byte anziché in char — innocuo perché l'alfabeto ammesso è solo ASCII, ma un input non-ASCII troppo corto riceve l'errore "caratteri non validi" invece di "lunghezza"
+Task 2: minor (deferred): `GroupId` non ha test diretti (generato dalla stessa macro di `UserId`, che è testata)
+Task 2: minor (deferred): `#[allow(clippy::unnecessary_wraps)]` su `AuthContext::user_id()` senza commento `// reason:` — la motivazione (futura variante ShareLink) vive solo nel report
+Task 2: fix round 1/5 avviato — Important: `User::is_active()` senza copertura di test (entrambi i rami)
+Task 2: fix round 1/5 (1 addressed, 0 open — is_active() ora coperto su entrambi i rami; commits f29394b..c0382a0)
+Task 2: complete (commits fcd5368..c0382a0, review clean — spec ✅, quality approved)
+Task 3: minor (deferred): `Password::parse` limita a 1024 *caratteri*, non byte — una password di 1024 emoji arriva ad Argon2 come ~4096 byte. Conforme al brief, ma i limiti di dimensione HTTP dei task successivi vanno pensati in byte
+Task 3: minor (deferred): `Password` non azzera il buffer in `Drop` e deriva `Clone` — hardening futuro, fuori dal brief
+Task 3: nota: la verifica Argon2 legge i parametri dalla stringa PHC, non dall'istanza `Argon2`; l'helper condiviso è igiene, non correttezza
+Task 3: complete (commits c0382a0..db82b8c, review clean — spec ✅, quality approved)
+
+Ruling (pre-Task 4, conflitto spec↔piano): lo spec §9.5 dichiara "sqlx con query
+verificate a compile-time", ma tutto il codice del piano (Task 4,5,6,7) usa le
+forme *funzione* `sqlx::query(...)` / `query_scalar(...)`, che sono verificate a
+runtime — non le macro `query!`. Di conseguenza gli step 11-12 del Task 4
+(`cargo sqlx prepare`, `SQLX_OFFLINE=true`) produrrebbero una cache vuota e non
+verificherebbero nulla.
+Decisione: si tengono le forme funzione con parametri bound. La proprietà di
+sicurezza che lo spec vuole davvero — nessuna concatenazione di stringhe, query
+parametrizzate — è pienamente soddisfatta; la verifica di schema a compile-time
+è coperta meglio dai test di integrazione contro un Postgres reale, che il piano
+già impone per ogni repository. Gli step 11-12 del Task 4 vengono saltati, e i
+riferimenti a `.sqlx`/`SQLX_OFFLINE` vanno rimossi dal Dockerfile (Task 14) e
+dalla CI (Task 15).
+Costo se sbagliato: un refuso in un nome di colonna fallisce in test invece che
+in build — qualche secondo più tardi, mai in produzione.
+Task 4: minor (deferred): `serde`, `chrono`, `tracing`, `tokio` aggiunti a keeppix-db ma non ancora usati (provisioning voluto dal brief per i task successivi)
+Task 4: nota: dipendenza diretta `testcontainers` rimossa per conflitto di versione con `testcontainers-modules` (che pinna ^0.27); l'harness usa il re-export `testcontainers_modules::testcontainers::*`, importabile identico dai Task 5/6/7
+Task 4: complete (commits db82b8c..ada768e, review clean — spec ✅, quality approved)
+Task 5: minor (deferred): `map_unique_violation` scarta l'errore sqlx sottostante — collisioni su username ed email producono lo stesso messaggio, perdendo segnale di debug
+Task 5: minor (deferred): il ramo "already initialised" di `create_bootstrap_admin` si affida al Drop della transazione invece di un `tx.rollback()` esplicito (corretto ma meno leggibile in un percorso concorrente)
+Task 5: minor (deferred): `uuid.workspace = true` resta ridondante in `[dev-dependencies]` dopo la promozione a `[dependencies]`
+Task 5: fix round 1/5 avviato — Important: (a) `DbError::Migration` sovraccaricato per righe corrotte, (b) i due test di access-control asseriscono solo `.is_err()` e non coprono l'oracolo di esistenza
+Task 5: fix round 1/5 (2 addressed, 0 open — DbError::Corrupted introdotto; test di access-control ora inchiodano la variante e coprono l'oracolo di esistenza; commits 3f7e1ca..78be6fc)
+Task 5: complete (commits ada768e..78be6fc, review clean — spec ✅, quality approved)
+Task 6: minor (deferred): `sha2 = "0.11"` in keeppix-domain duplica l'albero già presente via sqlx/argon2 (sha2 0.10.9) — bloat di build, nessun impatto funzionale; pinnare a 0.10 deduplicherebbe
+Task 6: minor (deferred): `digest()` calcola SHA-256 sui byte UTF-8 della stringa base64url, non sui 32 byte grezzi — equivalente crittograficamente, ma da sapere se codice futuro assume i byte grezzi
+Task 6: nota per il Task 7: `SessionToken` deriva `PartialEq` (confronto non a tempo costante). Va bene finché la validazione passa dal lookup del digest in DB; un confronto diretto `==` fra token reintrodurrebbe un canale laterale temporale
+Task 6: Ruling: il brief (step 9) prescrive `DbError::Migration` per un segreto memorizzato illeggibile, ma il fix round del Task 5 ha introdotto `DbError::Corrupted` esattamente per "dato già in DB malformato". Il piano è anteriore a quella decisione. Vince il finding: si usa `Corrupted`, per non spezzare la tassonomia degli errori su cui si fa triage. Costo se sbagliato: nessuno — le due varianti sono entrambe gestite dal ramo catch-all previsto nel Task 9
+Task 6: fix round 1/5 avviato — Important: `Migration` usato al posto di `Corrupted` in settings.rs
+Task 6: fix round 1/5 (1 addressed, 0 open — entrambi i siti in settings.rs ora usano Corrupted; commits 26ec9f5..362af6e)
+Task 6: complete (commits 78be6fc..362af6e, review clean — spec ✅, quality approved)
+Task 7: minor (deferred): `interval()` tronca i TTL sub-secondo (`Duration::from_millis(500)` -> "0 seconds", token nato scaduto senza errore); `as_secs_f64()` sarebbe fedele
+Task 7: minor (deferred): ruolo sconosciuto in sessions.rs degrada a `SystemRole::User` invece di `DbError::Corrupted` come in users.rs — irraggiungibile grazie al CHECK, e fallisce chiuso, ma le due tassonomie divergono
+Task 7: minor (deferred): `rotate` non controlla `users.disabled_at` — disabilitare un utente non termina la sua catena di sessioni (authenticate blocca comunque l'accesso). Da decidere quando si costruirà il percorso di disabilitazione
+Task 7: minor (deferred): doc `# Errors` di `rotate` omette il caso "revocato" fra i NotFound
+Task 7: minor (deferred): due replay concorrenti sulla stessa famiglia possono deadlockare (Postgres aborta uno con 40P01 -> DbError::Connection invece di Forbidden); l'esito di sicurezza regge, degrada solo il codice d'errore del perdente
+Task 7: nota informativa: un client legittimo che invia due refresh (retry, due schede) è indistinguibile da un furto e uccide la famiglia — inerente al design senza finestra di grazia, il Task 10 deve aspettarsi re-login occasionali
+Task 7: Ruling: includo nel fix round anche il finding M1 (classificato Minor) — il test `revoking_logs_out_only_that_session` crea due famiglie distinte, quindi passerebbe anche se `revoke` fosse allargato all'intera famiglia. È la stessa categoria di I2 (rigore dei test su una proprietà di sicurezza), tocca lo stesso file e lo stesso implementer è già in contesto. Costo se sbagliato: un giro di fix marginalmente più lungo
+Task 7: fix round 1/5 avviato — Important: (a) `rotate` confronta la scadenza con l'orologio dell'app invece che del DB, (b) tre dei cinque rami di `rotate` senza test; piu M1
+Task 7: minor (deferred): `rotate_rejects_an_expired_token` non distingue strutturalmente "quale orologio" viene usato — app e DB condividono lo stesso host/rete Docker, quindi il test sarebbe passato anche con il bug pre-fix. Verifica il comportamento, non la causa. Una guardia più forte richiederebbe iniezione dell'orologio, non presente nel codebase; forma del test comunque prescritta dal brief
+Task 7: nota di provenienza: l'implementer è morto per limite di sessione API dopo aver scritto il fix ma prima di verificare/committare. Il controller ha verificato (11/11 test, clippy pulito, fmt applicato) e committato lui stesso il codice esattamente come lasciato dall'implementer, in `8835447`
+Task 7: fix round 1/5 (3 addressed, 0 open — orologio DB invece di app clock; 3 test su rotate aggiunti; revoke ora provato sulla stessa famiglia; commits 78d970d..8835447)
+Task 7: complete (commits 362af6e..8835447, review clean — spec ✅, quality approved)
+Task 8: minor (deferred): `clear_env()` in tests/config.rs azzera solo 4 delle 7 chiavi KEEPPIX_* possibili (mancano DB_MAX_CONNECTIONS, SESSION_TTL_SECS, ALLOWED_ORIGINS) — nessuna perdita oggi, trappola latente per chi scriverà nuovi test. Verbatim dal brief
+Task 8: minor (deferred): nessun test committato copre "env DATABASE_URL vince sul database_url del file" (verificato a mano dal reviewer, la proprieta regge). Verbatim dal brief
+Task 8: minor (deferred): il messaggio d'errore di DATABASE_URL mescola inglese e italiano ("is required (es. ...)"). Verbatim dal brief
+Task 8: fix round 1/5 avviato — Important: (a) `.expect()` non annotato in config.rs:42 fara fallire la CI del Task 15, (b) `healthcheck()` ignora Config::load e sonda la porta 5673 hardcoded invece di quella configurata
+Task 8: fix round 1/5 (2 addressed, 0 open — .expect() sostituito da SocketAddr::from infallibile; healthcheck passa da Config::load e usa cfg.bind.port(); commits 6e4246b..74890b4)
+Task 8: nota: healthcheck ora dipende da DATABASE_URL via Config::load anche se non tocca il DB. Accettabile: HEALTHCHECK gira nello stesso container con lo stesso ambiente di `serve`, quindi le due invocazioni vedono la stessa configurazione
+Task 8: complete (commits 8835447..74890b4, review clean — spec ✅, quality approved)
+Task 9: minor (deferred): `Auth::from_request_parts` mappa *qualsiasi* errore di `SessionRepo::authenticate` — incluso `DbError::Connection`, cioè database irraggiungibile — a `401 keeppix/unauthenticated`. Un blip del DB apparirebbe come "sessione scaduta" a tutti i client invece che come 5xx, e il frontend li rimanderebbe al login in massa. Verbatim dal brief (step 6), quindi difetto del piano, non dell'implementer. Da valutare nel review finale: `Connection` -> 503, il resto -> 401
+Task 9: Ruling (difetto del piano trovato dal review): il `common_layers` che ho scritto nel piano chiama `.fallback(not_found)` DOPO la catena `.layer(...)`. In axum 0.8 `Router::fallback` sovrascrive il catch_all_fallback invece di fondersi con quello gia avvolto, e `.layer()` avvolge solo il fallback esistente al momento della chiamata: risultato, le rotte non trovate escono senza CSP, nosniff, referrer-policy e permissions-policy. Il reviewer lo ha verificato costruendo un test usa-e-getta e poi lo ha rimosso. Correzione: `.fallback()` va spostato PRIMA dei `.layer()`. Lo stesso ordine va rispettato nel Task 13, che ristruttura `common_layers`. Costo se sbagliato: nessuno, la correzione e verificata
+Task 9: fix round 1/5 avviato — Critical: header di sicurezza assenti sulla rotta di fallback; Important: nessun test copriva quel caso
+Task 9: fix round 1/5 (2 addressed, 0 open — .fallback() spostato prima dei .layer() con commento sul meccanismo; helper condiviso assert_security_headers chiamato da entrambi i test, red-then-green documentato con transcript reale; commits 53d842d..a040007)
+Task 9: complete (commits 74890b4..a040007, review clean — spec ✅, quality approved)
+Task 10: minor (deferred): `reqwest` di test usa la feature `rustls`, che tira dentro aws-lc-rs/aws-lc-sys/quinn/jni (~440 righe di Cargo.lock + requisito cmake e toolchain C) per test che parlano HTTP in chiaro a 127.0.0.1. Togliere la feature tenendo json+cookies ridurrebbe la superficie di build in CI
+Task 10: minor (deferred): `refresh` non ricontrolla l'utente — `rotate` tocca solo `sessions`, quindi un account disabilitato puo coniare token all'infinito. Innocuo oggi perche `authenticate` fa join su `users.disabled_at IS NULL`, ma la famiglia non muore mai
+Task 10: minor (deferred): le risposte 405 (es. GET su /auth/login) restituiscono il corpo vuoto di default di axum, non `application/problem+json`. Gli header di sicurezza si applicano comunque
+Task 10: minor (deferred): nessun rate limiting su /auth/login e /setup; i ~100ms di Argon2 danno solo un throttling incidentale
+Task 10: Ruling (F4, host client-controlled): `should_be_secure` fa prefix-match su `Host`, quindi `localhost.evil.com` e `127.0.0.1.evil.com` passano per localhost. Il reviewer ha concluso — correttamente — che e DoS-grade e non disclosure-grade: il browser imposta Host dall'origine visitata, e dove l'header viene riscritto il prefisso `__Host-` fa comunque rifiutare il cookie non-Secure, quindi il login fallisce invece di far trapelare il cookie. Decisione: correggo con match esatto dopo lo strip della porta, piu `[::1]` e `::1`. NON sposto la decisione in configurazione (`AppState.secure_cookies`), che sarebbe architetturalmente piu pulito ma richiede di infilare un campo nuovo lungo Config -> AppState -> entrambi i router -> le funzioni cookie, cioe una modifica di interfaccia del Task 8 sproporzionata rispetto al rischio residuo. Annotato come miglioramento per il review finale. Costo se sbagliato: resta un header client-controlled che decide un attributo di sicurezza, mitigato dal prefisso `__Host-`
+Task 10: fix round 1/5 avviato — spec ❌ + 6 Important: F1 clearing_cookie senza Secure viola `__Host-`, F2 il test di pinning del dummy-hash non pinna nulla, F3 should_be_secure senza copertura, F4 prefix-match su Host, F5 logout_invalidates_the_session non prova la revoca server-side, F6 refresh_rotates non prova che il vecchio cookie muoia; piu rimozione di `pub type Ctx`
+Task 10: fix round 1/5 (7 addressed, 0 open — F1 clearing_cookie(secure) con Secure+SameSite; F2 test di pinning che asserisce il parsing in positivo; F3 tre unit test su should_be_secure inclusi i lookalike host; F4 match esatto con strip_port e letterali IPv6; F5 logout riprovato con cookie esplicito su client fresco; F6 refresh_rejects_a_reused_token aggiunto; `pub type Ctx` rimosso)
+Task 10: nota di provenienza: l'implementer e stato fermato dal controller mentre stava per dimostrare il red-then-green di F5. Tutte le correzioni erano gia complete e coerenti (revoke() intatto, Ctx rimosso, clearing_cookie cablato). Il controller ha verificato: 11 test auth + 3 health + 4 unit = tutti verdi, clippy pulito, fmt applicato, e ha committato
+Task 10: complete (commits a040007..<questo commit>, tutti i finding risolti; re-review formale NON eseguita per passaggio a sessione cloud — da rifare come primo passo)
+
+## Consegna a sessione cloud (2026-08-13)
+
+Il workspace `.superpowers/` e stato tolto da .gitignore e committato, insieme a
+docs/superpowers/plans/2026-08-13-keeppix-fase-0-STATO.md che riassume ruling e
+difetti differiti. Prossimo passo: re-review del fix round del Task 10, poi
+Task 11 (OpenAPI).
