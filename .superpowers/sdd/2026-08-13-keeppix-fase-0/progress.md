@@ -701,3 +701,18 @@ chiudeva il Critical: un `.env` di sviluppo locale con `DATABASE_URL=...localhos
 (copiato da .env.example per `cargo run`) verrebbe letto anche da `docker compose`
 nella stessa cartella e romperebbe l'avvio bundled. Riprodotto, avvertenza
 aggiunta in docs/DEPLOY.md. `.env.example` non toccato (fuori dai confini).
+Task 14: fix round 1/5 (3 addressed, 0 open — re-review scoped che ha verificato
+empiricamente con `docker compose config` tutti e 4 gli scenari, eseguendo
+anche letteralmente i comandi copiati da docs/DEPLOY.md invece di limitarsi a
+leggerli: e cosi che si chiude un Critical nato proprio da una guida che
+prometteva un comando mai ripercorso. Confermata la persistenza reale di
+DB_PASSWORD fra sessioni di shell separate, e che una variabile non referenziata
+dal compose non filtra nel container. L'intera struttura di sicurezza
+(read_only, cap_drop, security_opt, depends_on, volumi, porte, healthcheck)
+invariata nel config risolto. Effetto collaterale del .env locale riprodotto e
+avvertenza giudicata accurata. Nessuna rottura nuova; commits 19d9f22..f6d1e34)
+Task 14: complete (commits 17a1a28..f6d1e34, review clean dopo 1 fix round —
+spec OK dopo il fix, qualita approvata). **Riserva esplicita**: nulla e stato
+costruito o avviato con Docker; restano da eseguire su una macchina con Docker i
+9 comandi elencati nel report, che coincidono con altrettanti criteri di
+completamento della Fase 0.
