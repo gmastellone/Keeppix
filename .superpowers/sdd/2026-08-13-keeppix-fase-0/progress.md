@@ -512,3 +512,25 @@ locale riuscito con revoca server-side incerta (e il backend, per sua natura,
 risponde 204 anche quando la revoca fallisce: vedi il difetto differito su
 logout). Il piano non aveva ragione di preferire il silenzio. Costo se
 sbagliato: cinque righe in piu in una vista.
+Fix cookie __Host-/Secure: implementato (commit b3b1b32) — Secure incondizionato
+in session_cookie e clearing_cookie, parametro `secure` rimosso dalle firme,
+should_be_secure/strip_port/host() eliminati, `headers` tolto dalle firme di
+refresh e logout dove serviva solo a quello. I due test del Task 10 fix round 2
+che contraffacevano Host sono stati affiancati (non sostituiti) da due gemelli
+che girano sull'host di default dell'harness, piu un test di round-trip
+end-to-end. 16 test in tests/auth.rs, suite intera verde, clippy e fmt puliti.
+Riverificato dal controller.
+Fix cookie: nota di onesta dell'implementer — il test di round-trip
+`login_then_me_stays_authenticated_on_the_same_client` NON diventa rosso quando
+si reintroduce l'omissione di Secure, e lui lo ha riportato spontaneamente
+invece di lasciarlo scoprire. E coerente con l'analisi del brief: cookie_store
+non implementa la validazione del prefisso __Host-, quindi un cookie senza
+Secure viene riaccettato comunque su HTTP in chiaro. La guardia reale contro la
+regressione e `assert_host_prefix_attributes`, che ora gira anche sull'host di
+default e diventa rossa (4/16 test in rosso nella prova di vitalita). Il test di
+round-trip resta come pin del flusso normale, con un doc comment che dichiara
+esplicitamente cio che non prova — che e il modo giusto di tenere un test
+debole senza che qualcuno lo scambi per una garanzia.
+Fix cookie: il ruling R7 e chiuso — non esiste piu alcuna decisione di sicurezza
+guidata da un header controllato dal client. Il difetto corrispondente va
+rimosso dall'elenco dei "noti e differiti" nello STATO alla chiusura della fase.
