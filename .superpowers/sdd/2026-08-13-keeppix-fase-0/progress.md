@@ -737,3 +737,31 @@ Task 15: nota dell'implementer: i warning `duplicate` di cargo-deny bans (piu
 versioni di syn, windows_*, base64) vengono soprattutto da
 testcontainers/bollard in dev-dependency; benigni con
 `multiple-versions = "warn"`, ma da sapere presenti.
+Task 15: review (spec ❌, qualita da correggere) — 2 Critical, 1 Important,
+2 Minor. Il reviewer ha validato empiricamente anche cio che era corretto:
+ha ricreato in isolamento sia il rifiuto di `AGPL-3.0` senza `-or-later` sia
+quello di webpki-roots senza `CDLA-Permissive-2.0`, confermando che entrambe le
+aggiunte a deny.toml sono necessarie e sufficienti.
+Task 15: fix round 1/5 avviato — **Critical 1**: il job `backend` non costruisce
+il frontend prima di clippy/test e non condivide `frontend/dist` col job
+`frontend` (nessun needs:, nessun artifact). Non e il self-skip che il controller
+temeva: senza quella cartella `#[derive(Embed)]` **non compila affatto** —
+verificato in proprio dal controller (`mv frontend/dist /tmp && cargo check -p
+keeppix-server` -> 3 errori, "could not compile keeppix-server (lib)"). La CI
+fallirebbe allo step Lint alla primissima esecuzione. **Critical 2**: in
+release.yml `cosign sign` ricostruisce il riferimento con
+`ghcr.io/${{ github.repository }}`, che conserva il case originale
+(`gmastellone/Keeppix`), mentre docker/metadata-action normalizza in minuscolo:
+il comando punta a un path inesistente e fallisce a ogni release reale e a ogni
+ricostruzione settimanale da cron. Difetto che nessuno scopre finche non serve.
+Task 15: Ruling (finding Important plan-mandated, decisione del controller): lo
+script del budget bundle somma anche i chunk lazy per-rotta, in conflitto con lo
+spec riga 707 che li vuole fuori dal budget iniziale. Oggi pesa ~2,6 KB, ma alla
+prima fase con un chunk lazy grosso la CI diventerebbe rossa per il motivo
+sbagliato, e la reazione naturale sarebbe alzare il tetto — cioe disattivare
+proprio la protezione. Decisione: tentare la correzione ora misurando il solo
+bundle d'ingresso (manifest di Vite o lo script referenziato da dist/index.html);
+se costa piu di poche righe o introduce fragilita, lasciare lo script e
+**dichiarare il limite in un commento nel workflow**. Un limite dichiarato vale
+piu di una correzione arzigogolata. Costo se sbagliato: il budget resta una
+misura approssimata per eccesso, che e il verso conservativo.
