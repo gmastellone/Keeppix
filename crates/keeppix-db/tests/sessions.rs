@@ -94,23 +94,73 @@ async fn reusing_a_consumed_token_kills_the_whole_family() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn rotate_rejects_an_unknown_token() {
+    let test = TestDb::start().await;
+    seed_admin(&test).await;
+    let repo = SessionRepo::new(test.db());
+
+    let result = repo.rotate(&SessionToken::generate(), TTL).await;
+    assert!(matches!(result, Err(DbError::NotFound)));
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn rotate_rejects_a_revoked_token() {
+    let test = TestDb::start().await;
+    let user_id = seed_admin(&test).await;
+    let repo = SessionRepo::new(test.db());
+
+    let token = repo.create(user_id, TTL, None).await.unwrap();
+    repo.revoke(&token).await.unwrap();
+
+    let result = repo.rotate(&token, TTL).await;
+    assert!(matches!(result, Err(DbError::NotFound)));
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn rotate_rejects_an_expired_token() {
+    let test = TestDb::start().await;
+    let user_id = seed_admin(&test).await;
+    let repo = SessionRepo::new(test.db());
+
+    let token = repo
+        .create(user_id, Duration::from_secs(0), None)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let result = repo.rotate(&token, TTL).await;
+    assert!(matches!(result, Err(DbError::NotFound)));
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn revoking_logs_out_only_that_session() {
     let test = TestDb::start().await;
     let user_id = seed_admin(&test).await;
     let repo = SessionRepo::new(test.db());
 
-    let phone = repo.create(user_id, TTL, Some("phone")).await.unwrap();
-    let laptop = repo.create(user_id, TTL, Some("laptop")).await.unwrap();
+    // parent e child appartengono alla stessa famiglia: parent -> rotate -> child.
+    let parent = repo.create(user_id, TTL, None).await.unwrap();
+    let child = repo.rotate(&parent, TTL).await.unwrap();
 
-    repo.revoke(&phone).await.unwrap();
+    repo.revoke(&child).await.unwrap();
 
     assert!(matches!(
-        repo.authenticate(&phone).await,
+        repo.authenticate(&child).await,
         Err(DbError::NotFound)
     ));
+
+    let parent_revoked_at: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT revoked_at FROM sessions WHERE refresh_token_hash = $1")
+            .bind(parent.digest().as_slice())
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
     assert!(
-        repo.authenticate(&laptop).await.is_ok(),
-        "l'altro dispositivo resta connesso"
+        parent_revoked_at.is_none(),
+        "revocare il child non deve toccare il parent nella stessa famiglia"
     );
 }
 
