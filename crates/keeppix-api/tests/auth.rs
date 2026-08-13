@@ -1,7 +1,42 @@
 mod harness;
 
-use harness::TestServer;
+use harness::{TestServer, assert_security_headers};
 use serde_json::json;
+
+/// `keeppix_api::router(state)` — il router *con* stato, montato da
+/// `TestServer` e usato da tutti i test di questo file — applica gli stessi
+/// quattro header di sicurezza del router senza stato (`router_without_state`,
+/// coperto da `tests/health.rs` e `tests/openapi.rs`). I due router
+/// impostano il fallback e chiamano `with_common_layers` separatamente
+/// (`crates/keeppix-api/src/lib.rs`): senza questo test, un errore
+/// nell'ordine specifico di `router(state)` non farebbe fallire nessun test,
+/// perché nessun altro test di questo file guarda gli header — solo lo
+/// status code e il corpo delle risposte.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn router_with_state_carries_the_security_headers() {
+    let server = TestServer::start().await;
+
+    // Una rotta esistente.
+    let ok_response = server
+        .client
+        .get(server.url("/api/v1/setup/status"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok_response.status(), reqwest::StatusCode::OK);
+    assert_security_headers(ok_response.headers());
+
+    // Il fallback 404 (nessuna rotta API di questo tipo esiste).
+    let not_found_response = server
+        .client
+        .get(server.url("/api/v1/questa-rotta-non-esiste"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(not_found_response.status(), reqwest::StatusCode::NOT_FOUND);
+    assert_security_headers(not_found_response.headers());
+}
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]

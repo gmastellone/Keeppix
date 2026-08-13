@@ -1,8 +1,8 @@
 mod harness;
 
 use axum::body::Body;
-use axum::http::{HeaderMap, Request, StatusCode};
-use harness::TestServer;
+use axum::http::{Request, StatusCode};
+use harness::{TestServer, assert_security_headers};
 use tower::ServiceExt as _;
 
 /// Il documento non tocca il database: nasce dalle annotazioni sui tipi.
@@ -17,20 +17,6 @@ fn app() -> axum::Router {
 const HTTP_METHODS: [&str; 8] = [
     "get", "put", "post", "delete", "options", "head", "patch", "trace",
 ];
-
-/// Copia locale delle asserzioni di `tests/health.rs`: ogni file di test è un
-/// binario a sé, quindi l'helper non è condivisibile senza un modulo comune.
-/// I quattro header sono gli stessi applicati da `common_layers`.
-#[allow(clippy::unwrap_used)]
-fn assert_security_headers(headers: &HeaderMap) {
-    assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
-    assert_eq!(headers.get("referrer-policy").unwrap(), "no-referrer");
-    assert!(headers.get("content-security-policy").is_some());
-    assert_eq!(
-        headers.get("permissions-policy").unwrap(),
-        "camera=(), microphone=(), geolocation=()"
-    );
-}
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
