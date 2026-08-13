@@ -1,0 +1,173 @@
+# Review package: Task 15 (.github/workflows, deny.toml)
+
+## Commits
+9b6bb70 ci: add build, test, audit and release pipelines
+
+## Files changed
+ .github/workflows/ci.yml      | 80 +++++++++++++++++++++++++++++++++++++++++++
+ .github/workflows/release.yml | 53 ++++++++++++++++++++++++++++
+ deny.toml                     | 10 ++++++
+ 3 files changed, 143 insertions(+)
+
+## Diff
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..f2cea69
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,80 @@
++name: CI
++
++on:
++  push: { branches: [main] }
++  pull_request:
++
++env:
++  CARGO_TERM_COLOR: always
++
++jobs:
++  backend:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: dtolnay/rust-toolchain@1.88.0
++        with: { components: rustfmt, clippy }
++      - uses: Swatinem/rust-cache@v2
++
++      - name: Formattazione
++        run: cargo fmt --all --check
++
++      - name: Lint
++        run: cargo clippy --workspace --all-targets -- -D warnings
++
++      # I test di integrazione avviano Postgres via testcontainers (immagine
++      # postgis/postgis:17-3.5): Docker è già disponibile sui runner GitHub, e
++      # il container usa-e-getta viene creato e distrutto automaticamente. In
++      # locale, dove testcontainers non è raggiungibile, l'harness usa invece
++      # la variabile KEEPPIX_TEST_DATABASE_URL per puntare a un Postgres già
++      # in esecuzione: qui in CI non va impostata.
++      - name: Test
++        run: cargo test --workspace -- --test-threads=1
++
++      - name: La specifica OpenAPI è aggiornata
++        run: git diff --exit-code docs/api/openapi.json
++
++  frontend:
++    runs-on: ubuntu-latest
++    defaults: { run: { working-directory: frontend } }
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-node@v4
++        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
++
++      - run: npm ci
++      - name: Tipi
++        run: npx vue-tsc --noEmit
++      - name: Test
++        run: npx vitest run
++      - name: Build
++        run: npm run build
++
++      - name: Budget del bundle iniziale (150 KB gzip)
++        run: |
++          SIZE=$(find dist/assets -name '*.js' -exec gzip -c {} \; | wc -c)
++          echo "bundle gzip: $SIZE byte"
++          if [ "$SIZE" -gt 153600 ]; then
++            echo "::error::bundle oltre il budget di 153600 byte"
++            exit 1
++          fi
++
++  audit:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: EmbarkStudios/cargo-deny-action@v2
++        with: { command: check advisories bans licenses }
++
++  image:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: docker/setup-buildx-action@v3
++      - name: Build immagine (senza push)
++        uses: docker/build-push-action@v6
++        with:
++          context: .
++          push: false
++          cache-from: type=gha
++          cache-to: type=gha,mode=max
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+new file mode 100644
+index 0000000..6e62389
+--- /dev/null
++++ b/.github/workflows/release.yml
+@@ -0,0 +1,53 @@
++name: Release
++
++on:
++  push:
++    tags: ["v*"]
++  schedule:
++    # Ricostruzione settimanale: raccoglie le patch di sicurezza delle immagini
++    # di base senza attendere una release.
++    - cron: "0 4 * * 1"
++
++permissions:
++  contents: read
++  packages: write
++  id-token: write
++
++jobs:
++  publish:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: docker/setup-qemu-action@v3
++      - uses: docker/setup-buildx-action@v3
++      - uses: docker/login-action@v3
++        with:
++          registry: ghcr.io
++          username: ${{ github.actor }}
++          password: ${{ secrets.GITHUB_TOKEN }}
++
++      - id: meta
++        uses: docker/metadata-action@v5
++        with:
++          images: ghcr.io/${{ github.repository }}
++          tags: |
++            type=semver,pattern={{version}}
++            type=semver,pattern={{major}}
++            type=raw,value=latest,enable={{is_default_branch}}
++
++      - id: build
++        uses: docker/build-push-action@v6
++        with:
++          context: .
++          platforms: linux/amd64,linux/arm64
++          push: true
++          tags: ${{ steps.meta.outputs.tags }}
++          labels: ${{ steps.meta.outputs.labels }}
++          sbom: true
++          provenance: mode=max
++
++      - uses: sigstore/cosign-installer@v3
++      - name: Firma l'immagine
++        run: |
++          cosign sign --yes \
++            ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+diff --git a/deny.toml b/deny.toml
+new file mode 100644
+index 0000000..a4dd7c1
+--- /dev/null
++++ b/deny.toml
+@@ -0,0 +1,10 @@
++[advisories]
++yanked = "deny"
++
++[licenses]
++allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause",
++         "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0",
++         "AGPL-3.0-or-later", "CDLA-Permissive-2.0"]
++
++[bans]
++multiple-versions = "warn"

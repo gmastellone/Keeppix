@@ -716,3 +716,24 @@ spec OK dopo il fix, qualita approvata). **Riserva esplicita**: nulla e stato
 costruito o avviato con Docker; restano da eseguire su una macchina con Docker i
 9 comandi elencati nel report, che coincidono con altrettanti criteri di
 completamento della Fase 0.
+Task 15: implementato (commit 9b6bb70) — .github/workflows/ci.yml (job backend,
+frontend, audit, image), release.yml, deny.toml. Applicate tutte e quattro le
+correzioni del preflight: SQLX_OFFLINE rimosso (R4), toolchain 1.88.0 (R2),
+nessun push su main (F12), deny.toml corretto ed effettivamente eseguito.
+Task 15: `cargo deny check advisories bans licenses` passa —
+`advisories ok, bans ok, licenses ok`, riverificato in proprio dal controller.
+Lista licenze finale: quella del brief con `AGPL-3.0` -> `AGPL-3.0-or-later`
+(identificatore SPDX reale dei crate keeppix-*, che altrimenti il progetto
+rifiutava sé stesso) piu `CDLA-Permissive-2.0` per i bundle CA di webpki-roots,
+dipendenza transitiva di sqlx/TLS. Nessuna advisory RUSTSEC, nessun crate yanked.
+Task 15: verifiche locali dell'implementer: fmt/clippy puliti, 96/96 test verdi
+con embed.rs realmente eseguito (4/4, frontend precostruito), bundle 76.893 byte
+gzip su budget 153.600, `git diff --exit-code docs/api/openapi.json` a zero.
+Task 15: **non eseguiti e dichiarati tali**: il job `image` (pull immagini
+bloccato), `release.yml` per intero (richiede tag/cron/ghcr.io/cosign OIDC), e
+lo step 6 del brief (guardare la pagina Actions), che puo avvenire solo dopo il
+push. L'implementer non afferma da nessuna parte che la CI sia verde.
+Task 15: nota dell'implementer: i warning `duplicate` di cargo-deny bans (piu
+versioni di syn, windows_*, base64) vengono soprattutto da
+testcontainers/bollard in dev-dependency; benigni con
+`multiple-versions = "warn"`, ma da sapere presenti.
