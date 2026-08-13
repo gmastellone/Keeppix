@@ -304,3 +304,195 @@ verifica reale di questo Dockerfile, come indicato dal preflight.
 Non ho toccato `crates/`, `frontend/`, `docs/api/`. Non ho toccato
 `.env.example` (difetto segnalato sopra, non corretto). `git add` verrà
 limitato ai quattro file creati da questo task.
+
+---
+
+## Fix round 1/5 — risposta alla review statica
+
+Review letta: `.superpowers/sdd/2026-08-13-keeppix-fase-0/task-14-review.md`.
+1 Critical, 1 Important, 1 Minor, tutti sulla coerenza `docs/DEPLOY.md` ↔
+`compose.yaml`; nessun problema sul `Dockerfile`/`.dockerignore`, confermati
+di nuovo dal reviewer con verifica indipendente.
+
+### Scoperta importante durante il fix: `docker compose config` è eseguibile qui
+
+Il vincolo "Docker non è utilizzabile" resta vero per `build`/`run`/`up`
+(nessun daemon: `docker info` risponde
+`failed to connect to the docker API at unix:///var/run/docker.sock: … no
+such file or directory`). Ma il binario client `docker` e il plugin
+`compose` (v5.1.1) **sono installati**, e `docker compose config` è
+puramente client-side (parsing YAML + interpolazione delle variabili): non
+tocca il socket del daemon e quindi funziona anche senza di esso. L'ho
+scoperto e usato per verificare *empiricamente*, non solo a lettura, ogni
+scenario che `docs/DEPLOY.md` promette — cosa che il round precedente non
+aveva fatto (da cui il Critical). Resta vero che non si può costruire
+l'immagine, avviare i container, o osservare l'healthcheck: quella parte
+dei 9 comandi non eseguiti in fondo al report resta invariata.
+
+### Critical #1 — corretto
+
+**Causa confermata:** in `compose.yaml`, `DATABASE_URL:
+postgres://keeppix:${DB_PASSWORD:-changeme}@db/keeppix` interpola solo
+`${DB_PASSWORD}`; `DATABASE_URL` non compariva mai come token `${…}`, quindi
+impostarla in shell (come `docs/DEPLOY.md:24` istruiva) non aveva alcun
+effetto. Riprodotto con `docker compose config` prima del fix: con
+`DATABASE_URL="postgres://ext:extpass@myhost:5432/keeppix"` in ambiente, il
+valore risolto restava `postgres://keeppix:changeme@db/keeppix`.
+
+**Fix:** interpolazione annidata in `compose.yaml`:
+
+```yaml
+DATABASE_URL: ${DATABASE_URL:-postgres://keeppix:${DB_PASSWORD:-changeme}@db/keeppix}
+```
+
+**Verificato che l'interpolazione annidata funziona davvero**, non assunto:
+testata prima in isolamento (`/tmp/compose-test/compose.yaml` con un
+servizio minimo) e poi sul `compose.yaml` reale del progetto, con
+`docker compose config` (nessun daemon necessario) in 4 combinazioni:
+
+| Scenario | Comando | `DATABASE_URL` risolta |
+|---|---|---|
+| Bundled, nessuna variabile | `docker compose config` | `postgres://keeppix:changeme@db/keeppix` |
+| Bundled, `DB_PASSWORD` impostata | `DB_PASSWORD=supersegreta docker compose config` | `postgres://keeppix:supersegreta@db/keeppix` |
+| Postgres esterno, `DATABASE_URL` impostata | `DATABASE_URL="postgres://utente:password@mio-host:5432/keeppix" docker compose config` | `postgres://utente:password@mio-host:5432/keeppix` |
+| Entrambe impostate | `DB_PASSWORD=nonusata DATABASE_URL="postgres://utente:password@mio-host:5432/keeppix" docker compose config` | `postgres://utente:password@mio-host:5432/keeppix` (vince `DATABASE_URL`, come promesso) |
+
+Verificato anche che il profilo continui a governare `db` come documentato:
+`docker compose config --services` senza `--profile bundled` elenca solo
+`keeppix`; con `--profile bundled` elenca `db` e `keeppix`. Nessuna
+regressione sul comportamento già corretto in round 1.
+
+`docs/DEPLOY.md` aggiornato di conseguenza: la sezione "Avvio con un
+Postgres già esistente" ora dice di impostare `DATABASE_URL` (in `.env` o
+nella shell) e spiega che `compose.yaml` la fa vincere sul valore bundled —
+il comando che promette è quello che ho appena verificato in tabella.
+
+**Effetto collaterale trovato e documentato:** con la variabile annidata,
+un file `.env` di sviluppo locale (copiato da `.env.example` per `cargo
+run`, con `DATABASE_URL=postgres://keeppix:changeme@localhost:5432/keeppix`)
+nella stessa cartella verrebbe letto anche da `docker compose` e
+romperebbe l'avvio bundled (dentro al container `localhost` è il suo
+loopback, non l'host). Riprodotto:
+
+```bash
+echo "DATABASE_URL=postgres://keeppix:changeme@localhost:5432/keeppix" > .env
+docker compose config   # → DATABASE_URL: postgres://keeppix:changeme@localhost:5432/keeppix
+rm .env
+```
+
+Aggiunta un'avvertenza esplicita in `docs/DEPLOY.md` (sezione "Avvio con un
+Postgres già esistente") che spiega la collisione e come evitarla
+(`--env-file` diverso, o `DATABASE_URL` solo in shell). Non ho toccato
+`.env.example` (fuori dai confini).
+
+### Important #2 — corretto
+
+`docs/DEPLOY.md`, sezione "Avvio con tutto incluso": sostituito `export
+DB_PASSWORD=...` con `echo "DB_PASSWORD=..." > .env`, con una frase che
+spiega perché (`export` vale solo per la sessione di shell corrente;
+Postgres ignora `POSTGRES_PASSWORD` dopo il primo `initdb`, quindi un
+riavvio con la password di default `changeme` causa un mismatch di
+autenticazione contro `./pgdata` già inizializzato). Verificato con
+`docker compose config` che un `.env` con solo `DB_PASSWORD=dalfileenv`
+(nessuna variabile in shell) produce
+`DATABASE_URL: postgres://keeppix:dalfileenv@db/keeppix` — la persistenza
+funziona davvero, non solo a parole. Aggiunta la stessa raccomandazione
+nella sezione "Aggiornamento".
+
+### Minor #3 — corretto
+
+Aggiunto un paragrafo sotto la tabella "Variabili d'ambiente" che chiarisce
+che **solo** `DATABASE_URL` e `KEEPPIX_ALLOWED_ORIGINS` sono impostate
+esplicitamente da `compose.yaml`; le altre vanno aggiunte sotto
+`environment:` del servizio `keeppix` (o in un file di override) per essere
+cambiate in questo stack. Verificato empiricamente che un `.env` con, ad
+esempio, `KEEPPIX_BIND=9.9.9.9:1234` **non** compare nell'ambiente del
+container risolto da `docker compose config` (perché `compose.yaml` non
+referenzia mai `${KEEPPIX_BIND}`) — confermando che la distinzione fra ".env
+alimenta l'interpolazione del file di compose" e "variabile passata al
+processo nel container" è reale e non un dettaglio pedante.
+
+### Verifica per scenario, come richiesto dal contratto del round
+
+- **Bundled** (`docker compose --profile bundled up -d` con `.env`
+  contenente `DB_PASSWORD`): verificato con `docker compose config` che
+  `DATABASE_URL` si costruisce come
+  `postgres://keeppix:<password>@db/keeppix`, che `db` è incluso nei
+  servizi solo con `--profile bundled`, e che `POSTGRES_USER`/`POSTGRES_DB`
+  del servizio `db` combaciano (`keeppix`/`keeppix`). Non verificato
+  l'avvio reale né l'healthcheck (richiede daemon + pull immagini).
+- **Postgres esterno** (`DATABASE_URL` in `.env`, nessun profilo):
+  verificato con `docker compose config` che `DATABASE_URL` esterna vince
+  sempre, che `db` non compare tra i servizi attivi senza `--profile
+  bundled`. Non verificato che l'host esterno risponda davvero (dipende
+  dall'infrastruttura di chi installa, non da questo stack).
+- **Aggiornamento** (`git pull` + `up -d --build`, `.env` persistente):
+  verificato che `.env` sopravvive a sessioni di shell diverse per
+  costruzione (è un file su disco, non una variabile di processo) e che
+  `docker compose` lo rilegge a ogni invocazione (stesso meccanismo del
+  caso bundled, verificato sopra). Non verificato che `--build` produca
+  un'immagine diversa a fronte di modifiche reali (richiede build).
+- **Dietro un reverse proxy**: nessuna modifica in questo round; il
+  contenuto (`proxy_pass http://127.0.0.1:5673`, header `X-Forwarded-Proto`,
+  nota sul cookie `__Host-` che richiede HTTPS) non referenzia variabili
+  Compose e non era in discussione nella review. Riletto per assicurarmi
+  che non menzioni nulla toccato dal fix: confermato, invariato.
+
+### File modificati in questo round
+
+- `/home/user/Keeppix/compose.yaml` — interpolazione annidata per
+  `DATABASE_URL`, commento aggiornato.
+- `/home/user/Keeppix/docs/DEPLOY.md` — sezioni "Avvio con tutto incluso",
+  "Avvio con un Postgres già esistente", "Variabili d'ambiente",
+  "Aggiornamento" aggiornate come sopra.
+
+### Comandi eseguiti in questo round (evidenza)
+
+```bash
+# Bundled, nessuna variabile
+env -u DATABASE_URL -u DB_PASSWORD -u PHOTOS_PATH docker compose config
+# → DATABASE_URL: postgres://keeppix:changeme@db/keeppix
+
+# Bundled, DB_PASSWORD impostata
+env -u DATABASE_URL -u PHOTOS_PATH DB_PASSWORD=supersegreta docker compose config
+# → DATABASE_URL: postgres://keeppix:supersegreta@db/keeppix
+
+# Postgres esterno, DATABASE_URL impostata, profilo omesso
+env -u DB_PASSWORD -u PHOTOS_PATH DATABASE_URL="postgres://utente:password@mio-host:5432/keeppix" docker compose config
+# → DATABASE_URL: postgres://utente:password@mio-host:5432/keeppix
+
+# Entrambe impostate: DATABASE_URL vince
+env DB_PASSWORD=nonusata DATABASE_URL="postgres://utente:password@mio-host:5432/keeppix" docker compose config
+# → DATABASE_URL: postgres://utente:password@mio-host:5432/keeppix
+
+# Profilo governa la presenza di `db`
+env -u DATABASE_URL -u DB_PASSWORD docker compose config --services            # → keeppix
+env -u DATABASE_URL -u DB_PASSWORD docker compose --profile bundled config --services  # → db, keeppix
+
+# Persistenza via .env (senza variabili in shell)
+echo "DB_PASSWORD=dalfileenv" > .env && docker compose config   # → …changeme sostituito da dalfileenv
+rm .env
+
+# Collisione con .env di sviluppo locale, riprodotta e poi documentata
+echo "DATABASE_URL=postgres://keeppix:changeme@localhost:5432/keeppix" > .env
+docker compose config   # → DATABASE_URL: postgres://keeppix:changeme@localhost:5432/keeppix (bug se non gestito)
+rm .env
+
+# Variabile non referenziata dal compose non filtra nel container
+echo "KEEPPIX_BIND=9.9.9.9:1234" > .env
+docker compose config   # → nessuna KEEPPIX_BIND nell'ambiente risolto del servizio keeppix
+rm .env
+```
+
+`git status --short` dopo la pulizia dei file `.env` di test: nessun
+residuo (erano comunque coperti da `.gitignore`).
+
+### Stato aggiornato
+
+DONE_WITH_CONCERNS → i tre finding della review sono stati corretti e
+verificati con `docker compose config` (client-side, senza daemon né
+pull). Resta invariato l'elenco dei 9 comandi non eseguibili in questo
+ambiente (build reale, avvio, healthcheck a runtime, persistenza dati nel
+browser) in fondo al report originale: nessuno di quei comandi è stato
+ora reso eseguibile da questa scoperta, che copre solo il parsing/
+l'interpolazione del compose, non build/run.
