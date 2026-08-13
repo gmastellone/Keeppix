@@ -10,6 +10,8 @@ pub enum DbError {
     NotFound,
     #[error("conflict: {0}")]
     Conflict(String),
+    #[error("forbidden")]
+    Forbidden,
 }
 
 impl From<sqlx::migrate::MigrateError> for DbError {
