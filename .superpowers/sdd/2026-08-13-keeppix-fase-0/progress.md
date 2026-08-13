@@ -412,3 +412,15 @@ licenza aggiunta.
 Task 15: F14 — la CI non deve impostare `KEEPPIX_TEST_DATABASE_URL`: sui runner
 GitHub Docker c'e e il percorso testcontainers funziona. Va pero menzionata in un
 commento, perche chi legge la CI sappia che la variabile esiste.
+
+Task 12: nota di provenienza — il primo tentativo si e interrotto per limite di
+sessione dell'API (account-wide, reset comunicato per le 20:50 UTC) durante lo
+step 5 (RED phase), prima di qualunque commit. Il lavoro fin li resta su disco
+(non e una worktree separata) e non e stato perso: scaffold Vite, vite.config.ts,
+style.css con Tailwind v4, client.spec.ts verbatim dal brief. Trovato e corretto
+in autonomia un difetto reale del piano: i18n.spec.ts importa `it` da vitest e
+anche un valore `it` da `./it.json` nello stesso scope di modulo — errore di
+parse, non di risoluzione moduli. Corretto con import alias
+(`enMessages`/`itMessages`), motivazione in un commento nel file. Il tentativo e
+stato ripreso sullo stesso agente con l'istruzione di committare a incrementi
+coerenti invece di arrivare in fondo ai 16 step in un colpo solo.
