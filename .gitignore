@@ -1,1 +1,8 @@
 .superpowers/
+/target
+/data
+/pgdata
+node_modules
+frontend/dist
+.env
+*.kpxb
