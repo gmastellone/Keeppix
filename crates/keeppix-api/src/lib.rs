@@ -25,26 +25,44 @@ const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsa
                    img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; \
                    base-uri 'none'; form-action 'self'";
 
-/// Router con stato, montato dal binario.
+/// Router con stato, montato dai test che vogliono un 404 in JSON invece del
+/// fallback SPA (quest'ultimo lo aggiunge solo il binario, vedi
+/// `keeppix_server::embed::mount`).
 pub fn router(state: AppState) -> Router {
-    base_router().with_state(state)
+    with_common_layers(all_routes().fallback(not_found)).with_state(state)
 }
 
 /// Router senza stato, per i test che non toccano il database.
 pub fn router_without_state() -> Router {
-    base_router_stateless()
+    with_common_layers(
+        Router::new()
+            .route("/health", get(routes::health::get))
+            .route("/api/openapi.json", get(openapi::serve))
+            .fallback(not_found),
+    )
 }
 
-fn common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {
+/// Rotte di Keeppix, **senza** layer né fallback: chi le monta decide sia il
+/// fallback (404 JSON qui sopra, SPA nel binario) sia il momento in cui
+/// applicare `with_common_layers` — che deve essere *dopo* aver impostato il
+/// fallback, per il motivo spiegato lì.
+pub fn router_parts() -> Router<AppState> {
+    all_routes()
+}
+
+/// Applica gli strati comuni a tutte le risposte del server: header di
+/// sicurezza, compressione, tracing. **Il router passato deve già avere il
+/// proprio fallback impostato** — in axum 0.8 `Router::fallback` sostituisce
+/// direttamente il servizio di fallback, mentre `.layer()` avvolge soltanto
+/// il fallback già presente al momento in cui viene chiamato. Se si aggiunge
+/// un fallback *dopo* questa funzione, quel fallback esce senza CSP,
+/// `x-content-type-options`, `referrer-policy` e `permissions-policy` —
+/// per un 404 è già un difetto (corretto nel Task 9), ma per il fallback SPA
+/// del binario (Task 13) sarebbe peggio: è proprio `index.html`, il documento
+/// che carica l'intera applicazione, che uscirebbe senza CSP in produzione.
+/// Non spostare l'ordine: fallback prima, `with_common_layers` dopo.
+pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {
     router
-        // `fallback` must be set *before* the `.layer(...)` calls below: in
-        // axum 0.8, `Router::fallback` replaces the router's fallback
-        // service directly, while `.layer()` only wraps whatever fallback
-        // is already present at the time it's called. If `.fallback()` ran
-        // last, the security headers, compression and tracing layers would
-        // never apply to unmatched routes (404s) — silently reintroducing
-        // that bug by moving this call is easy, so don't reorder it.
-        .fallback(not_found)
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::HeaderName::from_static("x-content-type-options"),
             HeaderValue::from_static("nosniff"),
@@ -75,25 +93,11 @@ fn api_routes() -> Router<AppState> {
         .route("/auth/me", get(routes::auth::me))
 }
 
-// La rotta del documento OpenAPI va aggiunta **dentro** l'argomento di
-// `common_layers`, come le altre: concatenarla dopo la chiamata la lascerebbe
-// fuori dai `.layer(...)`, cioè senza header di sicurezza — stessa classe di
-// bug del `.fallback()` commentato sopra.
-fn base_router() -> Router<AppState> {
-    common_layers(
-        Router::new()
-            .route("/health", get(routes::health::get))
-            .route("/api/openapi.json", get(openapi::serve))
-            .nest("/api/v1", api_routes()),
-    )
-}
-
-fn base_router_stateless() -> Router {
-    common_layers(
-        Router::new()
-            .route("/health", get(routes::health::get))
-            .route("/api/openapi.json", get(openapi::serve)),
-    )
+fn all_routes() -> Router<AppState> {
+    Router::new()
+        .route("/health", get(routes::health::get))
+        .route("/api/openapi.json", get(openapi::serve))
+        .nest("/api/v1", api_routes())
 }
 
 async fn not_found() -> Problem {

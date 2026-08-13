@@ -59,7 +59,8 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(addr = %config.bind, "keeppix listening");
 
-    let app = keeppix_api::router(keeppix_api::AppState::new(db, config.session_ttl_secs));
+    let app = keeppix_server::embed::mount(keeppix_api::router_parts())
+        .with_state(keeppix_api::AppState::new(db, config.session_ttl_secs));
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
