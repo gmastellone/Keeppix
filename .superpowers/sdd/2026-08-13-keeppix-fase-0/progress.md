@@ -576,3 +576,30 @@ freschi, su un finding Important gia verificato funzionalmente (8/8 test, tipi,
 lint, build).
 Task 12: complete (commits ec799d1..c6b82f0, review clean dopo 1 fix round —
 spec OK, qualita approvata)
+Task 13: implementato (commit d6c74d6) — `common_layers` rinominata
+`with_common_layers` e resa pubblica, con il contratto invertito rispetto al
+brief: **richiede** che il router le arrivi con il proprio fallback gia
+impostato. Quattro punti di montaggio (`router`, `router_without_state`,
+`embed::mount`, `embed::mount_stateless`) rispettano l'ordine. Il difetto F5
+della scansione pre-volo e stato evitato. 95 test verdi col frontend
+precostruito, 4 test embed confermati non saltati, clippy e fmt puliti.
+Riverificato dal controller (`cargo test -p keeppix-server --test embed`:
+4/4, nessuno skip).
+Task 13: nota: il brief dichiara `embed::spa_fallback() -> MethodRouter` nella
+riga "Produces" ma il suo stesso codice non lo definisce mai e nulla nel
+repository lo referenzia. Trattato come riga spuria, non implementato.
+Task 13: **incidente operativo, causa nota e non una regressione**: durante il
+task il filesystem temporaneo si e riempito completamente per l'accumulo di
+1512 database `keeppix_test_*` mai eliminati dall'harness (comportamento
+documentato nel ruling R9: "i database creati non vengono eliminati,
+l'indirizzo deve puntare a un'istanza di scarto"), piu una `scratchpad/pgdata`
+stantia. Ha prodotto fallimenti in `keeppix-db` non correlati al codice.
+L'implementer ha diagnosticato e liberato 14 GB, poi rieseguito la suite pulita.
+Il controller ha ripulito i 44 database residui a fine task.
+Task 13: **finding operativo (Important) per la fix wave del review finale**:
+l'harness deve eliminare il database usa-e-getta alla fine del test, invece di
+lasciarlo. Il difetto era gia noto e documentato come accettabile, ma ora ha un
+costo misurato: ha fatto fallire una suite e bruciato tempo di diagnosi in un
+task non correlato. In CI il problema non si manifesta (container nuovo a ogni
+run), quindi e un difetto di ergonomia locale, non di correttezza — ma la
+diagnosi e tutt'altro che ovvia per chi la incontra.
