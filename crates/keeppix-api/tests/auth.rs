@@ -288,6 +288,24 @@ async fn refresh_rejects_a_reused_token() {
         .await
         .unwrap();
     assert_eq!(reused.status(), 401);
+
+    // Il 401 sopra da solo non distingue "token consumato rifiutato" da
+    // "intera famiglia revocata": il primo lo darebbe anche una `rotate` che
+    // si limitasse a restituire un errore. La prova del ramo di revoca è che
+    // anche il token *nuovo* — emesso dalla rotazione e valido fino a un
+    // istante fa — smetta di funzionare.
+    let after = session_value_from(&first_refresh);
+    let survivor = reqwest::Client::new()
+        .get(server.url("/api/v1/auth/me"))
+        .header("cookie", format!("__Host-kpx_session={after}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        survivor.status(),
+        401,
+        "il riuso deve revocare l'intera famiglia, non solo il token ripresentato"
+    );
 }
 
 #[tokio::test]
@@ -330,6 +348,96 @@ async fn logout_invalidates_the_session() {
         401,
         "la sessione deve essere invalidata lato server, non solo dimenticata dal client"
     );
+}
+
+/// Host fittizio di produzione. Contro l'harness l'header `Host` reale è
+/// `127.0.0.1:<porta>`, e lì `should_be_secure` restituisce — legittimamente —
+/// `false`: un test che non contraffacesse l'header osserverebbe un cookie
+/// senza `Secure` e non proverebbe nulla.
+const PRODUCTION_HOST: &str = "photos.example.com";
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn logout_clears_the_cookie_with_a_valid_host_prefix() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/auth/logout"))
+        .header(reqwest::header::HOST, PRODUCTION_HOST)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 204);
+    assert_host_prefix_attributes(&response, "Max-Age=0");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn login_issues_the_cookie_with_a_valid_host_prefix() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/auth/login"))
+        .header(reqwest::header::HOST, PRODUCTION_HOST)
+        .json(&json!({ "username": "giovanni", "password": "correct horse battery staple" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    // `Max-Age` è il TTL di sessione dell'harness (3600 secondi).
+    assert_host_prefix_attributes(&response, "Max-Age=3600");
+}
+
+/// Verifica sull'header `set-cookie` grezzo tutti gli attributi che rendono
+/// accettabile un cookie con prefisso `__Host-`: un browser conforme scarta
+/// **per intero** un `__Host-` privo di `Secure` o di `Path=/`
+/// (RFC 6265bis §4.1.3.2). Sul cookie cancellante l'effetto è che il logout non
+/// cancella nulla e la sessione sopravvive nel browser; su quello di sessione,
+/// che il cookie viaggia anche in chiaro. Nessuna delle due cose si vede in
+/// test — l'harness parla HTTP su 127.0.0.1 — quindi la si pinna qui.
+///
+/// Si legge la risposta, non il cookie store di `reqwest`: quello scarterebbe
+/// un cookie `Secure` arrivato su HTTP in chiaro, nascondendo proprio ciò che
+/// si vuole osservare.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+fn assert_host_prefix_attributes(response: &reqwest::Response, expected_max_age: &str) {
+    let set_cookie = response
+        .headers()
+        .get("set-cookie")
+        .expect("set-cookie presente")
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    // Gli attributi si confrontano per intero, non con `contains` sull'header:
+    // il valore del token è casuale e potrebbe contenere una qualsiasi di
+    // queste stringhe.
+    let mut parts = set_cookie.split(';').map(str::trim);
+    let name_value = parts.next().expect("coppia nome=valore");
+    let attributes: Vec<&str> = parts.collect();
+
+    assert!(
+        name_value.starts_with("__Host-kpx_session="),
+        "cookie inatteso: {set_cookie}"
+    );
+    for expected in [
+        "Secure",
+        "SameSite=Lax",
+        "Path=/",
+        "HttpOnly",
+        expected_max_age,
+    ] {
+        assert!(
+            attributes.contains(&expected),
+            "manca `{expected}` in `{set_cookie}`"
+        );
+    }
 }
 
 #[allow(clippy::unwrap_used)]
