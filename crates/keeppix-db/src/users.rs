@@ -22,11 +22,11 @@ struct UserRow {
 impl UserRow {
     fn into_domain(self) -> Result<User, DbError> {
         let username = Username::parse(&self.username)
-            .map_err(|e| DbError::Migration(format!("stored username is invalid: {e}")))?;
+            .map_err(|e| DbError::Corrupted(format!("stored username is invalid: {e}")))?;
         let role = match self.role.as_str() {
             "admin" => SystemRole::Admin,
             "user" => SystemRole::User,
-            other => return Err(DbError::Migration(format!("unknown role: {other}"))),
+            other => return Err(DbError::Corrupted(format!("unknown role: {other}"))),
         };
         Ok(User {
             id: UserId::from_uuid(self.id),

@@ -99,7 +99,7 @@ async fn only_admins_can_create_users() {
     let denied = repo
         .create(&user_ctx, new_user("luigi", SystemRole::User))
         .await;
-    assert!(denied.is_err(), "un utente non-admin non può creare utenti");
+    assert!(matches!(denied, Err(keeppix_db::DbError::Forbidden)));
 }
 
 #[tokio::test]
@@ -119,8 +119,34 @@ async fn plain_user_can_only_read_itself() {
 
     let mario_ctx = AuthContext::user(mario.id, SystemRole::User);
     assert!(repo.find_by_id(&mario_ctx, mario.id).await.is_ok());
-    assert!(repo.find_by_id(&mario_ctx, admin.id).await.is_err());
+    assert!(matches!(
+        repo.find_by_id(&mario_ctx, admin.id).await,
+        Err(keeppix_db::DbError::Forbidden)
+    ));
     assert!(repo.find_by_id(&admin_ctx, mario.id).await.is_ok());
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn plain_user_probing_an_unknown_id_gets_forbidden_not_not_found() {
+    let test = TestDb::start().await;
+    let repo = UserRepo::new(test.db());
+    let admin = repo
+        .create_bootstrap_admin(new_user("giovanni", SystemRole::Admin))
+        .await
+        .unwrap();
+    let admin_ctx = AuthContext::user(admin.id, SystemRole::Admin);
+    let mario = repo
+        .create(&admin_ctx, new_user("mario", SystemRole::User))
+        .await
+        .unwrap();
+
+    let mario_ctx = AuthContext::user(mario.id, SystemRole::User);
+    // A non-admin probing an id that exists nowhere must get Forbidden, not
+    // NotFound: otherwise the error variant itself would leak whether a
+    // given id exists, turning find_by_id into an existence oracle.
+    let result = repo.find_by_id(&mario_ctx, UserId::new()).await;
+    assert!(matches!(result, Err(keeppix_db::DbError::Forbidden)));
 }
 
 #[tokio::test]
