@@ -26,10 +26,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # `github.repository` conserva il case esatto del nome del repo
+      # (qui gmastellone/Keeppix), ma i path immagine OCI/ghcr.io sono
+      # sempre minuscoli. `docker/metadata-action` normalizza da sé il
+      # campo `images:`, ma `cosign sign` più sotto no: calcolando qui
+      # un'unica variabile minuscola e riusandola in entrambi i punti,
+      # il riferimento firmato è garantito identico a quello pubblicato,
+      # invece di dipendere dalla normalizzazione interna di un'azione.
+      - name: Nome immagine (minuscolo, richiesto dallo spec OCI)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ${{ env.IMAGE }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}
@@ -50,4 +60,4 @@ jobs:
       - name: Firma l'immagine
         run: |
           cosign sign --yes \
-            ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+            ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
