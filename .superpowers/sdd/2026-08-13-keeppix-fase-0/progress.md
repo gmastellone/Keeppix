@@ -534,3 +534,11 @@ debole senza che qualcuno lo scambi per una garanzia.
 Fix cookie: il ruling R7 e chiuso — non esiste piu alcuna decisione di sicurezza
 guidata da un header controllato dal client. Il difetto corrispondente va
 rimosso dall'elenco dei "noti e differiti" nello STATO alla chiusura della fase.
+Fix cookie __Host-/Secure: re-review scoped (1 addressed, 0 open — verdetto
+ADDRESSED sul Critical; prova di vitalita rifatta dal re-reviewer in proprio
+(4/16 rossi forzando set_secure(false), ripristino con Edit, 16/16 verdi);
+confermato che il test di round-trip resta verde col bug reintrodotto e che il
+suo doc comment lo dichiara onestamente; nessuna logica condizionale residua;
+i #[utoipa::path] di refresh/logout non documentavano `headers`, quindi la
+rimozione del parametro non tocca lo schema e lo snapshot OpenAPI resta verde;
+nessuna rottura nuova; commits d047d44..b3b1b32)
