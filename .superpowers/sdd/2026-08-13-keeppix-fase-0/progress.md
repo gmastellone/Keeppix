@@ -350,3 +350,9 @@ conta
 Task 11: nota: 403 non e dichiarato su `me` — il ramo DbError::Forbidden e
 irraggiungibile perche l'id viene da ctx.user_id(). Scelta dell'implementer,
 dichiarata
+Task 11: fix round 1/5 (5 addressed, 0 open — re-review scoped che ha rifatto in
+proprio tutte e quattro le mutazioni dichiarate dall'implementer, ripristinando
+con Edit invece di git checkout per non ripetere l'incidente; nessuna rottura
+nuova, diff puramente additivo; commits 9d88cb4..adca7c6)
+Task 11: complete (commits 4b5e354..adca7c6, review clean — spec OK, qualita
+approvata dopo 1 fix round)
