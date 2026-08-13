@@ -1791,6 +1791,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sqlx",
  "testcontainers-modules",
  "thiserror",
  "time",
@@ -1798,6 +1799,7 @@ dependencies = [
  "tower",
  "tower-http 0.7.0",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

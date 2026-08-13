@@ -26,5 +26,7 @@ workspace = true
 [dev-dependencies]
 http-body-util = "0.1.5"
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls", "cookies"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres"] }
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 tower = { version = "0.5.3", features = ["util"] }
+uuid.workspace = true
