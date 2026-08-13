@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
@@ -33,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     if matches!(cli.command, Some(Command::Healthcheck)) {
-        return healthcheck().await;
+        return healthcheck(&cli.config).await;
     }
 
     let config = Config::load(Some(&cli.config))?;
@@ -92,13 +92,10 @@ async fn shutdown_signal() {
     tracing::info!("shutting down");
 }
 
-async fn healthcheck() -> anyhow::Result<()> {
-    let port = std::env::var("KEEPPIX_BIND")
-        .ok()
-        .and_then(|b| b.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()))
-        .unwrap_or(5673);
+async fn healthcheck(config_path: &Path) -> anyhow::Result<()> {
+    let config = Config::load(Some(config_path))?;
 
-    let stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+    let stream = tokio::net::TcpStream::connect(("127.0.0.1", config.bind.port())).await?;
     drop(stream);
     Ok(())
 }
