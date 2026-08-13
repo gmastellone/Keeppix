@@ -1,0 +1,21 @@
+[package]
+name = "keeppix-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "keeppix"
+path = "src/main.rs"
+
+[dependencies]
+keeppix-domain = { path = "../keeppix-domain" }
+keeppix-db = { path = "../keeppix-db" }
+keeppix-api = { path = "../keeppix-api" }
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
