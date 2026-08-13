@@ -6,9 +6,11 @@ services:
     image: keeppix:dev
     restart: unless-stopped
     environment:
-      # Con un Postgres esterno, sostituire questo valore e omettere
-      # `--profile bundled`: il servizio `db` non verrà avviato.
-      DATABASE_URL: postgres://keeppix:${DB_PASSWORD:-changeme}@db/keeppix
+      # Con un Postgres esterno: impostare DATABASE_URL (in `.env` o nella
+      # shell) e lanciare senza `--profile bundled` — il valore esterno
+      # vince e il servizio `db` non verrà avviato. Senza DATABASE_URL,
+      # ricade sul servizio `db` bundled con la password di DB_PASSWORD.
+      DATABASE_URL: ${DATABASE_URL:-postgres://keeppix:${DB_PASSWORD:-changeme}@db/keeppix}
       KEEPPIX_ALLOWED_ORIGINS: '[]'
     ports:
       - "5673:5673"

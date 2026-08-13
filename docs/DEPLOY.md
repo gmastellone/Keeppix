@@ -9,8 +9,15 @@
 
 ## Avvio con tutto incluso
 
+`docker compose` legge automaticamente un file `.env` nella stessa cartella
+di `compose.yaml`: usalo per non dover reimpostare la password a ogni
+sessione di shell (un `export` vale solo per il terminale corrente — se lo
+richiudi, un `docker compose up` successivo ricadrebbe sul valore
+predefinito `changeme`, incompatibile con la password già scritta dentro
+`./pgdata`).
+
 ```bash
-export DB_PASSWORD=$(openssl rand -base64 24)
+echo "DB_PASSWORD=$(openssl rand -base64 24)" > .env
 docker compose --profile bundled up -d
 ```
 
@@ -18,13 +25,27 @@ Aprire http://127.0.0.1:5673 e completare la creazione dell'amministratore.
 
 ## Avvio con un Postgres già esistente
 
-Il database deve avere l'estensione PostGIS disponibile. Omettere il profilo:
+Il database deve avere l'estensione PostGIS disponibile. Impostare
+`DATABASE_URL` (in `.env` o nella shell) e omettere il profilo:
 
 ```bash
-DATABASE_URL=postgres://utente:password@mio-host:5432/keeppix docker compose up -d
+echo "DATABASE_URL=postgres://utente:password@mio-host:5432/keeppix" > .env
+docker compose up -d
 ```
 
-Il servizio `db` non verrà avviato.
+`compose.yaml` fa vincere `DATABASE_URL`, quando è impostata, sul valore
+costruito per il servizio `db` bundled; il servizio `db` comunque non verrà
+avviato, perché appartiene al profilo `bundled` che qui non è passato a
+`docker compose`.
+
+Attenzione se nella stessa cartella esiste già un `.env` usato per lo
+sviluppo locale (copiato da `.env.example` per `cargo run`): Compose legge
+lo stesso file, e se quel `.env` contiene un `DATABASE_URL` puntato a
+`localhost` questa sezione userebbe quel valore anche per lo stack bundled
+— dentro al container `localhost` è il suo stesso loopback, non l'host, e
+la connessione fallirebbe. In quel caso usa un file `.env` diverso (per
+esempio con `docker compose --env-file .env.docker …`) o esporta
+`DATABASE_URL` solo nella shell da cui lanci `docker compose`.
 
 ## Variabili d'ambiente
 
@@ -41,6 +62,17 @@ Il servizio `db` non verrà avviato.
 
 Le stesse chiavi sono impostabili in `/data/config.toml` in minuscolo e senza
 prefisso. **L'ambiente vince sempre sul file.**
+
+In questo `compose.yaml` solo `DATABASE_URL` e `KEEPPIX_ALLOWED_ORIGINS` sono
+impostate esplicitamente per il servizio `keeppix`; le altre righe della
+tabella prendono il valore predefinito già scritto nel `Dockerfile`
+(`KEEPPIX_BIND`, `KEEPPIX_DATA_DIR`, `KEEPPIX_LOG_FORMAT`) o quello del
+binario (`KEEPPIX_DB_MAX_CONNECTIONS`, `KEEPPIX_SESSION_TTL_SECS`,
+`RUST_LOG`). Per cambiarne una, aggiungila sotto `environment:` del servizio
+`keeppix` in `compose.yaml` (o in un file di override separato) — non basta
+metterla in `.env`, perché `.env` alimenta solo l'interpolazione delle
+variabili già referenziate nel file di compose (`DB_PASSWORD`, `DATABASE_URL`,
+`PHOTOS_PATH`), non l'ambiente del processo `keeppix` dentro al container.
 
 ## Volumi
 
@@ -64,6 +96,11 @@ Le migrazioni del database vengono applicate automaticamente all'avvio, in
 transazione. `compose.yaml` costruisce l'immagine in locale (`keeppix:dev`) e
 non punta a un registro: `docker compose pull` non recupera nulla di nuovo
 finché il progetto non pubblicherà un'immagine remota su un registro.
+
+Se hai seguito il consiglio sopra e scritto `DB_PASSWORD` (o `DATABASE_URL`)
+in `.env`, l'aggiornamento non richiede di reimpostare nulla: Compose lo
+rilegge da solo a ogni `up`, anche da una sessione di shell diversa da quella
+del primo avvio.
 
 ## Dietro un reverse proxy
 
