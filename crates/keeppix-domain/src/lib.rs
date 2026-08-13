@@ -1,1 +1,11 @@
+//! Tipi ed entità pure di Keeppix. Nessun I/O, nessun SQL, nessuna rete.
 
+pub mod auth;
+pub mod error;
+pub mod ids;
+pub mod user;
+
+pub use auth::{Actor, AuthContext};
+pub use error::DomainError;
+pub use ids::{GroupId, UserId};
+pub use user::{NewUser, SystemRole, User, Username};
