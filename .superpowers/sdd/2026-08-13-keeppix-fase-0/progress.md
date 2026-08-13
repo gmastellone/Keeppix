@@ -476,3 +476,39 @@ Questo ruling risolve R7 per intero: non c'e piu alcuna decisione di sicurezza
 guidata da un header controllato dal client, quindi il "difetto noto, accettato
 e differito" su should_be_secure nello STATO va rimosso, non solo riesaminato,
 a fix chiuso.
+Task 12: complete-pending-fix (commit 248f4c8) — Vue 3 + Vite + Tailwind v4 +
+vue-i18n, apiFetch/ApiProblem, store Pinia di sessione, router con guardia,
+3 componenti UI, 3 viste, it/en. 6/6 vitest verdi, vue-tsc pulito, eslint pulito,
+bundle 76.672 byte gzip contro un tetto di 153.600
+Task 12: review (spec OK, qualita approvata) — 0 Critical, 1 Important, 3 Minor.
+Il reviewer ha riprodotto in proprio tutte e tre le deviazioni dichiarate
+dall'implementer e le ha confermate genuine: collisione dell'identificatore `it`
+in i18n.spec.ts, TS1294 `erasableSyntaxOnly` sui parametri-proprieta di
+ApiProblem, e auth.ts elencato fra i file da creare senza che alcuno step ne
+definisca il contenuto. Ha anche verificato in proprio il budget di bundle
+(stesso numero al byte) e rotto deliberatamente il test i18n togliendo
+`home.logout` da en.json per controllare che diventasse rosso
+Task 12: minor (deferred): la deviazione 2 e caratterizzata come "obbligata" nel
+report dell'implementer, ma il reviewer ha verificato che
+`erasableSyntaxOnly: false` in tsconfig.app.json avrebbe permesso il costruttore
+verbatim del piano: era una scelta fra due alternative valide, non un vincolo.
+Imprecisione nel report, non un difetto di codice
+Task 12: minor (deferred): nessun test unitario per router.ts e stores/session.ts
+(non richiesti dal piano)
+Task 12: minor (deferred): index.html ha `lang="en"` hardcoded, sovrascritto a
+runtime dall'i18n
+Task 12: Ruling (finding Important plan-mandated): `signOut()` in HomeView.vue
+non gestisce errori — niente try/catch, nessun feedback all'utente — a differenza
+di LoginView e SetupView che li gestiscono. E verbatim dal piano, quindi la
+regola SDD impone che sia io a decidere, non l'implementer ne il reviewer.
+Decido di correggerlo. Se `POST /auth/logout` fallisce a livello di rete, oggi
+`user.value` non viene azzerato, il redirect non avviene, e il pulsante "esci"
+semplicemente non fa nulla senza dire perche: l'utente resta davanti a
+un'interfaccia che lo mostra autenticato dopo che ha chiesto di uscire. Per
+un'azione di sicurezza la direzione giusta del fallimento e l'opposta — azzerare
+comunque lo stato locale e portare a /login, segnalando l'errore — perche il
+danno di un logout apparente non riuscito e maggiore di quello di un logout
+locale riuscito con revoca server-side incerta (e il backend, per sua natura,
+risponde 204 anche quando la revoca fallisce: vedi il difetto differito su
+logout). Il piano non aveva ragione di preferire il silenzio. Costo se
+sbagliato: cinque righe in piu in una vista.
