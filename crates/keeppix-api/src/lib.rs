@@ -1,6 +1,7 @@
 //! Superficie HTTP di Keeppix. Non contiene SQL: ogni accesso ai dati passa
 //! dai repository di `keeppix-db`, che richiedono un `AuthContext`.
 
+pub mod cookie;
 pub mod extract;
 pub mod problem;
 pub mod routes;
@@ -63,8 +64,22 @@ fn common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<
         .layer(TraceLayer::new_for_http())
 }
 
+fn api_routes() -> Router<AppState> {
+    Router::new()
+        .route("/setup/status", get(routes::setup::status))
+        .route("/setup", axum::routing::post(routes::setup::create))
+        .route("/auth/login", axum::routing::post(routes::auth::login))
+        .route("/auth/refresh", axum::routing::post(routes::auth::refresh))
+        .route("/auth/logout", axum::routing::post(routes::auth::logout))
+        .route("/auth/me", get(routes::auth::me))
+}
+
 fn base_router() -> Router<AppState> {
-    common_layers(Router::new().route("/health", get(routes::health::get)))
+    common_layers(
+        Router::new()
+            .route("/health", get(routes::health::get))
+            .nest("/api/v1", api_routes()),
+    )
 }
 
 fn base_router_stateless() -> Router {
