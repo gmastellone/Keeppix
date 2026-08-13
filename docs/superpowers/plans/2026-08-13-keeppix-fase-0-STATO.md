@@ -1,6 +1,6 @@
 # Fase 0 — stato di avanzamento e consegna
 
-**Aggiornato:** 2026-08-13, dopo il Task 10
+**Aggiornato:** 2026-08-13, dopo la re-review del Task 10
 **Piano:** [`2026-08-13-keeppix-fase-0.md`](2026-08-13-keeppix-fase-0.md)
 **Spec:** [`../specs/2026-08-13-keeppix-design.md`](../specs/2026-08-13-keeppix-design.md)
 **Roadmap:** [`2026-08-13-keeppix-roadmap.md`](2026-08-13-keeppix-roadmap.md)
@@ -33,16 +33,40 @@ richiesto almeno un giro di correzione.
 | 7 | `SessionRepo` | ✅ dopo 1 fix round | `8835447` |
 | 8 | Config, telemetria, CLI | ✅ dopo 1 fix round | `74890b4` |
 | 9 | Stato, problem+json, extractor | ✅ dopo 1 fix round | `a040007` |
-| 10 | Setup e autenticazione | ✅ dopo 1 fix round | *questo commit* |
+| 10 | Setup e autenticazione | ✅ dopo 2 fix round | `90f8b82` |
 | 11 | Specifica OpenAPI | ⬜ da fare | — |
 | 12 | Frontend | ⬜ da fare | — |
 | 13 | Frontend incorporato | ⬜ da fare | — |
 | 14 | Immagine Docker e compose | ⬜ da fare | — |
 | 15 | Integrazione continua | ⬜ da fare | — |
 
-Stato attuale della suite: **43 test** (22 domain, 24 db meno sovrapposizioni,
-15 api) tutti verdi; `cargo clippy --workspace --all-targets -- -D warnings`
-pulito; `cargo fmt --check` pulito; `cargo build --workspace` verde.
+Stato attuale della suite: **85 esecuzioni di test** tutte verdi (22 domain,
+39 db, 20 api, 4 server; i 3 unit test dell'harness di `keeppix-db` girano una
+volta per binario di integrazione, cioè quattro volte);
+`cargo clippy --workspace --all-targets -- -D warnings` pulito;
+`cargo fmt --check` pulito; `cargo build --workspace` verde.
+
+## Come si esegue la suite
+
+I test di integrazione vogliono un Postgres reale. Di norma se lo avviano da
+soli con testcontainers e non serve fare nulla:
+
+```bash
+cargo test --workspace
+```
+
+Dove il registry delle immagini non è raggiungibile — è il caso della sessione
+cloud in cui sono stati fatti gli ultimi commit, vedi **R9** — si punta la suite
+a un Postgres già in ascolto:
+
+```bash
+export KEEPPIX_TEST_DATABASE_URL="postgres://utente:password@127.0.0.1:5432/postgres"
+cargo test --workspace -- --test-threads=1
+```
+
+`--test-threads=1` serve ai quattro test di `keeppix-server/tests/config.rs`,
+che manipolano l'ambiente di processo e non tollerano il parallelismo: è un
+vincolo pre-esistente, documentato nel file stesso, non una regressione.
 
 ## Ripresa del lavoro
 
@@ -53,6 +77,11 @@ successiva, ma il piano è eseguibile anche a mano.
 Prima di iniziare, leggere i ruling qui sotto: due di essi (R2 sulla toolchain e
 R4 su sqlx) cambiano istruzioni scritte nel piano, e ignorarli farebbe fallire i
 Task 14 e 15.
+
+Nel Task 11 c'è una trappola che il piano non nomina: la rotta
+`/api/openapi.json` va aggiunta **dentro** l'argomento di `common_layers`, non
+dopo la chiamata, altrimenti esce senza header di sicurezza. È la stessa classe
+di bug del ruling R5, in un punto nuovo.
 
 ## Decisioni prese durante l'esecuzione
 
@@ -128,6 +157,25 @@ clippy pulito) e committato il codice esattamente come lasciato. Stessa cosa per
 il fix round del Task 10, interrotto a lavoro concluso ma prima del commit.
 *Se sbagliato:* il codice era comunque coperto dalla re-review successiva.
 
+**R9 — Via d'uscita negli harness di test verso un Postgres esistente.**
+Nell'ambiente cloud il pull di `postgis/postgis` è bloccato dalla policy di
+egress (403 al CONNECT verso `production.cloudfront.docker.com`), quindi
+testcontainers non è utilizzabile e l'intera suite di integrazione non è
+eseguibile — il primo reviewer ha dovuto patchare gli harness a mano e
+ripristinarli. Se `KEEPPIX_TEST_DATABASE_URL` è impostata, i due harness usano
+il server già in ascolto a quell'indirizzo e creano un database vergine per
+test, con lo stesso isolamento del container; senza la variabile nulla cambia e
+il container resta la via predefinita per CI e sviluppo.
+*Se sbagliato:* gli harness hanno un ramo in più e la riscrittura dell'URL è
+duplicata nei due crate, con unit test solo nella copia di `keeppix-db`.
+
+**R10 — Push su `fase-0`.**
+L'harness della sessione cloud impone di default un branch `claude/...`;
+l'utente ha chiesto esplicitamente che il lavoro finisca sul branch della fase.
+Il branch `claude/keeppix-fase-0-4c0lku` è stato cancellato dopo aver verificato
+che i suoi commit fossero tutti in `fase-0`.
+*Se sbagliato:* nessun costo, i due branch avevano lo stesso contenuto.
+
 ## Difetti noti, accettati e differiti
 
 Nessuno blocca la fase. Vanno triati nel review finale del branch, prima del
@@ -154,6 +202,18 @@ merge.
   ne aborta uno con 40P01, che diventa `DbError::Connection` invece di
   `Forbidden`. L'esito di sicurezza regge, degrada solo il codice d'errore.
 - **`rotate` non controlla `users.disabled_at`** — vedi sopra, stessa causa.
+- **`logout` risponde 204 anche quando `revoke` fallisce:** l'errore viene solo
+  loggato a `warn`. Con un blip del database l'utente crede di essere uscito
+  mentre la sessione resta viva lato server fino alla scadenza. Coerente con il
+  commento "Sempre 204", ma il fallimento è invisibile al client.
+- **CSRF, difesa parziale rispetto allo spec §9.5:** lo spec chiede
+  `SameSite=Lax` **più** obbligo di `Content-Type: application/json` e di un
+  header custom sulle mutazioni. `/auth/refresh` e `/auth/logout` non hanno né
+  corpo né header custom richiesto. `SameSite=Lax` da solo già impedisce l'invio
+  del cookie su POST cross-site, ma il contratto dello spec non è completo.
+- **`should_be_secure` è case-sensitive** e non riconosce `0:0:0:0:0:0:0:1` né
+  `[127.0.0.1]`. Tutti questi casi cadono sul lato sicuro (`Secure = true`):
+  rompono al massimo uno sviluppo locale esotico.
 
 ### Qualità e manutenzione
 
@@ -184,6 +244,17 @@ merge.
 - **I sette `lib.rs` iniziali** contengono un `\n` invece di essere a 0 byte.
 - **`uuid.workspace = true`** resta ridondante in `[dev-dependencies]` di
   `keeppix-db`.
+- **`dummy_hash_is_a_valid_argon2id_phc_string` è sovra-pinnato:** mutare il
+  solo salt lo fa fallire pur lasciando intatta la proprietà di sicurezza. È il
+  prezzo dell'asserzione positiva; ruotare la costante impone di rigenerarla dal
+  plaintext dichiarato nel test.
+- **`setup_creates_the_first_admin_and_logs_in`** verifica gli attributi del
+  cookie con `contains` sull'header intero e senza contraffare `Host`: non può
+  vedere `Secure` ed è esposto in linea di principio al falso positivo del token
+  casuale. La proprietà è coperta dai due test aggiunti nel secondo fix round.
+- **La logica di `with_database` negli harness è duplicata** fra `keeppix-db` e
+  `keeppix-api`, con unit test solo nella prima copia: i due crate non
+  condividono codice di test e non esiste un crate di test-support.
 
 ## Nota sul metodo, per chi riprende
 
