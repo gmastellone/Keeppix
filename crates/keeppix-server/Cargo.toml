@@ -26,9 +26,13 @@ tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 axum = "0.8.9"
 tower-http = { version = "0.7.0", features = ["fs", "trace", "compression-br", "set-header", "cors"] }
 serde.workspace = true
+rust-embed = { version = "8.12.0", features = ["interpolate-folder-path"] }
+mime_guess = "2.0.5"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+http-body-util = "0.1.5"
 tempfile = "3.27.0"
+tower = { version = "0.5.3", features = ["util"] }
