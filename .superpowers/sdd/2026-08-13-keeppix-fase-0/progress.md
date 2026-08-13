@@ -356,3 +356,59 @@ con Edit invece di git checkout per non ripetere l'incidente; nessuna rottura
 nuova, diff puramente additivo; commits 9d88cb4..adca7c6)
 Task 11: complete (commits 4b5e354..adca7c6, review clean — spec OK, qualita
 approvata dopo 1 fix round)
+
+## Scansione pre-volo dei Task 13-15 (fatta prima di dispatchare il 13)
+
+Task 13: **F5 — il brief reintroduce il bug del ruling R5 e lo estende al
+fallback SPA.** Lo step 5 ristruttura `common_layers` e rimette `.fallback()`
+DOPO i `.layer(...)` in due punti (`router()` e `base_router_stateless()`), e lo
+step 4 fa `router.fallback(get(serve))` su un router gia layerizzato. La
+conseguenza e peggiore che nel Task 9: il fallback SPA serve `index.html`, cioe
+il documento che carica l'applicazione, che uscirebbe senza CSP mentre /health
+ce l'ha.
+Ruling: l'invariante da rispettare e "ogni risposta che esce dal binario porta i
+quattro header di sicurezza", senza prescrivere la forma della ristrutturazione;
+i test esistenti su /health e sul 404 non vanno indeboliti, va aggiunta
+l'asserzione equivalente sul fallback SPA, e la cosa va provata per mutazione.
+Costo se sbagliato: la pagina principale gira senza CSP in produzione.
+Task 13: F6 — il brief non prescrive un test per la proprieta che dichiara in
+testa ("i percorsi sotto /api non ricadono mai nel fallback"). Un client che
+riceve index.html con status 200 al posto di un 404 problem+json e un bug
+silenzioso. Ruling: test richiesto.
+Task 13: F7 — `frontend_built()` fa saltare i test senza fallire quando
+frontend/dist manca: in un ambiente dove il frontend non viene mai costruito
+quei test non provano nulla e passano. Ruling: costruire il frontend prima della
+suite e dichiarare nel report se qualche test e stato saltato.
+
+Task 14: **F8 — il Dockerfile del brief non compila.** `FROM rust:1.85-bookworm`
+(vedi R2, serve 1.88) e soprattutto `COPY .sqlx/ .sqlx/` su una directory che non
+esiste e non e mai esistita (vedi R4), che fa fallire la build immediatamente.
+Ruling: rimuovere `ENV SQLX_OFFLINE` e il `COPY .sqlx/`, alzare l'immagine a
+1.88, e sostituire il commento che spiegava la cache con uno onesto.
+Task 14: **F9 — l'immagine non e verificabile in questo ambiente.** Il pull delle
+immagini di base e bloccato dalla policy di egress, quindi tutti gli step di
+verifica del brief (docker build, compose up, healthcheck, "l'immagine non
+contiene shell") sono ineseguibili. Ruling: scrivere comunque gli artefatti
+completi, verificare staticamente tutto il verificabile (percorsi dei COPY,
+nomi di variabili e servizi contro config.rs e .env.example, esistenza del
+sottocomando healthcheck), e dichiarare esplicitamente nel report cosa NON e
+stato verificato con l'elenco dei comandi che restano da eseguire. La prima
+verifica reale del Dockerfile sara il job `image` della CI.
+Task 14: F10 — il commento "strato di dipendenze, invalidato solo dai manifest"
+e falso: `COPY crates/ crates/` sta nello stesso strato, quindi ogni modifica al
+codice invalida la cache. O si separano gli strati o si corregge il commento.
+
+Task 15: F11 — `SQLX_OFFLINE: "true"` nel blocco env (R4) e
+`dtolnay/rust-toolchain@1.85.0` (R2) vanno corretti.
+Task 15: **F12 — lo step 5 prescrive `git push -u origin main`.** Il lavoro vive
+su `fase-0` e il merge su main e una decisione dell'utente. Ruling: nessun push
+dall'implementer.
+Task 15: F13 — la lista licenze di `deny.toml` contiene `AGPL-3.0`, ma i crate
+del workspace dichiarano `AGPL-3.0-or-later`, identificatore SPDX diverso: cosi
+com'e, cargo-deny rifiuta i crate del progetto stesso. E l'albero delle
+dipendenze conterra licenze non elencate, non indovinabili. Ruling: eseguire
+davvero `cargo deny check` in locale e iterare, motivando nel report ogni
+licenza aggiunta.
+Task 15: F14 — la CI non deve impostare `KEEPPIX_TEST_DATABASE_URL`: sui runner
+GitHub Docker c'e e il percorso testcontainers funziona. Va pero menzionata in un
+commento, perche chi legge la CI sappia che la variabile esiste.
