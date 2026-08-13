@@ -424,3 +424,55 @@ parse, non di risoluzione moduli. Corretto con import alias
 (`enMessages`/`itMessages`), motivazione in un commento nel file. Il tentativo e
 stato ripreso sullo stesso agente con l'istruzione di committare a incrementi
 coerenti invece di arrivare in fondo ai 16 step in un colpo solo.
+
+## Fix fuori piano: `__Host-kpx_session` mai valido su HTTP semplice (scoperto dal Task 12)
+
+Ruling (finding Critical e load-bearing, non adjudicato in silenzio): la
+verifica a mano dello step 15 del Task 12, eseguita con Chromium headless reale
+via Playwright, ha trovato che il cookie di sessione non viene MAI accettato dal
+browser su HTTP in chiaro — non solo in produzione senza TLS, ma anche su
+loopback in sviluppo. Causa: `should_be_secure` (introdotta dal ruling R7 nel
+Task 10) omette `Secure` su host locali pensando che serva a farsi accettare il
+cookie dai test; ma il prefisso `__Host-` richiede l'attributo `Secure`
+*letteralmente presente* per essere valido (RFC 6265bis §4.1.3.2),
+indipendentemente dal trasporto — l'eccezione di "origine potenzialmente
+affidabile" che i browser danno al loopback rilassa una regola diversa (poter
+onorare `Secure` su un trasporto non cifrato), non la presenza dell'attributo.
+Omettendolo, Chromium scarta il cookie per intero. Verificato con Chromium reale
+(context.cookies() vuoto dopo il setup) e confermato con un secondo canale
+(curl grezzo) prima di scriverlo come difetto genuino.
+
+Nessun test Rust esistente poteva aver preso questo bug: nessuna libreria HTTP
+generica (reqwest incluso) implementa la validazione del prefisso `__Host-` —
+e la solo controllo automatico possibile e leggere l'header set-cookie
+letterale, che l'helper `assert_host_prefix_attributes` del Task 10 gia fa, ma
+solo su un Host contraffatto a produzione, mai sul flusso di default su cui
+gira tutta la suite.
+
+Root-causa confermata anche dal lato opposto: ho verificato empiricamente (server
+HTTP di scratch + client reqwest isolato, stessa versione pinnata nel workspace)
+che `cookie_store` 0.22.1 — la libreria dietro reqwest 0.13.4 — ha GIA
+un'eccezione di trasporto per il loopback identica a quella dei browser: un
+cookie Secure emesso su 127.0.0.1 in chiaro torna al client alla richiesta
+successiva; lo stesso cookie emesso su un host non-loopback (192.0.2.2) in
+chiaro viene scartato. Il presupposto scritto nel codice ("un client conforme
+scarterebbe Secure su 127.0.0.1") era quindi falso anche per reqwest, non solo
+per i browser: impostare Secure sempre non dovrebbe rompere l'harness di test
+esistente.
+
+Ruling: fix immediato, non differito al review finale — blocca un criterio di
+completamento esplicito della Fase 0 ("ricarica pagina con sessione
+persistente") e romperebbe identicamente la verifica a mano del Task 13.
+Dispatchato come fix fuori piano (non un task numerato), brief in
+`.superpowers/sdd/2026-08-13-keeppix-fase-0/fix-cookie-host-secure-brief.md`:
+`session_cookie`/`clearing_cookie` impostano Secure incondizionatamente,
+`should_be_secure`/`strip_port`/`host()` rimossi, i test del Task 10 fix round 2
+che contraffacevano Host per rendere Secure osservabile vanno riscritti contro
+il client di default (nessuna contraffazione), piu un test end-to-end del
+round-trip che avrebbe intercettato il bug originale. Prova di vitalita per
+mutazione richiesta. Costo se sbagliato: nessuno noto — l'analisi e verificata
+su due fronti (RFC + comportamento empirico della libreria di test).
+Questo ruling risolve R7 per intero: non c'e piu alcuna decisione di sicurezza
+guidata da un header controllato dal client, quindi il "difetto noto, accettato
+e differito" su should_be_secure nello STATO va rimosso, non solo riesaminato,
+a fix chiuso.
