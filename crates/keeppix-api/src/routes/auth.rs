@@ -6,10 +6,10 @@ use keeppix_db::{SessionRepo, UserRepo};
 use keeppix_domain::{Password, SessionToken, SystemRole, User, Username, verify_password};
 use serde::{Deserialize, Serialize};
 
-use crate::cookie::{clearing_cookie, session_cookie, should_be_secure};
+use crate::cookie::{clearing_cookie, session_cookie};
 use crate::extract::{Auth, SESSION_COOKIE};
 use crate::problem::Problem;
-use crate::routes::setup::{host, user_agent};
+use crate::routes::setup::user_agent;
 use crate::state::AppState;
 
 /// Rappresentazione pubblica dell'utente. Non contiene l'hash della password
@@ -103,8 +103,7 @@ pub async fn login(
         .create(user.id, state.session_ttl, user_agent(&headers))
         .await?;
 
-    let secure = should_be_secure(host(&headers));
-    let jar = jar.add(session_cookie(&token, state.session_ttl, secure));
+    let jar = jar.add(session_cookie(&token, state.session_ttl));
 
     Ok((
         StatusCode::OK,
@@ -150,7 +149,6 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
 pub async fn refresh(
     State(state): State<AppState>,
     jar: CookieJar,
-    headers: HeaderMap,
 ) -> Result<impl IntoResponse, Problem> {
     let cookie = jar
         .get(SESSION_COOKIE)
@@ -162,8 +160,7 @@ pub async fn refresh(
         .await
         .map_err(|_| Problem::unauthenticated())?;
 
-    let secure = should_be_secure(host(&headers));
-    let jar = jar.add(session_cookie(&next, state.session_ttl, secure));
+    let jar = jar.add(session_cookie(&next, state.session_ttl));
 
     Ok((StatusCode::NO_CONTENT, jar))
 }
@@ -179,19 +176,14 @@ pub async fn refresh(
     operation_id = "auth_logout",
     responses((status = 204, description = "Sessione chiusa e cookie ripulito"))
 )]
-pub async fn logout(
-    State(state): State<AppState>,
-    jar: CookieJar,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
         let token = SessionToken::from_string(cookie.value().to_owned());
         if let Err(e) = SessionRepo::new(&state.db).revoke(&token).await {
             tracing::warn!(error = %e, "revoca sessione fallita");
         }
     }
-    let secure = should_be_secure(host(&headers));
-    (StatusCode::NO_CONTENT, jar.add(clearing_cookie(secure)))
+    (StatusCode::NO_CONTENT, jar.add(clearing_cookie()))
 }
 
 #[derive(Serialize, utoipa::ToSchema)]

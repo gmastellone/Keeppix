@@ -6,7 +6,7 @@ use keeppix_db::{SessionRepo, UserRepo};
 use keeppix_domain::{NewUser, Password, SystemRole, Username, hash_password};
 use serde::{Deserialize, Serialize};
 
-use crate::cookie::{session_cookie, should_be_secure};
+use crate::cookie::session_cookie;
 use crate::problem::Problem;
 use crate::routes::auth::UserView;
 use crate::state::AppState;
@@ -113,8 +113,7 @@ pub async fn create(
         .create(user.id, state.session_ttl, user_agent(&headers))
         .await?;
 
-    let secure = should_be_secure(host(&headers));
-    let jar = jar.add(session_cookie(&token, state.session_ttl, secure));
+    let jar = jar.add(session_cookie(&token, state.session_ttl));
 
     Ok((
         StatusCode::CREATED,
@@ -129,8 +128,4 @@ pub(crate) fn user_agent(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
-}
-
-pub(crate) fn host(headers: &HeaderMap) -> Option<&str> {
-    headers.get(header::HOST).and_then(|v| v.to_str().ok())
 }
