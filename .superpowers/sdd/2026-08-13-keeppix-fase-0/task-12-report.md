@@ -37,13 +37,16 @@ superficie API usata dal piano (`createRouter`, `createWebHistory`,
 queste major, e il codice del piano funziona verbatim con esse — nessun
 adattamento richiesto oltre a quanto documentato sotto.
 
-Due impostazioni del tsconfig generato dal template attuale HANNO richiesto
-un adattamento del codice verbatim del piano (dettagliato sotto): la
-deprecazione di `baseUrl` in TypeScript 6.0 (`TS5101`, errore in build mode)
-e il flag `erasableSyntaxOnly` (introdotto in TS 5.8, abilitato di default
-dal template attuale) che vieta le proprietà-parametro nei costruttori.
+Due impostazioni del tsconfig generato dal template attuale hanno toccato il
+codice verbatim del piano (dettagliato sotto): la deprecazione di `baseUrl`
+in TypeScript 6.0 (`TS5101`, errore in build mode — qui l'adattamento era
+obbligato, l'opzione è deprecata e basta) e il flag `erasableSyntaxOnly`
+(introdotto in TS 5.8, abilitato di default dal template attuale) che vieta
+le proprietà-parametro nei costruttori — qui, **a differenza di quanto
+scritto in una versione precedente di questo report**, non era l'unica via:
+si poteva anche disattivare il flag. Vedi correzione nello scostamento 2.
 
-## Scostamenti dal piano (obbligati, non stilistici)
+## Scostamenti dal piano
 
 ### 1. Collisione di identificatori in `i18n.spec.ts`
 
@@ -58,19 +61,33 @@ Fix: alias `enMessages`/`itMessages` sugli import dei JSON, con un
 commento che spiega il perché. Tutte le asserzioni e i dati di test restano
 identici — è solo un cambio di nome di binding, non di comportamento.
 
-### 2. `erasableSyntaxOnly` e proprietà-parametro in `ApiProblem`
+### 2. `erasableSyntaxOnly` e proprietà-parametro in `ApiProblem` — CORREZIONE (round di fix 1/5)
+
+**Questa sezione era imprecisa nella prima stesura del report** e il
+reviewer l'ha segnalata come Minor: la presentavo come uno scostamento
+"obbligato", ma non lo era. Correggo qui.
 
 Il tsconfig generato dallo scaffold attuale (`tsconfig.app.json`) include
 `"erasableSyntaxOnly": true`, che vieta sintassi TS che richiede codice
 emesso a runtime — incluse le proprietà-parametro nei costruttori
 (`constructor(readonly type: string, ...)`), usate verbatim dal piano nella
-classe `ApiProblem`. `vue-tsc -b` fallisce con `TS1294` su ognuno dei quattro
-parametri.
+classe `ApiProblem`. Con quel flag attivo, `vue-tsc -b` fallisce con `TS1294`
+su ognuno dei quattro parametri — **questa parte resta vera**.
 
-Fix: dichiarazione esplicita dei campi (`readonly type: string` fuori dal
-costruttore) e assegnazione nel corpo del costruttore. Stessa forma
-pubblica, stesso comportamento, stessi nomi di campo — cambia solo dove la
-riga di dichiarazione vive.
+Quello che non è vero è che la riscrittura della classe fosse l'unica via:
+`"erasableSyntaxOnly": false` in `tsconfig.app.json` — un'opzione dello
+scaffold, non richiesta né dal piano né dallo spec — avrebbe permesso di
+compilare il costruttore a proprietà-parametro verbatim del piano senza
+toccare `client.ts`. Era quindi una scelta fra due strade ugualmente valide
+(indebolire quel flag, oppure riscrivere la classe), non un vincolo del
+compilatore. Ho scelto la riscrittura perché mantiene lo scaffold più
+severo per tutto il resto del progetto — una preferenza difendibile, ma una
+preferenza, non un obbligo.
+
+Il codice non cambia: la soluzione scelta (dichiarazione esplicita dei
+campi fuori dal costruttore, assegnazione nel corpo — stessa forma
+pubblica, stesso comportamento, stessi nomi di campo) resta quella
+implementata.
 
 ### 3. `baseUrl` deprecato in TS 6.0
 
@@ -407,9 +424,10 @@ locale, nessuna chiamata esterna, innocuo da tenere).
 
 - **Completezza**: tutti i 16 step eseguiti; le 3 rotte, lo store e
   `apiFetch` hanno l'interfaccia pubblica richiesta dal brief.
-- **Qualità**: ho preferito riscritture minime e mirate (solo dove il
-  toolchain corrente lo imponeva) invece di deviazioni di stile personali
-  dal codice verbatim del piano.
+- **Qualità**: ho preferito riscritture minime e mirate (dove il toolchain
+  corrente lo imponeva, o — nel solo caso di `ApiProblem` — dove una scelta
+  fra due strade valide andava comunque fatta, vedi scostamento 2) invece di
+  deviazioni di stile personali dal codice verbatim del piano.
 - **Disciplina**: non ho aggiunto funzionalità non richieste (niente
   gestione multi-lingua oltre a it/en, niente componenti UI oltre ai tre
   richiesti, niente uso di `reka-ui` non necessario a questo task).
@@ -418,3 +436,187 @@ locale, nessuna chiamata esterna, innocuo da tenere).
   eseguita la prova a mano con un browser reale invece di limitarmi a
   dichiararla ineseguibile o a curl grezzo, arrivando a una diagnosi
   precisa e verificabile del difetto trovato.
+
+---
+
+# Fix round 1/5 — report
+
+Review di riferimento:
+`.superpowers/sdd/2026-08-13-keeppix-fase-0/task-12-review.md`. Assessment:
+Approved, spec ✅, un Important da correggere, tre Minor differiti (uno dei
+quali era una correzione a questo stesso report — vedi sopra, sezione
+"Scostamenti dal piano", scostamento 2, ora corretta).
+
+## Important corretto: `signOut()` senza gestione errori
+
+**Problema**: `HomeView.vue`, verbatim dal piano, non avvolgeva
+`session.logout()` in un `try/catch`. Se `POST /api/v1/auth/logout`
+falliva a livello di rete, la promise async di `signOut()` restava
+rigettata senza gestione: `user.value` non veniva azzerato, il redirect a
+`/login` non avveniva, nessun messaggio compariva — il pulsante "Sign out"
+sembrava semplicemente non fare nulla.
+
+**Decisione del controller** (autorialità del piano non lo assolve,
+trattandosi comunque di un'azione di sicurezza): azzerare comunque lo stato
+locale e portare a `/login` anche se la revoca server-side fallisce,
+segnalando l'errore se possibile — dato che il backend risponde `204` anche
+sui fallimenti che gestisce, un errore che arriva fino al frontend è quasi
+certamente di rete, e il rischio di un logout apparente-non-riuscito è
+peggiore di un logout locale con revoca server-side incerta.
+
+### Dove ho messo il fix
+
+Nello **store** (`frontend/src/stores/session.ts`), non nella vista.
+`logout()` ora:
+
+```ts
+async function logout(): Promise<void> {
+  try {
+    await authApi.logout()
+    logoutError.value = false
+  } catch {
+    logoutError.value = true
+  } finally {
+    user.value = null
+  }
+}
+```
+
+`logout()` non rilancia più l'eccezione: azzera sempre `user.value`
+(`finally`) e traccia l'esito in un nuovo stato `logoutError` (esposto dallo
+store) invece di propagare l'errore al chiamante. Ho verificato che
+`HomeView.vue` sia l'unico chiamante di `session.logout()` in tutto
+`frontend/src` (`grep -rn "session.logout\|\.logout(" frontend/src`) prima
+di cambiarne il contratto, quindi nessun altro chiamante viene sorpreso.
+Conseguenza pratica: **non ho dovuto toccare `HomeView.vue`** — il suo
+`await session.logout(); await router.push('/login')` esistente era già
+corretto *a patto che* `logout()` non rigettasse mai, il che ora è
+garantito dallo store. Ho preferito questa strada (fra le due che il
+controller offriva) perché evita di duplicare la logica try/catch in ogni
+vista che in futuro chiamasse `logout()`, e perché lo stato di sessione
+vive comunque nello store.
+
+Per non perdere il segnale d'errore, `LoginView.vue` (la vista di
+atterraggio dopo il redirect) lo consuma una volta sola:
+
+```ts
+onMounted(() => {
+  if (session.logoutError) {
+    error.value = t('login.notices.signedOutOffline')
+    session.logoutError = false
+  }
+})
+```
+
+Riusa l'`<Alert>` e il `ref` `error` già presenti in `LoginView.vue` per gli
+errori di credenziali — nessun nuovo componente. Il flag si autoconsuma
+(azzerato subito dopo la lettura), quindi non ricompare a un reload
+successivo o a un nuovo tentativo di login.
+
+### Traduzioni
+
+Aggiunta `login.notices.signedOutOffline` a **entrambi** `it.json` e
+`en.json` (il test sulla parità delle chiavi le tiene allineate):
+
+- it: "Sei uscito localmente; non siamo riusciti a confermarlo con il
+  server (probabile problema di rete)."
+- en: "You were signed out locally; we couldn't confirm it with the server
+  (likely a network issue)."
+
+### Test aggiunto
+
+`frontend/src/views/HomeView.spec.ts` — nuovo file, due casi:
+
+1. `authApi.logout` rigetta → dopo il click su "Sign out",
+   `session.user` è `null`, `session.logoutError` è `true`, e il router è
+   atterrato su `/login`.
+2. `authApi.logout` risolve → stesso esito di navigazione/stato, ma
+   `session.logoutError` resta `false`.
+
+Il piano non richiedeva test per `stores/session.ts` o le viste (lo step 4
+prescrive solo `client.spec.ts` e `i18n.spec.ts`, e il reviewer lo nota
+come Minor differito), ma qui il comportamento nuovo l'ho scritto io, non
+il piano — volevo una prova diretta che facesse esattamente ciò che il
+contratto del round chiedeva ("un test che simuli il fallimento di logout
+e verifichi che l'utente finisca comunque a /login con lo stato azzerato"),
+non solo una verifica manuale. Ho scelto il livello "monta `HomeView.vue`
+con un router e una Pinia isolati, mocka `@/api/auth`" invece di un test
+puramente unitario sullo store, perché prova l'esito visibile
+(navigazione + stato) descritto dal reviewer, non solo la funzione
+interna che lo produce.
+
+**RED confermato prima di committare**: ho temporaneamente ripristinato la
+vecchia `logout()` (senza `try/catch`) e rilanciato
+`npx vitest run src/views/HomeView.spec.ts`:
+
+```
+FAIL  src/views/HomeView.spec.ts > HomeView signOut > azzera lo stato e
+naviga a /login anche se la revoca server-side fallisce
+AssertionError: expected { id: '1', username: 'admin', …(4) } to be null
+  - Expected: null
+  + Received: { "display_name": "Admin", ... }
+
+Unhandled Rejection
+Error: network error
+ ❯ src/views/HomeView.spec.ts:53:41
+
+Test Files  1 failed (1)
+     Tests  1 failed | 1 passed (2)
+```
+
+Riproduce esattamente il difetto originale (stato non azzerato, rejection
+non gestita). Ripristinato il fix, rilanciato: `2 passed`.
+
+## Verifica del round
+
+```
+$ npx vitest run
+ Test Files  3 passed (3)
+      Tests  8 passed (8)
+
+$ npx vue-tsc --noEmit
+(nessun output — nessun errore)
+
+$ npm run lint
+> eslint . --max-warnings 0
+(nessun output — nessun errore né warning)
+
+$ npm run build && find dist/assets -name '*.js' -exec gzip -c {} \; | wc -c
+✓ built in 526ms
+76893
+```
+
+Bundle: 76 893 byte gzip (+221 byte rispetto al round precedente, per il
+nuovo ramo di codice e la stringa di traduzione aggiuntiva) — ancora ben
+sotto i 153 600 byte del budget.
+
+Non ho rilanciato `cargo test --workspace`: il round non tocca `crates/`
+(nessun file fuori da `frontend/` in questo commit) e, come segnalato dal
+coordinatore, c'è lavoro concorrente non committato su `crates/keeppix-api`
+in questo momento — farla girare ora misurerebbe uno stato ibrido, non
+quello di nessun commit reale.
+
+## File modificati in questo round
+
+Tutti sotto `frontend/`, aggiunti con `git add` mirato (non `-A`/`.`/`-a`)
+per non toccare il lavoro concorrente su `crates/`:
+
+- `frontend/src/stores/session.ts` — `logout()` non rilancia più,
+  `logoutError` esposto.
+- `frontend/src/views/LoginView.vue` — consuma `logoutError` al mount.
+- `frontend/src/i18n/it.json`, `en.json` — nuova chiave
+  `login.notices.signedOutOffline`.
+- `frontend/src/views/HomeView.spec.ts` — nuovo, copre il fix (vedi sopra).
+- `.superpowers/sdd/2026-08-13-keeppix-fase-0/task-12-report.md` — questo
+  file: correzione del Minor sul report (scostamento 2) e questa
+  appendice.
+
+`HomeView.vue` non è stato toccato: il fix nello store lo rende già
+corretto senza modifiche, come spiegato sopra.
+
+## Minor non lavorati (per completezza, come da contratto del round)
+
+Confermo di non aver toccato gli altri due Minor (assenza di test per
+`router.ts`/lo `store` in generale al di fuori del nuovo caso;
+`index.html` con `lang="en"` hardcoded) — sono registrati nel ledger come
+differiti, non rientrano nel contratto di questo round.
