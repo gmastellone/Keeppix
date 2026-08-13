@@ -22,7 +22,11 @@ pub struct SetupStatus {
     get,
     path = "/api/v1/setup/status",
     tag = "setup",
-    responses((status = 200, description = "Stato di inizializzazione dell'istanza", body = SetupStatus))
+    operation_id = "setup_status",
+    responses(
+        (status = 200, description = "Stato di inizializzazione dell'istanza", body = SetupStatus),
+        (status = 500, description = "Il conteggio degli utenti è fallito", body = Problem)
+    )
 )]
 pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, Problem> {
     let count = UserRepo::new(&state.db).count().await?;
@@ -53,11 +57,13 @@ pub struct SetupResponse {
     post,
     path = "/api/v1/setup",
     tag = "setup",
+    operation_id = "setup_create",
     request_body = SetupRequest,
     responses(
         (status = 201, description = "Amministratore creato e sessione aperta", body = SetupResponse),
-        (status = 409, description = "Istanza già inizializzata"),
-        (status = 422, description = "Username o password non validi")
+        (status = 409, description = "Istanza già inizializzata", body = Problem),
+        (status = 422, description = "Username o password non validi", body = Problem),
+        (status = 500, description = "Hashing della password o scrittura fallita", body = Problem)
     )
 )]
 pub async fn create(

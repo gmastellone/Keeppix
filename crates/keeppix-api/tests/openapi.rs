@@ -1,11 +1,22 @@
+mod harness;
+
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode};
+use harness::TestServer;
 use tower::ServiceExt as _;
 
 /// Il documento non tocca il database: nasce dalle annotazioni sui tipi.
+/// Attenzione: questo router monta solo `/health` e `/api/openapi.json`, non
+/// `/api/v1` — per interrogare le rotte reali serve `TestServer`.
 fn app() -> axum::Router {
     keeppix_api::router_without_state()
 }
+
+/// I metodi che in un Path Item Object di `OpenAPI` 3.1 sono operazioni; le
+/// altre chiavi (`summary`, `parameters`, `servers`, …) non lo sono.
+const HTTP_METHODS: [&str; 8] = [
+    "get", "put", "post", "delete", "options", "head", "patch", "trace",
+];
 
 /// Copia locale delle asserzioni di `tests/health.rs`: ogni file di test è un
 /// binario a sé, quindi l'helper non è condivisibile senza un modulo comune.
@@ -81,9 +92,156 @@ async fn openapi_document_carries_the_security_headers() {
     assert_security_headers(response.headers());
 }
 
-/// Blocca la specifica su disco. Se cambia, il test fallisce e mostra il diff:
-/// aggiornare `docs/api/openapi.json` è una scelta consapevole, non un effetto
-/// collaterale di un refactoring.
+/// Lega il documento alle rotte davvero montate. Percorso e metodo di ogni
+/// operazione sono stringhe scritte a mano dentro `#[utoipa::path]`: niente nel
+/// compilatore le confronta con le `Router::route(...)` di `lib.rs`, quindi
+/// senza questo test un refuso nell'attributo pubblicherebbe un'operazione che
+/// non esiste — o esiste con un altro metodo — e tutta la suite resterebbe
+/// verde. Ogni operazione viene chiamata sul router **reale con stato**: uno
+/// status 404 significa percorso inesistente, 405 percorso giusto e metodo
+/// sbagliato. Qualunque altro esito va bene: qui non si verifica la logica
+/// degli handler, solo che la superficie HTTP descritta esista.
+///
+/// **Direzione non coperta: rotta montata e non documentata.** Servirebbe
+/// enumerare le rotte del router, e axum 0.8 non espone la propria tabella
+/// (`Router` non ha API di introspezione). Chi aggiunge una `route(...)` senza
+/// il corrispondente `#[utoipa::path]` non trova qui nessun avviso: il
+/// controllo va fatto in review, oppure in CI confrontando il documento con
+/// l'elenco delle rotte una volta che axum lo renderà leggibile.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn documented_operations_are_all_mounted() {
+    let server = TestServer::start().await;
+
+    let doc: serde_json::Value = server
+        .client
+        .get(server.url("/api/openapi.json"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let mut checked = 0_usize;
+    for (path, item) in doc["paths"].as_object().unwrap() {
+        for (method, _) in item.as_object().unwrap() {
+            if !HTTP_METHODS.contains(&method.as_str()) {
+                continue;
+            }
+
+            let verb = reqwest::Method::from_bytes(method.to_uppercase().as_bytes()).unwrap();
+            let status = server
+                .client
+                .request(verb, server.url(path))
+                .send()
+                .await
+                .unwrap()
+                .status();
+
+            assert_ne!(
+                status,
+                reqwest::StatusCode::NOT_FOUND,
+                "il documento dichiara {method} {path}, ma quel percorso non è montato"
+            );
+            assert_ne!(
+                status,
+                reqwest::StatusCode::METHOD_NOT_ALLOWED,
+                "il documento dichiara {method} {path}, ma la rotta non accetta quel metodo"
+            );
+            checked += 1;
+        }
+    }
+
+    // Senza questo, un documento vuoto — o un `paths` che smette di essere un
+    // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
+    assert_eq!(checked, 6, "il documento deve descrivere sei operazioni");
+}
+
+/// I nomi degli schemi di sicurezza sono letterali dentro `#[utoipa::path]` e
+/// non possono riferirsi a `openapi::SESSION_SCHEME`: se le due scritture
+/// divergono, il documento dichiara `security` verso uno schema inesistente e
+/// un generatore di client non sa quale credenziale mandare. Qui si verifica
+/// che ogni requisito punti a uno schema dichiarato, che le due rotte protette
+/// lo abbiano, e che il cookie descritto sia davvero quello che l'extractor
+/// legge.
+#[test]
+#[allow(clippy::unwrap_used)]
+fn security_requirements_name_a_declared_scheme() {
+    let doc =
+        serde_json::to_value(<keeppix_api::openapi::ApiDoc as utoipa::OpenApi>::openapi()).unwrap();
+
+    let schemes = doc["components"]["securitySchemes"].as_object().unwrap();
+    let session = &schemes[keeppix_api::openapi::SESSION_SCHEME];
+    assert_eq!(session["type"], "apiKey");
+    assert_eq!(session["in"], "cookie");
+    assert_eq!(session["name"], keeppix_api::SESSION_COOKIE);
+
+    let mut protected = Vec::new();
+    for (path, item) in doc["paths"].as_object().unwrap() {
+        for (method, operation) in item.as_object().unwrap() {
+            if !HTTP_METHODS.contains(&method.as_str()) {
+                continue;
+            }
+            let Some(requirements) = operation["security"].as_array() else {
+                continue;
+            };
+            for requirement in requirements {
+                for name in requirement.as_object().unwrap().keys() {
+                    assert!(
+                        schemes.contains_key(name),
+                        "{method} {path} richiede lo schema {name}, che non è dichiarato in components"
+                    );
+                }
+            }
+            protected.push(path.clone());
+        }
+    }
+
+    protected.sort();
+    assert_eq!(protected, ["/api/v1/auth/me", "/api/v1/auth/refresh"]);
+}
+
+/// `operationId` diventa il nome del metodo nei client generati e deve essere
+/// unico in tutto il documento. Derivarlo dal nome della funzione Rust non
+/// basta: `setup::create` e un futuro `albums::create` produrrebbero due
+/// `create`. Gli `operation_id` sono quindi espliciti e con prefisso di area;
+/// questo test fallisce se due operazioni tornano a chiamarsi allo stesso modo.
+#[test]
+#[allow(clippy::unwrap_used)]
+fn operation_ids_are_explicit_and_unique() {
+    let doc =
+        serde_json::to_value(<keeppix_api::openapi::ApiDoc as utoipa::OpenApi>::openapi()).unwrap();
+
+    let mut ids = Vec::new();
+    for item in doc["paths"].as_object().unwrap().values() {
+        for (method, operation) in item.as_object().unwrap() {
+            if !HTTP_METHODS.contains(&method.as_str()) {
+                continue;
+            }
+            ids.push(operation["operationId"].as_str().unwrap().to_owned());
+        }
+    }
+
+    ids.sort();
+    let unique = ids.len();
+    ids.dedup();
+    assert_eq!(ids.len(), unique, "operationId duplicato: {ids:?}");
+    assert_eq!(
+        ids,
+        [
+            "auth_login",
+            "auth_logout",
+            "auth_me",
+            "auth_refresh",
+            "setup_create",
+            "setup_status"
+        ]
+    );
+}
+
+/// Blocca la specifica su disco: da questo file si generano i client mobile,
+/// quindi una modifica va vista prima di essere pubblicata, non dopo.
 #[test]
 #[allow(clippy::unwrap_used)]
 fn openapi_snapshot_matches_the_committed_file() {
@@ -103,6 +261,12 @@ fn openapi_snapshot_matches_the_committed_file() {
     assert_eq!(
         committed.trim(),
         generated.trim(),
-        "la specifica è cambiata: rigenerare con `rm docs/api/openapi.json && cargo test`"
+        "il contratto pubblico è cambiato: il codice non produce più il documento \
+         committato in docs/api/openapi.json. Da quel file si generano i client \
+         Kotlin, Swift, Dart e TypeScript, e lo spec lo dichiara congelato (solo \
+         aggiunte entro /api/v1). Non rigenerarlo per far tornare verde il test: \
+         guarda che cosa è cambiato e decidi. Se il cambiamento non è voluto, \
+         correggi il codice; se lo è ed è compatibile, aggiorna il file committato \
+         di proposito e spiega perché nel messaggio di commit."
     );
 }

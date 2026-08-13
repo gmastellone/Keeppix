@@ -7,8 +7,12 @@ use serde::Serialize;
 /// Errore in formato RFC 9457. Il campo `type` è un codice stabile su cui i
 /// client possono ramificare; `title` è in inglese e serve al debug, non
 /// all'utente finale — la traduzione avviene nel frontend.
-#[derive(Debug, Serialize)]
+///
+/// È anche uno schema del documento `OpenAPI`: è la forma su cui il client
+/// mobile ramifica, quindi va descritta, non solo servita.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Problem {
+    #[schema(example = "keeppix/unauthenticated")]
     #[serde(rename = "type")]
     pub type_slug: String,
     pub title: String,
