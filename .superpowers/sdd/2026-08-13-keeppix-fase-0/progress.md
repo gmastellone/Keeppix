@@ -166,7 +166,7 @@ Task 10: Ruling (F4, host client-controlled): `should_be_secure` fa prefix-match
 Task 10: fix round 1/5 avviato — spec ❌ + 6 Important: F1 clearing_cookie senza Secure viola `__Host-`, F2 il test di pinning del dummy-hash non pinna nulla, F3 should_be_secure senza copertura, F4 prefix-match su Host, F5 logout_invalidates_the_session non prova la revoca server-side, F6 refresh_rotates non prova che il vecchio cookie muoia; piu rimozione di `pub type Ctx`
 Task 10: fix round 1/5 (7 addressed, 0 open — F1 clearing_cookie(secure) con Secure+SameSite; F2 test di pinning che asserisce il parsing in positivo; F3 tre unit test su should_be_secure inclusi i lookalike host; F4 match esatto con strip_port e letterali IPv6; F5 logout riprovato con cookie esplicito su client fresco; F6 refresh_rejects_a_reused_token aggiunto; `pub type Ctx` rimosso)
 Task 10: nota di provenienza: l'implementer e stato fermato dal controller mentre stava per dimostrare il red-then-green di F5. Tutte le correzioni erano gia complete e coerenti (revoke() intatto, Ctx rimosso, clearing_cookie cablato). Il controller ha verificato: 11 test auth + 3 health + 4 unit = tutti verdi, clippy pulito, fmt applicato, e ha committato
-Task 10: complete (commits a040007..<questo commit>, tutti i finding risolti; re-review formale NON eseguita per passaggio a sessione cloud — da rifare come primo passo)
+Task 10: fix round 1/5 committato in 4132af7; re-review formale NON eseguita per passaggio a sessione cloud
 
 ## Consegna a sessione cloud (2026-08-13)
 
@@ -174,3 +174,70 @@ Il workspace `.superpowers/` e stato tolto da .gitignore e committato, insieme a
 docs/superpowers/plans/2026-08-13-keeppix-fase-0-STATO.md che riassume ruling e
 difetti differiti. Prossimo passo: re-review del fix round del Task 10, poi
 Task 11 (OpenAPI).
+
+## Ripresa in sessione cloud (2026-08-13)
+
+Ruling R9 (ambiente): il pull di `postgis/postgis` e bloccato dalla policy di
+egress di questo ambiente (403 su production.cloudfront.docker.com al CONNECT,
+confermato da `curl $HTTPS_PROXY/__agentproxy/status`). Testcontainers e quindi
+inutilizzabile e l'intera suite di integrazione non era eseguibile: il primo
+reviewer ha dovuto patchare gli harness a mano e ripristinarli. Reso permanente
+e pulito: se `KEEPPIX_TEST_DATABASE_URL` e impostata, i due harness usano il
+server Postgres gia in ascolto a quell'indirizzo creando un database vergine per
+test (stesso isolamento del container); senza la variabile il comportamento e
+invariato. Commit 55de9b9. Comando di verifica in questo ambiente:
+`export KEEPPIX_TEST_DATABASE_URL="postgres://keeppix:keeppix@127.0.0.1:5432/postgres"`
+piu `cargo test --workspace -- --test-threads=1` (il flag serve ai test di
+config.rs, che manipolano l'ambiente di processo — vincolo pre-esistente).
+Caveat: qui gira PostgreSQL 16 invece del 17 dell'immagine; le migrazioni
+chiedono solo pg_trgm. Costo se sbagliato: gli harness hanno un ramo in piu, e
+la logica di riscrittura dell'URL e duplicata nei due crate (con unit test solo
+nella copia di keeppix-db).
+
+Task 10: re-review formale del fix round 1/5 (diff ab19d33..4132af7) — spec OK,
+qualita approvata con riserva. Sei dei sette finding verificati **per
+mutazione**: rompendo il codice di produzione (DUMMY_HASH corrotto, revoke
+disattivato in logout, rotate sostituito da authenticate+create, starts_with
+rimesso in should_be_secure) il test corrispondente diventa rosso. F1 verificato
+per osservazione diretta degli header, non da un test — da cui N1.
+Task 10: minor (deferred): `dummy_hash_is_a_valid_argon2id_phc_string` e
+leggermente sovra-pinnato — mutare il solo salt lo fa fallire pur lasciando
+intatta la proprieta di sicurezza. Prezzo inevitabile dell'asserzione positiva:
+ruotare la costante impone di rigenerarla dal plaintext dichiarato
+Task 10: minor (deferred): `logout` risponde 204 anche quando `revoke` fallisce
+(errore solo loggato a warn). Con un blip del database l'utente crede di essere
+uscito mentre la sessione resta viva lato server fino alla scadenza. Coerente
+con il commento "Sempre 204", ma il fallimento e invisibile al client
+Task 10: minor (deferred): `should_be_secure` e case-sensitive e non riconosce
+`0:0:0:0:0:0:0:1` ne `[127.0.0.1]`. Tutti questi casi cadono sul lato sicuro
+(`Secure = true`): rompono al massimo uno sviluppo locale esotico
+Task 10: minor (deferred): `setup_creates_the_first_admin_and_logs_in` verifica
+gli attributi del cookie con `contains` sull'header intero e senza contraffare
+`Host`, quindi non puo vedere `Secure` ed e esposto in linea di principio al
+falso positivo del token casuale. La proprieta e ora coperta dai due test nuovi
+Task 10: nota per il review finale del branch (osservazione di spec, non un
+finding del Task 10): §9.5 chiede come difesa CSRF `SameSite=Lax` **piu**
+obbligo di `Content-Type: application/json` e di un header custom sulle
+mutazioni. `/auth/refresh` e `/auth/logout` non hanno ne corpo ne header custom
+richiesto. Non e nel contratto del Task 10 e `SameSite=Lax` da solo gia impedisce
+l'invio del cookie su POST cross-site
+Task 10: fix round 2/5 avviato — Important N1: F1 chiuso senza test di
+regressione (rimuovendo Secure e SameSite da `clearing_cookie` la suite resta
+verde); Minor N2: il doc comment di `refresh_rejects_a_reused_token`
+sovradichiara la copertura della revoca di famiglia
+Task 10: fix round 2/5 (2 addressed, 0 open — due test con `Host` contraffatto
+(`photos.example.com`) che rendono `Secure` osservabile, piu un helper che
+splitta l'header `set-cookie` su `;` e confronta gli attributi per uguaglianza
+invece di usare `contains`: il valore del token e base64url casuale e potrebbe
+contenere `Secure` o `Path=/` per caso. N2 chiuso nella forma forte — il token
+*nuovo* post-rotazione viene ripresentato a /auth/me e deve dare 401. Quattro
+mutazioni verificate rosse; codice di produzione non toccato, +108 righe di soli
+test. Commit 90f8b82)
+Task 10: complete (commits a040007..90f8b82, tutti i finding risolti e
+riverificati; suite 85 test verdi, clippy pulito, fmt pulito)
+
+Ruling R10 (branch): l'utente ha chiesto esplicitamente di pushare sul branch
+della fase in corso — `fase-0` — invece del branch `claude/...` imposto di
+default dall'harness della sessione cloud. Il branch `claude/keeppix-fase-0-4c0lku`
+e stato cancellato in locale e su origin dopo aver verificato che i suoi commit
+fossero tutti contenuti in `fase-0`.
