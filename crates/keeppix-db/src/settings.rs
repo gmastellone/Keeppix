@@ -20,7 +20,7 @@ impl<'a> SettingsRepo<'a> {
     /// sicura anche se due processi partono insieme.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce; `DbError::Migration` se il
+    /// `DbError::Connection` se la query fallisce; `DbError::Corrupted` se il
     /// valore memorizzato non è decodificabile.
     pub async fn get_or_create_secret(&self, key: &str) -> Result<[u8; 32], DbError> {
         let mut fresh = [0u8; 32];
@@ -44,10 +44,10 @@ impl<'a> SettingsRepo<'a> {
         let stored: String = row.try_get("value")?;
         let bytes = STANDARD
             .decode(&stored)
-            .map_err(|e| DbError::Migration(format!("stored secret is not base64: {e}")))?;
+            .map_err(|e| DbError::Corrupted(format!("stored secret is not base64: {e}")))?;
 
         bytes
             .try_into()
-            .map_err(|_| DbError::Migration("stored secret is not 32 bytes".to_owned()))
+            .map_err(|_| DbError::Corrupted("stored secret is not 32 bytes".to_owned()))
     }
 }
