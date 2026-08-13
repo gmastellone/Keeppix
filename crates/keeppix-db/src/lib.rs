@@ -1,10 +1,12 @@
 //! Accesso al database. È l'unico crate del workspace che contiene SQL.
 
 pub mod error;
+pub mod sessions;
 pub mod settings;
 pub mod users;
 
 pub use error::DbError;
+pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
 pub use users::UserRepo;
 
