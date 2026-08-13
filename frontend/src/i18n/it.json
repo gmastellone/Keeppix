@@ -20,7 +20,10 @@
     "username": "Nome utente",
     "password": "Password",
     "submit": "Accedi",
-    "errors": { "invalidCredentials": "Nome utente o password non corretti." }
+    "errors": { "invalidCredentials": "Nome utente o password non corretti." },
+    "notices": {
+      "signedOutOffline": "Sei uscito localmente; non siamo riusciti a confermarlo con il server (probabile problema di rete)."
+    }
   },
   "home": { "greeting": "Ciao, {name}", "logout": "Esci" },
   "common": { "loading": "Caricamento…", "unexpectedError": "Si è verificato un errore imprevisto." }

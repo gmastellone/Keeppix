@@ -11,6 +11,10 @@ export const useSessionStore = defineStore('session', () => {
   const user = ref<User | null>(null)
   const initialised = ref<boolean | null>(null)
   const ready = ref(false)
+  /** True se l'ultimo logout ha azzerato la sessione localmente senza
+   * conferma dal server. Letto (e azzerato) dalla vista che accoglie
+   * l'utente dopo il redirect, per segnalarlo senza bloccare l'uscita. */
+  const logoutError = ref(false)
 
   /** Determina lo stato dell'istanza e ripristina la sessione se presente. */
   async function bootstrap(): Promise<void> {
@@ -41,10 +45,24 @@ export const useSessionStore = defineStore('session', () => {
     initialised.value = true
   }
 
+  /**
+   * Il logout è un'azione di sicurezza: se la revoca server-side fallisce
+   * (quasi certamente un errore di rete — il backend risponde comunque
+   * `204` sui fallimenti che riesce a gestire), l'utente non deve restare
+   * bloccato in un'interfaccia che lo mostra ancora autenticato. Si azzera
+   * lo stato locale in ogni caso, e si segnala l'accaduto tramite
+   * `logoutError` invece di propagare l'eccezione al chiamante.
+   */
   async function logout(): Promise<void> {
-    await authApi.logout()
-    user.value = null
+    try {
+      await authApi.logout()
+      logoutError.value = false
+    } catch {
+      logoutError.value = true
+    } finally {
+      user.value = null
+    }
   }
 
-  return { user, initialised, ready, bootstrap, login, setup, logout }
+  return { user, initialised, ready, logoutError, bootstrap, login, setup, logout }
 })

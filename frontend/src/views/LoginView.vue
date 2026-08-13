@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -17,6 +17,15 @@ const username = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
+
+// Un logout azzerato solo localmente (revoca server-side non confermata)
+// atterra qui: lo si segnala una volta, poi si consuma il segnale.
+onMounted(() => {
+  if (session.logoutError) {
+    error.value = t('login.notices.signedOutOffline')
+    session.logoutError = false
+  }
+})
 
 async function submit() {
   error.value = ''
