@@ -1,8 +1,10 @@
 //! Accesso al database. È l'unico crate del workspace che contiene SQL.
 
 pub mod error;
+pub mod users;
 
 pub use error::DbError;
+pub use users::UserRepo;
 
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
