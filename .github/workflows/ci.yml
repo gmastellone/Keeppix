@@ -12,6 +12,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # keeppix-server incorpora frontend/dist nel binario tramite
+      # `#[derive(Embed)]` (rust-embed): se la cartella manca, il crate non
+      # compila affatto (non un test che si salta). Il job `frontend` gira su
+      # un runner separato e non condivide filesystem con questo job, quindi
+      # il frontend va ricostruito qui, indipendentemente da lì — pochi
+      # secondi in più, nessun accoppiamento fra i due job via artifact.
+      - uses: actions/setup-node@v4
+        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - name: Build frontend (richiesto da rust-embed per compilare keeppix-server)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
       - uses: dtolnay/rust-toolchain@1.88.0
         with: { components: rustfmt, clippy }
       - uses: Swatinem/rust-cache@v2
@@ -52,8 +67,28 @@ jobs:
 
       - name: Budget del bundle iniziale (150 KB gzip)
         run: |
-          SIZE=$(find dist/assets -name '*.js' -exec gzip -c {} \; | wc -c)
-          echo "bundle gzip: $SIZE byte"
+          # "Iniziale" = solo gli asset che dist/index.html carica subito
+          # (lo script d'ingresso e il foglio di stile che Vite vi inietta).
+          # I chunk per-rotta caricati pigramente via import() (vedi
+          # src/router.ts) restano fuori di proposito: lo spec vuole mappa,
+          # culling, impostazioni e player video in chunk separati, fuori dal
+          # budget iniziale (design §10.9).
+          test -f dist/index.html || { echo "::error::dist/index.html non trovato"; exit 1; }
+
+          ASSETS=$(grep -oE '(src|href)="/assets/[^"]+\.(js|css)"' dist/index.html | sed -E 's/^(src|href)="//; s/"$//')
+          if [ -z "$ASSETS" ]; then
+            echo "::error::nessun asset d'ingresso trovato in dist/index.html"
+            exit 1
+          fi
+
+          SIZE=0
+          while IFS= read -r asset; do
+            FILE="dist${asset}"
+            test -f "$FILE" || { echo "::error::asset referenziato in index.html assente: $FILE"; exit 1; }
+            SIZE=$((SIZE + $(gzip -c "$FILE" | wc -c)))
+          done <<< "$ASSETS"
+
+          echo "bundle iniziale gzip: $SIZE byte"
           if [ "$SIZE" -gt 153600 ]; then
             echo "::error::bundle oltre il budget di 153600 byte"
             exit 1
