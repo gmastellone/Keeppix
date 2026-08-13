@@ -89,7 +89,7 @@ impl<'a> SessionRepo<'a> {
         let mut tx = self.db.pool().begin().await?;
 
         let row = sqlx::query(
-            "SELECT id, family_id, user_id, consumed_at, revoked_at, expires_at \
+            "SELECT id, family_id, user_id, consumed_at, revoked_at, expires_at, now() AS db_now \
                FROM sessions WHERE refresh_token_hash = $1 FOR UPDATE",
         )
         .bind(token.digest().as_slice())
@@ -118,7 +118,8 @@ impl<'a> SessionRepo<'a> {
         }
 
         let expires_at: chrono::DateTime<chrono::Utc> = row.try_get("expires_at")?;
-        if expires_at <= chrono::Utc::now() {
+        let db_now: chrono::DateTime<chrono::Utc> = row.try_get("db_now")?;
+        if expires_at <= db_now {
             return Err(DbError::NotFound);
         }
 
