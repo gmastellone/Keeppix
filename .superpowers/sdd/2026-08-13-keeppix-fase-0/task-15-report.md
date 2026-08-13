@@ -256,3 +256,243 @@ seguirà la CI dopo il push:
    `audit` inizierà a fallire per motivi indipendenti dal codice applicativo
    (sono causati soprattutto da `testcontainers`/`bollard`, usati solo nei
    test).
+
+---
+
+## Fix round 1/5 — risposta alla review
+
+Review completa: `.superpowers/sdd/2026-08-13-keeppix-fase-0/task-15-review.md`.
+Esito: 2 Critical, 1 Important, 2 Minor. Nessun problema su `deny.toml`
+(validato empiricamente dal reviewer, nessuna modifica in questo round).
+
+### Critical 1 — il job `backend` non compila (frontend/backend non condividono `dist/`)
+
+**Diagnosi confermata**, non solo accettata: ho riprodotto io stesso il
+fallimento prima di correggere.
+
+```
+$ rm -rf frontend/dist
+$ cargo check -p keeppix-server
+error[E0599]: no function or associated item named `get` found for struct `Assets`
+  --> crates/keeppix-server/src/embed.rs:33:19
+...
+error: could not compile `keeppix-server` (lib) due to 3 previous errors
+```
+
+**Scelta:** ho costruito il frontend **dentro** il job `backend`
+(`actions/setup-node` + `npm ci` + `npm run build`), non un artifact
+condiviso fra `backend` e `frontend`. Motivo: la review stessa segnala che è
+l'opzione "più semplice e non accoppia i job" — vero, e in questo repository
+il costo del doppio build (~30 s di npm install + build) è trascurabile
+rispetto al beneficio di **non** introdurre una dipendenza `needs:` fra i
+due job (che serializzerebbe l'esecuzione, oggi in parallelo) né la
+complessità aggiuntiva di `actions/upload-artifact`/`download-artifact` con
+relativa gestione di retention/nome. Il commento aggiunto nel workflow
+spiega esplicitamente perché la build è duplicata e non condivisa.
+
+Posizionata **prima** del toolchain Rust e di `Swatinem/rust-cache`, così
+che compaia per prima nell'ordine di lettura del job e sia impossibile
+scambiarla per uno step opzionale.
+
+**Prova che la sequenza scritta produce davvero `frontend/dist` prima della
+compilazione del backend** (non dedotta, eseguita nell'ordine esatto del
+job aggiornato):
+
+```
+$ rm -rf frontend/dist && ls frontend/dist
+ls: cannot access '/home/user/Keeppix/frontend/dist': No such file or directory
+
+$ cd frontend && npm ci && npm run build
+...
+dist/assets/index-CumzRq_k.js      202.51 kB │ gzip: 74.60 kB
+✓ built in 474ms
+
+$ cd .. && cargo fmt --all --check
+(nessun output, exit 0)
+
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s
+(nessun warning, exit 0 — compila, perché frontend/dist ora esiste)
+
+$ export KEEPPIX_TEST_DATABASE_URL="postgres://keeppix:keeppix@127.0.0.1:5432/postgres"
+$ cargo test --workspace -- --test-threads=1
+...
+     Running tests/embed.rs (target/debug/deps/embed-84d4bb8e498d4b35)
+running 4 tests
+test api_paths_never_fall_back_to_index ... ok
+test assets_are_served_as_immutable ... ok
+test client_routes_fall_back_to_index ... ok
+test index_is_served_at_root ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+96/96 test verdi in totale (stesso conteggio del primo giro), i 4 test di
+`embed.rs` eseguiti realmente (non saltati — nessuna riga "test saltato"
+nell'output). `git diff --exit-code docs/api/openapi.json` → exit 0.
+
+Questa è la prova richiesta esplicitamente dal contratto del round: la
+sequenza scritta nel workflow, eseguita da capo con `dist/` assente
+all'inizio, produce `frontend/dist` **prima** di ogni comando `cargo`.
+
+### Critical 2 — `cosign sign` puntava a un repository con case sbagliato
+
+**Non verificabile end-to-end qui**, come previsto dal contratto del round:
+richiede un push reale su `ghcr.io` con OIDC (`id-token: write`), impossibile
+in questa sandbox. Dichiaro esplicitamente che questa correzione non è stata
+testata contro un registry reale.
+
+**Base su cui ritengo corretta la forma scritta:** il difetto originale era
+che `cosign sign` ricostruiva `ghcr.io/${{ github.repository }}` da zero,
+senza passare dalla normalizzazione minuscola che `docker/metadata-action`
+applica internamente al campo `images:` per generare i tag effettivamente
+pubblicati. La correzione elimina la causa alla radice invece di aggirarla:
+un singolo step calcola `IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}` (bash,
+lowercase parameter expansion, sintassi POSIX-compatibile e disponibile di
+default sui runner Ubuntu con `bash` come shell predefinita) e lo scrive in
+`$GITHUB_ENV`; sia `docker/metadata-action` (`images: ${{ env.IMAGE }}`) sia
+`cosign sign` (`${{ env.IMAGE }}@${{ steps.build.outputs.digest }}`) leggono
+la **stessa** variabile. Non c'è più una seconda ricostruzione indipendente
+del nome immagine che possa disallinearsi dalla prima: il riferimento
+firmato è per costruzione lo stesso repository path che `metadata-action`
+usa per generare i tag pubblicati da `build-push-action`, non solo "anche
+lui minuscolo per un'altra via".
+
+Verificata solo l'espansione bash in isolamento, con il nome reale del
+repository (confermato via `git remote -v`: `gmastellone/Keeppix`):
+
+```
+$ GITHUB_REPOSITORY="gmastellone/Keeppix"; echo "ghcr.io/${GITHUB_REPOSITORY,,}"
+ghcr.io/gmastellone/keeppix
+```
+
+Coerente con quanto il reviewer ha già confermato (fuori diff) essere il
+path realmente pubblicato da `metadata-action`. Il digest
+(`steps.build.outputs.digest`) non è toccato dal fix: proviene invariato da
+`docker/build-push-action`, unico produttore di quel valore.
+
+**Resta non verificato**, e lo dichiaro: che `cosign sign --yes` completi
+con successo contro un `ghcr.io` reale con le credenziali OIDC del workflow
+— nessuna parte di questo passaggio è eseguibile in locale.
+
+### Important — budget bundle: misurava tutto `dist/assets/*.js`, inclusi i chunk lazy
+
+Non mi sono fermato a documentare: la correzione costava poche righe ed era
+a basso rischio, quindi l'ho applicata.
+
+**Approccio:** `dist/index.html` referenzia direttamente, per costruzione di
+Vite, solo gli asset che il browser carica al primo render — lo script
+d'ingresso (`<script type="module" src="...">`) e il foglio di stile
+(`<link rel="stylesheet" href="...">`). I chunk lazy per-rotta (creati dagli
+`import()` dinamici in `frontend/src/router.ts:8-10`) non compaiono in
+`index.html`: vengono richiesti dal router solo alla navigazione. Ho quindi
+sostituito `find dist/assets -name '*.js'` con un'estrazione degli asset
+referenziati in `dist/index.html` via `grep`, sommandone il gzip uno per
+uno (stessa metodologia "somma di gzip indipendenti" dello script
+originale, non un unico stream gzip concatenato — mantiene il numero
+confrontabile con la baseline già misurata).
+
+Non è un'euristica fragile: è il meccanismo con cui Vite inietta gli entry
+point in `index.html` in ogni build di produzione, non un'assunzione su
+nomi di file o struttura di cartelle.
+
+Verificato sulla build reale, con `dist/` ricostruita da zero in questo
+stesso round:
+
+```
+$ grep -oE '(src|href)="/assets/[^"]+\.(js|css)"' dist/index.html
+src="/assets/index-CumzRq_k.js"
+href="/assets/index-5Zgkpkbu.css"
+
+$ # somma gzip di ciascuno dei due file sopra
+bundle iniziale gzip: 76339 byte (budget 153600)
+```
+
+76.339 byte (contro 76.893 dello script precedente): la differenza è
+`- 6 chunk lazy per-rotta (~2,6 KB) + il CSS d'ingresso (2.746 byte gzip,
+prima ignorato)` — coerente con l'analisi della review. Il beneficio
+strutturale è che un chunk lazy grande in una fase futura (es. MapLibre)
+non farà mai fallire questo step, perché non compare in `index.html`.
+
+Il commento nello step spiega esplicitamente la definizione di "iniziale" e
+cita il design (§10.9) per chi lo rileggerà in una fase futura.
+
+### Minor 1 — nessun controllo che gli asset esistano: risolto come parte del fix Important
+
+La riscrittura sopra include due controlli espliciti che il vecchio script
+non aveva:
+
+- `test -f dist/index.html || { echo "::error::..."; exit 1; }` prima di
+  tutto — sostituisce il controllo su `dist/assets` suggerito dalla review
+  con un controllo equivalente più a monte (se `index.html` manca, l'intera
+  build è mancante, non solo la cartella assets);
+- `test -f "$FILE" || { echo "::error::..."; exit 1; }` per **ogni** asset
+  referenziato, prima di provare a gzipparlo.
+
+**Prova che questi controlli falliscono rumorosamente invece di passare in
+silenzio a 0 byte** (riprodotta in due scenari isolati, non nel repository):
+
+```
+# scenario 1: dist/index.html assente
+$ test -f dist/index.html || { echo "::error::dist/index.html non trovato"; exit 1; }
+::error::dist/index.html non trovato
+(exit 1)
+
+# scenario 2: index.html presente, ma l'asset che referenzia è assente
+$ echo '<script src="/assets/index-XXXX.js"></script>' > dist/index.html
+$ ...
+::error::asset referenziato in index.html assente: dist/assets/index-XXXX.js
+(exit 1)
+```
+
+Entrambi gli scenari terminano con `exit 1` e un messaggio esplicito, non
+con un falso "sotto budget" silenzioso.
+
+### Minor 2 — il budget non contava il CSS: risolto come parte dello stesso fix
+
+La stessa riscrittura include `\.(js|css)` nel pattern di estrazione: il
+foglio di stile d'ingresso (`dist/assets/index-*.css`, 2.746 byte gzip nella
+build reale) è ora incluso nella somma. Non serviva un fix separato: era la
+stessa manciata di righe del fix Important.
+
+### Verifiche eseguite in questo round (riepilogo)
+
+Tutte le verifiche del primo giro sono state ripetute da zero dopo le
+modifiche, non riutilizzate dalla sessione precedente:
+
+- `rm -rf frontend/dist` → `cargo check -p keeppix-server` fallisce
+  (riproduzione del Critical 1, prova che la diagnosi è corretta prima del
+  fix).
+- Sequenza corretta del job `backend` eseguita da capo (`npm ci` + `npm run
+  build` prima di `cargo fmt`/`clippy`/`test`): tutti gli step verdi, 96/96
+  test, `embed.rs` eseguito realmente (4/4), `git diff` su `openapi.json`
+  pulito.
+- `npx vue-tsc --noEmit` → pulito. `npx vitest run` → 8/8.
+- Script di budget riscritto, eseguito sulla build reale: 76.339 byte gzip,
+  sotto i 153.600 del tetto.
+- Due scenari di fallimento del nuovo script di budget (index.html assente,
+  asset referenziato ma mancante) riprodotti in isolamento: entrambi
+  falliscono con `exit 1` e messaggio esplicito.
+- Espansione bash `${GITHUB_REPOSITORY,,}` verificata in isolamento con il
+  nome reale del repository (`gmastellone/Keeppix` → `gmastellone/keeppix`).
+
+### Non verificabile in questo round (dichiarato esplicitamente)
+
+- **Job `image`** di `ci.yml`: stesso motivo del giro precedente, policy di
+  egress.
+- **`release.yml` per intero, incluso il fix del Critical 2**: nessuna parte
+  eseguibile in locale. In particolare **non ho potuto confermare che
+  `cosign sign` completi con successo** contro un `ghcr.io` reale — ho
+  verificato solo che il riferimento immagine che il comando costruirebbe è,
+  per costruzione della variabile condivisa, identico a quello che
+  `metadata-action`/`build-push-action` pubblicano. Non affermo che la CI
+  sia verde: lo saprà solo la prima esecuzione reale su GitHub Actions dopo
+  il push del controller.
+
+### File toccati in questo round
+
+- `/home/user/Keeppix/.github/workflows/ci.yml` (Critical 1, Important,
+  Minor 1, Minor 2)
+- `/home/user/Keeppix/.github/workflows/release.yml` (Critical 2)
+
+`deny.toml` non modificato in questo round (nessun problema segnalato lì).
+Nessun file fuori da `.github/` toccato.
