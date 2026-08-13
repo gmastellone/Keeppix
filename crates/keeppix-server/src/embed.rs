@@ -6,7 +6,7 @@ use axum::body::Body;
 use axum::http::{HeaderValue, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use keeppix_api::{AppState, Problem};
+use keeppix_api::Problem;
 use rust_embed::Embed;
 
 #[derive(Embed)]
@@ -66,8 +66,13 @@ async fn serve(uri: Uri) -> Response {
     }
 }
 
-/// Aggiunge il fallback SPA a un router con stato e vi applica gli strati
-/// comuni (header di sicurezza, compressione, tracing).
+/// Aggiunge il fallback SPA a un router e vi applica gli strati comuni
+/// (header di sicurezza, compressione, tracing). Generica sullo stato `S`
+/// così che `mount_stateless()` possa essere `mount(Router::new())`: una
+/// sola implementazione dell'invariante sotto, esercitata sia dal binario
+/// reale (`S = AppState`, via `main.rs`) sia dai test senza database
+/// (`S = ()`), invece di due corpi di funzione separati che un refactor
+/// potrebbe far divergere senza che i test se ne accorgano.
 ///
 /// L'ordine conta: il fallback va impostato **prima** di
 /// `keeppix_api::with_common_layers`, non dopo. In axum 0.8 `.layer()`
@@ -77,12 +82,15 @@ async fn serve(uri: Uri) -> Response {
 /// applicazione, senza `Content-Security-Policy` in produzione. Vedi il
 /// commento su `with_common_layers` in `keeppix-api` per i dettagli. Non
 /// riordinare.
-pub fn mount(router: axum::Router<AppState>) -> axum::Router<AppState> {
+pub fn mount<S: Clone + Send + Sync + 'static>(router: axum::Router<S>) -> axum::Router<S> {
     keeppix_api::with_common_layers(router.fallback(get(serve)))
 }
 
 /// Router senza stato, con lo stesso fallback SPA e gli stessi strati comuni
-/// di `mount`, per i test che non toccano il database.
+/// di `mount`, per i test che non toccano il database. È letteralmente
+/// `mount` applicata a un router vuoto, non una seconda implementazione: i
+/// test che chiamano questa funzione esercitano lo stesso codice che
+/// `main.rs` mette in produzione.
 pub fn mount_stateless() -> axum::Router {
-    keeppix_api::with_common_layers(axum::Router::new().fallback(get(serve)))
+    mount(axum::Router::new())
 }
