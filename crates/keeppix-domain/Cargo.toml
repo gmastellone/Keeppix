@@ -11,6 +11,9 @@ serde.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 argon2 = { version = "0.5.3", features = ["std"] }
+sha2 = "0.11.0"
+rand = { version = "0.10.2", features = ["std", "std_rng"] }
+base64 = "0.23.1"
 
 [lints]
 workspace = true
