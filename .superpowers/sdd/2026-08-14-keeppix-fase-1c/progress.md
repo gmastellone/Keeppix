@@ -20,7 +20,7 @@ container. L'utente l'ha chiesto esplicitamente (disco).
 
 | # | Task | Stato | Commit |
 |---|---|---|---|
-| 1 | Trigger month counts | — | |
+| 1 | Trigger month counts | complete | `be786a8` |
 | 2 | `TimelineRepo` | — | |
 | 3 | HTTP timeline + cartelle | — | |
 | 4 | Media + SPA fallback | — | |
