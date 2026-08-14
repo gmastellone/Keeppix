@@ -78,13 +78,20 @@ come in Fase 0.
 ## Ledger
 
 Task 1: complete (commits 0b1839f..63dd6a6, review clean)
+Task 2: complete (commits b9caaaa..971e5f4, review clean)
+
+Minor differiti (Task 2, da riesaminare in review finale):
+- `sibling_folders_cannot_share_a_name` collide anche su `path` (`1.2`), quindi non isola `folders_sibling_name_key` (plan-mandated).
+- `folders_single_root_key` e `folder_month_counts` esistono ma non hanno un test dedicato.
+
+Nota per Task 5: `ON CONFLICT` su `folders_sibling_name_key` deve usare il predicato parziale `WHERE parent_id IS NOT NULL`.
 
 ## Avanzamento
 
 | # | Task | Stato | Commit |
 |---|---|---|---|
 | 1 | Mapping delle righe uniforme | ✅ review pulita | `63dd6a6` |
-| 2 | Migrazione librerie e cartelle | — | |
+| 2 | Migrazione librerie e cartelle | ✅ review pulita | `971e5f4` |
 | 3 | Tipi di dominio | — | |
 | 4 | `LibraryRepo` | — | |
 | 5 | `FolderRepo` + checkpoint CI | — | |
