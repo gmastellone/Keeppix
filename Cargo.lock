@@ -1908,6 +1908,7 @@ dependencies = [
  "http-body-util",
  "keeppix-db",
  "keeppix-domain",
+ "keeppix-media",
  "keeppix-test-support",
  "reqwest",
  "serde",

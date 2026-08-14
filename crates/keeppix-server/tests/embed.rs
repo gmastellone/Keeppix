@@ -104,6 +104,30 @@ async fn api_paths_never_fall_back_to_index() {
 }
 
 #[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn media_and_dav_paths_never_fall_back_to_index() {
+    if !frontend_built() {
+        eprintln!("frontend/dist assente: test saltato");
+        return;
+    }
+
+    let app = keeppix_server::embed::mount_stateless();
+    for path in ["/media/thumb/deadbeef", "/dav/foo"] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "application/problem+json",
+            "{path} non deve ricevere index.html"
+        );
+    }
+}
+
+#[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn assets_are_served_as_immutable() {
     if !frontend_built() {
