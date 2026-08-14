@@ -1,0 +1,8 @@
+target
+frontend/node_modules
+frontend/dist
+data
+pgdata
+.git
+docs
+*.md

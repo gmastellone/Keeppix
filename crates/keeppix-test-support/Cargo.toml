@@ -1,0 +1,15 @@
+[package]
+name = "keeppix-test-support"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# Non è codice di produzione: esiste solo come `[dev-dependencies]` degli altri
+# crate, che non possono condividere codice di test in altro modo.
+publish = false
+
+[dependencies]
+http = "1"
+
+[lints]
+workspace = true

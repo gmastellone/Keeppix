@@ -1,0 +1,684 @@
+diff --git a/crates/keeppix-api/Cargo.toml b/crates/keeppix-api/Cargo.toml
+index e9dc57c..fe3f8b9 100644
+--- a/crates/keeppix-api/Cargo.toml
++++ b/crates/keeppix-api/Cargo.toml
+@@ -19,6 +19,7 @@ tokio.workspace = true
+ tracing.workspace = true
+ http = "1.5.0"
+ time = "0.3.55"
++utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
+ 
+ [lints]
+ workspace = true
+diff --git a/crates/keeppix-api/src/lib.rs b/crates/keeppix-api/src/lib.rs
+index 9276466..158eba0 100644
+--- a/crates/keeppix-api/src/lib.rs
++++ b/crates/keeppix-api/src/lib.rs
+@@ -3,6 +3,7 @@
+ 
+ pub mod cookie;
+ pub mod extract;
++pub mod openapi;
+ pub mod problem;
+ pub mod routes;
+ pub mod state;
+@@ -74,16 +75,25 @@ fn api_routes() -> Router<AppState> {
+         .route("/auth/me", get(routes::auth::me))
+ }
+ 
++// La rotta del documento OpenAPI va aggiunta **dentro** l'argomento di
++// `common_layers`, come le altre: concatenarla dopo la chiamata la lascerebbe
++// fuori dai `.layer(...)`, cioè senza header di sicurezza — stessa classe di
++// bug del `.fallback()` commentato sopra.
+ fn base_router() -> Router<AppState> {
+     common_layers(
+         Router::new()
+             .route("/health", get(routes::health::get))
++            .route("/api/openapi.json", get(openapi::serve))
+             .nest("/api/v1", api_routes()),
+     )
+ }
+ 
+ fn base_router_stateless() -> Router {
+-    common_layers(Router::new().route("/health", get(routes::health::get)))
++    common_layers(
++        Router::new()
++            .route("/health", get(routes::health::get))
++            .route("/api/openapi.json", get(openapi::serve)),
++    )
+ }
+ 
+ async fn not_found() -> Problem {
+diff --git a/crates/keeppix-api/src/openapi.rs b/crates/keeppix-api/src/openapi.rs
+new file mode 100644
+index 0000000..8c01334
+--- /dev/null
++++ b/crates/keeppix-api/src/openapi.rs
+@@ -0,0 +1,42 @@
++//! Documento `OpenAPI` generato dalle annotazioni sugli handler e sui tipi:
++//! nasce dal codice, quindi non può divergere dall'implementazione.
++
++use utoipa::OpenApi;
++
++use crate::routes::{auth, setup};
++
++#[derive(OpenApi)]
++#[openapi(
++    info(
++        title = "Keeppix API",
++        version = env!("CARGO_PKG_VERSION"),
++        description = "API di Keeppix. Contratto congelato: solo aggiunte entro /api/v1."
++    ),
++    paths(
++        setup::status,
++        setup::create,
++        auth::login,
++        auth::refresh,
++        auth::logout,
++        auth::me,
++    ),
++    components(schemas(
++        auth::UserView,
++        auth::LoginRequest,
++        auth::LoginResponse,
++        auth::MeResponse,
++        setup::SetupStatus,
++        setup::SetupRequest,
++        setup::SetupResponse,
++    )),
++    tags(
++        (name = "setup", description = "Configurazione iniziale dell'istanza"),
++        (name = "auth", description = "Autenticazione e sessioni")
++    )
++)]
++pub struct ApiDoc;
++
++/// Serve il documento su `GET /api/openapi.json`.
++pub async fn serve() -> axum::Json<utoipa::openapi::OpenApi> {
++    axum::Json(ApiDoc::openapi())
++}
+diff --git a/crates/keeppix-api/src/routes/auth.rs b/crates/keeppix-api/src/routes/auth.rs
+index 27a5ada..1c8d8e3 100644
+--- a/crates/keeppix-api/src/routes/auth.rs
++++ b/crates/keeppix-api/src/routes/auth.rs
+@@ -14,12 +14,15 @@ use crate::state::AppState;
+ 
+ /// Rappresentazione pubblica dell'utente. Non contiene l'hash della password
+ /// né il segreto TOTP: quei campi non lasciano mai il database.
+-#[derive(Serialize)]
++#[derive(Serialize, utoipa::ToSchema)]
+ pub struct UserView {
+     pub id: String,
+     pub username: String,
+     pub display_name: String,
+     pub email: Option<String>,
++    // Il campo resta `&'static str` (è una costante scelta dal server, non un
++    // dato allocato): al documento basta sapere che sul filo è una stringa.
++    #[schema(value_type = String)]
+     pub role: &'static str,
+     pub locale: Option<String>,
+ }
+@@ -40,13 +43,13 @@ impl From<&User> for UserView {
+     }
+ }
+ 
+-#[derive(Deserialize)]
++#[derive(Deserialize, utoipa::ToSchema)]
+ pub struct LoginRequest {
+     username: String,
+     password: String,
+ }
+ 
+-#[derive(Serialize)]
++#[derive(Serialize, utoipa::ToSchema)]
+ pub struct LoginResponse {
+     user: UserView,
+ }
+@@ -54,6 +57,16 @@ pub struct LoginResponse {
+ /// # Errors
+ /// `401 invalid-credentials` per utente inesistente, password errata o account
+ /// disabilitato: le tre situazioni sono indistinguibili dall'esterno.
++#[utoipa::path(
++    post,
++    path = "/api/v1/auth/login",
++    tag = "auth",
++    request_body = LoginRequest,
++    responses(
++        (status = 200, description = "Sessione aperta", body = LoginResponse),
++        (status = 401, description = "Credenziali non valide")
++    )
++)]
+ pub async fn login(
+     State(state): State<AppState>,
+     jar: CookieJar,
+@@ -118,6 +131,15 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
+ /// # Errors
+ /// `401 unauthenticated` se il cookie manca, è scaduto o è stato riusato dopo
+ /// il consumo — in quest'ultimo caso l'intera famiglia è già stata revocata.
++#[utoipa::path(
++    post,
++    path = "/api/v1/auth/refresh",
++    tag = "auth",
++    responses(
++        (status = 204, description = "Sessione ruotata, nuovo cookie emesso"),
++        (status = 401, description = "Cookie assente, scaduto o già consumato")
++    )
++)]
+ pub async fn refresh(
+     State(state): State<AppState>,
+     jar: CookieJar,
+@@ -140,6 +162,12 @@ pub async fn refresh(
+ }
+ 
+ /// Sempre `204`, anche senza cookie: uscire deve funzionare comunque.
++#[utoipa::path(
++    post,
++    path = "/api/v1/auth/logout",
++    tag = "auth",
++    responses((status = 204, description = "Sessione chiusa e cookie ripulito"))
++)]
+ pub async fn logout(
+     State(state): State<AppState>,
+     jar: CookieJar,
+@@ -155,13 +183,22 @@ pub async fn logout(
+     (StatusCode::NO_CONTENT, jar.add(clearing_cookie(secure)))
+ }
+ 
+-#[derive(Serialize)]
++#[derive(Serialize, utoipa::ToSchema)]
+ pub struct MeResponse {
+     user: UserView,
+ }
+ 
+ /// # Errors
+ /// `401` se non autenticato, `404` se l'utente è stato nel frattempo rimosso.
++#[utoipa::path(
++    get,
++    path = "/api/v1/auth/me",
++    tag = "auth",
++    responses(
++        (status = 200, description = "Utente della sessione corrente", body = MeResponse),
++        (status = 401, description = "Non autenticato")
++    )
++)]
+ pub async fn me(
+     State(state): State<AppState>,
+     Auth(ctx): Auth,
+diff --git a/crates/keeppix-api/src/routes/setup.rs b/crates/keeppix-api/src/routes/setup.rs
+index 7493f24..a571e0a 100644
+--- a/crates/keeppix-api/src/routes/setup.rs
++++ b/crates/keeppix-api/src/routes/setup.rs
+@@ -11,13 +11,19 @@ use crate::problem::Problem;
+ use crate::routes::auth::UserView;
+ use crate::state::AppState;
+ 
+-#[derive(Serialize)]
++#[derive(Serialize, utoipa::ToSchema)]
+ pub struct SetupStatus {
+     initialised: bool,
+ }
+ 
+ /// # Errors
+ /// `Problem` se il conteggio degli utenti fallisce.
++#[utoipa::path(
++    get,
++    path = "/api/v1/setup/status",
++    tag = "setup",
++    responses((status = 200, description = "Stato di inizializzazione dell'istanza", body = SetupStatus))
++)]
+ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, Problem> {
+     let count = UserRepo::new(&state.db).count().await?;
+     Ok(Json(SetupStatus {
+@@ -25,7 +31,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>,
+     }))
+ }
+ 
+-#[derive(Deserialize)]
++#[derive(Deserialize, utoipa::ToSchema)]
+ pub struct SetupRequest {
+     username: String,
+     display_name: String,
+@@ -33,7 +39,7 @@ pub struct SetupRequest {
+     password: String,
+ }
+ 
+-#[derive(Serialize)]
++#[derive(Serialize, utoipa::ToSchema)]
+ pub struct SetupResponse {
+     user: UserView,
+ }
+@@ -43,6 +49,17 @@ pub struct SetupResponse {
+ /// # Errors
+ /// `409 already-initialised` se l'istanza è già configurata;
+ /// `422 invalid-username` / `422 invalid-password` sui dati non validi.
++#[utoipa::path(
++    post,
++    path = "/api/v1/setup",
++    tag = "setup",
++    request_body = SetupRequest,
++    responses(
++        (status = 201, description = "Amministratore creato e sessione aperta", body = SetupResponse),
++        (status = 409, description = "Istanza già inizializzata"),
++        (status = 422, description = "Username o password non validi")
++    )
++)]
+ pub async fn create(
+     State(state): State<AppState>,
+     jar: CookieJar,
+diff --git a/crates/keeppix-api/tests/openapi.rs b/crates/keeppix-api/tests/openapi.rs
+new file mode 100644
+index 0000000..501988d
+--- /dev/null
++++ b/crates/keeppix-api/tests/openapi.rs
+@@ -0,0 +1,108 @@
++use axum::body::Body;
++use axum::http::{HeaderMap, Request, StatusCode};
++use tower::ServiceExt as _;
++
++/// Il documento non tocca il database: nasce dalle annotazioni sui tipi.
++fn app() -> axum::Router {
++    keeppix_api::router_without_state()
++}
++
++/// Copia locale delle asserzioni di `tests/health.rs`: ogni file di test è un
++/// binario a sé, quindi l'helper non è condivisibile senza un modulo comune.
++/// I quattro header sono gli stessi applicati da `common_layers`.
++#[allow(clippy::unwrap_used)]
++fn assert_security_headers(headers: &HeaderMap) {
++    assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
++    assert_eq!(headers.get("referrer-policy").unwrap(), "no-referrer");
++    assert!(headers.get("content-security-policy").is_some());
++    assert_eq!(
++        headers.get("permissions-policy").unwrap(),
++        "camera=(), microphone=(), geolocation=()"
++    );
++}
++
++#[tokio::test]
++#[allow(clippy::unwrap_used)]
++async fn openapi_document_is_served_and_complete() {
++    let response = app()
++        .oneshot(
++            Request::builder()
++                .uri("/api/openapi.json")
++                .body(Body::empty())
++                .unwrap(),
++        )
++        .await
++        .unwrap();
++
++    assert_eq!(response.status(), StatusCode::OK);
++
++    let body = http_body_util::BodyExt::collect(response.into_body())
++        .await
++        .unwrap()
++        .to_bytes();
++    let doc: serde_json::Value = serde_json::from_slice(&body).unwrap();
++
++    assert_eq!(doc["openapi"].as_str().unwrap(), "3.1.0");
++    assert_eq!(doc["info"]["title"], "Keeppix API");
++
++    for path in [
++        "/api/v1/setup/status",
++        "/api/v1/setup",
++        "/api/v1/auth/login",
++        "/api/v1/auth/refresh",
++        "/api/v1/auth/logout",
++        "/api/v1/auth/me",
++    ] {
++        assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
++    }
++
++    assert!(doc["components"]["schemas"]["UserView"].is_object());
++}
++
++/// Pin sul punto in cui è facile sbagliare: la rotta va montata **dentro**
++/// l'argomento di `common_layers`, non concatenata dopo la sua chiamata. Nel
++/// secondo caso i `.layer(...)` non la avvolgerebbero e il documento uscirebbe
++/// senza CSP, nosniff, referrer-policy e permissions-policy — lo stesso difetto
++/// che il fallback 404 ha già pinnato in `tests/health.rs`.
++#[tokio::test]
++#[allow(clippy::unwrap_used)]
++async fn openapi_document_carries_the_security_headers() {
++    let response = app()
++        .oneshot(
++            Request::builder()
++                .uri("/api/openapi.json")
++                .body(Body::empty())
++                .unwrap(),
++        )
++        .await
++        .unwrap();
++
++    assert_eq!(response.status(), StatusCode::OK);
++    assert_security_headers(response.headers());
++}
++
++/// Blocca la specifica su disco. Se cambia, il test fallisce e mostra il diff:
++/// aggiornare `docs/api/openapi.json` è una scelta consapevole, non un effetto
++/// collaterale di un refactoring.
++#[test]
++#[allow(clippy::unwrap_used)]
++fn openapi_snapshot_matches_the_committed_file() {
++    let generated =
++        serde_json::to_string_pretty(&<keeppix_api::openapi::ApiDoc as utoipa::OpenApi>::openapi())
++            .unwrap();
++
++    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/api/openapi.json");
++
++    if !path.exists() {
++        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
++        std::fs::write(&path, &generated).unwrap();
++        return;
++    }
++
++    let committed = std::fs::read_to_string(&path).unwrap();
++    assert_eq!(
++        committed.trim(),
++        generated.trim(),
++        "la specifica è cambiata: rigenerare con `rm docs/api/openapi.json && cargo test`"
++    );
++}
+diff --git a/docs/api/openapi.json b/docs/api/openapi.json
+new file mode 100644
+index 0000000..30eb729
+--- /dev/null
++++ b/docs/api/openapi.json
+@@ -0,0 +1,296 @@
++{
++  "openapi": "3.1.0",
++  "info": {
++    "title": "Keeppix API",
++    "description": "API di Keeppix. Contratto congelato: solo aggiunte entro /api/v1.",
++    "license": {
++      "name": "AGPL-3.0-or-later",
++      "identifier": "AGPL-3.0-or-later"
++    },
++    "version": "0.1.0"
++  },
++  "paths": {
++    "/api/v1/auth/login": {
++      "post": {
++        "tags": [
++          "auth"
++        ],
++        "summary": "# Errors\n`401 invalid-credentials` per utente inesistente, password errata o account\ndisabilitato: le tre situazioni sono indistinguibili dall'esterno.",
++        "operationId": "login",
++        "requestBody": {
++          "content": {
++            "application/json": {
++              "schema": {
++                "$ref": "#/components/schemas/LoginRequest"
++              }
++            }
++          },
++          "required": true
++        },
++        "responses": {
++          "200": {
++            "description": "Sessione aperta",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/LoginResponse"
++                }
++              }
++            }
++          },
++          "401": {
++            "description": "Credenziali non valide"
++          }
++        }
++      }
++    },
++    "/api/v1/auth/logout": {
++      "post": {
++        "tags": [
++          "auth"
++        ],
++        "summary": "Sempre `204`, anche senza cookie: uscire deve funzionare comunque.",
++        "operationId": "logout",
++        "responses": {
++          "204": {
++            "description": "Sessione chiusa e cookie ripulito"
++          }
++        }
++      }
++    },
++    "/api/v1/auth/me": {
++      "get": {
++        "tags": [
++          "auth"
++        ],
++        "summary": "# Errors\n`401` se non autenticato, `404` se l'utente è stato nel frattempo rimosso.",
++        "operationId": "me",
++        "responses": {
++          "200": {
++            "description": "Utente della sessione corrente",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/MeResponse"
++                }
++              }
++            }
++          },
++          "401": {
++            "description": "Non autenticato"
++          }
++        }
++      }
++    },
++    "/api/v1/auth/refresh": {
++      "post": {
++        "tags": [
++          "auth"
++        ],
++        "summary": "# Errors\n`401 unauthenticated` se il cookie manca, è scaduto o è stato riusato dopo\nil consumo — in quest'ultimo caso l'intera famiglia è già stata revocata.",
++        "operationId": "refresh",
++        "responses": {
++          "204": {
++            "description": "Sessione ruotata, nuovo cookie emesso"
++          },
++          "401": {
++            "description": "Cookie assente, scaduto o già consumato"
++          }
++        }
++      }
++    },
++    "/api/v1/setup": {
++      "post": {
++        "tags": [
++          "setup"
++        ],
++        "summary": "Crea il primo amministratore e apre subito una sessione.",
++        "description": "# Errors\n`409 already-initialised` se l'istanza è già configurata;\n`422 invalid-username` / `422 invalid-password` sui dati non validi.",
++        "operationId": "create",
++        "requestBody": {
++          "content": {
++            "application/json": {
++              "schema": {
++                "$ref": "#/components/schemas/SetupRequest"
++              }
++            }
++          },
++          "required": true
++        },
++        "responses": {
++          "201": {
++            "description": "Amministratore creato e sessione aperta",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/SetupResponse"
++                }
++              }
++            }
++          },
++          "409": {
++            "description": "Istanza già inizializzata"
++          },
++          "422": {
++            "description": "Username o password non validi"
++          }
++        }
++      }
++    },
++    "/api/v1/setup/status": {
++      "get": {
++        "tags": [
++          "setup"
++        ],
++        "summary": "# Errors\n`Problem` se il conteggio degli utenti fallisce.",
++        "operationId": "status",
++        "responses": {
++          "200": {
++            "description": "Stato di inizializzazione dell'istanza",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/SetupStatus"
++                }
++              }
++            }
++          }
++        }
++      }
++    }
++  },
++  "components": {
++    "schemas": {
++      "LoginRequest": {
++        "type": "object",
++        "required": [
++          "username",
++          "password"
++        ],
++        "properties": {
++          "password": {
++            "type": "string"
++          },
++          "username": {
++            "type": "string"
++          }
++        }
++      },
++      "LoginResponse": {
++        "type": "object",
++        "required": [
++          "user"
++        ],
++        "properties": {
++          "user": {
++            "$ref": "#/components/schemas/UserView"
++          }
++        }
++      },
++      "MeResponse": {
++        "type": "object",
++        "required": [
++          "user"
++        ],
++        "properties": {
++          "user": {
++            "$ref": "#/components/schemas/UserView"
++          }
++        }
++      },
++      "SetupRequest": {
++        "type": "object",
++        "required": [
++          "username",
++          "display_name",
++          "password"
++        ],
++        "properties": {
++          "display_name": {
++            "type": "string"
++          },
++          "email": {
++            "type": [
++              "string",
++              "null"
++            ]
++          },
++          "password": {
++            "type": "string"
++          },
++          "username": {
++            "type": "string"
++          }
++        }
++      },
++      "SetupResponse": {
++        "type": "object",
++        "required": [
++          "user"
++        ],
++        "properties": {
++          "user": {
++            "$ref": "#/components/schemas/UserView"
++          }
++        }
++      },
++      "SetupStatus": {
++        "type": "object",
++        "required": [
++          "initialised"
++        ],
++        "properties": {
++          "initialised": {
++            "type": "boolean"
++          }
++        }
++      },
++      "UserView": {
++        "type": "object",
++        "description": "Rappresentazione pubblica dell'utente. Non contiene l'hash della password\nné il segreto TOTP: quei campi non lasciano mai il database.",
++        "required": [
++          "id",
++          "username",
++          "display_name",
++          "role"
++        ],
++        "properties": {
++          "display_name": {
++            "type": "string"
++          },
++          "email": {
++            "type": [
++              "string",
++              "null"
++            ]
++          },
++          "id": {
++            "type": "string"
++          },
++          "locale": {
++            "type": [
++              "string",
++              "null"
++            ]
++          },
++          "role": {
++            "type": "string"
++          },
++          "username": {
++            "type": "string"
++          }
++        }
++      }
++    }
++  },
++  "tags": [
++    {
++      "name": "setup",
++      "description": "Configurazione iniziale dell'istanza"
++    },
++    {
++      "name": "auth",
++      "description": "Autenticazione e sessioni"
++    }
++  ]
++}
+\ No newline at end of file
