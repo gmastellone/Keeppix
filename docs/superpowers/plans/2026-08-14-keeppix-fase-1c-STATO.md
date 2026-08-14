@@ -61,6 +61,35 @@ vengono **spenti e rimossi** (`docker rm -f`), non solo `docker container prune`
 11. Job `failed` in `GET /problems` solo admin: `JobRepo` non ha proprietario.
 12. Selezione multipla e pinch-density non sono in 1c (non erano nel piano
     del Task 9). Menu Album **assente**.
+13. Cursore keyset in **microsecondi** (`SecondsFormat::Micros`): i secondi
+    interi saltavano gli asset con frazione di secondo (mtime, video, PNG).
+14. Trigger `folder_month_counts`: `date_trunc` su `ts AT TIME ZONE 'UTC'`
+    (migrazione `00011`). Il fuso di sessione non deve spostare il bucket.
+15. `/media/*` autenticato: `Cache-Control: private, max-age=31536000,
+    immutable`. Spec 1c diceva `public`; il design e la Fase 3 riservano
+    `public` agli URL di share. Il browser continua a non ririchiedere.
+16. `JobRepo::promote` prende `AuthContext` e non alza i `derive:` di librerie
+    non visibili. Admin: `$3 IS NULL` resta un no-op sul filtro, come i test
+    di coda senza asset.
+17. Disabilitare un account lascia i token in cache sessioni fino a 30 s
+    (stessa coda della revoke di famiglia, ruling 8).
+18. Allowlist WS vuota: Origin `https://{Host}`, oppure `http://` solo su
+    loopback (dev). Origin assente = 403; `Authorization` nativo è Fase
+    app mobile, non 1c.
+
+## Review post-chiusura (Opus 5)
+
+Corretti sul branch: cursore (#1), bucket UTC (#2), stream Range (#3),
+cache private (#4), sweep ticket (#5), viewport visibilità (#6), paging
+client (#7), min-height bucket (#8), memo thumbhash (#9), set viewport
+che si restringe (#10), `ILIKE` sul trigram (#11), errore Problems (#12),
+frecce viewer + preload (#13), più i minori: parser `iso:`/`folder:`,
+`NOT` con `COALESCE`, `NULLS LAST`, cartella senza `trashed`, Origin
+http vs https, tmp webp per PID, 403 su hash/id *esistente* altrui.
+
+Differiti: client nativi WebSocket con `Authorization` e senza `Origin`
+(spec §4.2) — il browser deve mandare Origin; il path nativo arriva con
+l'app mobile. Missing Origin resta 403 di proposito.
 
 ## Cosa non è in 1c (di proposito)
 

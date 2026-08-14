@@ -68,4 +68,28 @@ non vede i job della propria libreria finché non si filtra sul payload.
 | 8 | Cache sessioni | complete | `34a2cb2` |
 | 9 | Frontend timeline | complete | `8b3ad9a` |
 | 10 | Ricerca / viewer / problemi | complete | `3baf18e` |
-| 11 | STATO | complete | |
+| 11 | STATO | complete | `ba52295` |
+
+Ruling: cursore keyset in microsecondi — i secondi interi perdevano gli
+asset con frazione (mtime). Costo se sbagliato: cursori più lunghi, parse
+RFC3339 già lo accetta.
+
+Ruling: trigger mesi in UTC (`00011`), non TimeZone di sessione. Costo se
+sbagliato: con Postgres UTC (bundled) è no-op; su un server con TZ locale
+i bucket tornano a divergere dalle pagine.
+
+Ruling: `/media` `Cache-Control: private, immutable` fino ai link pubblici
+Fase 3. Spec 1c diceva `public`; il design vieta `public` su contenuti
+autenticati. Costo se sbagliato: niente CDN sulle thumbs finché non ci sono
+URL di share.
+
+Ruling: `JobRepo::promote` prende `AuthContext` (eccezione documentata
+rispetto a claim/enqueue/reap). Un tenant non promuove i derive altrui.
+Costo se sbagliato: l'admin è l'unico a poter bumpare un job orfano.
+
+Ruling: disabilitare un account ha la stessa coda 30 s della cache sessioni
+già accettata per la revoke di famiglia.
+
+Ruling: la suite locale passa da `./scripts/test.sh` (`--jobs 1`, poi
+`docker rm` testcontainers + `cargo clean`). Costo se sbagliato: ogni
+corsa ricompila da zero; il disco non si riempie di `target/` e PostGIS.

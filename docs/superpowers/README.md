@@ -9,13 +9,15 @@ dalla cronologia git.
 
 1. [`/AGENTS.md`](../../AGENTS.md) — invarianti, metodo di lavoro, cosa non
    fare. È letto automaticamente da Cursor, Codex e Claude Code.
-2. [`plans/2026-08-13-keeppix-fase-0-STATO.md`](plans/2026-08-13-keeppix-fase-0-STATO.md)
-   — stato del progetto, decisioni prese (R1-R13), difetti noti e differiti con
-   la fase in cui vanno affrontati.
+2. [`plans/2026-08-14-keeppix-fase-1c-STATO.md`](plans/2026-08-14-keeppix-fase-1c-STATO.md)
+   — consegna corrente (Fase 1c chiusa sul branch `fase-1`).
 3. [`plans/2026-08-13-keeppix-roadmap.md`](plans/2026-08-13-keeppix-roadmap.md)
    — le fasi e i **contratti congelati** che nessuna fase può violare.
 4. La **spec della fase** su cui lavori (sotto).
 5. Il **piano della fase**, se esiste.
+
+Per riprendere da una sessione nuova, il prompt da incollare è
+[`../CONTINUE.md`](../CONTINUE.md).
 
 ## I tre tipi di documento, e perché sono separati
 
@@ -57,13 +59,19 @@ e non codice da scrivere.
 | Piano | Stato |
 |---|---|
 | [`plans/2026-08-13-keeppix-fase-0.md`](plans/2026-08-13-keeppix-fase-0.md) | ✅ completato e mergiato |
-| [`plans/2026-08-14-keeppix-fase-1a.md`](plans/2026-08-14-keeppix-fase-1a.md) | ⬜ **il prossimo da eseguire** |
-| Fase 1b, 1c, 2, 3, 4, 5, 6 | da scrivere, una alla volta |
+| [`plans/2026-08-14-keeppix-fase-1a.md`](plans/2026-08-14-keeppix-fase-1a.md) | ✅ sul branch `fase-1` |
+| [`plans/2026-08-14-keeppix-fase-1b.md`](plans/2026-08-14-keeppix-fase-1b.md) | ✅ sul branch `fase-1` |
+| [`plans/2026-08-14-keeppix-fase-1c.md`](plans/2026-08-14-keeppix-fase-1c.md) | ✅ chiusa; merge su `main` dopo la suite |
+| Fase 2, 3, 4, 5, 6 | da scrivere/eseguire **dopo** il merge della Fase 1 |
 
 ## Consegne
 
 - [`plans/2026-08-13-keeppix-fase-0-STATO.md`](plans/2026-08-13-keeppix-fase-0-STATO.md)
-  — consegna della Fase 0: cosa è stato fatto, cosa è stato deciso, cosa resta.
+  — consegna della Fase 0.
+- [`plans/2026-08-14-keeppix-fase-1b-STATO.md`](plans/2026-08-14-keeppix-fase-1b-STATO.md)
+  — consegna della Fase 1b.
+- [`plans/2026-08-14-keeppix-fase-1c-STATO.md`](plans/2026-08-14-keeppix-fase-1c-STATO.md)
+  — consegna della Fase 1c (corrente).
 
 ## Ledger di esecuzione
 
