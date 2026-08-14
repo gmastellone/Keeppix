@@ -67,5 +67,5 @@ non vede i job della propria libreria finché non si filtra sul payload.
 | 7 | WebSocket | complete | `73f7227` |
 | 8 | Cache sessioni | complete | `34a2cb2` |
 | 9 | Frontend timeline | complete | `8b3ad9a` |
-| 10 | Ricerca / viewer / problemi | complete | |
-| 11 | STATO | — | |
+| 10 | Ricerca / viewer / problemi | complete | `3baf18e` |
+| 11 | STATO | complete | |
