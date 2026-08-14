@@ -107,7 +107,8 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
             .with_on_authenticated({
                 let tracker = tracker.clone();
                 std::sync::Arc::new(move || tracker.notify_authenticated_request())
-            }),
+            })
+            .with_allowed_origins(config.allowed_origins.clone()),
     );
 
     axum::serve(listener, app)

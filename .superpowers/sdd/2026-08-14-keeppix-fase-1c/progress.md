@@ -45,8 +45,8 @@ indice GIN sul filename.
 | 3 | HTTP timeline + cartelle | complete | `4653651` |
 | 4 | Media + SPA fallback | complete | `ea921a8` |
 | 5 | Viewport promote | complete | `ff2f716` |
-| 6 | Ricerca | complete | |
-| 7 | WebSocket | — | |
+| 6 | Ricerca | complete | `f8c3930` |
+| 7 | WebSocket | complete | |
 | 8 | Cache sessioni | — | |
 | 9 | Frontend timeline | — | |
 | 10 | Ricerca / viewer / problemi | — | |
