@@ -1,5 +1,4 @@
 use keeppix_domain::{AuthContext, NewUser, PasswordHash, SystemRole, User, UserId, Username};
-use sqlx::Row;
 
 use crate::{Db, DbError};
 
@@ -7,7 +6,7 @@ pub struct UserRepo<'a> {
     db: &'a Db,
 }
 
-/// Riga grezza della tabella `users`, convertita in `User` dal dominio.
+#[derive(sqlx::FromRow)]
 struct UserRow {
     id: uuid::Uuid,
     username: String,
@@ -21,12 +20,12 @@ struct UserRow {
 
 impl UserRow {
     fn into_domain(self) -> Result<User, DbError> {
-        let username = Username::parse(&self.username)
-            .map_err(|e| DbError::Corrupted(format!("stored username is invalid: {e}")))?;
+        let username =
+            Username::parse(&self.username).map_err(|e| crate::row::corrupted("username", e))?;
         let role = match self.role.as_str() {
             "admin" => SystemRole::Admin,
             "user" => SystemRole::User,
-            other => return Err(DbError::Corrupted(format!("unknown role: {other}"))),
+            other => return Err(crate::row::corrupted("role", other)),
         };
         Ok(User {
             id: UserId::from_uuid(self.id),
@@ -38,6 +37,22 @@ impl UserRow {
             created_at: self.created_at,
             disabled_at: self.disabled_at,
         })
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct UserWithHashRow {
+    #[sqlx(flatten)]
+    user: UserRow,
+    password_hash: String,
+}
+
+impl UserWithHashRow {
+    fn into_domain(self) -> Result<(User, PasswordHash), DbError> {
+        Ok((
+            self.user.into_domain()?,
+            PasswordHash::from_stored(self.password_hash),
+        ))
     }
 }
 
@@ -127,7 +142,7 @@ impl<'a> UserRepo<'a> {
         &self,
         username: &Username,
     ) -> Result<Option<(User, PasswordHash)>, DbError> {
-        let row = sqlx::query(
+        let row: Option<UserWithHashRow> = sqlx::query_as(
             "SELECT id, username, email, display_name, password_hash, role, locale, \
                     created_at, disabled_at \
                FROM users WHERE lower(username) = lower($1)",
@@ -136,22 +151,7 @@ impl<'a> UserRepo<'a> {
         .fetch_optional(self.db.pool())
         .await?;
 
-        let Some(row) = row else { return Ok(None) };
-
-        let hash = PasswordHash::from_stored(row.try_get("password_hash")?);
-        let user = UserRow {
-            id: row.try_get("id")?,
-            username: row.try_get("username")?,
-            email: row.try_get("email")?,
-            display_name: row.try_get("display_name")?,
-            role: row.try_get("role")?,
-            locale: row.try_get("locale")?,
-            created_at: row.try_get("created_at")?,
-            disabled_at: row.try_get("disabled_at")?,
-        }
-        .into_domain()?;
-
-        Ok(Some((user, hash)))
+        row.map(UserWithHashRow::into_domain).transpose()
     }
 
     /// # Errors
@@ -162,26 +162,15 @@ impl<'a> UserRepo<'a> {
             return Err(DbError::Forbidden);
         }
 
-        let row = sqlx::query(
+        let row: Option<UserRow> = sqlx::query_as(
             "SELECT id, username, email, display_name, role, locale, created_at, disabled_at \
                FROM users WHERE id = $1",
         )
         .bind(id.as_uuid())
         .fetch_optional(self.db.pool())
-        .await?
-        .ok_or(DbError::NotFound)?;
+        .await?;
 
-        UserRow {
-            id: row.try_get("id")?,
-            username: row.try_get("username")?,
-            email: row.try_get("email")?,
-            display_name: row.try_get("display_name")?,
-            role: row.try_get("role")?,
-            locale: row.try_get("locale")?,
-            created_at: row.try_get("created_at")?,
-            disabled_at: row.try_get("disabled_at")?,
-        }
-        .into_domain()
+        row.ok_or(DbError::NotFound)?.into_domain()
     }
 }
 
@@ -189,7 +178,7 @@ async fn insert_user(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     new: &NewUser,
 ) -> Result<UserRow, DbError> {
-    let row = sqlx::query(
+    sqlx::query_as(
         "INSERT INTO users (id, username, email, display_name, password_hash, role) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          RETURNING id, username, email, display_name, role, locale, created_at, disabled_at",
@@ -202,16 +191,5 @@ async fn insert_user(
     .bind(role_str(new.role))
     .fetch_one(&mut **tx)
     .await
-    .map_err(map_unique_violation)?;
-
-    Ok(UserRow {
-        id: row.try_get("id")?,
-        username: row.try_get("username")?,
-        email: row.try_get("email")?,
-        display_name: row.try_get("display_name")?,
-        role: row.try_get("role")?,
-        locale: row.try_get("locale")?,
-        created_at: row.try_get("created_at")?,
-        disabled_at: row.try_get("disabled_at")?,
-    })
+    .map_err(map_unique_violation)
 }

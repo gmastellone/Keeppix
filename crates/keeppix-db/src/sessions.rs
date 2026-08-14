@@ -1,13 +1,45 @@
 use std::time::Duration;
 
 use keeppix_domain::{AuthContext, SessionToken, SystemRole, UserId};
-use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{Db, DbError};
 
 pub struct SessionRepo<'a> {
     db: &'a Db,
+}
+
+#[derive(sqlx::FromRow)]
+struct AuthRow {
+    user_id: uuid::Uuid,
+    role: String,
+}
+
+impl AuthRow {
+    fn into_domain(self) -> Result<AuthContext, DbError> {
+        // Stessa tassonomia di `users.rs` (ruling R3): un valore che il codice
+        // non sa interpretare è `Corrupted`, non un ruolo degradato a `User`.
+        // Il CHECK sulla colonna lo rende irraggiungibile e la degradazione
+        // falliva chiusa, ma due moduli che trattano lo stesso dato in modo
+        // diverso rendono inaffidabile il triage sugli errori.
+        let role = match self.role.as_str() {
+            "admin" => SystemRole::Admin,
+            "user" => SystemRole::User,
+            other => return Err(crate::row::corrupted("role", other)),
+        };
+        Ok(AuthContext::user(UserId::from_uuid(self.user_id), role))
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct RotateRow {
+    id: uuid::Uuid,
+    family_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    consumed_at: Option<chrono::DateTime<chrono::Utc>>,
+    revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    db_now: chrono::DateTime<chrono::Utc>,
 }
 
 impl<'a> SessionRepo<'a> {
@@ -50,7 +82,7 @@ impl<'a> SessionRepo<'a> {
     /// `DbError::NotFound` se il token è sconosciuto, scaduto, consumato,
     /// revocato, oppure se l'utente è disabilitato.
     pub async fn authenticate(&self, token: &SessionToken) -> Result<AuthContext, DbError> {
-        let row = sqlx::query(
+        let row: Option<AuthRow> = sqlx::query_as(
             "SELECT u.id AS user_id, u.role \
                FROM sessions s JOIN users u ON u.id = s.user_id \
               WHERE s.refresh_token_hash = $1 \
@@ -61,23 +93,9 @@ impl<'a> SessionRepo<'a> {
         )
         .bind(token.digest().as_slice())
         .fetch_optional(self.db.pool())
-        .await?
-        .ok_or(DbError::NotFound)?;
+        .await?;
 
-        let user_id: Uuid = row.try_get("user_id")?;
-        let role: String = row.try_get("role")?;
-        // Stessa tassonomia di `users.rs` (ruling R3): un valore che il codice
-        // non sa interpretare è `Corrupted`, non un ruolo degradato a `User`.
-        // Il CHECK sulla colonna lo rende irraggiungibile e la degradazione
-        // falliva chiusa, ma due moduli che trattano lo stesso dato in modo
-        // diverso rendono inaffidabile il triage sugli errori.
-        let role = match role.as_str() {
-            "admin" => SystemRole::Admin,
-            "user" => SystemRole::User,
-            other => return Err(DbError::Corrupted(format!("unknown role: {other}"))),
-        };
-
-        Ok(AuthContext::user(UserId::from_uuid(user_id), role))
+        row.ok_or(DbError::NotFound)?.into_domain()
     }
 
     /// Ruota il token. Se quello presentato risulta **già consumato**, l'unica
@@ -94,46 +112,37 @@ impl<'a> SessionRepo<'a> {
     ) -> Result<SessionToken, DbError> {
         let mut tx = self.db.pool().begin().await?;
 
-        let row = sqlx::query(
+        let row: Option<RotateRow> = sqlx::query_as(
             "SELECT id, family_id, user_id, consumed_at, revoked_at, expires_at, now() AS db_now \
                FROM sessions WHERE refresh_token_hash = $1 FOR UPDATE",
         )
         .bind(token.digest().as_slice())
         .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(DbError::NotFound)?;
+        .await?;
+        let row = row.ok_or(DbError::NotFound)?;
 
-        let family_id: Uuid = row.try_get("family_id")?;
-        let consumed: Option<chrono::DateTime<chrono::Utc>> = row.try_get("consumed_at")?;
-        let revoked: Option<chrono::DateTime<chrono::Utc>> = row.try_get("revoked_at")?;
-
-        if consumed.is_some() {
+        if row.consumed_at.is_some() {
             sqlx::query(
                 "UPDATE sessions SET revoked_at = now() \
                   WHERE family_id = $1 AND revoked_at IS NULL",
             )
-            .bind(family_id)
+            .bind(row.family_id)
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
             return Err(DbError::Forbidden);
         }
 
-        if revoked.is_some() {
+        if row.revoked_at.is_some() {
             return Err(DbError::NotFound);
         }
 
-        let expires_at: chrono::DateTime<chrono::Utc> = row.try_get("expires_at")?;
-        let db_now: chrono::DateTime<chrono::Utc> = row.try_get("db_now")?;
-        if expires_at <= db_now {
+        if row.expires_at <= row.db_now {
             return Err(DbError::NotFound);
         }
-
-        let parent_id: Uuid = row.try_get("id")?;
-        let user_id: Uuid = row.try_get("user_id")?;
 
         sqlx::query("UPDATE sessions SET consumed_at = now() WHERE id = $1")
-            .bind(parent_id)
+            .bind(row.id)
             .execute(&mut *tx)
             .await?;
 
@@ -144,10 +153,10 @@ impl<'a> SessionRepo<'a> {
              VALUES ($1, $2, $3, $4, $5, now() + $6::interval)",
         )
         .bind(Uuid::now_v7())
-        .bind(family_id)
-        .bind(user_id)
+        .bind(row.family_id)
+        .bind(row.user_id)
         .bind(next.digest().as_slice())
-        .bind(parent_id)
+        .bind(row.id)
         .bind(interval(ttl))
         .execute(&mut *tx)
         .await?;
