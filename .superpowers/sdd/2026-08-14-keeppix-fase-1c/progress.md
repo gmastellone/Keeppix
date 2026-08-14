@@ -36,6 +36,13 @@ toccare l'AST JSON.
 Ruling: `pg_trgm` è già in `0001`; `00010` aggiunge `saved_searches` e un
 indice GIN sul filename.
 
+Ruling: cache sessioni in-process, chiave = digest del token, TTL 30 s,
+drop esplicita su `logout`/`refresh`. Una revoke di famiglia lascia i
+token gemelli in cache fino al TTL — costo se sbagliato: 30 s di sessione
+su un altro device dopo detection di furto. `Problem::from(DbError::Connection)`
+è 503: con la cache, `/auth/me` dopo un outage passa da `UserRepo` e non
+più da `session_problem`.
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
@@ -46,8 +53,8 @@ indice GIN sul filename.
 | 4 | Media + SPA fallback | complete | `ea921a8` |
 | 5 | Viewport promote | complete | `ff2f716` |
 | 6 | Ricerca | complete | `f8c3930` |
-| 7 | WebSocket | complete | |
-| 8 | Cache sessioni | — | |
+| 7 | WebSocket | complete | `73f7227` |
+| 8 | Cache sessioni | complete | |
 | 9 | Frontend timeline | — | |
 | 10 | Ricerca / viewer / problemi | — | |
 | 11 | STATO | — | |

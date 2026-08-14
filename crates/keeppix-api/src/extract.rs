@@ -57,10 +57,18 @@ impl FromRequestParts<AppState> for Auth {
             .ok_or_else(Problem::unauthenticated)?;
         let token = SessionToken::from_string(cookie.value().to_owned());
 
+        if let Some(ctx) = state.sessions.get(&token) {
+            if let Some(hook) = &state.on_authenticated {
+                hook();
+            }
+            return Ok(Self(ctx));
+        }
+
         let ctx = SessionRepo::new(&state.db)
             .authenticate(&token)
             .await
             .map_err(session_problem)?;
+        state.sessions.put(&token, ctx.clone());
 
         if let Some(hook) = &state.on_authenticated {
             hook();

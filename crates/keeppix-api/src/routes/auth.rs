@@ -164,6 +164,7 @@ pub async fn refresh(
         .get(SESSION_COOKIE)
         .ok_or_else(Problem::unauthenticated)?;
     let token = SessionToken::from_string(cookie.value().to_owned());
+    state.sessions.drop_token(&token);
 
     let next = SessionRepo::new(&state.db)
         .rotate(&token, state.session_ttl)
@@ -189,6 +190,7 @@ pub async fn refresh(
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
         let token = SessionToken::from_string(cookie.value().to_owned());
+        state.sessions.drop_token(&token);
         if let Err(e) = SessionRepo::new(&state.db).revoke(&token).await {
             tracing::warn!(error = %e, "revoca sessione fallita");
         }

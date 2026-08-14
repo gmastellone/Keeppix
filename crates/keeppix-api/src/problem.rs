@@ -183,6 +183,10 @@ impl From<DbError> for Problem {
             DbError::Conflict(msg) => {
                 Self::new(StatusCode::CONFLICT, "conflict", "Conflict").with_detail(msg)
             }
+            DbError::Connection(e) => {
+                tracing::error!(error = %e, "database unavailable");
+                Self::service_unavailable()
+            }
             // I dettagli interni restano nei log, non nella risposta.
             other => {
                 tracing::error!(error = %other, "database error");

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keeppix_db::Db;
-use keeppix_domain::AuthContext;
+use keeppix_domain::{AuthContext, SessionToken};
 
 #[derive(Clone, Default)]
 pub struct TicketStore {
@@ -29,6 +29,45 @@ impl TicketStore {
     }
 }
 
+type CachedSession = (AuthContext, Instant);
+
+#[derive(Clone, Default)]
+pub struct SessionCache {
+    // ponytail: keyed by token digest only. A family-wide revoke leaves
+    // sibling tokens cached up to 30s. Index by family_id if theft-detection
+    // must be immediate on every device.
+    inner: Arc<Mutex<HashMap<[u8; 32], CachedSession>>>,
+}
+
+impl SessionCache {
+    #[must_use]
+    pub fn get(&self, token: &SessionToken) -> Option<AuthContext> {
+        let digest = token.digest();
+        let mut guard = self.inner.lock().ok()?;
+        let (ctx, expires) = guard.get(&digest).cloned()?;
+        if Instant::now() > expires {
+            guard.remove(&digest);
+            return None;
+        }
+        Some(ctx)
+    }
+
+    pub fn put(&self, token: &SessionToken, ctx: AuthContext) {
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.insert(
+                token.digest(),
+                (ctx, Instant::now() + Duration::from_secs(30)),
+            );
+        }
+    }
+
+    pub fn drop_token(&self, token: &SessionToken) {
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.remove(&token.digest());
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
@@ -36,6 +75,7 @@ pub struct AppState {
     pub data_dir: PathBuf,
     pub on_authenticated: Option<Arc<dyn Fn() + Send + Sync>>,
     pub tickets: TicketStore,
+    pub sessions: SessionCache,
     pub allowed_origins: Vec<String>,
 }
 
@@ -48,6 +88,7 @@ impl AppState {
             data_dir,
             on_authenticated: None,
             tickets: TicketStore::default(),
+            sessions: SessionCache::default(),
             allowed_origins: Vec::new(),
         }
     }
