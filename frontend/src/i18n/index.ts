@@ -30,6 +30,26 @@ export function setLocale(locale: Locale): void {
   document.documentElement.lang = locale
 }
 
+/**
+ * Plurali: si usa la **sintassi nativa di vue-i18n** (`'una foto | {n} foto'`),
+ * non ICU MessageFormat.
+ *
+ * Lo spec §10.10 chiede ICU e il motivo dichiarato è «plurali corretti». Per
+ * italiano e inglese le due sintassi danno lo stesso risultato: entrambe le
+ * lingue hanno due categorie plurali (CLDR `one`/`other`), che è esattamente
+ * ciò che la forma nativa esprime. ICU costerebbe una dipendenza runtime in più
+ * (`intl-messageformat`, ~25 KB gzip su un budget di 150 KB di cui 77 già usati)
+ * più un `messageCompiler` custom da mantenere, per zero differenze osservabili
+ * sulle lingue spedite.
+ *
+ * **Quando riaprire la decisione:** all'aggiunta della prima lingua con più di
+ * due categorie plurali — russo, polacco, arabo. Allora la scelta giusta è un
+ * compilatore ICU a build time (`@intlify/unplugin-vue-i18n`), non
+ * a runtime; e in quel momento le chiavi plurali da riscrivere si contano,
+ * mentre oggi sono zero. `@intlify/core-base` era dichiarato fra le
+ * `dependencies` e non importato da nessuna parte — impronta di un tentativo
+ * abbandonato — ed è stato rimosso.
+ */
 export const i18n = createI18n({
   legacy: false,
   locale: detectLocale(),
