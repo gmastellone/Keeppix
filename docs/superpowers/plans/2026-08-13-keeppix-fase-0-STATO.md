@@ -1,10 +1,11 @@
 # Fase 0 — stato di avanzamento e consegna
 
-**Aggiornato:** 2026-08-14, dopo la review finale del branch e la sua fix wave
-**Piano:** [`2026-08-13-keeppix-fase-0.md`](2026-08-13-keeppix-fase-0.md)
+**Aggiornato:** 2026-08-14, dopo il merge su `main` e l'apertura della Fase 1a
+**Piano Fase 0:** [`2026-08-13-keeppix-fase-0.md`](2026-08-13-keeppix-fase-0.md)
+**Piano Fase 1a:** [`2026-08-14-keeppix-fase-1a.md`](2026-08-14-keeppix-fase-1a.md) — **il prossimo lavoro da eseguire**
 **Spec:** [`../specs/2026-08-13-keeppix-design.md`](../specs/2026-08-13-keeppix-design.md)
 **Roadmap:** [`2026-08-13-keeppix-roadmap.md`](2026-08-13-keeppix-roadmap.md)
-**Branch:** `fase-0`, da `main @ 7b38c1d`
+**Stato:** **mergiata su `main`** (commit `2d5cfe7`, [PR #1](https://github.com/gmastellone/Keeppix/pull/1)). Il branch `fase-0` resta su GitHub come cronologia, non come lavoro in corso — chi riprende parte da `main`, non da quel branch.
 
 Questo documento è la **consegna della Fase 0**: qui c'è tutto ciò che serve a
 riprendere il lavoro da un'altra macchina o da un'altra sessione, senza leggere
@@ -90,35 +91,62 @@ Difetto trovato da questa verifica e **corretto** nella fix wave:
 esecuzione, e `docs/DEPLOY.md` non documentava affatto come fermare lo stack.
 Ora c'è una sezione «Arresto».
 
-## Cosa resta prima del merge
+## Merge completato — cosa è stato verificato per davvero
 
-Due criteri di completamento sono **verifiche mai eseguite**, non difetti di
-codice, e non sono spuntabili da questa sessione:
+I due criteri che erano rimasti come «verifiche mai eseguite» sono stati
+chiusi prima del merge, non dopo:
 
-1. **La CI non è mai girata.** `.github/workflows/ci.yml` si attiva su push a
-   `main` e su pull request: il lavoro vive su `fase-0` e non esiste una PR,
-   quindi nessuno dei quattro job è mai stato eseguito su un runner. Aprire la PR
-   `fase-0 → main` e far girare la CI **prima** di mergiare, non come effetto del
-   merge. Rischi che solo un run reale intercetta: cache npm con
-   `cache-dependency-path`, disponibilità di `node 24` e
-   `dtolnay/rust-toolchain@1.88.0`, pull di `postgis/postgis:17-3.5` sul runner,
-   `cargo-deny-action@v2`, e il job `image` che costruisce il Dockerfile su un
-   runner per la prima volta.
-2. **Il flusso in browser reale non è stato rieseguito dopo il fix del cookie.**
-   Il criterio è «da browser: setup del primo admin, logout, login, ricarica
-   pagina con sessione persistente». La suite **non può** coprirlo:
+1. **La CI è girata**, sulla PR #1, prima del merge. Al primo tentativo tutti
+   e quattro i job sono passati (`frontend` 25s, `audit` 44s, `image` 7m00s,
+   `backend` 10m28s a cache fredda). Il secondo giro, dopo le due correzioni
+   sotto, ha impiegato `backend` 5m23s e `image` 18s a cache calda.
+   Confermato dal run reale: la cache npm con `cache-dependency-path`
+   funziona, `node 24` e `dtolnay/rust-toolchain@1.88.0` sono disponibili,
+   `postgis/postgis:17-3.5` si scarica sul runner, `cargo-deny-action@v2`
+   passa, e **il Dockerfile costruisce su un runner GitHub** — era l'ultimo
+   pezzo mai testato fuori da una macchina di sviluppo.
+
+   Le annotazioni del primo run hanno trovato due difetti reali, corretti
+   prima del merge:
+   - **`with: { components: rustfmt, clippy }` non chiedeva clippy.** In YAML
+     flow style quella riga è *due chiavi* — `components: rustfmt` e un
+     `clippy: null` senza senso — non un elenco. Il job passava comunque solo
+     perché `rust-toolchain.toml` dichiara entrambi i componenti: togliendo
+     quella riga la CI sarebbe fallita con "clippy not found", pur avendo un
+     workflow che sembrava chiederlo esplicitamente. Corretto in
+     `components: "rustfmt, clippy"`.
+   - `actions/checkout@v4` e `actions/setup-node@v4` girano su Node 20
+     deprecato. Alzati a `@v5` in `ci.yml` e `release.yml`.
+
+   È il tipo di difetto che nessun test coglie e che si scopre solo leggendo
+   le annotazioni di un run reale — la ragione per cui aprire la PR *prima*
+   di mergiare, non come conseguenza del merge, era la scelta giusta.
+
+2. **Il flusso in browser reale è stato eseguito**, per intero, contro
+   un'immagine ricostruita con tutte le correzioni della fix wave: setup del
+   primo admin dal form, reload con sessione persistente, `document.cookie`
+   vuoto (conferma di `HttpOnly`) e `localStorage` vuoto, sign out con
+   `/auth/me` che torna `401` (conferma della revoca lato server), nuovo
+   login con username in maiuscolo. **Il browser ha accettato il cookie
+   `__Host-kpx_session` con `Secure` su HTTP in chiaro verso `127.0.0.1`** —
+   la proprietà che nessun test automatico poteva osservare, perché
    `cookie_store`/`reqwest` non implementa la validazione del prefisso
-   `__Host-`, quindi nessun test osserva l'accettazione da parte di un client
-   conforme (vedi il commento su `assert_host_prefix_attributes` in
-   `crates/keeppix-api/tests/auth.rs`). La verifica con `curl` contro il
-   container mostra l'header corretto, non l'accettazione da browser. Da
-   eseguire a mano una volta; una rete permanente sarebbe un piccolo test
-   Playwright in `frontend/`.
+   `__Host-`. Nella stessa sessione, verificate anche `Cache-Control:
+   private` (I3), `Strict-Transport-Security` (I6), la difesa CSRF (I7: 403
+   senza l'header custom, 204 con) e le rejection RFC 9457 di axum (I2: 415 /
+   400 / 405). **Console del browser priva di violazioni CSP**, conferma
+   indiretta che rimuovere `style-src 'unsafe-inline'` (I6) non rompe il
+   rendering — la verifica visiva che restava sospesa insieme al punto 2 è
+   quindi chiusa anch'essa.
 
-La fix wave ha inoltre toccato la CSP (rimozione di `style-src 'unsafe-inline'`):
-la verifica strutturale è stata fatta (il bundle di Vite non ha stili inline né
-inietta `<style>` a runtime), ma la conferma visiva conviene farla nella stessa
-sessione del punto 2.
+Un terzo difetto, trovato durante questa stessa verifica e corretto subito:
+il cambio di checksum della migrazione `0001` (per abilitare PostGIS, I1)
+rompe l'avvio su un `./pgdata` creato da un checkout precedente
+(`migration 1 was previously applied but has been modified`). `docs/DEPLOY.md`
+ha ora una sezione che spiega la causa, il rimedio (`down -v` e ricrea — è un
+database di sviluppo senza foto) e perché non riguarderà mai un'installazione
+reale, dato che dal primo rilascio le migrazioni pubblicate non si toccano
+più.
 
 ## Come si esegue la suite
 
@@ -216,6 +244,13 @@ join su `ltree` e aggregati della timeline. La scelta è fra
 mantenendo le forme funzione, costo quasi nullo — e `query_as!` con cache
 `.sqlx/` committata, che reintrodurrebbe nel Dockerfile e in CI ciò che questo
 ruling ha rimosso.
+*Esito:* riesaminato prima di scrivere il piano della Fase 1a — deciso
+`#[derive(sqlx::FromRow)]`. Il nucleo di R4 non cambia: restano le forme
+funzione, nessuna macro `query!`, nessuna `.sqlx/`. Cambia solo che il mapping
+riga→struct smette di essere scritto a mano. Il Task 1 del piano 1a converte
+anche le tre struct della Fase 0, per non lasciare due stili accanto — una
+divergenza fra crate è esattamente il tipo di incoerenza che la review finale
+ha già censurato altrove.
 
 **R5 — Ordine di `.fallback()` in `common_layers`.**
 In axum 0.8 `Router::fallback` sovrascrive il catch-all invece di fondersi con
@@ -435,9 +470,25 @@ che nessuna traduzione sia vuota).
 
 ## Ripresa del lavoro: per chi apre la Fase 1
 
-Il prossimo passo è il **piano della Fase 1**. La review finale non ha trovato
-nulla che la Fase 1 debba smontare. Tre punti di frizione da conoscere *prima* di
-scrivere venti handler, perché ognuno costa poco adesso e molto poi:
+**Il piano della Fase 1a è scritto**:
+[`2026-08-14-keeppix-fase-1a.md`](2026-08-14-keeppix-fase-1a.md), 8 task,
+stesso livello di dettaglio della Fase 0 (codice esatto, test da scrivere
+prima dell'implementazione, comandi di verifica). Non pianifica 1b/1c: quei
+piani si scrivono dopo, con i numeri veri che 1a e 1b producono — un piano di
+dettaglio scritto prima del codice su cui poggia è finzione plausibile, ed è
+lo stesso motivo per cui questo documento non prova a indovinare cosa dirà il
+piano di 1b.
+
+Per eseguirlo: `git checkout main && git pull && git checkout -b fase-1a`,
+poi `superpowers:subagent-driven-development` sul piano. Nessun'altra
+decisione da prendere prima — le due correzioni della CI trovate durante il
+merge (vedi sopra) sono già su `main`.
+
+La review finale della Fase 0 non ha trovato nulla che la Fase 1 debba
+smontare. Tre punti di frizione restano da conoscere *prima* di scrivere
+venti handler, perché ognuno costa poco adesso e molto poi — nessuno dei tre
+è nel piano 1a perché appartengono a 1b/1c, ma vanno tenuti a mente scrivendo
+quei piani:
 
 1. **Il fallback SPA inghiottirà `/media/*` e `/dav/*`** (`embed.rs` esclude solo
    `api/`): una miniatura mancante restituirebbe `index.html` con `200` a un tag
@@ -447,20 +498,31 @@ scrivere venti handler, perché ognuno costa poco adesso e molto poi:
    e fa una query per ogni richiesta autenticata. È anche la buona notizia: la
    cache `moka` prevista da §9.4 si inserisce lì e da nessun'altra parte, ma va
    progettata con l'invalidazione (una sessione revocata non deve sopravvivere).
-3. **La funzione unica di visibilità (`visibility_scope`, spec §4.2) non esiste
-   ancora**, e il modo in cui verrà scritta decide la Fase 3. `AuthContext` porta
-   `{ id, role }` e non i gruppi: derivarli da `user_id` con un join su
-   `group_members` (che esiste già e vuota) è probabilmente la scelta giusta — un
-   elenco di gruppi trasportato è un elenco che può essere stantio. Da decidere
-   nel piano, non scoprendolo alla prima query.
+3. **La funzione unica di visibilità (`visibility_scope`, spec §4.2) esiste già
+   in forma iniziale nel piano 1a** (Task 7), ma solo per «le librerie che
+   possiedi, o tutte se sei admin». Il modo in cui la Fase 3 la estenderà ai
+   sottoalberi condivisi decide se il Task 7 va bene così com'è: il piano 1a
+   chiede esplicitamente di esporre un metodo che produce la clausola SQL e i
+   suoi parametri, non l'elenco grezzo degli id, proprio per non dover
+   riscrivere i chiamanti in Fase 3.
 
-Da decidere prima di iniziare, su **R4**: `#[derive(sqlx::FromRow)]` oppure
-`query_as!` con cache `.sqlx/`. `users.rs` ripete già tre volte lo stesso blocco
-di 8 `row.try_get("nome")`, e `assets` in Fase 1 ha 25 colonne.
+**Deciso, non più da decidere:** R4 — vedi il ruling sopra, esito
+`#[derive(sqlx::FromRow)]`, applicato a tutto il crate nel Task 1 di 1a.
+
+**Nota di prestazioni aggiunta al piano 1a, non risolta qui apposta:** il
+primo run reale della CI ha misurato `backend` a 10m28s (cache fredda) per
+107 test, quasi tutti con un container Postgres avviato e distrutto per
+singolo test. La Fase 1a ne aggiunge ~45-55: il piano 1a contiene un
+checkpoint esplicito, con innesco al Task 5 e tre strade valutate, invece di
+una decisione presa qui in astratto. Non bloccare l'inizio di 1a per questo:
+il checkpoint è progettato apposta per essere attraversato durante
+l'esecuzione, con i numeri veri in mano.
 
 Nuovo strumento disponibile: il crate `keeppix-test-support`, nato nella fix wave
 per l'asserzione sugli header. È il posto dove far confluire `with_database`,
-oggi duplicata fra i due harness.
+oggi duplicata fra i due harness — e, se il checkpoint sulle prestazioni sceglie
+la strada del container condiviso per binario, è anche il posto naturale per
+quell'harness comune.
 
 ## Nota sul metodo, per chi riprende
 

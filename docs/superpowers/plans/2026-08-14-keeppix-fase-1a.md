@@ -55,6 +55,89 @@ smontare il lavoro alla fase successiva.
 
 ---
 
+## Checkpoint: prestazioni della suite di test
+
+Non è un task, è una decisione da prendere **durante** l'esecuzione, con un
+innesco preciso — non prima di iniziare, non ignorata fino alla fine.
+
+**I numeri di partenza.** Il primo run reale della CI della Fase 0 (`backend`,
+build + lint + test) ha impiegato **10m28s** a cache fredda e **5m23s** a cache
+calda. La causa non è la compilazione: è che ogni test di integrazione chiama
+`TestDb::start()`, che avvia un **container Postgres nuovo per test**, e
+`cargo test --workspace -- --test-threads=1` li esegue in **sequenza** — il
+vincolo è reale (i quattro test di `keeppix-server/tests/config.rs`
+manipolano l'ambiente di processo e non tollerano il parallelismo), non
+rimovibile con un flag.
+
+**La proiezione.** La Fase 0 ha chiuso a 107 test Rust. Questo piano (1a) ne
+aggiunge circa 45-55 fra i Task 2, 4, 5, 6, 7 e 8. Con lo stesso schema —
+un container per test, tutto sequenziale — la CI supererebbe verosimilmente i
+20-30 minuti già a metà di 1a, e la Fase 1b (coda job, worker) aggiungerà
+ancora test di integrazione.
+
+**Quando decidere:** non ora. Il Task 5 (`FolderRepo`) è il primo con un
+numero di test a due cifre in un solo file (11) e un tempo di esecuzione
+misurabile isolato. **Dopo aver completato il Task 5**, eseguire:
+
+```bash
+cargo test -p keeppix-db -- --test-threads=1
+```
+
+e confrontare il tempo con quello registrato a fine Fase 0 per lo stesso
+crate. Se il rapporto tempo/numero-di-test è rimasto lineare, il problema è
+ancora lontano e si rimanda la decisione al Task 8. Se è peggiorato in modo
+visibile, è il momento di agire — prima di scrivere altri 30 test con lo
+stesso schema.
+
+**Le strade, con le implicazioni reali:**
+
+1. **Un container per binario di test, schema Postgres separato per test.**
+   `TestDb` diventa un `tokio::sync::OnceCell` statico per processo: il primo
+   test che lo tocca avvia il container e applica le migrazioni una volta;
+   ogni test successivo apre una connessione, esegue `CREATE SCHEMA
+   test_<nome univoco>`, imposta `search_path` sulla connessione (o sul pool
+   dedicato a quel test) e lavora lì. Il costo del boot del container (la
+   parte lenta: 1-3 secondi) si paga una sola volta per binario invece che
+   una volta per test. **Attenzione**: i test che aprono più connessioni
+   verso lo stesso stato — per esempio `concurrent_generation_yields_a_single_secret`
+   in `settings.rs`, che fa `tokio::join!` su due repository condividendo il
+   pool — devono continuare a condividere lo stesso schema all'interno dello
+   stesso test, non uno schema a testa: l'isolamento è fra test, non fra
+   connessioni dello stesso test.
+2. **`#[sqlx::test]`** (macro attributo di sqlx, non da confondere con
+   `query!`: non verifica SQL a compile-time, gestisce il ciclo di vita di
+   un database di test). Clona un database da un template per ogni test,
+   che su Postgres è quasi gratuito (`CREATE DATABASE ... TEMPLATE`). Più
+   vicino allo stile idiomatico di sqlx, ma richiede un `DATABASE_URL` fisso
+   puntato a un server già in ascolto — un disallineamento reale con
+   l'architettura attuale, dove ogni chiamata a `TestDb::start()` sceglie
+   una porta a caso via testcontainers. Adottarlo bene richiede far partire
+   **un** container all'inizio della suite (non per test) e derivare da lì
+   sia il percorso testcontainers sia quello `KEEPPIX_TEST_DATABASE_URL` già
+   esistente (vedi R9 in STATO.md) — i due meccanismi convergerebbero.
+3. **Frammentare i job CI** (matrice o `cargo nextest` con partizionamento)
+   invece di ridurre il lavoro. Riduce il tempo di attesa ma non il costo
+   di calcolo, e non risolve nulla in locale durante lo sviluppo — dove il
+   problema si sente comunque a ogni `cargo test`.
+
+**La raccomandazione**, da riconsiderare con i numeri reali del Task 5: la
+strada 1 costa meno da integrare nell'harness esistente (`crates/keeppix-db/tests/harness/mod.rs`
+già astrae `TestDb`, quindi il cambiamento resta dentro quel file) e riduce
+il costo dominante — l'avvio del container — senza cambiare come i test sono
+scritti. La strada 2 è più elegante ma cambia il modo in cui *ogni* test
+futuro si scrive, per tutte le fasi rimanenti: un cambiamento del genere va
+deciso una volta sola e presto, non introdotto a metà.
+
+Qualunque strada si scelga, va applicata **anche** ai file di test della Fase
+0, non solo a quelli nuovi — altrimenti la suite ha due stili di harness
+contemporaneamente, esattamente il tipo di incoerenza che la review finale
+della Fase 0 ha già segnalato altrove (`assert_security_headers`
+triplicato). Il crate `keeppix-test-support`, nato nella fix wave finale
+della Fase 0, è il posto dove far vivere l'harness comune: ci vive già la
+sospensione per gli header di sicurezza, ci può vivere anche questo.
+
+---
+
 ## Struttura dei file
 
 ```
