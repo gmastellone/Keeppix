@@ -330,6 +330,58 @@ async fn me_requires_authentication() {
     assert_eq!(body["type"], "keeppix/unauthenticated");
 }
 
+/// Un blip del database non deve presentarsi come «sessione scaduta»: il
+/// frontend tratta il `401` come «nessuna sessione attiva», azzera l'utente e
+/// lo manda a `/login`. Con la mappatura precedente — qualsiasi `DbError` →
+/// `401` — dieci secondi di riavvio di Postgres erano un logout di massa
+/// invisibile come 5xx. Qui il database viene davvero spento: non c'è nessun
+/// mock fra l'handler e il pool, quindi è l'unico modo di osservare la
+/// proprietà end-to-end.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn a_database_outage_is_a_503_not_a_401() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    // Sanity check: la sessione vale *prima* dello spegnimento, altrimenti il
+    // 503 atteso sotto potrebbe venire da un cookie mai emesso.
+    let before = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(before.status(), 200);
+
+    if !server.stop_database().await {
+        eprintln!(
+            "KEEPPIX_TEST_DATABASE_URL è impostata: il server Postgres è condiviso \
+             e non può essere fermato, test saltato"
+        );
+        return;
+    }
+
+    let response = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        503,
+        "un database irraggiungibile non è una sessione non valida"
+    );
+    assert_eq!(
+        response.headers().get("retry-after").unwrap(),
+        "5",
+        "il client deve sapere che l'errore è transitorio"
+    );
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/service-unavailable");
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn refresh_rotates_the_session_cookie() {
