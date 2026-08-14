@@ -28,6 +28,14 @@ elenca con gli altri endpoint; §3.1 e il design chiedono URL cacheabili e
 l'esclusione SPA di `media/` e `dav/`. Un hash sconosciuto è `403` anche per
 l'admin: non è un oracolo di esistenza del contenuto.
 
+Ruling: parser di ricerca a mano in TypeScript, **senza Chevrotain**. Lo spec
+cita urocissa; il budget gzip 150 KB del chunk iniziale vince. Costo se
+sbagliato: query esotiche mal parseate, si può sostituire il parser senza
+toccare l'AST JSON.
+
+Ruling: `pg_trgm` è già in `0001`; `00010` aggiunge `saved_searches` e un
+indice GIN sul filename.
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
@@ -36,8 +44,8 @@ l'admin: non è un oracolo di esistenza del contenuto.
 | 2 | `TimelineRepo` | complete | `0d5b283` |
 | 3 | HTTP timeline + cartelle | complete | `4653651` |
 | 4 | Media + SPA fallback | complete | `ea921a8` |
-| 5 | Viewport promote | complete | |
-| 6 | Ricerca | — | |
+| 5 | Viewport promote | complete | `ff2f716` |
+| 6 | Ricerca | complete | |
 | 7 | WebSocket | — | |
 | 8 | Cache sessioni | — | |
 | 9 | Frontend timeline | — | |

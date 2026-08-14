@@ -7,6 +7,7 @@ pub mod folders;
 pub mod jobs;
 pub mod libraries;
 mod row;
+pub mod search;
 pub mod sessions;
 pub mod settings;
 pub mod timeline;
@@ -19,6 +20,7 @@ pub use error::DbError;
 pub use folders::FolderRepo;
 pub use jobs::JobRepo;
 pub use libraries::LibraryRepo;
+pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
 pub use timeline::{MonthBucket, TimelineRepo};
@@ -30,7 +32,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0009_month_counts_trigger.
+// rivede la directory. 00010_saved_searches.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

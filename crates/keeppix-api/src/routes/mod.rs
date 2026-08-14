@@ -2,6 +2,7 @@ pub mod auth;
 pub mod folders;
 pub mod health;
 pub mod media;
+pub mod search;
 pub mod setup;
 pub mod timeline;
 pub mod viewport;
