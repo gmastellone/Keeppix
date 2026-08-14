@@ -1,6 +1,7 @@
 //! Accesso al database. È l'unico crate del workspace che contiene SQL.
 
 pub mod error;
+mod row;
 pub mod sessions;
 pub mod settings;
 pub mod users;
