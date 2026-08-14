@@ -79,10 +79,15 @@ come in Fase 0.
 
 Task 1: complete (commits 0b1839f..63dd6a6, review clean)
 Task 2: complete (commits b9caaaa..971e5f4, review clean)
+Task 3: complete (commits 5ad848f..0564f66, review clean)
 
 Minor differiti (Task 2, da riesaminare in review finale):
 - `sibling_folders_cannot_share_a_name` collide anche su `path` (`1.2`), quindi non isola `folders_sibling_name_key` (plan-mandated).
 - `folders_single_root_key` e `folder_month_counts` esistono ma non hanno un test dedicato.
+
+Minor differiti (Task 3):
+- `FolderPath::root`/`child` accettano `i64` negativi che `parse` rifiuta (plan-mandated).
+- `AssetName` rifiuta NUL ma il caso non è testato.
 
 Nota per Task 5: `ON CONFLICT` su `folders_sibling_name_key` deve usare il predicato parziale `WHERE parent_id IS NOT NULL`.
 
@@ -92,7 +97,7 @@ Nota per Task 5: `ON CONFLICT` su `folders_sibling_name_key` deve usare il predi
 |---|---|---|---|
 | 1 | Mapping delle righe uniforme | ✅ review pulita | `63dd6a6` |
 | 2 | Migrazione librerie e cartelle | ✅ review pulita | `971e5f4` |
-| 3 | Tipi di dominio | — | |
+| 3 | Tipi di dominio | ✅ review pulita | `0564f66` |
 | 4 | `LibraryRepo` | — | |
 | 5 | `FolderRepo` + checkpoint CI | — | |
 | 6 | Migrazione asset ed EXIF | — | |
