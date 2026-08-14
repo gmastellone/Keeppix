@@ -25,8 +25,8 @@ stesso binario. — *Costo:* un boot extra, solo su quel test.
 | # | Task | Stato | Commit |
 |---|---|---|---|
 | 1 | Harness container condiviso | complete | `de75da7` |
-| 2 | Migrazione `jobs` + tipi | complete | |
-| 3 | `JobRepo` | — | |
+| 2 | Migrazione `jobs` + tipi | complete | `8662b33` |
+| 3 | `JobRepo` | complete | |
 | 4 | Magic-number kind | — | |
 | 5 | Worker pool + profili | — | |
 | 6 | Discovery | — | |
@@ -39,3 +39,8 @@ stesso binario. — *Costo:* un boot extra, solo su quel test.
 
 Checkpoint Task 1: `cargo test -p keeppix-db -- --test-threads=1` wall ~176 s
 (era ~6–7 min). Isolamento: `two_test_databases_are_isolated` verde.
+
+Ruling: `promote` usa `LEAST(priority, $n)` invece dello sketch `SET priority = 2`.
+Altrimenti un job interactive (0) verrebbe declassato. — *Costo:* nessuno se
+il chiamante passa sempre 2.
+
