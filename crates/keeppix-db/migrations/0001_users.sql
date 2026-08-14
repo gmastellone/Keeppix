@@ -1,7 +1,13 @@
--- Estensioni richieste dallo schema completo. PostGIS arriva in Fase 4 ma
--- l'immagine è già postgis/postgis, quindi la si abilita subito per evitare
--- una migrazione che richieda privilegi elevati più avanti.
+-- Estensioni richieste dallo schema completo. PostGIS serve solo dalla Fase 4,
+-- ma la si abilita subito, con `pg_trgm`, per una ragione di privilegi:
+-- `pg_trgm` è *trusted* da PG13 e la può creare il proprietario del database,
+-- `postgis` non lo è e richiede il superuser. Farlo ora, su un database vuoto
+-- creato dall'amministratore, evita che la Fase 4 chieda un `CREATE EXTENSION`
+-- privilegiato su un'istanza gestita già piena di dati. L'immagine di
+-- riferimento è `postgis/postgis:17-3.5` (compose e harness di test), e
+-- `docs/DEPLOY.md` chiede PostGIS disponibile anche sui Postgres esterni.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS postgis;
 
 CREATE TABLE users (
     id            uuid        PRIMARY KEY,
