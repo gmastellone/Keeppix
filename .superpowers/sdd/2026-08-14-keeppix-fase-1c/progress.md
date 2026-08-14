@@ -35,8 +35,8 @@ l'admin: non è un oracolo di esistenza del contenuto.
 | 1 | Trigger month counts | complete | `be786a8` |
 | 2 | `TimelineRepo` | complete | `0d5b283` |
 | 3 | HTTP timeline + cartelle | complete | `4653651` |
-| 4 | Media + SPA fallback | complete | |
-| 5 | Viewport promote | — | |
+| 4 | Media + SPA fallback | complete | `ea921a8` |
+| 5 | Viewport promote | complete | |
 | 6 | Ricerca | — | |
 | 7 | WebSocket | — | |
 | 8 | Cache sessioni | — | |

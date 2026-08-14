@@ -62,6 +62,10 @@ impl FromRequestParts<AppState> for Auth {
             .await
             .map_err(session_problem)?;
 
+        if let Some(hook) = &state.on_authenticated {
+            hook();
+        }
+
         Ok(Self(ctx))
     }
 }
