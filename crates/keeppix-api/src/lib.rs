@@ -2,6 +2,7 @@
 //! dai repository di `keeppix-db`, che richiedono un `AuthContext`.
 
 pub mod cookie;
+pub mod csrf;
 pub mod extract;
 pub mod json;
 pub mod openapi;
@@ -94,6 +95,11 @@ fn api_routes() -> Router<AppState> {
         .route("/auth/refresh", axum::routing::post(routes::auth::refresh))
         .route("/auth/logout", axum::routing::post(routes::auth::logout))
         .route("/auth/me", get(routes::auth::me))
+        // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
+        // controllo per handler, così le rotte della Fase 1 sono coperte per
+        // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe
+        // già previste (WebDAV, tus).
+        .layer(axum::middleware::from_fn(csrf::require_client_header))
 }
 
 fn all_routes() -> Router<AppState> {

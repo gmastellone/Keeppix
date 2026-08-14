@@ -23,13 +23,13 @@ export class ApiProblem extends Error {
 
 /**
  * Chiamata JSON verso l'API. Invia sempre i cookie e un header custom.
- * L'header `x-keeppix-client` è solo metà della difesa CSRF richiesta dalla
- * spec (§9.5): un form HTML esterno non può impostare header custom, quindi
- * la sua sola presenza già esclude quel vettore lato client. Ma oggi il
- * backend non lo verifica ancora — l'enforcement server-side arriva in una
- * fix wave successiva del branch. Fino ad allora l'header viene inviato
- * senza essere controllato: lo mandiamo comunque, così il frontend è già
- * conforme quando il controllo lato server sarà attivo.
+ * L'header `x-keeppix-client` è la metà client-side della difesa CSRF
+ * richiesta dalla spec (§9.5): un form HTML su un sito ostile non può
+ * impostare header custom. Il backend **lo pretende** sulle mutazioni
+ * (POST/PUT/PATCH/DELETE) e risponde `403 keeppix/csrf-check-failed` se
+ * manca: vedi `crates/keeppix-api/src/csrf.rs`. Ogni chiamata all'API deve
+ * quindi passare da qui — una `fetch` scritta a mano su una mutazione
+ * verrebbe rifiutata.
  */
 export async function apiFetch<T = unknown>(
   path: string,

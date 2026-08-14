@@ -1,6 +1,6 @@
 mod harness;
 
-use harness::{TestServer, assert_security_headers};
+use harness::{TestServer, assert_security_headers, plain_client};
 use serde_json::json;
 
 /// `keeppix_api::router(state)` — il router *con* stato, montato da
@@ -139,6 +139,58 @@ async fn a_wrong_method_is_rejected_as_problem_json() {
 
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["type"], "keeppix/method-not-allowed");
+}
+
+/// La metà server-side della difesa CSRF (spec §9.5). Il client costruito qui
+/// è deliberatamente *senza* `x-keeppix-client`: è ciò che può fare un `<form>`
+/// su un sito ostile, che invia la POST con i cookie ma non può impostare
+/// header custom. Le mutazioni senza corpo — `logout` e `refresh` — sono le
+/// uniche che non passavano nemmeno dal controllo sul `Content-Type` di
+/// `Json<T>`, quindi erano interamente scoperte.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn a_mutation_without_the_client_header_is_rejected() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+    let forged = reqwest::Client::new();
+
+    for path in ["/api/v1/auth/logout", "/api/v1/auth/refresh"] {
+        let response = forged.post(server.url(path)).send().await.unwrap();
+
+        assert_eq!(response.status(), 403, "{path} senza header custom");
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "application/problem+json"
+        );
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["type"], "keeppix/csrf-check-failed");
+    }
+
+    // Le letture non richiedono l'header: negarle romperebbe l'apertura
+    // diretta di un URL e non comprerebbe nulla.
+    let read = forged
+        .get(server.url("/api/v1/setup/status"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(read.status(), 200, "un GET non cambia stato");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn a_mutation_with_the_client_header_succeeds() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    // `server.client` porta l'header per default, come `apiFetch` del frontend.
+    let response = server
+        .client
+        .post(server.url("/api/v1/auth/logout"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 204);
 }
 
 #[tokio::test]
@@ -318,7 +370,7 @@ async fn me_requires_authentication() {
     setup(&server).await;
 
     // Client nuovo, senza cookie.
-    let anonymous = reqwest::Client::new();
+    let anonymous = plain_client();
     let response = anonymous
         .get(server.url("/api/v1/auth/me"))
         .send()
@@ -425,7 +477,7 @@ async fn refresh_rotates_the_session_cookie() {
     // client fresco senza cookie store, con il valore pre-refresh presentato
     // esplicitamente, è l'unico modo di dimostrarlo — il cookie store di
     // `server.client` ha già sostituito `before` con `after`.
-    let replay_me = reqwest::Client::new()
+    let replay_me = plain_client()
         .get(server.url("/api/v1/auth/me"))
         .header("cookie", format!("__Host-kpx_session={before}"))
         .send()
@@ -471,7 +523,7 @@ async fn refresh_rejects_a_reused_token() {
     assert_eq!(first_refresh.status(), 204);
 
     // Ripresentare il token pre-refresh, già consumato, deve essere rifiutato.
-    let reused = reqwest::Client::new()
+    let reused = plain_client()
         .post(server.url("/api/v1/auth/refresh"))
         .header("cookie", format!("__Host-kpx_session={before}"))
         .send()
@@ -485,7 +537,7 @@ async fn refresh_rejects_a_reused_token() {
     // anche il token *nuovo* — emesso dalla rotazione e valido fino a un
     // istante fa — smetta di funzionare.
     let after = session_value_from(&first_refresh);
-    let survivor = reqwest::Client::new()
+    let survivor = plain_client()
         .get(server.url("/api/v1/auth/me"))
         .header("cookie", format!("__Host-kpx_session={after}"))
         .send()
@@ -527,7 +579,7 @@ async fn logout_invalidates_the_session() {
     // pre-logout. Se ci affidassimo al cookie store di `server.client`, la
     // richiesta successiva partirebbe senza alcun cookie — il logout locale
     // del client, non la revoca lato server, spiegherebbe il 401.
-    let replay_me = reqwest::Client::new()
+    let replay_me = plain_client()
         .get(server.url("/api/v1/auth/me"))
         .header("cookie", format!("__Host-kpx_session={session_value}"))
         .send()
