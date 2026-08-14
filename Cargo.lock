@@ -1874,6 +1874,8 @@ dependencies = [
  "keeppix-domain",
  "keeppix-media",
  "serde_json",
+ "sqlx",
+ "testcontainers-modules",
  "thiserror",
  "tokio",
  "tracing",
@@ -1884,8 +1886,10 @@ dependencies = [
 name = "keeppix-media"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "keeppix-domain",
  "thiserror",
+ "walkdir",
 ]
 
 [[package]]
