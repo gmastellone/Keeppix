@@ -350,4 +350,36 @@ impl<'a> AssetRepo<'a> {
         .await?;
         Ok(())
     }
+
+    /// Non prende un `AuthContext`: la chiama la pipeline dei derivati.
+    ///
+    /// # Errors
+    /// `Connection` se l'aggiornamento fallisce.
+    pub async fn set_thumbhash_for_hash(
+        &self,
+        hash: &[u8; 32],
+        thumbhash: &[u8],
+    ) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "UPDATE assets SET thumbhash = $2, updated_at = now() WHERE content_hash = $1",
+        )
+        .bind(hash.as_slice())
+        .bind(thumbhash)
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Non prende un `AuthContext`: la chiama la pipeline dei derivati.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn ids_with_hash(&self, hash: &[u8; 32]) -> Result<Vec<AssetId>, DbError> {
+        let rows: Vec<uuid::Uuid> =
+            sqlx::query_scalar("SELECT id FROM assets WHERE content_hash = $1")
+                .bind(hash.as_slice())
+                .fetch_all(self.db.pool())
+                .await?;
+        Ok(rows.into_iter().map(AssetId::from_uuid).collect())
+    }
 }

@@ -5,6 +5,7 @@ use keeppix_db::Db;
 use keeppix_domain::{Job, JobKind};
 
 use crate::JobError;
+use crate::derive as derive_job;
 use crate::discover;
 use crate::hash as hash_job;
 use crate::metadata;
@@ -14,7 +15,6 @@ use crate::metadata;
 /// sparire.
 pub struct IngestHandler {
     pub db: Db,
-    #[allow(dead_code)]
     pub data_dir: PathBuf,
     pub stability_wait: Duration,
 }
@@ -41,15 +41,16 @@ impl crate::JobHandler for IngestHandler {
                 let id = metadata::asset_id_from_payload(&job.payload)?;
                 hash_job::run(&self.db, id).await
             }
+            JobKind::DeriveAsset => {
+                let hash = derive_job::hash_from_payload(&job.payload)?;
+                derive_job::run(&self.db, &self.data_dir, hash).await
+            }
             JobKind::ReapStale => {
                 keeppix_db::JobRepo::new(&self.db)
                     .reap_stale(Duration::from_secs(600))
                     .await?;
                 Ok(())
             }
-            JobKind::DeriveAsset => Err(JobError::Worker(
-                "derive_asset not implemented".to_owned(),
-            )),
         }
     }
 }
