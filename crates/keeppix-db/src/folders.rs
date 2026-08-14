@@ -3,6 +3,7 @@ use std::path::{Component, Path, PathBuf};
 use keeppix_domain::{AuthContext, Folder, FolderId, FolderPath, Library, LibraryId};
 use sqlx::PgConnection;
 
+use crate::visibility::VisibilityScope;
 use crate::{Db, DbError, LibraryRepo};
 
 pub struct FolderRepo<'a> {
@@ -179,6 +180,24 @@ impl<'a> FolderRepo<'a> {
     /// `NotFound` solo a un admin che chiede un id inesistente.
     pub async fn find_by_id(&self, ctx: &AuthContext, id: FolderId) -> Result<Folder, DbError> {
         Ok(self.visible(ctx, id).await?.0)
+    }
+
+    /// Albero visibile al chiamante, in ordine di `path`.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn tree(&self, ctx: &AuthContext) -> Result<Vec<Folder>, DbError> {
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("library_id", 1);
+        let rows: Vec<FolderRow> = sqlx::query_as(&format!(
+            "SELECT {COLUMNS} FROM folders WHERE {} ORDER BY path",
+            filter.sql()
+        ))
+        .bind(filter.bind())
+        .fetch_all(self.db.pool())
+        .await?;
+
+        rows.into_iter().map(FolderRow::into_domain).collect()
     }
 
     /// Figli diretti, in ordine di nome.

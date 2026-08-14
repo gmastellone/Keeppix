@@ -75,6 +75,11 @@ impl Problem {
     }
 
     #[must_use]
+    pub fn bad_request(type_slug: &str, title: &str) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, type_slug, title)
+    }
+
+    #[must_use]
     pub fn internal() -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,

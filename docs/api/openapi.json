@@ -220,6 +220,132 @@
         ]
       }
     },
+    "/api/v1/folders/tree": {
+      "get": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "folders_tree",
+        "responses": {
+          "200": {
+            "description": "Albero delle cartelle visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FolderView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/folders/{id}/children": {
+      "get": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se la cartella non è visibile (anche\ninesistente, per chi non è admin); `404` solo a un admin su id assente.",
+        "operationId": "folders_children",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della cartella",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Figli diretti e asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderChildren"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Cartella non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cartella inesistente (solo admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/setup": {
       "post": {
         "tags": [
@@ -332,10 +458,276 @@
           }
         }
       }
+    },
+    "/api/v1/timeline": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "# Errors\n`400` se `bucket` o `cursor` non sono leggibili; `401` se non autenticato.",
+        "operationId": "timeline_page",
+        "parameters": [
+          {
+            "name": "bucket",
+            "in": "query",
+            "description": "Mese YYYY-MM",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Keyset taken_at|id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1..=200, default 200",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pagina di asset del mese",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelinePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bucket o cursor illeggibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/timeline/buckets": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se `library` non è del chiamante.",
+        "operationId": "timeline_buckets",
+        "parameters": [
+          {
+            "name": "library",
+            "in": "query",
+            "description": "Filtra su una libreria",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conteggi mensili visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MonthBucketView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Libreria non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "AssetView": {
+        "type": "object",
+        "required": [
+          "id",
+          "folder_id",
+          "filename",
+          "size_bytes",
+          "kind",
+          "status"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "taken_at_utc": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "FolderChildren": {
+        "type": "object",
+        "required": [
+          "folders",
+          "assets"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetView"
+            }
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FolderView"
+            }
+          }
+        }
+      },
+      "FolderView": {
+        "type": "object",
+        "required": [
+          "id",
+          "library_id",
+          "name",
+          "depth"
+        ],
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": [
@@ -370,6 +762,23 @@
         "properties": {
           "user": {
             "$ref": "#/components/schemas/UserView"
+          }
+        }
+      },
+      "MonthBucketView": {
+        "type": "object",
+        "required": [
+          "month",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "month": {
+            "type": "string",
+            "description": "Calendario `YYYY-MM`."
           }
         }
       },
@@ -449,6 +858,26 @@
           }
         }
       },
+      "TimelinePage": {
+        "type": "object",
+        "required": [
+          "assets"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetView"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UserView": {
         "type": "object",
         "description": "Rappresentazione pubblica dell'utente. Non contiene l'hash della password\nné il segreto TOTP: quei campi non lasciano mai il database.",
@@ -503,6 +932,14 @@
     {
       "name": "auth",
       "description": "Autenticazione e sessioni"
+    },
+    {
+      "name": "timeline",
+      "description": "Bucket mensili e pagine keyset"
+    },
+    {
+      "name": "folders",
+      "description": "Albero delle cartelle"
     }
   ]
 }

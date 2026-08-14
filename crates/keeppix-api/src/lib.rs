@@ -134,6 +134,10 @@ fn api_routes() -> Router<AppState> {
         .route("/auth/refresh", axum::routing::post(routes::auth::refresh))
         .route("/auth/logout", axum::routing::post(routes::auth::logout))
         .route("/auth/me", get(routes::auth::me))
+        .route("/timeline/buckets", get(routes::timeline::buckets))
+        .route("/timeline", get(routes::timeline::page))
+        .route("/folders/tree", get(routes::folders::tree))
+        .route("/folders/{id}/children", get(routes::folders::children))
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe
