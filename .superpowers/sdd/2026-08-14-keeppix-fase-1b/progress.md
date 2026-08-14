@@ -28,8 +28,8 @@ stesso binario. — *Costo:* un boot extra, solo su quel test.
 | 2 | Migrazione `jobs` + tipi | complete | `8662b33` |
 | 3 | `JobRepo` | complete | `c939aef` |
 | 4 | Magic-number kind | complete | `db25913` |
-| 5 | Worker pool + profili | complete | |
-| 6 | Discovery | — | |
+| 5 | Worker pool + profili | complete | `9257bba` |
+| 6 | Discovery | complete | |
 | 7 | EXIF | — | |
 | 8 | Hash | — | |
 | 9 | Derivati | — | |

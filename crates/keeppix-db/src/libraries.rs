@@ -143,6 +143,39 @@ impl<'a> LibraryRepo<'a> {
         Ok(())
     }
 
+    /// Non prende un `AuthContext`: la chiama lo scanner, che non agisce
+    /// per conto di un utente.
+    ///
+    /// # Errors
+    /// `NotFound` se l'id non esiste.
+    pub async fn load_for_scan(&self, id: LibraryId) -> Result<Library, DbError> {
+        let row: Option<LibraryRow> =
+            sqlx::query_as(&format!("SELECT {COLUMNS} FROM libraries WHERE id = $1"))
+                .bind(id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
+        row.map(LibraryRow::into_domain)
+            .transpose()?
+            .ok_or(DbError::NotFound)
+    }
+
+    /// Non prende un `AuthContext`: disco assente o svuotato durante la scansione.
+    ///
+    /// # Errors
+    /// `Connection` se l'aggiornamento fallisce.
+    pub async fn set_status_for_scan(
+        &self,
+        id: LibraryId,
+        status: LibraryStatus,
+    ) -> Result<(), DbError> {
+        sqlx::query("UPDATE libraries SET status = $2, updated_at = now() WHERE id = $1")
+            .bind(id.as_uuid())
+            .bind(status_str(status))
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
+    }
+
     /// Registra l'istante dell'ultima scansione completata.
     ///
     /// Non prende un `AuthContext` perché la chiama lo scanner, che non

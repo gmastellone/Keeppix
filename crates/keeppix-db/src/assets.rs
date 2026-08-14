@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use keeppix_domain::{
-    Asset, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, FolderId, NewAsset,
+    Asset, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, FolderId, LibraryId, NewAsset,
 };
 
 use crate::visibility::VisibilityScope;
@@ -285,6 +285,39 @@ impl<'a> AssetRepo<'a> {
         ))
         .bind(status_str(status))
         .bind(filter.bind())
+        .fetch_one(self.db.pool())
+        .await?;
+        Ok(n)
+    }
+
+    /// Non prende un `AuthContext`: la chiama lo scanner sul job reclamato.
+    ///
+    /// # Errors
+    /// `NotFound` se l'id non esiste.
+    pub async fn get_for_scan(&self, id: AssetId) -> Result<Asset, DbError> {
+        let row: Option<AssetRow> =
+            sqlx::query_as(&format!("SELECT {COLUMNS} FROM assets WHERE id = $1"))
+                .bind(id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
+        row.map(AssetRow::into_domain)
+            .transpose()?
+            .ok_or(DbError::NotFound)
+    }
+
+    /// Conteggio nella libreria, per le soglie di sparizione di massa.
+    ///
+    /// Non prende un `AuthContext`: la chiama lo scanner.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn count_in_library(&self, library_id: LibraryId) -> Result<i64, DbError> {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             WHERE f.library_id = $1 AND a.status <> 'trashed'",
+        )
+        .bind(library_id.as_uuid())
         .fetch_one(self.db.pool())
         .await?;
         Ok(n)

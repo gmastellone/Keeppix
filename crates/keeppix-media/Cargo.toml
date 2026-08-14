@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 thiserror.workspace = true
 keeppix-domain = { path = "../keeppix-domain" }
+chrono.workspace = true
+walkdir = "2"
 
 [lints]
 workspace = true
