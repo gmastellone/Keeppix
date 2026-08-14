@@ -21,7 +21,7 @@ container. L'utente l'ha chiesto esplicitamente (disco).
 | # | Task | Stato | Commit |
 |---|---|---|---|
 | 1 | Trigger month counts | complete | `be786a8` |
-| 2 | `TimelineRepo` | — | |
+| 2 | `TimelineRepo` | complete | |
 | 3 | HTTP timeline + cartelle | — | |
 | 4 | Media + SPA fallback | — | |
 | 5 | Viewport promote | — | |
