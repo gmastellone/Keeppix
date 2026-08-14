@@ -56,6 +56,49 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
+    if let Err(e) = keeppix_jobs::watch::persist_capabilities(&db).await {
+        tracing::warn!(error = %e, "hardware probe failed");
+    }
+    if let Err(e) = keeppix_jobs::watch::spawn_all(&db, keeppix_jobs::watch::DEFAULT_DEBOUNCE).await
+    {
+        tracing::warn!(error = %e, "library watchers failed to start");
+    }
+
+    let handler = keeppix_jobs::IngestHandler {
+        db: db.clone(),
+        data_dir: config.data_dir.clone(),
+        stability_wait: std::time::Duration::from_secs(5),
+    };
+    let night = keeppix_jobs::default_night_window();
+    let workers = keeppix_jobs::worker_count(
+        std::thread::available_parallelism()
+            .map(std::num::NonZero::get)
+            .unwrap_or(2),
+    );
+    let tracker = std::sync::Arc::new(keeppix_jobs::ActivityTracker::new());
+    let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    for _ in 0..workers {
+        // ponytail: each worker has its own 512 MiB RamGate. Share one Arc
+        // if RSS climbs under parallel derives.
+        let pool = keeppix_jobs::WorkerPool::new(
+            db.clone(),
+            handler.clone(),
+            tracker.clone(),
+            512 * 1024 * 1024,
+            night,
+            paused.clone(),
+        );
+        tokio::spawn(async move {
+            loop {
+                match pool.step().await {
+                    Ok(true) => {}
+                    Ok(false) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+                    Err(e) => tracing::error!(error = %e, "worker step"),
+                }
+            }
+        });
+    }
+
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(addr = %config.bind, "keeppix listening");
 

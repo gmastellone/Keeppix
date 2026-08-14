@@ -10,9 +10,8 @@ use crate::discover;
 use crate::hash as hash_job;
 use crate::metadata;
 
-/// Handler unico della pipeline 1b. I kind non ancora implementati
-/// restano un errore del worker, così il job va in retry/fail invece di
-/// sparire.
+/// Handler unico della pipeline 1b.
+#[derive(Clone)]
 pub struct IngestHandler {
     pub db: Db,
     pub data_dir: PathBuf,
