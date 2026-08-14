@@ -1859,6 +1859,7 @@ dependencies = [
  "chrono",
  "rand 0.10.2",
  "serde",
+ "serde_json",
  "sha2 0.11.0",
  "thiserror",
  "uuid",
@@ -1875,6 +1876,7 @@ dependencies = [
 name = "keeppix-media"
 version = "0.1.0"
 dependencies = [
+ "keeppix-domain",
  "thiserror",
 ]
 
