@@ -102,6 +102,30 @@ in `.env`, l'aggiornamento non richiede di reimpostare nulla: Compose lo
 rilegge da solo a ogni `up`, anche da una sessione di shell diversa da quella
 del primo avvio.
 
+### Se l'avvio fallisce con un errore di checksum sulla migrazione
+
+```
+error: migration 1 was previously applied but has been modified
+```
+
+La migrazione `0001` è stata modificata durante lo sviluppo della Fase 0, prima
+di qualsiasi rilascio, per abilitare l'estensione PostGIS che serve alle mappe.
+sqlx confronta il checksum di ogni migrazione già applicata e rifiuta di
+proseguire se non coincide — è la protezione che impedisce a uno schema di
+divergere silenziosamente dal codice.
+
+Se hai un database creato da un checkout precedente, non c'è nulla da salvare:
+è un'installazione di sviluppo senza foto indicizzate. Ricrealo.
+
+```bash
+docker compose --profile bundled down -v
+docker compose --profile bundled up -d
+```
+
+Questo non riguarderà mai un'installazione reale: dal primo rilascio in poi le
+migrazioni già pubblicate non vengono più toccate, e i cambiamenti di schema
+arrivano solo come nuovi file.
+
 ## Arresto
 
 ```bash
