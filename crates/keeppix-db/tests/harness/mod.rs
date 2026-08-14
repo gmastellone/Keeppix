@@ -60,6 +60,36 @@ pub async fn seed_admin(test: &TestDb) -> keeppix_domain::UserId {
         .id
 }
 
+/// Crea un utente non-admin. Serve a ogni test che verifichi i permessi.
+///
+/// # Panics
+/// Se la creazione fallisce.
+#[allow(clippy::expect_used, dead_code)]
+pub async fn seed_user(
+    test: &TestDb,
+    admin: keeppix_domain::UserId,
+    username: &str,
+) -> keeppix_domain::UserId {
+    use keeppix_domain::{AuthContext, NewUser, Password, SystemRole, Username, hash_password};
+
+    let password = Password::parse("correct horse battery staple").expect("password valida");
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    keeppix_db::UserRepo::new(test.db())
+        .create(
+            &ctx,
+            NewUser {
+                username: Username::parse(username).expect("username valido"),
+                email: None,
+                display_name: username.to_owned(),
+                password_hash: hash_password(&password).expect("hash").as_str().to_owned(),
+                role: SystemRole::User,
+            },
+        )
+        .await
+        .expect("creazione utente")
+        .id
+}
+
 /// Procura un database vergine e restituisce l'eventuale container che lo
 /// ospita, da tenere vivo per la durata del test.
 ///
