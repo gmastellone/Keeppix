@@ -42,7 +42,8 @@ e non codice da scrivere.
 
 | Fase | Documento | Contenuto |
 |---|---|---|
-| 1a | *(nel piano)* | modello dati: librerie, cartelle `ltree`, asset, visibilità |
+| 0 | [`specs/fase-0-fondamenta.md`](specs/fase-0-fondamenta.md) | ✅ **costruita** — descrive cosa esiste: workspace, schema, autenticazione, superficie HTTP, distribuzione. Retrospettiva: serve a chi ci costruisce sopra |
+| 1a | [`specs/fase-1a-modello-dati.md`](specs/fase-1a-modello-dati.md) | identità dell'asset, albero `ltree`, visibilità, `change_log` |
 | 1b | [`specs/fase-1b-ingestione.md`](specs/fase-1b-ingestione.md) | coda job, worker, profili energetici, `keeppix-media`, walker, hash, derivati, watcher, fallimenti |
 | 1c | [`specs/fase-1c-timeline.md`](specs/fase-1c-timeline.md) | timeline a bucket, ricerca, endpoint, **protocollo WebSocket**, frontend |
 | 2 | [`specs/fase-2-raw-culling.md`](specs/fase-2-raw-culling.md) | pipeline RAW, sidecar XMP, culling, stack RAW+JPEG, cancellazione, duplicati |
