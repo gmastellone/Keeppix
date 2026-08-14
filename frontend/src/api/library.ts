@@ -2,10 +2,10 @@ import { apiFetch } from './client'
 import type { SearchNode } from '@/search/parse'
 import type { TimelinePage } from './timeline'
 
-export function runSearch(ast: SearchNode): Promise<TimelinePage> {
+export function runSearch(ast: SearchNode, cursor?: string): Promise<TimelinePage> {
   return apiFetch('/api/v1/search', {
     method: 'POST',
-    body: JSON.stringify({ ast })
+    body: JSON.stringify(cursor ? { ast, cursor } : { ast })
   })
 }
 

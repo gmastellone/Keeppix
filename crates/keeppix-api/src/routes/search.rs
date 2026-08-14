@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::extract::Auth;
 use crate::json::Json;
 use crate::problem::Problem;
-use crate::routes::timeline::AssetView;
+use crate::routes::timeline::{AssetView, encode_cursor};
 use crate::state::AppState;
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -78,17 +78,7 @@ pub async fn run(
         .await?;
     let limit = body.limit.unwrap_or(200).clamp(1, 200);
     let filled = i64::try_from(assets.len()).unwrap_or(i64::MAX) >= limit;
-    let next_cursor = filled
-        .then(|| {
-            assets.last().map(|a| {
-                let taken = a
-                    .taken_at_utc
-                    .unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-                format!("{taken}|{}", a.id)
-            })
-        })
-        .flatten();
+    let next_cursor = filled.then(|| assets.last().map(encode_cursor)).flatten();
     Ok(Json(SearchPage {
         assets: assets.iter().map(AssetView::from_asset).collect(),
         next_cursor,

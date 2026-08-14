@@ -238,7 +238,7 @@ impl<'a> AssetRepo<'a> {
         FolderRepo::new(self.db).find_by_id(ctx, folder_id).await?;
 
         let rows: Vec<AssetRow> = sqlx::query_as(&format!(
-            "SELECT {COLUMNS} FROM assets WHERE folder_id = $1 ORDER BY filename"
+            "SELECT {COLUMNS} FROM assets WHERE folder_id = $1 AND status <> 'trashed' ORDER BY filename"
         ))
         .bind(folder_id.as_uuid())
         .fetch_all(self.db.pool())

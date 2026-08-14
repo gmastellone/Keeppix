@@ -13,7 +13,7 @@ import {
 import Button from '@/components/ui/Button.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
 import { useSessionStore } from '@/stores/session'
-import { clampDensity, justify } from '@/timeline/justify'
+import { clampDensity, justify, bucketMinHeight } from '@/timeline/justify'
 import { monthAtOffset, yearLabel } from '@/timeline/scrubber'
 import { thumbhashToDataURL } from '@/timeline/thumbhash'
 
@@ -38,6 +38,8 @@ const query = ref('')
 const viewing = ref<TimelineAsset | null>(null)
 
 const visibleHashes = new Set<string>()
+const placeholders = new Map<string, string>()
+let promoteTimer: ReturnType<typeof setTimeout> | undefined
 
 function isKind(asset: TimelineAsset): boolean {
   if (kind.value === 'all') return true
@@ -63,6 +65,34 @@ const days = computed(() => {
   return items
 })
 
+const daysByMonth = computed(() => {
+  const map = new Map<string, typeof days.value>()
+  for (const day of days.value) {
+    const month = day.key.slice(0, 7)
+    const list = map.get(month) ?? []
+    list.push(day)
+    map.set(month, list)
+  }
+  return map
+})
+
+const grids = computed(() => {
+  const out = new Map<string, ReturnType<typeof cellsFor>>()
+  for (const day of days.value) {
+    out.set(day.key, cellsFor(day.assets))
+  }
+  return out
+})
+
+const flatAssets = computed(() => days.value.flatMap((d) => d.assets))
+
+function viewingNeighbour(delta: number): TimelineAsset | undefined {
+  const list = flatAssets.value
+  const i = list.findIndex((a) => a.id === viewing.value?.id)
+  if (i < 0) return undefined
+  return list[i + delta]
+}
+
 function rowHeight(): number {
   return Math.max(48, gridWidth.value / density.value)
 }
@@ -81,13 +111,23 @@ function cellsFor(assets: TimelineAsset[]) {
     ...row,
     cells: row.cells.flatMap((cell) => {
       const asset = byId.get(cell.id)
-      return asset ? [{ ...cell, asset }] : []
+      return asset ? [{ ...cell, asset, placeholder: placeholder(asset) }] : []
     })
   }))
 }
 
 function placeholder(asset: TimelineAsset): string | undefined {
-  return asset.thumbhash ? thumbhashToDataURL(asset.thumbhash) : undefined
+  if (!asset.thumbhash) return undefined
+  const cached = placeholders.get(asset.id)
+  if (cached) return cached
+  const url = thumbhashToDataURL(asset.thumbhash)
+  if (!url) return undefined
+  placeholders.set(asset.id, url)
+  return url
+}
+
+function reserveHeight(bucket: MonthBucket): number {
+  return bucketMinHeight(bucket.count, gridWidth.value, density.value)
 }
 
 function thumbSrc(asset: TimelineAsset): string | undefined {
@@ -115,8 +155,23 @@ function setKind(next: KindFilter) {
 
 async function loadBucket(month: string) {
   if (assetsByBucket.value[month]) return
-  const page = await fetchPage(month)
-  assetsByBucket.value = { ...assetsByBucket.value, [month]: page.assets }
+  const collected: TimelineAsset[] = []
+  let cursor: string | undefined
+  do {
+    const page = await fetchPage(month, cursor)
+    collected.push(...page.assets)
+    cursor = page.next_cursor
+  } while (cursor)
+  assetsByBucket.value = { ...assetsByBucket.value, [month]: collected }
+}
+
+function onScrubMove(event: MouseEvent) {
+  if (event.buttons & 1) onScrub(event)
+}
+
+function stepViewer(delta: number) {
+  const next = viewingNeighbour(delta)
+  if (next) viewing.value = next
 }
 
 function onScrub(event: MouseEvent) {
@@ -131,26 +186,32 @@ function onScrub(event: MouseEvent) {
 
 let observer: IntersectionObserver | undefined
 
+function schedulePromote() {
+  if (promoteTimer) clearTimeout(promoteTimer)
+  promoteTimer = setTimeout(() => {
+    void promoteViewport([...visibleHashes].slice(0, 200))
+  }, 250)
+}
+
 function observe() {
   observer?.disconnect()
   if (typeof IntersectionObserver === 'undefined') return
   observer = new IntersectionObserver(
     (entries) => {
-      const hashes: string[] = []
+      let hashesChanged = false
       for (const entry of entries) {
         const month = (entry.target as HTMLElement).dataset.month
         if (entry.isIntersecting && month) {
           void loadBucket(month)
         }
         const hash = (entry.target as HTMLElement).dataset.hash
-        if (entry.isIntersecting && hash) {
-          visibleHashes.add(hash)
-          hashes.push(hash)
+        if (hash) {
+          hashesChanged = true
+          if (entry.isIntersecting) visibleHashes.add(hash)
+          else visibleHashes.delete(hash)
         }
       }
-      if (hashes.length > 0) {
-        void promoteViewport([...visibleHashes].slice(0, 200))
-      }
+      if (hashesChanged) schedulePromote()
     },
     { root: gridEl.value, rootMargin: '200px' }
   )
@@ -175,6 +236,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   observer?.disconnect()
+  if (promoteTimer) clearTimeout(promoteTimer)
   window.removeEventListener('resize', measure)
 })
 
@@ -263,19 +325,20 @@ watch([days, density, gridWidth], () => observe())
           :id="`bucket-${bucket.month}`"
           :key="bucket.month"
           :data-month="bucket.month"
+          :style="{ minHeight: `${reserveHeight(bucket)}px` }"
         >
           <h2 class="sticky top-0 z-10 bg-surface py-2 text-sm font-medium">
             {{ bucket.month }} · {{ bucket.count }}
           </h2>
           <div
-            v-for="day in days.filter((d) => d.key.startsWith(bucket.month))"
+            v-for="day in daysByMonth.get(bucket.month) ?? []"
             :key="day.key"
           >
             <h3 class="py-1 text-xs text-content-muted">
               {{ day.label }}
             </h3>
             <div
-              v-for="(row, index) in cellsFor(day.assets)"
+              v-for="(row, index) in grids.get(day.key) ?? []"
               :key="index"
               class="relative mb-1"
               :style="{ height: `${row.height}px` }"
@@ -293,8 +356,8 @@ watch([days, density, gridWidth], () => observe())
                 @click="viewing = cell.asset"
               >
                 <img
-                  v-if="placeholder(cell.asset)"
-                  :src="placeholder(cell.asset)"
+                  v-if="cell.placeholder"
+                  :src="cell.placeholder"
                   alt=""
                   class="absolute inset-0 h-full w-full object-cover"
                 >
@@ -314,7 +377,7 @@ watch([days, density, gridWidth], () => observe())
       <aside
         class="relative w-10 shrink-0 cursor-ns-resize border-l border-border"
         @mousedown="onScrub"
-        @mousemove.left="onScrub"
+        @mousemove="onScrubMove"
       >
         <div
           v-for="bucket in buckets"
@@ -334,7 +397,11 @@ watch([days, density, gridWidth], () => observe())
     <AssetViewer
       v-if="viewing"
       :asset="viewing"
+      :prev="viewingNeighbour(-1)"
+      :next="viewingNeighbour(1)"
       @close="viewing = null"
+      @prev="stepViewer(-1)"
+      @next="stepViewer(1)"
     />
   </div>
 </template>

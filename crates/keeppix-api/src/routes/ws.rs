@@ -129,14 +129,15 @@ pub(crate) fn origin_allowed(origin: &str, host: &str, allowlist: &[String]) -> 
     if !allowlist.is_empty() {
         return false;
     }
-    origin_authority(origin) == Some(host)
+    if origin == format!("https://{host}") {
+        return true;
+    }
+    origin == format!("http://{host}") && loopback_host(host)
 }
 
-fn origin_authority(origin: &str) -> Option<&str> {
-    let rest = origin
-        .strip_prefix("https://")
-        .or_else(|| origin.strip_prefix("http://"))?;
-    rest.split('/').next()
+fn loopback_host(host: &str) -> bool {
+    let name = host.rsplit_once(':').map_or(host, |(h, _)| h);
+    matches!(name, "localhost" | "127.0.0.1" | "::1" | "[::1]")
 }
 
 fn ticket_from_protocol(headers: &HeaderMap) -> Option<String> {
@@ -216,5 +217,14 @@ mod tests {
             "127.0.0.1:5673",
             &[]
         ));
+        assert!(origin_allowed(
+            "https://foto.example.com",
+            "foto.example.com",
+            &[]
+        ));
+        assert!(
+            !origin_allowed("http://foto.example.com", "foto.example.com", &[]),
+            "http Origin must not match a non-loopback Host"
+        );
     }
 }

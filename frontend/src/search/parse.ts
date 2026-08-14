@@ -164,9 +164,21 @@ function fieldNode(field: string, cmp: IsoCmp, value: string): SearchNode {
       return { op: 'camera', value }
     case 'lens':
       return { op: 'lens', value }
-    case 'iso':
-      return { op: 'iso', cmp, value: Number(value) }
+    case 'iso': {
+      const n = Number(value)
+      if (!Number.isFinite(n) || !Number.isInteger(n)) {
+        return { op: 'text', value: `iso:${value}` }
+      }
+      return { op: 'iso', cmp, value: n }
+    }
     case 'folder':
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          value
+        )
+      ) {
+        return { op: 'text', value: `folder:${value}` }
+      }
       return { op: 'folder', id: value }
     case 'has':
       if (value.toLowerCase() === 'gps') {

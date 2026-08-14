@@ -185,3 +185,49 @@ async fn camera_and_iso_and_year_and_has_gps() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, sony);
 }
+
+#[tokio::test]
+async fn not_camera_includes_assets_without_exif() {
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let sony = index(&test, folder, "sony.jpg", AssetKind::Image, 4).await;
+    let bare = index(&test, folder, "bare.jpg", AssetKind::Image, 6).await;
+    AssetRepo::new(test.db())
+        .insert_exif(
+            sony,
+            &ExifData {
+                raw: serde_json::json!({}),
+                taken_at_utc: Utc.with_ymd_and_hms(2024, 7, 4, 12, 0, 0).unwrap(),
+                tz_offset_minutes: 0,
+                tz_assumed: true,
+                width: None,
+                height: None,
+                camera_make: Some("Sony".to_owned()),
+                camera_model: Some("α7 IV".to_owned()),
+                lens: None,
+                iso: Some(6400),
+                f_number: None,
+                exposure: None,
+                focal_length: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let found = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Not {
+                arg: Box::new(SearchNode::Camera {
+                    value: "α7".to_owned(),
+                }),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    let ids: Vec<_> = found.iter().map(|a| a.id).collect();
+    assert!(ids.contains(&bare), "no EXIF is not a Sony");
+    assert!(!ids.contains(&sony));
+}

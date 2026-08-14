@@ -7,10 +7,20 @@ import { fetchDuplicates, fetchProblems, type DuplicateGroup, type Problems } fr
 const { t } = useI18n()
 const problems = ref<Problems | null>(null)
 const duplicates = ref<DuplicateGroup[]>([])
+const loadError = ref(false)
 
-onMounted(async () => {
-  problems.value = await fetchProblems()
-  duplicates.value = await fetchDuplicates()
+async function load() {
+  loadError.value = false
+  try {
+    problems.value = await fetchProblems()
+    duplicates.value = await fetchDuplicates()
+  } catch {
+    loadError.value = true
+  }
+}
+
+onMounted(() => {
+  void load()
 })
 </script>
 
@@ -19,6 +29,20 @@ onMounted(async () => {
     <h1 class="text-2xl font-semibold">
       {{ t('problems.title') }}
     </h1>
+    <p
+      v-if="loadError"
+      class="mt-6 text-content-muted"
+    >
+      {{ t('common.unexpectedError') }}
+    </p>
+    <button
+      v-if="loadError"
+      class="mt-3 rounded-lg border border-border px-3 py-1"
+      type="button"
+      @click="load"
+    >
+      {{ t('common.retry') }}
+    </button>
     <section
       v-if="problems"
       class="mt-6 space-y-6"

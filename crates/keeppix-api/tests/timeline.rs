@@ -1,6 +1,6 @@
 mod harness;
 
-use chrono::{TimeZone, Utc};
+use chrono::{TimeZone, Timelike, Utc};
 use harness::{TestServer, client_headers};
 use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, UserRepo};
 use keeppix_domain::{
@@ -82,6 +82,75 @@ async fn timeline_page_uses_keyset_cursor() {
     assert_eq!(rest.len(), 1);
     assert_ne!(rest[0]["id"], items[0]["id"]);
     assert_ne!(rest[0]["id"], items[1]["id"]);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_keyset_keeps_assets_that_share_a_truncated_second() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    let base = Utc.with_ymd_and_hms(2024, 7, 10, 12, 0, 0).unwrap();
+    index_photo_at(
+        &server,
+        folder,
+        "late.jpg",
+        base.with_nanosecond(500_000_000).unwrap(),
+    )
+    .await;
+    index_photo_at(
+        &server,
+        folder,
+        "mid.jpg",
+        base.with_nanosecond(400_000_000).unwrap(),
+    )
+    .await;
+    index_photo_at(
+        &server,
+        folder,
+        "early.jpg",
+        base.with_nanosecond(300_000_000).unwrap(),
+    )
+    .await;
+
+    let first = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-07&limit=2"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 200);
+    let page: serde_json::Value = first.json().await.unwrap();
+    let first_ids: Vec<&str> = page["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(first_ids.len(), 2);
+    let cursor = page["next_cursor"].as_str().unwrap();
+
+    let second = server
+        .client
+        .get(server.url(&format!(
+            "/api/v1/timeline?bucket=2024-07&limit=2&cursor={cursor}"
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), 200);
+    let next: serde_json::Value = second.json().await.unwrap();
+    let rest: Vec<&str> = next["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        rest.len(),
+        1,
+        "sub-second timestamps must not vanish on page 2"
+    );
+    assert!(!first_ids.contains(&rest[0]));
 }
 
 #[tokio::test]
@@ -174,6 +243,39 @@ async fn probing_someone_elses_folder_is_forbidden() {
     assert_eq!(body["type"], "keeppix/forbidden");
 }
 
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn probing_someone_elses_library_buckets_is_forbidden() {
+    let server = TestServer::start().await;
+    let (_, library) = seed_library(&server).await;
+    seed_user(&server, "luca").await;
+
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(client_headers())
+        .build()
+        .unwrap();
+    let login = client
+        .post(server.url("/api/v1/auth/login"))
+        .json(&json!({
+            "username": "luca",
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200);
+
+    let response = client
+        .get(server.url(&format!("/api/v1/timeline/buckets?library={library}")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/forbidden");
+}
+
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn setup(server: &TestServer) {
     server
@@ -225,22 +327,35 @@ async fn seed_library(server: &TestServer) -> (FolderId, keeppix_domain::Library
 
 #[allow(clippy::unwrap_used)]
 async fn index_photo(server: &TestServer, folder: FolderId, name: &str, y: i32, m: u32, d: u32) {
+    index_photo_at(
+        server,
+        folder,
+        name,
+        Utc.with_ymd_and_hms(y, m, d, 12, 0, 0).unwrap(),
+    )
+    .await;
+}
+
+#[allow(clippy::unwrap_used)]
+async fn index_photo_at(
+    server: &TestServer,
+    folder: FolderId,
+    name: &str,
+    taken: chrono::DateTime<Utc>,
+) {
     let assets = AssetRepo::new(&server.db);
     let a = assets
         .upsert_discovered(NewAsset {
             folder_id: folder,
             filename: AssetName::parse(name).unwrap(),
             size_bytes: 10,
-            mtime: Utc.with_ymd_and_hms(y, m, d, 0, 0, 0).unwrap(),
+            mtime: taken,
             inode: Some(1),
             kind: AssetKind::Image,
         })
         .await
         .unwrap();
-    assets
-        .set_indexed(a.id, Utc.with_ymd_and_hms(y, m, d, 12, 0, 0).unwrap(), 1, 1)
-        .await
-        .unwrap();
+    assets.set_indexed(a.id, taken, 1, 1).await.unwrap();
 }
 
 #[allow(clippy::unwrap_used, clippy::expect_used)]

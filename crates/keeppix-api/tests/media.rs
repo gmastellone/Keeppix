@@ -1,10 +1,11 @@
 mod harness;
 
 use chrono::{TimeZone, Utc};
-use harness::TestServer;
+use harness::{TestServer, client_headers};
 use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, UserRepo};
 use keeppix_domain::{
-    AssetKind, AssetName, AuthContext, FolderId, NewAsset, NewLibrary, SystemRole, Username,
+    AssetKind, AssetName, AuthContext, FolderId, NewAsset, NewLibrary, NewUser, Password,
+    SystemRole, Username, hash_password,
 };
 use keeppix_media::derivative_paths;
 use serde_json::json;
@@ -54,13 +55,66 @@ async fn existing_thumb_is_immutable() {
     assert_eq!(response.status(), 200);
     assert_eq!(
         response.headers().get("cache-control").unwrap(),
-        "public, max-age=31536000, immutable"
+        "private, max-age=31536000, immutable"
     );
     assert_eq!(
         response.headers().get("content-type").unwrap(),
         "image/webp"
     );
     assert_eq!(response.bytes().await.unwrap().as_ref(), b"RIFFWEBP");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn probing_someone_elses_existing_thumb_is_forbidden() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    let hash = [0xcd_u8; 32];
+    let asset = AssetRepo::new(&server.db)
+        .upsert_discovered(photo(folder, "secret.jpg"))
+        .await
+        .unwrap();
+    AssetRepo::new(&server.db)
+        .set_hash(asset.id, hash)
+        .await
+        .unwrap();
+    let (thumb, _) = derivative_paths(&server.data_dir, &hash);
+    std::fs::create_dir_all(thumb.parent().unwrap()).unwrap();
+    std::fs::write(&thumb, b"RIFFWEBP").unwrap();
+    seed_user(&server, "luca").await;
+
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(client_headers())
+        .build()
+        .unwrap();
+    let login = client
+        .post(server.url("/api/v1/auth/login"))
+        .json(&json!({
+            "username": "luca",
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200);
+
+    let hex = "cd".repeat(32);
+    let response = client
+        .get(server.url(&format!("/media/thumb/{hex}")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/forbidden");
+
+    let original = client
+        .get(server.url(&format!("/media/original/{}", asset.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(original.status(), 403);
 }
 
 #[tokio::test]
@@ -83,6 +137,7 @@ async fn original_serves_a_byte_range_by_id() {
         .await
         .unwrap();
     assert_eq!(response.status(), 206);
+    assert_eq!(response.headers().get("accept-ranges").unwrap(), "bytes");
     assert_eq!(response.bytes().await.unwrap().as_ref(), b"2345");
 }
 
@@ -142,4 +197,29 @@ async fn seed_library(server: &TestServer) -> (FolderId, std::path::PathBuf) {
         .await
         .unwrap();
     (folder.id, root)
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn seed_user(server: &TestServer, username: &str) {
+    let username_parsed = Username::parse("giovanni").unwrap();
+    let (admin, _) = UserRepo::new(&server.db)
+        .find_by_username(&username_parsed)
+        .await
+        .unwrap()
+        .expect("admin");
+    let ctx = AuthContext::user(admin.id, SystemRole::Admin);
+    let password = Password::parse("correct horse battery staple").unwrap();
+    UserRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewUser {
+                username: Username::parse(username).unwrap(),
+                email: None,
+                display_name: username.to_owned(),
+                password_hash: hash_password(&password).unwrap().as_str().to_owned(),
+                role: SystemRole::User,
+            },
+        )
+        .await
+        .unwrap();
 }

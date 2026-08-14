@@ -2,7 +2,7 @@
 
 mod harness;
 
-use chrono::{TimeZone, Utc};
+use chrono::{NaiveDate, TimeZone, Utc};
 use harness::TestDb;
 use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
 use keeppix_domain::{
@@ -113,4 +113,46 @@ async fn month_counts_match_indexed_assets_after_index_move_and_delete() {
     .unwrap();
     assert_eq!(summed, live);
     assert_eq!(live, 0);
+}
+
+#[tokio::test]
+async fn month_bucket_uses_utc_when_the_session_timezone_is_not() {
+    let test = TestDb::start().await;
+    let folder = seed_folder(&test).await;
+    let assets = AssetRepo::new(test.db());
+    let a = assets
+        .upsert_discovered(photo(folder, "edge.jpg"))
+        .await
+        .unwrap();
+    let ts = Utc.with_ymd_and_hms(2024, 7, 31, 23, 30, 0).unwrap();
+
+    let mut conn = test.db().pool().acquire().await.unwrap();
+    sqlx::query("SET TIME ZONE 'Europe/Berlin'")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE assets SET status = 'indexed', taken_at_utc = $2, width = $3, height = $4, \
+                updated_at = now() WHERE id = $1",
+    )
+    .bind(a.id.as_uuid())
+    .bind(ts)
+    .bind(100)
+    .bind(100)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    sqlx::query("SET TIME ZONE 'UTC'")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    drop(conn);
+
+    let month: NaiveDate =
+        sqlx::query_scalar("SELECT month FROM folder_month_counts WHERE folder_id = $1")
+            .bind(folder.as_uuid())
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
+    assert_eq!(month, NaiveDate::from_ymd_opt(2024, 7, 1).unwrap());
 }

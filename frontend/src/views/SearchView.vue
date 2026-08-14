@@ -17,6 +17,12 @@ const assets = ref<TimelineAsset[]>([])
 const error = ref('')
 const viewing = ref<TimelineAsset | null>(null)
 
+function neighbour(delta: number): TimelineAsset | undefined {
+  const i = assets.value.findIndex((a) => a.id === viewing.value?.id)
+  if (i < 0) return undefined
+  return assets.value[i + delta]
+}
+
 const chips = computed(() => {
   try {
     const ast = parseSearch(q.value)
@@ -39,11 +45,23 @@ async function submit() {
   error.value = ''
   await router.replace({ query: { q: q.value } })
   try {
-    const page = await runSearch(parseSearch(q.value))
-    assets.value = page.assets
+    const collected: TimelineAsset[] = []
+    let cursor: string | undefined
+    const ast = parseSearch(q.value)
+    do {
+      const page = await runSearch(ast, cursor)
+      collected.push(...page.assets)
+      cursor = page.next_cursor
+    } while (cursor)
+    assets.value = collected
   } catch {
     error.value = t('search.invalid')
   }
+}
+
+function stepViewer(delta: number) {
+  const next = neighbour(delta)
+  if (next) viewing.value = next
 }
 
 onMounted(() => {
@@ -110,7 +128,11 @@ onMounted(() => {
     <AssetViewer
       v-if="viewing"
       :asset="viewing"
+      :prev="neighbour(-1)"
+      :next="neighbour(1)"
       @close="viewing = null"
+      @prev="stepViewer(-1)"
+      @next="stepViewer(1)"
     />
   </main>
 </template>
