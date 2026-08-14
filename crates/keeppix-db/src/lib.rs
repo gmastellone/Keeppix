@@ -18,6 +18,8 @@ pub use users::UserRepo;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 
+// sqlx::migrate! incorpora i file a compile time: toccare questo modulo
+// quando si aggiunge una migrazione, altrimenti cargo non rivede la directory.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
