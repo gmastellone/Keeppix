@@ -16,13 +16,19 @@ sessioni — fuori da 1c (vedi piano «Cosa NON è in 1c»).
 Ruling: dopo ogni suite con testcontainers si spengono e si rimuovono i
 container. L'utente l'ha chiesto esplicitamente (disco).
 
+Ruling: `GET /timeline` restituisce `assets` + `next_cursor`, senza flag né
+luogo. `asset_flags` è Fase 2; `assets.location` non è ancora sul tipo
+`Asset`. Aggiungerli nella stessa risposta quando quei campi esistono, senza
+un secondo round-trip — costo se sbagliato: il client 1c deve rifare una
+chiamata in 2/4.
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
 |---|---|---|---|
 | 1 | Trigger month counts | complete | `be786a8` |
-| 2 | `TimelineRepo` | complete | |
-| 3 | HTTP timeline + cartelle | — | |
+| 2 | `TimelineRepo` | complete | `0d5b283` |
+| 3 | HTTP timeline + cartelle | complete | |
 | 4 | Media + SPA fallback | — | |
 | 5 | Viewport promote | — | |
 | 6 | Ricerca | — | |

@@ -6,7 +6,7 @@
 // ne usa una parte: ciò che serve a uno è codice morto nell'altro. Senza questo
 // `allow`, `stop_database()` — usata solo da `auth.rs` — farebbe fallire la
 // compilazione di `openapi.rs` con `-D warnings`.
-#![allow(dead_code)]
+#![allow(dead_code, unused_imports)]
 
 use keeppix_db::Db;
 use sqlx::{Connection as _, PgConnection};
@@ -21,6 +21,7 @@ pub struct TestServer {
     // `Some` solo sul percorso stoppable (il test 503). Il container
     // condiviso vive nello `OnceCell` e non si ferma.
     container: Option<ContainerAsync<Postgres>>,
+    pub db: Db,
     pub base_url: String,
     pub client: reqwest::Client,
 }
@@ -73,7 +74,7 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
     let db = Db::connect(&url, 5).await.expect("connessione");
     db.migrate().await.expect("migrazioni");
 
-    let state = keeppix_api::AppState::new(db, 3600);
+    let state = keeppix_api::AppState::new(db.clone(), 3600);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -91,6 +92,7 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
 
     TestServer {
         container,
+        db,
         base_url: format!("http://{addr}"),
         client,
     }
