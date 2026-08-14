@@ -111,6 +111,15 @@ Minor differiti (Task 5):
 - il criterio «lo spostamento non tocca `assets`» non è verificabile prima del Task 6 (la tabella non esiste).
 - `ensure_*` incrementa `next_folder_seq` anche su `ON CONFLICT DO NOTHING` (buchi nella sequenza, non duplicati).
 
+Task 6: complete (commit 141c01a, 6 test di schema verdi)
+
+Ruling: il test `an_unknown_kind_is_rejected` deve inserire prima un asset valido e poi asserire il codice `23514`. Un `is_err()` nudo passava a tabella assente (42P01) — stesso genere di falso verde della Fase 0. — *Costo se sbagliato:* il CHECK su `kind` potrebbe sparire e la suite resterebbe verde.
+
+Minor differiti (Task 6):
+- CHECK su `status` e `location_source` non hanno un test dedicato.
+- `assets`/`asset_exif` non sono in `expected_tables_exist` (quel test elenca solo le tabelle della Fase 0).
+- `LibraryRepo::mark_scanned` dice ancora «quarta e ultima eccezione»: è stale dopo `ensure_*`.
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
@@ -120,6 +129,6 @@ Minor differiti (Task 5):
 | 3 | Tipi di dominio | ✅ review pulita | `0564f66` |
 | 4 | `LibraryRepo` | ✅ review pulita | `3506b5c` |
 | 5 | `FolderRepo` + checkpoint CI | ✅ | `aca5b5e` |
-| 6 | Migrazione asset ed EXIF | — | |
+| 6 | Migrazione asset ed EXIF | ✅ | `141c01a` |
 | 7 | `AssetRepo` e visibilità | — | |
 | 8 | Registro delle modifiche | — | |
