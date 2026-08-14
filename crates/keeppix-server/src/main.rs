@@ -103,7 +103,11 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
     tracing::info!(addr = %config.bind, "keeppix listening");
 
     let app = keeppix_server::embed::mount(keeppix_api::router_parts()).with_state(
-        keeppix_api::AppState::new(db, config.session_ttl_secs, config.data_dir.clone()),
+        keeppix_api::AppState::new(db, config.session_ttl_secs, config.data_dir.clone())
+            .with_on_authenticated({
+                let tracker = tracker.clone();
+                std::sync::Arc::new(move || tracker.notify_authenticated_request())
+            }),
     );
 
     axum::serve(listener, app)

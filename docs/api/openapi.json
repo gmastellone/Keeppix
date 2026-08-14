@@ -615,6 +615,56 @@
         ]
       }
     },
+    "/api/v1/viewport": {
+      "post": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Promuove i job `derive:{hash}` dei bucket visibili a priorità Visible.",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "viewport_promote",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Job visibili promossi"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/media/original/{id}": {
       "get": {
         "tags": [
@@ -1094,6 +1144,20 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "ViewportRequest": {
+        "type": "object",
+        "required": [
+          "hashes"
+        ],
+        "properties": {
+          "hashes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }

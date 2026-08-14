@@ -138,6 +138,7 @@ fn api_routes() -> Router<AppState> {
         .route("/timeline", get(routes::timeline::page))
         .route("/folders/tree", get(routes::folders::tree))
         .route("/folders/{id}/children", get(routes::folders::children))
+        .route("/viewport", axum::routing::post(routes::viewport::promote))
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe

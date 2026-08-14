@@ -23,6 +23,7 @@ pub struct TestServer {
     container: Option<ContainerAsync<Postgres>>,
     pub db: Db,
     pub data_dir: std::path::PathBuf,
+    pub auth_pings: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub base_url: String,
     pub client: reqwest::Client,
 }
@@ -77,7 +78,12 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
 
     let data_dir = std::env::temp_dir().join(format!("keeppix-api-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&data_dir).expect("data_dir");
-    let state = keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone());
+    let auth_pings = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let ping = auth_pings.clone();
+    let state = keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone())
+        .with_on_authenticated(std::sync::Arc::new(move || {
+            ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -97,6 +103,7 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
         container,
         db,
         data_dir,
+        auth_pings,
         base_url: format!("http://{addr}"),
         client,
     }
