@@ -6,6 +6,7 @@ use keeppix_domain::{Job, JobKind};
 
 use crate::JobError;
 use crate::discover;
+use crate::hash as hash_job;
 use crate::metadata;
 
 /// Handler unico della pipeline 1b. I kind non ancora implementati
@@ -36,16 +37,19 @@ impl crate::JobHandler for IngestHandler {
                 let id = metadata::asset_id_from_payload(&job.payload)?;
                 metadata::run(&self.db, id).await
             }
+            JobKind::HashAsset => {
+                let id = metadata::asset_id_from_payload(&job.payload)?;
+                hash_job::run(&self.db, id).await
+            }
             JobKind::ReapStale => {
                 keeppix_db::JobRepo::new(&self.db)
                     .reap_stale(Duration::from_secs(600))
                     .await?;
                 Ok(())
             }
-            _ => Err(JobError::Worker(format!(
-                "{} not implemented",
-                job.kind.as_str()
-            ))),
+            JobKind::DeriveAsset => Err(JobError::Worker(
+                "derive_asset not implemented".to_owned(),
+            )),
         }
     }
 }

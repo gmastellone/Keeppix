@@ -30,8 +30,8 @@ stesso binario. — *Costo:* un boot extra, solo su quel test.
 | 4 | Magic-number kind | complete | `db25913` |
 | 5 | Worker pool + profili | complete | `9257bba` |
 | 6 | Discovery | complete | `e4e69b6` |
-| 7 | EXIF | complete | |
-| 8 | Hash | — | |
+| 7 | EXIF | complete | `a84cd10` |
+| 8 | Hash | complete | |
 | 9 | Derivati | — | |
 | 10 | Sandbox + poster | — | |
 | 11 | Watcher, move, probe | — | |
