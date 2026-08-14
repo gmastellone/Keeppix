@@ -95,6 +95,22 @@ Minor differiti (Task 4):
 - `find_by_id` admin+id inesistente → `NotFound` non ha un test dedicato.
 - `set_status` Forbidden non ha un test dedicato (delega a `find_by_id`).
 
+Nota per Task 5: `ON CONFLICT` su `folders_sibling_name_key` deve usare il predicato parziale `WHERE parent_id IS NOT NULL`. Lo stesso per la radice: `folders_single_root_key` è `ON (library_id) WHERE parent_id IS NULL`. `next_folder_seq` è già in `0004` (F1): non fare ALTER.
+
+Ruling: lo snippet SQL di spec §1.3 / piano Task 5 tratta `$new_prefix` come il **nuovo path del nodo spostato**; l'implementazione passa il path del **genitore** e usa `subpath(..., nlevel(old)-1)` più `depth … + 1`. Equivalente. Lo snippet omette anche `parent_id` del nodo spostato, che l'`UPDATE` deve riscrivere. — La spec descrive l'effetto, non il bind. — *Costo se sbagliato:* un `mv` con path/depth sbagliati; i test di Task 5 lo inchiodano.
+
+Ruling: le eccezioni `AuthContext` di `ensure_root`/`ensure_child`/`ensure_path` sono nello spec §4, non nel vincolo globale del piano (che dice «solo le tre della Fase 0»). Vince lo spec. Ogni metodo lo dichiara nel doc comment, come `mark_scanned`. — *Costo se sbagliato:* lo scanner della 1b dovrebbe inventarsi un utente.
+
+Ruling: checkpoint prestazioni Task 5 — **rimando al Task 8**. `cargo test -p keeppix-db -- --test-threads=1` → 79 esecuzioni, real ~292s (~4m53s), ~5s per boot di container. Rapporto tempo/test ancora lineare. Fase 0 CI `backend` caldo era 5m23s per *tutto* il backend; keeppix-db da solo è già lì, e i Task 6-8 aggiungeranno altri test. Non cambio l'harness ora. — *Costo se sbagliato:* si scrivono ~20-30 test in più sullo schema lento prima del Task 8.
+
+Task 5: complete (commit aca5b5e, test verdi: 17 in `--test folders` inclusi 3 extra oltre i 11 del piano + 3 harness; workspace verde dopo retry di un flake `PortNotExposed` su `--test libraries`)
+
+Minor differiti (Task 5):
+- `move_subtree` cross-library → `Conflict` non ha un test dedicato.
+- `find_by_id` admin+id cartella inesistente → `NotFound` non ha un test dedicato.
+- il criterio «lo spostamento non tocca `assets`» non è verificabile prima del Task 6 (la tabella non esiste).
+- `ensure_*` incrementa `next_folder_seq` anche su `ON CONFLICT DO NOTHING` (buchi nella sequenza, non duplicati).
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
@@ -102,8 +118,8 @@ Minor differiti (Task 4):
 | 1 | Mapping delle righe uniforme | ✅ review pulita | `63dd6a6` |
 | 2 | Migrazione librerie e cartelle | ✅ review pulita | `971e5f4` |
 | 3 | Tipi di dominio | ✅ review pulita | `0564f66` |
-| 4 | `LibraryRepo` | — | |
-| 5 | `FolderRepo` + checkpoint CI | — | |
+| 4 | `LibraryRepo` | ✅ review pulita | `3506b5c` |
+| 5 | `FolderRepo` + checkpoint CI | ✅ | `aca5b5e` |
 | 6 | Migrazione asset ed EXIF | — | |
 | 7 | `AssetRepo` e visibilità | — | |
 | 8 | Registro delle modifiche | — | |
