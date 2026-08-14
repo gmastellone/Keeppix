@@ -12,4 +12,10 @@ pub enum DomainError {
     InvalidFolderPath(String),
     #[error("invalid asset name: {0}")]
     InvalidAssetName(String),
+    #[error("invalid job kind: {0}")]
+    InvalidJobKind(String),
+    #[error("invalid job status: {0}")]
+    InvalidJobStatus(String),
+    #[error("invalid job priority: {0}")]
+    InvalidJobPriority(i16),
 }
