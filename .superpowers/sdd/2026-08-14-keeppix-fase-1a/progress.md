@@ -89,7 +89,11 @@ Minor differiti (Task 3):
 - `FolderPath::root`/`child` accettano `i64` negativi che `parse` rifiuta (plan-mandated).
 - `AssetName` rifiuta NUL ma il caso non è testato.
 
-Nota per Task 5: `ON CONFLICT` su `folders_sibling_name_key` deve usare il predicato parziale `WHERE parent_id IS NOT NULL`.
+Task 4: complete (commits 0713b8e..3506b5c, review clean)
+
+Minor differiti (Task 4):
+- `find_by_id` admin+id inesistente → `NotFound` non ha un test dedicato.
+- `set_status` Forbidden non ha un test dedicato (delega a `find_by_id`).
 
 ## Avanzamento
 
