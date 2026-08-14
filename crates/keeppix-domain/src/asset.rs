@@ -87,6 +87,7 @@ pub struct Asset {
     pub taken_at_utc: Option<DateTime<Utc>>,
     pub width: Option<i32>,
     pub height: Option<i32>,
+    pub thumbhash: Option<Vec<u8>>,
     pub created_at: DateTime<Utc>,
 }
 

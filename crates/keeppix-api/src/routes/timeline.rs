@@ -47,6 +47,8 @@ pub struct AssetView {
     pub taken_at_utc: Option<DateTime<Utc>>,
     pub width: Option<i32>,
     pub height: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbhash: Option<String>,
 }
 
 impl AssetView {
@@ -62,13 +64,19 @@ impl AssetView {
             taken_at_utc: a.taken_at_utc,
             width: a.width,
             height: a.height,
+            thumbhash: a.thumbhash.as_deref().map(hex_bytes),
         }
     }
 }
 
 pub(crate) fn hex_hash(hash: &[u8; 32]) -> String {
-    hash.iter()
-        .fold(String::with_capacity(64), |mut out, byte| {
+    hex_bytes(hash)
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut out, byte| {
             use std::fmt::Write as _;
             let _ = write!(out, "{byte:02x}");
             out

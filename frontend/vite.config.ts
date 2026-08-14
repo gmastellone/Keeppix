@@ -18,6 +18,7 @@ export default defineConfig({
     // In sviluppo il frontend gira su 5173 e inoltra le API al backend.
     proxy: {
       '/api': { target: 'http://127.0.0.1:5673', changeOrigin: true },
+      '/media': { target: 'http://127.0.0.1:5673', changeOrigin: true },
       '/health': { target: 'http://127.0.0.1:5673', changeOrigin: true }
     }
   },

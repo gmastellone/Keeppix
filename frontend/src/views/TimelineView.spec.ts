@@ -3,15 +3,22 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
+import Button from '@/components/ui/Button.vue'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
 
-import HomeView from './HomeView.vue'
+import TimelineView from './TimelineView.vue'
 
 vi.mock('@/api/auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/auth')>()
   return { ...actual, logout: vi.fn() }
 })
+
+vi.mock('@/api/timeline', () => ({
+  fetchBuckets: vi.fn(async () => []),
+  fetchPage: vi.fn(async () => ({ assets: [] })),
+  promoteViewport: vi.fn(async () => null)
+}))
 
 const { logout } = await import('@/api/auth')
 
@@ -26,13 +33,11 @@ const testUser = {
   locale: null
 }
 
-/** Router isolato, senza la guardia di produzione: qui interessa solo dove
- * atterra la navigazione dopo il click, non il flusso di bootstrap. */
-async function mountHomeView() {
+async function mountTimeline() {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/', component: HomeView },
+      { path: '/', component: TimelineView },
       { path: '/login', component: { template: '<div />' } }
     ]
   })
@@ -44,16 +49,17 @@ async function mountHomeView() {
 
   await router.push('/')
   await router.isReady()
-  const wrapper = mount(HomeView, { global: { plugins: [router, i18n] } })
+  const wrapper = mount(TimelineView, { global: { plugins: [router, i18n] } })
+  await flushPromises()
   return { router, session, wrapper }
 }
 
-describe('HomeView signOut', () => {
+describe('TimelineView signOut', () => {
   it('azzera lo stato e naviga a /login anche se la revoca server-side fallisce', async () => {
     vi.mocked(logout).mockRejectedValue(new Error('network error'))
-    const { router, session, wrapper } = await mountHomeView()
+    const { router, session, wrapper } = await mountTimeline()
 
-    await wrapper.find('button').trigger('click')
+    await wrapper.getComponent(Button).trigger('click')
     await flushPromises()
 
     expect(session.user).toBeNull()
@@ -63,9 +69,9 @@ describe('HomeView signOut', () => {
 
   it('azzera lo stato e naviga a /login quando la revoca riesce', async () => {
     vi.mocked(logout).mockResolvedValue(null)
-    const { router, session, wrapper } = await mountHomeView()
+    const { router, session, wrapper } = await mountTimeline()
 
-    await wrapper.find('button').trigger('click')
+    await wrapper.getComponent(Button).trigger('click')
     await flushPromises()
 
     expect(session.user).toBeNull()

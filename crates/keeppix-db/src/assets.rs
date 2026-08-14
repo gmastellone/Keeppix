@@ -25,6 +25,7 @@ pub(crate) struct AssetRow {
     taken_at_utc: Option<DateTime<Utc>>,
     width: Option<i32>,
     height: Option<i32>,
+    thumbhash: Option<Vec<u8>>,
     created_at: DateTime<Utc>,
 }
 
@@ -50,15 +51,16 @@ impl AssetRow {
             taken_at_utc: self.taken_at_utc,
             width: self.width,
             height: self.height,
+            thumbhash: self.thumbhash,
             created_at: self.created_at,
         })
     }
 }
 
 const COLUMNS: &str = "id, folder_id, filename, content_hash, size_bytes, mtime, inode, \
-                       kind, status, taken_at_utc, width, height, created_at";
+                       kind, status, taken_at_utc, width, height, thumbhash, created_at";
 pub(crate) const A_COLUMNS: &str = "a.id, a.folder_id, a.filename, a.content_hash, a.size_bytes, a.mtime, a.inode, \
-                         a.kind, a.status, a.taken_at_utc, a.width, a.height, a.created_at";
+                         a.kind, a.status, a.taken_at_utc, a.width, a.height, a.thumbhash, a.created_at";
 
 const fn kind_str(kind: AssetKind) -> &'static str {
     match kind {
