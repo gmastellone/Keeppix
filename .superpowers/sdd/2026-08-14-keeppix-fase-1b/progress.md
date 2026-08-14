@@ -31,8 +31,8 @@ stesso binario. — *Costo:* un boot extra, solo su quel test.
 | 5 | Worker pool + profili | complete | `9257bba` |
 | 6 | Discovery | complete | `e4e69b6` |
 | 7 | EXIF | complete | `a84cd10` |
-| 8 | Hash | complete | |
-| 9 | Derivati | — | |
+| 8 | Hash | complete | `1cba2ed` |
+| 9 | Derivati | complete | |
 | 10 | Sandbox + poster | — | |
 | 11 | Watcher, move, probe | — | |
 | 12 | Integrazione + STATO | — | |
