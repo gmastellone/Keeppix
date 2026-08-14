@@ -38,6 +38,29 @@ async fn router_with_state_carries_the_security_headers() {
     assert_security_headers(not_found_response.headers());
 }
 
+/// Spec §9.4: niente CDN sui contenuti privati, `Cache-Control: private` su
+/// tutto ciò che è autenticato. Senza l'header, `GET /auth/me` — che restituisce
+/// l'utente della sessione — è eleggibile alla cache euristica di un proxy
+/// condiviso. Il layer usa `if_not_present`: la controprova che non schiacci le
+/// politiche legittime è `assets_are_served_as_immutable` in
+/// `keeppix-server/tests/embed.rs`.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn authenticated_responses_are_marked_private() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let me = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(me.status(), 200);
+    assert_eq!(me.headers().get("cache-control").unwrap(), "private");
+}
+
 /// Le tre rejection che axum produce **prima** dell'handler devono restare
 /// dentro il contratto RFC 9457 (spec §9.2): `Content-Type` sbagliato, corpo
 /// malformato, metodo sbagliato. Senza il wrapper `keeppix_api::Json` e il

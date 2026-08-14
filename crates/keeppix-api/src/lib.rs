@@ -83,6 +83,17 @@ pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -
             axum::http::header::HeaderName::from_static("permissions-policy"),
             HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
         ))
+        // Spec §9.4: «`Cache-Control: private` su tutto ciò che è autenticato».
+        // `if_not_present`, **non** `overriding`: le rotte che impostano una
+        // propria politica di cache devono vincere — gli asset hashati del
+        // frontend escono con `public, max-age=31536000, immutable`
+        // (`keeppix_server::embed`), e sovrascriverli qui li renderebbe non
+        // cacheabili, cioè annullerebbe la prima voce della stessa §9.4. Dalla
+        // Fase 1 vale anche per `/media/*`.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("private"),
+        ))
         .layer(CompressionLayer::new().br(true).gzip(true))
         .layer(TraceLayer::new_for_http())
 }
