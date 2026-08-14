@@ -8,4 +8,8 @@ pub enum DomainError {
     InvalidPassword(String),
     #[error("password hashing failed: {0}")]
     PasswordHashing(String),
+    #[error("invalid folder path: {0}")]
+    InvalidFolderPath(String),
+    #[error("invalid asset name: {0}")]
+    InvalidAssetName(String),
 }
