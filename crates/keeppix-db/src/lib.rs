@@ -1,6 +1,7 @@
 //! Accesso al database. È l'unico crate del workspace che contiene SQL.
 
 pub mod assets;
+pub mod changes;
 pub mod error;
 pub mod folders;
 pub mod libraries;
@@ -11,6 +12,7 @@ pub mod users;
 pub mod visibility;
 
 pub use assets::AssetRepo;
+pub use changes::{ChangeLogRepo, ChangePage};
 pub use error::DbError;
 pub use folders::FolderRepo;
 pub use libraries::LibraryRepo;
@@ -23,7 +25,8 @@ use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
-// quando si aggiunge una migrazione, altrimenti cargo non rivede la directory.
+// quando si aggiunge o si modifica una migrazione, altrimenti cargo non
+// rivede la directory.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
