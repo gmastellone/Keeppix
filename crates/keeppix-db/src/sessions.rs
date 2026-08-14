@@ -66,9 +66,15 @@ impl<'a> SessionRepo<'a> {
 
         let user_id: Uuid = row.try_get("user_id")?;
         let role: String = row.try_get("role")?;
+        // Stessa tassonomia di `users.rs` (ruling R3): un valore che il codice
+        // non sa interpretare è `Corrupted`, non un ruolo degradato a `User`.
+        // Il CHECK sulla colonna lo rende irraggiungibile e la degradazione
+        // falliva chiusa, ma due moduli che trattano lo stesso dato in modo
+        // diverso rendono inaffidabile il triage sugli errori.
         let role = match role.as_str() {
             "admin" => SystemRole::Admin,
-            _ => SystemRole::User,
+            "user" => SystemRole::User,
+            other => return Err(DbError::Corrupted(format!("unknown role: {other}"))),
         };
 
         Ok(AuthContext::user(UserId::from_uuid(user_id), role))
@@ -173,7 +179,31 @@ impl<'a> SessionRepo<'a> {
     }
 }
 
-/// Postgres non accetta un `Duration` di Rust: si passa un intervallo in secondi.
+/// Postgres non accetta un `Duration` di Rust: si passa un intervallo in
+/// secondi, **frazionari**. `as_secs()` troncava: un TTL di 500 ms diventava
+/// `"0 seconds"`, cioè un token nato scaduto senza alcun errore — silenzioso e
+/// insidioso, e il primo test che vorrà osservare una scadenza senza aspettare
+/// un secondo intero ci sbatterebbe contro. `as_secs_f64()` arriva ben oltre la
+/// precisione al microsecondo di `interval`, e un TTL zero resta `"0 seconds"`,
+/// cioè un token già scaduto: proprietà su cui poggiano i test esistenti.
 fn interval(ttl: Duration) -> String {
-    format!("{} seconds", ttl.as_secs())
+    format!("{} seconds", ttl.as_secs_f64())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::interval;
+    use std::time::Duration;
+
+    #[test]
+    fn sub_second_ttls_survive_the_round_trip() {
+        assert_eq!(interval(Duration::from_millis(500)), "0.5 seconds");
+        assert_eq!(interval(Duration::from_micros(1500)), "0.0015 seconds");
+        // Un TTL zero deve restare zero: i test sulla scadenza immediata ci
+        // contano.
+        assert_eq!(interval(Duration::ZERO), "0 seconds");
+        // I valori interi non guadagnano decimali: `2592000 seconds`, non
+        // `2592000.0 seconds`.
+        assert_eq!(interval(Duration::from_secs(2_592_000)), "2592000 seconds");
+    }
 }
