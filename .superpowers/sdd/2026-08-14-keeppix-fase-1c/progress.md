@@ -43,6 +43,12 @@ su un altro device dopo detection di furto. `Problem::from(DbError::Connection)`
 è 503: con la cache, `/auth/me` dopo un outage passa da `UserRepo` e non
 più da `session_problem`.
 
+Ruling: `Asset.thumbhash` entra nella vista timeline come hex opzionale.
+Il decoder frontend è DC + luma AC, non il port completo di Evan Wallace.
+Costo se sbagliato: placeholder meno fedeli, si sostituisce il decoder
+senza toccare l'API. Selezione multipla e pinch-density restano fuori
+dal Task 9 (non erano nel piano); si annotano nello STATO.
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
@@ -54,7 +60,7 @@ più da `session_problem`.
 | 5 | Viewport promote | complete | `ff2f716` |
 | 6 | Ricerca | complete | `f8c3930` |
 | 7 | WebSocket | complete | `73f7227` |
-| 8 | Cache sessioni | complete | |
-| 9 | Frontend timeline | — | |
+| 8 | Cache sessioni | complete | `34a2cb2` |
+| 9 | Frontend timeline | complete | |
 | 10 | Ricerca / viewer / problemi | — | |
 | 11 | STATO | — | |

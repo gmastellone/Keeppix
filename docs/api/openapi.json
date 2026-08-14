@@ -1152,6 +1152,12 @@
             ],
             "format": "date-time"
           },
+          "thumbhash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "width": {
             "type": [
               "integer",
