@@ -941,3 +941,56 @@ Quattro osservazioni non bloccanti, tutte annotate per la Fase 1:
    cui non riguardera mai un'installazione reale.
 
 Nulla della lista differita e stato toccato nel codice.
+
+## R4 riesaminato prima della Fase 1 (2026-08-14)
+
+Il review finale chiedeva di rivedere R4 prima di scrivere il piano della Fase 1,
+perche `users.rs` ripete tre volte un blocco `try_get` identico di 8 campi e la
+tabella `assets` ne avra 25.
+
+**Decisione: si adotta `#[derive(sqlx::FromRow)]` per le struct di riga.**
+Il nucleo di R4 resta invariato — forme funzione, nessuna macro `query!`, nessuna
+`.sqlx/`, nessun `SQLX_OFFLINE`: `FromRow` e un derive di mapping colonna->campo,
+non una verifica di schema a compile-time. Cambia solo che il mapping smette di
+essere scritto a mano. La classe di fallimento e la stessa (errore a runtime con
+nome di colonna), il codice e una frazione.
+
+La conversione riga->dominio resta esplicita in `into_domain()`, cosi il confine
+fra rappresentazione di database e tipo di dominio non si sfuma.
+
+**La Fase 1a converte anche le tre struct della Fase 0**, invece di lasciare il
+vecchio stile accanto al nuovo: una divergenza fra crate e esattamente il tipo
+di incoerenza che il review finale ha censurato altrove. E un task piccolo e
+interamente coperto dai test esistenti.
+
+## C1 chiuso — prima esecuzione della CI (2026-08-14)
+
+PR #1 aperta verso main. **Tutti e quattro i job verdi al primo colpo**:
+frontend 25s, audit 44s, image **7m00s**, backend **10m28s**.
+
+Il job `image` che passa e la conferma che il Dockerfile costruisce in
+ambiente pulito su runner GitHub, non solo sulla macchina del controller —
+era il criterio che i Task 14 e 15 avevano lasciato in riserva.
+
+### Due difetti trovati dalle annotazioni della CI, corretti subito
+
+1. **`with: { components: rustfmt, clippy }` non chiedeva clippy.** In YAML
+   flow style quella riga si legge come *due chiavi*: `components: rustfmt` e
+   `clippy: null`. L'annotazione lo dice esplicitamente
+   (`Unexpected input(s) 'clippy'`). Il lint passava solo perche
+   `rust-toolchain.toml` dichiara entrambi i componenti: togliendo quella riga
+   la CI fallirebbe con "clippy not found" pur avendo un workflow che sembra
+   chiederlo. Corretto in `components: "rustfmt, clippy"`.
+   E il tipo di difetto che nessun test coglie e che si scopre solo leggendo
+   le annotazioni di un run reale — cioe solo dopo aver aperto la PR.
+2. **Node 20 deprecato** su `actions/checkout@v4` e `actions/setup-node@v4`.
+   Alzati a `@v5` in ci.yml e release.yml.
+
+### Osservazione per la Fase 1
+
+`backend` impiega 10m28s, di cui la maggior parte in test: ogni test di
+integrazione avvia il proprio container Postgres, e con `--test-threads=1`
+sono sequenziali. La Fase 1a ne aggiunge ~45. A quel ritmo la CI supera i 30
+minuti. Da valutare in 1a: un container condiviso per binario di test con
+schema separato per test, invece di un container per test. Non e un problema
+oggi, lo diventa presto.
