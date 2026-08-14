@@ -38,6 +38,109 @@ async fn router_with_state_carries_the_security_headers() {
     assert_security_headers(not_found_response.headers());
 }
 
+/// Le tre rejection che axum produce **prima** dell'handler devono restare
+/// dentro il contratto RFC 9457 (spec §9.2): `Content-Type` sbagliato, corpo
+/// malformato, metodo sbagliato. Senza il wrapper `keeppix_api::Json` e il
+/// `method_not_allowed_fallback` uscirebbero come `text/plain` (o corpo vuoto)
+/// e un client che ramifica sul `type` non troverebbe niente da leggere. Il
+/// valore del test cresce con la Fase 1, che aggiunge ~20 rotte a questo
+/// stesso stampo.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn a_wrong_content_type_is_rejected_as_problem_json() {
+    let server = TestServer::start().await;
+
+    // È anche la forma che userebbe un form HTML cross-site: senza
+    // `application/json` la richiesta non arriva mai all'handler.
+    let response = server
+        .client
+        .post(server.url("/api/v1/auth/login"))
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
+        .body("username=giovanni&password=correct+horse+battery+staple")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 415);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "application/problem+json"
+    );
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/unsupported-media-type");
+    assert_eq!(body["status"], 415);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn a_malformed_json_body_is_rejected_as_problem_json() {
+    let server = TestServer::start().await;
+
+    let broken = server
+        .client
+        .post(server.url("/api/v1/auth/login"))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body("{\"username\": ")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(broken.status(), 400, "sintassi JSON non valida");
+    assert_eq!(
+        broken.headers().get("content-type").unwrap(),
+        "application/problem+json"
+    );
+    let body: serde_json::Value = broken.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/invalid-json");
+
+    // JSON valido ma di forma inattesa: axum distingue con `422`, il `type`
+    // resta lo stesso perché per il client il problema è lo stesso.
+    let wrong_shape = server
+        .client
+        .post(server.url("/api/v1/auth/login"))
+        .json(&json!({ "username": "giovanni" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(wrong_shape.status(), 422, "manca il campo password");
+    let body: serde_json::Value = wrong_shape.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/invalid-json");
+    assert!(
+        body["detail"].as_str().unwrap().contains("password"),
+        "il detail deve dire quale campo manca: {body}"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn a_wrong_method_is_rejected_as_problem_json() {
+    let server = TestServer::start().await;
+
+    let response = server
+        .client
+        .get(server.url("/api/v1/auth/login"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 405);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "application/problem+json",
+        "il 405 di default di axum ha il corpo vuoto"
+    );
+    // Il 405 nasce dal fallback di un `MethodRouter`, non dal router: se
+    // finisse fuori da `with_common_layers` uscirebbe senza CSP.
+    assert_security_headers(response.headers());
+
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/method-not-allowed");
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn a_fresh_instance_reports_not_initialised() {
