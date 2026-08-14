@@ -1,0 +1,12 @@
+# Nota: `.superpowers/` NON è ignorato di proposito. Contiene il ledger di
+# esecuzione, i brief e i report di ogni task, e le review complete. È il
+# contesto che serve a riprendere il lavoro da un'altra macchina o sessione.
+# Sono ~600 KB di testo: il costo è trascurabile, la perdita no.
+
+/target
+/data
+/pgdata
+node_modules
+frontend/dist
+.env
+*.kpxb

@@ -1,0 +1,156 @@
+# Review package: 53d842d..HEAD
+
+## Commits
+a040007 fix(api): apply security headers to the 404 fallback route
+
+## Files changed
+ crates/keeppix-api/src/lib.rs      |  9 ++++++++-
+ crates/keeppix-api/tests/health.rs | 30 +++++++++++++++++++++---------
+ 2 files changed, 29 insertions(+), 10 deletions(-)
+
+## Diff
+diff --git a/crates/keeppix-api/src/lib.rs b/crates/keeppix-api/src/lib.rs
+index f2efa36..5603293 100644
+--- a/crates/keeppix-api/src/lib.rs
++++ b/crates/keeppix-api/src/lib.rs
+@@ -28,39 +28,46 @@ pub fn router(state: AppState) -> Router {
+     base_router().with_state(state)
+ }
+ 
+ /// Router senza stato, per i test che non toccano il database.
+ pub fn router_without_state() -> Router {
+     base_router_stateless()
+ }
+ 
+ fn common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {
+     router
++        // `fallback` must be set *before* the `.layer(...)` calls below: in
++        // axum 0.8, `Router::fallback` replaces the router's fallback
++        // service directly, while `.layer()` only wraps whatever fallback
++        // is already present at the time it's called. If `.fallback()` ran
++        // last, the security headers, compression and tracing layers would
++        // never apply to unmatched routes (404s) — silently reintroducing
++        // that bug by moving this call is easy, so don't reorder it.
++        .fallback(not_found)
+         .layer(SetResponseHeaderLayer::overriding(
+             axum::http::header::HeaderName::from_static("x-content-type-options"),
+             HeaderValue::from_static("nosniff"),
+         ))
+         .layer(SetResponseHeaderLayer::overriding(
+             axum::http::header::HeaderName::from_static("referrer-policy"),
+             HeaderValue::from_static("no-referrer"),
+         ))
+         .layer(SetResponseHeaderLayer::overriding(
+             axum::http::header::HeaderName::from_static("content-security-policy"),
+             HeaderValue::from_static(CSP),
+         ))
+         .layer(SetResponseHeaderLayer::overriding(
+             axum::http::header::HeaderName::from_static("permissions-policy"),
+             HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+         ))
+         .layer(CompressionLayer::new().br(true).gzip(true))
+         .layer(TraceLayer::new_for_http())
+-        .fallback(not_found)
+ }
+ 
+ fn base_router() -> Router<AppState> {
+     common_layers(Router::new().route("/health", get(routes::health::get)))
+ }
+ 
+ fn base_router_stateless() -> Router {
+     common_layers(Router::new().route("/health", get(routes::health::get)))
+ }
+ 
+diff --git a/crates/keeppix-api/tests/health.rs b/crates/keeppix-api/tests/health.rs
+index 6741045..d50a7b9 100644
+--- a/crates/keeppix-api/tests/health.rs
++++ b/crates/keeppix-api/tests/health.rs
+@@ -1,19 +1,34 @@
+ use axum::body::Body;
+-use axum::http::{Request, StatusCode, header};
++use axum::http::{HeaderMap, Request, StatusCode, header};
+ use tower::ServiceExt as _;
+ 
+ /// `/health` non tocca il database, quindi il test non ha bisogno di Postgres.
+ fn app() -> axum::Router {
+     keeppix_api::router_without_state()
+ }
+ 
++/// Asserzioni condivise sui quattro header di sicurezza. Usata sia per una
++/// rotta esistente (`/health`) sia per il fallback 404, così che i due
++/// percorsi siano dimostrabilmente coperti dagli stessi controlli: se i
++/// layer smettono di avvolgere una delle due rotte, uno dei due test fallisce.
++#[allow(clippy::unwrap_used)]
++fn assert_security_headers(headers: &HeaderMap) {
++    assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
++    assert_eq!(headers.get("referrer-policy").unwrap(), "no-referrer");
++    assert!(headers.get("content-security-policy").is_some());
++    assert_eq!(
++        headers.get("permissions-policy").unwrap(),
++        "camera=(), microphone=(), geolocation=()"
++    );
++}
++
+ #[tokio::test]
+ #[allow(clippy::unwrap_used)]
+ async fn health_returns_ok() {
+     let response = app()
+         .oneshot(
+             Request::builder()
+                 .uri("/health")
+                 .body(Body::empty())
+                 .unwrap(),
+         )
+@@ -29,47 +44,44 @@ async fn security_headers_are_present() {
+     let response = app()
+         .oneshot(
+             Request::builder()
+                 .uri("/health")
+                 .body(Body::empty())
+                 .unwrap(),
+         )
+         .await
+         .unwrap();
+ 
+-    let headers = response.headers();
+-    assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
+-    assert_eq!(headers.get("referrer-policy").unwrap(), "no-referrer");
+-    assert!(headers.get("content-security-policy").is_some());
+-    assert_eq!(
+-        headers.get("permissions-policy").unwrap(),
+-        "camera=(), microphone=(), geolocation=()"
+-    );
++    assert_security_headers(response.headers());
+ }
+ 
+ #[tokio::test]
+ #[allow(clippy::unwrap_used)]
+ async fn unknown_api_path_returns_problem_json() {
+     let response = app()
+         .oneshot(
+             Request::builder()
+                 .uri("/api/v1/does-not-exist")
+                 .body(Body::empty())
+                 .unwrap(),
+         )
+         .await
+         .unwrap();
+ 
+     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+     assert_eq!(
+         response.headers().get(header::CONTENT_TYPE).unwrap(),
+         "application/problem+json"
+     );
++    // Regression coverage: the fallback route must be wrapped by the same
++    // security-header layers as matched routes (see the comment on
++    // `.fallback(not_found)` in `lib.rs`).
++    assert_security_headers(response.headers());
+ 
+     let body = http_body_util::BodyExt::collect(response.into_body())
+         .await
+         .unwrap()
+         .to_bytes();
+     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+     assert_eq!(json["type"], "keeppix/not-found");
+     assert_eq!(json["status"], 404);
+ }

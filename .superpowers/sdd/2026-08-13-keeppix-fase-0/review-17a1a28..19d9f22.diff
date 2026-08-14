@@ -1,0 +1,252 @@
+# Review package: 17a1a28..19d9f22 (Task 14 — Dockerfile, .dockerignore, compose.yaml, docs/DEPLOY.md)
+
+## Commits
+19d9f22 feat: add distroless docker image and compose stack
+
+## Files changed
+ .dockerignore  |   8 +++++
+ Dockerfile     |  57 +++++++++++++++++++++++++++++++
+ compose.yaml   |  46 +++++++++++++++++++++++++
+ docs/DEPLOY.md | 104 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 215 insertions(+)
+
+## Diff
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..2a9517c
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,8 @@
++target
++frontend/node_modules
++frontend/dist
++data
++pgdata
++.git
++docs
++*.md
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..30c8c06
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,57 @@
++# syntax=docker/dockerfile:1.9
++
++# ── Frontend ──────────────────────────────────────────────────────────────
++FROM node:24-bookworm-slim AS frontend
++WORKDIR /app/frontend
++COPY frontend/package.json frontend/package-lock.json ./
++RUN npm ci
++COPY frontend/ ./
++RUN npm run build
++
++# ── Backend ───────────────────────────────────────────────────────────────
++FROM rust:1.88-bookworm AS backend
++WORKDIR /app
++
++# Le query sqlx sono verificate a runtime con le forme funzione
++# (`sqlx::query(...)`), non con le macro `query!`: non esiste alcuna cache
++# `.sqlx/` da copiare, e la build non ha bisogno di un database.
++#
++# I manifest sono copiati per primi, ma `cargo build --bin keeppix` compila
++# comunque dipendenze e codice applicativo in un solo passaggio: modificare
++# `crates/` invalida anche questo layer, quindi la separazione qui sotto non
++# regala una cache "dipendenze vs sorgenti". Il vero acceleratore delle build
++# ripetute sono le cache montate nel RUN successivo (`cargo/registry` e
++# `target`), che BuildKit conserva tra una build e l'altra indipendentemente
++# dai layer dell'immagine.
++COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
++COPY crates/ crates/
++COPY --from=frontend /app/frontend/dist frontend/dist
++
++RUN --mount=type=cache,target=/usr/local/cargo/registry \
++    --mount=type=cache,target=/app/target \
++    cargo build --release --bin keeppix && \
++    cp target/release/keeppix /usr/local/bin/keeppix
++
++# ── Runtime ───────────────────────────────────────────────────────────────
++# distroless: nessuna shell, nessun package manager, ~6 pacchetti da monitorare.
++FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
++
++COPY --from=backend /usr/local/bin/keeppix /usr/local/bin/keeppix
++
++USER nonroot:nonroot
++WORKDIR /data
++EXPOSE 5673
++
++ENV KEEPPIX_BIND=0.0.0.0:5673 \
++    KEEPPIX_DATA_DIR=/data \
++    KEEPPIX_LOG_FORMAT=json
++
++# Nessun curl disponibile: si usa il sottocomando del binario stesso. Come il
++# resto del binario, `healthcheck` legge la configurazione con Config::load e
++# quindi richiede `DATABASE_URL`: senza quella variabile il container risulta
++# unhealthy per un errore di configurazione, non di rete (vedi docs/DEPLOY.md).
++HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
++    CMD ["/usr/local/bin/keeppix", "healthcheck"]
++
++ENTRYPOINT ["/usr/local/bin/keeppix"]
++CMD ["serve"]
+diff --git a/compose.yaml b/compose.yaml
+new file mode 100644
+index 0000000..1054a89
+--- /dev/null
++++ b/compose.yaml
+@@ -0,0 +1,46 @@
++name: keeppix
++
++services:
++  keeppix:
++    build: .
++    image: keeppix:dev
++    restart: unless-stopped
++    environment:
++      # Con un Postgres esterno, sostituire questo valore e omettere
++      # `--profile bundled`: il servizio `db` non verrà avviato.
++      DATABASE_URL: postgres://keeppix:${DB_PASSWORD:-changeme}@db/keeppix
++      KEEPPIX_ALLOWED_ORIGINS: '[]'
++    ports:
++      - "5673:5673"
++    volumes:
++      - ./data:/data
++      # Originali in sola lettura: nessun bug può cancellarli.
++      # Passare a `rw` solo quando servirà l'upload (Fase 1).
++      - ${PHOTOS_PATH:-./photos}:/photos:ro
++    read_only: true
++    tmpfs:
++      - /tmp
++    security_opt:
++      - no-new-privileges:true
++    cap_drop:
++      - ALL
++    depends_on:
++      db:
++        condition: service_healthy
++        required: false
++
++  db:
++    profiles: ["bundled"]
++    image: postgis/postgis:17-3.5
++    restart: unless-stopped
++    environment:
++      POSTGRES_USER: keeppix
++      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
++      POSTGRES_DB: keeppix
++    volumes:
++      - ./pgdata:/var/lib/postgresql/data
++    healthcheck:
++      test: ["CMD-SHELL", "pg_isready -U keeppix -d keeppix"]
++      interval: 5s
++      timeout: 3s
++      retries: 10
+diff --git a/docs/DEPLOY.md b/docs/DEPLOY.md
+new file mode 100644
+index 0000000..e18c4e6
+--- /dev/null
++++ b/docs/DEPLOY.md
+@@ -0,0 +1,104 @@
++# Installazione
++
++## Requisiti
++
++- Docker 24+ con Compose v2.20+ (serve per `depends_on: … required: false`,
++  usato per rendere opzionale il servizio `db`)
++- PostgreSQL 17 con PostGIS 3.5 (incluso, oppure esterno)
++- 2 GB di RAM liberi, architettura `amd64` o `arm64`
++
++## Avvio con tutto incluso
++
++```bash
++export DB_PASSWORD=$(openssl rand -base64 24)
++docker compose --profile bundled up -d
++```
++
++Aprire http://127.0.0.1:5673 e completare la creazione dell'amministratore.
++
++## Avvio con un Postgres già esistente
++
++Il database deve avere l'estensione PostGIS disponibile. Omettere il profilo:
++
++```bash
++DATABASE_URL=postgres://utente:password@mio-host:5432/keeppix docker compose up -d
++```
++
++Il servizio `db` non verrà avviato.
++
++## Variabili d'ambiente
++
++| Variabile | Predefinito | Descrizione |
++|---|---|---|
++| `DATABASE_URL` | — | **Obbligatoria.** Stringa di connessione a Postgres |
++| `KEEPPIX_BIND` | `0.0.0.0:5673` | Indirizzo e porta di ascolto |
++| `KEEPPIX_DATA_DIR` | `/data` | Derivati, mappe, backup, `config.toml` |
++| `KEEPPIX_DB_MAX_CONNECTIONS` | `10` | Dimensione del pool |
++| `KEEPPIX_SESSION_TTL_SECS` | `2592000` | Durata della sessione (30 giorni) |
++| `KEEPPIX_LOG_FORMAT` | `json` | `json` o `pretty` |
++| `KEEPPIX_ALLOWED_ORIGINS` | `[]` | Origini ammesse, es. `["https://foto.example.com"]` |
++| `RUST_LOG` | `info,sqlx=warn,tower_http=info` | Verbosità dei log |
++
++Le stesse chiavi sono impostabili in `/data/config.toml` in minuscolo e senza
++prefisso. **L'ambiente vince sempre sul file.**
++
++## Volumi
++
++| Percorso | Modo | Contenuto |
++|---|---|---|
++| `./data` → `/data` | rw | derivati, mappe, backup, configurazione |
++| `$PHOTOS_PATH` → `/photos` | **ro** | i tuoi originali |
++
++In Fase 0 non esiste ancora l'indicizzazione: `/photos` è montato in sola
++lettura e nulla lo tocca. Passerà a `rw` in Fase 1, solo per le librerie su cui
++abiliterai upload o scrittura dei sidecar.
++
++## Aggiornamento
++
++```bash
++git pull
++docker compose --profile bundled up -d --build
++```
++
++Le migrazioni del database vengono applicate automaticamente all'avvio, in
++transazione. `compose.yaml` costruisce l'immagine in locale (`keeppix:dev`) e
++non punta a un registro: `docker compose pull` non recupera nulla di nuovo
++finché il progetto non pubblicherà un'immagine remota su un registro.
++
++## Dietro un reverse proxy
++
++Keeppix parla HTTP in chiaro e si aspetta che la terminazione TLS avvenga a
++monte. Il cookie di sessione usa il prefisso `__Host-`, che **richiede HTTPS**:
++senza TLS l'accesso funziona solo da `localhost`.
++
++```nginx
++location / {
++    proxy_pass http://127.0.0.1:5673;
++    proxy_set_header Host $host;
++    proxy_set_header X-Forwarded-Proto $scheme;
++    proxy_http_version 1.1;
++}
++```
++
++## Diagnosi
++
++```bash
++docker compose logs -f keeppix
++curl -s http://127.0.0.1:5673/health
++```
++
++Il container espone un `HEALTHCHECK` che esegue `keeppix healthcheck`. Questo
++sottocomando carica la stessa configurazione del server e quindi richiede
++anch'esso `DATABASE_URL`: se la variabile manca, il container risulta
++`unhealthy` per un errore di configurazione, non di rete. Nello stack di
++`compose.yaml` la variabile è sempre impostata dal servizio `keeppix`; se
++esegui l'immagine "nuda" (senza compose), impostala tu.
++
++L'immagine è distroless e **non contiene shell**: `docker exec ... sh` non
++funziona, ed è voluto (nessuna pipeline di questo progetto pubblica al
++momento una variante "debug" con shell). Per ispezionare un container in
++esecuzione, condividi il suo namespace di processo da un'immagine con shell:
++
++```bash
++docker run --rm -it --pid container:keeppix-keeppix-1 --network container:keeppix-keeppix-1 busybox sh
++```

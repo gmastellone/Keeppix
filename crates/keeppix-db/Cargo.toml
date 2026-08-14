@@ -1,0 +1,27 @@
+[package]
+name = "keeppix-db"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+keeppix-domain = { path = "../keeppix-domain" }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "chrono", "macros", "migrate"] }
+serde.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+serde_json.workspace = true
+base64 = "0.23.1"
+rand = { version = "0.10.2", features = ["std", "std_rng"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+uuid.workspace = true

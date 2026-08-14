@@ -1,0 +1,252 @@
+# Review package: 248f4c8..c6b82f0 (solo frontend/ — i commit intermedi toccano crates/ e .superpowers/)
+
+## Commits
+c6b82f0 fix(frontend): sign-out clears local state even if server revoke fails
+
+## Files changed
+ frontend/src/i18n/en.json           |  5 ++-
+ frontend/src/i18n/it.json           |  5 ++-
+ frontend/src/stores/session.ts      | 24 ++++++++++--
+ frontend/src/views/HomeView.spec.ts | 75 +++++++++++++++++++++++++++++++++++++
+ frontend/src/views/LoginView.vue    | 11 +++++-
+ 5 files changed, 114 insertions(+), 6 deletions(-)
+
+## Diff
+diff --git a/frontend/src/i18n/en.json b/frontend/src/i18n/en.json
+index dbc918a..215f3a5 100644
+--- a/frontend/src/i18n/en.json
++++ b/frontend/src/i18n/en.json
+@@ -13,15 +13,18 @@
+       "invalidUsername": "Invalid username: use 3 to 32 characters from letters, digits, dot, hyphen and underscore.",
+       "invalidPassword": "The password must be at least 10 characters long.",
+       "alreadyInitialised": "This instance is already set up."
+     }
+   },
+   "login": {
+     "title": "Sign in",
+     "username": "Username",
+     "password": "Password",
+     "submit": "Sign in",
+-    "errors": { "invalidCredentials": "Incorrect username or password." }
++    "errors": { "invalidCredentials": "Incorrect username or password." },
++    "notices": {
++      "signedOutOffline": "You were signed out locally; we couldn't confirm it with the server (likely a network issue)."
++    }
+   },
+   "home": { "greeting": "Hello, {name}", "logout": "Sign out" },
+   "common": { "loading": "Loading…", "unexpectedError": "An unexpected error occurred." }
+ }
+diff --git a/frontend/src/i18n/it.json b/frontend/src/i18n/it.json
+index 314f05c..e6a7104 100644
+--- a/frontend/src/i18n/it.json
++++ b/frontend/src/i18n/it.json
+@@ -13,15 +13,18 @@
+       "invalidUsername": "Nome utente non valido: usa da 3 a 32 caratteri fra lettere, numeri, punto, trattino e trattino basso.",
+       "invalidPassword": "La password deve avere almeno 10 caratteri.",
+       "alreadyInitialised": "Questa istanza è già configurata."
+     }
+   },
+   "login": {
+     "title": "Accedi",
+     "username": "Nome utente",
+     "password": "Password",
+     "submit": "Accedi",
+-    "errors": { "invalidCredentials": "Nome utente o password non corretti." }
++    "errors": { "invalidCredentials": "Nome utente o password non corretti." },
++    "notices": {
++      "signedOutOffline": "Sei uscito localmente; non siamo riusciti a confermarlo con il server (probabile problema di rete)."
++    }
+   },
+   "home": { "greeting": "Ciao, {name}", "logout": "Esci" },
+   "common": { "loading": "Caricamento…", "unexpectedError": "Si è verificato un errore imprevisto." }
+ }
+diff --git a/frontend/src/stores/session.ts b/frontend/src/stores/session.ts
+index 490a685..5e0ecfa 100644
+--- a/frontend/src/stores/session.ts
++++ b/frontend/src/stores/session.ts
+@@ -4,20 +4,24 @@ import { ref } from 'vue'
+ import * as authApi from '@/api/auth'
+ import type { SetupPayload, User } from '@/api/auth'
+ import { ApiProblem } from '@/api/client'
+ 
+ export type { User }
+ 
+ export const useSessionStore = defineStore('session', () => {
+   const user = ref<User | null>(null)
+   const initialised = ref<boolean | null>(null)
+   const ready = ref(false)
++  /** True se l'ultimo logout ha azzerato la sessione localmente senza
++   * conferma dal server. Letto (e azzerato) dalla vista che accoglie
++   * l'utente dopo il redirect, per segnalarlo senza bloccare l'uscita. */
++  const logoutError = ref(false)
+ 
+   /** Determina lo stato dell'istanza e ripristina la sessione se presente. */
+   async function bootstrap(): Promise<void> {
+     const status = await authApi.getSetupStatus()
+     initialised.value = status.initialised
+ 
+     if (status.initialised) {
+       try {
+         const result = await authApi.me()
+         user.value = result.user
+@@ -34,17 +38,31 @@ export const useSessionStore = defineStore('session', () => {
+     const result = await authApi.login(username, password)
+     user.value = result.user
+   }
+ 
+   async function setup(payload: SetupPayload): Promise<void> {
+     const result = await authApi.setupAccount(payload)
+     user.value = result.user
+     initialised.value = true
+   }
+ 
++  /**
++   * Il logout è un'azione di sicurezza: se la revoca server-side fallisce
++   * (quasi certamente un errore di rete — il backend risponde comunque
++   * `204` sui fallimenti che riesce a gestire), l'utente non deve restare
++   * bloccato in un'interfaccia che lo mostra ancora autenticato. Si azzera
++   * lo stato locale in ogni caso, e si segnala l'accaduto tramite
++   * `logoutError` invece di propagare l'eccezione al chiamante.
++   */
+   async function logout(): Promise<void> {
+-    await authApi.logout()
+-    user.value = null
++    try {
++      await authApi.logout()
++      logoutError.value = false
++    } catch {
++      logoutError.value = true
++    } finally {
++      user.value = null
++    }
+   }
+ 
+-  return { user, initialised, ready, bootstrap, login, setup, logout }
++  return { user, initialised, ready, logoutError, bootstrap, login, setup, logout }
+ })
+diff --git a/frontend/src/views/HomeView.spec.ts b/frontend/src/views/HomeView.spec.ts
+new file mode 100644
+index 0000000..b5b0ff1
+--- /dev/null
++++ b/frontend/src/views/HomeView.spec.ts
+@@ -0,0 +1,75 @@
++import { flushPromises, mount } from '@vue/test-utils'
++import { createPinia, setActivePinia } from 'pinia'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { createMemoryHistory, createRouter } from 'vue-router'
++
++import { i18n } from '@/i18n'
++import { useSessionStore } from '@/stores/session'
++
++import HomeView from './HomeView.vue'
++
++vi.mock('@/api/auth', async (importOriginal) => {
++  const actual = await importOriginal<typeof import('@/api/auth')>()
++  return { ...actual, logout: vi.fn() }
++})
++
++const { logout } = await import('@/api/auth')
++
++afterEach(() => vi.resetAllMocks())
++
++const testUser = {
++  id: '1',
++  username: 'admin',
++  display_name: 'Admin',
++  email: null,
++  role: 'admin' as const,
++  locale: null
++}
++
++/** Router isolato, senza la guardia di produzione: qui interessa solo dove
++ * atterra la navigazione dopo il click, non il flusso di bootstrap. */
++async function mountHomeView() {
++  const router = createRouter({
++    history: createMemoryHistory(),
++    routes: [
++      { path: '/', component: HomeView },
++      { path: '/login', component: { template: '<div />' } }
++    ]
++  })
++  setActivePinia(createPinia())
++  const session = useSessionStore()
++  session.user = testUser
++  session.initialised = true
++  session.ready = true
++
++  await router.push('/')
++  await router.isReady()
++  const wrapper = mount(HomeView, { global: { plugins: [router, i18n] } })
++  return { router, session, wrapper }
++}
++
++describe('HomeView signOut', () => {
++  it('azzera lo stato e naviga a /login anche se la revoca server-side fallisce', async () => {
++    vi.mocked(logout).mockRejectedValue(new Error('network error'))
++    const { router, session, wrapper } = await mountHomeView()
++
++    await wrapper.find('button').trigger('click')
++    await flushPromises()
++
++    expect(session.user).toBeNull()
++    expect(session.logoutError).toBe(true)
++    expect(router.currentRoute.value.path).toBe('/login')
++  })
++
++  it('azzera lo stato e naviga a /login quando la revoca riesce', async () => {
++    vi.mocked(logout).mockResolvedValue(null)
++    const { router, session, wrapper } = await mountHomeView()
++
++    await wrapper.find('button').trigger('click')
++    await flushPromises()
++
++    expect(session.user).toBeNull()
++    expect(session.logoutError).toBe(false)
++    expect(router.currentRoute.value.path).toBe('/login')
++  })
++})
+diff --git a/frontend/src/views/LoginView.vue b/frontend/src/views/LoginView.vue
+index 3648d6e..cbae08f 100644
+--- a/frontend/src/views/LoginView.vue
++++ b/frontend/src/views/LoginView.vue
+@@ -1,30 +1,39 @@
+ <script setup lang="ts">
+-import { ref } from 'vue'
++import { onMounted, ref } from 'vue'
+ import { useI18n } from 'vue-i18n'
+ import { useRouter } from 'vue-router'
+ 
+ import { ApiProblem } from '@/api/client'
+ import Alert from '@/components/ui/Alert.vue'
+ import Button from '@/components/ui/Button.vue'
+ import TextField from '@/components/ui/TextField.vue'
+ import { useSessionStore } from '@/stores/session'
+ 
+ const { t } = useI18n()
+ const router = useRouter()
+ const session = useSessionStore()
+ 
+ const username = ref('')
+ const password = ref('')
+ const error = ref('')
+ const loading = ref(false)
+ 
++// Un logout azzerato solo localmente (revoca server-side non confermata)
++// atterra qui: lo si segnala una volta, poi si consuma il segnale.
++onMounted(() => {
++  if (session.logoutError) {
++    error.value = t('login.notices.signedOutOffline')
++    session.logoutError = false
++  }
++})
++
+ async function submit() {
+   error.value = ''
+   loading.value = true
+   try {
+     await session.login(username.value, password.value)
+     await router.push('/')
+   } catch (e) {
+     error.value =
+       e instanceof ApiProblem && e.type === 'keeppix/invalid-credentials'
+         ? t('login.errors.invalidCredentials')

@@ -1,0 +1,304 @@
+diff --git a/crates/keeppix-api/src/cookie.rs b/crates/keeppix-api/src/cookie.rs
+index 6e4d79a..4fc8b19 100644
+--- a/crates/keeppix-api/src/cookie.rs
++++ b/crates/keeppix-api/src/cookie.rs
+@@ -23,18 +23,85 @@ pub fn session_cookie(token: &SessionToken, ttl: Duration, secure: bool) -> Cook
+     cookie
+ }
+ 
++/// Stessa forma di `session_cookie`: un `__Host-` cancellante che omettesse
++/// `Secure` o `SameSite` verrebbe scartato per intero da un browser conforme
++/// (RFC 6265bis §4.1.3.2), lasciando il cookie di sessione scaduto — ma
++/// ancora inviato dal client — sopravvivere al logout in produzione.
+ #[must_use]
+-pub fn clearing_cookie() -> Cookie<'static> {
++pub fn clearing_cookie(secure: bool) -> Cookie<'static> {
+     let mut cookie = Cookie::new(SESSION_COOKIE, "");
+     cookie.set_http_only(true);
++    cookie.set_secure(secure);
++    cookie.set_same_site(SameSite::Lax);
+     cookie.set_path("/");
+     cookie.set_max_age(Some(time::Duration::ZERO));
+     cookie
+ }
+ 
+-/// Vero quando la richiesta non arriva da localhost: in produzione si sta
+-/// dietro HTTPS, quindi il cookie deve essere `Secure`.
++/// Vero quando la richiesta non sembra arrivare da localhost: in produzione
++/// si sta dietro HTTPS, quindi il cookie deve essere `Secure`. `None` (header
++/// `Host` assente) mantiene il comportamento sicuro (`true`).
++///
++/// Confronta l'host **esattamente**, dopo aver tolto un'eventuale porta: un
++/// semplice `starts_with` verrebbe ingannato da un header `Host` scelto dal
++/// client come `127.0.0.1.evil.com` o `localhost.evil.com`, che inizia con
++/// una stringa dell'insieme locale ma non lo è.
+ #[must_use]
+ pub fn should_be_secure(host: Option<&str>) -> bool {
+-    !matches!(host, Some(h) if h.starts_with("127.0.0.1") || h.starts_with("localhost"))
++    let Some(host) = host else { return true };
++    !matches!(
++        strip_port(host),
++        "localhost" | "127.0.0.1" | "[::1]" | "::1"
++    )
++}
++
++/// Rimuove l'eventuale suffisso `:porta` da un header `Host`. Un letterale
++/// IPv6 può comparire fra parentesi quadre con porta (`[::1]:8080`) o, senza
++/// porta, privo di parentesi (`::1`) — in quel caso i due punti fanno parte
++/// dell'indirizzo, non separano una porta, quindi si toglie la porta solo
++/// quando compare **un solo** `:` nella stringa.
++fn strip_port(host: &str) -> &str {
++    if host.starts_with('[') {
++        return match host.find(']') {
++            Some(end) => &host[..=end],
++            None => host,
++        };
++    }
++    if host.matches(':').count() == 1 {
++        if let Some((h, _port)) = host.split_once(':') {
++            return h;
++        }
++    }
++    host
++}
++
++#[cfg(test)]
++mod tests {
++    use super::should_be_secure;
++
++    #[test]
++    fn localhost_variants_are_not_secure() {
++        assert!(!should_be_secure(Some("127.0.0.1:8080")));
++        assert!(!should_be_secure(Some("localhost:3000")));
++        assert!(!should_be_secure(Some("localhost")));
++        assert!(!should_be_secure(Some("127.0.0.1")));
++        assert!(!should_be_secure(Some("[::1]:8080")));
++        assert!(!should_be_secure(Some("::1")));
++    }
++
++    #[test]
++    fn real_hosts_and_missing_host_are_secure() {
++        assert!(should_be_secure(Some("photos.example.com")));
++        assert!(should_be_secure(Some("photos.example.com:443")));
++        assert!(should_be_secure(None));
++    }
++
++    /// Un header `Host` scelto dal client che inizia come un membro
++    /// dell'insieme locale ma non lo è deve restare `Secure`.
++    #[test]
++    fn lookalike_hosts_are_not_treated_as_local() {
++        assert!(should_be_secure(Some("127.0.0.1.evil.com")));
++        assert!(should_be_secure(Some("localhost.evil.com")));
++        assert!(should_be_secure(Some("127.0.0.1.evil.com:8080")));
++    }
+ }
+diff --git a/crates/keeppix-api/src/routes/auth.rs b/crates/keeppix-api/src/routes/auth.rs
+index e6d6749..27a5ada 100644
+--- a/crates/keeppix-api/src/routes/auth.rs
++++ b/crates/keeppix-api/src/routes/auth.rs
+@@ -3,9 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
+ use axum::{Json, response::IntoResponse};
+ use axum_extra::extract::CookieJar;
+ use keeppix_db::{SessionRepo, UserRepo};
+-use keeppix_domain::{
+-    AuthContext, Password, SessionToken, SystemRole, User, Username, verify_password,
+-};
++use keeppix_domain::{Password, SessionToken, SystemRole, User, Username, verify_password};
+ use serde::{Deserialize, Serialize};
+ 
+ use crate::cookie::{clearing_cookie, session_cookie, should_be_secure};
+@@ -142,14 +140,19 @@ pub async fn refresh(
+ }
+ 
+ /// Sempre `204`, anche senza cookie: uscire deve funzionare comunque.
+-pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
++pub async fn logout(
++    State(state): State<AppState>,
++    jar: CookieJar,
++    headers: HeaderMap,
++) -> impl IntoResponse {
+     if let Some(cookie) = jar.get(SESSION_COOKIE) {
+         let token = SessionToken::from_string(cookie.value().to_owned());
+         if let Err(e) = SessionRepo::new(&state.db).revoke(&token).await {
+             tracing::warn!(error = %e, "revoca sessione fallita");
+         }
+     }
+-    (StatusCode::NO_CONTENT, jar.add(clearing_cookie()))
++    let secure = should_be_secure(host(&headers));
++    (StatusCode::NO_CONTENT, jar.add(clearing_cookie(secure)))
+ }
+ 
+ #[derive(Serialize)]
+@@ -170,22 +173,29 @@ pub async fn me(
+     }))
+ }
+ 
+-/// Riesportato per gli handler che devono costruire un contesto a mano.
+-pub type Ctx = AuthContext;
+-
+ #[cfg(test)]
+ mod tests {
+     use super::dummy_hash;
+     use keeppix_domain::{Password, verify_password};
+ 
++    /// Plaintext usato una tantum per generare la costante `dummy_hash()`.
++    /// Pubblicarlo qui è innocuo: nessun account usa questa password, e la
++    /// difesa ha bisogno di *tempo* di verifica comparabile, non di segretezza.
++    const DUMMY_HASH_PLAINTEXT: &str = "this password is never used to log in";
++
+     /// Pin sul bug che questa funzione corregge: il `dummy_hash()` originale
+     /// della brief era un PHC malformato, quindi `verify_password` falliva
+     /// nel *parsing* e non eseguiva mai Argon2 — la differenza di tempo tra
+-    /// "utente inesistente" e "password errata" restava intera. Questo test
+-    /// verifica che l'hash sia sintatticamente un Argon2id valido (altrimenti
+-    /// lo stesso bug potrebbe ripresentarsi in silenzio con una futura
+-    /// modifica della costante) e che, comunque, non verifichi mai nessuna
+-    /// password reale.
++    /// "utente inesistente" e "password errata" restava intera.
++    ///
++    /// `starts_with("$argon2id$")`, `contains("m=19456,t=2,p=1")` e
++    /// `!verify_password(altra_password, ..)` da soli non bastano a pinnare
++    /// questo: un hash corrotto proprio nell'ultimo segmento — cioè lo stesso
++    /// identico bug — supererebbe comunque tutti e tre, perché un fallimento
++    /// di parsing restituisce `false` in modo indistinguibile da un mismatch
++    /// reale. Solo un match **positivo** contro il plaintext che ha generato
++    /// l'hash dimostra che il parsing è riuscito e che Argon2 ha girato per
++    /// intero.
+     #[test]
+     #[allow(clippy::unwrap_used)]
+     fn dummy_hash_is_a_valid_argon2id_phc_string() {
+@@ -193,6 +203,12 @@ mod tests {
+         assert!(hash.as_str().starts_with("$argon2id$"));
+         assert!(hash.as_str().contains("m=19456,t=2,p=1"));
+ 
++        let matching = Password::parse(DUMMY_HASH_PLAINTEXT).unwrap();
++        assert!(
++            verify_password(&matching, &hash),
++            "il parsing dell'hash deve riuscire e Argon2 deve girare per intero"
++        );
++
+         // Nessuna password reale di login deve verificare contro l'hash
+         // fittizio: il suo plaintext non corrisponde a nessun account.
+         let attempted = Password::parse("correct horse battery staple").unwrap();
+diff --git a/crates/keeppix-api/tests/auth.rs b/crates/keeppix-api/tests/auth.rs
+index 48dda79..2dc682a 100644
+--- a/crates/keeppix-api/tests/auth.rs
++++ b/crates/keeppix-api/tests/auth.rs
+@@ -48,6 +48,7 @@ async fn setup_creates_the_first_admin_and_logs_in() {
+     assert!(cookie.contains("__Host-kpx_session="));
+     assert!(cookie.contains("HttpOnly"));
+     assert!(cookie.contains("SameSite=Lax"));
++    assert!(cookie.contains("Path=/"));
+ 
+     let me: serde_json::Value = server
+         .client
+@@ -228,13 +229,83 @@ async fn refresh_rotates_the_session_cookie() {
+         .await
+         .unwrap();
+     assert_eq!(me.status(), 200);
++
++    // Il vecchio cookie, invece, non deve più valere: la rotazione deve aver
++    // consumato il genitore, non solo emesso un figlio in parallelo. Un
++    // client fresco senza cookie store, con il valore pre-refresh presentato
++    // esplicitamente, è l'unico modo di dimostrarlo — il cookie store di
++    // `server.client` ha già sostituito `before` con `after`.
++    let replay_me = reqwest::Client::new()
++        .get(server.url("/api/v1/auth/me"))
++        .header("cookie", format!("__Host-kpx_session={before}"))
++        .send()
++        .await
++        .unwrap();
++    assert_eq!(
++        replay_me.status(),
++        401,
++        "il token pre-refresh deve essere stato consumato, non solo affiancato da uno nuovo"
++    );
++}
++
++/// `SessionRepo::rotate` revoca l'intera famiglia quando un token già
++/// consumato viene ripresentato — il segnale che una copia sia finita in
++/// mano a qualcun altro. La documentazione di `refresh` lo promette
++/// esplicitamente, ma senza questo test la copertura HTTP di quel ramo era
++/// nulla.
++#[tokio::test]
++#[allow(clippy::unwrap_used)]
++async fn refresh_rejects_a_reused_token() {
++    let server = TestServer::start().await;
++
++    let setup_response = server
++        .client
++        .post(server.url("/api/v1/setup"))
++        .json(&json!({
++            "username": "giovanni",
++            "display_name": "Giovanni",
++            "password": "correct horse battery staple"
++        }))
++        .send()
++        .await
++        .unwrap();
++    let before = session_value_from(&setup_response);
++
++    // Consuma il token una prima volta con il flusso normale.
++    let first_refresh = server
++        .client
++        .post(server.url("/api/v1/auth/refresh"))
++        .send()
++        .await
++        .unwrap();
++    assert_eq!(first_refresh.status(), 204);
++
++    // Ripresentare il token pre-refresh, già consumato, deve essere rifiutato.
++    let reused = reqwest::Client::new()
++        .post(server.url("/api/v1/auth/refresh"))
++        .header("cookie", format!("__Host-kpx_session={before}"))
++        .send()
++        .await
++        .unwrap();
++    assert_eq!(reused.status(), 401);
+ }
+ 
+ #[tokio::test]
+ #[allow(clippy::unwrap_used)]
+ async fn logout_invalidates_the_session() {
+     let server = TestServer::start().await;
+-    setup(&server).await;
++    let setup_response = server
++        .client
++        .post(server.url("/api/v1/setup"))
++        .json(&json!({
++            "username": "giovanni",
++            "display_name": "Giovanni",
++            "password": "correct horse battery staple"
++        }))
++        .send()
++        .await
++        .unwrap();
++    let session_value = session_value_from(&setup_response);
+ 
+     let response = server
+         .client
+@@ -244,13 +315,21 @@ async fn logout_invalidates_the_session() {
+         .unwrap();
+     assert_eq!(response.status(), 204);
+ 
+-    let me = server
+-        .client
++    // Client fresco, senza cookie store: replica esplicitamente il cookie
++    // pre-logout. Se ci affidassimo al cookie store di `server.client`, la
++    // richiesta successiva partirebbe senza alcun cookie — il logout locale
++    // del client, non la revoca lato server, spiegherebbe il 401.
++    let replay_me = reqwest::Client::new()
+         .get(server.url("/api/v1/auth/me"))
++        .header("cookie", format!("__Host-kpx_session={session_value}"))
+         .send()
+         .await
+         .unwrap();
+-    assert_eq!(me.status(), 401);
++    assert_eq!(
++        replay_me.status(),
++        401,
++        "la sessione deve essere invalidata lato server, non solo dimenticata dal client"
++    );
+ }
+ 
+ #[allow(clippy::unwrap_used)]

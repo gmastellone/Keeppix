@@ -1,0 +1,48 @@
+name: keeppix
+
+services:
+  keeppix:
+    build: .
+    image: keeppix:dev
+    restart: unless-stopped
+    environment:
+      # Con un Postgres esterno: impostare DATABASE_URL (in `.env` o nella
+      # shell) e lanciare senza `--profile bundled` — il valore esterno
+      # vince e il servizio `db` non verrà avviato. Senza DATABASE_URL,
+      # ricade sul servizio `db` bundled con la password di DB_PASSWORD.
+      DATABASE_URL: ${DATABASE_URL:-postgres://keeppix:${DB_PASSWORD:-changeme}@db/keeppix}
+      KEEPPIX_ALLOWED_ORIGINS: '[]'
+    ports:
+      - "5673:5673"
+    volumes:
+      - ./data:/data
+      # Originali in sola lettura: nessun bug può cancellarli.
+      # Passare a `rw` solo quando servirà l'upload (Fase 1).
+      - ${PHOTOS_PATH:-./photos}:/photos:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      db:
+        condition: service_healthy
+        required: false
+
+  db:
+    profiles: ["bundled"]
+    image: postgis/postgis:17-3.5
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keeppix
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: keeppix
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keeppix -d keeppix"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

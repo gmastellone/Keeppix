@@ -1,0 +1,33 @@
+[advisories]
+yanked = "deny"
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause",
+         "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0",
+         "AGPL-3.0-or-later", "CDLA-Permissive-2.0"]
+
+[bans]
+multiple-versions = "warn"
+
+# Il confine fra crate che lo spec §3.2 chiama fuori come il più importante:
+# `keeppix-media` non deve conoscere il database, `keeppix-db` non deve conoscere
+# le immagini. Oggi è vero perché le due crate sono vuote, cioè per convenzione:
+# nulla impedirebbe a un implementatore della Fase 1 di aggiungere `keeppix-db`
+# alle dipendenze di `keeppix-media` e scriverci una query dentro.
+#
+# `wrappers` è l'allowlist di chi può dipendere da `keeppix-db`: chiunque altro
+# lo faccia diventa un errore di `cargo deny check bans`, quindi della CI. Le due
+# voci sono i dipendenti reali di oggi. `keeppix-jobs` e `keeppix-dav`, che lo
+# spec §3.2 prevede fra i consumatori legittimi, **non** sono elencate in
+# anticipo di proposito: quando la Fase 1 collegherà `jobs → db` la CI si
+# fermerà, e aggiungere la voce sarà una decisione presa guardando l'arco, non
+# un'allowlist già larga in cui infilarsi.
+#
+# Limite noto, dichiarato per non fidarsi della regola più di quanto meriti: il
+# controllo è sui dipendenti **diretti**. Un percorso indiretto
+# `media → jobs → db` non verrebbe intercettato una volta autorizzato `jobs`. È
+# però l'inverso della direzione dello spec (`jobs → media`), che il grafo
+# aciclico di cargo rende impossibile una volta esistente.
+[[bans.deny]]
+crate = "keeppix-db"
+wrappers = ["keeppix-api", "keeppix-server"]
