@@ -362,7 +362,18 @@ $ npx eslint . --max-warnings 0
   (nessun output)
 
 $ cargo test --workspace -- --test-threads=1
-  SUITE_PLACEHOLDER
+  keeppix-api      unit  2 · auth 24 · health  4 · openapi 6      = 36
+  keeppix-db       unit  1 · migrations 8 · sessions 14 · settings 6 · users 12 = 41
+  keeppix-domain   unit 22                                        = 22
+  keeppix-server   config 4 · embed 4                             =  8
+  keeppix-dav / -jobs / -media / -test-support: 0 (crate vuote o di supporto)
+  → 107 passed; 0 failed; 0 ignored   (exit 0)
+
+  Erano 96 prima della fix wave. Gli 11 nuovi: 3 rejection di axum (415, 400+422,
+  405 con stato) + 1 405 senza stato + 1 outage 503 end-to-end + 1 unit sulla
+  tassonomia di `session_problem` + 2 CSRF + 1 `Cache-Control: private` +
+  1 estensioni della migrazione `0001` + 1 unit su `interval()`.
+  Nel frontend: 9 vitest (erano 8; il nono asserisce l'header CSRF).
 
 $ cargo clippy --workspace --all-targets -- -D warnings
   Finished `dev` profile [unoptimized + debuginfo] target(s)

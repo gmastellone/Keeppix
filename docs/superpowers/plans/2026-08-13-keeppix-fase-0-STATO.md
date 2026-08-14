@@ -47,7 +47,7 @@ branch è stata eseguita e la sua fix wave è stata applicata (vedi
 | 13 | Frontend incorporato | ✅ dopo 1 fix round | `e1f72b3` |
 | 14 | Immagine Docker e compose | ✅ dopo 1 fix round | `f6d1e34` |
 | 15 | Integrazione continua | ✅ dopo 1 fix round | `91904fb` |
-| — | Fix wave della review finale | ✅ 12 commit | `23f9964`…`43f366a` |
+| — | Fix wave della review finale | ✅ 15 voci, 12 commit di codice | `23f9964`…`43f366a` |
 
 Stato attuale della suite: **107 esecuzioni di test Rust** tutte verdi
 (22 domain, 41 db, 36 api, 8 server; i 3 unit test dell'harness di `keeppix-db`
