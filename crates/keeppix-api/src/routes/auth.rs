@@ -135,10 +135,14 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
 
 /// # Errors
 /// `401 unauthenticated` se il cookie manca, è scaduto o è stato riusato dopo
-/// il consumo — in quest'ultimo caso l'intera famiglia è già stata revocata.
-// Ogni errore di `rotate` — database compreso — è mappato su 401: il client non
-// deve distinguere una rotazione fallita da un token già consumato, quindi qui
-// non c'è nessun 500 da dichiarare.
+/// il consumo — in quest'ultimo caso l'intera famiglia è già stata revocata;
+/// `503 service-unavailable` se il database non risponde.
+// Le cause di un `401` restano indistinguibili di proposito: il client non deve
+// poter dire una rotazione rifiutata da un token già consumato. L'argomento
+// vale però solo fra `NotFound` e `Forbidden` — non per un database
+// irraggiungibile, che non rivela nulla sullo stato del token e che, mappato su
+// 401, disconnetterebbe tutti a ogni riavvio di Postgres. La distinzione vive
+// in un solo posto, `crate::extract::session_problem`.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/refresh",
@@ -147,7 +151,9 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
     security(("session_cookie" = [])),
     responses(
         (status = 204, description = "Sessione ruotata, nuovo cookie emesso"),
-        (status = 401, description = "Cookie assente, scaduto o già consumato", body = Problem)
+        (status = 401, description = "Cookie assente, scaduto o già consumato", body = Problem),
+        (status = 500, description = "Riga di sessione illeggibile", body = Problem),
+        (status = 503, description = "Database non raggiungibile: riprovare, la sessione è ancora valida", body = Problem)
     )
 )]
 pub async fn refresh(
@@ -162,7 +168,7 @@ pub async fn refresh(
     let next = SessionRepo::new(&state.db)
         .rotate(&token, state.session_ttl)
         .await
-        .map_err(|_| Problem::unauthenticated())?;
+        .map_err(crate::extract::session_problem)?;
 
     let jar = jar.add(session_cookie(&next, state.session_ttl));
 
@@ -207,7 +213,8 @@ pub struct MeResponse {
         (status = 200, description = "Utente della sessione corrente", body = MeResponse),
         (status = 401, description = "Non autenticato", body = Problem),
         (status = 404, description = "Utente rimosso mentre la sessione era aperta", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 500, description = "Errore del database", body = Problem),
+        (status = 503, description = "Database non raggiungibile durante la verifica della sessione", body = Problem)
     )
 )]
 pub async fn me(

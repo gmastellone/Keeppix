@@ -10,7 +10,7 @@ use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 
 pub struct TestServer {
     // `None` quando i test girano contro un server Postgres già esistente.
-    _container: Option<ContainerAsync<Postgres>>,
+    container: Option<ContainerAsync<Postgres>>,
     pub base_url: String,
     pub client: reqwest::Client,
 }
@@ -41,7 +41,7 @@ impl TestServer {
             .expect("client http");
 
         Self {
-            _container: container,
+            container,
             base_url: format!("http://{addr}"),
             client,
         }
@@ -49,6 +49,28 @@ impl TestServer {
 
     pub fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base_url)
+    }
+
+    /// Spegne il Postgres sotto il server, per osservare come si comporta la
+    /// superficie HTTP quando il database non risponde. È l'unico modo di
+    /// provare davvero quella proprietà: nessun mock sta fra gli handler e il
+    /// pool.
+    ///
+    /// Restituisce `false` sul percorso `KEEPPIX_TEST_DATABASE_URL` (vedi R9),
+    /// dove il server Postgres è condiviso con gli altri test e fermarlo li
+    /// romperebbe: chi chiama salta il test.
+    ///
+    /// # Panics
+    /// Se il container esiste ma non si riesce a fermarlo.
+    #[allow(clippy::expect_used)]
+    pub async fn stop_database(&self) -> bool {
+        match self.container.as_ref() {
+            Some(container) => {
+                container.stop().await.expect("stop del container Postgres");
+                true
+            }
+            None => false,
+        }
     }
 }
 
