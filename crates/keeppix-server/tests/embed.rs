@@ -140,6 +140,11 @@ async fn assets_are_served_as_immutable() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+    // È anche la controprova del layer `Cache-Control: private` aggiunto in
+    // `with_common_layers`: usa `if_not_present`, quindi la politica immutabile
+    // impostata dall'handler deve sopravvivere. Con `overriding` questo test
+    // fallirebbe — e la prima voce della §9.4 (asset hashati mai richiesti due
+    // volte) sarebbe annullata dalla sua ultima riga.
     assert_eq!(
         response.headers().get("cache-control").unwrap(),
         "public, max-age=31536000, immutable"
