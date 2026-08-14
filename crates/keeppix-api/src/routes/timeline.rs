@@ -73,7 +73,7 @@ pub(crate) fn hex_hash(hash: &[u8; 32]) -> String {
     hex_bytes(hash)
 }
 
-fn hex_bytes(bytes: &[u8]) -> String {
+pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
     bytes
         .iter()
         .fold(String::with_capacity(bytes.len() * 2), |mut out, byte| {

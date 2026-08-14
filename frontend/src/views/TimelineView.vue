@@ -11,6 +11,7 @@ import {
   type TimelineAsset
 } from '@/api/timeline'
 import Button from '@/components/ui/Button.vue'
+import AssetViewer from '@/components/AssetViewer.vue'
 import { useSessionStore } from '@/stores/session'
 import { clampDensity, justify } from '@/timeline/justify'
 import { monthAtOffset, yearLabel } from '@/timeline/scrubber'
@@ -33,6 +34,8 @@ const gridWidth = ref(800)
 const gridEl = ref<HTMLElement | null>(null)
 const scrubY = ref<string | undefined>()
 const empty = ref(false)
+const query = ref('')
+const viewing = ref<TimelineAsset | null>(null)
 
 const visibleHashes = new Set<string>()
 
@@ -94,6 +97,10 @@ function thumbSrc(asset: TimelineAsset): string | undefined {
 async function signOut() {
   await session.logout()
   await router.push('/login')
+}
+
+async function goSearch() {
+  await router.push({ path: '/search', query: { q: query.value } })
 }
 
 function setDensity(next: number) {
@@ -180,6 +187,23 @@ watch([days, density, gridWidth], () => observe())
       <h1 class="text-lg font-semibold">
         {{ t('home.greeting', { name: session.user?.display_name ?? '' }) }}
       </h1>
+      <form
+        class="flex min-w-48 flex-1 gap-2"
+        @submit.prevent="goSearch"
+      >
+        <input
+          v-model="query"
+          class="w-full rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm"
+          :placeholder="t('search.placeholder')"
+          type="search"
+        >
+      </form>
+      <RouterLink
+        class="text-sm underline"
+        to="/problems"
+      >
+        {{ t('problems.title') }}
+      </RouterLink>
       <div
         class="flex rounded-lg border border-border text-sm"
         role="group"
@@ -259,13 +283,14 @@ watch([days, density, gridWidth], () => observe())
               <article
                 v-for="cell in row.cells"
                 :key="cell.id"
-                class="absolute overflow-hidden"
+                class="absolute cursor-pointer overflow-hidden"
                 :data-hash="cell.asset.content_hash ?? undefined"
                 :style="{
                   left: `${cell.x}px`,
                   width: `${cell.w}px`,
                   height: `${cell.h}px`
                 }"
+                @click="viewing = cell.asset"
               >
                 <img
                   v-if="placeholder(cell.asset)"
@@ -306,5 +331,10 @@ watch([days, density, gridWidth], () => observe())
         </p>
       </aside>
     </div>
+    <AssetViewer
+      v-if="viewing"
+      :asset="viewing"
+      @close="viewing = null"
+    />
   </div>
 </template>

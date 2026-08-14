@@ -220,6 +220,45 @@
         ]
       }
     },
+    "/api/v1/duplicates": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "duplicates_list",
+        "responses": {
+          "200": {
+            "description": "Gruppi con lo stesso content_hash",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DuplicateGroupView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/folders/tree": {
       "get": {
         "tags": [
@@ -330,6 +369,42 @@
           },
           "500": {
             "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/problems": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "problems_list",
+        "responses": {
+          "200": {
+            "description": "Problemi visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
             "content": {
               "application/json": {
                 "schema": {
@@ -1167,6 +1242,69 @@
           }
         }
       },
+      "DuplicateGroupView": {
+        "type": "object",
+        "required": [
+          "content_hash",
+          "count",
+          "size_bytes",
+          "reclaimable_bytes"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reclaimable_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ErrorAssetView": {
+        "type": "object",
+        "required": [
+          "id",
+          "filename"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "FailedJobView": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "FolderChildren": {
         "type": "object",
         "required": [
@@ -1272,6 +1410,21 @@
           }
         }
       },
+      "OfflineLibraryView": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "Problem": {
         "type": "object",
         "description": "Errore in formato RFC 9457. Il campo `type` è un codice stabile su cui i\nclient possono ramificare; `title` è in inglese e serve al debug, non\nall'utente finale — la traduzione avviene nel frontend.\n\nÈ anche uno schema del documento `OpenAPI`: è la forma su cui il client\nmobile ramifica, quindi va descritta, non solo servita.",
@@ -1298,6 +1451,34 @@
           "type": {
             "type": "string",
             "example": "keeppix/unauthenticated"
+          }
+        }
+      },
+      "ProblemsView": {
+        "type": "object",
+        "required": [
+          "offline_libraries",
+          "failed_jobs",
+          "error_assets"
+        ],
+        "properties": {
+          "error_assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErrorAssetView"
+            }
+          },
+          "failed_jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailedJobView"
+            }
+          },
+          "offline_libraries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfflineLibraryView"
+            }
           }
         }
       },
@@ -1565,6 +1746,10 @@
     {
       "name": "events",
       "description": "WebSocket di notifica"
+    },
+    {
+      "name": "library",
+      "description": "Problemi e duplicati"
     }
   ]
 }

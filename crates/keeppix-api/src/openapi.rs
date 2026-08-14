@@ -8,7 +8,7 @@ use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
-use crate::routes::{auth, folders, media, search, setup, timeline, viewport, ws};
+use crate::routes::{auth, folders, media, problems, search, setup, timeline, viewport, ws};
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
 /// `#[utoipa::path(security(("session_cookie" = [])))]` devono ripeterlo come
@@ -63,6 +63,8 @@ impl utoipa::Modify for SecurityAddon {
         search::create_saved,
         ws::ticket,
         ws::connect,
+        problems::list,
+        problems::duplicates,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -89,6 +91,8 @@ impl utoipa::Modify for SecurityAddon {
         search::SavedSearchRequest,
         search::SavedSearchView,
         ws::TicketResponse,
+        problems::ProblemsView,
+        problems::DuplicateGroupView,
         crate::problem::Problem,
     )),
     tags(
@@ -98,7 +102,8 @@ impl utoipa::Modify for SecurityAddon {
         (name = "folders", description = "Albero delle cartelle"),
         (name = "media", description = "Miniature, preview e originali"),
         (name = "search", description = "Ricerca da AST e ricerche salvate"),
-        (name = "events", description = "WebSocket di notifica")
+        (name = "events", description = "WebSocket di notifica"),
+        (name = "library", description = "Problemi e duplicati")
     )
 )]
 pub struct ApiDoc;

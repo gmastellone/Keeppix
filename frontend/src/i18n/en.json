@@ -33,6 +33,21 @@
     "densityDown": "Fewer columns",
     "densityUp": "More columns"
   },
+  "search": {
+    "placeholder": "Search photos…",
+    "submit": "Search",
+    "invalid": "Invalid query."
+  },
+  "viewer": { "title": "Photo", "close": "Close" },
+  "problems": {
+    "title": "Problems",
+    "offlineLibraries": "Offline libraries",
+    "failedJobs": "Failed jobs",
+    "errorAssets": "Unreadable files",
+    "duplicates": "Duplicates",
+    "none": "Nothing to report.",
+    "reclaimable": "{count} copies, {bytes} bytes reclaimable"
+  },
   "common": {
     "loading": "Loading…",
     "unexpectedError": "An unexpected error occurred.",
