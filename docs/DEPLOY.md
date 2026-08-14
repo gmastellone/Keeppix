@@ -102,6 +102,28 @@ in `.env`, l'aggiornamento non richiede di reimpostare nulla: Compose lo
 rilegge da solo a ogni `up`, anche da una sessione di shell diversa da quella
 del primo avvio.
 
+## Arresto
+
+```bash
+# Ferma tutto: applicazione e database bundled.
+docker compose --profile bundled down
+
+# Come sopra, cancellando anche i volumi anonimi (i dati in ./pgdata e ./data
+# sono bind mount e restano su disco comunque).
+docker compose --profile bundled down -v
+```
+
+**Il profilo va ripetuto anche per fermare, non solo per avviare.** Un
+`docker compose down` senza `--profile bundled` rimuove il servizio `keeppix` e
+**lascia il database in esecuzione** (verificato: `keeppix-db-1` resta `Up
+(healthy)`, e la rete non viene rimossa perché ancora in uso da quel
+container). È il comportamento normale di Compose — i servizi di un profilo non
+attivo non vengono considerati — ma la conseguenza è che chi crede di aver
+spento Keeppix si ritrova Postgres acceso sui propri dati.
+
+Con un Postgres esterno il profilo non serve, né all'avvio né all'arresto:
+`docker compose down` è sufficiente.
+
 ## Dietro un reverse proxy
 
 Keeppix parla HTTP in chiaro e si aspetta che la terminazione TLS avvenga a
