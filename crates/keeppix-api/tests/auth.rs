@@ -415,7 +415,7 @@ async fn me_requires_authentication() {
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn a_database_outage_is_a_503_not_a_401() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_stoppable().await;
     setup(&server).await;
 
     // Sanity check: la sessione vale *prima* dello spegnimento, altrimenti il
