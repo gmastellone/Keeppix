@@ -17,6 +17,7 @@ path = "src/main.rs"
 keeppix-domain = { path = "../keeppix-domain" }
 keeppix-db = { path = "../keeppix-db" }
 keeppix-api = { path = "../keeppix-api" }
+keeppix-jobs = { path = "../keeppix-jobs" }
 anyhow.workspace = true
 tokio.workspace = true
 tracing.workspace = true
