@@ -25,6 +25,13 @@ impl EnergyProfile {
 }
 
 #[must_use]
+pub fn default_night_window() -> (NaiveTime, NaiveTime) {
+    let start = NaiveTime::from_hms_opt(2, 0, 0).unwrap_or(NaiveTime::MIN);
+    let end = NaiveTime::from_hms_opt(6, 0, 0).unwrap_or(NaiveTime::MIN);
+    (start, end)
+}
+
+#[must_use]
 pub fn worker_count(cpu: usize) -> usize {
     cpu.saturating_sub(1).clamp(1, 8)
 }
