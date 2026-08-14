@@ -16,11 +16,15 @@ Ruling: `AssetStatus::Indexed` dopo i metadati, non dopo i derivati — altrimen
 la timeline della 1c resta vuota finché non ci sono le thumb. Vince spec 1b §1
 sul commento di dominio della 1a.
 
+Ruling: `TestServer::start_stoppable()` per il test 503. Il container
+condiviso non può essere spento: fermarlo ucciderebbe gli altri test dello
+stesso binario. — *Costo:* un boot extra, solo su quel test.
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
 |---|---|---|---|
-| 1 | Harness container condiviso | — | |
+| 1 | Harness container condiviso | complete | |
 | 2 | Migrazione `jobs` + tipi | — | |
 | 3 | `JobRepo` | — | |
 | 4 | Magic-number kind | — | |
@@ -32,3 +36,6 @@ sul commento di dominio della 1a.
 | 10 | Sandbox + poster | — | |
 | 11 | Watcher, move, probe | — | |
 | 12 | Integrazione + STATO | — | |
+
+Checkpoint Task 1: `cargo test -p keeppix-db -- --test-threads=1` wall ~176 s
+(era ~6–7 min). Isolamento: `two_test_databases_are_isolated` verde.
