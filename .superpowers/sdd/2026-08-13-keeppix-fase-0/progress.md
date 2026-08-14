@@ -765,3 +765,179 @@ se costa piu di poche righe o introduce fragilita, lasciare lo script e
 **dichiarare il limite in un commento nel workflow**. Un limite dichiarato vale
 piu di una correzione arzigogolata. Costo se sbagliato: il budget resta una
 misura approssimata per eccesso, che e il verso conservativo.
+Task 15: fix round 1/5 (3 addressed, 0 open — Critical 1 chiuso costruendo il
+frontend dentro il job backend con setup-node prima di toolchain, rust-cache e
+di qualsiasi step che invochi rustc, con cache-dependency-path identico al job
+frontend; Critical 2 chiuso calcolando una sola volta `IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}`
+in $GITHUB_ENV e consumandolo sia in metadata-action sia in cosign, eliminando
+strutturalmente la classe di bug invece di far coincidere due normalizzazioni
+indipendenti; Important chiuso con il fix reale, non con la limitazione
+dichiarata: il budget ora misura solo gli asset referenziati da dist/index.html,
+che e il meccanismo di injection di Vite, e include anche il CSS. Risolti di
+rimbalzo i due Minor su file mancanti. Entrambi i workflow riverificati come YAML
+valido; commits 20664de..91904fb)
+Task 15: complete (commits 3fa682a..91904fb, review clean dopo 1 fix round —
+spec OK dopo il fix, qualita approvata). Non verificabile per esecuzione e
+dichiarato tale: la CI su runner reali, la cache npm, cosign contro ghcr.io.
+
+## Chiusura Fase 0 — sessione locale (2026-08-14)
+
+Stato verificato in proprio dal controller su macchina con **Docker attivo**,
+cosa che la sessione cloud non aveva (vedi R9): 96 test verdi con testcontainers
+reali, clippy --workspace --all-targets -D warnings pulito, cargo fmt --check
+pulito, cargo build --workspace verde. Confermato empiricamente il Critical 1 del
+Task 15: senza frontend/dist il workspace **non compila** (rust-embed), quindi
+`npm ci && npm run build` e un prerequisito della build Rust, non un optional.
+
+### Verifica Docker eseguita dal controller (chiude la riserva del Task 14)
+
+I 9 comandi che il Task 14 e il Task 15 avevano dichiarato non verificabili sono
+stati eseguiti su macchina con Docker attivo. Esito:
+
+- `docker build -t keeppix:dev .` — riesce. Immagine **58,6 MB** (il piano
+  stimava sotto 100 MB), multi-stage con frontend compilato dentro.
+- **Nessuna shell**: `/bin/sh` e `/bin/bash` entrambi assenti (exit 127, "no
+  such file or directory"). Il binario risponde: `keeppix 0.1.0`.
+- Utente `nonroot:nonroot`, HEALTHCHECK dichiarato come
+  `["CMD","/usr/local/bin/keeppix","healthcheck"]`.
+- `docker compose --profile bundled up -d` — db healthy, app pronta in **3s**.
+- `/health` -> `{"status":"ok","version":"0.1.0"}`;
+  `/api/v1/setup/status` -> `{"initialised":false}`.
+- Flusso completo end-to-end contro il container: setup 201 con cookie, `/auth/me`
+  200, secondo setup 409 `keeppix/already-initialised`, logout 204, `/auth/me`
+  401 `keeppix/unauthenticated`, login 200 con username case-insensitive.
+- Entrambi i container `(healthy)` dopo il periodo di start.
+- Frontend servito dal binario: `GET /` 200 `text/html`, `<title>Keeppix</title>`,
+  asset con hash; fallback SPA su `/login` 200.
+- **Header di sicurezza presenti sul 404 API** (`/api/v1/nope`): nosniff,
+  no-referrer, CSP completa, permissions-policy — il fix R5 tiene in produzione,
+  non solo nei test.
+- Persistenza: `down` + `up` -> `{"initialised":true}` e login 200 con le
+  credenziali precedenti.
+
+Verifica empirica del superamento di **R7**: il container emette
+`Secure` sul cookie `__Host-kpx_session` anche su HTTP in chiaro verso
+127.0.0.1, e curl lo accetta e lo rimanda. Il Task 12 ha corretto il mio ruling
+R7, e correttamente: `__Host-` esige la presenza letterale di `Secure`
+indipendentemente dal trasporto, mentre separatamente i browser esentano le
+origini loopback dal requisito che un cookie `Secure` viaggi su TLS. Il design
+condizionale che avevo deciso rompeva lo sviluppo locale via browser reale.
+**R7 e superato da R11 (Task 12); non va riesumato.**
+
+### Finding nuovo trovato dalla verifica Docker
+
+**`docker compose down` non ferma il database.** Dopo
+`docker compose --profile bundled up -d`, un `docker compose down` senza
+`--profile bundled` rimuove l'app ma lascia `keeppix-db-1` in esecuzione
+(confermato: `Up 4 minutes (healthy)`, e il network non viene rimosso perche
+ancora in uso). `docs/DEPLOY.md` non documenta da nessuna parte come fermare lo
+stack. Chi crede di aver spento Keeppix si ritrova Postgres acceso con i propri
+dati. Severita: Minor tecnico, ma con conseguenza operativa reale su un
+self-hosted. Correzione: documentare `docker compose --profile bundled down`
+(e `-v` per cancellare anche i volumi) in DEPLOY.md.
+
+## Review finale del branch — triage del controller (2026-08-14)
+
+Report completo: final-review-report.md. Verdetto: architettura solida, nessuna
+riscrittura necessaria per la Fase 1. I due Critical sono verifiche non eseguite,
+non difetti di codice.
+
+**Da correggere prima del merge (fix wave, un solo dispatch):**
+I1 PostGIS mai abilitato (finestra che si chiude al primo rilascio) · I2 le
+rejection native di axum bypassano RFC 9457 (4 rotte oggi, ~20 in Fase 1) ·
+I3 Cache-Control: private assente (spec 9.4) · I4 ICU MessageFormat non
+implementato (zero chiavi plurali da riscrivere oggi) · I5 blip del DB -> logout
+di massa, in due siti non uno · I6 style-src unsafe-inline inutile piu HSTS
+assente · I7 CSRF (R13) · I10 STATO.md obsoleto · assert_security_headers
+triplicato con CSP asserita via is_some() (test che non testa) · R3 applicato a
+meta (sessions.rs) · interval() sub-secondo · clear_env() incompleto · messaggio
+DATABASE_URL bilingue · docs/DEPLOY.md non documenta come fermare lo stack ·
+ban in deny.toml per proteggere strutturalmente il confine media/db.
+
+**Differiti con motivazione:** ricontrollo di disabled_at e rate limiting alla
+Fase 3 (richiedono macchinari inesistenti; il rate limiting e lo *stesso*
+middleware dei link pubblici) · logout 204 alla Fase 3 con /auth/devices ·
+deadlock 40P01 e azzeramento password alla Fase 6 · pulizia DB dell'harness
+(si documenta il comando) · I8 tag settimanale al primo rilascio · I9 compose che
+builda da sorgente su Pi.
+
+**Rimosso dalla lista:** should_be_secure, cancellato dal Task 12 (R7 superato).
+
+**Ruling da riesaminare prima della Fase 1 (non ora):** R4. Il reviewer propone
+derive(sqlx::FromRow) invece delle macro — users.rs ripete tre volte un blocco
+try_get identico di 8 campi, e assets in Fase 1 ne ha 25.
+
+**Riaperto:** la nota del Task 7 che dichiarava "inerente" il fatto che un retry
+di refresh uccida la famiglia. Lo spec 9.2 prescrive gia Idempotency-Key, ed e
+la stessa radice del deadlock 40P01. Da affrontare in Fase 6.
+
+### C2 chiuso — verifica con browser reale sul codice post-fix-wave (2026-08-14)
+
+Immagine ricostruita col fix wave, stack bundled avviato, flusso completo
+eseguito in un browser vero (non curl, non cookie_store):
+
+- `GET /` -> pagina di setup renderizzata, i18n che rileva l'inglese dal browser,
+  dark mode da preferenza di sistema, layout centrato correttamente.
+- Setup del primo admin dal form -> home autenticata "Hello, Giovanni".
+  **Questo chiude C2**: il browser ha accettato il cookie `__Host-kpx_session`
+  con `Secure` su HTTP in chiaro verso 127.0.0.1, che era la proprieta mai
+  osservata dopo b3b1b32.
+- Reload della pagina -> sessione persistente.
+- `document.cookie` vuoto e `cookieVisibleToJs: false` -> HttpOnly effettivo;
+  `localStorage` vuoto -> nessun token stivato lato client.
+- Sign out -> redirect a /login; `GET /auth/me` successiva -> 401
+  `keeppix/unauthenticated`, quindi revoca reale lato server.
+- Login con username in maiuscolo -> home. Case-insensitive confermato in UI.
+
+Confermate nello stesso giro quattro correzioni del fix wave, osservate sugli
+header reali:
+- `cache-control: private` su risposta autenticata (I3)
+- `strict-transport-security: max-age=31536000; includeSubDomains` (I6b)
+- CSRF (I7): POST senza `x-keeppix-client` -> **403** `keeppix/csrf-check-failed`;
+  con l'header -> 204.
+- Rejection axum in RFC 9457 (I2): content-type errato -> **415**
+  `keeppix/unsupported-media-type`; JSON malformato -> **400**
+  `keeppix/invalid-json`; metodo non ammesso -> **405**
+  `keeppix/method-not-allowed`.
+- Console del browser: nessun errore JS e **nessuna violazione CSP**, che
+  conferma che la rimozione di `style-src 'unsafe-inline'` (I6a) non rompe il
+  rendering.
+
+Resta aperto il solo **C1**: la CI non e mai stata eseguita, perche il lavoro
+vive su `fase-0` senza pull request e i trigger sono `push: [main]` e
+`pull_request`. Richiede di aprire la PR — azione verso l'esterno, rimessa
+all'utente.
+
+## Re-review del fix wave — esito (2026-08-14)
+
+**Verdetto: ready to merge.** Tutti e 15 i finding chiusi, invarianti intatte,
+nessuna rottura nuova. Il reviewer ha riprovato per esecuzione i due piu
+rischiosi invece di fidarsi del report:
+- Finding 7: ha mutato la CSP in tre modi (`default-src *`, il piu insidioso
+  `default-src 'self' *` che un semplice `contains` inghiottirebbe, e il
+  ripristino di `style-src 'unsafe-inline'`) ottenendo 5, 5 e 3 fallimenti; poi
+  revert e 8/8 verdi. Lo split per direttiva e reale, non decorativo.
+- Finding 13: `cargo deny check bans` ok -> aggiunta della dipendenza
+  media->db -> `error[banned]` exit 2 -> revert -> ok.
+
+Quattro osservazioni non bloccanti, tutte annotate per la Fase 1:
+1. `DbError::Connection` e `#[from] sqlx::Error`, cioe un catch-all: un difetto
+   di query in una lookup di sessione esce ora come 503 transitorio invece che
+   500. Fallisce chiuso ed e meglio del 401 indiscriminato di prima, ma il nome
+   della variante promette piu di quanto mantenga. Correlato: durante un'outage
+   `login` restituisce 500 mentre `me` restituisce 503 — split di tassonomia da
+   unificare in Fase 1.
+2. Un deadlock 40P01 su `refresh` ora esce come 503 invece che 401. Sicuro (la
+   famiglia e revocata dalla transazione vincente, il retry riceve un 401
+   pulito) e piu onesto, ma tocca di rimbalzo un item deliberatamente differito;
+   l'item resta non risolto e documentato.
+3. `keeppix-server --test config` fallisce 4/4 in parallelo e passa con
+   `--test-threads=1`. Pre-esistente, documentato nel file, e la CI lo passa gia.
+4. **Chiuso subito dal controller**: il cambio di checksum di `0001` non era
+   documentato. Chi ha un `./pgdata` da un checkout precedente incontrerebbe
+   `migration 1 was previously applied but has been modified` senza sapere
+   perche. Aggiunta a docs/DEPLOY.md una sezione con la causa, il rimedio
+   (`down -v` e ricrea, e un database di sviluppo senza foto) e la ragione per
+   cui non riguardera mai un'installazione reale.
+
+Nulla della lista differita e stato toccato nel codice.
