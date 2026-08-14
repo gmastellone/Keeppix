@@ -1,6 +1,7 @@
 # Fase 1c — Timeline, API e frontend
 
-**Stato:** specifica di progetto, non ancora pianificata in task
+**Stato:** 🔄 in esecuzione — vedi
+[`../plans/2026-08-14-keeppix-fase-1c.md`](../plans/2026-08-14-keeppix-fase-1c.md)
 **Dipende da:** Fase 1a (modello dati), Fase 1b (pipeline che riempie i dati)
 **Chiusa quando:** si naviga il TB reale dal browser, la timeline scorre fluida
 su Raspberry, la ricerca risponde e le miniature dei bucket visibili vengono
