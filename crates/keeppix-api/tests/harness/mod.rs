@@ -22,6 +22,7 @@ pub struct TestServer {
     // condiviso vive nello `OnceCell` e non si ferma.
     container: Option<ContainerAsync<Postgres>>,
     pub db: Db,
+    pub data_dir: std::path::PathBuf,
     pub base_url: String,
     pub client: reqwest::Client,
 }
@@ -74,7 +75,9 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
     let db = Db::connect(&url, 5).await.expect("connessione");
     db.migrate().await.expect("migrazioni");
 
-    let state = keeppix_api::AppState::new(db.clone(), 3600);
+    let data_dir = std::env::temp_dir().join(format!("keeppix-api-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&data_dir).expect("data_dir");
+    let state = keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -93,6 +96,7 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
     TestServer {
         container,
         db,
+        data_dir,
         base_url: format!("http://{addr}"),
         client,
     }

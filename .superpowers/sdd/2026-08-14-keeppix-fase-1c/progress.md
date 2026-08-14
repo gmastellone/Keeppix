@@ -22,14 +22,20 @@ luogo. `asset_flags` è Fase 2; `assets.location` non è ancora sul tipo
 un secondo round-trip — costo se sbagliato: il client 1c deve rifare una
 chiamata in 2/4.
 
+Ruling: i derivati stanno su `/media/thumb|{preview}/{hash}` e
+`/media/original/{id}`, **non** sotto `/api/v1`. La tabella della spec §3 li
+elenca con gli altri endpoint; §3.1 e il design chiedono URL cacheabili e
+l'esclusione SPA di `media/` e `dav/`. Un hash sconosciuto è `403` anche per
+l'admin: non è un oracolo di esistenza del contenuto.
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
 |---|---|---|---|
 | 1 | Trigger month counts | complete | `be786a8` |
 | 2 | `TimelineRepo` | complete | `0d5b283` |
-| 3 | HTTP timeline + cartelle | complete | |
-| 4 | Media + SPA fallback | — | |
+| 3 | HTTP timeline + cartelle | complete | `4653651` |
+| 4 | Media + SPA fallback | complete | |
 | 5 | Viewport promote | — | |
 | 6 | Ricerca | — | |
 | 7 | WebSocket | — | |

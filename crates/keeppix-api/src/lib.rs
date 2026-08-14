@@ -149,6 +149,9 @@ fn all_routes() -> Router<AppState> {
     Router::new()
         .route("/health", get(routes::health::get))
         .route("/api/openapi.json", get(openapi::serve))
+        .route("/media/thumb/{hash}", get(routes::media::thumb))
+        .route("/media/preview/{hash}", get(routes::media::preview))
+        .route("/media/original/{id}", get(routes::media::original))
         .nest("/api/v1", api_routes())
         // Va chiamata **dopo** aver registrato le rotte: imposta il fallback
         // di ogni `MethodRouter` già presente, e un `route(...)` aggiunto in

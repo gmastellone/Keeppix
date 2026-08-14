@@ -614,6 +614,189 @@
           }
         ]
       }
+    },
+    "/media/original/{id}": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "# Errors\n`401` / `403` come gli altri asset; `404` se il file non è sul disco.",
+        "operationId": "media_original",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File originale"
+          },
+          "206": {
+            "description": "Byte range"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File assente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/media/preview/{hash}": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "# Errors\nCome `thumb`.",
+        "operationId": "media_preview",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "description": "blake3 hex da 64 caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Preview WebP"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hash non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Derivato assente su disco",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/media/thumb/{hash}": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'hash non è visibile o non esiste.",
+        "operationId": "media_thumb",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "description": "blake3 hex da 64 caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Thumbnail WebP"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hash non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Derivato assente su disco",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -940,6 +1123,10 @@
     {
       "name": "folders",
       "description": "Albero delle cartelle"
+    },
+    {
+      "name": "media",
+      "description": "Miniature, preview e originali"
     }
   ]
 }
