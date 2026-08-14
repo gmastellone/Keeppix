@@ -50,6 +50,9 @@ macro_rules! id_type {
 
 id_type!(UserId);
 id_type!(GroupId);
+id_type!(LibraryId);
+id_type!(FolderId);
+id_type!(AssetId);
 
 #[cfg(test)]
 mod tests {
