@@ -133,6 +133,27 @@ Minor differiti (Task 7):
 - `upsert_discovered` non riporta lo status a `discovered` se size/mtime cambiano su un asset già `indexed`.
 - `find_by_hash` su un hash sconosciuto restituisce lista vuota, non Forbidden (non è un probe per id).
 
+Ruling: `change_log.library_id` non è nello spec §2.6. Senza, un `DELETE` in CASCADE dalla cartella non può applicare la visibilità: la riga di `folders` è già sparita quando scatta il trigger sull'asset. — Serve a spec §3 sul delta. — *Costo se sbagliato:* una colonna in più, barata.
+
+Ruling: lo sketch SQL di spec §2.6 (`xmin >= snapshot_xmin`, `min(seq)-1`) avanzerebbe il cursore *oltre* il seq ancora in-flight (non visibile). Il cursore è `min(ultimo seq consegnato, MAX(seq) WHERE xmin < snapshot_xmin)`. I duplicati sul retry sono idempotenti. — Il test `overlapping_transactions_do_not_drop_rows` lo inchioda. — *Costo se sbagliato:* il client mobile perde foto.
+
+Ruling: in CASCADE, `library_id` del delete si rilegge dall'ultimo upsert dello stesso `entity_id` se `folders` è già invisibile. — *Costo se sbagliato:* un insert-senza-upsert non può esistere (il trigger copre INSERT).
+
+Ruling: checkpoint prestazioni Task 8 — **non si cambia l'harness in 1a**. Rapporto ancora lineare (~4s/test di integrazione, boot container). keeppix-db è ~6-7 minuti; la Fase 0 CI caldo era 5m23s per *tutto* il backend. Si cambia in 1b, una volta, quando arrivano worker e media. — *Costo se sbagliato:* una PR draft 1a da 15-20 min in CI.
+
+Task 8: complete (commit c60ab1f)
+
+## Criteri di completamento 1a
+
+- Workspace ~189 esecuzioni Rust (107 in Fase 0, +82 ≥ 45). Clippy `-D warnings` e `fmt --check` puliti in questa sessione. Un `cargo test --workspace` intero è andato a flake `PortNotExposed` a metà; i binari sono stati ritentati e sono verdi.
+- Integrazione: `a_library_tree_and_assets_round_trip_with_permissions` (3 livelli + 12 asset).
+- `moving_a_folder_does_not_touch_assets`.
+- Forbidden-not-NotFound su library, folder, asset.
+- `overlapping_transactions_do_not_drop_rows`.
+- CI su PR: **non aperta** (richiesta esplicita: no push/PR/merge).
+
+1a chiusa. Non si parte la 1b.
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
@@ -144,4 +165,4 @@ Minor differiti (Task 7):
 | 5 | `FolderRepo` + checkpoint CI | ✅ | `aca5b5e` |
 | 6 | Migrazione asset ed EXIF | ✅ | `141c01a` |
 | 7 | `AssetRepo` e visibilità | ✅ | `3fd15a6` |
-| 8 | Registro delle modifiche | — | |
+| 8 | Registro delle modifiche | ✅ | `c60ab1f` |
