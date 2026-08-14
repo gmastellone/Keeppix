@@ -1869,7 +1869,15 @@ dependencies = [
 name = "keeppix-jobs"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "keeppix-db",
+ "keeppix-domain",
+ "keeppix-media",
+ "serde_json",
  "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

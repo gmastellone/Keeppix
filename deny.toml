@@ -30,4 +30,4 @@ multiple-versions = "warn"
 # aciclico di cargo rende impossibile una volta esistente.
 [[bans.deny]]
 crate = "keeppix-db"
-wrappers = ["keeppix-api", "keeppix-server"]
+wrappers = ["keeppix-api", "keeppix-server", "keeppix-jobs"]
