@@ -9,7 +9,9 @@ license.workspace = true
 thiserror.workspace = true
 keeppix-domain = { path = "../keeppix-domain" }
 chrono.workspace = true
+serde_json.workspace = true
 walkdir = "2"
+exif = { package = "kamadak-exif", version = "0.6.1" }
 
 [lints]
 workspace = true

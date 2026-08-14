@@ -29,8 +29,8 @@ stesso binario. — *Costo:* un boot extra, solo su quel test.
 | 3 | `JobRepo` | complete | `c939aef` |
 | 4 | Magic-number kind | complete | `db25913` |
 | 5 | Worker pool + profili | complete | `9257bba` |
-| 6 | Discovery | complete | |
-| 7 | EXIF | — | |
+| 6 | Discovery | complete | `e4e69b6` |
+| 7 | EXIF | complete | |
 | 8 | Hash | — | |
 | 9 | Derivati | — | |
 | 10 | Sandbox + poster | — | |

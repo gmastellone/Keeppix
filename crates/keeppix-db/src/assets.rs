@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use keeppix_domain::{
-    Asset, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, FolderId, LibraryId, NewAsset,
+    Asset, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, ExifData, FolderId, LibraryId,
+    NewAsset,
 };
 
 use crate::visibility::VisibilityScope;
@@ -321,5 +322,32 @@ impl<'a> AssetRepo<'a> {
         .fetch_one(self.db.pool())
         .await?;
         Ok(n)
+    }
+
+    /// I metadati originali sono immutabili: un secondo insert non sovrascrive.
+    ///
+    /// Non prende un `AuthContext`: la chiama la pipeline.
+    ///
+    /// # Errors
+    /// `Connection` se l'inserimento fallisce.
+    pub async fn insert_exif(&self, asset_id: AssetId, exif: &ExifData) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO asset_exif \
+                (asset_id, raw, camera_make, camera_model, lens, iso, f_number, exposure, focal_length) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+             ON CONFLICT (asset_id) DO NOTHING",
+        )
+        .bind(asset_id.as_uuid())
+        .bind(&exif.raw)
+        .bind(&exif.camera_make)
+        .bind(&exif.camera_model)
+        .bind(&exif.lens)
+        .bind(exif.iso)
+        .bind(exif.f_number)
+        .bind(&exif.exposure)
+        .bind(exif.focal_length)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
     }
 }

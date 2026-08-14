@@ -326,10 +326,31 @@ impl<'a> FolderRepo<'a> {
         ctx: &AuthContext,
         folder_id: FolderId,
     ) -> Result<PathBuf, DbError> {
-        let (folder, library) = self.visible(ctx, folder_id).await?;
+        let (_folder, library) = self.visible(ctx, folder_id).await?;
+        self.join_folder_path(library.root_path, folder_id).await
+    }
 
-        // La CTE risale al genitore; `ORDER BY lvl DESC` restituisce i nomi
-        // dalla radice in giù. La radice ha nome vuoto e non contribuisce.
+    /// Come `absolute_path`, per lo scanner: niente `AuthContext`.
+    ///
+    /// # Errors
+    /// `NotFound` se la cartella non esiste; `Corrupted` su un nome illegale.
+    pub async fn absolute_path_for_scan(&self, folder_id: FolderId) -> Result<PathBuf, DbError> {
+        let mut conn = self.db.pool().acquire().await?;
+        let Some(folder) = load(&mut conn, folder_id).await? else {
+            return Err(DbError::NotFound);
+        };
+        drop(conn);
+        let library = LibraryRepo::new(self.db)
+            .load_for_scan(folder.library_id)
+            .await?;
+        self.join_folder_path(library.root_path, folder_id).await
+    }
+
+    async fn join_folder_path(
+        &self,
+        mut path: PathBuf,
+        folder_id: FolderId,
+    ) -> Result<PathBuf, DbError> {
         let names: Vec<String> = sqlx::query_scalar(
             "WITH RECURSIVE up AS ( \
                  SELECT id, parent_id, name, 0 AS lvl FROM folders WHERE id = $1 \
@@ -339,15 +360,10 @@ impl<'a> FolderRepo<'a> {
              ) \
              SELECT name FROM up WHERE name <> '' ORDER BY lvl DESC",
         )
-        .bind(folder.id.as_uuid())
+        .bind(folder_id.as_uuid())
         .fetch_all(self.db.pool())
         .await?;
-
-        let mut path = library.root_path;
         for name in names {
-            // `PathBuf::push` con un nome assoluto o con `..` uscirebbe dalla
-            // libreria. Il controllo sta qui perché è qui che il nome torna a
-            // essere un percorso.
             if !is_single_component(&name) {
                 return Err(crate::row::corrupted("folder name", name));
             }
