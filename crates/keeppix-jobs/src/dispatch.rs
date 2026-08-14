@@ -6,6 +6,7 @@ use keeppix_domain::{Job, JobKind};
 
 use crate::JobError;
 use crate::discover;
+use crate::metadata;
 
 /// Handler unico della pipeline 1b. I kind non ancora implementati
 /// restano un errore del worker, così il job va in retry/fail invece di
@@ -30,6 +31,10 @@ impl crate::JobHandler for IngestHandler {
             JobKind::DiscoverLibrary => {
                 let id = discover::library_id_from_payload(&job.payload)?;
                 discover::run(&self.db, id, self.stability_wait).await
+            }
+            JobKind::ExtractMetadata => {
+                let id = metadata::asset_id_from_payload(&job.payload)?;
+                metadata::run(&self.db, id).await
             }
             JobKind::ReapStale => {
                 keeppix_db::JobRepo::new(&self.db)

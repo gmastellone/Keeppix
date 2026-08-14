@@ -3,6 +3,7 @@
 pub mod discover;
 pub mod dispatch;
 pub mod error;
+pub mod metadata;
 pub mod pool;
 pub mod profile;
 
