@@ -1,0 +1,21 @@
+{
+  "name": "Keeppix",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "backend",
+      "command": "export DATABASE_URL=\"postgres://keeppix:changeme@localhost:5432/keeppix\"; export KEEPPIX_DATA_DIR=\"$PWD/data\"; export KEEPPIX_LOG_FORMAT=pretty; mkdir -p data; cargo run --bin keeppix serve",
+      "description": "Backend Keeppix su http://localhost:5673: applica le migrazioni, serve le API /api/v1 e la SPA embedded. Apri questo indirizzo per creare l'amministratore."
+    },
+    {
+      "name": "frontend-dev",
+      "command": "cd frontend && npm run dev -- --host",
+      "description": "Vite dev server su http://localhost:5173 con hot reload; inoltra /api e /health al backend su :5673 (vedi frontend/vite.config.ts)."
+    }
+  ],
+  "ports": [
+    { "name": "backend", "port": 5673 },
+    { "name": "frontend-dev", "port": 5173 }
+  ]
+}
