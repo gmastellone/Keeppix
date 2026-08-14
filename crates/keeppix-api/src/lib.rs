@@ -22,11 +22,35 @@ use tower_http::compression::CompressionLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
-/// Content Security Policy restrittiva. `style-src` ammette `unsafe-inline`
-/// perché Vue inietta stili scoped a runtime; gli script no.
-const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+/// Content Security Policy restrittiva, **senza deroghe `unsafe-*`**.
+///
+/// `style-src` ammetteva `'unsafe-inline'` «perché Vue inietta stili scoped a
+/// runtime». Non è vero, ed è stato verificato sul bundle prodotto: Vite
+/// estrae gli stili scoped delle SFC a build time in un foglio esterno
+/// (`dist/index.html` carica `<link rel="stylesheet">` e non contiene un solo
+/// `<style>` né un attributo `style=`), e gli stili che Vue e Reka UI
+/// impostano davvero a runtime lo fanno via CSSOM (`element.style`), che la CSP
+/// non intercetta. La deroga indeboliva una policy dichiarata restrittiva senza
+/// comprare nulla; spec §9.5 chiede esplicitamente «CSP senza `unsafe-inline`».
+///
+/// Se un giorno servisse rimetterla, va detto *cosa* la richiede, con un
+/// riferimento verificabile: `keeppix-test-support` fa fallire i test se una
+/// deroga `unsafe-*` ricompare in `script-src`.
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
                    img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; \
                    base-uri 'none'; form-action 'self'";
+
+/// HSTS, richiesto da spec §9.5. Un anno con i sottodomini.
+///
+/// È incondizionato di proposito, e non rompe l'accesso in chiaro in LAN: un
+/// browser **ignora** `Strict-Transport-Security` ricevuto su HTTP, per
+/// definizione (RFC 6797 §8.1), quindi l'header ha effetto solo dove esiste già
+/// il TLS che dichiara di pretendere — cioè dietro il reverse proxy che
+/// `docs/DEPLOY.md` descrive come installazione normale. `preload` **non** è
+/// incluso: iscriverebbe il dominio dell'utente a una lista globale
+/// difficilmente reversibile, e non è una decisione che Keeppix può prendere
+/// per lui.
+const HSTS: &str = "max-age=31536000; includeSubDomains";
 
 /// Router con stato, montato dai test che vogliono un 404 in JSON invece del
 /// fallback SPA (quest'ultimo lo aggiunge solo il binario, vedi
@@ -82,6 +106,10 @@ pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::HeaderName::from_static("permissions-policy"),
             HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static(HSTS),
         ))
         // Spec §9.4: «`Cache-Control: private` su tutto ciò che è autenticato».
         // `if_not_present`, **non** `overriding`: le rotte che impostano una

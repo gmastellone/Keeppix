@@ -61,6 +61,15 @@ pub fn assert_security_headers(headers: &HeaderMap) {
             .expect("permissions-policy"),
         "camera=(), microphone=(), geolocation=()"
     );
+    // Spec §9.5 elenca HSTS fra gli header obbligatori. Un browser lo ignora
+    // quando arriva su HTTP, quindi l'header incondizionato non rompe l'uso in
+    // chiaro in LAN e vale dove c'è il proxy TLS.
+    assert_eq!(
+        headers
+            .get("strict-transport-security")
+            .expect("strict-transport-security"),
+        "max-age=31536000; includeSubDomains"
+    );
     assert_content_security_policy(headers);
 }
 
@@ -88,14 +97,19 @@ pub fn assert_content_security_policy(headers: &HeaderMap) {
         );
     }
 
-    // `script-src` senza `'unsafe-inline'` è la proprietà che rende la policy
-    // efficace: con essa, un'iniezione di `<script>` non esegue.
-    let script_src = directives
-        .iter()
-        .find(|d| d.starts_with("script-src"))
-        .expect("script-src dichiarata");
+    // Nessuna deroga `unsafe-*` in **nessuna** direttiva. Su `script-src` è la
+    // proprietà che rende la policy efficace: senza di essa un'iniezione di
+    // `<script>` non esegue. Su `style-src` la deroga c'era, giustificata da un
+    // commento falso, e non serviva a niente: il bundle di Vite non ha stili
+    // inline (verificato su `dist/index.html`) e ciò che Vue imposta a runtime
+    // passa dal CSSOM, che la CSP non intercetta.
     assert!(
-        !script_src.contains("unsafe-inline") && !script_src.contains("unsafe-eval"),
-        "script-src non deve ammettere deroghe unsafe: `{script_src}`"
+        !csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"),
+        "la CSP non deve ammettere deroghe unsafe: `{csp}`"
+    );
+    assert!(
+        directives.iter().any(|d| d.starts_with("style-src")),
+        "style-src va dichiarata: senza di essa vale `default-src` e la \
+         rimozione di `unsafe-inline` non sarebbe osservabile: `{csp}`"
     );
 }
