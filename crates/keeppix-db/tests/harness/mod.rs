@@ -37,6 +37,29 @@ impl TestDb {
     }
 }
 
+/// Crea un amministratore e ne restituisce l'id. Ogni test di questa fase
+/// ha bisogno di un proprietario per le librerie.
+///
+/// # Panics
+/// Se la creazione fallisce: in un test è il comportamento voluto.
+#[allow(clippy::expect_used, dead_code)]
+pub async fn seed_admin(test: &TestDb) -> keeppix_domain::UserId {
+    use keeppix_domain::{NewUser, Password, SystemRole, Username, hash_password};
+
+    let password = Password::parse("correct horse battery staple").expect("password valida");
+    keeppix_db::UserRepo::new(test.db())
+        .create_bootstrap_admin(NewUser {
+            username: Username::parse("giovanni").expect("username valido"),
+            email: None,
+            display_name: "Giovanni".to_owned(),
+            password_hash: hash_password(&password).expect("hash").as_str().to_owned(),
+            role: SystemRole::Admin,
+        })
+        .await
+        .expect("creazione admin")
+        .id
+}
+
 /// Procura un database vergine e restituisce l'eventuale container che lo
 /// ospita, da tenere vivo per la durata del test.
 ///
