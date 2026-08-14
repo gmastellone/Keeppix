@@ -24,8 +24,8 @@ stesso binario. — *Costo:* un boot extra, solo su quel test.
 
 | # | Task | Stato | Commit |
 |---|---|---|---|
-| 1 | Harness container condiviso | complete | |
-| 2 | Migrazione `jobs` + tipi | — | |
+| 1 | Harness container condiviso | complete | `de75da7` |
+| 2 | Migrazione `jobs` + tipi | complete | |
 | 3 | `JobRepo` | — | |
 | 4 | Magic-number kind | — | |
 | 5 | Worker pool + profili | — | |
