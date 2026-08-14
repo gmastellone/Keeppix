@@ -32,10 +32,10 @@ stesso binario. — *Costo:* un boot extra, solo su quel test.
 | 6 | Discovery | complete | `e4e69b6` |
 | 7 | EXIF | complete | `a84cd10` |
 | 8 | Hash | complete | `1cba2ed` |
-| 9 | Derivati | complete | |
-| 10 | Sandbox + poster | — | |
-| 11 | Watcher, move, probe | — | |
-| 12 | Integrazione + STATO | — | |
+| 9 | Derivati | complete | `34d8dd3` |
+| 10 | Sandbox + poster | complete | `d50d158` |
+| 11 | Watcher, move, probe | complete | `6ec3037` |
+| 12 | Integrazione + STATO | complete | `bd915e0` |
 
 Checkpoint Task 1: `cargo test -p keeppix-db -- --test-threads=1` wall ~176 s
 (era ~6–7 min). Isolamento: `two_test_databases_are_isolated` verde.
@@ -43,4 +43,31 @@ Checkpoint Task 1: `cargo test -p keeppix-db -- --test-threads=1` wall ~176 s
 Ruling: `promote` usa `LEAST(priority, $n)` invece dello sketch `SET priority = 2`.
 Altrimenti un job interactive (0) verrebbe declassato. — *Costo:* nessuno se
 il chiamante passa sempre 2.
+
+Ruling: sandbox `rlimit` su Unix, niente seccomp in 1b. Interfaccia
+`run(program, args, memory_bytes, cpu_secs)`. — *Costo:* un figlio Linux
+non è filtrato da seccomp; upgrade con `libseccomp`.
+
+Ruling: uno spostamento è stesso `(content_hash, size)` **e** il file vecchio
+non è sul disco. Due copie presenti non si marcanono `offline`. File
+`moves.rs` (non `r#move.rs`). — *Costo:* un rename non rilevato se il path
+vecchio è ancora un file (non è un rename).
+
+Ruling: NFS solo da `/proc/mounts` su Linux; macOS resta Native. —
+*Costo:* un mount NFS su macOS usa FSEvents, che sui network FS è inaffidabile,
+e cade sul polling solo se si forza `WatcherMode::Polling`.
+
+Ruling: `LibraryRepo::list_for_scan` senza `AuthContext` — il watcher all'avvio
+non agisce per conto di un utente. — *Costo:* un'eccezione in più.
+
+Ruling: encode WebP lossless (`image-webp` non ha q78). — *Costo:* thumb più
+pesanti del q78 della spec.
+
+Task 9: complete (commit `34d8dd3`)
+Task 10: complete (commit `d50d158`)
+Task 11: complete (commit `6ec3037`)
+Task 12: complete (commit `bd915e0`)
+
+Fixture (macchina di close): wall 818 ms / 3 file (~272 ms/file), metadata
+<1 ms, derive 5 ms su 64×64. Numeri del fixture, non del TB. Vedi STATO.md.
 

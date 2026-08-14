@@ -1,7 +1,7 @@
 # Fase 1b — Pipeline di ingestione
 
-**Stato:** 🔄 in esecuzione — vedi
-[`../plans/2026-08-14-keeppix-fase-1b.md`](../plans/2026-08-14-keeppix-fase-1b.md)
+**Stato:** ✅ **chiusa sul branch `fase-1`** — vedi
+[`../plans/2026-08-14-keeppix-fase-1b-STATO.md`](../plans/2026-08-14-keeppix-fase-1b-STATO.md)
 **Dipende da:** Fase 1a (modello dati, repository, visibilità)
 **Chiusa quando:** si punta Keeppix a una cartella reale e la si trova
 indicizzata, con le miniature su disco, senza aver toccato un solo originale

@@ -1,7 +1,7 @@
 # Fase 1a — Modello dati dell'ingestione
 
-**Stato:** 🔄 in esecuzione — vedi
-[`../plans/2026-08-14-keeppix-fase-1a.md`](../plans/2026-08-14-keeppix-fase-1a.md)
+**Stato:** ✅ **chiusa sul branch `fase-1`** — vedi
+[`.superpowers/sdd/2026-08-14-keeppix-fase-1a/progress.md`](../../../.superpowers/sdd/2026-08-14-keeppix-fase-1a/progress.md)
 **Dipende da:** Fase 0
 **Chiusa quando:** si creano librerie, cartelle e asset via repository e li si
 interroga con i permessi applicati
