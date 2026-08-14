@@ -49,6 +49,11 @@ Costo se sbagliato: placeholder meno fedeli, si sostituisce il decoder
 senza toccare l'API. Selezione multipla e pinch-density restano fuori
 dal Task 9 (non erano nel piano); si annotano nello STATO.
 
+Ruling: i job `failed` in `GET /problems` sono visibili solo all'admin.
+Non hanno `AuthContext` in `JobRepo`; esporli a un utente mostrerebbe
+errori di ingest di librerie altrui. Costo se sbagliato: un owner non-admin
+non vede i job della propria libreria finché non si filtra sul payload.
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
@@ -61,6 +66,6 @@ dal Task 9 (non erano nel piano); si annotano nello STATO.
 | 6 | Ricerca | complete | `f8c3930` |
 | 7 | WebSocket | complete | `73f7227` |
 | 8 | Cache sessioni | complete | `34a2cb2` |
-| 9 | Frontend timeline | complete | |
-| 10 | Ricerca / viewer / problemi | — | |
+| 9 | Frontend timeline | complete | `8b3ad9a` |
+| 10 | Ricerca / viewer / problemi | complete | |
 | 11 | STATO | — | |

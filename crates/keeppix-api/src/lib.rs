@@ -147,6 +147,8 @@ fn api_routes() -> Router<AppState> {
         )
         .route("/ws/ticket", axum::routing::post(routes::ws::ticket))
         .route("/ws", get(routes::ws::connect))
+        .route("/problems", get(routes::problems::list))
+        .route("/duplicates", get(routes::problems::duplicates))
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe
