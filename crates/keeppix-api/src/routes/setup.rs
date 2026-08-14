@@ -1,12 +1,13 @@
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
-use axum::{Json, response::IntoResponse};
+use axum::response::IntoResponse;
 use axum_extra::extract::CookieJar;
 use keeppix_db::{SessionRepo, UserRepo};
 use keeppix_domain::{NewUser, Password, SystemRole, Username, hash_password};
 use serde::{Deserialize, Serialize};
 
 use crate::cookie::session_cookie;
+use crate::json::Json;
 use crate::problem::Problem;
 use crate::routes::auth::UserView;
 use crate::state::AppState;
@@ -61,8 +62,10 @@ pub struct SetupResponse {
     request_body = SetupRequest,
     responses(
         (status = 201, description = "Amministratore creato e sessione aperta", body = SetupResponse),
+        (status = 400, description = "Corpo JSON sintatticamente non valido", body = Problem),
         (status = 409, description = "Istanza già inizializzata", body = Problem),
-        (status = 422, description = "Username o password non validi", body = Problem),
+        (status = 415, description = "Content-Type diverso da application/json", body = Problem),
+        (status = 422, description = "Username o password non validi, o corpo JSON di forma inattesa", body = Problem),
         (status = 500, description = "Hashing della password o scrittura fallita", body = Problem)
     )
 )]

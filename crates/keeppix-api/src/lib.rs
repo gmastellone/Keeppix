@@ -3,12 +3,14 @@
 
 pub mod cookie;
 pub mod extract;
+pub mod json;
 pub mod openapi;
 pub mod problem;
 pub mod routes;
 pub mod state;
 
 pub use extract::{AdminAuth, Auth, SESSION_COOKIE};
+pub use json::Json;
 pub use problem::Problem;
 pub use state::AppState;
 
@@ -38,6 +40,7 @@ pub fn router_without_state() -> Router {
         Router::new()
             .route("/health", get(routes::health::get))
             .route("/api/openapi.json", get(openapi::serve))
+            .method_not_allowed_fallback(method_not_allowed)
             .fallback(not_found),
     )
 }
@@ -98,8 +101,20 @@ fn all_routes() -> Router<AppState> {
         .route("/health", get(routes::health::get))
         .route("/api/openapi.json", get(openapi::serve))
         .nest("/api/v1", api_routes())
+        // Va chiamata **dopo** aver registrato le rotte: imposta il fallback
+        // di ogni `MethodRouter` già presente, e un `route(...)` aggiunto in
+        // seguito tornerebbe al `405` a corpo vuoto di axum. Stessa classe di
+        // trappola dell'ordine di `.fallback(...)` documentato sotto.
+        .method_not_allowed_fallback(method_not_allowed)
 }
 
 async fn not_found() -> Problem {
     Problem::not_found()
+}
+
+/// `405` dentro il contratto RFC 9457: senza questo fallback axum risponde con
+/// un corpo vuoto e nessun `type`, e un client che ramifica sul codice
+/// d'errore non ha niente da leggere.
+async fn method_not_allowed() -> Problem {
+    Problem::method_not_allowed()
 }

@@ -1,5 +1,6 @@
-use axum::Json;
 use serde::Serialize;
+
+use crate::json::Json;
 
 #[derive(Serialize)]
 pub struct Health {

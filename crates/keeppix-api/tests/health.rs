@@ -54,6 +54,37 @@ async fn security_headers_are_present() {
     assert_security_headers(response.headers());
 }
 
+/// Anche il router senza stato deve avere il `method_not_allowed_fallback`:
+/// è quello che montano i test, e la coppia di router va tenuta allineata.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn wrong_method_returns_problem_json() {
+    let response = app()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/problem+json"
+    );
+    assert_security_headers(response.headers());
+
+    let body = http_body_util::BodyExt::collect(response.into_body())
+        .await
+        .unwrap()
+        .to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["type"], "keeppix/method-not-allowed");
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn unknown_api_path_returns_problem_json() {

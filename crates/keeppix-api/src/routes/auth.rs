@@ -1,6 +1,6 @@
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::{Json, response::IntoResponse};
+use axum::response::IntoResponse;
 use axum_extra::extract::CookieJar;
 use keeppix_db::{SessionRepo, UserRepo};
 use keeppix_domain::{Password, SessionToken, SystemRole, User, Username, verify_password};
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cookie::{clearing_cookie, session_cookie};
 use crate::extract::{Auth, SESSION_COOKIE};
+use crate::json::Json;
 use crate::problem::Problem;
 use crate::routes::setup::user_agent;
 use crate::state::AppState;
@@ -65,7 +66,10 @@ pub struct LoginResponse {
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Sessione aperta", body = LoginResponse),
+        (status = 400, description = "Corpo JSON sintatticamente non valido", body = Problem),
         (status = 401, description = "Credenziali non valide", body = Problem),
+        (status = 415, description = "Content-Type diverso da application/json", body = Problem),
+        (status = 422, description = "Corpo JSON valido ma di forma inattesa", body = Problem),
         (status = 500, description = "Errore del database o nella creazione della sessione", body = Problem)
     )
 )]

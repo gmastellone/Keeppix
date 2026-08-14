@@ -38,8 +38,38 @@
               }
             }
           },
+          "400": {
+            "description": "Corpo JSON sintatticamente non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Credenziali non valide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type diverso da application/json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Corpo JSON valido ma di forma inattesa",
             "content": {
               "application/json": {
                 "schema": {
@@ -189,6 +219,16 @@
               }
             }
           },
+          "400": {
+            "description": "Corpo JSON sintatticamente non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Istanza già inizializzata",
             "content": {
@@ -199,8 +239,18 @@
               }
             }
           },
+          "415": {
+            "description": "Content-Type diverso da application/json",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "422": {
-            "description": "Username o password non validi",
+            "description": "Username o password non validi, o corpo JSON di forma inattesa",
             "content": {
               "application/json": {
                 "schema": {
