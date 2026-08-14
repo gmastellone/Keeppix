@@ -119,16 +119,21 @@ Prima di considerare chiuso un task, esegui **tutto** questo e guarda l'output:
 
 ```bash
 cd frontend && npm ci && npm run build   # obbligatorio: senza dist/ il backend non compila
-cd .. && cargo test --workspace -- --test-threads=1
+cd .. && cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --check
+./scripts/test.sh
 ```
 
 `frontend/dist` non è un prerequisito dei test ma **della compilazione**:
 `rust-embed` incorpora quella cartella a compile time.
 
+`./scripts/test.sh` è `cargo test --workspace --jobs 1 -- --test-threads=1`
+e, anche se i test falliscono, rimuove i container testcontainers e fa
+`cargo clean`. Non usare `cargo test --workspace` a mano: senza `--jobs 1`
+parte un PostGIS per crate in parallelo e `target/` resta a ~9 GB.
 `--test-threads=1` serve ai test di `keeppix-server/tests/config.rs`, che
-manipolano l'ambiente di processo.
+manipolano l'ambiente di processo. Clippy **prima** dei test: lo script
+cancella `target/` dopo.
 
 Non dire "fatto" senza aver visto l'output verde. Se qualcosa è rosso, è rosso.
 

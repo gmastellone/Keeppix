@@ -44,7 +44,12 @@ jobs:
       # la variabile KEEPPIX_TEST_DATABASE_URL per puntare a un Postgres già
       # in esecuzione: qui in CI non va impostata.
       - name: Test
-        run: cargo test --workspace -- --test-threads=1
+        run: cargo test --workspace --jobs 1 -- --test-threads=1
+      - name: Rimuovi testcontainers
+        if: always()
+        run: |
+          docker ps -aq --filter 'label=org.testcontainers.managed-by=testcontainers' \
+            | xargs -r docker rm -f
 
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json
