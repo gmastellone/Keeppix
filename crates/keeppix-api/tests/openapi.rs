@@ -57,6 +57,9 @@ async fn openapi_document_is_served_and_complete() {
         "/media/preview/{hash}",
         "/media/original/{id}",
         "/api/v1/viewport",
+        "/api/v1/search",
+        "/api/v1/search/suggest",
+        "/api/v1/saved-searches",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
@@ -150,8 +153,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 14,
-        "il documento deve descrivere quattordici operazioni"
+        checked, 18,
+        "il documento deve descrivere diciotto operazioni"
     );
 }
 
@@ -203,6 +206,10 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/auth/refresh",
             "/api/v1/folders/tree",
             "/api/v1/folders/{id}/children",
+            "/api/v1/saved-searches",
+            "/api/v1/saved-searches",
+            "/api/v1/search",
+            "/api/v1/search/suggest",
             "/api/v1/timeline",
             "/api/v1/timeline/buckets",
             "/api/v1/viewport",
@@ -250,6 +257,10 @@ fn operation_ids_are_explicit_and_unique() {
             "media_original",
             "media_preview",
             "media_thumb",
+            "saved_searches_create",
+            "saved_searches_list",
+            "search_run",
+            "search_suggest",
             "setup_create",
             "setup_status",
             "timeline_buckets",

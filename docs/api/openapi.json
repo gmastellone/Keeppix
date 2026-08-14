@@ -346,6 +346,192 @@
         ]
       }
     },
+    "/api/v1/saved-searches": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "saved_searches_list",
+        "responses": {
+          "200": {
+            "description": "Ricerche salvate dell'utente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SavedSearchView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "saved_searches_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Ricerca salvata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSearchView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/search": {
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "summary": "# Errors\n`400` se il cursore è illeggibile; `401` se non autenticato.",
+        "operationId": "search_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Risultati visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/search/suggest": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "search_suggest",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Prefisso",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Suggerimenti visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/setup": {
       "post": {
         "tags": [
@@ -1044,6 +1230,84 @@
           }
         }
       },
+      "SavedSearchRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "query_text"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "query_text": {
+            "type": "string"
+          }
+        }
+      },
+      "SavedSearchView": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "query_text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "query_text": {
+            "type": "string"
+          }
+        }
+      },
+      "SearchPage": {
+        "type": "object",
+        "required": [
+          "assets"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetView"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SearchRequest": {
+        "type": "object",
+        "required": [
+          "ast"
+        ],
+        "properties": {
+          "ast": {
+            "type": "object"
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "SetupRequest": {
         "type": "object",
         "required": [
@@ -1088,6 +1352,20 @@
         "properties": {
           "initialised": {
             "type": "boolean"
+          }
+        }
+      },
+      "SuggestResponse": {
+        "type": "object",
+        "required": [
+          "suggestions"
+        ],
+        "properties": {
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -1191,6 +1469,10 @@
     {
       "name": "media",
       "description": "Miniature, preview e originali"
+    },
+    {
+      "name": "search",
+      "description": "Ricerca da AST e ricerche salvate"
     }
   ]
 }
