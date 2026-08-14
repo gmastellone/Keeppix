@@ -1,5 +1,6 @@
 use axum::body::Body;
-use axum::http::{HeaderMap, Request, StatusCode};
+use axum::http::{Request, StatusCode};
+use keeppix_test_support::assert_security_headers;
 use tower::ServiceExt as _;
 
 /// Il test gira solo quando il frontend è stato compilato: in CI la build del
@@ -10,21 +11,6 @@ fn frontend_built() -> bool {
         "/../../frontend/dist/index.html"
     ))
     .exists()
-}
-
-/// Asserzioni condivise sui quattro header di sicurezza. Copia di quella in
-/// `crates/keeppix-api/tests/health.rs`: i due crate non condividono codice
-/// di test (vedi `crates/keeppix-api/tests/harness/mod.rs`), le copie vanno
-/// tenute allineate a mano.
-#[allow(clippy::unwrap_used)]
-fn assert_security_headers(headers: &HeaderMap) {
-    assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
-    assert_eq!(headers.get("referrer-policy").unwrap(), "no-referrer");
-    assert!(headers.get("content-security-policy").is_some());
-    assert_eq!(
-        headers.get("permissions-policy").unwrap(),
-        "camera=(), microphone=(), geolocation=()"
-    );
 }
 
 #[tokio::test]
