@@ -120,6 +120,19 @@ Minor differiti (Task 6):
 - `assets`/`asset_exif` non sono in `expected_tables_exist` (quel test elenca solo le tabelle della Fase 0).
 - `LibraryRepo::mark_scanned` dice ancora «quarta e ultima eccezione»: è stale dopo `ensure_*`.
 
+Ruling: `VisibilityScope::filter` produce clausola SQL + bind (`NULL` = admin, `Some([])` = zero righe), non un `IN` di id. — La spec §3 lo chiede perché la Fase 3 aggiungerà i sottoalberi condivisi. — *Costo se sbagliato:* ogni query sugli asset da riscrivere in Fase 3.
+
+Ruling: `AssetRepo::find_by_id` non è nel piano ma è nello spec §3.1 e nei criteri di completamento (sondare un id asset). Aggiunto. — *Costo se sbagliato:* un metodo in più.
+
+Ruling: `upsert_discovered` / `set_hash` / `set_indexed` / `set_error` / `mark_offline` senza `AuthContext`, documentati come lo scanner. Lo spec §4 elenca solo Library/Folder; la pipeline 1b è la stessa eccezione. — *Costo se sbagliato:* il walker dovrebbe inventarsi un utente.
+
+Task 7: complete (commit 3fd15a6)
+
+Minor differiti (Task 7):
+- `set_*` su un id inesistente è un no-op, non `NotFound`.
+- `upsert_discovered` non riporta lo status a `discovered` se size/mtime cambiano su un asset già `indexed`.
+- `find_by_hash` su un hash sconosciuto restituisce lista vuota, non Forbidden (non è un probe per id).
+
 ## Avanzamento
 
 | # | Task | Stato | Commit |
@@ -130,5 +143,5 @@ Minor differiti (Task 6):
 | 4 | `LibraryRepo` | ✅ review pulita | `3506b5c` |
 | 5 | `FolderRepo` + checkpoint CI | ✅ | `aca5b5e` |
 | 6 | Migrazione asset ed EXIF | ✅ | `141c01a` |
-| 7 | `AssetRepo` e visibilità | — | |
+| 7 | `AssetRepo` e visibilità | ✅ | `3fd15a6` |
 | 8 | Registro delle modifiche | — | |
