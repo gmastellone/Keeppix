@@ -70,7 +70,10 @@ impl Config {
 
         figment.extract().map_err(|e| {
             if e.to_string().contains("database_url") {
-                anyhow::anyhow!("DATABASE_URL is required (es. postgres://user:pw@host/keeppix)")
+                // Messaggio interamente in inglese: è un errore di avvio
+                // rivolto all'operatore, e la localizzazione è compito del
+                // frontend. `es.` era italiano in una frase inglese.
+                anyhow::anyhow!("DATABASE_URL is required (e.g. postgres://user:pw@host/keeppix)")
             } else {
                 anyhow::Error::new(e)
             }

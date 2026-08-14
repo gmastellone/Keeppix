@@ -4,13 +4,27 @@ use keeppix_server::config::{Config, LogFormat};
 
 /// I test manipolano variabili d'ambiente di processo: vanno eseguiti in serie.
 /// `cargo test -- --test-threads=1` è imposto dallo script di verifica.
+///
+/// L'elenco non è scritto a mano. `Config::load` legge `Env::prefixed("KEEPPIX_")`
+/// più `DATABASE_URL`, cioè **qualunque** variabile con quel prefisso: la
+/// versione precedente ne azzerava quattro delle sette che la configurazione
+/// prevede oggi, e ogni campo aggiunto in Fase 1 avrebbe allargato il buco.
+/// Derivarlo dall'ambiente invece che da un elenco lo rende impossibile da
+/// lasciare indietro.
 fn clear_env() {
-    for key in [
-        "DATABASE_URL",
-        "KEEPPIX_BIND",
-        "KEEPPIX_DATA_DIR",
-        "KEEPPIX_LOG_FORMAT",
-    ] {
+    let leaked: Vec<String> = std::env::vars()
+        .map(|(key, _)| key)
+        // `KEEPPIX_TEST_*` non è configurazione del server ma dell'harness
+        // (vedi R9): `Config` la ignora come campo sconosciuto, e cancellarla
+        // romperebbe i test di integrazione se un giorno finissero in questo
+        // stesso binario.
+        .filter(|key| {
+            (key.starts_with("KEEPPIX_") && !key.starts_with("KEEPPIX_TEST_"))
+                || key == "DATABASE_URL"
+        })
+        .collect();
+
+    for key in leaked {
         unsafe { std::env::remove_var(key) };
     }
 }
