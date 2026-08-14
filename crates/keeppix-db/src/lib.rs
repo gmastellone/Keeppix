@@ -9,6 +9,7 @@ pub mod libraries;
 mod row;
 pub mod sessions;
 pub mod settings;
+pub mod timeline;
 pub mod users;
 pub mod visibility;
 
@@ -20,6 +21,7 @@ pub use jobs::JobRepo;
 pub use libraries::LibraryRepo;
 pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
+pub use timeline::{MonthBucket, TimelineRepo};
 pub use users::UserRepo;
 pub use visibility::VisibilityScope;
 

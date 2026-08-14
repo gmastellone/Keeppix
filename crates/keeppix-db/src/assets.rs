@@ -12,7 +12,7 @@ pub struct AssetRepo<'a> {
 }
 
 #[derive(sqlx::FromRow)]
-struct AssetRow {
+pub(crate) struct AssetRow {
     id: uuid::Uuid,
     folder_id: uuid::Uuid,
     filename: String,
@@ -29,7 +29,7 @@ struct AssetRow {
 }
 
 impl AssetRow {
-    fn into_domain(self) -> Result<Asset, DbError> {
+    pub(crate) fn into_domain(self) -> Result<Asset, DbError> {
         Ok(Asset {
             id: AssetId::from_uuid(self.id),
             folder_id: FolderId::from_uuid(self.folder_id),
@@ -57,7 +57,7 @@ impl AssetRow {
 
 const COLUMNS: &str = "id, folder_id, filename, content_hash, size_bytes, mtime, inode, \
                        kind, status, taken_at_utc, width, height, created_at";
-const A_COLUMNS: &str = "a.id, a.folder_id, a.filename, a.content_hash, a.size_bytes, a.mtime, a.inode, \
+pub(crate) const A_COLUMNS: &str = "a.id, a.folder_id, a.filename, a.content_hash, a.size_bytes, a.mtime, a.inode, \
                          a.kind, a.status, a.taken_at_utc, a.width, a.height, a.created_at";
 
 const fn kind_str(kind: AssetKind) -> &'static str {
