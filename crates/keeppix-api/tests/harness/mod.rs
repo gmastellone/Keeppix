@@ -2,6 +2,12 @@
 //! I test parlano HTTP come un browser, cookie inclusi: è l'unico modo di
 //! verificare davvero il comportamento dei cookie di sessione.
 
+// Il modulo è incluso da più binari di test (`auth.rs`, `openapi.rs`) e ognuno
+// ne usa una parte: ciò che serve a uno è codice morto nell'altro. Senza questo
+// `allow`, `stop_database()` — usata solo da `auth.rs` — farebbe fallire la
+// compilazione di `openapi.rs` con `-D warnings`.
+#![allow(dead_code)]
+
 use keeppix_db::Db;
 use sqlx::{Connection as _, PgConnection};
 use testcontainers_modules::postgres::Postgres;
@@ -37,6 +43,7 @@ impl TestServer {
 
         let client = reqwest::Client::builder()
             .cookie_store(true)
+            .default_headers(client_headers())
             .build()
             .expect("client http");
 
@@ -72,6 +79,32 @@ impl TestServer {
             None => false,
         }
     }
+}
+
+/// Header custom richiesto sulle mutazioni dal layer CSRF
+/// (`keeppix_api::csrf`), esattamente come lo invia `apiFetch` del frontend su
+/// tutte le chiamate. Lo portano di default sia il client dell'harness sia
+/// `plain_client()`, così i test parlano come il client reale; i due test che
+/// verificano il layer costruiscono invece un client senza header a mano.
+#[allow(clippy::expect_used)]
+pub fn client_headers() -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        keeppix_api::csrf::CLIENT_HEADER,
+        reqwest::header::HeaderValue::from_static("test"),
+    );
+    headers
+}
+
+/// Client senza cookie store — per i test che ripresentano a mano un cookie
+/// specifico — ma con l'header custom, cioè un client legittimo che
+/// semplicemente non ricorda le sessioni.
+#[allow(clippy::expect_used)]
+pub fn plain_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .default_headers(client_headers())
+        .build()
+        .expect("client http")
 }
 
 /// Asserzioni condivise sui quattro header di sicurezza, per i test che
