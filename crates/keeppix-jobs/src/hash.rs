@@ -31,6 +31,7 @@ pub async fn run(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
 
     let hash = hash_file(&path).map_err(|e| JobError::Worker(e.to_string()))?;
     assets.set_hash(asset_id, hash).await?;
+    crate::moves::after_hash(db, asset_id, hash, size).await?;
     enqueue_derive(db, hash).await?;
     Ok(())
 }

@@ -176,11 +176,24 @@ impl<'a> LibraryRepo<'a> {
         Ok(())
     }
 
+    /// Elenco per il watcher all'avvio del processo. Non prende un
+    /// `AuthContext`: non agisce per conto di un utente.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn list_for_scan(&self) -> Result<Vec<Library>, DbError> {
+        let rows: Vec<LibraryRow> =
+            sqlx::query_as(&format!("SELECT {COLUMNS} FROM libraries ORDER BY name"))
+                .fetch_all(self.db.pool())
+                .await?;
+        rows.into_iter().map(LibraryRow::into_domain).collect()
+    }
+
     /// Registra l'istante dell'ultima scansione completata.
     ///
     /// Non prende un `AuthContext` perché la chiama lo scanner, che non
-    /// agisce per conto di un utente. È la quarta e ultima eccezione alla
-    /// regola, e non ne vanno aggiunte altre senza la stessa giustificazione.
+    /// agisce per conto di un utente. Stessa giustificazione delle altre
+    /// eccezioni `*_for_scan`.
     ///
     /// # Errors
     /// `Connection` se l'aggiornamento fallisce.

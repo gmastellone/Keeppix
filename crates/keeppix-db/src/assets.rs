@@ -382,4 +382,25 @@ impl<'a> AssetRepo<'a> {
                 .await?;
         Ok(rows.into_iter().map(AssetId::from_uuid).collect())
     }
+
+    /// Copia gli EXIF originali su un nuovo asset. `ON CONFLICT DO NOTHING`.
+    ///
+    /// Non prende un `AuthContext`: la chiama il rilevatore di spostamenti.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn copy_exif(&self, from: AssetId, to: AssetId) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO asset_exif \
+                (asset_id, raw, camera_make, camera_model, lens, iso, f_number, exposure, focal_length) \
+             SELECT $2, raw, camera_make, camera_model, lens, iso, f_number, exposure, focal_length \
+               FROM asset_exif WHERE asset_id = $1 \
+             ON CONFLICT (asset_id) DO NOTHING",
+        )
+        .bind(from.as_uuid())
+        .bind(to.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
 }

@@ -59,4 +59,29 @@ impl<'a> SettingsRepo<'a> {
 
         row.into_domain()
     }
+
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn put_json(&self, key: &str, value: &serde_json::Value) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO system_settings (key, value) VALUES ($1, $2) \
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>, DbError> {
+        let v: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT value FROM system_settings WHERE key = $1")
+                .bind(key)
+                .fetch_optional(self.db.pool())
+                .await?;
+        Ok(v)
+    }
 }
