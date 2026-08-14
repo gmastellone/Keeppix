@@ -107,25 +107,11 @@ pub fn plain_client() -> reqwest::Client {
         .expect("client http")
 }
 
-/// Asserzioni condivise sui quattro header di sicurezza, per i test che
-/// passano da `TestServer` (`keeppix_api::router(state)`, il router *con*
-/// stato). Copia di `assert_security_headers` in `tests/health.rs` e
-/// `tests/openapi.rs` — quei due file non toccano `TestServer` e non possono
-/// vedere questo modulo allo stesso modo, quindi restano copie separate (i
-/// crate/binari di test non condividono codice fra loro senza un modulo
-/// comune) — ma qui vive in un unico posto per tutti i file che già
-/// dichiarano `mod harness;` (`auth.rs`, `openapi.rs`), evitandone una quarta
-/// copia testuale.
-#[allow(clippy::unwrap_used)]
-pub fn assert_security_headers(headers: &reqwest::header::HeaderMap) {
-    assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
-    assert_eq!(headers.get("referrer-policy").unwrap(), "no-referrer");
-    assert!(headers.get("content-security-policy").is_some());
-    assert_eq!(
-        headers.get("permissions-policy").unwrap(),
-        "camera=(), microphone=(), geolocation=()"
-    );
-}
+/// Le asserzioni sugli header di sicurezza vivono in `keeppix-test-support`,
+/// una copia sola per tutto il workspace: `keeppix-api` e `keeppix-server` non
+/// possono condividere codice di test in altro modo. Ri-esportata qui perché i
+/// file che dichiarano `mod harness;` continuino a importarla da un solo posto.
+pub use keeppix_test_support::assert_security_headers;
 
 /// Procura un database vergine e restituisce l'eventuale container che lo
 /// ospita, da tenere vivo per la durata del test.

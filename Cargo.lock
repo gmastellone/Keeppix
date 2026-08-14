@@ -1809,6 +1809,7 @@ dependencies = [
  "http-body-util",
  "keeppix-db",
  "keeppix-domain",
+ "keeppix-test-support",
  "reqwest",
  "serde",
  "serde_json",
@@ -1889,6 +1890,7 @@ dependencies = [
  "keeppix-api",
  "keeppix-db",
  "keeppix-domain",
+ "keeppix-test-support",
  "mime_guess",
  "rust-embed",
  "serde",
@@ -1898,6 +1900,13 @@ dependencies = [
  "tower-http 0.7.0",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "keeppix-test-support"
+version = "0.1.0"
+dependencies = [
+ "http",
 ]
 
 [[package]]
