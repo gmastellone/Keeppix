@@ -851,6 +851,71 @@
         ]
       }
     },
+    "/api/v1/ws": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "# Errors\n`403` se Origin non è ammesso o il ticket manca, è scaduto o è già stato usato.",
+        "operationId": "ws_connect",
+        "responses": {
+          "101": {
+            "description": "WebSocket keeppix.v1"
+          },
+          "403": {
+            "description": "Origin o ticket non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/ws/ticket": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "ws_ticket",
+        "responses": {
+          "200": {
+            "description": "Ticket monouso da 30 s",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/media/original/{id}": {
       "get": {
         "tags": [
@@ -1369,6 +1434,23 @@
           }
         }
       },
+      "TicketResponse": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "expires_in"
+        ],
+        "properties": {
+          "expires_in": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "ticket": {
+            "type": "string"
+          }
+        }
+      },
       "TimelinePage": {
         "type": "object",
         "required": [
@@ -1473,6 +1555,10 @@
     {
       "name": "search",
       "description": "Ricerca da AST e ricerche salvate"
+    },
+    {
+      "name": "events",
+      "description": "WebSocket di notifica"
     }
   ]
 }

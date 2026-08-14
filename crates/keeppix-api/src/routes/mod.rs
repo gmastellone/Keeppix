@@ -6,3 +6,4 @@ pub mod search;
 pub mod setup;
 pub mod timeline;
 pub mod viewport;
+pub mod ws;

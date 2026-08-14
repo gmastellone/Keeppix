@@ -60,6 +60,8 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/search",
         "/api/v1/search/suggest",
         "/api/v1/saved-searches",
+        "/api/v1/ws",
+        "/api/v1/ws/ticket",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
@@ -152,10 +154,7 @@ async fn documented_operations_are_all_mounted() {
 
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
-    assert_eq!(
-        checked, 18,
-        "il documento deve descrivere diciotto operazioni"
-    );
+    assert_eq!(checked, 20, "il documento deve descrivere venti operazioni");
 }
 
 /// I nomi degli schemi di sicurezza sono letterali dentro `#[utoipa::path]` e
@@ -213,6 +212,8 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/timeline",
             "/api/v1/timeline/buckets",
             "/api/v1/viewport",
+            "/api/v1/ws",
+            "/api/v1/ws/ticket",
             "/media/original/{id}",
             "/media/preview/{hash}",
             "/media/thumb/{hash}",
@@ -265,7 +266,9 @@ fn operation_ids_are_explicit_and_unique() {
             "setup_status",
             "timeline_buckets",
             "timeline_page",
-            "viewport_promote"
+            "viewport_promote",
+            "ws_connect",
+            "ws_ticket"
         ]
     );
 }
