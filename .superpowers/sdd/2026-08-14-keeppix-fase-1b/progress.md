@@ -26,8 +26,8 @@ stesso binario. — *Costo:* un boot extra, solo su quel test.
 |---|---|---|---|
 | 1 | Harness container condiviso | complete | `de75da7` |
 | 2 | Migrazione `jobs` + tipi | complete | `8662b33` |
-| 3 | `JobRepo` | complete | |
-| 4 | Magic-number kind | — | |
+| 3 | `JobRepo` | complete | `c939aef` |
+| 4 | Magic-number kind | complete | |
 | 5 | Worker pool + profili | — | |
 | 6 | Discovery | — | |
 | 7 | EXIF | — | |
