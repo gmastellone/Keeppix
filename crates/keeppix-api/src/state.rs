@@ -16,6 +16,8 @@ impl TicketStore {
     pub fn issue(&self, ctx: AuthContext) -> String {
         let id = uuid::Uuid::now_v7().simple().to_string();
         if let Ok(mut guard) = self.inner.lock() {
+            sweep_expired(&mut guard);
+            cap_user_tickets(&mut guard, ctx.user_id(), 7);
             guard.insert(id.clone(), (ctx, Instant::now() + Duration::from_secs(30)));
         }
         id
@@ -26,6 +28,29 @@ impl TicketStore {
         let mut guard = self.inner.lock().ok()?;
         let (ctx, expires) = guard.remove(id)?;
         (Instant::now() <= expires).then_some(ctx)
+    }
+}
+
+fn sweep_expired<K, V>(map: &mut HashMap<K, (V, Instant)>) {
+    let now = Instant::now();
+    map.retain(|_, (_, exp)| *exp > now);
+}
+
+fn cap_user_tickets(
+    map: &mut HashMap<String, (AuthContext, Instant)>,
+    user: Option<keeppix_domain::UserId>,
+    keep: usize,
+) {
+    let Some(uid) = user else {
+        return;
+    };
+    let mine: Vec<String> = map
+        .iter()
+        .filter(|(_, (ctx, _))| ctx.user_id() == Some(uid))
+        .map(|(k, _)| k.clone())
+        .collect();
+    for extra in mine.into_iter().skip(keep) {
+        map.remove(&extra);
     }
 }
 
@@ -54,6 +79,7 @@ impl SessionCache {
 
     pub fn put(&self, token: &SessionToken, ctx: AuthContext) {
         if let Ok(mut guard) = self.inner.lock() {
+            sweep_expired(&mut guard);
             guard.insert(
                 token.digest(),
                 (ctx, Instant::now() + Duration::from_secs(30)),
@@ -103,5 +129,31 @@ impl AppState {
     pub fn with_allowed_origins(mut self, origins: Vec<String>) -> Self {
         self.allowed_origins = origins;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keeppix_domain::{SystemRole, UserId};
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn issue_drops_expired_tickets() {
+        let store = TicketStore::default();
+        let ctx = AuthContext::user(UserId::new(), SystemRole::User);
+        {
+            let mut guard = store.inner.lock().unwrap();
+            guard.insert(
+                "stale".to_owned(),
+                (
+                    ctx.clone(),
+                    Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
+                ),
+            );
+        }
+        let _issued = store.issue(ctx);
+        let guard = store.inner.lock().unwrap();
+        assert!(!guard.contains_key("stale"));
     }
 }

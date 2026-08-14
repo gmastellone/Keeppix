@@ -115,9 +115,8 @@ pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -
         // `if_not_present`, **non** `overriding`: le rotte che impostano una
         // propria politica di cache devono vincere — gli asset hashati del
         // frontend escono con `public, max-age=31536000, immutable`
-        // (`keeppix_server::embed`), e sovrascriverli qui li renderebbe non
-        // cacheabili, cioè annullerebbe la prima voce della stessa §9.4. Dalla
-        // Fase 1 vale anche per `/media/*`.
+        // (`keeppix_server::embed`). `/media/*` è autenticato: `private` +
+        // `immutable` sulla rotta (i link pubblici arrivano in Fase 3).
         .layer(SetResponseHeaderLayer::if_not_present(
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("private"),

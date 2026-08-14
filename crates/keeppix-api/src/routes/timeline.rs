@@ -205,10 +205,10 @@ fn parse_cursor(raw: &str) -> Result<(DateTime<Utc>, AssetId), Problem> {
     Ok((taken_at, asset_id))
 }
 
-fn encode_cursor(asset: &Asset) -> String {
+pub(crate) fn encode_cursor(asset: &Asset) -> String {
     let taken = asset
         .taken_at_utc
         .unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
-        .to_rfc3339_opts(SecondsFormat::Secs, true);
+        .to_rfc3339_opts(SecondsFormat::Micros, true);
     format!("{taken}|{}", asset.id)
 }

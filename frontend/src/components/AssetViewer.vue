@@ -1,25 +1,37 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { TimelineAsset } from '@/api/timeline'
 
-const props = defineProps<{ asset: TimelineAsset }>()
-const emit = defineEmits<{ close: [] }>()
+const props = defineProps<{
+  asset: TimelineAsset
+  prev?: TimelineAsset
+  next?: TimelineAsset
+}>()
+const emit = defineEmits<{ close: []; prev: []; next: [] }>()
 const { t } = useI18n()
 const info = ref(false)
+
+function previewSrc(asset: TimelineAsset): string {
+  return asset.content_hash
+    ? `/media/preview/${asset.content_hash}`
+    : `/media/original/${asset.id}`
+}
+
+const src = computed(() => previewSrc(props.asset))
+const prevSrc = computed(() => (props.prev ? previewSrc(props.prev) : undefined))
+const nextSrc = computed(() => (props.next ? previewSrc(props.next) : undefined))
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') emit('close')
   if (e.key === 'i') info.value = !info.value
+  if (e.key === 'ArrowLeft') emit('prev')
+  if (e.key === 'ArrowRight') emit('next')
 }
 
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
-
-const src = props.asset.content_hash
-  ? `/media/preview/${props.asset.content_hash}`
-  : `/media/original/${props.asset.id}`
 </script>
 
 <template>
@@ -30,9 +42,21 @@ const src = props.asset.content_hash
     @click.self="emit('close')"
   >
     <img
+      v-if="prevSrc"
+      :src="prevSrc"
+      alt=""
+      class="hidden"
+    >
+    <img
       :src="src"
       :alt="asset.filename"
       class="m-auto max-h-full max-w-full object-contain"
+    >
+    <img
+      v-if="nextSrc"
+      :src="nextSrc"
+      alt=""
+      class="hidden"
     >
     <button
       class="absolute top-3 right-3 rounded bg-white/20 px-3 py-1 text-white"

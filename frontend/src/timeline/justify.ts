@@ -70,3 +70,14 @@ export function justify(
 export function clampDensity(n: number): number {
   return Math.min(12, Math.max(2, Math.round(n)))
 }
+
+/** Altezza riservata per un bucket non ancora caricato (scrollbar stabile). */
+export function bucketMinHeight(
+  count: number,
+  containerWidth: number,
+  density: number
+): number {
+  const cols = Math.max(1, clampDensity(density))
+  const rowH = Math.max(48, containerWidth / cols)
+  return Math.ceil(Math.max(0, count) / cols) * rowH
+}

@@ -80,7 +80,7 @@ impl<'a> SearchRepo<'a> {
                AND (${time_p}::timestamptz IS NULL \
                     OR a.taken_at_utc < ${time_p} \
                     OR (a.taken_at_utc = ${time_p} AND a.id < ${id_p})) \
-             ORDER BY a.taken_at_utc DESC, a.id DESC \
+             ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
              LIMIT ${limit_p}",
             filter.sql()
         );
@@ -224,13 +224,13 @@ fn compile(
         SearchNode::Or { args } => join(args, " OR ", param, depth),
         SearchNode::Not { arg } => {
             let (inner, binds) = compile(arg, param, depth + 1)?;
-            Ok((format!("NOT ({inner})"), binds))
+            Ok((format!("NOT COALESCE(({inner}), FALSE)"), binds))
         }
         SearchNode::Text { value } => {
             let p = next(param);
             Ok((
-                format!("strpos(lower(a.filename), lower(${p})) > 0"),
-                vec![Bind::Text(value.clone())],
+                format!("a.filename ILIKE ${p} ESCAPE E'\\\\'"),
+                vec![Bind::Text(like_contains(value))],
             ))
         }
         SearchNode::Type { value } => {

@@ -2,7 +2,7 @@ mod harness;
 
 use harness::TestDb;
 use keeppix_db::JobRepo;
-use keeppix_domain::{JobKind, JobPriority, JobStatus};
+use keeppix_domain::{AuthContext, JobKind, JobPriority, JobStatus, SystemRole};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -215,6 +215,8 @@ async fn reap_stale_returns_a_running_job_to_pending() {
 #[allow(clippy::unwrap_used)]
 async fn promote_raises_pending_jobs() {
     let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
     let repo = JobRepo::new(test.db());
     repo.enqueue(
         JobKind::DeriveAsset,
@@ -226,7 +228,7 @@ async fn promote_raises_pending_jobs() {
     .unwrap();
 
     let n = repo
-        .promote(&["derive:photo".to_owned()], JobPriority::Visible)
+        .promote(&ctx, &["derive:photo".to_owned()], JobPriority::Visible)
         .await
         .unwrap();
     assert_eq!(n, 1);
@@ -237,4 +239,70 @@ async fn promote_raises_pending_jobs() {
         .unwrap()
         .unwrap();
     assert_eq!(claimed.priority, JobPriority::Visible);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn promote_does_not_raise_jobs_outside_visibility() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
+    let mario_ctx = AuthContext::user(mario, SystemRole::User);
+
+    let library = keeppix_db::LibraryRepo::new(test.db())
+        .create(
+            &admin_ctx,
+            keeppix_domain::NewLibrary {
+                name: "Foto".to_owned(),
+                owner_id: admin,
+                root_path: std::path::PathBuf::from("/mnt/foto"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = keeppix_db::FolderRepo::new(test.db())
+        .ensure_path(library.id, &[])
+        .await
+        .unwrap();
+    let hash = [0xab_u8; 32];
+    let hex = "ab".repeat(32);
+    let asset = keeppix_db::AssetRepo::new(test.db())
+        .upsert_discovered(keeppix_domain::NewAsset {
+            folder_id: folder.id,
+            filename: keeppix_domain::AssetName::parse("a.jpg").unwrap(),
+            size_bytes: 10,
+            mtime: chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2024, 7, 1, 0, 0, 0).unwrap(),
+            inode: Some(1),
+            kind: keeppix_domain::AssetKind::Image,
+        })
+        .await
+        .unwrap();
+    keeppix_db::AssetRepo::new(test.db())
+        .set_hash(asset.id, hash)
+        .await
+        .unwrap();
+
+    let repo = JobRepo::new(test.db());
+    repo.enqueue(
+        JobKind::DeriveAsset,
+        json!({}),
+        JobPriority::Background,
+        Some(&format!("derive:{hex}")),
+    )
+    .await
+    .unwrap();
+
+    let n = repo
+        .promote(&mario_ctx, &[format!("derive:{hex}")], JobPriority::Visible)
+        .await
+        .unwrap();
+    assert_eq!(n, 0);
+
+    let n = repo
+        .promote(&admin_ctx, &[format!("derive:{hex}")], JobPriority::Visible)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
 }

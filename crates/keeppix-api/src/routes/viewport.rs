@@ -33,7 +33,7 @@ pub struct ViewportRequest {
 )]
 pub async fn promote(
     State(state): State<AppState>,
-    Auth(_ctx): Auth,
+    Auth(ctx): Auth,
     Json(body): Json<ViewportRequest>,
 ) -> Result<StatusCode, Problem> {
     let keys: Vec<String> = body
@@ -41,11 +41,11 @@ pub async fn promote(
         .into_iter()
         .filter(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()))
         .take(200)
-        .map(|h| format!("derive:{h}"))
+        .map(|h| format!("derive:{}", h.to_ascii_lowercase()))
         .collect();
     if !keys.is_empty() {
         JobRepo::new(&state.db)
-            .promote(&keys, JobPriority::Visible)
+            .promote(&ctx, &keys, JobPriority::Visible)
             .await?;
     }
     Ok(StatusCode::NO_CONTENT)

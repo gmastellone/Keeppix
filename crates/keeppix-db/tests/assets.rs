@@ -280,3 +280,35 @@ async fn moving_a_folder_does_not_touch_assets() {
     assert_eq!(after.filename.as_str(), "DSC_0042.ARW");
     assert_eq!(after.size_bytes, 100);
 }
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn find_by_folder_omits_trashed_assets() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let library = seed_library(&test, admin, "Foto", "/mnt/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let repo = AssetRepo::new(test.db());
+    let live = repo
+        .upsert_discovered(discovered(folder.id, "live.jpg", 10))
+        .await
+        .unwrap();
+    let dumped = repo
+        .upsert_discovered(discovered(folder.id, "bin.jpg", 10))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE assets SET status = 'trashed' WHERE id = $1")
+        .bind(dumped.id.as_uuid())
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    let listed = repo.find_by_folder(&ctx, folder.id).await.unwrap();
+    let ids: Vec<_> = listed.iter().map(|a| a.id).collect();
+    assert!(ids.contains(&live.id));
+    assert!(!ids.contains(&dumped.id));
+}

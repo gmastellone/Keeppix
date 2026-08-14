@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import Button from '@/components/ui/Button.vue'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
+import { fetchBuckets, fetchPage, type TimelineAsset } from '@/api/timeline'
 
 import TimelineView from './TimelineView.vue'
 
@@ -77,5 +78,46 @@ describe('TimelineView signOut', () => {
     expect(session.user).toBeNull()
     expect(session.logoutError).toBe(false)
     expect(router.currentRoute.value.path).toBe('/login')
+  })
+})
+
+function photo(id: string): TimelineAsset {
+  return {
+    id,
+    folder_id: 'f',
+    filename: `${id}.jpg`,
+    content_hash: 'ab'.repeat(32),
+    size_bytes: 1,
+    kind: 'image',
+    status: 'indexed',
+    taken_at_utc: '2024-07-10T12:00:00Z',
+    width: 100,
+    height: 100,
+    thumbhash: null
+  }
+}
+
+describe('TimelineView buckets', () => {
+  it('follows next_cursor until the month is complete', async () => {
+    vi.mocked(fetchBuckets).mockResolvedValue([{ month: '2024-07', count: 3 }])
+    vi.mocked(fetchPage)
+      .mockResolvedValueOnce({ assets: [photo('a'), photo('b')], next_cursor: 'c1' })
+      .mockResolvedValueOnce({ assets: [photo('c')] })
+
+    const { wrapper } = await mountTimeline()
+    await flushPromises()
+
+    expect(fetchPage).toHaveBeenCalledWith('2024-07', undefined)
+    expect(fetchPage).toHaveBeenCalledWith('2024-07', 'c1')
+    expect(fetchPage).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('2024-07-10')
+  })
+
+  it('reserves section height from the bucket count before photos load', async () => {
+    vi.mocked(fetchBuckets).mockResolvedValue([{ month: '2024-07', count: 12 }])
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [] })
+
+    const { wrapper } = await mountTimeline()
+    expect(wrapper.get('section').attributes('style')).toMatch(/min-height:\s*[1-9]/)
   })
 })

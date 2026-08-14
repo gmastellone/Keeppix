@@ -1,17 +1,23 @@
+use std::io::SeekFrom;
 use std::path::Path;
 
+use axum::body::Body;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use keeppix_db::{AssetRepo, FolderRepo};
 use keeppix_domain::AssetId;
 use keeppix_media::derivative_paths;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio_util::io::ReaderStream;
 
 use crate::extract::Auth;
 use crate::problem::Problem;
 use crate::state::AppState;
 
-const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+// Authenticated media: browser cache only. `public` waits for Fase 3 share URLs
+// (design §CDN; spec 1c said public — see STATO ruling).
+const IMMUTABLE: &str = "private, max-age=31536000, immutable";
 
 /// # Errors
 /// `401` se non autenticato; `403` se l'hash non è visibile o non esiste.
@@ -89,17 +95,13 @@ pub async fn original(
         .absolute_path(&ctx, asset.folder_id)
         .await?;
     let path = folder_path.join(asset.filename.as_str());
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|_| Problem::not_found())?;
-    // ponytail: originals load into RAM then slice for Range. Stream+seek
-    // if a 50 MB RAW shows up in RSS.
-    ranged(
-        bytes,
+    stream_file(
+        &path,
         headers.get(header::RANGE).and_then(|v| v.to_str().ok()),
         mime_for_name(asset.filename.as_str()),
         false,
     )
+    .await
 }
 
 async fn serve_derivative(
@@ -132,50 +134,64 @@ fn immutable_webp(bytes: Vec<u8>) -> Response {
     response
 }
 
-fn ranged(
-    bytes: Vec<u8>,
+async fn stream_file(
+    path: &Path,
     range: Option<&str>,
     content_type: &'static str,
     immutable: bool,
 ) -> Result<Response, Problem> {
-    let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    let Some(header) = range else {
-        return Ok(full(bytes, content_type, immutable));
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .map_err(|_| Problem::not_found())?;
+    let len = file
+        .metadata()
+        .await
+        .map_err(|_| Problem::not_found())?
+        .len();
+    let (status, start, take, content_range) = match range {
+        None => (StatusCode::OK, 0, len, None),
+        Some(header) => {
+            let Some((start, end)) = parse_byte_range(header, len) else {
+                return Err(Problem::new(
+                    StatusCode::RANGE_NOT_SATISFIABLE,
+                    "range-not-satisfiable",
+                    "Range not satisfiable",
+                ));
+            };
+            (
+                StatusCode::PARTIAL_CONTENT,
+                start,
+                end.saturating_sub(start).saturating_add(1),
+                Some(format!("bytes {start}-{end}/{len}")),
+            )
+        }
     };
-    let Some((start, end)) = parse_byte_range(header, len) else {
-        return Err(Problem::new(
-            StatusCode::RANGE_NOT_SATISFIABLE,
-            "range-not-satisfiable",
-            "Range not satisfiable",
-        ));
-    };
-    let from = usize::try_from(start).unwrap_or(0);
-    let to = usize::try_from(end).unwrap_or(0);
-    let slice = bytes.get(from..=to).unwrap_or(&[]).to_vec();
-    let mut response = slice.into_response();
-    *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+    if start > 0 {
+        file.seek(SeekFrom::Start(start))
+            .await
+            .map_err(|_| Problem::not_found())?;
+    }
+    let stream = ReaderStream::new(file.take(take));
+    let mut response = Body::from_stream(stream).into_response();
+    *response.status_mut() = status;
     response
         .headers_mut()
         .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-    response.headers_mut().insert(
-        header::CONTENT_RANGE,
-        HeaderValue::from_str(&format!("bytes {start}-{end}/{len}"))
-            .unwrap_or_else(|_| HeaderValue::from_static("bytes */0")),
-    );
-    Ok(response)
-}
-
-fn full(bytes: Vec<u8>, content_type: &'static str, immutable: bool) -> Response {
-    let mut response = bytes.into_response();
     response
         .headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+        .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    if let Some(cr) = content_range {
+        response.headers_mut().insert(
+            header::CONTENT_RANGE,
+            HeaderValue::from_str(&cr).unwrap_or_else(|_| HeaderValue::from_static("bytes */0")),
+        );
+    }
     if immutable {
         response
             .headers_mut()
             .insert(header::CACHE_CONTROL, HeaderValue::from_static(IMMUTABLE));
     }
-    response
+    Ok(response)
 }
 
 fn parse_byte_range(header: &str, len: u64) -> Option<(u64, u64)> {

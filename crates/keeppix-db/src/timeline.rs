@@ -88,7 +88,7 @@ impl<'a> TimelineRepo<'a> {
                AND ($3::timestamptz IS NULL \
                     OR a.taken_at_utc < $3 \
                     OR (a.taken_at_utc = $3 AND a.id < $4)) \
-             ORDER BY a.taken_at_utc DESC, a.id DESC \
+             ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
              LIMIT $5",
             filter.sql()
         );

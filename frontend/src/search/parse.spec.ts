@@ -46,4 +46,12 @@ describe('parseSearch', () => {
       ]
     })
   })
+
+  it('treats invalid iso and folder values as free text', () => {
+    expect(parseSearch('iso:abc')).toEqual({ op: 'text', value: 'iso:abc' })
+    expect(parseSearch('folder:not-a-uuid')).toEqual({
+      op: 'text',
+      value: 'folder:not-a-uuid'
+    })
+  })
 })

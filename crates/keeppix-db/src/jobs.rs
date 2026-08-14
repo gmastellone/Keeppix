@@ -1,13 +1,15 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use keeppix_domain::{Job, JobKind, JobPriority, JobStatus};
+use keeppix_domain::{AuthContext, Job, JobKind, JobPriority, JobStatus};
 use uuid::Uuid;
 
+use crate::visibility::VisibilityScope;
 use crate::{Db, DbError};
 
-/// Coda dei job di ingestione. La chiama il worker, non un utente: non c'è
-/// `AuthContext`. I permessi si applicano quando il job tocca gli asset.
+/// Coda dei job di ingestione. `claim` / `enqueue` / `reap` li chiama il
+/// worker: niente `AuthContext`. `promote` lo chiama l'utente dal viewport,
+/// quindi filtra con la visibilità.
 pub struct JobRepo<'a> {
     db: &'a Db,
 }
@@ -206,20 +208,32 @@ impl<'a> JobRepo<'a> {
 
     /// Alza la priorità (numero più basso) dei job `pending` elencati.
     /// Non abbassa mai un job già più urgente — `LEAST`, non un overwrite.
+    /// Un non-admin promuove solo `derive:{hash}` di asset che può vedere.
     ///
     /// # Errors
     /// `DbError::Connection` se la query fallisce.
     pub async fn promote(
         &self,
+        ctx: &AuthContext,
         dedup_keys: &[String],
         priority: JobPriority,
     ) -> Result<u64, DbError> {
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.library_id", 3);
         let result = sqlx::query(
-            "UPDATE jobs SET priority = LEAST(priority, $1) \
-              WHERE dedup_key = ANY($2) AND status = 'pending'",
+            "UPDATE jobs j SET priority = LEAST(priority, $1) \
+              WHERE j.dedup_key = ANY($2) AND j.status = 'pending' \
+                AND ($3::uuid[] IS NULL OR EXISTS ( \
+                  SELECT 1 FROM assets a \
+                  JOIN folders f ON f.id = a.folder_id \
+                  WHERE a.content_hash IS NOT NULL \
+                    AND j.dedup_key = 'derive:' || encode(a.content_hash, 'hex') \
+                    AND f.library_id = ANY($3::uuid[]) \
+                ))",
         )
         .bind(priority.as_i16())
         .bind(dedup_keys)
+        .bind(filter.bind())
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected())

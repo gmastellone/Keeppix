@@ -154,7 +154,7 @@ fn rgb_to_rgba(rgb: &[u8]) -> Vec<u8> {
 }
 
 fn write_webp_atomic(path: &Path, rgb: &[u8], w: u32, h: u32) -> Result<(), DeriveError> {
-    let tmp = path.with_extension("webp.tmp");
+    let tmp = path.with_extension(format!("webp.{}.tmp", std::process::id()));
     let mut buf = Vec::new();
     WebPEncoder::new(&mut buf)
         .encode(rgb, w, h, image_webp::ColorType::Rgb8)
