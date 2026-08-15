@@ -46,6 +46,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
         with: { components: "rustfmt, clippy" }
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Su PR il target di test riempie il runner; il Post della cache
+          # falliva con "No space left" dopo suite già verde. Su main sì.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Formattazione
         run: cargo fmt --all --check
@@ -58,6 +62,12 @@ jobs:
 
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json
+
+      - name: Libera disco dopo i test
+        if: always()
+        run: |
+          cargo clean || true
+          df -h /
 
   frontend:
     runs-on: ubuntu-latest
