@@ -1,19 +1,159 @@
-use std::time::Duration;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use keeppix_db::Db;
+use keeppix_domain::{AuthContext, SessionToken};
+
+#[derive(Clone, Default)]
+pub struct TicketStore {
+    inner: Arc<Mutex<HashMap<String, (AuthContext, Instant)>>>,
+}
+
+impl TicketStore {
+    #[must_use]
+    pub fn issue(&self, ctx: AuthContext) -> String {
+        let id = uuid::Uuid::now_v7().simple().to_string();
+        if let Ok(mut guard) = self.inner.lock() {
+            sweep_expired(&mut guard);
+            cap_user_tickets(&mut guard, ctx.user_id(), 7);
+            guard.insert(id.clone(), (ctx, Instant::now() + Duration::from_secs(30)));
+        }
+        id
+    }
+
+    #[must_use]
+    pub fn consume(&self, id: &str) -> Option<AuthContext> {
+        let mut guard = self.inner.lock().ok()?;
+        let (ctx, expires) = guard.remove(id)?;
+        (Instant::now() <= expires).then_some(ctx)
+    }
+}
+
+fn sweep_expired<K, V>(map: &mut HashMap<K, (V, Instant)>) {
+    let now = Instant::now();
+    map.retain(|_, (_, exp)| *exp > now);
+}
+
+fn cap_user_tickets(
+    map: &mut HashMap<String, (AuthContext, Instant)>,
+    user: Option<keeppix_domain::UserId>,
+    keep: usize,
+) {
+    let Some(uid) = user else {
+        return;
+    };
+    let mine: Vec<String> = map
+        .iter()
+        .filter(|(_, (ctx, _))| ctx.user_id() == Some(uid))
+        .map(|(k, _)| k.clone())
+        .collect();
+    for extra in mine.into_iter().skip(keep) {
+        map.remove(&extra);
+    }
+}
+
+type CachedSession = (AuthContext, Instant);
+
+#[derive(Clone, Default)]
+pub struct SessionCache {
+    // ponytail: keyed by token digest only. A family-wide revoke leaves
+    // sibling tokens cached up to 30s. Index by family_id if theft-detection
+    // must be immediate on every device.
+    inner: Arc<Mutex<HashMap<[u8; 32], CachedSession>>>,
+}
+
+impl SessionCache {
+    #[must_use]
+    pub fn get(&self, token: &SessionToken) -> Option<AuthContext> {
+        let digest = token.digest();
+        let mut guard = self.inner.lock().ok()?;
+        let (ctx, expires) = guard.get(&digest).cloned()?;
+        if Instant::now() > expires {
+            guard.remove(&digest);
+            return None;
+        }
+        Some(ctx)
+    }
+
+    pub fn put(&self, token: &SessionToken, ctx: AuthContext) {
+        if let Ok(mut guard) = self.inner.lock() {
+            sweep_expired(&mut guard);
+            guard.insert(
+                token.digest(),
+                (ctx, Instant::now() + Duration::from_secs(30)),
+            );
+        }
+    }
+
+    pub fn drop_token(&self, token: &SessionToken) {
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.remove(&token.digest());
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
     pub session_ttl: Duration,
+    pub data_dir: PathBuf,
+    pub on_authenticated: Option<Arc<dyn Fn() + Send + Sync>>,
+    pub tickets: TicketStore,
+    pub sessions: SessionCache,
+    pub allowed_origins: Vec<String>,
 }
 
 impl AppState {
     #[must_use]
-    pub const fn new(db: Db, session_ttl_secs: u64) -> Self {
+    pub fn new(db: Db, session_ttl_secs: u64, data_dir: PathBuf) -> Self {
         Self {
             db,
             session_ttl: Duration::from_secs(session_ttl_secs),
+            data_dir,
+            on_authenticated: None,
+            tickets: TicketStore::default(),
+            sessions: SessionCache::default(),
+            allowed_origins: Vec::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_on_authenticated(mut self, hook: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.on_authenticated = Some(hook);
+        self
+    }
+
+    #[must_use]
+    pub fn with_allowed_origins(mut self, origins: Vec<String>) -> Self {
+        self.allowed_origins = origins;
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keeppix_domain::{SystemRole, UserId};
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn issue_drops_expired_tickets() {
+        let store = TicketStore::default();
+        let ctx = AuthContext::user(UserId::new(), SystemRole::User);
+        {
+            let mut guard = store.inner.lock().unwrap();
+            guard.insert(
+                "stale".to_owned(),
+                (
+                    ctx.clone(),
+                    Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
+                ),
+            );
+        }
+        let _issued = store.issue(ctx);
+        let guard = store.inner.lock().unwrap();
+        assert!(!guard.contains_key("stale"));
     }
 }

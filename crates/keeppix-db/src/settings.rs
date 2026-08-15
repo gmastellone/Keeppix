@@ -1,12 +1,27 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use rand::Rng;
-use sqlx::Row;
 
 use crate::{Db, DbError};
 
 pub struct SettingsRepo<'a> {
     db: &'a Db,
+}
+
+#[derive(sqlx::FromRow)]
+struct SecretRow {
+    value: String,
+}
+
+impl SecretRow {
+    fn into_domain(self) -> Result<[u8; 32], DbError> {
+        let bytes = STANDARD
+            .decode(&self.value)
+            .map_err(|e| DbError::Corrupted(format!("stored secret is not base64: {e}")))?;
+        bytes
+            .try_into()
+            .map_err(|_| DbError::Corrupted("stored secret is not 32 bytes".to_owned()))
+    }
 }
 
 impl<'a> SettingsRepo<'a> {
@@ -36,18 +51,37 @@ impl<'a> SettingsRepo<'a> {
         .execute(self.db.pool())
         .await?;
 
-        let row = sqlx::query("SELECT value #>> '{}' AS value FROM system_settings WHERE key = $1")
-            .bind(key)
-            .fetch_one(self.db.pool())
-            .await?;
+        let row: SecretRow =
+            sqlx::query_as("SELECT value #>> '{}' AS value FROM system_settings WHERE key = $1")
+                .bind(key)
+                .fetch_one(self.db.pool())
+                .await?;
 
-        let stored: String = row.try_get("value")?;
-        let bytes = STANDARD
-            .decode(&stored)
-            .map_err(|e| DbError::Corrupted(format!("stored secret is not base64: {e}")))?;
+        row.into_domain()
+    }
 
-        bytes
-            .try_into()
-            .map_err(|_| DbError::Corrupted("stored secret is not 32 bytes".to_owned()))
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn put_json(&self, key: &str, value: &serde_json::Value) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO system_settings (key, value) VALUES ($1, $2) \
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>, DbError> {
+        let v: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT value FROM system_settings WHERE key = $1")
+                .bind(key)
+                .fetch_optional(self.db.pool())
+                .await?;
+        Ok(v)
     }
 }

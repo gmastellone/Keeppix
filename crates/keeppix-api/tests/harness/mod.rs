@@ -6,17 +6,24 @@
 // ne usa una parte: ciò che serve a uno è codice morto nell'altro. Senza questo
 // `allow`, `stop_database()` — usata solo da `auth.rs` — farebbe fallire la
 // compilazione di `openapi.rs` con `-D warnings`.
-#![allow(dead_code)]
+#![allow(dead_code, unused_imports)]
 
 use keeppix_db::Db;
 use sqlx::{Connection as _, PgConnection};
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
+use tokio::sync::OnceCell;
+
+static SHARED: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
 
 pub struct TestServer {
-    // `None` quando i test girano contro un server Postgres già esistente.
+    // `Some` solo sul percorso stoppable (il test 503). Il container
+    // condiviso vive nello `OnceCell` e non si ferma.
     container: Option<ContainerAsync<Postgres>>,
+    pub db: Db,
+    pub data_dir: std::path::PathBuf,
+    pub auth_pings: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub base_url: String,
     pub client: reqwest::Client,
 }
@@ -26,32 +33,15 @@ impl TestServer {
     /// Se il database non è raggiungibile o il server non si avvia.
     #[allow(clippy::expect_used)]
     pub async fn start() -> Self {
-        let (container, url) = provision().await;
+        boot(None, provision().await).await
+    }
 
-        let db = Db::connect(&url, 5).await.expect("connessione");
-        db.migrate().await.expect("migrazioni");
-
-        let state = keeppix_api::AppState::new(db, 3600);
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind");
-        let addr = listener.local_addr().expect("indirizzo");
-
-        tokio::spawn(async move {
-            axum::serve(listener, keeppix_api::router(state)).await.ok();
-        });
-
-        let client = reqwest::Client::builder()
-            .cookie_store(true)
-            .default_headers(client_headers())
-            .build()
-            .expect("client http");
-
-        Self {
-            container,
-            base_url: format!("http://{addr}"),
-            client,
-        }
+    /// Container dedicato, così `stop_database` non spegne il Postgres degli
+    /// altri test dello stesso binario.
+    #[allow(clippy::expect_used)]
+    pub async fn start_stoppable() -> Self {
+        let (container, url) = provision_dedicated().await;
+        boot(container, url).await
     }
 
     pub fn url(&self, path: &str) -> String {
@@ -78,6 +68,44 @@ impl TestServer {
             }
             None => false,
         }
+    }
+}
+
+#[allow(clippy::expect_used)]
+async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestServer {
+    let db = Db::connect(&url, 5).await.expect("connessione");
+    db.migrate().await.expect("migrazioni");
+
+    let data_dir = std::env::temp_dir().join(format!("keeppix-api-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&data_dir).expect("data_dir");
+    let auth_pings = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let ping = auth_pings.clone();
+    let state = keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone())
+        .with_on_authenticated(std::sync::Arc::new(move || {
+            ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("indirizzo");
+
+    tokio::spawn(async move {
+        axum::serve(listener, keeppix_api::router(state)).await.ok();
+    });
+
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(client_headers())
+        .build()
+        .expect("client http");
+
+    TestServer {
+        container,
+        db,
+        data_dir,
+        auth_pings,
+        base_url: format!("http://{addr}"),
+        client,
     }
 }
 
@@ -113,39 +141,49 @@ pub fn plain_client() -> reqwest::Client {
 /// file che dichiarano `mod harness;` continuino a importarla da un solo posto.
 pub use keeppix_test_support::assert_security_headers;
 
-/// Procura un database vergine e restituisce l'eventuale container che lo
-/// ospita, da tenere vivo per la durata del test.
-///
-/// Percorso predefinito: un container usa-e-getta `postgis/postgis:17-3.5`.
-/// Se `KEEPPIX_TEST_DATABASE_URL` è impostata si usa invece il server già in
-/// ascolto a quell'indirizzo, creando un database vergine per ogni test —
-/// necessario dove il registry delle immagini non è raggiungibile. I database
-/// così creati non vengono eliminati: quell'indirizzo deve puntare a
-/// un'istanza di scarto.
-///
-/// Copia di `crates/keeppix-db/tests/harness/mod.rs`, dove la documentazione
-/// è per esteso e dove `with_database` ha i suoi unit test. I due crate non
-/// condividono codice di test: le due copie vanno tenute allineate a mano.
+/// Procura un database vergine. Un container per processo, un `CREATE
+/// DATABASE` per test — allineato a `crates/keeppix-db/tests/harness/mod.rs`.
 #[allow(clippy::expect_used)]
-async fn provision() -> (Option<ContainerAsync<Postgres>>, String) {
-    let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL") else {
-        let container = Postgres::default()
-            .with_tag("17-3.5")
-            .with_name("postgis/postgis")
-            .start()
-            .await
-            .expect("container Postgres");
-        let port = container.get_host_port_ipv4(5432).await.expect("porta");
-        let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+async fn provision() -> String {
+    if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL") {
+        return named_database(&server_url).await;
+    }
+    let (_container, admin_url) = SHARED
+        .get_or_init(|| async {
+            let container = Postgres::default()
+                .with_tag("17-3.5")
+                .with_name("postgis/postgis")
+                .start()
+                .await
+                .expect("container Postgres");
+            let port = container.get_host_port_ipv4(5432).await.expect("porta");
+            let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+            (container, url)
+        })
+        .await;
+    named_database(admin_url).await
+}
 
-        return (Some(container), url);
-    };
+#[allow(clippy::expect_used)]
+async fn provision_dedicated() -> (Option<ContainerAsync<Postgres>>, String) {
+    if std::env::var("KEEPPIX_TEST_DATABASE_URL").is_ok() {
+        return (None, provision().await);
+    }
+    let container = Postgres::default()
+        .with_tag("17-3.5")
+        .with_name("postgis/postgis")
+        .start()
+        .await
+        .expect("container Postgres");
+    let port = container.get_host_port_ipv4(5432).await.expect("porta");
+    let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+    (Some(container), url)
+}
 
-    // Il nome deriva da un UUID: solo esadecimali e underscore, nessun input
-    // esterno in un identificatore che non sarebbe parametrizzabile.
+#[allow(clippy::expect_used)]
+async fn named_database(server_url: &str) -> String {
     let name = format!("keeppix_test_{}", uuid::Uuid::now_v7().simple());
-
-    let mut admin = PgConnection::connect(&server_url)
+    let mut admin = PgConnection::connect(server_url)
         .await
         .expect("connessione al server Postgres esistente");
     sqlx::query(&format!("CREATE DATABASE \"{name}\""))
@@ -153,8 +191,7 @@ async fn provision() -> (Option<ContainerAsync<Postgres>>, String) {
         .await
         .expect("creazione del database di test");
     admin.close().await.ok();
-
-    (None, with_database(&server_url, &name))
+    with_database(server_url, &name)
 }
 
 /// Sostituisce il nome del database in un URL di connessione, conservando

@@ -180,3 +180,21 @@ async fn unknown_id_is_not_found() {
     let missing = repo.find_by_id(&ctx, UserId::new()).await;
     assert!(matches!(missing, Err(keeppix_db::DbError::NotFound)));
 }
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn two_test_databases_are_isolated() {
+    let a = TestDb::start().await;
+    UserRepo::new(a.db())
+        .create_bootstrap_admin(new_user("giovanni", SystemRole::Admin))
+        .await
+        .unwrap();
+    assert_eq!(UserRepo::new(a.db()).count().await.unwrap(), 1);
+
+    let b = TestDb::start().await;
+    assert_eq!(
+        UserRepo::new(b.db()).count().await.unwrap(),
+        0,
+        "B deve essere un database vergine"
+    );
+}

@@ -5,7 +5,9 @@ import { useSessionStore } from '@/stores/session'
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: () => import('@/views/HomeView.vue'), meta: { auth: true } },
+    { path: '/', component: () => import('@/views/TimelineView.vue'), meta: { auth: true } },
+    { path: '/search', component: () => import('@/views/SearchView.vue'), meta: { auth: true } },
+    { path: '/problems', component: () => import('@/views/ProblemsView.vue'), meta: { auth: true } },
     { path: '/login', component: () => import('@/views/LoginView.vue') },
     { path: '/setup', component: () => import('@/views/SetupView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' }
@@ -16,6 +18,10 @@ router.beforeEach(async (to) => {
   const session = useSessionStore()
   if (!session.ready) {
     await session.bootstrap()
+  }
+
+  if (session.unavailable) {
+    return true
   }
 
   // Istanza vergine: qualsiasi percorso porta al setup.

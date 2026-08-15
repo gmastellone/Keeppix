@@ -49,6 +49,21 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/auth/refresh",
         "/api/v1/auth/logout",
         "/api/v1/auth/me",
+        "/api/v1/timeline/buckets",
+        "/api/v1/timeline",
+        "/api/v1/folders/tree",
+        "/api/v1/folders/{id}/children",
+        "/media/thumb/{hash}",
+        "/media/preview/{hash}",
+        "/media/original/{id}",
+        "/api/v1/viewport",
+        "/api/v1/search",
+        "/api/v1/search/suggest",
+        "/api/v1/saved-searches",
+        "/api/v1/ws",
+        "/api/v1/ws/ticket",
+        "/api/v1/problems",
+        "/api/v1/duplicates",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
@@ -141,7 +156,10 @@ async fn documented_operations_are_all_mounted() {
 
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
-    assert_eq!(checked, 6, "il documento deve descrivere sei operazioni");
+    assert_eq!(
+        checked, 22,
+        "il documento deve descrivere ventidue operazioni"
+    );
 }
 
 /// I nomi degli schemi di sicurezza sono letterali dentro `#[utoipa::path]` e
@@ -185,7 +203,29 @@ fn security_requirements_name_a_declared_scheme() {
     }
 
     protected.sort();
-    assert_eq!(protected, ["/api/v1/auth/me", "/api/v1/auth/refresh"]);
+    assert_eq!(
+        protected,
+        [
+            "/api/v1/auth/me",
+            "/api/v1/auth/refresh",
+            "/api/v1/duplicates",
+            "/api/v1/folders/tree",
+            "/api/v1/folders/{id}/children",
+            "/api/v1/problems",
+            "/api/v1/saved-searches",
+            "/api/v1/saved-searches",
+            "/api/v1/search",
+            "/api/v1/search/suggest",
+            "/api/v1/timeline",
+            "/api/v1/timeline/buckets",
+            "/api/v1/viewport",
+            "/api/v1/ws",
+            "/api/v1/ws/ticket",
+            "/media/original/{id}",
+            "/media/preview/{hash}",
+            "/media/thumb/{hash}",
+        ]
+    );
 }
 
 /// `operationId` diventa il nome del metodo nei client generati e deve essere
@@ -220,8 +260,24 @@ fn operation_ids_are_explicit_and_unique() {
             "auth_logout",
             "auth_me",
             "auth_refresh",
+            "duplicates_list",
+            "folders_children",
+            "folders_tree",
+            "media_original",
+            "media_preview",
+            "media_thumb",
+            "problems_list",
+            "saved_searches_create",
+            "saved_searches_list",
+            "search_run",
+            "search_suggest",
             "setup_create",
-            "setup_status"
+            "setup_status",
+            "timeline_buckets",
+            "timeline_page",
+            "viewport_promote",
+            "ws_connect",
+            "ws_ticket"
         ]
     );
 }
@@ -236,6 +292,11 @@ fn openapi_snapshot_matches_the_committed_file() {
             .unwrap();
 
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/api/openapi.json");
+
+    if std::env::var("UPDATE_OPENAPI").as_deref() == Ok("1") {
+        std::fs::write(&path, generated.trim_end().to_string() + "\n").unwrap();
+        return;
+    }
 
     if !path.exists() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

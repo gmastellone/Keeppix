@@ -7,6 +7,18 @@ license.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+keeppix-domain = { path = "../keeppix-domain" }
+chrono.workspace = true
+serde_json.workspace = true
+walkdir = "2"
+exif = { package = "kamadak-exif", version = "0.6.1" }
+blake3 = "1"
+libc = "0.2"
+serde.workspace = true
+zune-jpeg = "0.4"
+fast_image_resize = "5"
+image-webp = "0.2"
+thumbhash = "0.1"
 
 [lints]
 workspace = true

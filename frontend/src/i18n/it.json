@@ -26,5 +26,33 @@
     }
   },
   "home": { "greeting": "Ciao, {name}", "logout": "Esci" },
-  "common": { "loading": "Caricamento…", "unexpectedError": "Si è verificato un errore imprevisto." }
+  "timeline": {
+    "kind": "Tipo",
+    "kinds": { "all": "Tutti", "photo": "Foto", "video": "Video" },
+    "empty": "Nessuna foto in questa libreria.",
+    "densityDown": "Meno colonne",
+    "densityUp": "Più colonne"
+  },
+  "search": {
+    "placeholder": "Cerca foto…",
+    "submit": "Cerca",
+    "invalid": "Query non valida."
+  },
+  "viewer": { "title": "Foto", "close": "Chiudi" },
+  "problems": {
+    "title": "Problemi",
+    "offlineLibraries": "Librerie offline",
+    "failedJobs": "Job falliti",
+    "errorAssets": "File illeggibili",
+    "duplicates": "Duplicati",
+    "none": "Niente da segnalare.",
+    "reclaimable": "{count} copie, {bytes} byte recuperabili"
+  },
+  "common": {
+    "loading": "Caricamento…",
+    "unexpectedError": "Si è verificato un errore imprevisto.",
+    "unavailable": "Il server non è raggiungibile",
+    "unavailableHint": "Riprova tra poco: non è un problema di accesso.",
+    "retry": "Riprova"
+  }
 }
