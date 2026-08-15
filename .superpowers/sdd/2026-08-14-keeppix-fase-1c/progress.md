@@ -90,6 +90,11 @@ Costo se sbagliato: l'admin è l'unico a poter bumpare un job orfano.
 Ruling: disabilitare un account ha la stessa coda 30 s della cache sessioni
 già accettata per la revoke di famiglia.
 
-Ruling: la suite locale passa da `./scripts/test.sh` (`--jobs 1`, poi
-`docker rm` testcontainers + `cargo clean`). Costo se sbagliato: ogni
-corsa ricompila da zero; il disco non si riempie di `target/` e PostGIS.
+Ruling: la suite locale passa da `./scripts/test.sh` (crate per crate,
+`docker rm` tra un crate e l'altro, poi `cargo clean`). Costo se sbagliato:
+ogni corsa ricompila da zero; il disco non si riempie di `target/` e PostGIS.
+
+Ruling: in CI i test usano `KEEPPIX_TEST_DATABASE_URL` su un service
+`postgis/postgis:17-3.5`, non testcontainers. Drop non rimuoveva i container
+e il runner andava a disco pieno. Costo se sbagliato: il test 503 che
+spegne Postgres viene saltato in CI (già previsto dall'harness).
