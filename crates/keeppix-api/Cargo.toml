@@ -8,17 +8,21 @@ license.workspace = true
 [dependencies]
 thiserror.workspace = true
 keeppix-domain = { path = "../keeppix-domain" }
-axum = { version = "0.8.9", features = ["macros"] }
+axum = { version = "0.8.9", features = ["macros", "ws"] }
 axum-extra = { version = "0.12.6", features = ["cookie"] }
 tower-http = { version = "0.7.0", features = ["set-header", "trace", "compression-br", "compression-gzip", "cors"] }
 tower = "0.5.3"
 keeppix-db = { version = "0.1.0", path = "../keeppix-db" }
+keeppix-media = { path = "../keeppix-media" }
+chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tokio-util = { version = "0.7.19", features = ["io"] }
 tracing.workspace = true
 http = "1.5.0"
 time = "0.3.55"
+uuid.workspace = true
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
 
 [lints]

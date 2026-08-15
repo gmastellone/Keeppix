@@ -1,0 +1,150 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::error::DomainError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobKind {
+    DiscoverLibrary,
+    ExtractMetadata,
+    HashAsset,
+    DeriveAsset,
+    ReapStale,
+}
+
+impl JobKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DiscoverLibrary => "discover_library",
+            Self::ExtractMetadata => "extract_metadata",
+            Self::HashAsset => "hash_asset",
+            Self::DeriveAsset => "derive_asset",
+            Self::ReapStale => "reap_stale",
+        }
+    }
+
+    /// # Errors
+    /// `DomainError::InvalidJobKind` se la stringa non è uno dei cinque tipi.
+    pub fn parse(raw: &str) -> Result<Self, DomainError> {
+        match raw {
+            "discover_library" => Ok(Self::DiscoverLibrary),
+            "extract_metadata" => Ok(Self::ExtractMetadata),
+            "hash_asset" => Ok(Self::HashAsset),
+            "derive_asset" => Ok(Self::DeriveAsset),
+            "reap_stale" => Ok(Self::ReapStale),
+            other => Err(DomainError::InvalidJobKind(other.to_owned())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobStatus {
+    Pending,
+    Running,
+    Done,
+    Failed,
+}
+
+impl JobStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// # Errors
+    /// `DomainError::InvalidJobStatus` se la stringa non è uno dei quattro stati.
+    pub fn parse(raw: &str) -> Result<Self, DomainError> {
+        match raw {
+            "pending" => Ok(Self::Pending),
+            "running" => Ok(Self::Running),
+            "done" => Ok(Self::Done),
+            "failed" => Ok(Self::Failed),
+            other => Err(DomainError::InvalidJobStatus(other.to_owned())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[repr(i16)]
+pub enum JobPriority {
+    Interactive = 0,
+    High = 1,
+    Visible = 2,
+    Background = 3,
+}
+
+impl JobPriority {
+    #[must_use]
+    pub const fn as_i16(self) -> i16 {
+        self as i16
+    }
+
+    /// # Errors
+    /// `DomainError::InvalidJobPriority` se il valore non è 0..=3.
+    pub fn from_i16(raw: i16) -> Result<Self, DomainError> {
+        match raw {
+            0 => Ok(Self::Interactive),
+            1 => Ok(Self::High),
+            2 => Ok(Self::Visible),
+            3 => Ok(Self::Background),
+            other => Err(DomainError::InvalidJobPriority(other)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Job {
+    pub id: i64,
+    pub kind: JobKind,
+    pub payload: serde_json::Value,
+    pub priority: JobPriority,
+    pub status: JobStatus,
+    pub attempts: i32,
+    pub max_attempts: i32,
+    pub last_error: Option<String>,
+    pub run_after: DateTime<Utc>,
+    pub locked_by: Option<uuid::Uuid>,
+    pub dedup_key: Option<String>,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn job_kind_round_trips_snake_case() {
+        for kind in [
+            JobKind::DiscoverLibrary,
+            JobKind::ExtractMetadata,
+            JobKind::HashAsset,
+            JobKind::DeriveAsset,
+            JobKind::ReapStale,
+        ] {
+            assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
+        }
+    }
+
+    #[test]
+    fn unknown_kind_is_rejected() {
+        assert!(JobKind::parse("index_file").is_err());
+    }
+
+    #[test]
+    fn priority_order_matches_the_energy_profile() {
+        assert!(JobPriority::Interactive < JobPriority::Background);
+        assert_eq!(
+            JobPriority::from_i16(3).expect("3"),
+            JobPriority::Background
+        );
+        assert!(JobPriority::from_i16(4).is_err());
+    }
+}

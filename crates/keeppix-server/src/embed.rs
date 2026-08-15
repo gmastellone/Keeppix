@@ -26,7 +26,7 @@ struct Assets;
 async fn serve(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
 
-    if path.starts_with("api/") {
+    if path.starts_with("api/") || path.starts_with("media/") || path.starts_with("dav/") {
         return Problem::not_found().into_response();
     }
 

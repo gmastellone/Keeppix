@@ -8,7 +8,7 @@ use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
-use crate::routes::{auth, setup};
+use crate::routes::{auth, folders, media, problems, search, setup, timeline, viewport, ws};
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
 /// `#[utoipa::path(security(("session_cookie" = [])))]` devono ripeterlo come
@@ -49,6 +49,22 @@ impl utoipa::Modify for SecurityAddon {
         auth::refresh,
         auth::logout,
         auth::me,
+        timeline::buckets,
+        timeline::page,
+        folders::tree,
+        folders::children,
+        media::thumb,
+        media::preview,
+        media::original,
+        viewport::promote,
+        search::run,
+        search::suggest,
+        search::list_saved,
+        search::create_saved,
+        ws::ticket,
+        ws::connect,
+        problems::list,
+        problems::duplicates,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -63,11 +79,31 @@ impl utoipa::Modify for SecurityAddon {
         setup::SetupStatus,
         setup::SetupRequest,
         setup::SetupResponse,
+        timeline::MonthBucketView,
+        timeline::TimelinePage,
+        timeline::AssetView,
+        folders::FolderView,
+        folders::FolderChildren,
+        viewport::ViewportRequest,
+        search::SearchRequest,
+        search::SearchPage,
+        search::SuggestResponse,
+        search::SavedSearchRequest,
+        search::SavedSearchView,
+        ws::TicketResponse,
+        problems::ProblemsView,
+        problems::DuplicateGroupView,
         crate::problem::Problem,
     )),
     tags(
         (name = "setup", description = "Configurazione iniziale dell'istanza"),
-        (name = "auth", description = "Autenticazione e sessioni")
+        (name = "auth", description = "Autenticazione e sessioni"),
+        (name = "timeline", description = "Bucket mensili e pagine keyset"),
+        (name = "folders", description = "Albero delle cartelle"),
+        (name = "media", description = "Miniature, preview e originali"),
+        (name = "search", description = "Ricerca da AST e ricerche salvate"),
+        (name = "events", description = "WebSocket di notifica"),
+        (name = "library", description = "Problemi e duplicati")
     )
 )]
 pub struct ApiDoc;

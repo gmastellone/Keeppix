@@ -1,18 +1,40 @@
 //! Accesso al database. È l'unico crate del workspace che contiene SQL.
 
+pub mod assets;
+pub mod changes;
 pub mod error;
+pub mod folders;
+pub mod jobs;
+pub mod libraries;
+pub mod problems;
+mod row;
+pub mod search;
 pub mod sessions;
 pub mod settings;
+pub mod timeline;
 pub mod users;
+pub mod visibility;
 
+pub use assets::AssetRepo;
+pub use changes::{ChangeLogRepo, ChangePage};
 pub use error::DbError;
+pub use folders::FolderRepo;
+pub use jobs::JobRepo;
+pub use libraries::LibraryRepo;
+pub use problems::{DuplicateGroup, ProblemSet, ProblemsRepo};
+pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
+pub use timeline::{MonthBucket, TimelineRepo};
 pub use users::UserRepo;
+pub use visibility::VisibilityScope;
 
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 
+// sqlx::migrate! incorpora i file a compile time: toccare questo modulo
+// quando si aggiunge o si modifica una migrazione, altrimenti cargo non
+// rivede la directory. 00011_month_counts_utc.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

@@ -10,6 +10,22 @@ env:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # Un solo PostGIS per il job. testcontainers ne lasciava uno per crate
+    # (Drop non li toglieva) e il runner andava a disco pieno a metà suite.
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      KEEPPIX_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v5
 
@@ -30,6 +46,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
         with: { components: "rustfmt, clippy" }
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Su PR il target di test riempie il runner; il Post della cache
+          # falliva con "No space left" dopo suite già verde. Su main sì.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Formattazione
         run: cargo fmt --all --check
@@ -37,17 +57,17 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # I test di integrazione avviano Postgres via testcontainers (immagine
-      # postgis/postgis:17-3.5): Docker è già disponibile sui runner GitHub, e
-      # il container usa-e-getta viene creato e distrutto automaticamente. In
-      # locale, dove testcontainers non è raggiungibile, l'harness usa invece
-      # la variabile KEEPPIX_TEST_DATABASE_URL per puntare a un Postgres già
-      # in esecuzione: qui in CI non va impostata.
       - name: Test
-        run: cargo test --workspace -- --test-threads=1
+        run: cargo test --workspace --jobs 1 -- --test-threads=1
 
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json
+
+      - name: Libera disco dopo i test
+        if: always()
+        run: |
+          cargo clean || true
+          df -h /
 
   frontend:
     runs-on: ubuntu-latest

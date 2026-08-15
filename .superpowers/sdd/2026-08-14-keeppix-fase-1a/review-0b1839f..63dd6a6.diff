@@ -1,0 +1,507 @@
+# Review package: 0b1839f..63dd6a6
+
+## Commits
+63dd6a6 refactor(db): map rows with sqlx::FromRow instead of by hand
+
+## Files changed
+ crates/keeppix-db/src/lib.rs      |  1 +
+ crates/keeppix-db/src/row.rs      | 16 ++++++++
+ crates/keeppix-db/src/sessions.rs | 85 ++++++++++++++++++++++-----------------
+ crates/keeppix-db/src/settings.rs | 35 ++++++++++------
+ crates/keeppix-db/src/users.rs    | 78 +++++++++++++----------------------
+ 5 files changed, 114 insertions(+), 101 deletions(-)
+
+## Diff
+diff --git a/crates/keeppix-db/src/lib.rs b/crates/keeppix-db/src/lib.rs
+index 7cea3f3..4113d4e 100644
+--- a/crates/keeppix-db/src/lib.rs
++++ b/crates/keeppix-db/src/lib.rs
+@@ -1,13 +1,14 @@
+ //! Accesso al database. È l'unico crate del workspace che contiene SQL.
+ 
+ pub mod error;
++mod row;
+ pub mod sessions;
+ pub mod settings;
+ pub mod users;
+ 
+ pub use error::DbError;
+ pub use sessions::SessionRepo;
+ pub use settings::SettingsRepo;
+ pub use users::UserRepo;
+ 
+ use sqlx::PgPool;
+diff --git a/crates/keeppix-db/src/row.rs b/crates/keeppix-db/src/row.rs
+new file mode 100644
+index 0000000..5b4291a
+--- /dev/null
++++ b/crates/keeppix-db/src/row.rs
+@@ -0,0 +1,16 @@
++//! Convenzioni di mapping fra righe di database e tipi di dominio.
++//!
++//! Ogni tabella ha una struct `…Row` con `#[derive(sqlx::FromRow)]`, i cui
++//! campi portano lo stesso nome delle colonne, e una `into_domain()` che
++//! costruisce il tipo di dominio validando ciò che il database non può
++//! garantire da solo. Le due responsabilità restano separate: `FromRow` non
++//! sa nulla del dominio, `into_domain` non sa nulla di SQL.
++
++use crate::DbError;
++
++/// Errore uniforme per un valore memorizzato che il dominio rifiuta.
++/// Usare sempre questo invece di costruire `DbError::Corrupted` a mano, così
++/// i messaggi hanno la stessa forma ovunque.
++pub(crate) fn corrupted(field: &str, detail: impl std::fmt::Display) -> DbError {
++    DbError::Corrupted(format!("stored {field} is invalid: {detail}"))
++}
+diff --git a/crates/keeppix-db/src/sessions.rs b/crates/keeppix-db/src/sessions.rs
+index 1abdb4d..90551e7 100644
+--- a/crates/keeppix-db/src/sessions.rs
++++ b/crates/keeppix-db/src/sessions.rs
+@@ -1,22 +1,54 @@
+ use std::time::Duration;
+ 
+ use keeppix_domain::{AuthContext, SessionToken, SystemRole, UserId};
+-use sqlx::Row;
+ use uuid::Uuid;
+ 
+ use crate::{Db, DbError};
+ 
+ pub struct SessionRepo<'a> {
+     db: &'a Db,
+ }
+ 
++#[derive(sqlx::FromRow)]
++struct AuthRow {
++    user_id: uuid::Uuid,
++    role: String,
++}
++
++impl AuthRow {
++    fn into_domain(self) -> Result<AuthContext, DbError> {
++        // Stessa tassonomia di `users.rs` (ruling R3): un valore che il codice
++        // non sa interpretare è `Corrupted`, non un ruolo degradato a `User`.
++        // Il CHECK sulla colonna lo rende irraggiungibile e la degradazione
++        // falliva chiusa, ma due moduli che trattano lo stesso dato in modo
++        // diverso rendono inaffidabile il triage sugli errori.
++        let role = match self.role.as_str() {
++            "admin" => SystemRole::Admin,
++            "user" => SystemRole::User,
++            other => return Err(crate::row::corrupted("role", other)),
++        };
++        Ok(AuthContext::user(UserId::from_uuid(self.user_id), role))
++    }
++}
++
++#[derive(sqlx::FromRow)]
++struct RotateRow {
++    id: uuid::Uuid,
++    family_id: uuid::Uuid,
++    user_id: uuid::Uuid,
++    consumed_at: Option<chrono::DateTime<chrono::Utc>>,
++    revoked_at: Option<chrono::DateTime<chrono::Utc>>,
++    expires_at: chrono::DateTime<chrono::Utc>,
++    db_now: chrono::DateTime<chrono::Utc>,
++}
++
+ impl<'a> SessionRepo<'a> {
+     #[must_use]
+     pub const fn new(db: &'a Db) -> Self {
+         Self { db }
+     }
+ 
+     /// Apre una nuova famiglia di sessione. Il token in chiaro è restituito
+     /// una sola volta: nel database resta solo il digest.
+     ///
+     /// # Errors
+@@ -43,118 +75,95 @@ impl<'a> SessionRepo<'a> {
+         .execute(self.db.pool())
+         .await?;
+ 
+         Ok(token)
+     }
+ 
+     /// # Errors
+     /// `DbError::NotFound` se il token è sconosciuto, scaduto, consumato,
+     /// revocato, oppure se l'utente è disabilitato.
+     pub async fn authenticate(&self, token: &SessionToken) -> Result<AuthContext, DbError> {
+-        let row = sqlx::query(
++        let row: Option<AuthRow> = sqlx::query_as(
+             "SELECT u.id AS user_id, u.role \
+                FROM sessions s JOIN users u ON u.id = s.user_id \
+               WHERE s.refresh_token_hash = $1 \
+                 AND s.consumed_at IS NULL \
+                 AND s.revoked_at IS NULL \
+                 AND s.expires_at > now() \
+                 AND u.disabled_at IS NULL",
+         )
+         .bind(token.digest().as_slice())
+         .fetch_optional(self.db.pool())
+-        .await?
+-        .ok_or(DbError::NotFound)?;
+-
+-        let user_id: Uuid = row.try_get("user_id")?;
+-        let role: String = row.try_get("role")?;
+-        // Stessa tassonomia di `users.rs` (ruling R3): un valore che il codice
+-        // non sa interpretare è `Corrupted`, non un ruolo degradato a `User`.
+-        // Il CHECK sulla colonna lo rende irraggiungibile e la degradazione
+-        // falliva chiusa, ma due moduli che trattano lo stesso dato in modo
+-        // diverso rendono inaffidabile il triage sugli errori.
+-        let role = match role.as_str() {
+-            "admin" => SystemRole::Admin,
+-            "user" => SystemRole::User,
+-            other => return Err(DbError::Corrupted(format!("unknown role: {other}"))),
+-        };
++        .await?;
+ 
+-        Ok(AuthContext::user(UserId::from_uuid(user_id), role))
++        row.ok_or(DbError::NotFound)?.into_domain()
+     }
+ 
+     /// Ruota il token. Se quello presentato risulta **già consumato**, l'unica
+     /// spiegazione è che una copia sia in mano a qualcun altro: si revoca
+     /// l'intera famiglia e si costringe a un nuovo login.
+     ///
+     /// # Errors
+     /// `DbError::Forbidden` in caso di riuso rilevato; `DbError::NotFound` se
+     /// il token non esiste o è scaduto.
+     pub async fn rotate(
+         &self,
+         token: &SessionToken,
+         ttl: Duration,
+     ) -> Result<SessionToken, DbError> {
+         let mut tx = self.db.pool().begin().await?;
+ 
+-        let row = sqlx::query(
++        let row: Option<RotateRow> = sqlx::query_as(
+             "SELECT id, family_id, user_id, consumed_at, revoked_at, expires_at, now() AS db_now \
+                FROM sessions WHERE refresh_token_hash = $1 FOR UPDATE",
+         )
+         .bind(token.digest().as_slice())
+         .fetch_optional(&mut *tx)
+-        .await?
+-        .ok_or(DbError::NotFound)?;
+-
+-        let family_id: Uuid = row.try_get("family_id")?;
+-        let consumed: Option<chrono::DateTime<chrono::Utc>> = row.try_get("consumed_at")?;
+-        let revoked: Option<chrono::DateTime<chrono::Utc>> = row.try_get("revoked_at")?;
++        .await?;
++        let row = row.ok_or(DbError::NotFound)?;
+ 
+-        if consumed.is_some() {
++        if row.consumed_at.is_some() {
+             sqlx::query(
+                 "UPDATE sessions SET revoked_at = now() \
+                   WHERE family_id = $1 AND revoked_at IS NULL",
+             )
+-            .bind(family_id)
++            .bind(row.family_id)
+             .execute(&mut *tx)
+             .await?;
+             tx.commit().await?;
+             return Err(DbError::Forbidden);
+         }
+ 
+-        if revoked.is_some() {
++        if row.revoked_at.is_some() {
+             return Err(DbError::NotFound);
+         }
+ 
+-        let expires_at: chrono::DateTime<chrono::Utc> = row.try_get("expires_at")?;
+-        let db_now: chrono::DateTime<chrono::Utc> = row.try_get("db_now")?;
+-        if expires_at <= db_now {
++        if row.expires_at <= row.db_now {
+             return Err(DbError::NotFound);
+         }
+ 
+-        let parent_id: Uuid = row.try_get("id")?;
+-        let user_id: Uuid = row.try_get("user_id")?;
+-
+         sqlx::query("UPDATE sessions SET consumed_at = now() WHERE id = $1")
+-            .bind(parent_id)
++            .bind(row.id)
+             .execute(&mut *tx)
+             .await?;
+ 
+         let next = SessionToken::generate();
+         sqlx::query(
+             "INSERT INTO sessions \
+                  (id, family_id, user_id, refresh_token_hash, parent_id, expires_at) \
+              VALUES ($1, $2, $3, $4, $5, now() + $6::interval)",
+         )
+         .bind(Uuid::now_v7())
+-        .bind(family_id)
+-        .bind(user_id)
++        .bind(row.family_id)
++        .bind(row.user_id)
+         .bind(next.digest().as_slice())
+-        .bind(parent_id)
++        .bind(row.id)
+         .bind(interval(ttl))
+         .execute(&mut *tx)
+         .await?;
+ 
+         tx.commit().await?;
+         Ok(next)
+     }
+ 
+     /// # Errors
+     /// `DbError::Connection` se l'aggiornamento fallisce.
+diff --git a/crates/keeppix-db/src/settings.rs b/crates/keeppix-db/src/settings.rs
+index 73d8dda..9e811f1 100644
+--- a/crates/keeppix-db/src/settings.rs
++++ b/crates/keeppix-db/src/settings.rs
+@@ -1,21 +1,36 @@
+ use base64::Engine as _;
+ use base64::engine::general_purpose::STANDARD;
+ use rand::Rng;
+-use sqlx::Row;
+ 
+ use crate::{Db, DbError};
+ 
+ pub struct SettingsRepo<'a> {
+     db: &'a Db,
+ }
+ 
++#[derive(sqlx::FromRow)]
++struct SecretRow {
++    value: String,
++}
++
++impl SecretRow {
++    fn into_domain(self) -> Result<[u8; 32], DbError> {
++        let bytes = STANDARD
++            .decode(&self.value)
++            .map_err(|e| DbError::Corrupted(format!("stored secret is not base64: {e}")))?;
++        bytes
++            .try_into()
++            .map_err(|_| DbError::Corrupted("stored secret is not 32 bytes".to_owned()))
++    }
++}
++
+ impl<'a> SettingsRepo<'a> {
+     #[must_use]
+     pub const fn new(db: &'a Db) -> Self {
+         Self { db }
+     }
+ 
+     /// Restituisce il segreto associato alla chiave, generandolo al primo
+     /// accesso. `ON CONFLICT DO NOTHING` più rilettura rende l'operazione
+     /// sicura anche se due processi partono insieme.
+     ///
+@@ -29,25 +44,19 @@ impl<'a> SettingsRepo<'a> {
+ 
+         sqlx::query(
+             "INSERT INTO system_settings (key, value) VALUES ($1, to_jsonb($2::text)) \
+              ON CONFLICT (key) DO NOTHING",
+         )
+         .bind(key)
+         .bind(&encoded)
+         .execute(self.db.pool())
+         .await?;
+ 
+-        let row = sqlx::query("SELECT value #>> '{}' AS value FROM system_settings WHERE key = $1")
+-            .bind(key)
+-            .fetch_one(self.db.pool())
+-            .await?;
+-
+-        let stored: String = row.try_get("value")?;
+-        let bytes = STANDARD
+-            .decode(&stored)
+-            .map_err(|e| DbError::Corrupted(format!("stored secret is not base64: {e}")))?;
++        let row: SecretRow =
++            sqlx::query_as("SELECT value #>> '{}' AS value FROM system_settings WHERE key = $1")
++                .bind(key)
++                .fetch_one(self.db.pool())
++                .await?;
+ 
+-        bytes
+-            .try_into()
+-            .map_err(|_| DbError::Corrupted("stored secret is not 32 bytes".to_owned()))
++        row.into_domain()
+     }
+ }
+diff --git a/crates/keeppix-db/src/users.rs b/crates/keeppix-db/src/users.rs
+index d7cb647..a82e5dd 100644
+--- a/crates/keeppix-db/src/users.rs
++++ b/crates/keeppix-db/src/users.rs
+@@ -1,53 +1,68 @@
+ use keeppix_domain::{AuthContext, NewUser, PasswordHash, SystemRole, User, UserId, Username};
+-use sqlx::Row;
+ 
+ use crate::{Db, DbError};
+ 
+ pub struct UserRepo<'a> {
+     db: &'a Db,
+ }
+ 
+-/// Riga grezza della tabella `users`, convertita in `User` dal dominio.
++#[derive(sqlx::FromRow)]
+ struct UserRow {
+     id: uuid::Uuid,
+     username: String,
+     email: Option<String>,
+     display_name: String,
+     role: String,
+     locale: Option<String>,
+     created_at: chrono::DateTime<chrono::Utc>,
+     disabled_at: Option<chrono::DateTime<chrono::Utc>>,
+ }
+ 
+ impl UserRow {
+     fn into_domain(self) -> Result<User, DbError> {
+-        let username = Username::parse(&self.username)
+-            .map_err(|e| DbError::Corrupted(format!("stored username is invalid: {e}")))?;
++        let username =
++            Username::parse(&self.username).map_err(|e| crate::row::corrupted("username", e))?;
+         let role = match self.role.as_str() {
+             "admin" => SystemRole::Admin,
+             "user" => SystemRole::User,
+-            other => return Err(DbError::Corrupted(format!("unknown role: {other}"))),
++            other => return Err(crate::row::corrupted("role", other)),
+         };
+         Ok(User {
+             id: UserId::from_uuid(self.id),
+             username,
+             email: self.email,
+             display_name: self.display_name,
+             role,
+             locale: self.locale,
+             created_at: self.created_at,
+             disabled_at: self.disabled_at,
+         })
+     }
+ }
+ 
++#[derive(sqlx::FromRow)]
++struct UserWithHashRow {
++    #[sqlx(flatten)]
++    user: UserRow,
++    password_hash: String,
++}
++
++impl UserWithHashRow {
++    fn into_domain(self) -> Result<(User, PasswordHash), DbError> {
++        Ok((
++            self.user.into_domain()?,
++            PasswordHash::from_stored(self.password_hash),
++        ))
++    }
++}
++
+ const fn role_str(role: SystemRole) -> &'static str {
+     match role {
+         SystemRole::Admin => "admin",
+         SystemRole::User => "user",
+     }
+ }
+ 
+ /// Traduce la violazione dell'indice unico in un conflitto leggibile.
+ fn map_unique_violation(err: sqlx::Error) -> DbError {
+     if let sqlx::Error::Database(ref db_err) = err
+@@ -120,98 +135,61 @@ impl<'a> UserRepo<'a> {
+ 
+     /// Ricerca per il login: restituisce anche l'hash della password.
+     /// Non richiede `AuthContext` perché è il passo che lo produce.
+     ///
+     /// # Errors
+     /// `DbError::Connection` se la query fallisce.
+     pub async fn find_by_username(
+         &self,
+         username: &Username,
+     ) -> Result<Option<(User, PasswordHash)>, DbError> {
+-        let row = sqlx::query(
++        let row: Option<UserWithHashRow> = sqlx::query_as(
+             "SELECT id, username, email, display_name, password_hash, role, locale, \
+                     created_at, disabled_at \
+                FROM users WHERE lower(username) = lower($1)",
+         )
+         .bind(username.as_str())
+         .fetch_optional(self.db.pool())
+         .await?;
+ 
+-        let Some(row) = row else { return Ok(None) };
+-
+-        let hash = PasswordHash::from_stored(row.try_get("password_hash")?);
+-        let user = UserRow {
+-            id: row.try_get("id")?,
+-            username: row.try_get("username")?,
+-            email: row.try_get("email")?,
+-            display_name: row.try_get("display_name")?,
+-            role: row.try_get("role")?,
+-            locale: row.try_get("locale")?,
+-            created_at: row.try_get("created_at")?,
+-            disabled_at: row.try_get("disabled_at")?,
+-        }
+-        .into_domain()?;
+-
+-        Ok(Some((user, hash)))
++        row.map(UserWithHashRow::into_domain).transpose()
+     }
+ 
+     /// # Errors
+     /// `DbError::Forbidden` se un utente non-admin chiede un id diverso dal
+     /// proprio; `DbError::NotFound` se l'utente non esiste.
+     pub async fn find_by_id(&self, ctx: &AuthContext, id: UserId) -> Result<User, DbError> {
+         if !ctx.is_admin() && ctx.user_id() != Some(id) {
+             return Err(DbError::Forbidden);
+         }
+ 
+-        let row = sqlx::query(
++        let row: Option<UserRow> = sqlx::query_as(
+             "SELECT id, username, email, display_name, role, locale, created_at, disabled_at \
+                FROM users WHERE id = $1",
+         )
+         .bind(id.as_uuid())
+         .fetch_optional(self.db.pool())
+-        .await?
+-        .ok_or(DbError::NotFound)?;
+-
+-        UserRow {
+-            id: row.try_get("id")?,
+-            username: row.try_get("username")?,
+-            email: row.try_get("email")?,
+-            display_name: row.try_get("display_name")?,
+-            role: row.try_get("role")?,
+-            locale: row.try_get("locale")?,
+-            created_at: row.try_get("created_at")?,
+-            disabled_at: row.try_get("disabled_at")?,
+-        }
+-        .into_domain()
++        .await?;
++
++        row.ok_or(DbError::NotFound)?.into_domain()
+     }
+ }
+ 
+ async fn insert_user(
+     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+     new: &NewUser,
+ ) -> Result<UserRow, DbError> {
+-    let row = sqlx::query(
++    sqlx::query_as(
+         "INSERT INTO users (id, username, email, display_name, password_hash, role) \
+          VALUES ($1, $2, $3, $4, $5, $6) \
+          RETURNING id, username, email, display_name, role, locale, created_at, disabled_at",
+     )
+     .bind(UserId::new().as_uuid())
+     .bind(new.username.as_str())
+     .bind(new.email.as_deref())
+     .bind(&new.display_name)
+     .bind(&new.password_hash)
+     .bind(role_str(new.role))
+     .fetch_one(&mut **tx)
+     .await
+-    .map_err(map_unique_violation)?;
+-
+-    Ok(UserRow {
+-        id: row.try_get("id")?,
+-        username: row.try_get("username")?,
+-        email: row.try_get("email")?,
+-        display_name: row.try_get("display_name")?,
+-        role: row.try_get("role")?,
+-        locale: row.try_get("locale")?,
+-        created_at: row.try_get("created_at")?,
+-        disabled_at: row.try_get("disabled_at")?,
+-    })
++    .map_err(map_unique_violation)
+ }

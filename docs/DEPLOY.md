@@ -161,6 +161,16 @@ location / {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_http_version 1.1;
 }
+
+location /api/v1/ws {
+    proxy_pass http://127.0.0.1:5673;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header Origin $http_origin;
+    proxy_read_timeout 3600s;
+}
 ```
 
 ## Diagnosi

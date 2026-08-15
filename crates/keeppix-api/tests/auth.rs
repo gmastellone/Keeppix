@@ -415,7 +415,7 @@ async fn me_requires_authentication() {
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn a_database_outage_is_a_503_not_a_401() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_stoppable().await;
     setup(&server).await;
 
     // Sanity check: la sessione vale *prima* dello spegnimento, altrimenti il
@@ -474,6 +474,14 @@ async fn refresh_rotates_the_session_cookie() {
         .await
         .unwrap();
     let before = session_value_from(&setup_response);
+
+    let warmed = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(warmed.status(), 200);
 
     let refresh = server
         .client
@@ -589,6 +597,17 @@ async fn logout_invalidates_the_session() {
         .await
         .unwrap();
     let session_value = session_value_from(&setup_response);
+
+    // Popola la cache di `Auth` prima della revoca: senza questo GET, un
+    // cache-aside che non invalida su `revoke` resterebbe verde — la cache
+    // sarebbe vuota e il 401 arriverebbe dal database, non dalla drop.
+    let warmed = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(warmed.status(), 200);
 
     let response = server
         .client

@@ -11,6 +11,7 @@ export const useSessionStore = defineStore('session', () => {
   const user = ref<User | null>(null)
   const initialised = ref<boolean | null>(null)
   const ready = ref(false)
+  const unavailable = ref(false)
   /** True se l'ultimo logout ha azzerato la sessione localmente senza
    * conferma dal server. Letto (e azzerato) dalla vista che accoglie
    * l'utente dopo il redirect, per segnalarlo senza bloccare l'uscita. */
@@ -18,20 +19,35 @@ export const useSessionStore = defineStore('session', () => {
 
   /** Determina lo stato dell'istanza e ripristina la sessione se presente. */
   async function bootstrap(): Promise<void> {
-    const status = await authApi.getSetupStatus()
-    initialised.value = status.initialised
+    unavailable.value = false
+    try {
+      const status = await authApi.getSetupStatus()
+      initialised.value = status.initialised
 
-    if (status.initialised) {
-      try {
-        const result = await authApi.me()
-        user.value = result.user
-      } catch (error) {
-        // 401 è normale: nessuna sessione attiva.
-        if (!(error instanceof ApiProblem) || error.status !== 401) throw error
-        user.value = null
+      if (status.initialised) {
+        try {
+          const result = await authApi.me()
+          user.value = result.user
+        } catch (error) {
+          // 401 è normale: nessuna sessione attiva.
+          if (!(error instanceof ApiProblem) || error.status !== 401) throw error
+          user.value = null
+        }
       }
+    } catch (error) {
+      if (error instanceof ApiProblem && error.status === 503) {
+        unavailable.value = true
+        ready.value = true
+        return
+      }
+      throw error
     }
     ready.value = true
+  }
+
+  async function retryBootstrap(): Promise<void> {
+    ready.value = false
+    await bootstrap()
   }
 
   async function login(username: string, password: string): Promise<void> {
@@ -64,5 +80,5 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  return { user, initialised, ready, logoutError, bootstrap, login, setup, logout }
+  return { user, initialised, ready, unavailable, logoutError, bootstrap, retryBootstrap, login, setup, logout }
 })

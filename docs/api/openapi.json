@@ -220,6 +220,393 @@
         ]
       }
     },
+    "/api/v1/duplicates": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "duplicates_list",
+        "responses": {
+          "200": {
+            "description": "Gruppi con lo stesso content_hash",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DuplicateGroupView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/folders/tree": {
+      "get": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "folders_tree",
+        "responses": {
+          "200": {
+            "description": "Albero delle cartelle visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FolderView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/folders/{id}/children": {
+      "get": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se la cartella non è visibile (anche\ninesistente, per chi non è admin); `404` solo a un admin su id assente.",
+        "operationId": "folders_children",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della cartella",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Figli diretti e asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderChildren"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Cartella non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cartella inesistente (solo admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/problems": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "problems_list",
+        "responses": {
+          "200": {
+            "description": "Problemi visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/saved-searches": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "saved_searches_list",
+        "responses": {
+          "200": {
+            "description": "Ricerche salvate dell'utente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SavedSearchView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "saved_searches_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Ricerca salvata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSearchView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/search": {
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "summary": "# Errors\n`400` se il cursore è illeggibile; `401` se non autenticato.",
+        "operationId": "search_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Risultati visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/search/suggest": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "search_suggest",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Prefisso",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Suggerimenti visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/setup": {
       "post": {
         "tags": [
@@ -332,10 +719,643 @@
           }
         }
       }
+    },
+    "/api/v1/timeline": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "# Errors\n`400` se `bucket` o `cursor` non sono leggibili; `401` se non autenticato.",
+        "operationId": "timeline_page",
+        "parameters": [
+          {
+            "name": "bucket",
+            "in": "query",
+            "description": "Mese YYYY-MM",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Keyset taken_at|id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1..=200, default 200",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pagina di asset del mese",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelinePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bucket o cursor illeggibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/timeline/buckets": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se `library` non è del chiamante.",
+        "operationId": "timeline_buckets",
+        "parameters": [
+          {
+            "name": "library",
+            "in": "query",
+            "description": "Filtra su una libreria",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conteggi mensili visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MonthBucketView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Libreria non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/viewport": {
+      "post": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Promuove i job `derive:{hash}` dei bucket visibili a priorità Visible.",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "viewport_promote",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Job visibili promossi"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/ws": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "# Errors\n`403` se Origin non è ammesso o il ticket manca, è scaduto o è già stato usato.",
+        "operationId": "ws_connect",
+        "responses": {
+          "101": {
+            "description": "WebSocket keeppix.v1"
+          },
+          "403": {
+            "description": "Origin o ticket non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/ws/ticket": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "ws_ticket",
+        "responses": {
+          "200": {
+            "description": "Ticket monouso da 30 s",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/media/original/{id}": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "# Errors\n`401` / `403` come gli altri asset; `404` se il file non è sul disco.",
+        "operationId": "media_original",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File originale"
+          },
+          "206": {
+            "description": "Byte range"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File assente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/media/preview/{hash}": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "# Errors\nCome `thumb`.",
+        "operationId": "media_preview",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "description": "blake3 hex da 64 caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Preview WebP"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hash non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Derivato assente su disco",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/media/thumb/{hash}": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'hash non è visibile o non esiste.",
+        "operationId": "media_thumb",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "description": "blake3 hex da 64 caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Thumbnail WebP"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hash non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Derivato assente su disco",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "AssetView": {
+        "type": "object",
+        "required": [
+          "id",
+          "folder_id",
+          "filename",
+          "size_bytes",
+          "kind",
+          "status"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "taken_at_utc": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "thumbhash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "DuplicateGroupView": {
+        "type": "object",
+        "required": [
+          "content_hash",
+          "count",
+          "size_bytes",
+          "reclaimable_bytes"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reclaimable_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ErrorAssetView": {
+        "type": "object",
+        "required": [
+          "id",
+          "filename"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "FailedJobView": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "FolderChildren": {
+        "type": "object",
+        "required": [
+          "folders",
+          "assets"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetView"
+            }
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FolderView"
+            }
+          }
+        }
+      },
+      "FolderView": {
+        "type": "object",
+        "required": [
+          "id",
+          "library_id",
+          "name",
+          "depth"
+        ],
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": [
@@ -373,6 +1393,38 @@
           }
         }
       },
+      "MonthBucketView": {
+        "type": "object",
+        "required": [
+          "month",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "month": {
+            "type": "string",
+            "description": "Calendario `YYYY-MM`."
+          }
+        }
+      },
+      "OfflineLibraryView": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "Problem": {
         "type": "object",
         "description": "Errore in formato RFC 9457. Il campo `type` è un codice stabile su cui i\nclient possono ramificare; `title` è in inglese e serve al debug, non\nall'utente finale — la traduzione avviene nel frontend.\n\nÈ anche uno schema del documento `OpenAPI`: è la forma su cui il client\nmobile ramifica, quindi va descritta, non solo servita.",
@@ -399,6 +1451,112 @@
           "type": {
             "type": "string",
             "example": "keeppix/unauthenticated"
+          }
+        }
+      },
+      "ProblemsView": {
+        "type": "object",
+        "required": [
+          "offline_libraries",
+          "failed_jobs",
+          "error_assets"
+        ],
+        "properties": {
+          "error_assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErrorAssetView"
+            }
+          },
+          "failed_jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailedJobView"
+            }
+          },
+          "offline_libraries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfflineLibraryView"
+            }
+          }
+        }
+      },
+      "SavedSearchRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "query_text"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "query_text": {
+            "type": "string"
+          }
+        }
+      },
+      "SavedSearchView": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "query_text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "query_text": {
+            "type": "string"
+          }
+        }
+      },
+      "SearchPage": {
+        "type": "object",
+        "required": [
+          "assets"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetView"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SearchRequest": {
+        "type": "object",
+        "required": [
+          "ast"
+        ],
+        "properties": {
+          "ast": {
+            "type": "object"
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -449,6 +1607,57 @@
           }
         }
       },
+      "SuggestResponse": {
+        "type": "object",
+        "required": [
+          "suggestions"
+        ],
+        "properties": {
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TicketResponse": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "expires_in"
+        ],
+        "properties": {
+          "expires_in": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "ticket": {
+            "type": "string"
+          }
+        }
+      },
+      "TimelinePage": {
+        "type": "object",
+        "required": [
+          "assets"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetView"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UserView": {
         "type": "object",
         "description": "Rappresentazione pubblica dell'utente. Non contiene l'hash della password\nné il segreto TOTP: quei campi non lasciano mai il database.",
@@ -484,6 +1693,20 @@
             "type": "string"
           }
         }
+      },
+      "ViewportRequest": {
+        "type": "object",
+        "required": [
+          "hashes"
+        ],
+        "properties": {
+          "hashes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -503,6 +1726,30 @@
     {
       "name": "auth",
       "description": "Autenticazione e sessioni"
+    },
+    {
+      "name": "timeline",
+      "description": "Bucket mensili e pagine keyset"
+    },
+    {
+      "name": "folders",
+      "description": "Albero delle cartelle"
+    },
+    {
+      "name": "media",
+      "description": "Miniature, preview e originali"
+    },
+    {
+      "name": "search",
+      "description": "Ricerca da AST e ricerche salvate"
+    },
+    {
+      "name": "events",
+      "description": "WebSocket di notifica"
+    },
+    {
+      "name": "library",
+      "description": "Problemi e duplicati"
     }
   ]
 }

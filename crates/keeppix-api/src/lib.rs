@@ -115,9 +115,8 @@ pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -
         // `if_not_present`, **non** `overriding`: le rotte che impostano una
         // propria politica di cache devono vincere — gli asset hashati del
         // frontend escono con `public, max-age=31536000, immutable`
-        // (`keeppix_server::embed`), e sovrascriverli qui li renderebbe non
-        // cacheabili, cioè annullerebbe la prima voce della stessa §9.4. Dalla
-        // Fase 1 vale anche per `/media/*`.
+        // (`keeppix_server::embed`). `/media/*` è autenticato: `private` +
+        // `immutable` sulla rotta (i link pubblici arrivano in Fase 3).
         .layer(SetResponseHeaderLayer::if_not_present(
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("private"),
@@ -134,6 +133,21 @@ fn api_routes() -> Router<AppState> {
         .route("/auth/refresh", axum::routing::post(routes::auth::refresh))
         .route("/auth/logout", axum::routing::post(routes::auth::logout))
         .route("/auth/me", get(routes::auth::me))
+        .route("/timeline/buckets", get(routes::timeline::buckets))
+        .route("/timeline", get(routes::timeline::page))
+        .route("/folders/tree", get(routes::folders::tree))
+        .route("/folders/{id}/children", get(routes::folders::children))
+        .route("/viewport", axum::routing::post(routes::viewport::promote))
+        .route("/search", axum::routing::post(routes::search::run))
+        .route("/search/suggest", get(routes::search::suggest))
+        .route(
+            "/saved-searches",
+            get(routes::search::list_saved).post(routes::search::create_saved),
+        )
+        .route("/ws/ticket", axum::routing::post(routes::ws::ticket))
+        .route("/ws", get(routes::ws::connect))
+        .route("/problems", get(routes::problems::list))
+        .route("/duplicates", get(routes::problems::duplicates))
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe
@@ -145,6 +159,9 @@ fn all_routes() -> Router<AppState> {
     Router::new()
         .route("/health", get(routes::health::get))
         .route("/api/openapi.json", get(openapi::serve))
+        .route("/media/thumb/{hash}", get(routes::media::thumb))
+        .route("/media/preview/{hash}", get(routes::media::preview))
+        .route("/media/original/{id}", get(routes::media::original))
         .nest("/api/v1", api_routes())
         // Va chiamata **dopo** aver registrato le rotte: imposta il fallback
         // di ogni `MethodRouter` già presente, e un `route(...)` aggiunto in

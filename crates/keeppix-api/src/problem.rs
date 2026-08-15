@@ -75,6 +75,11 @@ impl Problem {
     }
 
     #[must_use]
+    pub fn bad_request(type_slug: &str, title: &str) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, type_slug, title)
+    }
+
+    #[must_use]
     pub fn internal() -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -177,6 +182,10 @@ impl From<DbError> for Problem {
             DbError::Forbidden => Self::forbidden(),
             DbError::Conflict(msg) => {
                 Self::new(StatusCode::CONFLICT, "conflict", "Conflict").with_detail(msg)
+            }
+            DbError::Connection(e) => {
+                tracing::error!(error = %e, "database unavailable");
+                Self::service_unavailable()
             }
             // I dettagli interni restano nei log, non nella risposta.
             other => {
