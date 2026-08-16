@@ -86,6 +86,8 @@ impl utoipa::Modify for SecurityAddon {
         libraries::patch,
         libraries::delete,
         libraries::preview,
+        libraries::start_scan,
+        libraries::scan_status,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -130,6 +132,8 @@ impl utoipa::Modify for SecurityAddon {
         libraries::PatchLibraryRequest,
         libraries::DeleteLibraryResponse,
         libraries::PreviewResponse,
+        libraries::ScanAccepted,
+        libraries::ScanStatusView,
         crate::problem::Problem,
     )),
     tags(

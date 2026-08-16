@@ -106,6 +106,8 @@ pub struct AppState {
     /// Radici sotto le quali può puntare una libreria. Default produzione:
     /// `["/photos"]`. Validare `root_path` **dopo** `canonicalize`.
     pub library_roots: Vec<PathBuf>,
+    /// Watcher delle librerie; `None` solo nei test che non li esercitano.
+    pub library_watchers: Option<keeppix_jobs::watch::LibraryWatchers>,
 }
 
 impl AppState {
@@ -120,6 +122,7 @@ impl AppState {
             sessions: SessionCache::default(),
             allowed_origins: Vec::new(),
             library_roots: vec![PathBuf::from("/photos")],
+            library_watchers: None,
         }
     }
 
@@ -138,6 +141,12 @@ impl AppState {
     #[must_use]
     pub fn with_library_roots(mut self, roots: Vec<PathBuf>) -> Self {
         self.library_roots = roots;
+        self
+    }
+
+    #[must_use]
+    pub fn with_library_watchers(mut self, watchers: keeppix_jobs::watch::LibraryWatchers) -> Self {
+        self.library_watchers = Some(watchers);
         self
     }
 }

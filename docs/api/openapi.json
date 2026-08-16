@@ -1349,6 +1349,120 @@
         ]
       }
     },
+    "/api/v1/libraries/{id}/scan": {
+      "get": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Stato corrente della scansione / indicizzazione della libreria.",
+        "description": "# Errors\nVisibilità come `get`.",
+        "operationId": "libraries_scan_status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stato scansione",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanStatusView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non consentito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Accoda `DiscoverLibrary` (idempotente via `dedup_key`).",
+        "description": "# Errors\nVisibilità come `get`; errori di coda → 503.",
+        "operationId": "libraries_scan_start",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Scansione accodata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanAccepted"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non consentito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/metadata/batch": {
       "post": {
         "tags": [
@@ -3055,6 +3169,72 @@
           },
           "query_text": {
             "type": "string"
+          }
+        }
+      },
+      "ScanAccepted": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "status"
+        ],
+        "properties": {
+          "library_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "ScanStatusView": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "library_status",
+          "phase",
+          "asset_count"
+        ],
+        "properties": {
+          "asset_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "eta_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Sempre `null` per ora: niente stima finché non c'è throughput misurato."
+          },
+          "job_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_scan_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "library_status": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string",
+            "description": "`idle` | `discovering` | `failed` | `offline`"
           }
         }
       },

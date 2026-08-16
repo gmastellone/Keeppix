@@ -169,6 +169,10 @@ fn api_routes() -> Router<AppState> {
                 .patch(routes::libraries::patch)
                 .delete(routes::libraries::delete),
         )
+        .route(
+            "/libraries/{id}/scan",
+            get(routes::libraries::scan_status).post(routes::libraries::start_scan),
+        )
         .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
         .route(
             "/assets/{id}/restore",
