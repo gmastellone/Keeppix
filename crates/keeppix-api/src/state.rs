@@ -92,6 +92,14 @@ impl SessionCache {
             guard.remove(&token.digest());
         }
     }
+
+    /// Svuota la cache. Usato dopo revoke di massa (disable / cambio password)
+    /// così un token già revocato non resta valido fino a 30s.
+    pub fn clear(&self) {
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.clear();
+        }
+    }
 }
 
 #[derive(Clone)]

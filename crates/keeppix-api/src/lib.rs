@@ -173,6 +173,19 @@ fn api_routes() -> Router<AppState> {
             "/libraries/{id}/scan",
             get(routes::libraries::scan_status).post(routes::libraries::start_scan),
         )
+        .route(
+            "/users",
+            get(routes::users::list).post(routes::users::create),
+        )
+        .route(
+            "/users/me/password",
+            axum::routing::post(routes::users::change_password),
+        )
+        .route("/users/{id}", axum::routing::patch(routes::users::patch))
+        .route(
+            "/users/{id}/disable",
+            axum::routing::post(routes::users::disable),
+        )
         .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
         .route(
             "/assets/{id}/restore",
