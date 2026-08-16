@@ -54,6 +54,7 @@ id_type!(LibraryId);
 id_type!(FolderId);
 id_type!(AssetId);
 id_type!(BatchId);
+id_type!(StackId);
 
 #[cfg(test)]
 mod tests {
