@@ -379,7 +379,7 @@
         "operationId": "duplicates_list",
         "responses": {
           "200": {
-            "description": "Gruppi con lo stesso content_hash",
+            "description": "Gruppi con lo stesso content_hash, esclusi i trashed",
             "content": {
               "application/json": {
                 "schema": {
@@ -393,6 +393,143 @@
           },
           "401": {
             "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/duplicates/{content_hash}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "# Errors\n`400` se `content_hash` non è 64 caratteri esadecimali; `401` se non\nautenticato.",
+        "operationId": "duplicates_members",
+        "parameters": [
+          {
+            "name": "content_hash",
+            "in": "path",
+            "description": "blake3 hex da 64 caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Membri non cestinati del gruppo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssetView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "content_hash non è hex valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/duplicates/{content_hash}/resolve": {
+      "post": {
+        "tags": [
+          "library"
+        ],
+        "summary": "# Errors\n`400` se `content_hash` o `disk_action` non sono validi; `401` se non\nautenticato; `403` se `keep` non è visibile o non appartiene al gruppo, o\nse `purged` è richiesto da chi non è owner/admin della libreria.",
+        "operationId": "duplicates_resolve",
+        "parameters": [
+          {
+            "name": "content_hash",
+            "in": "path",
+            "description": "blake3 hex da 64 caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDuplicateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Azione applicata agli altri membri",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveDuplicateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "content_hash o disk_action non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "keep non nel gruppo, o purged senza i permessi",
             "content": {
               "application/json": {
                 "schema": {
@@ -1642,6 +1779,37 @@
             "items": {
               "$ref": "#/components/schemas/OfflineLibraryView"
             }
+          }
+        }
+      },
+      "ResolveDuplicateRequest": {
+        "type": "object",
+        "required": [
+          "keep",
+          "disk_action"
+        ],
+        "properties": {
+          "disk_action": {
+            "type": "string",
+            "description": "`kept`, `moved_to_trash`, o `purged` — stesso vocabolario di\n`DELETE /api/v1/assets/{id}` (spec §6).",
+            "example": "moved_to_trash"
+          },
+          "keep": {
+            "type": "string",
+            "description": "Id dell'asset da tenere: tutti gli altri membri non cestinati del\ngruppo ricevono `disk_action`."
+          }
+        }
+      },
+      "ResolveDuplicateResponse": {
+        "type": "object",
+        "required": [
+          "resolved"
+        ],
+        "properties": {
+          "resolved": {
+            "type": "integer",
+            "description": "Quanti membri sono stati toccati (il gruppo meno `keep`).",
+            "minimum": 0
           }
         }
       },

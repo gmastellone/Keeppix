@@ -147,7 +147,15 @@ fn api_routes() -> Router<AppState> {
         .route("/ws/ticket", axum::routing::post(routes::ws::ticket))
         .route("/ws", get(routes::ws::connect))
         .route("/problems", get(routes::problems::list))
-        .route("/duplicates", get(routes::problems::duplicates))
+        .route("/duplicates", get(routes::duplicates::list))
+        .route(
+            "/duplicates/{content_hash}",
+            get(routes::duplicates::members),
+        )
+        .route(
+            "/duplicates/{content_hash}/resolve",
+            axum::routing::post(routes::duplicates::resolve),
+        )
         .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
         .route(
             "/assets/{id}/restore",

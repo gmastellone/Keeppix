@@ -8,7 +8,9 @@ use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
-use crate::routes::{auth, folders, media, problems, search, setup, timeline, trash, viewport, ws};
+use crate::routes::{
+    auth, duplicates, folders, media, problems, search, setup, timeline, trash, viewport, ws,
+};
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
 /// `#[utoipa::path(security(("session_cookie" = [])))]` devono ripeterlo come
@@ -64,7 +66,9 @@ impl utoipa::Modify for SecurityAddon {
         ws::ticket,
         ws::connect,
         problems::list,
-        problems::duplicates,
+        duplicates::list,
+        duplicates::members,
+        duplicates::resolve,
         trash::delete,
         trash::restore,
     ),
@@ -94,7 +98,9 @@ impl utoipa::Modify for SecurityAddon {
         search::SavedSearchView,
         ws::TicketResponse,
         problems::ProblemsView,
-        problems::DuplicateGroupView,
+        duplicates::DuplicateGroupView,
+        duplicates::ResolveDuplicateRequest,
+        duplicates::ResolveDuplicateResponse,
         trash::DeleteAssetRequest,
         crate::problem::Problem,
     )),
