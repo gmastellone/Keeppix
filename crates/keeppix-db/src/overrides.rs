@@ -2,13 +2,14 @@ use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, Utc};
 use keeppix_domain::{
-    AssetId, AuthContext, BatchId, EffectiveMetadata, GeoPoint, OverridePatch, UserId,
+    AssetId, AuthContext, BatchId, EffectiveMetadata, GeoPoint, JobKind, JobPriority,
+    OverridePatch, Pick, Rating, UserId,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 
 use crate::visibility::VisibilityScope;
-use crate::{AssetRepo, Db, DbError};
+use crate::{AssetRepo, Db, DbError, JobRepo};
 
 pub struct OverrideRepo<'a> {
     db: &'a Db,
@@ -160,7 +161,8 @@ impl<'a> OverrideRepo<'a> {
             patch,
             ctx.user_id().map(|id| id.as_uuid()),
         )
-        .await
+        .await?;
+        enqueue_sidecar_sweep(self.db).await
     }
 
     /// Applica la **stessa** modifica a molti asset in un'unica transazione
@@ -200,6 +202,7 @@ impl<'a> OverrideRepo<'a> {
         apply_patch(&mut tx, &ids, patch, Some(actor.as_uuid())).await?;
 
         tx.commit().await?;
+        enqueue_sidecar_sweep(self.db).await?;
         Ok(batch_id)
     }
 
@@ -276,6 +279,139 @@ impl<'a> OverrideRepo<'a> {
         .await?;
         Ok(rows.into_iter().map(AssetId::from_uuid).collect())
     }
+
+    /// Ciò che serve al job `WriteSidecar` per sincronizzare un asset: i
+    /// valori effettivi (`COALESCE(override, exif)`) più il voto del
+    /// **proprietario della libreria** — `xmp:Rating`/`xmp:Label` sono
+    /// valori singoli, quindi solo il suo voto finisce sul file (spec
+    /// §3.4, §4.1); gli altri restano solo in Keeppix.
+    ///
+    /// Non prende un `AuthContext`: la chiama il job in background su
+    /// tutte le librerie, stessa giustificazione di
+    /// [`Self::pending_sidecars`].
+    ///
+    /// # Errors
+    /// `NotFound` se l'asset non esiste più — cancellato fra l'accodamento
+    /// del job e la sua esecuzione, non un bug.
+    pub async fn sidecar_source(&self, asset_id: AssetId) -> Result<SidecarSource, DbError> {
+        let row: Option<SidecarRow> = sqlx::query_as(
+            "SELECT o.title, o.description, \
+                    COALESCE(o.taken_at, a.taken_at_utc) AS taken_at, \
+                    ST_X(COALESCE(o.location, a.location)::geometry) AS lon, \
+                    ST_Y(COALESCE(o.location, a.location)::geometry) AS lat, \
+                    COALESCE(o.place_id, a.place_id) AS place_id, \
+                    o.orientation, \
+                    fl.rating AS owner_rating, fl.pick AS owner_pick \
+             FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             JOIN libraries l ON l.id = f.library_id \
+             LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             LEFT JOIN asset_flags fl ON fl.asset_id = a.id AND fl.user_id = l.owner_id \
+             WHERE a.id = $1",
+        )
+        .bind(asset_id.as_uuid())
+        .fetch_optional(self.db.pool())
+        .await?;
+
+        row.ok_or(DbError::NotFound)?.into_domain()
+    }
+
+    /// Registra che il sidecar è stato scritto **e verificato** — mai
+    /// prima: se il processo muore fra la scrittura e questa chiamata, il
+    /// prossimo giro di [`Self::pending_sidecars`] lo ritenta, invece di
+    /// dare per sincronizzato un file che potrebbe non esserlo.
+    ///
+    /// Non prende un `AuthContext`, stessa giustificazione di
+    /// [`Self::sidecar_source`].
+    ///
+    /// # Errors
+    /// `Connection` se l'aggiornamento fallisce.
+    pub async fn mark_sidecar_written(&self, asset_id: AssetId) -> Result<(), DbError> {
+        sqlx::query("UPDATE asset_overrides SET xmp_written_at = now() WHERE asset_id = $1")
+            .bind(asset_id.as_uuid())
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
+    }
+}
+
+/// Dati che il job `WriteSidecar` (keeppix-jobs) traduce in un
+/// `keeppix_media::xmp::SidecarData`. Vive qui, non in keeppix-media,
+/// perché porta tipi di dominio (`Rating`, `Pick`) che il crate dei media
+/// non deve conoscere altrettanto quanto non deve conoscere il database.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SidecarSource {
+    pub effective: EffectiveMetadata,
+    pub owner_rating: Option<Rating>,
+    pub owner_pick: Pick,
+}
+
+#[derive(sqlx::FromRow)]
+struct SidecarRow {
+    title: Option<String>,
+    description: Option<String>,
+    taken_at: Option<DateTime<Utc>>,
+    lon: Option<f64>,
+    lat: Option<f64>,
+    place_id: Option<i64>,
+    orientation: Option<i16>,
+    owner_rating: Option<i16>,
+    owner_pick: Option<String>,
+}
+
+impl SidecarRow {
+    fn into_domain(self) -> Result<SidecarSource, DbError> {
+        let owner_rating = self
+            .owner_rating
+            .map(|raw| {
+                u8::try_from(raw)
+                    .map_err(|e| crate::row::corrupted("asset_flags.rating", e))
+                    .and_then(|raw| {
+                        Rating::parse(raw)
+                            .map_err(|e| crate::row::corrupted("asset_flags.rating", e))
+                    })
+            })
+            .transpose()?;
+        let owner_pick = self
+            .owner_pick
+            .as_deref()
+            .map(|raw| Pick::parse(raw).map_err(|e| crate::row::corrupted("asset_flags.pick", e)))
+            .transpose()?
+            .unwrap_or_default();
+
+        Ok(SidecarSource {
+            effective: EffectiveMetadata {
+                title: self.title,
+                description: self.description,
+                taken_at: self.taken_at,
+                location: point(self.lon, self.lat),
+                place_id: self.place_id,
+                orientation: self.orientation,
+            },
+            owner_rating,
+            owner_pick,
+        })
+    }
+}
+
+/// Sveglia il job `WriteSidecar` dopo che un override ha reso qualche asset
+/// "pendente" (spec §3.3: «DB prima, file poi»). Un'unica chiave di dedup
+/// (`write_sidecar`) fa sì che 500 asset in un `apply_batch` producano un
+/// solo job, non 500: il job stesso rilegge `pending_sidecars` e processa
+/// tutto ciò che trova, ri-accodandosi da solo se ce n'è più di un batch.
+///
+/// # Errors
+/// `Connection` se l'inserimento in coda fallisce.
+async fn enqueue_sidecar_sweep(db: &Db) -> Result<(), DbError> {
+    JobRepo::new(db)
+        .enqueue(
+            JobKind::WriteSidecar,
+            serde_json::json!({}),
+            JobPriority::Background,
+            Some("write_sidecar"),
+        )
+        .await?;
+    Ok(())
 }
 
 #[derive(sqlx::FromRow)]
