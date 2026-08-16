@@ -60,8 +60,8 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 | 0 | Harness PortNotExposed retry | complete | `319e9e5` |
 | 1 | Preview RAW incorporata | complete | `d5db5d6` |
 | 2 | `derive_from_bytes` | complete | `55e5e70` |
-| 3 | Job DeriveRaw | complete | `86a8a3e` |
-| 4 | overrides + flags | — | |
+| 3 | Job DeriveRaw | complete | `86a8a3e` (+ thumbhash `bcdde13`) |
+| 4 | overrides + flags | in corso | |
 | 5 | Sidecar XMP | — | |
 | 6 | Stack RAW+JPEG | — | |
 | 7 | Cestino a tre opzioni | — | |
