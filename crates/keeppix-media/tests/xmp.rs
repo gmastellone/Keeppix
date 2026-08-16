@@ -382,7 +382,10 @@ fn fixture(name: &str) -> std::path::PathBuf {
 }
 
 fn blake3_file(path: &std::path::Path) -> blake3::Hash {
-    blake3::hash(&std::fs::read(path).expect("read"))
+    #[allow(clippy::expect_used)]
+    {
+        blake3::hash(&std::fs::read(path).expect("read"))
+    }
 }
 
 /// Criterio Fase 2: dopo un ciclo di editing via sidecar, i RAW sono bit-identici.
