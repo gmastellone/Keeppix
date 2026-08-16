@@ -103,6 +103,9 @@ pub struct AppState {
     pub tickets: TicketStore,
     pub sessions: SessionCache,
     pub allowed_origins: Vec<String>,
+    /// Radici sotto le quali può puntare una libreria. Default produzione:
+    /// `["/photos"]`. Validare `root_path` **dopo** `canonicalize`.
+    pub library_roots: Vec<PathBuf>,
 }
 
 impl AppState {
@@ -116,6 +119,7 @@ impl AppState {
             tickets: TicketStore::default(),
             sessions: SessionCache::default(),
             allowed_origins: Vec::new(),
+            library_roots: vec![PathBuf::from("/photos")],
         }
     }
 
@@ -128,6 +132,12 @@ impl AppState {
     #[must_use]
     pub fn with_allowed_origins(mut self, origins: Vec<String>) -> Self {
         self.allowed_origins = origins;
+        self
+    }
+
+    #[must_use]
+    pub fn with_library_roots(mut self, roots: Vec<PathBuf>) -> Self {
+        self.library_roots = roots;
         self
     }
 }
