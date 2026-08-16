@@ -62,7 +62,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 | 2 | `derive_from_bytes` | complete | `55e5e70` |
 | 3 | Job DeriveRaw | complete | `86a8a3e` (+ thumbhash `bcdde13`) |
 | 4 | overrides + flags | complete | `6a17f4b` (+ test `1949a5e`) |
-| 5 | Sidecar XMP | — | |
+| 5 | Sidecar XMP | complete | `af00600`, `51127d7`, `6ee8f04`, `7dcb4e0` |
 | 6 | Stack RAW+JPEG | — | |
 | 7 | Cestino a tre opzioni | — | |
 | 8 | Duplicati + batch | — | |
@@ -300,3 +300,131 @@ per `LibraryRepo::mark_scanned` (R nella Fase 0/1): lo chiamerà il job
 background, non un singolo utente autenticato. Costo se sbagliato:
 andrebbe wrappato con uno scope di sistema esplicito quando arriva
 Task 5, un cambio locale a quella chiamata.
+
+### Task 5: complete (commit `af00600` media, `51127d7` domain, `6ee8f04` db, `7dcb4e0` jobs, test verdi)
+
+`crates/keeppix-media/src/xmp.rs`: `SidecarData { rating, description,
+title, tags, gps, taken_at, label }`, `read_sidecar`/`write_sidecar`,
+mappatura dei campi esattamente come da brief/spec §3.4. Scrittura
+sempre *leggi-modifica-riscrivi*: il file esistente viene parsato in
+uno stream di eventi `quick-xml`, gli attributi/elementi non gestiti
+sopravvivono inalterati, solo gli attributi in `MANAGED_ATTRS`
+(`xmp:Rating`, `xmp:Label`, `exif:GPSLatitude/Longitude/DateTimeOriginal`)
+e gli elementi figli gestiti (`dc:title`, `dc:description`, `dc:subject`)
+vengono aggiunti/aggiornati/rimossi. Se il sidecar non esiste, si genera
+uno scheletro minimo (`x:xmpmeta`/`rdf:RDF`/`rdf:Description` vuoto) —
+mai un file "vuoto" sovrascritto da zero se ne esisteva uno. Scrittura
+atomica: `.xmp.tmp` nella stessa cartella, `fsync`, rilettura e
+confronto byte-a-byte, poi `rename()`; se un file esistente è
+XML malformato, `write_sidecar` ritorna `Err` e non lo tocca affatto
+(niente tentativo di "ripararlo" o rigenerarlo).
+
+**TDD sul test critico del brief** (`writing_preserves_fields_we_do_not_manage`,
+Lightroom `crs:Exposure2012`): scritto per primo insieme agli altri 11
+test di `crates/keeppix-media/tests/xmp.rs`, osservato rosso (funzioni
+non ancora implementate → errore di compilazione, poi panic su
+`todo!`), poi implementato fino a verde. Mutation testing su due
+invarianti dopo l'implementazione (rotti apposta, verificato rosso,
+ripristinati, riverificato verde):
+
+1. Rimosso il filtro `MANAGED_ATTRS.contains(...)` in `apply` (tutti
+   gli attributi esistenti vengono scartati e solo i gestiti
+   riscritti) → `writing_preserves_fields_we_do_not_manage` fallisce
+   (`crs:Exposure2012` sparisce), confermando che il test esercita
+   davvero la preservazione, non solo l'aggiornamento del rating.
+2. `atomic_write` mutato per scrivere direttamente sul path finale
+   invece di `.tmp` + `rename` → `writing_to_a_read_only_directory_fails_without_corrupting_anything`
+   fallisce (l'errore atteso non arriva più, perché il file esistente
+   con permessi normali accetta la scrittura anche se la cartella è
+   in sola lettura), confermando che il test dipende davvero dalla
+   disciplina tmp+rename, non da un dettaglio del filesystem.
+
+`cargo test -p keeppix-media --test xmp -- --test-threads=1` → 12
+passed.
+
+Ruling (Task 5): `quick-xml = "0.41"` nuova dipendenza di
+`keeppix-media` — nessuna libreria XML era già nel workspace.
+Giustificazione: XMP è RDF/XML e il requisito "leggi-modifica-riscrivi
+senza perdere campi sconosciuti" richiede di lavorare sullo stream di
+eventi originale (non un DOM che normalizza spazi/ordine/dichiarazioni
+di namespace) — `quick-xml` è l'unica libreria comune a Rust che espone
+un `Reader`/`Writer` a eventi senza validazione DTD né normalizzazione
+implicita, zero dipendenze transitive proprie a parte `memchr` (già nel
+grafo). Già annunciata come scelta nel piano (`docs/superpowers/plans/2026-08-15-keeppix-fase-2.md`),
+qui solo confermata in pratica. `cargo deny check bans` verde: nessun
+arco nuovo verso `keeppix-db`.
+
+Ruling (Task 5): il job `WriteSidecar` non porta l'asset nel payload
+(a differenza di `DeriveRaw`) — ad ogni esecuzione rilegge
+`OverrideRepo::pending_sidecars(limit=200)` e processa un batch,
+ri-accodandosi da solo (stessa dedup key `write_sidecar`) se il batch
+era pieno. Motivazione: il brief dice esplicitamente "prende gli asset
+da `pending_sidecars`" (plurale) — un job per asset moltiplicherebbe
+l'accodamento su un `apply_batch` di 500 righe in 500 job invece di
+uno solo. Un batch fallito parzialmente marca `xmp_written_at` solo
+per gli asset scritti **e verificati** con successo, poi ritorna `Err`
+così lo scheduler ritenta — il prossimo giro rilegge `pending_sidecars`
+e trova solo quelli rimasti indietro, non l'intero batch da capo.
+Costo se sbagliato: un job singolo per asset sarebbe stato più semplice
+da testare in isolamento, ma avrebbe rischiato di intasare la coda su
+batch grandi; la reversione (tornare a un job per asset) è un refactor
+locale a `xmp.rs`, nessun cambio di schema.
+
+Ruling (Task 5): l'accodamento del sweep vive dentro
+`OverrideRepo::apply`/`apply_batch` (in `keeppix-db`), non in
+`keeppix-jobs` — architettonicamente valido perché `JobRepo` è nello
+stesso crate di `OverrideRepo`, e l'alternativa (un reaper periodico
+stile `ReapStale` che non ha ancora nessun trigger temporale cablato
+da nessuna parte, verificato cercando nel codice) avrebbe introdotto
+latenza non necessaria per un caso già coperto da un accodamento
+diretto e deduplicato. **Limite noto e differito**: `FlagRepo::set`
+(rating/pick) non tocca `asset_overrides.updated_at` né accoda nulla —
+un utente che *solo* vota (senza mai toccare titolo/descrizione/GPS/
+data) non fa comparire l'asset in `pending_sidecars` finché un
+override successivo non lo tocca. Il rating dell'owner arriverà comunque
+sul file alla prossima scrittura utile (via `sidecar_source`, che legge
+sempre il voto corrente), ma non "al volo" al solo voto. Non risolto in
+questo task perché il brief e la spec §3.3/§3.4 parlano di "override" come
+innesco della propagazione, non di flag; estendere il rilevamento di
+pending a `asset_flags` è un cambio di schema (serve un `updated_at`
+con innesco equivalente) fuori dai confini scritti di Task 5. Costo se
+sbagliato: un voto isolato del proprietario resta invisibile su disco
+finché non arriva un altro cambiamento di metadati sullo stesso asset —
+accettabile per Fase 2, da rivedere se l'uso reale mostra che il rating
+da solo deve propagarsi subito.
+
+`crates/keeppix-jobs/src/xmp.rs` + `crates/keeppix-jobs/tests/xmp.rs`:
+due test di integrazione end-to-end (`TestDb` reale, non mock) che
+provano l'intera pipeline "DB prima, file poi" — `apply` con voto del
+proprietario produce un sidecar nuovo con `xmp:Rating`/`xmp:Label`
+corretti e l'asset esce da `pending_sidecars`; un sidecar Lightroom
+preesistente con `crs:Exposure2012` sopravvive a uno sweep che tocca
+solo la descrizione. Mutation test: rimossa temporaneamente la chiamata
+a `mark_sidecar_written` in `write_one` → il test sul "non più
+pendente" fallisce come atteso, poi ripristinato.
+
+`cargo test -p keeppix-jobs --test xmp -- --test-threads=1` → 5
+passed (2 richiesti + 3 di harness). Suite intera per crate (vedi
+Ruling Task 3 sullo script rotto — qui il problema è diverso: la
+`cleanup_containers` di `scripts/test.sh` assume che se il comando
+`docker` esiste anche il demone sia raggiungibile, il che non è vero in
+questo sandbox — `docker ps` fallisce, `set -e`+`pipefail` interrompe
+lo script dopo il primo crate. Non modificato `scripts/test.sh`, fuori
+scope per questo task; rieseguito `cargo test -p <crate> --jobs 1 --
+--test-threads=1` con `KEEPPIX_TEST_DATABASE_URL` per ogni crate del
+workspace, come da istruzioni d'ambiente "No Docker"):
+`keeppix-domain` 42, `keeppix-media` (esclusi `video::*`, vedi sotto)
+tutti verdi incluso `xmp` 12/12, `keeppix-db` tutti verdi (incluso
+`overrides` 15/15 con `pending_sidecars_only_lists_updates_not_yet_written`),
+`keeppix-jobs` tutti verdi incluso `xmp` 5/5, `keeppix-api` tutti verdi
+(24+ test), `keeppix-server`/`keeppix-dav`/`keeppix-test-support` zero
+test ma compilano. `cargo fmt --check` e `cargo clippy --workspace
+--all-targets -- -D warnings` verdi su tutto il workspace.
+
+Fallimento preesistente e indipendente da questo task, non toccato:
+`keeppix-media --test video::poster_extracts_one_frame` — ffmpeg non
+riesce a scrivere un frame in questo sandbox. Confermato riproducendolo
+sul commit precedente a Task 5 (`878418a`, checkout temporaneo di
+`crates/keeppix-media` prima di `af00600`, poi ripristinato): fallisce
+identicamente, quindi non è una regressione introdotta qui — stessa nota
+già presente nel ledger di Task 4.
