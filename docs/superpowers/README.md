@@ -59,10 +59,11 @@ e non codice da scrivere.
 | Piano | Stato |
 |---|---|
 | [`plans/2026-08-13-keeppix-fase-0.md`](plans/2026-08-13-keeppix-fase-0.md) | ✅ completato e mergiato |
-| [`plans/2026-08-14-keeppix-fase-1a.md`](plans/2026-08-14-keeppix-fase-1a.md) | ✅ sul branch `fase-1` |
-| [`plans/2026-08-14-keeppix-fase-1b.md`](plans/2026-08-14-keeppix-fase-1b.md) | ✅ sul branch `fase-1` |
-| [`plans/2026-08-14-keeppix-fase-1c.md`](plans/2026-08-14-keeppix-fase-1c.md) | ✅ chiusa; merge su `main` dopo la suite |
-| Fase 2, 3, 4, 5, 6 | da scrivere/eseguire **dopo** il merge della Fase 1 |
+| [`plans/2026-08-14-keeppix-fase-1a.md`](plans/2026-08-14-keeppix-fase-1a.md) | ✅ completato e mergiato |
+| [`plans/2026-08-14-keeppix-fase-1b.md`](plans/2026-08-14-keeppix-fase-1b.md) | ✅ completato e mergiato |
+| [`plans/2026-08-14-keeppix-fase-1c.md`](plans/2026-08-14-keeppix-fase-1c.md) | ✅ completato e mergiato (PR #3) |
+| [`plans/2026-08-15-keeppix-fase-2.md`](plans/2026-08-15-keeppix-fase-2.md) | ⬜ **il prossimo da eseguire** |
+| Fase 3, 4, 5, 6 | da scrivere, una alla volta |
 
 ## Consegne
 
