@@ -86,4 +86,4 @@ sbagliato: drift se un giorno la retention diventa configurabile per libreria.
 Deferred (Task 5): `TrashRepo::cleanup_expired` resta non schedulato (debito
 Fase 2); `empty` salta file non cancellabili come `cleanup_expired`.
 
-Task 5: complete (commit `c822482`, test verdi)
+Task 5: complete (commit `436f520`, test verdi)
