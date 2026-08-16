@@ -9,6 +9,7 @@ pub mod metadata;
 pub mod problems;
 pub mod search;
 pub mod setup;
+pub mod stacks;
 pub mod timeline;
 pub mod trash;
 pub mod users;

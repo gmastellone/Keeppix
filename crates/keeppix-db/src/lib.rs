@@ -33,9 +33,9 @@ pub use problems::{ProblemSet, ProblemsRepo};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
-pub use stacks::StackRepo;
+pub use stacks::{StackDetails, StackMember, StackRepo};
 pub use timeline::{MonthBucket, TimelineRepo};
-pub use trash::{TRASH_DIR_NAME, TrashRepo};
+pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
 pub use users::UserRepo;
 pub use visibility::VisibilityScope;
 

@@ -30,6 +30,11 @@ pub(crate) struct AssetRow {
 }
 
 impl AssetRow {
+    #[must_use]
+    pub(crate) const fn id(&self) -> uuid::Uuid {
+        self.id
+    }
+
     pub(crate) fn into_domain(self) -> Result<Asset, DbError> {
         Ok(Asset {
             id: AssetId::from_uuid(self.id),

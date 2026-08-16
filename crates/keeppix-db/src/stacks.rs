@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use keeppix_domain::{FolderId, StackId};
+use keeppix_domain::{Asset, AssetId, AuthContext, FolderId, StackId};
 use uuid::Uuid;
 
-use crate::{Db, DbError};
+use crate::assets::{A_COLUMNS, AssetRow};
+use crate::{AssetRepo, Db, DbError};
 
 /// Vale il valore di `assets.kind` scritto dalla migrazione 0005: usato per
 /// preferire il RAW come primario senza tirare in ballo `AssetKind` di
@@ -12,6 +13,19 @@ const RAW_IMAGE: &str = "raw_image";
 
 pub struct StackRepo<'a> {
     db: &'a Db,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackMember {
+    pub asset: Asset,
+    pub is_primary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackDetails {
+    pub stack_id: StackId,
+    pub primary_asset_id: AssetId,
+    pub members: Vec<StackMember>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -125,6 +139,91 @@ impl<'a> StackRepo<'a> {
             .await?;
         }
         tx.commit().await?;
+        Ok(())
+    }
+
+    /// Membri dello stack a cui appartiene `asset_id`. `None` se l'asset non
+    /// è in uno stack.
+    ///
+    /// # Errors
+    /// `Forbidden` se l'asset non è visibile al chiamante (anche
+    /// inesistente). `Connection` se una query fallisce.
+    pub async fn members(
+        &self,
+        ctx: &AuthContext,
+        asset_id: AssetId,
+    ) -> Result<Option<StackDetails>, DbError> {
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+
+        let stack_id: Option<Uuid> = sqlx::query_scalar("SELECT stack_id FROM assets WHERE id = $1")
+            .bind(asset_id.as_uuid())
+            .fetch_optional(self.db.pool())
+            .await?;
+
+        let Some(stack_id) = stack_id else {
+            return Ok(None);
+        };
+
+        let primary: Uuid = sqlx::query_scalar("SELECT primary_asset_id FROM stacks WHERE id = $1")
+            .bind(stack_id)
+            .fetch_one(self.db.pool())
+            .await?;
+
+        let sql = format!(
+            "SELECT {A_COLUMNS} FROM assets a \
+              WHERE a.stack_id = $1 AND a.status <> 'trashed' \
+              ORDER BY a.filename"
+        );
+        let rows: Vec<AssetRow> = sqlx::query_as(&sql)
+            .bind(stack_id)
+            .fetch_all(self.db.pool())
+            .await?;
+
+        let mut members = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row_id = row.id();
+            let is_primary = row_id == primary;
+            members.push(StackMember {
+                asset: row.into_domain()?,
+                is_primary,
+            });
+        }
+
+        Ok(Some(StackDetails {
+            stack_id: StackId::from_uuid(stack_id),
+            primary_asset_id: AssetId::from_uuid(primary),
+            members,
+        }))
+    }
+
+    /// Imposta `asset_id` come primario del suo stack.
+    ///
+    /// # Errors
+    /// `Forbidden` come [`Self::members`]. `Conflict` se l'asset non è in
+    /// uno stack. `Connection` se una query fallisce.
+    pub async fn set_primary(&self, ctx: &AuthContext, asset_id: AssetId) -> Result<(), DbError> {
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+
+        let stack_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT stack_id FROM assets WHERE id = $1 AND status <> 'trashed'",
+        )
+        .bind(asset_id.as_uuid())
+        .fetch_optional(self.db.pool())
+        .await?;
+
+        let Some(stack_id) = stack_id else {
+            return Err(DbError::Conflict("asset is not in a stack".to_owned()));
+        };
+
+        sqlx::query("UPDATE stacks SET primary_asset_id = $2 WHERE id = $1")
+            .bind(stack_id)
+            .bind(asset_id.as_uuid())
+            .execute(self.db.pool())
+            .await?;
         Ok(())
     }
 }

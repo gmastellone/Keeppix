@@ -9,7 +9,7 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
-    auth, duplicates, flags, folders, libraries, media, metadata, problems, search, setup,
+    auth, duplicates, flags, folders, libraries, media, metadata, problems, search, setup, stacks,
     timeline, trash, users, viewport, ws,
 };
 
@@ -72,6 +72,10 @@ impl utoipa::Modify for SecurityAddon {
         duplicates::resolve,
         trash::delete,
         trash::restore,
+        trash::list,
+        trash::empty,
+        stacks::get_members,
+        stacks::set_primary,
         metadata::effective,
         metadata::apply,
         metadata::apply_batch,
@@ -124,6 +128,11 @@ impl utoipa::Modify for SecurityAddon {
         duplicates::ResolveDuplicateRequest,
         duplicates::ResolveDuplicateResponse,
         trash::DeleteAssetRequest,
+        trash::TrashListPage,
+        trash::TrashItemView,
+        trash::EmptyTrashResponse,
+        stacks::StackView,
+        stacks::StackMemberView,
         metadata::GeoPointView,
         metadata::EffectiveMetadataView,
         metadata::MetadataPatchRequest,
