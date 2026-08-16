@@ -45,7 +45,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.88.0
         with: { components: "rustfmt, clippy" }
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.2
         with:
           # Su PR il target di test riempie il runner; il Post della cache
           # falliva con "No space left" dopo suite già verde. Su main sì.
@@ -135,9 +135,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Build immagine (senza push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
