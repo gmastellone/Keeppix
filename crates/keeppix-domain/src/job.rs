@@ -11,6 +11,7 @@ pub enum JobKind {
     HashAsset,
     DeriveAsset,
     DeriveRaw,
+    WriteSidecar,
     ReapStale,
 }
 
@@ -23,6 +24,7 @@ impl JobKind {
             Self::HashAsset => "hash_asset",
             Self::DeriveAsset => "derive_asset",
             Self::DeriveRaw => "derive_raw",
+            Self::WriteSidecar => "write_sidecar",
             Self::ReapStale => "reap_stale",
         }
     }
@@ -36,6 +38,7 @@ impl JobKind {
             "hash_asset" => Ok(Self::HashAsset),
             "derive_asset" => Ok(Self::DeriveAsset),
             "derive_raw" => Ok(Self::DeriveRaw),
+            "write_sidecar" => Ok(Self::WriteSidecar),
             "reap_stale" => Ok(Self::ReapStale),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
@@ -131,6 +134,7 @@ mod tests {
             JobKind::HashAsset,
             JobKind::DeriveAsset,
             JobKind::DeriveRaw,
+            JobKind::WriteSidecar,
             JobKind::ReapStale,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
