@@ -24,7 +24,7 @@ pub use flags::FlagRepo;
 pub use folders::FolderRepo;
 pub use jobs::JobRepo;
 pub use libraries::LibraryRepo;
-pub use overrides::OverrideRepo;
+pub use overrides::{OverrideRepo, SidecarSource};
 pub use problems::{DuplicateGroup, ProblemSet, ProblemsRepo};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
