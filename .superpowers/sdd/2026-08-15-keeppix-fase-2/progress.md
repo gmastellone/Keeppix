@@ -65,7 +65,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 | 5 | Sidecar XMP | complete | `af00600`, `51127d7`, `6ee8f04`, `7dcb4e0` |
 | 6 | Stack RAW+JPEG | complete | `8a3308f` |
 | 7 | Cestino a tre opzioni | complete | `3edb207`, `a35c1a4`, `b82380a`, `04e8cb6` |
-| 8 | Duplicati + batch | — | |
+| 8 | Duplicati + batch | complete | `49a2068`, `e62d817`, `75a84ea`, `51378bf`, `91d8ed1` |
 | 9 | Frontend culling | — | |
 
 ### Task 1: complete (commit `d5db5d6`, test verdi)
@@ -672,3 +672,100 @@ questa fase.
 Fallimento preesistente e indipendente da questo task, non toccato:
 `keeppix-media --test video::poster_extracts_one_frame` (stessa causa
 annotata nei Task 4/5/6).
+
+### Task 8: complete (commit `49a2068`, `e62d817` db; `75a84ea`, `51378bf`, `91d8ed1` api, test verdi)
+
+`DuplicateRepo` (`crates/keeppix-db/src/duplicates.rs`) sostituisce
+`ProblemsRepo::duplicates` della Fase 1c: `groups()` esclude gli asset
+`trashed` dal conteggio (`a.status <> 'trashed'`, spec — un duplicato
+già in coda per sparire non è "recuperabile" nello stesso senso),
+`reclaimable_bytes()` è `size_bytes * (count - 1)` non la somma totale
+(la prima copia è la foto, non spazio da recuperare), `members()`
+elenca i singoli asset di un gruppo per scegliere quale tenere, e
+`resolve()` applica una delle tre opzioni di cancellazione (spec §6) a
+ogni membro non tenuto **riusando** `TrashRepo::choose` invece di
+reimplementarle. `OverrideRepo::shift_taken_at` (in
+`crates/keeppix-db/src/overrides.rs`, accanto ad `apply`/`apply_batch`
+già esistenti da Task 4) somma `N` ore a `COALESCE(override,
+exif).taken_at` con `make_interval(hours => $2)` in un solo statement,
+registra un batch di annullamento come `apply_batch`, e lascia senza
+data un asset che non ne aveva nessuna (uno scostamento non può
+inventare un'origine). `undo_batch` ora rifiuta con `Conflict` se il
+sidecar di anche un solo asset del batch è già stato scritto con i
+suoi valori (`xmp_written_at >= metadata_batches.applied_at`).
+
+Rotte API nuove: `crates/keeppix-api/src/routes/duplicates.rs` (`GET
+/api/v1/duplicates`, `GET /api/v1/duplicates/{content_hash}`, `POST
+/api/v1/duplicates/{content_hash}/resolve` — riusa
+`routes::trash::parse_action`, reso `pub(crate)`), `metadata.rs` (`GET`/
+`PATCH /api/v1/assets/{id}/metadata`, `POST /api/v1/metadata/batch`,
+`POST /api/v1/metadata/batch/shift-taken-at`, `POST
+/api/v1/metadata/batch/{batch_id}/undo`), `flags.rs` (`GET`/`PUT
+/api/v1/assets/{id}/flags`, `POST /api/v1/flags/batch` — espone il
+`FlagRepo` già scritto in Task 4, che non aveva ancora una rotta HTTP).
+`docs/api/openapi.json` rigenerato: 26 → 34 operazioni.
+
+**MISURATO** (`cargo test -p keeppix-db --release --test overrides
+apply_batch_on_five_thousand_assets_stays_under_a_second -- --nocapture`,
+5.000 righe seedate con un `INSERT ... SELECT ... FROM unnest(...)` di
+massa, non 5.000 round-trip): `apply_batch` **57ms**, `undo_batch`
+**11ms** — due ordini di grandezza sotto il vincolo "sotto un secondo"
+del brief. In debug (`cargo test` senza `--release`): 75ms / 27ms,
+ancora ampiamente sotto soglia. Il limite nel test resta permissivo (3s,
+non 1s) per non renderlo instabile su una macchina condivisa/lenta — la
+cifra vera è quella stampata e registrata qui e in
+`task-8-report.md`, non l'asserzione.
+
+Ruling (Task 8): `parse_action` in `routes::trash` cambiato da privato
+a `pub(crate)` invece di duplicarne una copia in `duplicates.rs` — la
+stessa mappa stringa→`DiskAction` con lo stesso errore 400 serve a
+`resolve()` per applicare l'azione scelta a ogni membro non tenuto del
+gruppo. Costo se sbagliato: nessuno, è una visibilità più ampia dentro
+lo stesso crate, non un'API pubblica nuova.
+
+Ruling (Task 8): `resolve()` **non** è un'operazione tutto-o-niente —
+itera i membri del gruppo chiamando `TrashRepo::choose` uno alla volta,
+e se un membro fallisce (es. `Forbidden` su `Purged` per un non-owner)
+i membri già processati restano cestinati/eliminati, non tornano
+indietro. Motivazione: un rollback esigerebbe di "ri-materializzare"
+file già spostati o cancellati sul filesystem, un'operazione che può
+essa stessa fallire — più fragile del comportamento scelto. Costo se
+sbagliato: un gruppo di duplicati grande con permessi misti fra i
+membri (impossibile nel modello di visibilità di questa fase, dove
+tutti i membri di uno stesso gruppo appartengono alla stessa libreria
+quindi allo stesso owner) potrebbe lasciarsi a metà — da rivedere se la
+Fase 3 introduce condivisione fra utenti diversi sulla stessa libreria.
+
+Ruling (Task 8): `MetadataPatchRequest` deserializza `Option<Option<T>>`
+con una funzione scritta a mano (`double_option`, in
+`routes/metadata.rs`) invece di aggiungere `serde_with` come
+dipendenza — un solo usarlo in tutto il crate. Stesso problema che
+`serde_with::double_option` risolve (distinguere "campo assente" da
+"campo presente con `null`"), stessa soluzione (`#[serde(default,
+deserialize_with = ...)]` con `Option::<T>::deserialize(de).map(Some)`),
+zero dipendenze in più. Costo se sbagliato: se servisse altrove in
+futuro, vale la pena promuoverla a dipendenza condivisa — al momento
+non ce n'è un secondo punto d'uso.
+
+`cargo test -p keeppix-db --test duplicates -- --test-threads=1` → 8
+passed (5 di dominio + 3 di harness). `cargo test -p keeppix-db --test overrides -- --test-threads=1`
+→ 21 passed (15 precedenti da Task 4 + 6 nuovi: misura sui 5.000,
+`shift_taken_at` × 3, `undo` rifiutato/non rifiutato dal sidecar × 2).
+`cargo test -p keeppix-api --test duplicates --test metadata --test flags -- --test-threads=1`
+→ 14 passed (4 + 6 + 4). `cargo test -p keeppix-api --test openapi --
+--test-threads=1` → 6 passed, incluso
+`openapi_snapshot_matches_the_committed_file` dopo la rigenerazione.
+Suite completa eseguita crate per crate (`./scripts/test.sh` si ferma
+al primo crate in questo sandbox — stessa causa già annotata nei
+Ruling di Task 3/5: `cleanup_containers` chiama `docker ps` assumendo
+che il demone sia raggiungibile solo perché il binario esiste, `set -e`
+interrompe lo script): tutti i crate verdi eccetto il solito
+`keeppix-media --test video::poster_extracts_one_frame` (preesistente,
+non toccato da questo task, annotato nei ledger di Task 4/5/6/7).
+`cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
+warnings` verdi su tutto il workspace. `cargo deny` non installato in
+questo ambiente (stessa nota dei task precedenti); nessuna dipendenza
+nuova aggiunta da questo task.
+
+Vedi `task-8-report.md` per il dettaglio completo, inclusi i numeri
+misurati e i test critici del brief.
