@@ -26,10 +26,7 @@ async fn setup_admin(server: &TestServer) -> UserId {
         .await
         .expect("setup");
     assert_eq!(response.status(), 201);
-    response
-        .json::<serde_json::Value>()
-        .await
-        .expect("json")["user"]["id"]
+    response.json::<serde_json::Value>().await.expect("json")["user"]["id"]
         .as_str()
         .expect("id")
         .parse()
@@ -61,7 +58,11 @@ fn temp_root(server: &TestServer, name: &str) -> PathBuf {
 }
 
 #[allow(clippy::expect_used)]
-async fn seed_library(server: &TestServer, admin: UserId, root: &std::path::Path) -> keeppix_domain::LibraryId {
+async fn seed_library(
+    server: &TestServer,
+    admin: UserId,
+    root: &std::path::Path,
+) -> keeppix_domain::LibraryId {
     LibraryRepo::new(&server.db)
         .create(
             &AuthContext::user(admin, SystemRole::Admin),
@@ -129,16 +130,7 @@ async fn trash_list_is_keyset_paginated() {
 
     let mut ids = Vec::new();
     for i in 0..3 {
-        ids.push(
-            seed_asset(
-                &server,
-                library,
-                &root,
-                "2024",
-                &format!("foto-{i}.jpg"),
-            )
-            .await,
-        );
+        ids.push(seed_asset(&server, library, &root, "2024", &format!("foto-{i}.jpg")).await);
     }
     for id in &ids {
         trash_asset(&server, *id).await;

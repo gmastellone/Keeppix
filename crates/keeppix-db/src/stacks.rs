@@ -157,10 +157,11 @@ impl<'a> StackRepo<'a> {
             .assert_visible(ctx, std::slice::from_ref(&asset_id))
             .await?;
 
-        let stack_id: Option<Uuid> = sqlx::query_scalar("SELECT stack_id FROM assets WHERE id = $1")
-            .bind(asset_id.as_uuid())
-            .fetch_optional(self.db.pool())
-            .await?;
+        let stack_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT stack_id FROM assets WHERE id = $1")
+                .bind(asset_id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
 
         let Some(stack_id) = stack_id else {
             return Ok(None);
@@ -208,12 +209,11 @@ impl<'a> StackRepo<'a> {
             .assert_visible(ctx, std::slice::from_ref(&asset_id))
             .await?;
 
-        let stack_id: Option<Uuid> = sqlx::query_scalar(
-            "SELECT stack_id FROM assets WHERE id = $1 AND status <> 'trashed'",
-        )
-        .bind(asset_id.as_uuid())
-        .fetch_optional(self.db.pool())
-        .await?;
+        let stack_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT stack_id FROM assets WHERE id = $1 AND status <> 'trashed'")
+                .bind(asset_id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
 
         let Some(stack_id) = stack_id else {
             return Err(DbError::Conflict("asset is not in a stack".to_owned()));

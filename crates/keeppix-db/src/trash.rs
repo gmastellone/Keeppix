@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 use keeppix_domain::{AssetId, AuthContext, DiskAction, TrashEntry, TrashEntryId, UserId};
 use sqlx::PgConnection;
 
-use crate::{AssetRepo, Db, DbError, FolderRepo};
 use crate::visibility::VisibilityScope;
+use crate::{AssetRepo, Db, DbError, FolderRepo};
 
 /// Giorni di retention per `moved_to_trash` prima della pulizia (spec §6).
 pub const TRASH_RETENTION_DAYS: i64 = 30;
@@ -337,12 +337,11 @@ impl<'a> TrashRepo<'a> {
             let Some(owner_id) = ctx.user_id() else {
                 return Err(DbError::Forbidden);
             };
-            let owned: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM libraries WHERE owner_id = $1",
-            )
-            .bind(owner_id.as_uuid())
-            .fetch_one(self.db.pool())
-            .await?;
+            let owned: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM libraries WHERE owner_id = $1")
+                    .bind(owner_id.as_uuid())
+                    .fetch_one(self.db.pool())
+                    .await?;
             if owned == 0 {
                 return Err(DbError::Forbidden);
             }

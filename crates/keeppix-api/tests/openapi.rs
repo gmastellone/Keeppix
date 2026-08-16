@@ -68,6 +68,10 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/duplicates/{content_hash}/resolve",
         "/api/v1/assets/{id}",
         "/api/v1/assets/{id}/restore",
+        "/api/v1/assets/{id}/stack",
+        "/api/v1/assets/{id}/stack/primary",
+        "/api/v1/trash",
+        "/api/v1/trash/empty",
         "/api/v1/assets/{id}/metadata",
         "/api/v1/metadata/batch",
         "/api/v1/metadata/batch/shift-taken-at",
@@ -167,8 +171,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 47,
-        "il documento deve descrivere quarantasette operazioni"
+        checked, 51,
+        "il documento deve descrivere cinquantuno operazioni"
     );
 }
 
@@ -222,6 +226,8 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/assets/{id}/metadata",
             "/api/v1/assets/{id}/metadata",
             "/api/v1/assets/{id}/restore",
+            "/api/v1/assets/{id}/stack",
+            "/api/v1/assets/{id}/stack/primary",
             "/api/v1/auth/me",
             "/api/v1/auth/refresh",
             "/api/v1/duplicates",
@@ -248,6 +254,8 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/search/suggest",
             "/api/v1/timeline",
             "/api/v1/timeline/buckets",
+            "/api/v1/trash",
+            "/api/v1/trash/empty",
             "/api/v1/users",
             "/api/v1/users",
             "/api/v1/users/me/password",
@@ -293,6 +301,8 @@ fn operation_ids_are_explicit_and_unique() {
         [
             "assets_delete",
             "assets_restore",
+            "assets_stack_get",
+            "assets_stack_set_primary",
             "auth_login",
             "auth_logout",
             "auth_me",
@@ -330,6 +340,8 @@ fn operation_ids_are_explicit_and_unique() {
             "setup_status",
             "timeline_buckets",
             "timeline_page",
+            "trash_empty",
+            "trash_list",
             "users_change_password",
             "users_create",
             "users_disable",

@@ -400,6 +400,143 @@
         ]
       }
     },
+    "/api/v1/assets/{id}/stack": {
+      "get": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile al chiamante.",
+        "operationId": "assets_stack_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Membri dello stack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/{id}/stack/primary": {
+      "post": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile; `409` se\nl'asset non è in uno stack.",
+        "operationId": "assets_stack_set_primary",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset da promuovere",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Primario aggiornato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Asset non in uno stack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -2146,6 +2283,139 @@
         ]
       }
     },
+    "/api/v1/trash": {
+      "get": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`400` se il cursore non è leggibile; `401` se non autenticato.",
+        "operationId": "trash_list",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Keyset deleted_at|id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1..=100, default 50",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pagina del cestino navigabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrashListPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cursore illeggibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/trash/empty": {
+      "post": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se il chiamante non è owner di alcuna\nlibreria né admin.",
+        "operationId": "trash_empty",
+        "responses": {
+          "200": {
+            "description": "Cestino svuotato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyTrashResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo owner/admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database o del filesystem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/users": {
       "get": {
         "tags": [
@@ -3083,6 +3353,19 @@
           }
         }
       },
+      "EmptyTrashResponse": {
+        "type": "object",
+        "required": [
+          "emptied"
+        ],
+        "properties": {
+          "emptied": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "ErrorAssetView": {
         "type": "object",
         "required": [
@@ -3699,6 +3982,50 @@
           }
         }
       },
+      "StackMemberView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AssetView"
+          },
+          {
+            "type": "object",
+            "required": [
+              "is_primary"
+            ],
+            "properties": {
+              "is_primary": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "StackView": {
+        "type": "object",
+        "required": [
+          "members"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StackMemberView"
+            }
+          },
+          "primary_asset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stack_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "SuggestResponse": {
         "type": "object",
         "required": [
@@ -3740,6 +4067,65 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AssetView"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TrashItemView": {
+        "type": "object",
+        "required": [
+          "id",
+          "asset_id",
+          "deleted_at",
+          "original_path",
+          "disk_action",
+          "days_remaining"
+        ],
+        "properties": {
+          "asset_id": {
+            "type": "string"
+          },
+          "days_remaining": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disk_action": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "original_path": {
+            "type": "string"
+          },
+          "trash_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TrashListPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrashItemView"
             }
           },
           "next_cursor": {
