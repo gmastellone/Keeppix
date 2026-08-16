@@ -167,8 +167,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 40,
-        "il documento deve descrivere quaranta operazioni"
+        checked, 42,
+        "il documento deve descrivere quarantadue operazioni"
     );
 }
 
@@ -236,6 +236,8 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/libraries/{id}",
             "/api/v1/libraries/{id}",
             "/api/v1/libraries/{id}",
+            "/api/v1/libraries/{id}/scan",
+            "/api/v1/libraries/{id}/scan",
             "/api/v1/metadata/batch",
             "/api/v1/metadata/batch/shift-taken-at",
             "/api/v1/metadata/batch/{batch_id}/undo",
@@ -304,6 +306,8 @@ fn operation_ids_are_explicit_and_unique() {
             "libraries_list",
             "libraries_patch",
             "libraries_preview",
+            "libraries_scan_start",
+            "libraries_scan_status",
             "media_original",
             "media_preview",
             "media_thumb",

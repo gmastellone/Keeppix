@@ -45,3 +45,14 @@ sbagliato: un valore KEEPPIX_* con virgola legittima si spezzerebbe
 (oggi nessuno).
 
 Task 2: complete (commit `e7d1111`, test verdi)
+
+Ruling (Task 3): `keeppix-api` dipende da `keeppix-jobs` per chiamare
+`enqueue_rescan` e tenere `LibraryWatchers` in `AppState` — altrimenti si
+reimplementerebbe l'accodamento o i watcher resterebbero solo in `main`.
+Costo se sbagliato: un arco di dipendenza in più (nessun ciclo).
+
+Ruling (Task 3): `eta_seconds` è sempre `null` finché non ci sono misure
+di throughput (Task 9). Meglio assente che inventato. Costo se sbagliato:
+UI senza ETA finché non si riempie.
+
+Task 3: complete (commit `PLACEHOLDER`, test verdi)

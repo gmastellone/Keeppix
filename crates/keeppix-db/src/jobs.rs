@@ -292,4 +292,35 @@ impl<'a> JobRepo<'a> {
         .await?;
         Ok(result.rows_affected())
     }
+
+    /// Stato del job `discover_library` attivo (o l'ultimo fallito) per una
+    /// libreria. Lo chiama la rotta di stato dopo il controllo di visibilità.
+    ///
+    /// Non prende un `AuthContext`: il chiamante ha già autorizzato.
+    ///
+    /// # Errors
+    /// `Connection` / `Corrupted`.
+    pub async fn discover_status_for_library(
+        &self,
+        library_id: keeppix_domain::LibraryId,
+    ) -> Result<Option<Job>, DbError> {
+        let key = format!("discover:{library_id}");
+        let row: Option<JobRow> = sqlx::query_as(&format!(
+            "SELECT {COLUMNS} FROM jobs \
+              WHERE dedup_key = $1 \
+              ORDER BY \
+                CASE status \
+                  WHEN 'running' THEN 0 \
+                  WHEN 'pending' THEN 1 \
+                  WHEN 'failed' THEN 2 \
+                  ELSE 3 \
+                END, \
+                id DESC \
+              LIMIT 1"
+        ))
+        .bind(&key)
+        .fetch_optional(self.db.pool())
+        .await?;
+        row.map(JobRow::into_domain).transpose()
+    }
 }

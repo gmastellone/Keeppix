@@ -1927,6 +1927,7 @@ dependencies = [
  "http-body-util",
  "keeppix-db",
  "keeppix-domain",
+ "keeppix-jobs",
  "keeppix-media",
  "keeppix-test-support",
  "reqwest",

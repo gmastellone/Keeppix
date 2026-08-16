@@ -14,6 +14,7 @@ tower-http = { version = "0.7.0", features = ["set-header", "trace", "compressio
 tower = "0.5.3"
 keeppix-db = { version = "0.1.0", path = "../keeppix-db" }
 keeppix-media = { path = "../keeppix-media" }
+keeppix-jobs = { path = "../keeppix-jobs" }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true

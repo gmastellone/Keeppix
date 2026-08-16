@@ -59,10 +59,14 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
     if let Err(e) = keeppix_jobs::watch::persist_capabilities(&db).await {
         tracing::warn!(error = %e, "hardware probe failed");
     }
-    if let Err(e) = keeppix_jobs::watch::spawn_all(&db, keeppix_jobs::watch::DEFAULT_DEBOUNCE).await
-    {
-        tracing::warn!(error = %e, "library watchers failed to start");
-    }
+    let library_watchers =
+        match keeppix_jobs::watch::spawn_all(&db, keeppix_jobs::watch::DEFAULT_DEBOUNCE).await {
+            Ok(watchers) => Some(watchers),
+            Err(e) => {
+                tracing::warn!(error = %e, "library watchers failed to start");
+                None
+            }
+        };
 
     let handler = keeppix_jobs::IngestHandler {
         db: db.clone(),
@@ -102,15 +106,20 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(addr = %config.bind, "keeppix listening");
 
-    let app = keeppix_server::embed::mount(keeppix_api::router_parts()).with_state(
-        keeppix_api::AppState::new(db, config.session_ttl_secs, config.data_dir.clone())
-            .with_on_authenticated({
-                let tracker = tracker.clone();
-                std::sync::Arc::new(move || tracker.notify_authenticated_request())
-            })
-            .with_allowed_origins(config.allowed_origins.clone())
-            .with_library_roots(config.library_roots.clone()),
-    );
+    let app = keeppix_server::embed::mount(keeppix_api::router_parts()).with_state({
+        let mut state =
+            keeppix_api::AppState::new(db, config.session_ttl_secs, config.data_dir.clone())
+                .with_on_authenticated({
+                    let tracker = tracker.clone();
+                    std::sync::Arc::new(move || tracker.notify_authenticated_request())
+                })
+                .with_allowed_origins(config.allowed_origins.clone())
+                .with_library_roots(config.library_roots.clone());
+        if let Some(watchers) = library_watchers {
+            state = state.with_library_watchers(watchers);
+        }
+        state
+    });
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

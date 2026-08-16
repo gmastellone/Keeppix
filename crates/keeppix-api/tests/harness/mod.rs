@@ -86,8 +86,11 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
     std::fs::create_dir_all(&photos_root).expect("photos_root");
     let auth_pings = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let ping = auth_pings.clone();
+    let watchers =
+        keeppix_jobs::watch::LibraryWatchers::new(db.clone(), std::time::Duration::from_millis(80));
     let state = keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone())
         .with_library_roots(vec![photos_root.clone()])
+        .with_library_watchers(watchers)
         .with_on_authenticated(std::sync::Arc::new(move || {
             ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }));

@@ -57,26 +57,68 @@ pub async fn enqueue_rescan(db: &Db, library_id: LibraryId) -> Result<(), JobErr
     Ok(())
 }
 
-/// Avvia un watcher per ogni libreria. Le librerie create dopo il boot
-/// restano scoperte fino al riavvio (ponytail: 1c può rinfrescare).
-///
-/// # Errors
-/// Database.
-pub async fn spawn_all(db: &Db, debounce: Duration) -> Result<Vec<JoinHandle<()>>, JobError> {
-    let libs = LibraryRepo::new(db).list_for_scan().await?;
-    let mut handles = Vec::new();
-    for lib in libs {
-        let mode = mode_for(&lib.root_path);
+/// Registro dei watcher attivi: le librerie create dopo il boot devono
+/// essere sorvegliate senza riavviare il processo.
+#[derive(Clone)]
+pub struct LibraryWatchers {
+    db: Db,
+    debounce: Duration,
+    inner: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<LibraryId, JoinHandle<()>>>>,
+}
+
+impl LibraryWatchers {
+    #[must_use]
+    pub fn new(db: Db, debounce: Duration) -> Self {
+        Self {
+            db,
+            debounce,
+            inner: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+
+    /// Avvia un watcher per ogni libreria già presente (boot).
+    ///
+    /// # Errors
+    /// Database.
+    pub async fn spawn_existing(&self) -> Result<(), JobError> {
+        let libs = LibraryRepo::new(&self.db).list_for_scan().await?;
+        for lib in libs {
+            self.ensure(lib.id, lib.root_path);
+        }
+        Ok(())
+    }
+
+    /// Avvia il watcher per una libreria se non è già attivo.
+    pub fn ensure(&self, library_id: LibraryId, root: PathBuf) {
+        let Ok(mut guard) = self.inner.lock() else {
+            return;
+        };
+        if guard.contains_key(&library_id) {
+            return;
+        }
+        let mode = mode_for(&root);
         if matches!(mode, WatcherMode::Polling { .. }) {
             tracing::warn!(
-                library = %lib.id,
-                root = %lib.root_path.display(),
+                library = %library_id,
+                root = %root.display(),
                 "watcher_mode=polling"
             );
         }
-        handles.push(spawn(db.clone(), lib.id, lib.root_path, debounce, mode));
+        let handle = spawn(self.db.clone(), library_id, root, self.debounce, mode);
+        guard.insert(library_id, handle);
     }
-    Ok(handles)
+}
+
+/// Avvia un watcher per ogni libreria già nota e restituisce il registro
+/// da tenere vivo (e da passare a `AppState`) così le create successive
+/// possono chiamare [`LibraryWatchers::ensure`].
+///
+/// # Errors
+/// Database.
+pub async fn spawn_all(db: &Db, debounce: Duration) -> Result<LibraryWatchers, JobError> {
+    let watchers = LibraryWatchers::new(db.clone(), debounce);
+    watchers.spawn_existing().await?;
+    Ok(watchers)
 }
 
 #[must_use]

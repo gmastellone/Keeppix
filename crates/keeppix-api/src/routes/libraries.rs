@@ -159,6 +159,9 @@ pub async fn create(
             },
         )
         .await?;
+    if let Some(watchers) = &state.library_watchers {
+        watchers.ensure(library.id, library.root_path.clone());
+    }
     Ok((
         StatusCode::CREATED,
         Json(LibraryView::from_library(&library)),
@@ -289,4 +292,120 @@ pub async fn preview(
         *extensions.entry(ext).or_insert(0) += 1;
     }
     Ok(Json(PreviewResponse { total, extensions }))
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ScanAccepted {
+    pub library_id: String,
+    pub status: String,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ScanStatusView {
+    pub library_id: String,
+    pub library_status: String,
+    /// `idle` | `discovering` | `failed` | `offline`
+    pub phase: String,
+    pub asset_count: i64,
+    pub job_status: Option<String>,
+    pub last_error: Option<String>,
+    /// Sempre `null` per ora: niente stima finché non c'è throughput misurato.
+    pub eta_seconds: Option<i64>,
+    pub last_scan_at: Option<String>,
+}
+
+/// Accoda `DiscoverLibrary` (idempotente via `dedup_key`).
+///
+/// # Errors
+/// Visibilità come `get`; errori di coda → 503.
+#[utoipa::path(
+    post,
+    path = "/api/v1/libraries/{id}/scan",
+    tag = "libraries",
+    operation_id = "libraries_scan_start",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della libreria")),
+    responses(
+        (status = 202, description = "Scansione accodata", body = ScanAccepted),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non consentito", body = Problem)
+    )
+)]
+pub async fn start_scan(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    AxumPath(id): AxumPath<LibraryId>,
+) -> Result<(StatusCode, Json<ScanAccepted>), Problem> {
+    LibraryRepo::new(&state.db).find_by_id(&ctx, id).await?;
+    keeppix_jobs::watch::enqueue_rescan(&state.db, id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "enqueue discover");
+            Problem::service_unavailable()
+        })?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(ScanAccepted {
+            library_id: id.to_string(),
+            status: "accepted".to_owned(),
+        }),
+    ))
+}
+
+/// Stato corrente della scansione / indicizzazione della libreria.
+///
+/// # Errors
+/// Visibilità come `get`.
+#[utoipa::path(
+    get,
+    path = "/api/v1/libraries/{id}/scan",
+    tag = "libraries",
+    operation_id = "libraries_scan_status",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della libreria")),
+    responses(
+        (status = 200, description = "Stato scansione", body = ScanStatusView),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non consentito", body = Problem)
+    )
+)]
+pub async fn scan_status(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    AxumPath(id): AxumPath<LibraryId>,
+) -> Result<Json<ScanStatusView>, Problem> {
+    let library = LibraryRepo::new(&state.db).find_by_id(&ctx, id).await?;
+    let asset_count = keeppix_db::AssetRepo::new(&state.db)
+        .count_in_library(id)
+        .await?;
+    let job = keeppix_db::JobRepo::new(&state.db)
+        .discover_status_for_library(id)
+        .await?;
+
+    let library_status = match library.status {
+        keeppix_domain::LibraryStatus::Active => "active",
+        keeppix_domain::LibraryStatus::Offline => "offline",
+    };
+    let phase = if library.status == keeppix_domain::LibraryStatus::Offline {
+        "offline".to_owned()
+    } else {
+        match job.as_ref().map(|j| j.status) {
+            Some(keeppix_domain::JobStatus::Pending | keeppix_domain::JobStatus::Running) => {
+                "discovering".to_owned()
+            }
+            Some(keeppix_domain::JobStatus::Failed) => "failed".to_owned(),
+            _ => "idle".to_owned(),
+        }
+    };
+
+    Ok(Json(ScanStatusView {
+        library_id: id.to_string(),
+        library_status: library_status.to_owned(),
+        phase,
+        asset_count,
+        job_status: job.as_ref().map(|j| j.status.as_str().to_owned()),
+        last_error: job.and_then(|j| j.last_error),
+        eta_seconds: None,
+        last_scan_at: library.last_scan_at.map(|t| t.to_rfc3339()),
+    }))
 }
