@@ -10,6 +10,8 @@ pub mod problem;
 pub mod routes;
 pub mod state;
 
+pub mod batch;
+
 pub use extract::{AdminAuth, Auth, SESSION_COOKIE};
 pub use json::Json;
 pub use problem::Problem;
@@ -147,7 +149,44 @@ fn api_routes() -> Router<AppState> {
         .route("/ws/ticket", axum::routing::post(routes::ws::ticket))
         .route("/ws", get(routes::ws::connect))
         .route("/problems", get(routes::problems::list))
-        .route("/duplicates", get(routes::problems::duplicates))
+        .route("/duplicates", get(routes::duplicates::list))
+        .route(
+            "/duplicates/{content_hash}",
+            get(routes::duplicates::members),
+        )
+        .route(
+            "/duplicates/{content_hash}/resolve",
+            axum::routing::post(routes::duplicates::resolve),
+        )
+        .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
+        .route(
+            "/assets/{id}/restore",
+            axum::routing::post(routes::trash::restore),
+        )
+        .route(
+            "/assets/{id}/metadata",
+            get(routes::metadata::effective).patch(routes::metadata::apply),
+        )
+        .route(
+            "/metadata/batch",
+            axum::routing::post(routes::metadata::apply_batch),
+        )
+        .route(
+            "/metadata/batch/shift-taken-at",
+            axum::routing::post(routes::metadata::shift_taken_at),
+        )
+        .route(
+            "/metadata/batch/{batch_id}/undo",
+            axum::routing::post(routes::metadata::undo_batch),
+        )
+        .route(
+            "/assets/{id}/flags",
+            get(routes::flags::get).put(routes::flags::set),
+        )
+        .route(
+            "/flags/batch",
+            axum::routing::post(routes::flags::batch_set),
+        )
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe

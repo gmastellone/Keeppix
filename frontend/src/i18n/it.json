@@ -39,6 +39,51 @@
     "invalid": "Query non valida."
   },
   "viewer": { "title": "Foto", "close": "Chiudi" },
+  "culling": {
+    "entry": "Culling",
+    "title": "Culling",
+    "close": "Chiudi",
+    "ofTotal": "su {total}",
+    "empty": "Nessuna foto da rivedere.",
+    "rating": {
+      "group": "Valutazione",
+      "star": "{n} stelle"
+    },
+    "stats": {
+      "picks": "Scelte",
+      "rejects": "Scarti",
+      "pending": "Da vedere"
+    },
+    "filters": {
+      "label": "Filtro",
+      "all": "Tutte",
+      "pending": "Da vedere",
+      "picks": "Scelte",
+      "rejects": "Scarti"
+    },
+    "badges": { "pick": "Scelta", "reject": "Scarto" },
+    "filmstrip": { "label": "Miniature della sessione" },
+    "deleteRejects": "Elimina i {count} scarti",
+    "deleteDialog": {
+      "title": "Elimina {count} foto",
+      "cancel": "Annulla",
+      "confirm": "Elimina",
+      "options": {
+        "kept": {
+          "label": "Rimuovi solo dall'indice",
+          "hint": "I file restano sul disco. Keeppix li reindicizzerà alla prossima scansione."
+        },
+        "moved_to_trash": {
+          "label": "Sposta nel cestino di Keeppix",
+          "hint": "Recuperabili per 30 giorni. I file vengono spostati in .keeppix-trash/ dentro la stessa libreria."
+        },
+        "purged": {
+          "label": "Elimina dal disco adesso",
+          "hint": "Irreversibile."
+        }
+      }
+    }
+  },
   "problems": {
     "title": "Problemi",
     "offlineLibraries": "Librerie offline",

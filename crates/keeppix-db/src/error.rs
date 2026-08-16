@@ -14,6 +14,12 @@ pub enum DbError {
     Forbidden,
     #[error("corrupted row: {0}")]
     Corrupted(String),
+    /// L'operazione sul filesystem che accompagna la scrittura sul database
+    /// (`rename()` nel cestino, cancellazione da disco) è fallita. Distinta
+    /// da `Connection`: qui il database non ha nulla a che fare, è il
+    /// percorso che non risponde — disco pieno, permessi, mount caduto.
+    #[error("filesystem error: {0}")]
+    Io(String),
 }
 
 impl From<sqlx::migrate::MigrateError> for DbError {

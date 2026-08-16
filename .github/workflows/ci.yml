@@ -57,6 +57,16 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Libera disco prima dei test
+        run: |
+          # I runner ubuntu-latest partono già pieni di toolchain inutili;
+          # clippy + test workspace riempiono facilmente i ~14 GiB liberi e
+          # Postgres finisce in PANIC su pg_wal (visto su PR #4).
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell \
+            /usr/local/share/chromium /usr/local/lib/node_modules || true
+          df -h /
+
       - name: Test
         run: cargo test --workspace --jobs 1 -- --test-threads=1
 

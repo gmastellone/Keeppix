@@ -8,7 +8,10 @@ use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
-use crate::routes::{auth, folders, media, problems, search, setup, timeline, viewport, ws};
+use crate::routes::{
+    auth, duplicates, flags, folders, media, metadata, problems, search, setup, timeline, trash,
+    viewport, ws,
+};
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
 /// `#[utoipa::path(security(("session_cookie" = [])))]` devono ripeterlo come
@@ -64,7 +67,19 @@ impl utoipa::Modify for SecurityAddon {
         ws::ticket,
         ws::connect,
         problems::list,
-        problems::duplicates,
+        duplicates::list,
+        duplicates::members,
+        duplicates::resolve,
+        trash::delete,
+        trash::restore,
+        metadata::effective,
+        metadata::apply,
+        metadata::apply_batch,
+        metadata::shift_taken_at,
+        metadata::undo_batch,
+        flags::get,
+        flags::set,
+        flags::batch_set,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -92,7 +107,18 @@ impl utoipa::Modify for SecurityAddon {
         search::SavedSearchView,
         ws::TicketResponse,
         problems::ProblemsView,
-        problems::DuplicateGroupView,
+        duplicates::DuplicateGroupView,
+        duplicates::ResolveDuplicateRequest,
+        duplicates::ResolveDuplicateResponse,
+        trash::DeleteAssetRequest,
+        metadata::GeoPointView,
+        metadata::EffectiveMetadataView,
+        metadata::MetadataPatchRequest,
+        metadata::BatchApplyRequest,
+        metadata::BatchShiftRequest,
+        metadata::BatchView,
+        flags::AssetFlagsBody,
+        flags::BatchFlagsRequest,
         crate::problem::Problem,
     )),
     tags(
@@ -103,7 +129,10 @@ impl utoipa::Modify for SecurityAddon {
         (name = "media", description = "Miniature, preview e originali"),
         (name = "search", description = "Ricerca da AST e ricerche salvate"),
         (name = "events", description = "WebSocket di notifica"),
-        (name = "library", description = "Problemi e duplicati")
+        (name = "library", description = "Problemi e duplicati"),
+        (name = "trash", description = "Cancellazione a tre opzioni e ripristino"),
+        (name = "metadata", description = "Metadati effettivi ed editing in blocco"),
+        (name = "flags", description = "Voti di culling per utente: rating, pick, etichetta colore")
     )
 )]
 pub struct ApiDoc;

@@ -1,4 +1,5 @@
-//! Problemi visibili e duplicati per `content_hash`.
+//! Problemi visibili (librerie offline, asset in errore, job falliti). I
+//! duplicati per `content_hash` sono in [`crate::duplicates`] da Fase 2.
 
 use keeppix_domain::{AssetId, AuthContext, LibraryId};
 
@@ -33,20 +34,6 @@ pub struct ProblemSet {
     pub offline_libraries: Vec<OfflineLibrary>,
     pub failed_jobs: Vec<FailedJob>,
     pub error_assets: Vec<ErrorAsset>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DuplicateGroup {
-    pub content_hash: Vec<u8>,
-    pub count: i64,
-    pub size_bytes: i64,
-}
-
-impl DuplicateGroup {
-    #[must_use]
-    pub const fn reclaimable_bytes(&self) -> i64 {
-        self.size_bytes.saturating_mul(self.count.saturating_sub(1))
-    }
 }
 
 impl<'a> ProblemsRepo<'a> {
@@ -122,36 +109,5 @@ impl<'a> ProblemsRepo<'a> {
                 })
                 .collect(),
         })
-    }
-
-    /// Gruppi con lo stesso `content_hash`. `reclaimable = size * (n-1)`.
-    ///
-    /// # Errors
-    /// `Connection` se la query fallisce.
-    pub async fn duplicates(&self, ctx: &AuthContext) -> Result<Vec<DuplicateGroup>, DbError> {
-        let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.library_id", 1);
-        let rows: Vec<(Vec<u8>, i64, i64)> = sqlx::query_as(&format!(
-            "SELECT a.content_hash, count(*)::bigint, min(a.size_bytes)::bigint \
-               FROM assets a \
-               JOIN folders f ON f.id = a.folder_id \
-              WHERE a.content_hash IS NOT NULL AND a.status = 'indexed' AND {} \
-              GROUP BY a.content_hash \
-             HAVING count(*) > 1 \
-              ORDER BY (min(a.size_bytes) * (count(*) - 1)) DESC \
-              LIMIT 200",
-            filter.sql()
-        ))
-        .bind(filter.bind())
-        .fetch_all(self.db.pool())
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|(content_hash, count, size_bytes)| DuplicateGroup {
-                content_hash,
-                count,
-                size_bytes,
-            })
-            .collect())
     }
 }

@@ -3,6 +3,8 @@
 //! Il container Postgres è uno per processo: il costo del boot si paga una
 //! volta, l'isolamento resta un `CREATE DATABASE` per test.
 
+use std::time::Duration;
+
 use keeppix_db::Db;
 use sqlx::{Connection as _, PgConnection};
 use testcontainers_modules::postgres::Postgres;
@@ -111,16 +113,31 @@ async fn provision() -> String {
                 .start()
                 .await
                 .expect("avvio del container Postgres");
-            let port = container
-                .get_host_port_ipv4(5432)
-                .await
-                .expect("porta mappata");
+            let port = mapped_port(&container).await;
             let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
             (container, url)
         })
         .await;
 
     named_database(admin_url).await
+}
+
+/// Docker Desktop a volte espone la porta un attimo dopo `start()`. Senza
+/// retry, `PortNotExposed` fa fallire 1-3 test a caso in locale.
+#[allow(clippy::expect_used)]
+async fn mapped_port(container: &ContainerAsync<Postgres>) -> u16 {
+    let mut delay = Duration::from_millis(50);
+    for attempt in 1..=12 {
+        match container.get_host_port_ipv4(5432).await {
+            Ok(port) => return port,
+            Err(_) if attempt < 12 => {
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(Duration::from_secs(2));
+            }
+            Err(err) => panic!("porta mappata dopo {attempt} tentativi: {err}"),
+        }
+    }
+    unreachable!("il ciclo sopra termina sempre")
 }
 
 #[allow(clippy::expect_used)]
