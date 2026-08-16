@@ -10,6 +10,8 @@ pub mod problem;
 pub mod routes;
 pub mod state;
 
+pub mod batch;
+
 pub use extract::{AdminAuth, Auth, SESSION_COOKIE};
 pub use json::Json;
 pub use problem::Problem;

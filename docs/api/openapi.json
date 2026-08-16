@@ -808,7 +808,7 @@
             "description": "Stessi flag applicati a ogni asset"
           },
           "400": {
-            "description": "rating fuori range",
+            "description": "rating fuori range o batch troppo grande",
             "content": {
               "application/json": {
                 "schema": {
@@ -999,6 +999,16 @@
               }
             }
           },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Non autenticato",
             "content": {
@@ -1051,6 +1061,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -2038,7 +2058,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Fino a qualche migliaio di id: `apply_batch` è pensato per restare\nsotto un secondo anche a 5.000 (misurato, vedi il report del Task 8)."
+            "description": "Tetto HTTP: [`crate::batch::MAX_BATCH_ASSETS`]. `apply_batch` è\nmisurato a 5.000 sotto il secondo (report Task 8)."
           },
           "patch": {
             "$ref": "#/components/schemas/MetadataPatchRequest"

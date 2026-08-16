@@ -70,6 +70,15 @@ Migrazioni nuove (prefisso a 4 cifre): `0012` overrides/flags, `0013` stacks,
 9. `RLIMIT_AS` video portato a 1 GiB: 512 MiB bastava a ffprobe ma non a
    ffmpeg distro (VA delle shared libs).
 
+## Review pre-merge e criteri ≥1000 (2026-08-16)
+
+- Trash: DB commit prima del filesystem (Purged / MovedToTrash).
+- Batch HTTP capped a 10_000.
+- Demosaic sandbox AS = 1 GiB.
+- Import XMP in discover: **differito** (ruling nel ledger).
+- CI: free-disk step prima dei test (runner disk flake PR #4).
+- Misure ≥1000: flags ~13 ms; 1000 sidecar ~270 ms; RAW hash invariati; store FE <2 s.
+
 ## Cosa resta aperto / differito
 
 - Native WS `Authorization` senza Origin (Fase app).

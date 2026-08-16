@@ -121,7 +121,7 @@ pub async fn set(
     request_body = BatchFlagsRequest,
     responses(
         (status = 204, description = "Stessi flag applicati a ogni asset"),
-        (status = 400, description = "rating fuori range", body = Problem),
+        (status = 400, description = "rating fuori range o batch troppo grande", body = Problem),
         (status = 401, description = "Non autenticato", body = Problem),
         (status = 403, description = "Un asset non è visibile", body = Problem)
     )
@@ -131,6 +131,7 @@ pub async fn batch_set(
     Auth(ctx): Auth,
     Json(body): Json<BatchFlagsRequest>,
 ) -> Result<StatusCode, Problem> {
+    crate::batch::reject_oversized_batch(&body.asset_ids)?;
     let flags = body.flags.into_domain()?;
     FlagRepo::new(&state.db)
         .batch_set(&ctx, &body.asset_ids, &flags)

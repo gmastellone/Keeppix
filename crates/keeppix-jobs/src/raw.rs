@@ -25,9 +25,12 @@ use crate::JobError;
 const MIN_PREVIEW_LONG_SIDE: u32 = 1440;
 
 /// `dcraw_emu` gira su ARM in ~1,5-4 s su un RAW reale (spec §2.1); 30 s di
-/// CPU è generoso ma finito, e 512 MiB copre il Bayer full-size di un sensore
-/// consumer prima del dimezzamento.
-const DEMOSAIC_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
+/// CPU è generoso ma finito. Il tetto di memoria è 1 GiB (non 512): lo stesso
+/// bug trovato su ffmpeg distro — `RLIMIT_AS` troppo basso fallisce il
+/// mapping delle shared libs prima di toccare il Bayer — e `dcraw_emu`
+/// (libraw + lcms/jpeg) è lo stesso profilo di binario. Floor non rimisurato
+/// byte-a-byte su ogni host; 1 GiB allinea al tetto di `video::MEM`.
+const DEMOSAIC_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 const DEMOSAIC_CPU_SECS: u64 = 30;
 
 /// Punto di iniezione del demosaic. In produzione avvia `dcraw_emu` in

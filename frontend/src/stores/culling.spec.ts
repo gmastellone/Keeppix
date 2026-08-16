@@ -149,3 +149,26 @@ describe('culling store — resilient queue', () => {
     expect(setFlagsMock).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('culling store — 1000-photo session', () => {
+  it('starts a session of 1000 photos and votes through without stalling', () => {
+    const store = useCullingStore()
+    const photos = Array.from({ length: 1000 }, (_, i) => photo(`id-${i}`))
+    const started = performance.now()
+    store.start(photos)
+    expect(store.order).toHaveLength(1000)
+    expect(store.currentAsset?.id).toBe('id-0')
+
+    for (let i = 0; i < 200; i++) {
+      const id = store.currentAsset?.id
+      expect(id).toBeTruthy()
+      if (i % 2 === 0) store.pick(id!)
+      else store.reject(id!)
+    }
+    const elapsed = performance.now() - started
+    // Sessione da tastiera: 200 voti + start devono restare impercettibili.
+    expect(elapsed).toBeLessThan(2000)
+    expect(store.position).toBe(200)
+    expect(Object.keys(store.flagsById)).toHaveLength(200)
+  })
+})

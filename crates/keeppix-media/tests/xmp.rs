@@ -374,3 +374,138 @@ fn writing_to_a_read_only_directory_fails_without_corrupting_anything() {
         LIGHTROOM_SIDECAR
     );
 }
+
+fn fixture(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+fn blake3_file(path: &std::path::Path) -> blake3::Hash {
+    blake3::hash(&std::fs::read(path).expect("read"))
+}
+
+/// Criterio Fase 2: dopo un ciclo di editing via sidecar, i RAW sono bit-identici.
+#[test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+fn writing_sidecars_never_rewrites_real_raw_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let names = [
+        "sample.arw",
+        "sample.nef",
+        "sample.cr2",
+        "sample.cr3",
+        "sample.dng",
+    ];
+    let mut before = Vec::new();
+    for name in names {
+        let dest = dir.path().join(name);
+        std::fs::copy(fixture(name), &dest).unwrap();
+        before.push((dest.clone(), blake3_file(&dest)));
+    }
+
+    for (path, _) in &before {
+        let sidecar = {
+            let mut name = path.file_name().unwrap().to_string_lossy().into_owned();
+            name.push_str(".xmp");
+            path.with_file_name(name)
+        };
+        write_sidecar(
+            &sidecar,
+            &SidecarData {
+                rating: Some(5),
+                title: Some("culling".to_owned()),
+                label: Some("pick".to_owned()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(sidecar.is_file());
+    }
+
+    for (path, hash) in &before {
+        assert_eq!(
+            &blake3_file(path),
+            hash,
+            "RAW riscritto: {}",
+            path.display()
+        );
+    }
+}
+
+/// Sessione su ≥1000 file reali in cartella: 995 JPEG (fixture) + 5 RAW.
+/// Verifica che i sidecar non tocchino i RAW e che la cartella sia navigabile.
+#[test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+fn one_thousand_real_files_survive_sidecar_editing_without_raw_rewrite() {
+    const JPEG_COUNT: usize = 995;
+    let dir = tempfile::tempdir().unwrap();
+    let tiny = std::fs::read(fixture("tiny.jpg")).unwrap();
+    for i in 0..JPEG_COUNT {
+        std::fs::write(dir.path().join(format!("IMG_{i:05}.jpg")), &tiny).unwrap();
+    }
+    let raw_names = [
+        "sample.arw",
+        "sample.nef",
+        "sample.cr2",
+        "sample.cr3",
+        "sample.dng",
+    ];
+    let mut raw_hashes = Vec::new();
+    for name in raw_names {
+        let dest = dir.path().join(name);
+        std::fs::copy(fixture(name), &dest).unwrap();
+        raw_hashes.push((dest.clone(), blake3_file(&dest)));
+    }
+
+    let total = std::fs::read_dir(dir.path()).unwrap().count();
+    assert_eq!(total, JPEG_COUNT + raw_names.len());
+
+    let started = std::time::Instant::now();
+    for i in 0..JPEG_COUNT {
+        let sidecar = dir.path().join(format!("IMG_{i:05}.jpg.xmp"));
+        write_sidecar(
+            &sidecar,
+            &SidecarData {
+                rating: Some(if i % 2 == 0 { 4 } else { 1 }),
+                label: Some(if i % 3 == 0 {
+                    "pick".to_owned()
+                } else {
+                    "reject".to_owned()
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    for (path, _) in &raw_hashes {
+        let mut name = path.file_name().unwrap().to_string_lossy().into_owned();
+        name.push_str(".xmp");
+        write_sidecar(
+            &path.with_file_name(name),
+            &SidecarData {
+                rating: Some(5),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    let elapsed = started.elapsed();
+    eprintln!(
+        "MEASUREMENT sidecar write su {} file: {elapsed:?}",
+        JPEG_COUNT + raw_names.len()
+    );
+
+    for (path, hash) in &raw_hashes {
+        assert_eq!(
+            &blake3_file(path),
+            hash,
+            "RAW riscritto: {}",
+            path.display()
+        );
+    }
+    assert!(
+        elapsed.as_secs() < 30,
+        "1000 sidecar devono restare snelli, impiegati {elapsed:?}"
+    );
+}
