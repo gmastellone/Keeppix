@@ -90,6 +90,121 @@
         ]
       }
     },
+    "/api/v1/assets/{id}/metadata": {
+      "get": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile.",
+        "operationId": "metadata_effective",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "COALESCE(override, exif) campo per campo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveMetadataView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile.",
+        "operationId": "metadata_apply",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Override applicato, sidecar accodato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/{id}/restore": {
       "post": {
         "tags": [
@@ -656,6 +771,178 @@
           },
           "500": {
             "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se anche un solo asset non è visibile.",
+        "operationId": "metadata_apply_batch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Stesso patch applicato a ogni asset, annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non è visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/shift-taken-at": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se anche un solo asset non è visibile.",
+        "operationId": "metadata_shift_taken_at",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchShiftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "taken_at spostato di N ore per ogni asset, annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non è visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/{batch_id}/undo": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se il batch non è del chiamante; `409` se\nil sidecar di un asset del batch è già stato scritto con questi valori.",
+        "operationId": "metadata_undo_batch",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "description": "Id del batch restituito da apply/shift",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Valori precedenti ripristinati"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Batch non del chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sidecar già scritto con i valori di questo batch",
             "content": {
               "application/json": {
                 "schema": {
@@ -1529,6 +1816,57 @@
           }
         }
       },
+      "BatchApplyRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "patch"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Fino a qualche migliaio di id: `apply_batch` è pensato per restare\nsotto un secondo anche a 5.000 (misurato, vedi il report del Task 8)."
+          },
+          "patch": {
+            "$ref": "#/components/schemas/MetadataPatchRequest"
+          }
+        }
+      },
+      "BatchShiftRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "hours"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hours": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Ore da sommare a `taken_at`. Può essere negativo — il rimedio per\nl'orologio della fotocamera sbagliato dopo un viaggio funziona in\nentrambe le direzioni.",
+            "example": -2
+          }
+        }
+      },
+      "BatchView": {
+        "type": "object",
+        "required": [
+          "batch_id"
+        ],
+        "properties": {
+          "batch_id": {
+            "type": "string"
+          }
+        }
+      },
       "DeleteAssetRequest": {
         "type": "object",
         "required": [
@@ -1565,6 +1903,54 @@
           "size_bytes": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "EffectiveMetadataView": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GeoPointView"
+              }
+            ]
+          },
+          "orientation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "place_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "taken_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -1656,6 +2042,23 @@
           }
         }
       },
+      "GeoPointView": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": [
@@ -1690,6 +2093,53 @@
         "properties": {
           "user": {
             "$ref": "#/components/schemas/UserView"
+          }
+        }
+      },
+      "MetadataPatchRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GeoPointView"
+              }
+            ]
+          },
+          "orientation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "place_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "taken_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -2085,6 +2535,10 @@
     {
       "name": "trash",
       "description": "Cancellazione a tre opzioni e ripristino"
+    },
+    {
+      "name": "metadata",
+      "description": "Metadati effettivi ed editing in blocco"
     }
   ]
 }

@@ -68,6 +68,10 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/duplicates/{content_hash}/resolve",
         "/api/v1/assets/{id}",
         "/api/v1/assets/{id}/restore",
+        "/api/v1/assets/{id}/metadata",
+        "/api/v1/metadata/batch",
+        "/api/v1/metadata/batch/shift-taken-at",
+        "/api/v1/metadata/batch/{batch_id}/undo",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
@@ -161,8 +165,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 26,
-        "il documento deve descrivere ventisei operazioni"
+        checked, 31,
+        "il documento deve descrivere trentuno operazioni"
     );
 }
 
@@ -211,6 +215,8 @@ fn security_requirements_name_a_declared_scheme() {
         protected,
         [
             "/api/v1/assets/{id}",
+            "/api/v1/assets/{id}/metadata",
+            "/api/v1/assets/{id}/metadata",
             "/api/v1/assets/{id}/restore",
             "/api/v1/auth/me",
             "/api/v1/auth/refresh",
@@ -219,6 +225,9 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/duplicates/{content_hash}/resolve",
             "/api/v1/folders/tree",
             "/api/v1/folders/{id}/children",
+            "/api/v1/metadata/batch",
+            "/api/v1/metadata/batch/shift-taken-at",
+            "/api/v1/metadata/batch/{batch_id}/undo",
             "/api/v1/problems",
             "/api/v1/saved-searches",
             "/api/v1/saved-searches",
@@ -278,6 +287,11 @@ fn operation_ids_are_explicit_and_unique() {
             "media_original",
             "media_preview",
             "media_thumb",
+            "metadata_apply",
+            "metadata_apply_batch",
+            "metadata_effective",
+            "metadata_shift_taken_at",
+            "metadata_undo_batch",
             "problems_list",
             "saved_searches_create",
             "saved_searches_list",
