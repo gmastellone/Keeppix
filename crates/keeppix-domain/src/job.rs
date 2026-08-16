@@ -10,6 +10,7 @@ pub enum JobKind {
     ExtractMetadata,
     HashAsset,
     DeriveAsset,
+    DeriveRaw,
     ReapStale,
 }
 
@@ -21,18 +22,20 @@ impl JobKind {
             Self::ExtractMetadata => "extract_metadata",
             Self::HashAsset => "hash_asset",
             Self::DeriveAsset => "derive_asset",
+            Self::DeriveRaw => "derive_raw",
             Self::ReapStale => "reap_stale",
         }
     }
 
     /// # Errors
-    /// `DomainError::InvalidJobKind` se la stringa non è uno dei cinque tipi.
+    /// `DomainError::InvalidJobKind` se la stringa non è uno dei tipi noti.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         match raw {
             "discover_library" => Ok(Self::DiscoverLibrary),
             "extract_metadata" => Ok(Self::ExtractMetadata),
             "hash_asset" => Ok(Self::HashAsset),
             "derive_asset" => Ok(Self::DeriveAsset),
+            "derive_raw" => Ok(Self::DeriveRaw),
             "reap_stale" => Ok(Self::ReapStale),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
@@ -127,6 +130,7 @@ mod tests {
             JobKind::ExtractMetadata,
             JobKind::HashAsset,
             JobKind::DeriveAsset,
+            JobKind::DeriveRaw,
             JobKind::ReapStale,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);

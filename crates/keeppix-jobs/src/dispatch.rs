@@ -9,6 +9,7 @@ use crate::derive as derive_job;
 use crate::discover;
 use crate::hash as hash_job;
 use crate::metadata;
+use crate::raw as raw_job;
 
 /// Handler unico della pipeline 1b.
 #[derive(Clone)]
@@ -22,6 +23,10 @@ impl crate::JobHandler for IngestHandler {
     fn ram_hint_bytes(&self, job: &Job) -> u64 {
         match job.kind {
             JobKind::DeriveAsset => DEFAULT_RAM_HINT,
+            // Il demosaic gira in un processo a parte con il proprio rlimit,
+            // ma il gate deve comunque evitare di farne partire troppi in
+            // parallelo sulla stessa macchina.
+            JobKind::DeriveRaw => 512 * 1024 * 1024,
             _ => 8 * 1024 * 1024,
         }
     }
@@ -43,6 +48,10 @@ impl crate::JobHandler for IngestHandler {
             JobKind::DeriveAsset => {
                 let hash = derive_job::hash_from_payload(&job.payload)?;
                 derive_job::run(&self.db, &self.data_dir, hash).await
+            }
+            JobKind::DeriveRaw => {
+                let hash = derive_job::hash_from_payload(&job.payload)?;
+                raw_job::run(&self.db, &self.data_dir, hash).await
             }
             JobKind::ReapStale => {
                 keeppix_db::JobRepo::new(&self.db)
