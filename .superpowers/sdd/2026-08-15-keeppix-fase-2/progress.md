@@ -63,7 +63,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 | 3 | Job DeriveRaw | complete | `86a8a3e` (+ thumbhash `bcdde13`) |
 | 4 | overrides + flags | complete | `6a17f4b` (+ test `1949a5e`) |
 | 5 | Sidecar XMP | complete | `af00600`, `51127d7`, `6ee8f04`, `7dcb4e0` |
-| 6 | Stack RAW+JPEG | — | |
+| 6 | Stack RAW+JPEG | complete | `8a3308f` |
 | 7 | Cestino a tre opzioni | — | |
 | 8 | Duplicati + batch | — | |
 | 9 | Frontend culling | — | |
@@ -428,3 +428,129 @@ sul commit precedente a Task 5 (`878418a`, checkout temporaneo di
 `crates/keeppix-media` prima di `af00600`, poi ripristinato): fallisce
 identicamente, quindi non è una regressione introdotta qui — stessa nota
 già presente nel ledger di Task 4.
+
+### Task 6: complete (commit `8a3308f`, test verdi)
+
+Migrazione `0013_stacks.sql`: tabella `stacks (id, primary_asset_id NOT
+NULL, created_at)` e `ALTER TABLE assets ADD CONSTRAINT ... FOREIGN KEY
+(stack_id) REFERENCES stacks (id) ON DELETE SET NULL` — la colonna
+`assets.stack_id` esisteva già dalla 0005 (nullable, senza FK), come
+segnalato nel brief. `StackRepo::regroup_folder(folder_id)` (nessun
+`AuthContext`, stessa giustificazione di `LibraryRepo::mark_scanned`:
+lo chiamerà lo scanner) raggruppa per nome base case-insensitive nella
+stessa cartella (spec §5, regola 1): stesso stack per stesso nome base,
+RAW primario quando presente, un file solo non forma mai uno stack.
+
+Ruling (Task 6): la regola 2 dello spec (scatti entro 2 secondi, stesso
+corpo macchina, stesso numero di scatto) **non è implementata** — come
+il brief permette esplicitamente ("se non fattibile senza più schema,
+documentare come Ruling e implementare solidamente la regola 1"). Lo
+schema di `asset_exif` (`camera_make`, `camera_model`, `lens`, `iso`,
+`f_number`, `exposure`, `focal_length`, più `raw jsonb`) non ha un
+campo "numero di scatto": la sequenza di scatto della fotocamera non è
+un tag EXIF standard — vive in blocchi MakerNote proprietari e diversi
+per marca (Sony `0x9050`, Canon nei tag custom, Nikon in un blocco
+cifrato su alcuni corpi), quindi va oltre il parsing EXIF generico già
+fatto in Fase 1 e richiederebbe un parser per-vendor dentro
+`asset_exif.raw` — un cambio di scope che il piano vieta esplicitamente
+("Non implementare cose di fasi successive perché tanto ci vuole
+poco"). Un'implementazione più debole basata solo su
+`taken_at_utc`+`camera_model` (senza numero di scatto) rischierebbe
+falsi positivi concreti: due scatti diversi a raffica entro 2 secondi
+con la stessa fotocamera verrebbero stackati insieme senza che siano
+lo stesso soggetto. Costo se sbagliato: gli utenti che scattano
+RAW+JPEG con nomi file disallineati (rari: succede solo se il firmware
+numera i due formati con contatori diversi, che nessuno dei corpi
+comuni fa) non vedono lo stack; la regola 1 da sola copre il caso
+d'uso descritto nella spec (`DSC_0042.ARW`+`DSC_0042.JPG`, stesso nome
+di entrambi i file scritti dalla fotocamera).
+
+Ruling (Task 6): la promozione del primario e la pulizia dello stack
+orfano vivono in un **trigger SQL** (`assets_promote_stack_primary`,
+migrazione 0013), non in un metodo di `StackRepo` — motivazione
+esplicita nel commento della migrazione: deve reggere qualunque via
+porti alla rimozione di un asset (il cestino di Task 7, un `DELETE`
+fatto a mano nei test, un futuro comando batch), e un invariante di
+schema non si può dimenticare di richiamare mentre un metodo di
+repository sì. Il precedente c'è già nel codebase (`assets_month_counts`,
+0009). **Scoperta empirica durante l'implementazione**: il trigger deve
+essere `AFTER`, non `BEFORE` come tentato per primo — con `BEFORE`, il
+`DELETE FROM stacks` per uno stack rimasto senza membri innesca, tramite
+il cascade `ON DELETE SET NULL` della FK gemella
+(`assets.stack_id -> stacks.id`), un tentativo di modificare di nuovo
+la riga `assets` che l'`UPDATE`/`DELETE` esterno sta ancora processando
+in quello stesso istante, e Postgres rifiuta l'auto-modifica con
+`tuple to be updated was already modified by an operation triggered by
+the current command`. Riprodotto verificandolo empiricamente (non solo
+per ragionamento) sostituendo temporaneamente `AFTER` con `BEFORE`
+prima di arrivare alla versione finale: `deleting_the_primary_...`
+falliva con esattamente quell'errore Postgres. Con `AFTER`, quando il
+trigger legge lo stato di `assets` la riga OLD è già sparita (`DELETE`)
+o già sul nuovo `stack_id` (`UPDATE OF stack_id`), quindi il conteggio
+dei membri rimasti è accurato senza toccare di nuovo la riga in corso.
+La FK `stacks.primary_asset_id -> assets.id` è `DEFERRABLE INITIALLY
+DEFERRED` per lo stesso motivo, dal lato opposto: senza differirla,
+l'ordine fra il nostro trigger `AFTER` e il trigger interno di
+Postgres che applica quella FK (entrambi `AFTER` sulla stessa tabella
+per lo stesso evento) dipenderebbe dall'ordine alfabetico dei nomi dei
+trigger — fragile e dipendente dalla versione di Postgres. Differendo
+il controllo a fine transazione, il nostro trigger ha tutto il tempo
+di riassegnare `primary_asset_id` prima che il vincolo venga
+verificato. Costo se sbagliato: un `DELETE` del primario di uno stack
+a membro singolo fallirebbe con un errore Postgres invece di
+completarsi — verificato che *non* accade con la versione attuale.
+
+**Idempotenza** (il test che il brief segnala come critico):
+`regroup_folder` riusa lo `stack_id` già presente sui membri del
+gruppo quando è unico, invece di crearne uno nuovo a ogni chiamata.
+Verificato con un test di mutazione: rimossa la logica di riuso
+(sempre `INSERT INTO stacks` con un nuovo id) →
+`regrouping_the_same_folder_twice_is_idempotent` fallisce
+(`left: <uuid1>, right: <uuid2>`, id diversi al secondo giro), poi
+ripristinata e riverificata verde.
+
+**Altri due mutation test** sui requisiti del brief, entrambi
+osservati rossi poi ripristinati verdi:
+1. Rimossa la preferenza per il RAW (`primary = group[0].id` invece di
+   cercare `kind == "raw_image"`) → `the_raw_is_the_primary_asset_when_present`
+   fallisce. **Nota**: la prima versione di questo test usava
+   `DSC_0043.ARW`/`DSC_0043.JPG`, e "ARW" ordina alfabeticamente prima
+   di "JPG" — la mutazione passava comunque, perché il fallback "primo
+   per nome" sceglieva per coincidenza lo stesso file del RAW. Corretto
+   usando `.NEF` (che ordina dopo sia `.HEIC` sia `.JPG`) nei due test
+   che asseriscono sul primario, così la mutazione fallisce davvero.
+   Esattamente il tipo di test "verde ma che non prova nulla" contro
+   cui mette in guardia l'AGENTS.md.
+2. Disabilitato il trigger (`CREATE TRIGGER` commentato in una copia
+   locale della migrazione, poi ripristinato) →
+   `deleting_the_primary_promotes_another_member_...` fallisce, non con
+   uno stack orfano ma con un errore Postgres
+   (`violates foreign key constraint "stacks_primary_asset_id_fkey"`):
+   la FK `NOT NULL` + `DEFERRABLE` impedisce comunque la corruzione,
+   trasformando l'assenza del trigger in un errore rumoroso invece che
+   in uno stack silenziosamente rotto.
+
+`cargo test -p keeppix-db --test stacks -- --test-threads=1` → 9
+passed (6 richiesti dal brief + 3 di harness). Suite intera eseguita
+crate per crate (`keeppix-domain` 42, `keeppix-db` tutti verdi,
+`keeppix-jobs` tutti verdi inclusi `raw`/`xmp`, `keeppix-api`/
+`keeppix-server`/`keeppix-dav`/`keeppix-test-support` verdi) più
+`cargo build --workspace --all-targets`. `cargo fmt --check` e `cargo
+clippy --workspace --all-targets -- -D warnings` verdi su tutto il
+workspace. Fallimento preesistente confermato ancora presente e non
+toccato: `keeppix-media --test video::poster_extracts_one_frame`
+(stessa causa già annotata nei Task 4/5).
+
+`cargo deny` non è installato in questo ambiente (`error: no such
+command: 'deny'`) — non eseguibile, non aggirato: questo task non
+aggiunge dipendenze né tocca `Cargo.toml` di alcun crate, quindi non
+c'è un nuovo arco `keeppix-media`↔`keeppix-db` da verificare.
+
+Non cablato in `discover`/`hash` (piano Task 6: "Files" elenca solo
+migrazione + `stacks.rs` + test, nessuna modifica a `keeppix-jobs"):
+`StackRepo::regroup_folder(folder_id)` è pronto per essere chiamato
+dallo scanner una volta per cartella dopo la scrittura degli asset
+(stesso punto in cui `discover.rs::run` oggi chiama `ensure_path` per
+cartella), ma il brief permette esplicitamente di lasciare questo
+cablaggio a un task successivo ("StackRepo methods that discover can
+call later").
