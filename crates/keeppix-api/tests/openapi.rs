@@ -64,6 +64,16 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/ws/ticket",
         "/api/v1/problems",
         "/api/v1/duplicates",
+        "/api/v1/duplicates/{content_hash}",
+        "/api/v1/duplicates/{content_hash}/resolve",
+        "/api/v1/assets/{id}",
+        "/api/v1/assets/{id}/restore",
+        "/api/v1/assets/{id}/metadata",
+        "/api/v1/metadata/batch",
+        "/api/v1/metadata/batch/shift-taken-at",
+        "/api/v1/metadata/batch/{batch_id}/undo",
+        "/api/v1/assets/{id}/flags",
+        "/api/v1/flags/batch",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
@@ -157,8 +167,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 22,
-        "il documento deve descrivere ventidue operazioni"
+        checked, 34,
+        "il documento deve descrivere trentaquattro operazioni"
     );
 }
 
@@ -206,11 +216,23 @@ fn security_requirements_name_a_declared_scheme() {
     assert_eq!(
         protected,
         [
+            "/api/v1/assets/{id}",
+            "/api/v1/assets/{id}/flags",
+            "/api/v1/assets/{id}/flags",
+            "/api/v1/assets/{id}/metadata",
+            "/api/v1/assets/{id}/metadata",
+            "/api/v1/assets/{id}/restore",
             "/api/v1/auth/me",
             "/api/v1/auth/refresh",
             "/api/v1/duplicates",
+            "/api/v1/duplicates/{content_hash}",
+            "/api/v1/duplicates/{content_hash}/resolve",
+            "/api/v1/flags/batch",
             "/api/v1/folders/tree",
             "/api/v1/folders/{id}/children",
+            "/api/v1/metadata/batch",
+            "/api/v1/metadata/batch/shift-taken-at",
+            "/api/v1/metadata/batch/{batch_id}/undo",
             "/api/v1/problems",
             "/api/v1/saved-searches",
             "/api/v1/saved-searches",
@@ -256,16 +278,28 @@ fn operation_ids_are_explicit_and_unique() {
     assert_eq!(
         ids,
         [
+            "assets_delete",
+            "assets_restore",
             "auth_login",
             "auth_logout",
             "auth_me",
             "auth_refresh",
             "duplicates_list",
+            "duplicates_members",
+            "duplicates_resolve",
+            "flags_batch_set",
+            "flags_get",
+            "flags_set",
             "folders_children",
             "folders_tree",
             "media_original",
             "media_preview",
             "media_thumb",
+            "metadata_apply",
+            "metadata_apply_batch",
+            "metadata_effective",
+            "metadata_shift_taken_at",
+            "metadata_undo_batch",
             "problems_list",
             "saved_searches_create",
             "saved_searches_list",

@@ -51,9 +51,30 @@ pub fn derive_jpeg(
             skipped: true,
         });
     }
+    derive_from_bytes(&fs::read(src)?, data_dir, hash)
+}
 
-    let bytes = fs::read(src)?;
-    let mut decoder = JpegDecoder::new(&bytes);
+/// Stessa pipeline di [`derive_jpeg`], ma i byte JPEG sono già in memoria.
+///
+/// # Errors
+/// I/O, JPEG illeggibile, o immagine oltre 200 MP.
+pub fn derive_from_bytes(
+    bytes: &[u8],
+    data_dir: &Path,
+    hash: &[u8; 32],
+) -> Result<DeriveResult, DeriveError> {
+    let (thumb, preview) = derivative_paths(data_dir, hash);
+    if thumb.is_file() {
+        let preview = preview.is_file().then_some(preview);
+        return Ok(DeriveResult {
+            thumb,
+            preview,
+            thumbhash: Vec::new(),
+            skipped: true,
+        });
+    }
+
+    let mut decoder = JpegDecoder::new(bytes);
     decoder
         .decode_headers()
         .map_err(|e| DeriveError::Decode(e.to_string()))?;
@@ -69,24 +90,70 @@ pub fn derive_jpeg(
         .decode()
         .map_err(|e| DeriveError::Decode(e.to_string()))?;
 
+    let skip_preview = width.max(height) <= SKIP_PREVIEW_PX
+        && u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= SKIP_PREVIEW_BYTES;
+    build_derivatives(&rgb, width, height, skip_preview, &thumb, &preview)
+}
+
+/// Come [`derive_from_bytes`], ma per pixel RGB8 già decodificati — l'uscita
+/// del demosaic RAW (Task 3 Fase 2), che non è un JPEG e non passa dallo
+/// `JpegDecoder`. Nessuna soglia sui byte sorgente per lo skip della preview:
+/// non esiste un "peso del file originale" per pixel già decodificati, solo
+/// le dimensioni contano.
+///
+/// # Errors
+/// I/O, o immagine oltre 200 MP.
+pub fn derive_from_rgb(
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+    data_dir: &Path,
+    hash: &[u8; 32],
+) -> Result<DeriveResult, DeriveError> {
+    let (thumb, preview) = derivative_paths(data_dir, hash);
+    if thumb.is_file() {
+        let preview = preview.is_file().then_some(preview);
+        return Ok(DeriveResult {
+            thumb,
+            preview,
+            thumbhash: Vec::new(),
+            skipped: true,
+        });
+    }
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
+        return Err(DeriveError::TooManyPixels);
+    }
+    let skip_preview = width.max(height) <= SKIP_PREVIEW_PX;
+    build_derivatives(rgb, width, height, skip_preview, &thumb, &preview)
+}
+
+/// Coda condivisa da [`derive_from_bytes`] e [`derive_from_rgb`]: resize,
+/// scrittura webp atomica dei derivati, thumbhash. Il chiamante ha già
+/// gestito idempotenza e limite di pixel.
+fn build_derivatives(
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+    skip_preview: bool,
+    thumb: &Path,
+    preview: &Path,
+) -> Result<DeriveResult, DeriveError> {
     if let Some(parent) = thumb.parent() {
         fs::create_dir_all(parent)?;
     }
 
-    let thumb_rgb = resize_rgb(&rgb, width, height, THUMB)?;
-    write_webp_atomic(&thumb, &thumb_rgb.pixels, thumb_rgb.width, thumb_rgb.height)?;
+    let thumb_rgb = resize_rgb(rgb, width, height, THUMB)?;
+    write_webp_atomic(thumb, &thumb_rgb.pixels, thumb_rgb.width, thumb_rgb.height)?;
 
-    let skip_preview = width.max(height) <= SKIP_PREVIEW_PX
-        && u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= SKIP_PREVIEW_BYTES;
     let preview_path = if skip_preview {
         None
     } else {
-        let p = resize_rgb(&rgb, width, height, PREVIEW)?;
-        write_webp_atomic(&preview, &p.pixels, p.width, p.height)?;
-        Some(preview)
+        let p = resize_rgb(rgb, width, height, PREVIEW)?;
+        write_webp_atomic(preview, &p.pixels, p.width, p.height)?;
+        Some(preview.to_path_buf())
     };
 
-    let hash_src = resize_rgb(&rgb, width, height, 100)?;
+    let hash_src = resize_rgb(rgb, width, height, 100)?;
     let rgba = rgb_to_rgba(&hash_src.pixels);
     let thumbhash = thumbhash::rgba_to_thumb_hash(
         usize::try_from(hash_src.width).unwrap_or(1),
@@ -95,7 +162,7 @@ pub fn derive_jpeg(
     );
 
     Ok(DeriveResult {
-        thumb,
+        thumb: thumb.to_path_buf(),
         preview: preview_path,
         thumbhash,
         skipped: false,

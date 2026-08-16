@@ -1,10 +1,14 @@
 pub mod auth;
+pub mod duplicates;
+pub mod flags;
 pub mod folders;
 pub mod health;
 pub mod media;
+pub mod metadata;
 pub mod problems;
 pub mod search;
 pub mod setup;
 pub mod timeline;
+pub mod trash;
 pub mod viewport;
 pub mod ws;

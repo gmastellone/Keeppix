@@ -8,6 +8,9 @@ export const router = createRouter({
     { path: '/', component: () => import('@/views/TimelineView.vue'), meta: { auth: true } },
     { path: '/search', component: () => import('@/views/SearchView.vue'), meta: { auth: true } },
     { path: '/problems', component: () => import('@/views/ProblemsView.vue'), meta: { auth: true } },
+    // Chunk lazy come mappa e impostazioni (§10.9): il budget dei 150 KB
+    // iniziali riguarda solo ciò che `index.html` carica subito.
+    { path: '/culling', component: () => import('@/views/CullingView.vue'), meta: { auth: true } },
     { path: '/login', component: () => import('@/views/LoginView.vue') },
     { path: '/setup', component: () => import('@/views/SetupView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' }

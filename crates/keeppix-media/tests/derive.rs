@@ -1,6 +1,34 @@
 #![allow(clippy::unwrap_used)]
 
-use keeppix_media::{derive_jpeg, hash_file};
+use keeppix_media::{derive_from_bytes, derive_jpeg, hash_file};
+
+fn fixture(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+#[test]
+fn deriving_from_bytes_matches_deriving_from_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = fixture("tiny.jpg");
+    let bytes = std::fs::read(&src).unwrap();
+    let hash = [7u8; 32];
+
+    let from_bytes = derive_from_bytes(&bytes, dir.path(), &hash).unwrap();
+
+    let dir2 = tempfile::tempdir().unwrap();
+    let from_file = derive_jpeg(&src, dir2.path(), &hash).unwrap();
+
+    assert_eq!(
+        from_bytes.thumbhash, from_file.thumbhash,
+        "la stessa immagine deve produrre lo stesso thumbhash da entrambe le vie"
+    );
+    assert_eq!(
+        std::fs::read(&from_bytes.thumb).unwrap().len(),
+        std::fs::read(&from_file.thumb).unwrap().len()
+    );
+}
 
 #[test]
 fn derive_writes_thumb_and_leaves_original() {

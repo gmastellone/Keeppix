@@ -10,6 +10,396 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/assets/{id}": {
+      "delete": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`400` se `disk_action` non è una delle tre opzioni; `401` se non\nautenticato; `403` se l'asset non è visibile al chiamante (anche\ninesistente), o se `purged` è richiesto da chi non è owner/admin della\nlibreria; `500` se l'operazione sul filesystem che accompagna la\nscrittura fallisce.",
+        "operationId": "assets_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAssetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Azione applicata, riga di audit registrata"
+          },
+          "400": {
+            "description": "disk_action non riconosciuto",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile, o purged senza i permessi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database o del filesystem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/{id}/flags": {
+      "get": {
+        "tags": [
+          "flags"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile.",
+        "operationId": "flags_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Flag del chiamante su questo asset, o i default se non ha votato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetFlagsBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "flags"
+        ],
+        "summary": "# Errors\n`400` se `rating` supera 5; `401` se non autenticato; `403` se l'asset non\nè visibile.",
+        "operationId": "flags_set",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetFlagsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Flag del chiamante aggiornati"
+          },
+          "400": {
+            "description": "rating fuori range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/{id}/metadata": {
+      "get": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile.",
+        "operationId": "metadata_effective",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "COALESCE(override, exif) campo per campo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveMetadataView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile.",
+        "operationId": "metadata_apply",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Override applicato, sidecar accodato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/{id}/restore": {
+      "post": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile al chiamante;\n`409` se l'asset non ha un cestinamento pendente, o se il percorso\noriginale è di nuovo occupato — il ripristino non sovrascrive mai.",
+        "operationId": "assets_restore",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "File ripristinato al percorso originale"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Niente da ripristinare, o percorso occupato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database o del filesystem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -229,7 +619,7 @@
         "operationId": "duplicates_list",
         "responses": {
           "200": {
-            "description": "Gruppi con lo stesso content_hash",
+            "description": "Gruppi con lo stesso content_hash, esclusi i trashed",
             "content": {
               "application/json": {
                 "schema": {
@@ -243,6 +633,202 @@
           },
           "401": {
             "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/duplicates/{content_hash}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "# Errors\n`400` se `content_hash` non è 64 caratteri esadecimali; `401` se non\nautenticato.",
+        "operationId": "duplicates_members",
+        "parameters": [
+          {
+            "name": "content_hash",
+            "in": "path",
+            "description": "blake3 hex da 64 caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Membri non cestinati del gruppo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssetView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "content_hash non è hex valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/duplicates/{content_hash}/resolve": {
+      "post": {
+        "tags": [
+          "library"
+        ],
+        "summary": "# Errors\n`400` se `content_hash` o `disk_action` non sono validi; `401` se non\nautenticato; `403` se `keep` non è visibile o non appartiene al gruppo, o\nse `purged` è richiesto da chi non è owner/admin della libreria.",
+        "operationId": "duplicates_resolve",
+        "parameters": [
+          {
+            "name": "content_hash",
+            "in": "path",
+            "description": "blake3 hex da 64 caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDuplicateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Azione applicata agli altri membri",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveDuplicateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "content_hash o disk_action non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "keep non nel gruppo, o purged senza i permessi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/flags/batch": {
+      "post": {
+        "tags": [
+          "flags"
+        ],
+        "summary": "# Errors\n`400` se `rating` supera 5; `401` se non autenticato; `403` se anche un\nsolo asset non è visibile.",
+        "operationId": "flags_batch_set",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchFlagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Stessi flag applicati a ogni asset"
+          },
+          "400": {
+            "description": "rating fuori range o batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non è visibile",
             "content": {
               "application/json": {
                 "schema": {
@@ -369,6 +955,198 @@
           },
           "500": {
             "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se anche un solo asset non è visibile.",
+        "operationId": "metadata_apply_batch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Stesso patch applicato a ogni asset, annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non è visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/shift-taken-at": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se anche un solo asset non è visibile.",
+        "operationId": "metadata_shift_taken_at",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchShiftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "taken_at spostato di N ore per ogni asset, annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non è visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/{batch_id}/undo": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se il batch non è del chiamante; `409` se\nil sidecar di un asset del batch è già stato scritto con questi valori.",
+        "operationId": "metadata_undo_batch",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "description": "Id del batch restituito da apply/shift",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Valori precedenti ripristinati"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Batch non del chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sidecar già scritto con i valori di questo batch",
             "content": {
               "application/json": {
                 "schema": {
@@ -1177,6 +1955,32 @@
   },
   "components": {
     "schemas": {
+      "AssetFlagsBody": {
+        "type": "object",
+        "properties": {
+          "color_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pick": {
+            "type": "string",
+            "example": "pick"
+          },
+          "rating": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "0..=5. `null` (o assente in scrittura) significa \"nessun voto\".",
+            "example": 4,
+            "maximum": 5,
+            "minimum": 0
+          }
+        }
+      },
       "AssetView": {
         "type": "object",
         "required": [
@@ -1242,6 +2046,91 @@
           }
         }
       },
+      "BatchApplyRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "patch"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tetto HTTP: [`crate::batch::MAX_BATCH_ASSETS`]. `apply_batch` è\nmisurato a 5.000 sotto il secondo (report Task 8)."
+          },
+          "patch": {
+            "$ref": "#/components/schemas/MetadataPatchRequest"
+          }
+        }
+      },
+      "BatchFlagsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AssetFlagsBody"
+          },
+          {
+            "type": "object",
+            "required": [
+              "asset_ids"
+            ],
+            "properties": {
+              "asset_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "BatchShiftRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "hours"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hours": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Ore da sommare a `taken_at`. Può essere negativo — il rimedio per\nl'orologio della fotocamera sbagliato dopo un viaggio funziona in\nentrambe le direzioni.",
+            "example": -2
+          }
+        }
+      },
+      "BatchView": {
+        "type": "object",
+        "required": [
+          "batch_id"
+        ],
+        "properties": {
+          "batch_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DeleteAssetRequest": {
+        "type": "object",
+        "required": [
+          "disk_action"
+        ],
+        "properties": {
+          "disk_action": {
+            "type": "string",
+            "description": "`kept`, `moved_to_trash`, o `purged` — nessun default: il client deve\nsempre scegliere (spec §6).",
+            "example": "moved_to_trash"
+          }
+        }
+      },
       "DuplicateGroupView": {
         "type": "object",
         "required": [
@@ -1265,6 +2154,54 @@
           "size_bytes": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "EffectiveMetadataView": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GeoPointView"
+              }
+            ]
+          },
+          "orientation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "place_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "taken_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -1356,6 +2293,23 @@
           }
         }
       },
+      "GeoPointView": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": [
@@ -1390,6 +2344,53 @@
         "properties": {
           "user": {
             "$ref": "#/components/schemas/UserView"
+          }
+        }
+      },
+      "MetadataPatchRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GeoPointView"
+              }
+            ]
+          },
+          "orientation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "place_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "taken_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -1479,6 +2480,37 @@
             "items": {
               "$ref": "#/components/schemas/OfflineLibraryView"
             }
+          }
+        }
+      },
+      "ResolveDuplicateRequest": {
+        "type": "object",
+        "required": [
+          "keep",
+          "disk_action"
+        ],
+        "properties": {
+          "disk_action": {
+            "type": "string",
+            "description": "`kept`, `moved_to_trash`, o `purged` — stesso vocabolario di\n`DELETE /api/v1/assets/{id}` (spec §6).",
+            "example": "moved_to_trash"
+          },
+          "keep": {
+            "type": "string",
+            "description": "Id dell'asset da tenere: tutti gli altri membri non cestinati del\ngruppo ricevono `disk_action`."
+          }
+        }
+      },
+      "ResolveDuplicateResponse": {
+        "type": "object",
+        "required": [
+          "resolved"
+        ],
+        "properties": {
+          "resolved": {
+            "type": "integer",
+            "description": "Quanti membri sono stati toccati (il gruppo meno `keep`).",
+            "minimum": 0
           }
         }
       },
@@ -1750,6 +2782,18 @@
     {
       "name": "library",
       "description": "Problemi e duplicati"
+    },
+    {
+      "name": "trash",
+      "description": "Cancellazione a tre opzioni e ripristino"
+    },
+    {
+      "name": "metadata",
+      "description": "Metadati effettivi ed editing in blocco"
+    },
+    {
+      "name": "flags",
+      "description": "Voti di culling per utente: rating, pick, etichetta colore"
     }
   ]
 }

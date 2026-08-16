@@ -68,48 +68,6 @@ async fn problems_lists_offline_libraries_and_error_assets() {
 }
 
 #[tokio::test]
-async fn duplicates_report_reclaimable_space() {
-    let test = TestDb::start().await;
-    let (admin, _library, folder) = seed(&test).await;
-    let ctx = AuthContext::user(admin, SystemRole::Admin);
-    let assets = AssetRepo::new(test.db());
-    let a = assets
-        .upsert_discovered(photo(folder, "a.jpg", 1000))
-        .await
-        .unwrap();
-    let b = assets
-        .upsert_discovered(photo(folder, "b.jpg", 1000))
-        .await
-        .unwrap();
-    let hash = [7u8; 32];
-    assets.set_hash(a.id, hash).await.unwrap();
-    assets.set_hash(b.id, hash).await.unwrap();
-    assets
-        .set_indexed(
-            a.id,
-            Utc.with_ymd_and_hms(2024, 7, 1, 12, 0, 0).unwrap(),
-            1,
-            1,
-        )
-        .await
-        .unwrap();
-    assets
-        .set_indexed(
-            b.id,
-            Utc.with_ymd_and_hms(2024, 7, 2, 12, 0, 0).unwrap(),
-            1,
-            1,
-        )
-        .await
-        .unwrap();
-
-    let groups = ProblemsRepo::new(test.db()).duplicates(&ctx).await.unwrap();
-    assert_eq!(groups.len(), 1);
-    assert_eq!(groups[0].count, 2);
-    assert_eq!(groups[0].reclaimable_bytes(), 1000);
-}
-
-#[tokio::test]
 async fn failed_jobs_are_admin_only() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;

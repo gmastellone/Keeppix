@@ -9,7 +9,9 @@ pub mod metadata;
 pub mod moves;
 pub mod pool;
 pub mod profile;
+pub mod raw;
 pub mod watch;
+pub mod xmp;
 
 pub use dispatch::{DEFAULT_RAM_HINT, IngestHandler, JobHandler, ram_hint_for_image};
 pub use error::JobError;
