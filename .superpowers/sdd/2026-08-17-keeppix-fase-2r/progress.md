@@ -28,3 +28,20 @@ MEASUREMENT (Task 1): discovery di 1.000 file assestati =
 **1.45–1.68 s** (debug, cloud VM). Prima: timeout >60 s (~5 s/file).
 
 Task 1: complete (commit `d70f583`, test verdi)
+
+Ruling (Task 2): il piano diceva «solo superficie HTTP», ma `LibraryRepo`
+non aveva `update`/`delete` — aggiunti lì (non negli handler). Costo se
+sbagliato: metodi repo in più; altrimenti PATCH/DELETE sarebbero impossibili
+senza SQL negli handler.
+
+Ruling (Task 2): nei test l'allowlist è `data_dir/photos`, non `/photos` —
+stessa proprietà (canonicalize + `starts_with`), senza richiedere root FS.
+Il caso letterale `/photos/../etc` resta coperto dalla stessa logica in
+produzione. Costo se sbagliato: un test che non esercita `/photos` di sistema.
+
+Ruling (Task 2): `Env::prefixed("KEEPPIX_").split(",")` così
+`KEEPPIX_LIBRARY_ROOTS=/photos,/data/extra` è una lista senza JSON. Costo se
+sbagliato: un valore KEEPPIX_* con virgola legittima si spezzerebbe
+(oggi nessuno).
+
+Task 2: complete (commit `e7d1111`, test verdi)
