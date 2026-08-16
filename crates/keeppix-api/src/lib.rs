@@ -192,6 +192,13 @@ fn api_routes() -> Router<AppState> {
             axum::routing::post(routes::trash::restore),
         )
         .route(
+            "/assets/{id}/stack/primary",
+            axum::routing::post(routes::stacks::set_primary),
+        )
+        .route("/assets/{id}/stack", get(routes::stacks::get_members))
+        .route("/trash", get(routes::trash::list))
+        .route("/trash/empty", axum::routing::post(routes::trash::empty))
+        .route(
             "/assets/{id}/metadata",
             get(routes::metadata::effective).patch(routes::metadata::apply),
         )

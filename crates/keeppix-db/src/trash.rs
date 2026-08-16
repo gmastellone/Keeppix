@@ -5,6 +5,10 @@ use keeppix_domain::{AssetId, AuthContext, DiskAction, TrashEntry, TrashEntryId,
 use sqlx::PgConnection;
 
 use crate::{AssetRepo, Db, DbError, FolderRepo};
+use crate::visibility::VisibilityScope;
+
+/// Giorni di retention per `moved_to_trash` prima della pulizia (spec §6).
+pub const TRASH_RETENTION_DAYS: i64 = 30;
 
 /// Nome della cartella del cestino, dentro la radice della libreria.
 /// **Deve** restare identico a quello escluso dal walker
@@ -14,6 +18,8 @@ pub const TRASH_DIR_NAME: &str = ".keeppix-trash";
 
 const COLUMNS: &str = "id, asset_id, deleted_by, deleted_at, original_path, trash_path, \
                        disk_action, restored_at";
+const TE_COLUMNS: &str = "te.id, te.asset_id, te.deleted_by, te.deleted_at, te.original_path, \
+                          te.trash_path, te.disk_action, te.restored_at";
 
 #[derive(sqlx::FromRow)]
 struct EntryRow {
@@ -276,6 +282,110 @@ impl<'a> TrashRepo<'a> {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    /// Elenco keyset dei cestinamenti ancora recuperabili (`moved_to_trash`
+    /// non ripristinati), filtrato sulla visibilità del chiamante.
+    ///
+    /// # Errors
+    /// `Connection` se una query fallisce.
+    pub async fn list_pending(
+        &self,
+        ctx: &AuthContext,
+        cursor: Option<(DateTime<Utc>, TrashEntryId)>,
+        limit: i64,
+    ) -> Result<Vec<TrashEntry>, DbError> {
+        let limit = limit.clamp(1, 100);
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.library_id", 4);
+        let (cursor_time, cursor_id) = match cursor {
+            Some((t, id)) => (Some(t), Some(id.as_uuid())),
+            None => (None, None),
+        };
+        let sql = format!(
+            "SELECT {TE_COLUMNS} FROM trash_entries te \
+             JOIN assets a ON a.id = te.asset_id \
+             JOIN folders f ON f.id = a.folder_id \
+             WHERE te.disk_action = 'moved_to_trash' AND te.restored_at IS NULL \
+               AND {} \
+               AND ($1::timestamptz IS NULL \
+                    OR te.deleted_at < $1 \
+                    OR (te.deleted_at = $1 AND te.id < $2)) \
+             ORDER BY te.deleted_at DESC, te.id DESC \
+             LIMIT $3",
+            filter.sql()
+        );
+        let rows: Vec<EntryRow> = sqlx::query_as(&sql)
+            .bind(cursor_time)
+            .bind(cursor_id)
+            .bind(limit)
+            .bind(filter.bind())
+            .fetch_all(self.db.pool())
+            .await?;
+        rows.into_iter().map(EntryRow::into_domain).collect()
+    }
+
+    /// Svuota subito il cestino delle librerie visibili al chiamante. Solo
+    /// owner di almeno una libreria o admin: un utente senza librerie proprie
+    /// riceve `Forbidden`.
+    ///
+    /// # Errors
+    /// `Forbidden` se il chiamante non è admin e non possiede alcuna
+    /// libreria. `Connection` se una query fallisce.
+    pub async fn empty(&self, ctx: &AuthContext) -> Result<u64, DbError> {
+        if !ctx.is_admin() {
+            let Some(owner_id) = ctx.user_id() else {
+                return Err(DbError::Forbidden);
+            };
+            let owned: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM libraries WHERE owner_id = $1",
+            )
+            .bind(owner_id.as_uuid())
+            .fetch_one(self.db.pool())
+            .await?;
+            if owned == 0 {
+                return Err(DbError::Forbidden);
+            }
+        }
+
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.library_id", 1);
+        let rows: Vec<PendingRow> = sqlx::query_as(&format!(
+            "SELECT te.id, te.asset_id, te.original_path, te.trash_path \
+               FROM trash_entries te \
+               JOIN assets a ON a.id = te.asset_id \
+               JOIN folders f ON f.id = a.folder_id \
+              WHERE te.disk_action = 'moved_to_trash' AND te.restored_at IS NULL \
+                AND {}",
+            filter.sql()
+        ))
+        .bind(filter.bind())
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let mut emptied = 0u64;
+        for row in rows {
+            if let Some(trash_path) = &row.trash_path
+                && let Err(e) = std::fs::remove_file(trash_path)
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(error = %e, path = %trash_path, "trash empty: cannot remove file, skipping");
+                continue;
+            }
+
+            let mut tx = self.db.pool().begin().await?;
+            sqlx::query("DELETE FROM assets WHERE id = $1 AND status = 'trashed'")
+                .bind(row.asset_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM trash_entries WHERE id = $1")
+                .bind(row.id)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            emptied += 1;
+        }
+        Ok(emptied)
     }
 
     /// Pulizia notturna del cestino (spec §6): ogni `moved_to_trash` ancora

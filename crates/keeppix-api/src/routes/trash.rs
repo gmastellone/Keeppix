@@ -2,11 +2,12 @@
 //! cosa succede al file, mai un comportamento implicito. `restore` è l'unica
 //! via indietro, e solo per `moved_to_trash`.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use keeppix_db::TrashRepo;
-use keeppix_domain::{AssetId, DiskAction};
-use serde::Deserialize;
+use chrono::{DateTime, SecondsFormat, Utc};
+use keeppix_db::{TRASH_RETENTION_DAYS, TrashRepo};
+use keeppix_domain::{AssetId, DiskAction, TrashEntry, TrashEntryId};
+use serde::{Deserialize, Serialize};
 
 use crate::extract::Auth;
 use crate::json::Json;
@@ -92,4 +93,139 @@ pub async fn restore(
 ) -> Result<StatusCode, Problem> {
     TrashRepo::new(&state.db).restore(&ctx, id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct TrashListQuery {
+    cursor: Option<String>,
+    limit: Option<i64>,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct TrashItemView {
+    pub id: String,
+    pub asset_id: String,
+    pub deleted_at: DateTime<Utc>,
+    pub original_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trash_path: Option<String>,
+    pub disk_action: String,
+    pub days_remaining: i64,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct TrashListPage {
+    pub items: Vec<TrashItemView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct EmptyTrashResponse {
+    pub emptied: u64,
+}
+
+fn days_remaining(deleted_at: DateTime<Utc>) -> i64 {
+    let elapsed = (Utc::now() - deleted_at).num_days();
+    (TRASH_RETENTION_DAYS - elapsed).max(0)
+}
+
+fn trash_item_view(entry: &TrashEntry) -> TrashItemView {
+    TrashItemView {
+        id: entry.id.to_string(),
+        asset_id: entry.asset_id.to_string(),
+        deleted_at: entry.deleted_at,
+        original_path: entry.original_path.clone(),
+        trash_path: entry.trash_path.clone(),
+        disk_action: entry.disk_action.as_str().to_owned(),
+        days_remaining: days_remaining(entry.deleted_at),
+    }
+}
+
+fn parse_trash_cursor(raw: &str) -> Result<(DateTime<Utc>, TrashEntryId), Problem> {
+    let (time, id) = raw.split_once('|').ok_or_else(|| {
+        Problem::bad_request("invalid-query", "Invalid trash cursor").with_detail(raw)
+    })?;
+    let deleted_at = DateTime::parse_from_rfc3339(time)
+        .map(|t| t.with_timezone(&Utc))
+        .map_err(|_| {
+            Problem::bad_request("invalid-query", "Invalid trash cursor").with_detail(raw)
+        })?;
+    let entry_id = id.parse::<TrashEntryId>().map_err(|_| {
+        Problem::bad_request("invalid-query", "Invalid trash cursor").with_detail(raw)
+    })?;
+    Ok((deleted_at, entry_id))
+}
+
+fn encode_trash_cursor(entry: &TrashEntry) -> String {
+    let deleted_at = entry
+        .deleted_at
+        .to_rfc3339_opts(SecondsFormat::Micros, true);
+    format!("{deleted_at}|{}", entry.id)
+}
+
+/// # Errors
+/// `400` se il cursore non è leggibile; `401` se non autenticato.
+#[utoipa::path(
+    get,
+    path = "/api/v1/trash",
+    tag = "trash",
+    operation_id = "trash_list",
+    security(("session_cookie" = [])),
+    params(
+        ("cursor" = Option<String>, Query, description = "Keyset deleted_at|id"),
+        ("limit" = Option<i64>, Query, description = "1..=100, default 50")
+    ),
+    responses(
+        (status = 200, description = "Pagina del cestino navigabile", body = TrashListPage),
+        (status = 400, description = "Cursore illeggibile", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 500, description = "Errore del database", body = Problem)
+    )
+)]
+pub async fn list(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Query(query): Query<TrashListQuery>,
+) -> Result<Json<TrashListPage>, Problem> {
+    let cursor = match query.cursor.as_deref() {
+        None | Some("") => None,
+        Some(raw) => Some(parse_trash_cursor(raw)?),
+    };
+    let limit = query.limit.unwrap_or(50).clamp(1, 100);
+    let entries = TrashRepo::new(&state.db)
+        .list_pending(&ctx, cursor, limit)
+        .await?;
+    let filled = i64::try_from(entries.len()).unwrap_or(i64::MAX) >= limit;
+    let next_cursor = filled
+        .then(|| entries.last().map(encode_trash_cursor))
+        .flatten();
+    Ok(Json(TrashListPage {
+        items: entries.iter().map(trash_item_view).collect(),
+        next_cursor,
+    }))
+}
+
+/// # Errors
+/// `401` se non autenticato; `403` se il chiamante non è owner di alcuna
+/// libreria né admin.
+#[utoipa::path(
+    post,
+    path = "/api/v1/trash/empty",
+    tag = "trash",
+    operation_id = "trash_empty",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "Cestino svuotato", body = EmptyTrashResponse),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo owner/admin", body = Problem),
+        (status = 500, description = "Errore del database o del filesystem", body = Problem)
+    )
+)]
+pub async fn empty(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+) -> Result<Json<EmptyTrashResponse>, Problem> {
+    let emptied = TrashRepo::new(&state.db).empty(&ctx).await?;
+    Ok(Json(EmptyTrashResponse { emptied }))
 }
