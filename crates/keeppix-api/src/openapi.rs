@@ -10,7 +10,7 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
     auth, duplicates, flags, folders, libraries, media, metadata, problems, search, setup,
-    timeline, trash, viewport, ws,
+    timeline, trash, users, viewport, ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -88,6 +88,11 @@ impl utoipa::Modify for SecurityAddon {
         libraries::preview,
         libraries::start_scan,
         libraries::scan_status,
+        users::list,
+        users::create,
+        users::patch,
+        users::disable,
+        users::change_password,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -134,11 +139,15 @@ impl utoipa::Modify for SecurityAddon {
         libraries::PreviewResponse,
         libraries::ScanAccepted,
         libraries::ScanStatusView,
+        users::CreateUserRequest,
+        users::PatchUserRequest,
+        users::ChangePasswordRequest,
         crate::problem::Problem,
     )),
     tags(
         (name = "setup", description = "Configurazione iniziale dell'istanza"),
         (name = "auth", description = "Autenticazione e sessioni"),
+        (name = "users", description = "Gestione utenti"),
         (name = "timeline", description = "Bucket mensili e pagine keyset"),
         (name = "folders", description = "Albero delle cartelle"),
         (name = "media", description = "Miniature, preview e originali"),

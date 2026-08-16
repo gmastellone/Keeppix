@@ -55,4 +55,15 @@ Ruling (Task 3): `eta_seconds` è sempre `null` finché non ci sono misure
 di throughput (Task 9). Meglio assente che inventato. Costo se sbagliato:
 UI senza ETA finché non si riempie.
 
-Task 3: complete (commit `PLACEHOLDER`, test verdi)
+Task 3: complete (commit `7cf4b8d`, test verdi)
+
+Ruling (Task 4): dopo disable/cambio password si fa `SessionCache::clear()`
+oltre al revoke in DB — altrimenti un token revocato resta valido fino a
+30s via cache in-process e il test (e la proprietà di sicurezza) fallirebbero.
+Costo se sbagliato: un picco di autenticazioni DB subito dopo.
+
+Ruling (Task 4): `map_unique_violation` distingue `users_username_key` vs
+`users_email_key` via `constraint()` — debito Fase 0 saldato. Costo se
+sbagliato: messaggio generico se Postgres cambia i nomi degli indici.
+
+Task 4: complete (commit `PENDING`, test verdi)
