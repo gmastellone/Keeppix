@@ -24,6 +24,29 @@ Leggi in quest'ordine:
 
 Se la spec e il piano divergono, **vince la spec** e lo segnali nel ledger.
 
+## Il vincolo che governa tutto
+
+Keeppix deve essere **estremamente usabile** e insieme **estremamente leggero**.
+Non sono in tensione: sono lo stesso requisito visto da due lati.
+
+Il bersaglio dichiarato è un **Raspberry Pi 5, 8 GB di RAM, disco NVMe**, che
+serve **200.000 foto**. Ogni scelta va pesata contro quella macchina, non contro
+quella su cui stai sviluppando.
+
+- **Nessuna dipendenza nuova** senza una ragione scritta nel ledger: ogni crate
+  è tempo di build, superficie di CVE, e RAM a runtime.
+- **Niente carica tutto in memoria.** Elenchi paginati con keyset, mai un
+  `SELECT` senza `LIMIT` su una tabella che cresce.
+- **Il frontend cresce solo in chunk lazy.** Il bundle d'ingresso resta sotto
+  **150 KB gzip**: chi guarda le foto non paga per le pagine di amministrazione.
+- **Mai `thread::sleep` in contesto async.** Blocca un thread del worker pool,
+  non solo quel job: su 4 core è un quarto della capacità.
+- **Ogni operazione su percorso caldo ha un budget** verificato da un test.
+
+E, altrettanto importante: **una funzione che l'utente non può raggiungere non
+esiste.** Un repository senza rotta, o una rotta senza interfaccia, è lavoro
+incompleto — non lavoro fatto in attesa del resto.
+
 ## Gli invarianti — violarli è un difetto grave, non una scelta di stile
 
 Sono verificati in review a ogni task. Nessuno di questi è negoziabile senza
