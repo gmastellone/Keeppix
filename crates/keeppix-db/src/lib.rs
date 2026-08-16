@@ -2,6 +2,7 @@
 
 pub mod assets;
 pub mod changes;
+pub mod duplicates;
 pub mod error;
 pub mod flags;
 pub mod folders;
@@ -21,13 +22,14 @@ pub mod visibility;
 
 pub use assets::AssetRepo;
 pub use changes::{ChangeLogRepo, ChangePage};
+pub use duplicates::{DuplicateGroup, DuplicateRepo};
 pub use error::DbError;
 pub use flags::FlagRepo;
 pub use folders::FolderRepo;
 pub use jobs::JobRepo;
 pub use libraries::LibraryRepo;
 pub use overrides::{OverrideRepo, SidecarSource};
-pub use problems::{DuplicateGroup, ProblemSet, ProblemsRepo};
+pub use problems::{ProblemSet, ProblemsRepo};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
