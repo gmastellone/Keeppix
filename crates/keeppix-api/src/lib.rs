@@ -148,6 +148,11 @@ fn api_routes() -> Router<AppState> {
         .route("/ws", get(routes::ws::connect))
         .route("/problems", get(routes::problems::list))
         .route("/duplicates", get(routes::problems::duplicates))
+        .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
+        .route(
+            "/assets/{id}/restore",
+            axum::routing::post(routes::trash::restore),
+        )
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe

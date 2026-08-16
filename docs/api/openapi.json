@@ -10,6 +10,156 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/assets/{id}": {
+      "delete": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`400` se `disk_action` non è una delle tre opzioni; `401` se non\nautenticato; `403` se l'asset non è visibile al chiamante (anche\ninesistente), o se `purged` è richiesto da chi non è owner/admin della\nlibreria; `500` se l'operazione sul filesystem che accompagna la\nscrittura fallisce.",
+        "operationId": "assets_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAssetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Azione applicata, riga di audit registrata"
+          },
+          "400": {
+            "description": "disk_action non riconosciuto",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile, o purged senza i permessi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database o del filesystem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/{id}/restore": {
+      "post": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile al chiamante;\n`409` se l'asset non ha un cestinamento pendente, o se il percorso\noriginale è di nuovo occupato — il ripristino non sovrascrive mai.",
+        "operationId": "assets_restore",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "File ripristinato al percorso originale"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Niente da ripristinare, o percorso occupato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database o del filesystem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -1242,6 +1392,19 @@
           }
         }
       },
+      "DeleteAssetRequest": {
+        "type": "object",
+        "required": [
+          "disk_action"
+        ],
+        "properties": {
+          "disk_action": {
+            "type": "string",
+            "description": "`kept`, `moved_to_trash`, o `purged` — nessun default: il client deve\nsempre scegliere (spec §6).",
+            "example": "moved_to_trash"
+          }
+        }
+      },
       "DuplicateGroupView": {
         "type": "object",
         "required": [
@@ -1750,6 +1913,10 @@
     {
       "name": "library",
       "description": "Problemi e duplicati"
+    },
+    {
+      "name": "trash",
+      "description": "Cancellazione a tre opzioni e ripristino"
     }
   ]
 }
