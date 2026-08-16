@@ -10,6 +10,7 @@ use crate::discover;
 use crate::hash as hash_job;
 use crate::metadata;
 use crate::raw as raw_job;
+use crate::xmp as xmp_job;
 
 /// Handler unico della pipeline 1b.
 #[derive(Clone)]
@@ -27,6 +28,8 @@ impl crate::JobHandler for IngestHandler {
             // ma il gate deve comunque evitare di farne partire troppi in
             // parallelo sulla stessa macchina.
             JobKind::DeriveRaw => 512 * 1024 * 1024,
+            // WriteSidecar scrive un piccolo file di testo per asset:
+            // leggero come gli altri job di manutenzione, copre il default.
             _ => 8 * 1024 * 1024,
         }
     }
@@ -53,6 +56,7 @@ impl crate::JobHandler for IngestHandler {
                 let hash = derive_job::hash_from_payload(&job.payload)?;
                 raw_job::run(&self.db, &self.data_dir, hash).await
             }
+            JobKind::WriteSidecar => xmp_job::run(&self.db).await,
             JobKind::ReapStale => {
                 keeppix_db::JobRepo::new(&self.db)
                     .reap_stale(Duration::from_secs(600))
