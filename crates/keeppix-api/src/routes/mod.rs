@@ -6,5 +6,6 @@ pub mod problems;
 pub mod search;
 pub mod setup;
 pub mod timeline;
+pub mod trash;
 pub mod viewport;
 pub mod ws;

@@ -64,6 +64,8 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/ws/ticket",
         "/api/v1/problems",
         "/api/v1/duplicates",
+        "/api/v1/assets/{id}",
+        "/api/v1/assets/{id}/restore",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
@@ -157,8 +159,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 22,
-        "il documento deve descrivere ventidue operazioni"
+        checked, 24,
+        "il documento deve descrivere ventiquattro operazioni"
     );
 }
 
@@ -206,6 +208,8 @@ fn security_requirements_name_a_declared_scheme() {
     assert_eq!(
         protected,
         [
+            "/api/v1/assets/{id}",
+            "/api/v1/assets/{id}/restore",
             "/api/v1/auth/me",
             "/api/v1/auth/refresh",
             "/api/v1/duplicates",
@@ -256,6 +260,8 @@ fn operation_ids_are_explicit_and_unique() {
     assert_eq!(
         ids,
         [
+            "assets_delete",
+            "assets_restore",
             "auth_login",
             "auth_logout",
             "auth_me",
