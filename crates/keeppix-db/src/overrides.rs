@@ -213,14 +213,26 @@ impl<'a> OverrideRepo<'a> {
     ///
     /// Idempotente: annullare un batch già annullato non fa nulla.
     ///
+    /// **Finestra di annullamento** (spec §8: «annulla ripristina i valori
+    /// precedenti finché il sidecar non è stato scritto»): se il sidecar di
+    /// **anche un solo** asset del batch è già stato scritto con i valori
+    /// di questo batch (`xmp_written_at >= metadata_batches.applied_at`),
+    /// l'annullamento è rifiutato con `Conflict` invece di riportare
+    /// indietro il database lasciando il file — già consegnato, magari
+    /// esportato altrove — con un valore che il database non ricorda più
+    /// come "attuale". Prima di quel momento l'annullamento è sempre
+    /// permesso: il file non ha ancora visto il valore sbagliato.
+    ///
     /// # Errors
     /// `Forbidden` se il batch non è del chiamante — anche quando l'id non
     /// esiste. `NotFound` solo a un admin che chiede un id inesistente.
+    /// `Conflict` se il sidecar è già stato scritto per questo batch.
     pub async fn undo_batch(&self, ctx: &AuthContext, batch_id: BatchId) -> Result<(), DbError> {
         let mut tx = self.db.pool().begin().await?;
 
         let row: Option<BatchRow> = sqlx::query_as(
-            "SELECT actor_id, undone_at, previous FROM metadata_batches WHERE id = $1 FOR UPDATE",
+            "SELECT actor_id, applied_at, undone_at, previous FROM metadata_batches \
+              WHERE id = $1 FOR UPDATE",
         )
         .bind(batch_id.as_uuid())
         .fetch_optional(&mut *tx)
@@ -247,6 +259,25 @@ impl<'a> OverrideRepo<'a> {
 
         let previous: PreviousBatch = serde_json::from_value(row.previous)
             .map_err(|e| crate::row::corrupted("metadata_batches.previous", e))?;
+        let asset_ids = previous_asset_ids(&previous)?;
+
+        let already_synced: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM asset_overrides \
+               WHERE asset_id = ANY($1) AND xmp_written_at IS NOT NULL \
+                 AND xmp_written_at >= $2)",
+        )
+        .bind(&asset_ids)
+        .bind(row.applied_at)
+        .fetch_one(&mut *tx)
+        .await?;
+        if already_synced {
+            return Err(DbError::Conflict(
+                "the sidecar has already been written with this batch's values; \
+                 undo is only available before that"
+                    .to_owned(),
+            ));
+        }
+
         restore_previous(&mut tx, &previous).await?;
 
         sqlx::query("UPDATE metadata_batches SET undone_at = now() WHERE id = $1")
@@ -256,6 +287,54 @@ impl<'a> OverrideRepo<'a> {
 
         tx.commit().await?;
         Ok(())
+    }
+
+    /// **Scostamento di N ore** sulla data di scatto (spec §8): il rimedio
+    /// per l'orologio della fotocamera sbagliato dopo un viaggio, offerto
+    /// come operazione a sé — non calcolato dal client sottraendo due date
+    /// assolute — perché ogni asset del batch può avere un `taken_at` di
+    /// partenza diverso. Un solo statement calcola
+    /// `COALESCE(override, exif) + N ore` per riga, così vale sia per un
+    /// singolo asset sia per 5.000.
+    ///
+    /// Registra un batch di annullamento esattamente come
+    /// [`Self::apply_batch`]: la stessa [`Self::undo_batch`] lo ripristina.
+    ///
+    /// # Errors
+    /// `Forbidden` se anche un solo asset non è visibile al chiamante.
+    pub async fn shift_taken_at(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+        hours: i32,
+    ) -> Result<BatchId, DbError> {
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, asset_ids)
+            .await?;
+        let Some(actor) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+
+        let ids: Vec<uuid::Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
+        let mut tx = self.db.pool().begin().await?;
+
+        let previous = load_previous(&mut tx, &ids).await?;
+        let batch_id = BatchId::new();
+        sqlx::query("INSERT INTO metadata_batches (id, actor_id, previous) VALUES ($1, $2, $3)")
+            .bind(batch_id.as_uuid())
+            .bind(actor.as_uuid())
+            .bind(
+                serde_json::to_value(&previous)
+                    .map_err(|e| DbError::Corrupted(format!("previous batch state: {e}")))?,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+        apply_shift(&mut tx, &ids, hours, Some(actor.as_uuid())).await?;
+
+        tx.commit().await?;
+        enqueue_sidecar_sweep(self.db).await?;
+        Ok(batch_id)
     }
 
     /// Asset con override non ancora scritti su file:
@@ -417,8 +496,21 @@ async fn enqueue_sidecar_sweep(db: &Db) -> Result<(), DbError> {
 #[derive(sqlx::FromRow)]
 struct BatchRow {
     actor_id: uuid::Uuid,
+    applied_at: DateTime<Utc>,
     undone_at: Option<DateTime<Utc>>,
     previous: serde_json::Value,
+}
+
+/// Le chiavi di [`PreviousBatch`] sono `asset_id` come stringa (vincolo di
+/// JSONB); qui si torna a `Uuid` per interrogare `asset_overrides`.
+fn previous_asset_ids(previous: &PreviousBatch) -> Result<Vec<uuid::Uuid>, DbError> {
+    previous
+        .keys()
+        .map(|key| {
+            uuid::Uuid::parse_str(key)
+                .map_err(|e| crate::row::corrupted("metadata_batches.previous key", e))
+        })
+        .collect()
 }
 
 /// Upsert di `patch` su `asset_ids`, preservando i campi non toccati di
@@ -480,6 +572,43 @@ async fn apply_patch(
     .bind(place_id)
     .bind(orientation_touched)
     .bind(orientation)
+    .bind(updated_by)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// Applica lo scostamento di `hours` ore al `taken_at` effettivo
+/// (`COALESCE(override, exif)`) di ciascun asset, in un solo statement.
+/// Un asset senza alcuna data di scatto nota (né override né exif) resta
+/// senza data: uno scostamento non può inventare un'origine.
+async fn apply_shift(
+    conn: &mut PgConnection,
+    asset_ids: &[uuid::Uuid],
+    hours: i32,
+    updated_by: Option<uuid::Uuid>,
+) -> Result<(), DbError> {
+    if asset_ids.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO asset_overrides \
+            (asset_id, title, description, taken_at, location, place_id, orientation, \
+             updated_by, updated_at) \
+         SELECT a.id, o.title, o.description, \
+                COALESCE(o.taken_at, a.taken_at_utc) + make_interval(hours => $2), \
+                o.location, o.place_id, o.orientation, \
+                $3, now() \
+           FROM assets a \
+           LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+          WHERE a.id = ANY($1) \
+         ON CONFLICT (asset_id) DO UPDATE SET \
+                taken_at = EXCLUDED.taken_at, \
+                updated_by = EXCLUDED.updated_by, \
+                updated_at = now()",
+    )
+    .bind(asset_ids)
+    .bind(hours)
     .bind(updated_by)
     .execute(&mut *conn)
     .await?;
