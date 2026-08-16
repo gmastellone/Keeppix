@@ -67,3 +67,23 @@ Ruling (Task 4): `map_unique_violation` distingue `users_username_key` vs
 sbagliato: messaggio generico se Postgres cambia i nomi degli indici.
 
 Task 4: complete (commit `68c60a5`, test verdi)
+
+Ruling (Task 5): `POST /trash/empty` richiede admin o owner di almeno una
+libreria (`libraries.owner_id`), non il solo ruolo Admin — un utente con
+libreria propria può svuotare il proprio cestino; Mario senza librerie → 403.
+Costo se sbagliato: un viewer condiviso (Fase 3) non potrà svuotare anche se
+avesse visibilità sul cestino.
+
+Ruling (Task 5): `GET /assets/{id}/stack` su asset fuori stack restituisce
+`members: []` con `stack_id`/`primary_asset_id` null, non 404 — l'asset esiste
+ed è visibile. Costo se sbagliato: il client deve distinguere «nessuno stack»
+da «asset inesistente» (403).
+
+Ruling (Task 5): `days_remaining` calcolato in HTTP da `TRASH_RETENTION_DAYS`
+(30) e `deleted_at`, non in SQL — stessa formula della spec §6. Costo se
+sbagliato: drift se un giorno la retention diventa configurabile per libreria.
+
+Deferred (Task 5): `TrashRepo::cleanup_expired` resta non schedulato (debito
+Fase 2); `empty` salta file non cancellabili come `cleanup_expired`.
+
+Task 5: complete (commit `0bfae4c`, test verdi)

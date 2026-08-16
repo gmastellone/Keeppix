@@ -25,10 +25,7 @@ async fn setup_admin(server: &TestServer) -> UserId {
         .await
         .expect("setup");
     assert_eq!(response.status(), 201);
-    response
-        .json::<serde_json::Value>()
-        .await
-        .expect("json")["user"]["id"]
+    response.json::<serde_json::Value>().await.expect("json")["user"]["id"]
         .as_str()
         .expect("id")
         .parse()
@@ -43,7 +40,11 @@ fn temp_root(server: &TestServer, name: &str) -> PathBuf {
 }
 
 #[allow(clippy::expect_used)]
-async fn seed_stacked_pair(server: &TestServer, admin: UserId, root: &std::path::Path) -> (AssetId, AssetId) {
+async fn seed_stacked_pair(
+    server: &TestServer,
+    admin: UserId,
+    root: &std::path::Path,
+) -> (AssetId, AssetId) {
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let library = LibraryRepo::new(&server.db)
         .create(
