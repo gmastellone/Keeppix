@@ -9,8 +9,8 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
-    auth, duplicates, flags, folders, media, metadata, problems, search, setup, timeline, trash,
-    viewport, ws,
+    auth, duplicates, flags, folders, libraries, media, metadata, problems, search, setup,
+    timeline, trash, viewport, ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -80,6 +80,12 @@ impl utoipa::Modify for SecurityAddon {
         flags::get,
         flags::set,
         flags::batch_set,
+        libraries::list,
+        libraries::create,
+        libraries::get,
+        libraries::patch,
+        libraries::delete,
+        libraries::preview,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -119,6 +125,11 @@ impl utoipa::Modify for SecurityAddon {
         metadata::BatchView,
         flags::AssetFlagsBody,
         flags::BatchFlagsRequest,
+        libraries::LibraryView,
+        libraries::CreateLibraryRequest,
+        libraries::PatchLibraryRequest,
+        libraries::DeleteLibraryResponse,
+        libraries::PreviewResponse,
         crate::problem::Problem,
     )),
     tags(
@@ -130,6 +141,7 @@ impl utoipa::Modify for SecurityAddon {
         (name = "search", description = "Ricerca da AST e ricerche salvate"),
         (name = "events", description = "WebSocket di notifica"),
         (name = "library", description = "Problemi e duplicati"),
+        (name = "libraries", description = "Librerie e percorsi indicizzati"),
         (name = "trash", description = "Cancellazione a tre opzioni e ripristino"),
         (name = "metadata", description = "Metadati effettivi ed editing in blocco"),
         (name = "flags", description = "Voti di culling per utente: rating, pick, etichetta colore")

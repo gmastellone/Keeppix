@@ -158,6 +158,17 @@ fn api_routes() -> Router<AppState> {
             "/duplicates/{content_hash}/resolve",
             axum::routing::post(routes::duplicates::resolve),
         )
+        .route("/libraries/preview", get(routes::libraries::preview))
+        .route(
+            "/libraries",
+            get(routes::libraries::list).post(routes::libraries::create),
+        )
+        .route(
+            "/libraries/{id}",
+            get(routes::libraries::get)
+                .patch(routes::libraries::patch)
+                .delete(routes::libraries::delete),
+        )
         .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
         .route(
             "/assets/{id}/restore",

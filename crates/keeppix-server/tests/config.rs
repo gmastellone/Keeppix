@@ -49,6 +49,11 @@ fn defaults_are_applied() {
     assert_eq!(cfg.data_dir, std::path::PathBuf::from("/data"));
     assert_eq!(cfg.session_ttl_secs, 60 * 60 * 24 * 30);
     assert!(matches!(cfg.log_format, LogFormat::Json));
+    assert_eq!(
+        cfg.library_roots,
+        vec![std::path::PathBuf::from("/photos")],
+        "default KEEPPIX_LIBRARY_ROOTS"
+    );
 }
 
 #[test]
