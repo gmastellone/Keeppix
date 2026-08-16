@@ -22,4 +22,6 @@ pub enum DomainError {
     InvalidRating(u8),
     #[error("invalid pick: {0}")]
     InvalidPick(String),
+    #[error("invalid disk action: {0}")]
+    InvalidDiskAction(String),
 }
