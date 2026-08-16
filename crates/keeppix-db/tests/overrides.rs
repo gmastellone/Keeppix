@@ -350,6 +350,53 @@ async fn undo_batch_restores_the_exact_previous_row() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn undo_batch_restores_a_null_field_on_a_row_that_already_existed() {
+    // Diverso da `undo_batch_restores_a_previous_value_that_was_null`: lì
+    // l'asset non aveva alcuna riga di override (ramo DELETE). Qui la riga
+    // esiste già (creata dal primo batch) e il secondo batch tocca un
+    // campo diverso: l'annullamento del secondo batch deve riportare quel
+    // campo a NULL passando per l'UPDATE, non per la DELETE.
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_indexed_asset(&test, admin, "DSC_0007.ARW", exif_taken_at()).await;
+    let repo = OverrideRepo::new(test.db());
+
+    repo.apply_batch(
+        &ctx,
+        &[asset],
+        &OverridePatch {
+            title: Some(Some("Titolo".to_owned())),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let second_batch = repo
+        .apply_batch(
+            &ctx,
+            &[asset],
+            &OverridePatch {
+                description: Some(Some("Descrizione".to_owned())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    repo.undo_batch(&ctx, second_batch).await.unwrap();
+
+    let restored = repo.effective(&ctx, asset).await.unwrap();
+    assert_eq!(restored.title, Some("Titolo".to_owned()));
+    assert_eq!(
+        restored.description, None,
+        "la description non esisteva prima del secondo batch: l'annullamento su una riga già esistente deve tornare a NULL, non restare al valore appena scritto"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn undoing_an_already_undone_batch_is_idempotent() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
