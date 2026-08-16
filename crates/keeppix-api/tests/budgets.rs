@@ -10,9 +10,7 @@ use std::time::{Duration, Instant};
 use chrono::{TimeZone, Utc};
 use harness::TestServer;
 use keeppix_db::{FolderRepo, LibraryRepo, UserRepo};
-use keeppix_domain::{
-    AuthContext, NewLibrary, SystemRole, Username,
-};
+use keeppix_domain::{AuthContext, NewLibrary, SystemRole, Username};
 use serde_json::json;
 
 const TIMELINE_ASSETS: usize = 10_000;
@@ -34,7 +32,7 @@ async fn setup_admin(server: &TestServer) {
     assert_eq!(response.status(), 201);
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn admin_ctx(server: &TestServer) -> AuthContext {
     let username = Username::parse("giovanni").unwrap();
     let (user, _) = UserRepo::new(&server.db)
@@ -71,9 +69,7 @@ async fn seed_timeline_assets(server: &TestServer) -> String {
         .await
         .expect("folder");
 
-    let ids: Vec<uuid::Uuid> = (0..TIMELINE_ASSETS)
-        .map(|_| uuid::Uuid::now_v7())
-        .collect();
+    let ids: Vec<uuid::Uuid> = (0..TIMELINE_ASSETS).map(|_| uuid::Uuid::now_v7()).collect();
     let filenames: Vec<String> = (0..TIMELINE_ASSETS)
         .map(|i| format!("IMG_{i:05}.jpg"))
         .collect();
@@ -93,12 +89,11 @@ async fn seed_timeline_assets(server: &TestServer) -> String {
     .await
     .expect("bulk insert assets");
 
-    let counted: i64 = sqlx::query_scalar(
-        "SELECT coalesce(sum(asset_count), 0)::bigint FROM folder_month_counts",
-    )
-    .fetch_one(server.db.pool())
-    .await
-    .expect("month counts");
+    let counted: i64 =
+        sqlx::query_scalar("SELECT coalesce(sum(asset_count), 0)::bigint FROM folder_month_counts")
+            .fetch_one(server.db.pool())
+            .await
+            .expect("month counts");
     assert_eq!(
         counted,
         i64::try_from(TIMELINE_ASSETS).expect("count fits i64"),
