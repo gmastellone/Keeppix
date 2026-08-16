@@ -20,7 +20,7 @@ pub use error::DomainError;
 pub use exif::ExifData;
 pub use flags::{AssetFlags, Pick, Rating};
 pub use folder::{Folder, FolderPath};
-pub use ids::{AssetId, BatchId, FolderId, GroupId, LibraryId, UserId};
+pub use ids::{AssetId, BatchId, FolderId, GroupId, LibraryId, StackId, UserId};
 pub use job::{Job, JobKind, JobPriority, JobStatus};
 pub use library::{Library, LibraryStatus, NewLibrary};
 pub use overrides::{EffectiveMetadata, GeoPoint, OverridePatch};
