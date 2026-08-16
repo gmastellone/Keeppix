@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Suite locale: un crate alla volta, container via tra un crate e l'altro,
 # poi `cargo clean`. Argomenti extra vanno al test harness (filtro per nome).
+# Compatibile con bash 3.2 (macOS /bin/bash) — niente `mapfile`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,7 +22,10 @@ trap cleanup EXIT
 
 # Un PostGIS per processo di test: --jobs 1 non basta se Drop non rimuove il
 # container alla fine del crate. Si gira crate per crate e si fa rm subito.
-mapfile -t pkgs < <(
+pkgs=()
+while IFS= read -r pkg; do
+  pkgs+=("$pkg")
+done < <(
   cargo metadata --format-version=1 --no-deps \
     | python3 -c 'import json,sys; [print(p["name"]) for p in json.load(sys.stdin)["packages"]]'
 )
