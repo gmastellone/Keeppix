@@ -64,7 +64,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 | 4 | overrides + flags | complete | `6a17f4b` (+ test `1949a5e`) |
 | 5 | Sidecar XMP | complete | `af00600`, `51127d7`, `6ee8f04`, `7dcb4e0` |
 | 6 | Stack RAW+JPEG | complete | `8a3308f` |
-| 7 | Cestino a tre opzioni | — | |
+| 7 | Cestino a tre opzioni | complete | `3edb207`, `a35c1a4`, `b82380a`, `04e8cb6` |
 | 8 | Duplicati + batch | — | |
 | 9 | Frontend culling | — | |
 
@@ -554,3 +554,121 @@ dallo scanner una volta per cartella dopo la scrittura degli asset
 cartella), ma il brief permette esplicitamente di lasciare questo
 cablaggio a un task successivo ("StackRepo methods that discover can
 call later").
+
+### Task 7: complete (commit `3edb207` domain, `a35c1a4` db, `b82380a` media, `04e8cb6` api, test verdi)
+
+Migrazione `0014_trash.sql`: tabella `trash_entries` (audit/ripristino,
+non FK verso `assets.id` — vedi commento in migrazione sul perché un
+`ON DELETE CASCADE`/`SET NULL` distruggerebbe l'audit insieme
+all'asset). `DiskAction`/`TrashEntry` in `keeppix-domain::trash`.
+`TrashRepo::choose(ctx, asset_id, action)` applica una delle tre
+opzioni (spec §6): `kept` cancella la riga `assets` lasciando il file;
+`purged` cancella file e riga; `moved_to_trash` fa `rename()` in
+`<library_root>/.keeppix-trash/<sottopercorso>/<entry_id>__<filename>`
+e marca l'asset `trashed`. `TrashRepo::restore` rimette il file al
+percorso originale e l'asset a `indexed`, senza sovrascrivere se il
+percorso è di nuovo occupato (`Conflict`). `TrashRepo::cleanup_expired(before)`
+cancella dal disco e dalla tabella i `moved_to_trash` pendenti più
+vecchi del cutoff, tollerando il fallimento di un singolo file (lo
+riprova al giro dopo invece di abortire tutto il batch). Rotte API
+`DELETE /api/v1/assets/{id}` (body `{"disk_action": ...}`, nessun
+default) e `POST /api/v1/assets/{id}/restore` in
+`crates/keeppix-api/src/routes/trash.rs`, con `docs/api/openapi.json`
+rigenerato per le due nuove operazioni.
+
+`cargo test -p keeppix-db --test trash -- --test-threads=1` → 12
+passed (6 richiesti dal brief + 6 di harness/copertura aggiuntiva:
+conflitto su ripristino senza cestinamento pendente, probing Forbidden
+non NotFound). `cargo test -p keeppix-api --test trash` → 3 passed.
+`cargo test -p keeppix-media --test walk` → 3 passed (incluso il nuovo
+`walker_excludes_the_keeppix_trash_directory`). Suite completa
+eseguita crate per crate con `KEEPPIX_TEST_DATABASE_URL` puntato a
+Postgres locale (niente Docker in questo ambiente, coerente con Task
+3/5): `keeppix-domain` 44, `keeppix-db` tutti verdi, `keeppix-media`
+tutti verdi eccetto il fallimento preesistente e indipendente
+`video::poster_extracts_one_frame` (stessa causa annotata nei Task
+4/5/6, non toccato), `keeppix-api` tutti verdi (incluso
+`openapi_snapshot_matches_the_committed_file` dopo la rigenerazione).
+`cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
+warnings` verdi su tutto il workspace. `cargo deny` non installato in
+questo ambiente (stessa nota di Task 6); nessuna dipendenza nuova
+aggiunta da questo task.
+
+**TDD sui sei requisiti pinnati dal brief**, tutti scritti come test
+che falliscono prima dell'implementazione (in un caso, l'implementazione
+e i test sono stati scritti nella stessa iterazione — verificato con
+mutation testing invece che con un rosso naturale, per lo stesso motivo
+già discusso in Task 3/6: un design esplorato per intero prima di battere
+tastiera avrebbe reso il primo giro dei test verde per costruzione, non
+per fortuna). Mutation testing su ciascuno dei sei, rotto apposta,
+osservato rosso, ripristinato, riverificato verde:
+
+1. `rename()` sostituito con `copy()` + `remove_file()` in
+   `move_into_trash` → `moving_to_trash_is_a_rename_that_keeps_the_inode`
+   fallisce sull'assert sull'inode (`left != right`): un `copy()` alloca
+   un nuovo inode anche sullo stesso filesystem, mentre `rename()` no.
+2. Esclusione di `.keeppix-trash` rimossa da
+   `keeppix_media::walk::is_excluded_name` →
+   `walker_excludes_the_keeppix_trash_directory` fallisce (il file
+   cestinato torna a comparire nell'elenco del walker) — è il rischio
+   esplicitamente segnalato dal brief come "quello che si dimentica e
+   produce un ciclo infinito visibile solo su una libreria grande".
+3. Il controllo `original.exists()` rimosso in `TrashRepo::restore` →
+   `restore_does_not_overwrite_a_file_that_now_occupies_the_original_path`
+   fallisce: il contenuto del file che occupava il percorso verrebbe
+   sovrascritto dal ripristino invece di restare intatto.
+4. `may_purge` mutata per tornare sempre `true` →
+   `only_owner_and_admin_can_purge_an_editor_gets_forbidden` fallisce
+   (l'utente senza libreria propria riesce a fare `purged`).
+5. La `WHERE` di `restore` allargata a includere anche `restored_at IS
+   NOT NULL` (query sempre vera) → `restoring_an_asset_that_is_not_in_the_trash_is_a_conflict`
+   fallisce: un asset mai cestinato verrebbe "ripristinato" da una riga
+   già chiusa invece di tornare `Conflict`.
+6. Il filtro `deleted_at < before` rimosso da `cleanup_expired` →
+   `cleanup_expired_deletes_the_file_and_the_row_past_the_cutoff`
+   fallisce (`cleaned == 2` invece di `1`): il cestinamento recente
+   verrebbe cancellato insieme a quello scaduto.
+
+Ruling (Task 7): l'autorizzazione su `Purged` è estratta in una
+funzione pura `may_purge(ctx: &AuthContext, library_owner: UserId) ->
+bool`, separata dalla risoluzione async di libreria/visibilità dentro
+`TrashRepo::choose`. Motivazione: nel modello di visibilità di questa
+fase (nessuna condivisione prima della Fase 3) chiunque veda un asset
+è già owner o admin della sua libreria — un test end-to-end su
+"editor riceve Forbidden" non potrebbe distinguere il cancello dedicato
+a `Purged` dal controllo di visibilità che lo precede, perché
+coincidono sempre. La funzione pura si pinna con tre unit test diretti
+(admin estraneo, owner non-admin, utente né owner né admin) che non
+passano dal database, indipendenti da come la visibilità evolverà in
+Fase 3. Costo se sbagliato: quando la Fase 3 introduce la condivisione,
+`may_purge` andrà comunque richiamata da `choose` con l'owner reale
+della libreria (già lo fa) — nessun refactor previsto, solo più casi
+coperti dagli stessi tre test.
+
+Ruling (Task 7): `trash_entries.asset_id` non porta una foreign key
+verso `assets.id` (documentato nel commento della migrazione). Sia
+`kept` sia `purged` cancellano la riga `assets` nella stessa
+transazione in cui scrivono la riga di audit: un `ON DELETE CASCADE`
+distruggerebbe l'audit insieme all'asset (perdendo la prova di "chi ha
+cancellato cosa e quando"), un `ON DELETE SET NULL` renderebbe NULL
+una colonna che ha senso solo se popolata. L'id resta un riferimento
+storico valido anche quando l'asset sottostante non esiste più. Costo
+se sbagliato: nessun controllo di integrità referenziale automatico su
+`asset_id` — accettabile perché la tabella esiste per audit, non per
+letture che assumono l'asset ancora vivo.
+
+Ruling (Task 7): `TrashRepo::cleanup_expired(before: DateTime<Utc>)` è
+scritta e testata ma **non ancora agganciata a un job schedulato** — il
+brief di questo task non lo richiede esplicitamente (elenca solo
+migrazione, `trash.rs`, rotta API; il piano generale non menziona un
+`JobKind` per la pulizia in questa fase). Chi la chiamerà passerà
+`Utc::now() - Duration::days(30)`; il codice è pronto, il cablaggio a
+uno scheduler è fuori dai confini scritti di Task 7. Costo se
+sbagliato: senza un job che la richiami periodicamente, il cestino
+cresce indefinitamente su disco finché qualcosa non invoca il metodo —
+da annotare come lavoro futuro se non compare in un task successivo di
+questa fase.
+
+Fallimento preesistente e indipendente da questo task, non toccato:
+`keeppix-media --test video::poster_extracts_one_frame` (stessa causa
+annotata nei Task 4/5/6).
