@@ -53,6 +53,7 @@ id_type!(GroupId);
 id_type!(LibraryId);
 id_type!(FolderId);
 id_type!(AssetId);
+id_type!(BatchId);
 
 #[cfg(test)]
 mod tests {

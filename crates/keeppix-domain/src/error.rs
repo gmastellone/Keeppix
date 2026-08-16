@@ -18,4 +18,8 @@ pub enum DomainError {
     InvalidJobStatus(String),
     #[error("invalid job priority: {0}")]
     InvalidJobPriority(i16),
+    #[error("invalid rating: {0}")]
+    InvalidRating(u8),
+    #[error("invalid pick: {0}")]
+    InvalidPick(String),
 }
