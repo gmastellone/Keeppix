@@ -15,7 +15,7 @@ use std::path::Path;
 
 use keeppix_db::{AssetRepo, Db, FolderRepo};
 use keeppix_media::{
-    PreviewSource, RawPreview, derivative_paths, derive_from_bytes, derive_from_rgb,
+    DeriveResult, PreviewSource, RawPreview, derivative_paths, derive_from_bytes, derive_from_rgb,
     extract_embedded_preview,
 };
 
@@ -96,9 +96,17 @@ pub async fn run_with(
         return Ok(());
     }
 
-    if let Err(detail) = derive_raw(&src, data_dir, &hash, demosaic) {
-        for id in ids {
-            assets.set_error(id, &detail).await?;
+    match derive_raw(&src, data_dir, &hash, demosaic) {
+        Ok(result) if !result.skipped => {
+            assets
+                .set_thumbhash_for_hash(&hash, &result.thumbhash)
+                .await?;
+        }
+        Ok(_) => {}
+        Err(detail) => {
+            for id in ids {
+                assets.set_error(id, &detail).await?;
+            }
         }
     }
     Ok(())
@@ -109,7 +117,7 @@ fn derive_raw(
     data_dir: &Path,
     hash: &[u8; 32],
     demosaic: &dyn Demosaic,
-) -> Result<(), String> {
+) -> Result<DeriveResult, String> {
     let preview = extract_embedded_preview(src).ok().flatten();
     let chosen = match preview {
         Some(p) if p.width.max(p.height) >= MIN_PREVIEW_LONG_SIDE => p,
@@ -118,12 +126,11 @@ fn derive_raw(
 
     match chosen.source {
         PreviewSource::Embedded => {
-            derive_from_bytes(&chosen.bytes, data_dir, hash).map_err(|e| e.to_string())?;
+            derive_from_bytes(&chosen.bytes, data_dir, hash).map_err(|e| e.to_string())
         }
         PreviewSource::Demosaic => {
             derive_from_rgb(&chosen.bytes, chosen.width, chosen.height, data_dir, hash)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())
         }
     }
-    Ok(())
 }

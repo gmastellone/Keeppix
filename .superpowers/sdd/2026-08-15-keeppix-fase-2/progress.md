@@ -195,3 +195,26 @@ recente — fuori dallo scope di questo task. Costo se sbagliato: nessuno
 per la correttezza dei test di Task 3 (rieseguiti e verdi), ma lo
 script resta rotto per chiunque lavori da questa stessa macchina finché
 qualcuno non lo aggiorna o installa bash via Homebrew.
+
+### Task 3 — fix da review critica: thumbhash mai persistito per i RAW
+
+La review di Task 3 ha trovato un difetto Critical: `derive_raw`
+scartava `DeriveResult.thumbhash` (tornava solo `Result<(), String>`) e
+`run_with` non chiamava mai `AssetRepo::set_thumbhash_for_hash`, a
+differenza di `derive.rs::run`. Per l'idempotenza basata sull'esistenza
+del thumbnail (`thumb_path.is_file()`), un RAW derivato una volta resta
+con `thumbhash IS NULL` per sempre — nessuna riesecuzione lo corregge.
+
+Fix (commit `fix(jobs): persist thumbhash when deriving raw previews`):
+`derive_raw` ora torna `Result<DeriveResult, String>`; `run_with`, dopo
+un derive riuscito con `!result.skipped`, chiama
+`assets.set_thumbhash_for_hash(&hash, &result.thumbhash)`, esattamente
+come fa `derive.rs::run`. TDD: due nuovi test in
+`crates/keeppix-jobs/tests/raw.rs`
+(`deriving_from_the_embedded_preview_populates_the_thumbhash` su
+`sample.arw` e `deriving_from_the_demosaic_fallback_populates_the_thumbhash`
+sul path di fallback) — osservati FAILED prima del fix (thumbhash
+assente), poi verdi dopo. `cargo test -p keeppix-jobs` (tutto il crate,
+`--jobs 1 -- --test-threads=1`) → verde; `cargo fmt --check`, `cargo
+clippy --workspace --all-targets -- -D warnings`, `cargo deny check
+bans` → verdi. Vedi `task-3-fix-report.md`.
