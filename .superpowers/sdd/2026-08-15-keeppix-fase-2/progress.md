@@ -61,7 +61,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 | 1 | Preview RAW incorporata | complete | `d5db5d6` |
 | 2 | `derive_from_bytes` | complete | `55e5e70` |
 | 3 | Job DeriveRaw | complete | `86a8a3e` (+ thumbhash `bcdde13`) |
-| 4 | overrides + flags | in corso | |
+| 4 | overrides + flags | complete | `6a17f4b` (+ test `1949a5e`) |
 | 5 | Sidecar XMP | — | |
 | 6 | Stack RAW+JPEG | — | |
 | 7 | Cestino a tre opzioni | — | |
@@ -218,3 +218,85 @@ assente), poi verdi dopo. `cargo test -p keeppix-jobs` (tutto il crate,
 `--jobs 1 -- --test-threads=1`) → verde; `cargo fmt --check`, `cargo
 clippy --workspace --all-targets -- -D warnings`, `cargo deny check
 bans` → verdi. Vedi `task-3-fix-report.md`.
+
+### Task 4: complete (commit `6a17f4b`, test aggiuntivo `1949a5e`, test verdi)
+
+Migrazione `0012_overrides_flags.sql` (asset_overrides, asset_flags,
+metadata_batches) esattamente come da brief/piano. Dominio:
+`Rating`/`Pick`/`AssetFlags` in `keeppix-domain::flags`,
+`OverridePatch`/`EffectiveMetadata`/`GeoPoint` in
+`keeppix-domain::overrides` (ogni campo di `OverridePatch` è
+`Option<Option<T>>`: `None`=non toccare, `Some(None)`=azzera,
+`Some(Some(v))`=imposta), `BatchId` in `ids.rs`. DB: `OverrideRepo`
+(`effective`/`apply`/`apply_batch`/`undo_batch`/`pending_sidecars`) e
+`FlagRepo` (`set`/`get`/`batch_set`), entrambi con `AuthContext` come
+primo parametro su ogni metodo che tocca dati utente, tramite un nuovo
+`AssetRepo::assert_visible` condiviso che controlla la visibilità di un
+intero batch di id in una sola query (non una per asset).
+
+`cargo test -p keeppix-db --test overrides --test flags -- --test-threads=1`
+→ 24 passed (15 + 9). `cargo fmt --check` e `cargo clippy --workspace
+--all-targets -- -D warnings` verdi su tutto il workspace. Suite completa
+eseguita crate per crate (vedi Ruling Task 3 sullo script rotto):
+tutti i crate verdi tranne `keeppix-media --test video::poster_extracts_one_frame`,
+preesistente e indipendente da questo task (ffmpeg non riesce a
+scrivere un frame in questo sandbox; confermato rieseguendo lo stesso
+test da `main` prima di qualunque modifica di Task 4).
+
+**TDD sui test critici del brief**, tutti scritti prima dell'implementazione
+e osservati rossi al primo giro naturale (nessuna implementazione ancora
+presente), poi verdi. In più, mutation testing su tre invarianti dopo
+l'implementazione (rotto apposta, verificato rosso, ripristinato, verificato
+verde di nuovo):
+
+1. `touched()` forzato a `(true, None)` anche per campi non toccati
+   (`Option::None` del patch) → `a_later_partial_override_does_not_erase_an_earlier_field`
+   fallisce (`left: None, right: Some("Titolo")`), come atteso: un
+   override parziale azzererebbe i campi non toccati.
+2. `restore_previous`: `EXCLUDED.col` sostituito con
+   `COALESCE(EXCLUDED.col, asset_overrides.col)` nell'UPSERT di ripristino.
+   I due test esistenti sull'undo restavano verdi — **gap reale**: nessuno
+   dei due esercita "riga già esistente, campo da riportare a NULL"
+   (uno passa dal ramo DELETE per riga mai esistita, l'altro ripristina un
+   valore non-NULL). Aggiunto
+   `undo_batch_restores_a_null_field_on_a_row_that_already_existed`
+   (commit `1949a5e`): fallisce sotto la mutazione
+   (`left: Some("Descrizione"), right: None`), verde con l'implementazione
+   reale. Vedi `task-4-report.md` per il dettaglio.
+3. `FlagRepo::get` con `WHERE asset_id = $1` (filtro `user_id` rimosso) →
+   `two_users_rating_the_same_asset_do_not_overwrite_each_other` fallisce
+   (`left: Some(Rating(5)), right: Some(Rating(2))`): un utente leggerebbe
+   il voto di un altro.
+
+Ruling (Task 4): `AssetRepo::assert_visible` è un nuovo metodo pubblico
+(non elencato esplicitamente nel brief, che nomina solo i repo di
+overrides/flags) perché sia `apply_batch`/`undo_batch` che `batch_set`
+devono verificare la visibilità di fino a 500 id **prima** di scriverli,
+e farlo id-per-id userebbe la stessa cascata di round-trip che
+`apply_batch` deve evitare. Un `count(DISTINCT ...) = numero di id
+richiesti` sul filtro di `VisibilityScope` già esistente copre in una
+query sia "id inesistente" sia "id di un altro utente" con lo stesso
+`Forbidden`, senza duplicare la logica di scope. Costo se sbagliato:
+nessuno strutturale, è un helper puramente additivo su un repo già
+esistente.
+
+Ruling (Task 4): `metadata_batches.previous` cattura **l'intera riga**
+di `asset_overrides` prima del batch (tutti e 6 i campi + `updated_by`),
+non solo i campi toccati dal patch — perché un secondo batch che tocca
+un campo diverso deve comunque poter tornare, se annullato, allo stato
+esatto lasciato dal primo batch su *tutti* i campi, non solo quello che
+ha appena scritto. Se l'asset non aveva alcuna riga di override, il
+valore per quell'id nella mappa è `None` (non "tutti i campi NULL"): i
+due casi si comportano diversamente in `undo_batch` (`DELETE` contro
+`UPSERT` con valori `NULL` espliciti), pur producendo lo stesso
+`effective()`. Costo se sbagliato: `previous` più grande di quanto
+strettamente necessario per patch mono-campo, accettabile per un JSONB
+scritto una volta per batch, non per asset.
+
+Ruling (Task 4): `pending_sidecars` non prende un `AuthContext` — è
+documentato nel doc comment seguendo lo stesso pattern già concordato
+per `LibraryRepo::mark_scanned` (R nella Fase 0/1): lo chiamerà il job
+`WriteSidecar` di Task 5, che attraversa tutte le librerie in
+background, non un singolo utente autenticato. Costo se sbagliato:
+andrebbe wrappato con uno scope di sistema esplicito quando arriva
+Task 5, un cambio locale a quella chiamata.
