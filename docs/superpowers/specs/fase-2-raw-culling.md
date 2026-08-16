@@ -1,6 +1,6 @@
 # Fase 2 — RAW, metadati e culling
 
-**Stato:** specifica di progetto, non ancora pianificata in task
+**Stato:** in esecuzione sul branch `fase-2`
 **Dipende da:** Fase 1 completa (1a + 1b + 1c)
 **Chiusa quando:** una sessione di culling su 800 scatti si completa da tastiera
 senza attese percepibili, e l'editing batch dei metadati su 5.000 RAW è
@@ -20,8 +20,10 @@ archivio permanente.
 ## 2. RAW — la buona notizia
 
 **ARW (Sony), NEF (Nikon), CR2/CR3 (Canon) e DNG contengono già un JPEG
-full-size incorporato**, scritto dalla fotocamera. Estrarlo costa ~30-80 ms e
-**zero demosaic**.
+full-size incorporato**, scritto dalla fotocamera. Estrarlo costa tipicamente
+**1–6 ms** su file già in cache (misurato in Fase 2 sui fixture CC0 di
+raw.pixls.us; la stima precedente 30–80 ms includeva probabilmente I/O a
+freddo di RAW full-size) e **zero demosaic**.
 
 Per il caso d'uso — *vederli a risoluzione decente per fare review e
 cancellare* — questo copre tutto.
@@ -38,19 +40,20 @@ cancellare* — questo copre tutto.
      DNG  → preview definita dallo standard, dimensione variabile
      ORF  → preview, dimensione variabile
      RAF  → JPEG full-size
-3. Preview trovata e ≥1440 px?  → è la preview. Fine. (~40 ms)
+3. Preview trovata e ≥1440 px?  → è la preview. Fine. (~1–6 ms in-memory)
 4. Preview piccola o assente?   → demosaic con libraw, half-size,
                                    bilanciamento del bianco della fotocamera
                                    (~1,5-4 s su ARM)
 5. Fallita anche quella?        → status='error', compare in Problemi
 ```
 
-Il passo 3 copre il **90-95%** dei file Sony, Nikon e Canon.
+Il passo 3 copre il **90-95%** dei file Sony, Nikon e Canon (stima ancora
+da verificare su librerie reali; sui 5 fixture di Fase 2 è stato 5/5).
 
-**Da misurare durante l'esecuzione e riportare nel ledger:** la percentuale
-reale di file che si fermano al passo 3, per corpo macchina. È il numero che
-decide se la fase è veloce o lenta, ed è l'unica stima di questo documento che
-non è verificata.
+**Misura Fase 2 (ledger):** sui fixture CC0, 100% hanno raggiunto una preview
+embedded utilizzabile senza demosaic; tempi 1.1–5.4 ms (release, file in
+cache). La percentuale per corpo macchina su archivi reali resta da misurare
+in produzione.
 
 ### 2.2 Cosa NON si fa
 

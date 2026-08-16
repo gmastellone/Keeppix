@@ -86,5 +86,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 | DNG | Adobe DNG Converter, EOS 5D III, lossy JPEG | 1.10 ms | 3960×2640 | 569249 |
 
 Copertura al passo «preview trovata»: 5/5 formati richiesti (100%), con
-file reali non sintetici. Tutti ben sotto la stima di spec di 30-80ms — vedi
-Ruling sopra per la correzione.
+file reali non sintetici. Spec §2 corretta a 1–6 ms (misura reale).
+
+Task 1 review: APPROVED_WITH_NOTES — spec timing aggiornata in
+`docs: correct Fase 2 embedded-preview timing from measured data`.
