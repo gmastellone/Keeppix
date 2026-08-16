@@ -155,3 +155,19 @@ MEASUREMENT (Task 8, debug, cloud VM):
 - `GET /libraries` (20 librerie): **2,5 ms** (budget 100 ms)
 
 Task 8: complete (commit `370cc34`, test verdi)
+
+Ruling (Task 9): in questo ambiente cloud non c'è daemon Docker né l'archivio
+1.558 ARW — `field-test.sh` è stato adeguato e verificato che esce 1 senza
+daemon; le misure sull'archivio reale restano da rilanciare dall'operatore
+con `PHOTOS_PATH=… ./scripts/field-test.sh`. Costo se sbagliato: ledger senza
+copertura RAW sui 1.558 finché non si rilancia.
+
+MEASUREMENT (aggregato Fase 2R, cloud VM debug):
+- discovery 1.000 file assestati: **1.41–1.68 s** (budget 30 s)
+- RAW embedded preview: arw 3.6 / nef 2.6 / cr2 2.8 / cr3 76 / dng 0.6 ms
+  (budget 50 ms release / 100 ms debug)
+- timeline buckets 10k: **2.7 ms**; timeline page: **13.5 ms**; libraries×20: **2.5 ms**
+- journey V1 (6 JPEG): **~1.06 s** (cap 60 s)
+- bundle ingresso frontend: **~81 KB gzip** (budget 150)
+
+Task 9: complete (commit 617a7e9, script aggiornato; field-test reale deferred)
