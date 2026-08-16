@@ -21,7 +21,9 @@ pub struct DeleteAssetRequest {
     pub disk_action: String,
 }
 
-fn parse_action(raw: &str) -> Result<DiskAction, Problem> {
+/// `pub(crate)`: riusata da `routes::duplicates::resolve`, che applica la
+/// stessa azione a ogni membro non tenuto di un gruppo di duplicati.
+pub(crate) fn parse_action(raw: &str) -> Result<DiskAction, Problem> {
     DiskAction::parse(raw).map_err(|e| {
         Problem::bad_request(
             "invalid-disk-action",

@@ -5,7 +5,6 @@ use serde::Serialize;
 use crate::extract::Auth;
 use crate::json::Json;
 use crate::problem::Problem;
-use crate::routes::timeline::hex_bytes;
 use crate::state::AppState;
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -32,14 +31,6 @@ pub struct ProblemsView {
     offline_libraries: Vec<OfflineLibraryView>,
     failed_jobs: Vec<FailedJobView>,
     error_assets: Vec<ErrorAssetView>,
-}
-
-#[derive(Serialize, utoipa::ToSchema)]
-pub struct DuplicateGroupView {
-    content_hash: String,
-    count: i64,
-    size_bytes: i64,
-    reclaimable_bytes: i64,
 }
 
 /// # Errors
@@ -87,35 +78,4 @@ pub async fn list(
             })
             .collect(),
     }))
-}
-
-/// # Errors
-/// `401` se non autenticato.
-#[utoipa::path(
-    get,
-    path = "/api/v1/duplicates",
-    tag = "library",
-    operation_id = "duplicates_list",
-    security(("session_cookie" = [])),
-    responses(
-        (status = 200, description = "Gruppi con lo stesso content_hash", body = [DuplicateGroupView]),
-        (status = 401, description = "Non autenticato", body = Problem)
-    )
-)]
-pub async fn duplicates(
-    State(state): State<AppState>,
-    Auth(ctx): Auth,
-) -> Result<Json<Vec<DuplicateGroupView>>, Problem> {
-    let groups = ProblemsRepo::new(&state.db).duplicates(&ctx).await?;
-    Ok(Json(
-        groups
-            .into_iter()
-            .map(|g| DuplicateGroupView {
-                content_hash: hex_bytes(&g.content_hash),
-                count: g.count,
-                size_bytes: g.size_bytes,
-                reclaimable_bytes: g.reclaimable_bytes(),
-            })
-            .collect(),
-    ))
 }
