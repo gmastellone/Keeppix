@@ -67,7 +67,7 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
     let handler = keeppix_jobs::IngestHandler {
         db: db.clone(),
         data_dir: config.data_dir.clone(),
-        stability_wait: std::time::Duration::from_secs(5),
+        stability_wait: keeppix_jobs::PRODUCTION_SETTLED_AFTER,
     };
     let night = keeppix_jobs::default_night_window();
     let workers = keeppix_jobs::worker_count(

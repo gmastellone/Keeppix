@@ -38,6 +38,8 @@ impl crate::JobHandler for IngestHandler {
         match job.kind {
             JobKind::DiscoverLibrary => {
                 let id = discover::library_id_from_payload(&job.payload)?;
+                // `stability_wait` sul handler è la soglia di età (settled_after),
+                // non un sonno: in produzione è `PRODUCTION_SETTLED_AFTER`.
                 discover::run(&self.db, id, self.stability_wait).await
             }
             JobKind::ExtractMetadata => {

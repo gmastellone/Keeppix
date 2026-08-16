@@ -5,6 +5,18 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use walkdir::{DirEntry, WalkDir};
 
+/// Un file con `mtime` più vecchio di questo non sta arrivando: un solo
+/// `stat`, nessuna attesa. Allineato a `keeppix_jobs::PRODUCTION_SETTLED_AFTER`.
+pub const SETTLED_AFTER: Duration = Duration::from_secs(60);
+
+/// Esito di [`freshness`]: assestato (si può indicizzare) o ancora in
+/// arrivo (il chiamante rimanda, senza dormire).
+#[derive(Debug)]
+pub enum Freshness {
+    Settled(Metadata),
+    InFlight,
+}
+
 /// File visto dal walker: solo `stat`, nessun open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalkedFile {
@@ -22,20 +34,35 @@ pub fn is_stable(first: &Metadata, second: &Metadata) -> bool {
     first.len() == second.len() && first.modified().ok() == second.modified().ok()
 }
 
-/// Ristat dopo `wait`. `None` se size/mtime sono cambiati.
+/// Non dorme mai. Un file fermo da più di `settled_after` è assestato:
+/// un solo `stat` e via. Solo i file toccati di recente sono ambigui, e
+/// quelli vengono rimandati dal chiamante invece di bloccarlo.
 ///
 /// # Errors
-/// I/O del secondo `stat`.
-pub fn restat_if_stable(path: &Path, wait: Duration) -> std::io::Result<Option<Metadata>> {
-    let first = std::fs::metadata(path)?;
-    if !wait.is_zero() {
-        std::thread::sleep(wait);
-    }
-    let second = std::fs::metadata(path)?;
-    if is_stable(&first, &second) {
-        Ok(Some(second))
+/// I/O dello `stat`.
+pub fn freshness(path: &Path, settled_after: Duration) -> std::io::Result<Freshness> {
+    let meta = std::fs::metadata(path)?;
+    let age = meta
+        .modified()
+        .ok()
+        .and_then(|m| m.elapsed().ok())
+        .unwrap_or(Duration::MAX);
+    Ok(if age >= settled_after {
+        Freshness::Settled(meta)
     } else {
-        Ok(None)
+        Freshness::InFlight
+    })
+}
+
+/// Ristat dopo `wait` **solo se** `wait` è zero (compat test legacy): altrimenti
+/// delega a [`freshness`] con `wait` come soglia di età. **Non dorme mai.**
+///
+/// # Errors
+/// I/O dello `stat`.
+pub fn restat_if_stable(path: &Path, wait: Duration) -> std::io::Result<Option<Metadata>> {
+    match freshness(path, wait)? {
+        Freshness::Settled(meta) => Ok(Some(meta)),
+        Freshness::InFlight => Ok(None),
     }
 }
 

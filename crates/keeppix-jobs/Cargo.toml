@@ -25,3 +25,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres"] }
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 uuid.workspace = true
+tempfile = "3"
+filetime = "0.2"
+chrono.workspace = true
