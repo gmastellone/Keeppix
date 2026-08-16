@@ -9,8 +9,8 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
-    auth, duplicates, folders, media, metadata, problems, search, setup, timeline, trash, viewport,
-    ws,
+    auth, duplicates, flags, folders, media, metadata, problems, search, setup, timeline, trash,
+    viewport, ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -77,6 +77,9 @@ impl utoipa::Modify for SecurityAddon {
         metadata::apply_batch,
         metadata::shift_taken_at,
         metadata::undo_batch,
+        flags::get,
+        flags::set,
+        flags::batch_set,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -114,6 +117,8 @@ impl utoipa::Modify for SecurityAddon {
         metadata::BatchApplyRequest,
         metadata::BatchShiftRequest,
         metadata::BatchView,
+        flags::AssetFlagsBody,
+        flags::BatchFlagsRequest,
         crate::problem::Problem,
     )),
     tags(
@@ -126,7 +131,8 @@ impl utoipa::Modify for SecurityAddon {
         (name = "events", description = "WebSocket di notifica"),
         (name = "library", description = "Problemi e duplicati"),
         (name = "trash", description = "Cancellazione a tre opzioni e ripristino"),
-        (name = "metadata", description = "Metadati effettivi ed editing in blocco")
+        (name = "metadata", description = "Metadati effettivi ed editing in blocco"),
+        (name = "flags", description = "Voti di culling per utente: rating, pick, etichetta colore")
     )
 )]
 pub struct ApiDoc;
