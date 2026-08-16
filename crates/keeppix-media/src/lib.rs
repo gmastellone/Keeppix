@@ -22,5 +22,8 @@ pub use raw::{
     PreviewSource, RawError, RawPreview, dcraw_emu_available, demosaic_half,
     extract_embedded_preview,
 };
-pub use walk::{WalkedFile, is_stable, iter_entries, restat_if_stable};
+pub use walk::{
+    Freshness, SETTLED_AFTER, WalkedFile, freshness, is_stable, iter_entries, restat_if_stable,
+};
+
 pub use xmp::{SidecarData, XmpError, read_sidecar, write_sidecar};
