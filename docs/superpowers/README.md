@@ -63,7 +63,10 @@ e non codice da scrivere.
 | [`plans/2026-08-14-keeppix-fase-1b.md`](plans/2026-08-14-keeppix-fase-1b.md) | ✅ completato e mergiato |
 | [`plans/2026-08-14-keeppix-fase-1c.md`](plans/2026-08-14-keeppix-fase-1c.md) | ✅ completato e mergiato (PR #3) |
 | [`plans/2026-08-15-keeppix-fase-2.md`](plans/2026-08-15-keeppix-fase-2.md) | ⬜ **il prossimo da eseguire** |
-| Fase 3, 4, 5, 6 | da scrivere, una alla volta |
+| [`plans/2026-08-15-keeppix-fase-2.md`](plans/2026-08-15-keeppix-fase-2.md) | ✅ completato e mergiato (PR #4) |
+| [`plans/2026-08-17-keeppix-fase-2r.md`](plans/2026-08-17-keeppix-fase-2r.md) | ⬜ **il prossimo** — usabilità, prestazioni, buchi di processo |
+| [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ⬜ dopo la 2R |
+| Fase 4, 5, 6 | da scrivere, una alla volta |
 
 ## Consegne
 
