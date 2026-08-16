@@ -3,7 +3,15 @@ use std::time::Duration;
 
 use crate::sandbox;
 
-const MEM: u64 = 512 * 1024 * 1024;
+/// Virtual address ceiling for sandboxed ffprobe/ffmpeg.
+///
+/// Distro ffmpeg (Ubuntu 24.04+) maps dozens of shared codecs into the
+/// address space before doing any work; `RLIMIT_AS` of 512 MiB is enough
+/// for ffprobe but ffmpeg aborts while configuring the filter graph
+/// (`Failed to inject frame … Resource temporarily unavailable`). Measured
+/// floor on that host for a 64×64 poster extract is ~800 MiB; 1 GiB leaves
+/// headroom for ASLR without opening the door to multi-GB frame buffers.
+const MEM: u64 = 1024 * 1024 * 1024;
 const CPU: u64 = 30;
 
 #[derive(Debug, Clone, PartialEq)]
