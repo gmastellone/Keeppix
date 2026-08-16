@@ -236,6 +236,53 @@ async fn a_corrupt_raw_sets_the_asset_to_error_and_does_not_block_the_queue() {
 }
 
 #[tokio::test]
+async fn deriving_from_the_embedded_preview_populates_the_thumbhash() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let bytes = fs::read(fixture("sample.arw")).unwrap();
+    let seeded = seed_raw_asset(&test, admin, "sample.arw", &bytes).await;
+
+    let demosaic = MockDemosaic::new(never_called);
+    raw::run_with(test.db(), &seeded.data_dir, seeded.hash, &demosaic)
+        .await
+        .unwrap();
+
+    let asset = AssetRepo::new(test.db())
+        .get_for_scan(seeded.asset_id)
+        .await
+        .unwrap();
+    assert!(
+        asset.thumbhash.is_some_and(|h| !h.is_empty()),
+        "il thumbhash deve essere salvato anche per la preview incorporata di un RAW"
+    );
+
+    let _ = fs::remove_dir_all(&seeded.root);
+}
+
+#[tokio::test]
+async fn deriving_from_the_demosaic_fallback_populates_the_thumbhash() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let seeded = seed_raw_asset(&test, admin, "empty.tiff", &minimal_tiff_without_preview()).await;
+
+    let demosaic = MockDemosaic::new(fake_demosaic_output);
+    raw::run_with(test.db(), &seeded.data_dir, seeded.hash, &demosaic)
+        .await
+        .unwrap();
+
+    let asset = AssetRepo::new(test.db())
+        .get_for_scan(seeded.asset_id)
+        .await
+        .unwrap();
+    assert!(
+        asset.thumbhash.is_some_and(|h| !h.is_empty()),
+        "il thumbhash deve essere salvato anche per il fallback al demosaic"
+    );
+
+    let _ = fs::remove_dir_all(&seeded.root);
+}
+
+#[tokio::test]
 async fn the_job_is_idempotent() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
