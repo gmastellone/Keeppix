@@ -385,6 +385,47 @@ impl<'a> AssetRepo<'a> {
         Ok(rows.into_iter().map(AssetId::from_uuid).collect())
     }
 
+    /// Verifica in una sola query che il chiamante veda **tutti** gli id
+    /// dati. La usano gli override e i flag per non pagare un round-trip per
+    /// asset su un batch di 500: chi sonda anche un solo id fuori dalla
+    /// propria visibilità riceve `Forbidden`, mai un errore parziale che
+    /// riveli quali id esistono.
+    ///
+    /// # Errors
+    /// `Forbidden` se anche un solo id non è visibile — compreso il caso in
+    /// cui non esiste affatto. `NotFound` solo a un admin quando un id non
+    /// esiste per niente.
+    pub async fn assert_visible(&self, ctx: &AuthContext, ids: &[AssetId]) -> Result<(), DbError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let uuids: Vec<uuid::Uuid> = ids.iter().map(AssetId::as_uuid).collect();
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.library_id", 2);
+        let visible: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(DISTINCT a.id) FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             WHERE a.id = ANY($1) AND {}",
+            filter.sql()
+        ))
+        .bind(&uuids)
+        .bind(filter.bind())
+        .fetch_one(self.db.pool())
+        .await?;
+
+        let mut distinct = uuids;
+        distinct.sort_unstable();
+        distinct.dedup();
+
+        if visible == i64::try_from(distinct.len()).unwrap_or(i64::MAX) {
+            Ok(())
+        } else if ctx.is_admin() {
+            Err(DbError::NotFound)
+        } else {
+            Err(DbError::Forbidden)
+        }
+    }
+
     /// Copia gli EXIF originali su un nuovo asset. `ON CONFLICT DO NOTHING`.
     ///
     /// Non prende un `AuthContext`: la chiama il rilevatore di spostamenti.

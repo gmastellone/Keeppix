@@ -3,9 +3,11 @@
 pub mod assets;
 pub mod changes;
 pub mod error;
+pub mod flags;
 pub mod folders;
 pub mod jobs;
 pub mod libraries;
+pub mod overrides;
 pub mod problems;
 mod row;
 pub mod search;
@@ -18,9 +20,11 @@ pub mod visibility;
 pub use assets::AssetRepo;
 pub use changes::{ChangeLogRepo, ChangePage};
 pub use error::DbError;
+pub use flags::FlagRepo;
 pub use folders::FolderRepo;
 pub use jobs::JobRepo;
 pub use libraries::LibraryRepo;
+pub use overrides::OverrideRepo;
 pub use problems::{DuplicateGroup, ProblemSet, ProblemsRepo};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
@@ -34,7 +38,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 00011_month_counts_utc.
+// rivede la directory. 0012_overrides_flags.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
