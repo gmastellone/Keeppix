@@ -9,9 +9,7 @@ use std::time::Duration;
 
 use harness::TestDb;
 use keeppix_db::{AssetRepo, JobRepo, LibraryRepo};
-use keeppix_domain::{
-    AuthContext, JobKind, JobPriority, NewLibrary, SystemRole,
-};
+use keeppix_domain::{AuthContext, JobKind, JobPriority, NewLibrary, SystemRole};
 use keeppix_jobs::{
     IngestHandler, JobHandler, PRODUCTION_BATCH_SIZE, PRODUCTION_SETTLED_AFTER,
     PRODUCTION_STABILITY_WAIT,
@@ -104,7 +102,10 @@ async fn production_handler_discovers_settled_files_within_budget() {
         .expect("job in coda");
 
     let start = std::time::Instant::now();
-    handler.handle(&job).await.expect("discover via handler produzione");
+    handler
+        .handle(&job)
+        .await
+        .expect("discover via handler produzione");
     let elapsed = start.elapsed();
     eprintln!("MEASUREMENT production handler discover 200 settled: {elapsed:?}");
 
