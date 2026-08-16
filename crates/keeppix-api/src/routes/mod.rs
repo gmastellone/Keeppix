@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod duplicates;
+pub mod flags;
 pub mod folders;
 pub mod health;
 pub mod media;

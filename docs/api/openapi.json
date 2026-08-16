@@ -90,6 +90,131 @@
         ]
       }
     },
+    "/api/v1/assets/{id}/flags": {
+      "get": {
+        "tags": [
+          "flags"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile.",
+        "operationId": "flags_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Flag del chiamante su questo asset, o i default se non ha votato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetFlagsBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "flags"
+        ],
+        "summary": "# Errors\n`400` se `rating` supera 5; `401` se non autenticato; `403` se l'asset non\nè visibile.",
+        "operationId": "flags_set",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetFlagsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Flag del chiamante aggiornati"
+          },
+          "400": {
+            "description": "rating fuori range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/{id}/metadata": {
       "get": {
         "tags": [
@@ -645,6 +770,65 @@
           },
           "403": {
             "description": "keep non nel gruppo, o purged senza i permessi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/flags/batch": {
+      "post": {
+        "tags": [
+          "flags"
+        ],
+        "summary": "# Errors\n`400` se `rating` supera 5; `401` se non autenticato; `403` se anche un\nsolo asset non è visibile.",
+        "operationId": "flags_batch_set",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchFlagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Stessi flag applicati a ogni asset"
+          },
+          "400": {
+            "description": "rating fuori range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non è visibile",
             "content": {
               "application/json": {
                 "schema": {
@@ -1751,6 +1935,32 @@
   },
   "components": {
     "schemas": {
+      "AssetFlagsBody": {
+        "type": "object",
+        "properties": {
+          "color_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pick": {
+            "type": "string",
+            "example": "pick"
+          },
+          "rating": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "0..=5. `null` (o assente in scrittura) significa \"nessun voto\".",
+            "example": 4,
+            "maximum": 5,
+            "minimum": 0
+          }
+        }
+      },
       "AssetView": {
         "type": "object",
         "required": [
@@ -1834,6 +2044,27 @@
             "$ref": "#/components/schemas/MetadataPatchRequest"
           }
         }
+      },
+      "BatchFlagsRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AssetFlagsBody"
+          },
+          {
+            "type": "object",
+            "required": [
+              "asset_ids"
+            ],
+            "properties": {
+              "asset_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
       },
       "BatchShiftRequest": {
         "type": "object",
@@ -2539,6 +2770,10 @@
     {
       "name": "metadata",
       "description": "Metadati effettivi ed editing in blocco"
+    },
+    {
+      "name": "flags",
+      "description": "Voti di culling per utente: rating, pick, etichetta colore"
     }
   ]
 }
