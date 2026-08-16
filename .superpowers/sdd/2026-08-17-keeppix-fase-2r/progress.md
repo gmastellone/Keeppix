@@ -87,3 +87,24 @@ Deferred (Task 5): `TrashRepo::cleanup_expired` resta non schedulato (debito
 Fase 2); `empty` salta file non cancellabili come `cleanup_expired`.
 
 Task 5: complete (commit `436f520`, test verdi)
+
+Ruling (Task 6): avanzamento scansione via **polling** ogni 2 s su
+`GET /api/v1/libraries/{id}/scan`, non WebSocket — il piano cita WS ma il
+task chiede polling per semplicità; WS non è cablato nel frontend. Costo
+se sbagliato: più richieste HTTP durante il setup (accettabile, uso una
+tantum).
+
+Ruling (Task 6): dopo creazione admin si resta su `/setup` con stato
+locale (`step`), senza cambiare il guard del router — un refresh a metà
+wizard manda a `/` (istanza già `initialised`). Riprendere il wizard al
+refresh richiederebbe guard + `GET /libraries` (fuori scope). Costo se
+sbagliato: refresh durante setup salta passi 2–3.
+
+Ruling (Task 6): navigazione automatica a `/` quando `phase === 'idle'`
+e `asset_count > 0`; altrimenti pulsante «Vai alle foto». Costo se
+sbagliato: libreria vuota resta su setup finché l'utente non continua.
+
+Deferred (Task 6): refresh mid-wizard e gestione librerie post-setup da
+UI admin (non in questa fase).
+
+Task 6: complete (commit `9860dd4`, test verdi)
