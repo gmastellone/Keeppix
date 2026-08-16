@@ -59,7 +59,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 |---|---|---|---|
 | 0 | Harness PortNotExposed retry | complete | `319e9e5` |
 | 1 | Preview RAW incorporata | complete | `d5db5d6` |
-| 2 | `derive_from_bytes` | — | |
+| 2 | `derive_from_bytes` | complete | `55e5e70` |
 | 3 | Job DeriveRaw | — | |
 | 4 | overrides + flags | — | |
 | 5 | Sidecar XMP | — | |
@@ -90,3 +90,16 @@ file reali non sintetici. Spec §2 corretta a 1–6 ms (misura reale).
 
 Task 1 review: APPROVED_WITH_NOTES — spec timing aggiornata in
 `docs: correct Fase 2 embedded-preview timing from measured data`.
+
+### Task 2: complete (commit `55e5e70`, test verdi)
+
+`cargo test -p keeppix-media` → 23 passed (22 precedenti + 1 nuovo).
+`cargo clippy -p keeppix-media --all-targets -- -D warnings` verde.
+
+Ruling (Task 2): fixture `sample.jpg` del brief assente in
+`tests/fixtures/` — usato `tiny.jpg` già presente (stesso ruolo: JPEG
+piccolo per test derivati). Costo se sbagliato: nessuno, stessa pipeline.
+
+Estratto `derive_from_bytes(bytes, data_dir, hash)` da `derive_jpeg`;
+controllo idempotenza (`thumb.is_file()`) duplicato in entrambe le entry
+point come da brief.
