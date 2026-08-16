@@ -66,4 +66,4 @@ Ruling (Task 4): `map_unique_violation` distingue `users_username_key` vs
 `users_email_key` via `constraint()` — debito Fase 0 saldato. Costo se
 sbagliato: messaggio generico se Postgres cambia i nomi degli indici.
 
-Task 4: complete (commit `PENDING`, test verdi)
+Task 4: complete (commit `68c60a5`, test verdi)
