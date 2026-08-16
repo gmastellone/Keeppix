@@ -66,7 +66,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 | 6 | Stack RAW+JPEG | complete | `8a3308f` |
 | 7 | Cestino a tre opzioni | complete | `3edb207`, `a35c1a4`, `b82380a`, `04e8cb6` |
 | 8 | Duplicati + batch | complete | `49a2068`, `e62d817`, `75a84ea`, `51378bf`, `91d8ed1` |
-| 9 | Frontend culling | — | |
+| 9 | Frontend culling | complete | (vedi sotto) |
 
 ### Task 1: complete (commit `d5db5d6`, test verdi)
 
@@ -769,3 +769,152 @@ nuova aggiunta da questo task.
 
 Vedi `task-8-report.md` per il dettaglio completo, inclusi i numeri
 misurati e i test critici del brief.
+
+### Task 9: complete (test verdi, non committato al momento della scrittura di questa voce — vedi commit qui sotto una volta fatto)
+
+Frontend-only, nessun crate Rust toccato (confermato con `git status`
+prima del commit). File nuovi: `frontend/src/api/culling.ts` (client
+per `GET`/`PUT /api/v1/assets/{id}/flags`, `DELETE
+/api/v1/assets/{id}` con `disk_action`, tutti già esposti da Task 7/8),
+`frontend/src/stores/culling.ts` (Pinia setup store: `order`/`position`
+per la navigazione filtrata, `flagsById` ottimistico, `queue` per i
+voti in attesa di conferma dal server), `frontend/src/components/
+RatingStars.vue`, `frontend/src/components/Filmstrip.vue`,
+`frontend/src/views/CullingView.vue`. Modificati: `router.ts` (rotta
+`/culling` lazy), `i18n/{it,en}.json` (namespace `culling`),
+`TimelineView.vue` (pulsante *Culling* nell'header).
+
+**TDD sui quattro requisiti del brief**, tutti scritti come test che
+falliscono prima dell'implementazione (import non risolvibile —
+`unresolved import`, osservato con `npx vitest run` prima di scrivere
+`culling.ts`/`CullingView.vue`), poi verdi:
+
+1. `l'avanzamento automatico dopo il voto porta alla foto successiva`
+   → `culling store — navigation > advances to the next photo after
+   voting on the current one` (più due varianti: non supera l'ultima
+   foto, non avanza se si vota una foto diversa da quella corrente).
+2. `le scorciatoie non sparano mentre l'utente scrive` →
+   `CullingView keyboard shortcuts > does not fire shortcuts while the
+   user is typing in a text field` + una terza su textarea/
+   contenteditable. **Scoperta durante l'implementazione**: jsdom non
+   implementa `HTMLElement.isContentEditable` (resta sempre
+   `undefined`, verificato isolando il comportamento con `node -e`
+   prima di incolpare il codice) — `isTypingTarget` controlla anche
+   l'attributo `contenteditable` direttamente, non solo la proprietà,
+   altrimenti il test sul contenteditable sarebbe stato verde per il
+   motivo sbagliato (o rosso per un bug di jsdom, non del codice).
+3. `il filtro «solo scarti» mostra ciò che dichiara` → tre test in
+   `culling store — filters`: `rejects` mostra esattamente e solo i
+   respinti, `picks` non mostra mai un respinto, `all` li mostra
+   entrambi indipendentemente dal voto.
+4. `lo store non perde i voti se la rete cade: si accodano e si
+   ritentano` → `culling store — resilient queue`: un `setFlags` che
+   fallisce una volta lascia il voto in `store.queue` (non lo perde),
+   `retryQueue()` lo reinvia con successo; un secondo test verifica che
+   un voto arrivato mentre il primo è ancora in volo non scavalchi né
+   perda quello precedente (coda FIFO, un tentativo alla volta).
+
+Ruling (Task 9): **nessuna vista per cartella o selezione multipla
+esiste ancora nel frontend** (il frontend fin qui ha solo timeline
+piatta, ricerca, problemi). Il brief e la spec §4.2 chiedono "il
+pulsante Culling nella barra di una cartella o di una selezione" come
+unico punto d'ingresso — qui il pulsante *Culling* vive nell'header di
+`TimelineView.vue` e avvia una sessione sull'insieme già caricato in
+timeline (`flatAssets`, tutto ciò che l'utente ha scorso finora), non
+su una cartella o una selezione esplicita. Resta un **unico** punto
+d'ingresso (il vincolo duro rispettato), solo il "su cosa" è più
+grezzo di quanto la spec immagini. Costo se sbagliato: quando Fase 3+
+introduce selezione multipla o vista per cartella, il punto giusto per
+il pulsante cambia — `cullingStore.start(list)` accetta già qualunque
+array di `TimelineAsset`, quindi il collegamento è un cambio locale a
+dove viene chiamato, non allo store o alla vista.
+
+Ruling (Task 9): **zoom 1:1 senza un endpoint di ritaglio lato
+server**. La spec dice "si precarica il ritaglio centrale a piena
+risoluzione delle 3 foto successive" — non esiste (né questo task lo
+introduce: fuori dai file elencati dal brief, che sono solo frontend)
+un endpoint che ritagli un'immagine sul server. Realizzato come tecnica
+di sola presentazione: si precarica l'intero originale
+(`/media/original/{id}`, come indicato esplicitamente dalle istruzioni
+del task) in cache browser con `new Image()` per le 3 foto successive
+nell'ordine filtrato corrente, e allo zoom si mostra quell'immagine a
+piena risoluzione (`max-width: none`) dentro un contenitore
+`overflow: hidden` centrato — il "ritaglio" è il contenitore che
+nasconde tutto tranne il centro, non un file più piccolo generato ad
+hoc. **Limite noto**: per un asset RAW, `/media/original/{id}` in
+questa fase restituisce il file RAW originale (ARW/NEF/CR3/…), che i
+browser non sanno decodificare come `<img>` — lo zoom 1:1 funziona per
+JPEG/HEIC/PNG ma fallisce silenziosamente (l'`<img>` semplicemente non
+si carica) su un RAW puro. Il caso d'uso reale del culling per RAW è
+mitigato dal fatto che l'utente normalmente guarda la preview derivata
+(fino a 1440px, Task 1-3) e lo zoom 1:1 vale soprattutto per gli asset
+non-RAW o per uno stack RAW+JPEG dove il JPEG è disponibile — non
+risolto qui perché richiederebbe un endpoint di crop lato server
+(rasterizzare la preview embedded del RAW oltre i 1440px attuali), un
+cambio di scope su `keeppix-media`/`keeppix-api` non incluso nei file
+che il brief elenca per Task 9. Da rivedere se l'uso reale mostra che
+serve davvero un crop ad alta risoluzione per i RAW.
+
+Ruling (Task 9): **`AssetViewer.vue` non è stato toccato.** La regola
+dura ("il visualizzatore normale non diventa una modalità: solo rating
+1-5 e preferito `f`") vieta di aggiungere lì le scorciatoie del
+culling — non impone di aggiungere rating/preferito se non ci sono già
+(`AssetViewer.vue` oggi ha solo `Escape`/`i`/frecce, niente rating né
+preferito: quello è un debito della Fase 1c/design §10.4, fuori dai
+file che il brief di Task 9 elenca). Rispettato per omissione: nessuna
+sovrapposizione introdotta, nessuna nuova funzionalità nel
+visualizzatore normale.
+
+Ruling (Task 9): **niente fetch collettivo dei voti pre-esistenti**
+all'avvio di una sessione — non esiste un endpoint `GET` in batch per
+`asset_flags` (Task 8 ha esposto solo `POST /api/v1/flags/batch` per
+*scrivere*, non per leggere più asset in una chiamata). `culling.ts`
+espone `ensureFlagsLoaded(id)`, chiamato pigramente quando un asset
+diventa quello corrente (un `GET` alla volta, non N in parallelo
+all'avvio), che non sovrascrive mai un voto già in coda o già noto
+localmente — così un voto appena dato non viene rimpiazzato da una
+risposta di rete arrivata in ritardo. Costo se sbagliato: N richieste
+sparse nel tempo invece di 1 sola all'avvio, accettabile per una
+sessione interattiva (l'utente vede una foto alla volta comunque), da
+rivedere se serve mostrare "già votate" nel filmstrip prima che
+l'utente ci arrivi.
+
+Ruling (Task 9): **`p`/`x` sono toggle**, non set-only — premerli due
+volte sulla stessa foto torna a "nessun voto". Non richiesto
+esplicitamente dal brief, ma coerente con l'UX standard del culling
+professionale (Lightroom fa lo stesso: `P`/`X` alternano). Costo se
+sbagliato: nessuno strutturale, è un dettaglio di `pick()`/`reject()`
+nello store.
+
+Ruling (Task 9): confronto affiancato (`c`) limitato a mostrare la
+foto corrente più le successive nell'ordine filtrato **fino a 4**
+(spec dice "2-4"): con 2+ foto disponibili mostra tutte quelle
+disponibili fino al tetto di 4, con una sola foto mostra solo quella.
+Nessun controllo esplicito per scegliere quali 2-4 (es. selezione
+manuale nel filmstrip) — implementato il caso base "le prossime N",
+sufficiente per confrontare scatti quasi identici in sequenza (il caso
+d'uso citato dalla spec). Da estendere se serve confrontare foto non
+adiacenti.
+
+**Verifica** (comandi del brief, frontend-only):
+
+```
+npx vue-tsc --noEmit                    → pulito
+npx vitest run                          → 11 file, 35 test, tutti verdi
+npm run build                           → CullingView in chunk lazy separato
+npm run lint (eslint --max-warnings 0)  → pulito
+```
+
+Bundle d'ingresso (stessa misura della CI: solo gli asset referenziati
+da `dist/index.html`): **80.296 byte gzip su un budget di 153.600**
+(52%). `CullingView-*.js` (3,21 KB gzip) e il chunk condiviso
+`culling-*.js` (1,41 KB gzip, store + client API) sono chunk lazy
+separati, mai referenziati da `index.html` — verificato con lo stesso
+comando `grep` che usa il job `frontend` della CI.
+
+Non eseguito `cargo` in questo task: nessun file Rust toccato
+(confermato con `git status --short` prima del commit), e le
+istruzioni del task escludono esplicitamente Postgres/backend per
+Task 9.
+
+Vedi `task-9-report.md` per il dettaglio completo.
