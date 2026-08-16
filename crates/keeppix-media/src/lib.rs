@@ -10,7 +10,7 @@ pub mod sandbox;
 pub mod video;
 pub mod walk;
 
-pub use derive::{DeriveError, DeriveResult, derivative_paths, derive_jpeg};
+pub use derive::{DeriveError, DeriveResult, derivative_paths, derive_from_bytes, derive_jpeg};
 pub use exif::read_exif;
 pub use hash::hash_file;
 pub use kind::detect_kind;
