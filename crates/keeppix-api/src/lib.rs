@@ -161,6 +161,22 @@ fn api_routes() -> Router<AppState> {
             "/assets/{id}/restore",
             axum::routing::post(routes::trash::restore),
         )
+        .route(
+            "/assets/{id}/metadata",
+            get(routes::metadata::effective).patch(routes::metadata::apply),
+        )
+        .route(
+            "/metadata/batch",
+            axum::routing::post(routes::metadata::apply_batch),
+        )
+        .route(
+            "/metadata/batch/shift-taken-at",
+            axum::routing::post(routes::metadata::shift_taken_at),
+        )
+        .route(
+            "/metadata/batch/{batch_id}/undo",
+            axum::routing::post(routes::metadata::undo_batch),
+        )
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe

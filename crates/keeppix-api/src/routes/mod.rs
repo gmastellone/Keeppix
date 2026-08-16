@@ -3,6 +3,7 @@ pub mod duplicates;
 pub mod folders;
 pub mod health;
 pub mod media;
+pub mod metadata;
 pub mod problems;
 pub mod search;
 pub mod setup;
