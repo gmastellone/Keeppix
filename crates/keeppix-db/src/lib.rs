@@ -15,6 +15,7 @@ pub mod sessions;
 pub mod settings;
 pub mod stacks;
 pub mod timeline;
+pub mod trash;
 pub mod users;
 pub mod visibility;
 
@@ -32,6 +33,7 @@ pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
 pub use stacks::StackRepo;
 pub use timeline::{MonthBucket, TimelineRepo};
+pub use trash::{TRASH_DIR_NAME, TrashRepo};
 pub use users::UserRepo;
 pub use visibility::VisibilityScope;
 
@@ -40,7 +42,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0013_stacks.
+// rivede la directory. 0014_trash.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
