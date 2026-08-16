@@ -51,9 +51,30 @@ pub fn derive_jpeg(
             skipped: true,
         });
     }
+    derive_from_bytes(&fs::read(src)?, data_dir, hash)
+}
 
-    let bytes = fs::read(src)?;
-    let mut decoder = JpegDecoder::new(&bytes);
+/// Stessa pipeline di [`derive_jpeg`], ma i byte JPEG sono già in memoria.
+///
+/// # Errors
+/// I/O, JPEG illeggibile, o immagine oltre 200 MP.
+pub fn derive_from_bytes(
+    bytes: &[u8],
+    data_dir: &Path,
+    hash: &[u8; 32],
+) -> Result<DeriveResult, DeriveError> {
+    let (thumb, preview) = derivative_paths(data_dir, hash);
+    if thumb.is_file() {
+        let preview = preview.is_file().then_some(preview);
+        return Ok(DeriveResult {
+            thumb,
+            preview,
+            thumbhash: Vec::new(),
+            skipped: true,
+        });
+    }
+
+    let mut decoder = JpegDecoder::new(bytes);
     decoder
         .decode_headers()
         .map_err(|e| DeriveError::Decode(e.to_string()))?;
