@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
 
 import { ApiProblem } from '@/api/client'
 import Alert from '@/components/ui/Alert.vue'
@@ -9,9 +8,16 @@ import Button from '@/components/ui/Button.vue'
 import TextField from '@/components/ui/TextField.vue'
 import { useSessionStore } from '@/stores/session'
 
+import LibraryStep from './setup/LibraryStep.vue'
+import ScanStep from './setup/ScanStep.vue'
+
 const { t } = useI18n()
-const router = useRouter()
 const session = useSessionStore()
+
+type WizardStep = 'admin' | 'library' | 'scan'
+
+const step = ref<WizardStep>('admin')
+const libraryId = ref<string | null>(null)
 
 const displayName = ref('')
 const username = ref('')
@@ -31,7 +37,7 @@ function messageFor(e: unknown): string {
   return known[e.type] ?? t('common.unexpectedError')
 }
 
-async function submit() {
+async function submitAdmin() {
   error.value = ''
   loading.value = true
   try {
@@ -41,18 +47,26 @@ async function submit() {
       email: email.value || undefined,
       password: password.value
     })
-    await router.push('/')
+    step.value = 'library'
   } catch (e) {
     error.value = messageFor(e)
   } finally {
     loading.value = false
   }
 }
+
+function onLibraryCreated(id: string) {
+  libraryId.value = id
+  step.value = 'scan'
+}
 </script>
 
 <template>
   <main class="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center gap-6 p-6">
-    <header class="flex flex-col gap-1">
+    <header
+      v-if="step === 'admin'"
+      class="flex flex-col gap-1"
+    >
       <h1 class="text-2xl font-semibold">
         {{ t('setup.title') }}
       </h1>
@@ -62,8 +76,9 @@ async function submit() {
     </header>
 
     <form
+      v-if="step === 'admin'"
       class="flex flex-col gap-4"
-      @submit.prevent="submit"
+      @submit.prevent="submitAdmin"
     >
       <TextField
         v-model="displayName"
@@ -102,5 +117,15 @@ async function submit() {
         {{ t('setup.submit') }}
       </Button>
     </form>
+
+    <LibraryStep
+      v-else-if="step === 'library'"
+      @created="onLibraryCreated"
+    />
+
+    <ScanStep
+      v-else-if="step === 'scan' && libraryId"
+      :library-id="libraryId"
+    />
   </main>
 </template>
