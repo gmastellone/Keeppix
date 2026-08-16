@@ -129,3 +129,29 @@ MEASUREMENT (Task 7): V1 viaggio completo ~1,06 s (debug, cloud VM, 6 JPEG);
 suite V1–V4 ~4,4 s; budget 60 s non toccato.
 
 Task 7: complete (commit `ef05e3d`, test verdi)
+
+Ruling (Task 8): `main.rs` usa già `PRODUCTION_SETTLED_AFTER` sul campo
+`stability_wait` dell'`IngestHandler` (non `ZERO`, non
+`PRODUCTION_STABILITY_WAIT` — quello resta solo per `run_after` su InFlight
+in `discover.rs`). Costo se sbagliato: nessuno, è verifica.
+
+Ruling (Task 8): budget RAW preview 50 ms in release, **100 ms in debug** —
+`sample.cr3` supera 50 ms in build non ottimizzata (~76–80 ms misurati);
+l'obiettivo Pi 5 è release. Costo se sbagliato: un falso positivo in CI
+debug con soglia stretta.
+
+Ruling (Task 8): seed 10k asset timeline via bulk SQL nel test API (come
+`fase2_culling_1k`) — i trigger `folder_month_counts` devono essere
+allineati; nessun worker ingest. Costo se sbagliato: test che misura solo
+DB/HTTP, non la pipeline completa (accettabile per budget endpoint).
+
+MEASUREMENT (Task 8, debug, cloud VM):
+- discovery 1.000 file assestati: **1,41 s** (budget 30 s)
+- handler produzione discover 200 file: **305 ms** (budget 5 s smoke)
+- RAW preview: arw 3,6 ms, nef 2,6 ms, cr2 2,8 ms, cr3 76 ms, dng 0,6 ms
+  (budget 100 ms debug / 50 ms release)
+- `GET /timeline/buckets` (10k asset): **2,7 ms** (budget 200 ms)
+- `GET /timeline` una pagina (10k asset): **13,5 ms** (budget 300 ms)
+- `GET /libraries` (20 librerie): **2,5 ms** (budget 100 ms)
+
+Task 8: complete (commit `370cc34`, test verdi)
