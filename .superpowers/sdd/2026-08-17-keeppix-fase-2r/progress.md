@@ -108,3 +108,24 @@ Deferred (Task 6): refresh mid-wizard e gestione librerie post-setup da
 UI admin (non in questa fase).
 
 Task 6: complete (commit `9860dd4`, test verdi)
+
+Ruling (Task 7): `wait_for_scan` combina polling HTTP su
+`GET /libraries/{id}/scan` con `WorkerPool::step` (come `scan.rs`) finché
+`phase == idle`, zero job pending, e conteggio `indexed` con `taken_at_utc`
+nella libreria — i bucket timeline richiedono EXIF, non solo discover.
+Costo se sbagliato: un po' di SQL nel harness oltre HTTP (stessa classe di
+`scan.rs`).
+
+Ruling (Task 7): tetto 60 s su V1 come `Instant` assoluto dall'avvio del
+test, non solo su `wait_for_scan` — è il budget del viaggio completo che
+avrebbe fatto fallire la build sul sonno per file. Costo se sbagliato:
+flaky su runner lenti (oggi V1 ~1 s debug).
+
+Ruling (Task 7): fixture sei foto in due cartelle sotto `photos_root`
+(copie di `tiny.jpg`) — allowlist e EXIF reali senza inventare JPEG. Costo
+se sbagliato: bucket vuoti se `tiny.jpg` perde EXIF.
+
+MEASUREMENT (Task 7): V1 viaggio completo ~1,06 s (debug, cloud VM, 6 JPEG);
+suite V1–V4 ~4,4 s; budget 60 s non toccato.
+
+Task 7: complete (commit `ef05e3d`, test verdi)
