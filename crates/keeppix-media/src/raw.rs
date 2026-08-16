@@ -3,8 +3,9 @@
 //! ARW, NEF, CR2 e DNG sono contenitori TIFF: la preview vive in una IFD
 //! (spesso figlia, via il tag `SubIFDs`) che punta a un JPEG completo tramite
 //! `JPEGInterchangeFormat`/`Length` oppure `StripOffsets`/`StripByteCounts`
-//! con `Compression` JPEG. CR3 è ISO-BMFF: la preview vive nel box `PRVW`
-//! dentro `moov`.
+//! con `Compression` JPEG. CR3 è ISO-BMFF: la preview vive nel box `PRVW`,
+//! dentro un `uuid` di primo livello (non in `moov`, vedi commento su
+//! `extract_from_cr3`).
 //!
 //! In entrambi i casi si accetta un candidato solo se i suoi byte iniziano
 //! con SOI (`FFD8`) e contengono un marker SOF *baseline o progressivo*
@@ -313,9 +314,9 @@ fn extract_from_cr3(buf: &[u8]) -> Result<Option<RawPreview>, RawError> {
 }
 
 /// Cerca un box di primo livello per tipo, seguendo la catena `size+type`
-/// dell'ISO-BMFF. Non gestisce size estesa a 64 bit (0/1): non serve, i box
-/// che cerchiamo (`ftyp`, `moov`) sono sempre piccoli e vengono prima di
-/// `mdat`, l'unico che in pratica usa size estesa.
+/// dell'ISO-BMFF. Usato solo per confermare la presenza di `ftyp` prima di
+/// scansionare il resto del file: non gestisce size estesa a 64 bit (0/1),
+/// che in pratica riguarda solo `mdat`, box che non ci serve raggiungere.
 fn find_top_level_box(buf: &[u8], want: [u8; 4]) -> Option<&[u8]> {
     let mut offset = 0usize;
     for _ in 0..MAX_BMFF_BOXES {
