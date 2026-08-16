@@ -918,3 +918,37 @@ istruzioni del task escludono esplicitamente Postgres/backend per
 Task 9.
 
 Vedi `task-9-report.md` per il dettaglio completo.
+
+---
+
+## Post Task 9: fix video poster (debito 1b)
+
+Ruling: **`RLIMIT_AS` di `video::MEM` portato da 512 MiB a 1 GiB** —
+su Ubuntu 24.04 ffmpeg 6.1 (build distro con molte shared libs) falliva
+`extract_poster` sotto sandbox con
+`Failed to inject frame into filter network: Resource temporarily unavailable`
+mentre `ffprobe` a 512 MiB restava ok. Misurato: floor ~800 MiB per un
+poster 64×64; sotto 512/768 il processo abortisce o non mappa
+`libaom`/`libicudata`. Non è un flake ambientale cloud: è un tetto troppo
+basso per il binario reale. Costo se sbagliato: un demosaic/ffmpeg su
+frame enormi ha più VA a disposizione (il tetto resta 1 GiB, non illimitato);
+se un giorno servisse un tetto più stretto andrebbe un ffmpeg statico
+minimal o `RLIMIT_RSS` al posto di `AS`.
+
+Test che protegge: `keeppix-media --test video::poster_extracts_one_frame`
+(già esistente, rosso a 512 MiB, verde a 1 GiB).
+
+Commit: `20eafc6`.
+
+### Chiusura Fase 2
+
+Task 0–9 complete. Verifica cloud 2026-08-16:
+
+- `cargo fmt --check` + `clippy -D warnings` verdi
+- `cargo test --workspace --jobs 1 -- --test-threads=1` con
+  `KEEPPIX_TEST_DATABASE_URL` → tutte le suite ok (video poster incluso)
+- frontend vitest 35/35, build ok, gzip ingresso **80235** / 153600
+- STATO: `docs/superpowers/plans/2026-08-15-keeppix-fase-2-STATO.md`
+
+Criteri ancora da confermare fuori CI: sessione ≥100 foto reali; hash RAW
+pre/post editing; CI verde sulla PR; compose bundled smoke.
