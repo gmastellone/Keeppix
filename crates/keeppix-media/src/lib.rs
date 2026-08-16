@@ -9,6 +9,7 @@ pub mod raw;
 pub mod sandbox;
 pub mod video;
 pub mod walk;
+pub mod xmp;
 
 pub use derive::{
     DeriveError, DeriveResult, derivative_paths, derive_from_bytes, derive_from_rgb, derive_jpeg,
@@ -22,3 +23,4 @@ pub use raw::{
     extract_embedded_preview,
 };
 pub use walk::{WalkedFile, is_stable, iter_entries, restat_if_stable};
+pub use xmp::{SidecarData, XmpError, read_sidecar, write_sidecar};
