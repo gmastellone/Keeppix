@@ -1,5 +1,5 @@
 use keeppix_db::{AssetRepo, Db, FolderRepo, JobRepo};
-use keeppix_domain::{AssetId, JobKind, JobPriority};
+use keeppix_domain::{AssetId, AssetKind, JobKind, JobPriority};
 use keeppix_media::hash_file;
 
 use crate::JobError;
@@ -25,29 +25,36 @@ pub async fn run(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
         && mtime_ok
         && inode_ok
     {
-        enqueue_derive(db, hash).await?;
+        enqueue_derive(db, hash, asset.kind).await?;
         return Ok(());
     }
 
     let hash = hash_file(&path).map_err(|e| JobError::Worker(e.to_string()))?;
     assets.set_hash(asset_id, hash).await?;
     crate::moves::after_hash(db, asset_id, hash, size).await?;
-    enqueue_derive(db, hash).await?;
+    enqueue_derive(db, hash, asset.kind).await?;
     Ok(())
 }
 
-async fn enqueue_derive(db: &Db, hash: [u8; 32]) -> Result<(), JobError> {
+/// I RAW hanno una pipeline di derivazione diversa (preview incorporata
+/// prima del demosaic, `JobKind::DeriveRaw`); tutti gli altri kind restano
+/// su `DeriveAsset`.
+async fn enqueue_derive(db: &Db, hash: [u8; 32], kind: AssetKind) -> Result<(), JobError> {
     let mut hex = String::with_capacity(64);
     for b in hash {
         use std::fmt::Write as _;
         let _ = write!(hex, "{b:02x}");
     }
+    let (job_kind, dedup_prefix) = match kind {
+        AssetKind::RawImage => (JobKind::DeriveRaw, "derive_raw"),
+        _ => (JobKind::DeriveAsset, "derive"),
+    };
     JobRepo::new(db)
         .enqueue(
-            JobKind::DeriveAsset,
+            job_kind,
             serde_json::json!({ "content_hash": hex }),
             JobPriority::Background,
-            Some(&format!("derive:{hex}")),
+            Some(&format!("{dedup_prefix}:{hex}")),
         )
         .await?;
     Ok(())

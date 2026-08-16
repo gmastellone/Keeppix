@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use keeppix_media::raw::{PreviewSource, extract_embedded_preview};
+use keeppix_media::raw::{
+    PreviewSource, dcraw_emu_available, demosaic_half, extract_embedded_preview,
+};
 
 fn fixture(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -130,4 +132,38 @@ fn a_non_raw_file_is_unsupported_not_a_crash() {
     std::fs::write(&text, b"non sono un raw").unwrap();
 
     assert!(extract_embedded_preview(&text).is_err());
+}
+
+/// Il percorso di produzione (Task 3): `dcraw_emu` gira davvero in sandbox e
+/// produce pixel RGB8 utilizzabili. Serve a non fidarsi solo del mock usato
+/// nei test del job — se il parsing del PPM si rompe, questo test lo vede.
+#[test]
+#[allow(clippy::unwrap_used)]
+fn demosaic_half_produces_usable_half_size_rgb() {
+    if !dcraw_emu_available() {
+        eprintln!("skipping: dcraw_emu not in PATH");
+        return;
+    }
+    let preview = demosaic_half(&fixture("sample.arw"), 512 * 1024 * 1024, 30).unwrap();
+    assert_eq!(preview.source, PreviewSource::Demosaic);
+    assert!(preview.width > 0 && preview.height > 0);
+    assert_eq!(
+        preview.bytes.len(),
+        preview.width as usize * preview.height as usize * 3,
+        "un pixel RGB8 per componente, niente header residuo"
+    );
+}
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn demosaic_half_on_a_corrupt_file_is_an_error_not_a_panic() {
+    if !dcraw_emu_available() {
+        eprintln!("skipping: dcraw_emu not in PATH");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let garbage = dir.path().join("garbage.raw");
+    std::fs::write(&garbage, b"not a raw file at all").unwrap();
+
+    assert!(demosaic_half(&garbage, 512 * 1024 * 1024, 30).is_err());
 }

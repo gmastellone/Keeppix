@@ -20,6 +20,8 @@ use std::path::Path;
 
 use thiserror::Error;
 
+use crate::sandbox;
+
 const MAX_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
 const MAX_IFDS: usize = 64;
 const MAX_SUBIFD_FANOUT: u32 = 16;
@@ -66,6 +68,119 @@ pub fn extract_embedded_preview(path: &Path) -> Result<Option<RawPreview>, RawEr
     Err(RawError::Unsupported(
         "not a recognized RAW container (TIFF or CR3/ISO-BMFF)".to_owned(),
     ))
+}
+
+/// `false` se `dcraw_emu` non è in `PATH`: permette ai test di saltare senza
+/// fallire su una macchina/CI senza libraw installato, come già fa
+/// `video::ffprobe_available`. `dcraw_emu` non ha un flag che riesce senza un
+/// file in ingresso, quindi il segnale è che il processo sia partito
+/// affatto, non il suo exit status.
+#[must_use]
+pub fn dcraw_emu_available() -> bool {
+    sandbox::run("dcraw_emu", &["-v"], 64 * 1024 * 1024, 5).is_ok()
+}
+
+/// Demosaic half-size con bilanciamento del bianco della fotocamera, via
+/// `dcraw_emu` in sandbox. Non è per l'esportazione: è per avere un'anteprima
+/// decente quando il RAW non porta una preview incorporata utilizzabile.
+///
+/// `dcraw_emu` gira **sempre** in un processo separato con `rlimit`: è codice
+/// C che apre file non fidati.
+///
+/// # Errors
+/// Il processo non parte, esce con errore (formato non supportato, file
+/// corrotto), o la sua uscita non è il PPM 8-bit atteso.
+pub fn demosaic_half(
+    path: &Path,
+    memory_bytes: u64,
+    cpu_secs: u64,
+) -> Result<RawPreview, RawError> {
+    let path_s = path.to_string_lossy();
+    let out = sandbox::run(
+        "dcraw_emu",
+        &["-h", "-w", "-Z", "-", path_s.as_ref()],
+        memory_bytes,
+        cpu_secs,
+    )?;
+    if !out.status.success() {
+        return Err(RawError::Corrupt(format!(
+            "dcraw_emu: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    parse_ppm(&out.stdout)
+}
+
+/// Parser minimo per il PPM binario (`P6`) che `dcraw_emu` scrive su stdout:
+/// header ASCII (magic, larghezza, altezza, valore massimo) seguito da un
+/// singolo byte di separazione e dai pixel RGB8 interleaved. Bastano tre
+/// token: non serve un parser PNM completo per un formato che generiamo e
+/// consumiamo noi stessi.
+fn parse_ppm(bytes: &[u8]) -> Result<RawPreview, RawError> {
+    if !bytes.starts_with(b"P6") {
+        return Err(RawError::Corrupt("dcraw_emu: not a P6 ppm".to_owned()));
+    }
+    let mut pos = 2usize;
+    let width = read_ppm_uint(bytes, &mut pos)?;
+    let height = read_ppm_uint(bytes, &mut pos)?;
+    let maxval = read_ppm_uint(bytes, &mut pos)?;
+    if maxval == 0 || maxval > 255 {
+        return Err(RawError::Corrupt(
+            "dcraw_emu: expected an 8-bit ppm".to_owned(),
+        ));
+    }
+    // Esattamente un byte di separazione fra l'header ASCII e i pixel binari.
+    if pos >= bytes.len() {
+        return Err(RawError::Corrupt(
+            "dcraw_emu: truncated ppm header".to_owned(),
+        ));
+    }
+    pos += 1;
+
+    let pixel_count = u64::from(width)
+        .saturating_mul(u64::from(height))
+        .saturating_mul(3);
+    let pixel_count = usize::try_from(pixel_count)
+        .map_err(|_| RawError::Corrupt("dcraw_emu: ppm dimensions overflow".to_owned()))?;
+    let pixels = bytes
+        .get(pos..pos + pixel_count)
+        .ok_or_else(|| RawError::Corrupt("dcraw_emu: truncated ppm pixel data".to_owned()))?;
+
+    Ok(RawPreview {
+        bytes: pixels.to_vec(),
+        width,
+        height,
+        source: PreviewSource::Demosaic,
+    })
+}
+
+/// Legge un token intero ASCII in un header PNM, saltando whitespace e i
+/// commenti `#...\n` che il formato ammette fra i campi.
+fn read_ppm_uint(bytes: &[u8], pos: &mut usize) -> Result<u32, RawError> {
+    loop {
+        while bytes.get(*pos).is_some_and(u8::is_ascii_whitespace) {
+            *pos += 1;
+        }
+        if bytes.get(*pos) != Some(&b'#') {
+            break;
+        }
+        while bytes.get(*pos).is_some_and(|b| *b != b'\n') {
+            *pos += 1;
+        }
+    }
+    let start = *pos;
+    while bytes.get(*pos).is_some_and(u8::is_ascii_digit) {
+        *pos += 1;
+    }
+    if *pos == start {
+        return Err(RawError::Corrupt(
+            "dcraw_emu: malformed ppm header".to_owned(),
+        ));
+    }
+    std::str::from_utf8(&bytes[start..*pos])
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| RawError::Corrupt("dcraw_emu: malformed ppm header".to_owned()))
 }
 
 fn is_tiff(buf: &[u8]) -> bool {
