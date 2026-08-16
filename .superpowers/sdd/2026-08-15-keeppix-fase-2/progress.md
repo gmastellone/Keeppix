@@ -60,7 +60,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
 | 0 | Harness PortNotExposed retry | complete | `319e9e5` |
 | 1 | Preview RAW incorporata | complete | `d5db5d6` |
 | 2 | `derive_from_bytes` | complete | `55e5e70` |
-| 3 | Job DeriveRaw | — | |
+| 3 | Job DeriveRaw | complete | `86a8a3e` |
 | 4 | overrides + flags | — | |
 | 5 | Sidecar XMP | — | |
 | 6 | Stack RAW+JPEG | — | |
@@ -103,3 +103,95 @@ piccolo per test derivati). Costo se sbagliato: nessuno, stessa pipeline.
 Estratto `derive_from_bytes(bytes, data_dir, hash)` da `derive_jpeg`;
 controllo idempotenza (`thumb.is_file()`) duplicato in entrambe le entry
 point come da brief.
+
+### Task 3: complete (commit `86a8a3e`, test verdi)
+
+`cargo test -p keeppix-jobs --test raw -- --test-threads=1` → 7 passed
+(4 richiesti dal piano + gli assert di harness). `cargo test -p
+keeppix-media --test raw` → 10 passed (8 precedenti + 2 nuovi su
+`demosaic_half`, gated su `dcraw_emu_available()` come già fa
+`video::ffprobe_available`). Suite completa (`./scripts/test.sh`
+sostituito da un loop equivalente, vedi Ruling sotto) → 60/60 blocchi
+`test result: ok` su tutto il workspace, incluso `keeppix-server`.
+`cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
+warnings` verdi. `cargo deny check bans` verde (nessun arco nuovo fra
+`keeppix-media` e `keeppix-db`).
+
+**TDD sul test critico** (`a_raw_with_a_large_preview_never_calls_libraw`):
+scritti tutti e 4 i test del piano, eseguiti e verdi al primo colpo con
+l'implementazione già scritta (design esplorato prima per via
+dell'interazione fra trait di iniezione e cascata — vedi Ruling
+sotto). Per non fidarsi di un test verde che non ha mai visto il rosso,
+ho mutato la cascata in `derive_raw` per saltare il controllo dei
+1440px e chiamare sempre `demosaic.demosaic(src)`: il test è failato
+correttamente (`left: 1, right: 0`, vedi report), poi ripristinato e
+riverificato verde. Vedi `task-3-report.md` per l'output completo.
+
+Ruling (Task 3): `JobKind::DeriveRaw` (non l'estensione di `DeriveAsset`
+via branch su `AssetKind`) — come da piano/brief, così il dispatcher
+resta un match piatto un-kind-per-ramo invece di annidare una seconda
+cascata dentro `derive::run`. Nessuna migrazione necessaria: `jobs.kind`
+è `text` senza `CHECK` (a differenza di `assets.kind`), quindi
+aggiungere una variante è solo codice Rust. `hash.rs` sceglie
+`DeriveRaw` vs `DeriveAsset` in base ad `asset.kind` con dedup key
+`derive_raw:{hex}` separata da `derive:{hex}`. Costo se sbagliato:
+nessuno strutturale — tornare a un branch unico dentro `DeriveAsset`
+sarebbe un refactor locale a `derive.rs`/`raw.rs`, non uno schema da
+disfare.
+
+Ruling (Task 3): demosaic iniettato via trait object (`dyn Demosaic`),
+non via feature flag o mock del processo — l'unica interfaccia di cui
+il job ha bisogno è "dammi pixel RGB8 e le dimensioni per questo file",
+e un trait la rende sostituibile nei test senza toccare `sandbox::run`
+né avviare mai `dcraw_emu`. Il contatore delle chiamate vive nel mock
+di test, non nel job. Costo se sbagliato: nessuno, è puro dependency
+injection, zero comportamento diverso in produzione (`SandboxDemosaic`
+è l'unica implementazione usata da `raw::run`).
+
+Ruling (Task 3): `keeppix_media::derive_from_rgb` è una nuova funzione
+pubblica (non prevista esplicitamente dal brief, che elenca solo
+`derive_from_bytes` fra le interfacce consumate) perché l'uscita di
+`dcraw_emu` è un PPM di pixel RGB8 già decodificati, non un JPEG:
+`derive_from_bytes` decodifica sempre con `zune_jpeg` e non può
+accettarla. La coda condivisa (resize, webp, thumbhash) è stata
+estratta in un helper privato `build_derivatives` usato da entrambe le
+funzioni, per non duplicare la logica di encoding fra il percorso
+preview-incorporata e quello demosaic. Costo se sbagliato: un secondo
+punto di manutenzione nel modulo derive, ma la duplicazione sarebbe
+stata peggiore (due copie della stessa logica di resize/webp/thumbhash
+che potrebbero divergere silenziosamente).
+
+Ruling (Task 3): il parsing del PPM (`P6`) prodotto da `dcraw_emu -Z -`
+è scritto a mano (un parser di ~30 righe in `keeppix-media::raw`)
+invece di aggiungere una dipendenza come `image`/`ppm` — è un formato
+che generiamo e consumiamo noi stessi con un solo produttore
+conosciuto, tre token interi e un separatore fisso; non serve un parser
+PNM completo (commenti multipli, P1-P6, 16-bit). Verificato manualmente
+sui 5 fixture RAW (ARW/NEF/CR2/CR3/DNG, tempi 130-360ms per il
+demosaic half-size sulle risoluzioni ridotte dei fixture) e su un file
+corrotto (`dcraw_emu` esce con status 2, stdout vuoto, il parser lo
+riconosce come errore invece di panicare). Costo se sbagliato:
+riscrivere il parser se un giorno si usa un altro strumento di demosaic
+che scrive PPM in modo diverso (16-bit, commenti) — isolato in una
+funzione, non nel job.
+
+Ruling (Task 3): timeout della sandbox per il demosaic 30s CPU / 512MiB
+RAM — stessi ordini di grandezza già usati per `ffmpeg`/`ffprobe` in
+`video.rs`. La spec stima 1,5-4s su ARM per RAW reali; sui 5 fixture di
+Fase 2 (bassa risoluzione) `dcraw_emu -h -w` ha impiegato 130-360ms.
+30s è generoso ma finito, coerente col vincolo del task. Costo se
+sbagliato: un RAW anomalo (medio formato, sensore molto più grande dei
+consumer testati) potrebbe eccedere il rlimit RAM e fallire con
+`set_error` invece di completare — comportamento sicuro, non un
+crash, ma da rivedere se emergono RAW di fascia più alta in Fase 2+.
+
+Ruling (Task 3): `./scripts/test.sh` non gira su questa macchina — usa
+`mapfile`, builtin di bash ≥4, e macOS spedisce bash 3.2 senza
+un'alternativa in `/opt/homebrew/bin`. Ho rieseguito manualmente la
+stessa logica (un crate alla volta, `--jobs 1 -- --test-threads=1`,
+rimozione dei container testcontainers fra un crate e l'altro) invece
+di modificare lo script, che probabilmente gira su CI/Linux con bash
+recente — fuori dallo scope di questo task. Costo se sbagliato: nessuno
+per la correttezza dei test di Task 3 (rieseguiti e verdi), ma lo
+script resta rotto per chiunque lavori da questa stessa macchina finché
+qualcuno non lo aggiorna o installa bash via Homebrew.
