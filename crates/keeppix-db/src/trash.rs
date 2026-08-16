@@ -133,7 +133,10 @@ impl<'a> TrashRepo<'a> {
                 row
             }
             DiskAction::Purged => {
-                remove_file_tolerant(&original_path)?;
+                // DB prima del filesystem: se il commit riesce e `remove_file`
+                // fallisce resta un orfano su disco (la prossima scansione lo
+                // reindicizza). L'inverso — file già cancellato e riga ancora
+                // in `assets` — è perdita di dati senza audit.
                 let mut tx = self.db.pool().begin().await?;
                 let row = insert_entry(
                     &mut tx,
@@ -150,17 +153,18 @@ impl<'a> TrashRepo<'a> {
                     .execute(&mut *tx)
                     .await?;
                 tx.commit().await?;
+                remove_file_tolerant(&original_path)?;
                 row
             }
             DiskAction::MovedToTrash => {
                 let root = PathBuf::from(&library.root_path);
-                let trash_path = move_into_trash(
-                    &root,
-                    &folder_abs,
-                    &original_path,
-                    entry_id,
-                    asset.filename.as_str(),
-                )?;
+                let trash_path =
+                    prepare_trash_path(&root, &folder_abs, entry_id, asset.filename.as_str())?;
+                // Stesso ordine di `Purged`: commit dell'audit + status
+                // `trashed`, poi `rename()`. Se il rename fallisce la riga
+                // resta (file ancora in `original_path`) e un retry può
+                // completare lo spostamento; l'inverso lasciava un file nel
+                // cestino senza riga di audit, invisibile all'UI.
                 let mut tx = self.db.pool().begin().await?;
                 let row = insert_entry(
                     &mut tx,
@@ -179,6 +183,13 @@ impl<'a> TrashRepo<'a> {
                 .execute(&mut *tx)
                 .await?;
                 tx.commit().await?;
+                std::fs::rename(&original_path, &trash_path).map_err(|e| {
+                    DbError::Io(format!(
+                        "moving {} to {}: {e}",
+                        original_path.display(),
+                        trash_path.display()
+                    ))
+                })?;
                 row
             }
         };
@@ -222,18 +233,29 @@ impl<'a> TrashRepo<'a> {
         };
 
         let original = PathBuf::from(&pending.original_path);
-        if original.exists() {
+        let trash = PathBuf::from(&trash_path);
+        // Se un `choose(MovedToTrash)` ha committato il DB ma il `rename`
+        // successivo è fallito, il file è ancora in `original_path`. Non c'è
+        // nulla da ripristinare sul disco: basta riaprire l'asset.
+        let needs_rename = if !trash.exists() && original.exists() {
+            false
+        } else if original.exists() {
             return Err(DbError::Conflict(
                 "the original location is occupied by another file".to_owned(),
             ));
-        }
+        } else {
+            true
+        };
 
-        std::fs::rename(&trash_path, &original).map_err(|e| {
-            DbError::Io(format!(
-                "restoring {trash_path} to {}: {e}",
-                original.display()
-            ))
-        })?;
+        if needs_rename {
+            std::fs::rename(&trash, &original).map_err(|e| {
+                DbError::Io(format!(
+                    "restoring {} to {}: {e}",
+                    trash.display(),
+                    original.display()
+                ))
+            })?;
+        }
 
         let mut tx = self.db.pool().begin().await?;
         sqlx::query("UPDATE assets SET status = 'indexed', updated_at = now() WHERE id = $1")
@@ -361,19 +383,15 @@ fn remove_file_tolerant(path: &Path) -> Result<(), DbError> {
     }
 }
 
-/// Sposta `original_path` dentro `<library_root>/.keeppix-trash/`,
-/// preservando il sottopercorso relativo (così il cestino resta navigabile
-/// a mano) e prefissando il nome con `entry_id` — univoco per costruzione,
-/// quindi nessuna collisione possibile con un file già cestinato con lo
-/// stesso nome, senza bisogno di un controllo "esiste già?" a rischio di
-/// corsa.
+/// Calcola (e crea le cartelle di) la destinazione in
+/// `<library_root>/.keeppix-trash/`, senza ancora muovere il file.
 ///
-/// `rename()`, non copia: `.keeppix-trash/` sta sempre dentro la stessa
-/// libreria, quindi sempre sullo stesso filesystem — l'inode non cambia.
-fn move_into_trash(
+/// Il sottopercorso relativo resta navigabile a mano; il nome è prefissato
+/// con `entry_id` — univoco per costruzione, niente collisione con un altro
+/// file già cestinato con lo stesso basename.
+fn prepare_trash_path(
     library_root: &Path,
     folder_abs: &Path,
-    original_path: &Path,
     entry_id: TrashEntryId,
     filename: &str,
 ) -> Result<PathBuf, DbError> {
@@ -383,16 +401,7 @@ fn move_into_trash(
     let target_dir = library_root.join(TRASH_DIR_NAME).join(relative_dir);
     std::fs::create_dir_all(&target_dir)
         .map_err(|e| DbError::Io(format!("creating {}: {e}", target_dir.display())))?;
-
-    let trash_path = target_dir.join(format!("{entry_id}__{filename}"));
-    std::fs::rename(original_path, &trash_path).map_err(|e| {
-        DbError::Io(format!(
-            "moving {} to {}: {e}",
-            original_path.display(),
-            trash_path.display()
-        ))
-    })?;
-    Ok(trash_path)
+    Ok(target_dir.join(format!("{entry_id}__{filename}")))
 }
 
 #[cfg(test)]

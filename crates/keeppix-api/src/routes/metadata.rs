@@ -120,8 +120,8 @@ impl MetadataPatchRequest {
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct BatchApplyRequest {
-    /// Fino a qualche migliaio di id: `apply_batch` è pensato per restare
-    /// sotto un secondo anche a 5.000 (misurato, vedi il report del Task 8).
+    /// Tetto HTTP: [`crate::batch::MAX_BATCH_ASSETS`]. `apply_batch` è
+    /// misurato a 5.000 sotto il secondo (report Task 8).
     #[schema(value_type = Vec<String>)]
     pub asset_ids: Vec<AssetId>,
     pub patch: MetadataPatchRequest,
@@ -207,6 +207,7 @@ pub async fn apply(
     request_body = BatchApplyRequest,
     responses(
         (status = 200, description = "Stesso patch applicato a ogni asset, annullabile", body = BatchView),
+        (status = 400, description = "batch troppo grande", body = Problem),
         (status = 401, description = "Non autenticato", body = Problem),
         (status = 403, description = "Un asset non è visibile", body = Problem)
     )
@@ -216,6 +217,7 @@ pub async fn apply_batch(
     Auth(ctx): Auth,
     Json(body): Json<BatchApplyRequest>,
 ) -> Result<Json<BatchView>, Problem> {
+    crate::batch::reject_oversized_batch(&body.asset_ids)?;
     let batch_id = OverrideRepo::new(&state.db)
         .apply_batch(&ctx, &body.asset_ids, &body.patch.into_domain())
         .await?;
@@ -233,6 +235,7 @@ pub async fn apply_batch(
     request_body = BatchShiftRequest,
     responses(
         (status = 200, description = "taken_at spostato di N ore per ogni asset, annullabile", body = BatchView),
+        (status = 400, description = "batch troppo grande", body = Problem),
         (status = 401, description = "Non autenticato", body = Problem),
         (status = 403, description = "Un asset non è visibile", body = Problem)
     )
@@ -242,6 +245,7 @@ pub async fn shift_taken_at(
     Auth(ctx): Auth,
     Json(body): Json<BatchShiftRequest>,
 ) -> Result<Json<BatchView>, Problem> {
+    crate::batch::reject_oversized_batch(&body.asset_ids)?;
     let batch_id = OverrideRepo::new(&state.db)
         .shift_taken_at(&ctx, &body.asset_ids, body.hours)
         .await?;

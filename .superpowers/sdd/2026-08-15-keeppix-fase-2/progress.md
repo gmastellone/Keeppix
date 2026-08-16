@@ -952,3 +952,47 @@ Task 0–9 complete. Verifica cloud 2026-08-16:
 
 Criteri ancora da confermare fuori CI: sessione ≥100 foto reali; hash RAW
 pre/post editing; CI verde sulla PR; compose bundled smoke.
+
+---
+
+## Review pre-merge (2026-08-16) + criteri ≥1000
+
+Reviewer (Sonnet) su `6e70227..a038d62` vs spec/piano/AGENTS.
+
+### Fix applicati (Important)
+
+1. **Trash DB-before-FS** (`TrashRepo::choose` Purged/MovedToTrash): commit
+   audit + status, poi op filesystem. `restore` tollera un rename incompleto
+   (file ancora in `original_path`).
+2. **Import XMP all'indicizzazione (spec §3.4 Lettura)**: **differito
+   esplicitamente** — `read_sidecar` esiste e i test lo coprono, ma
+   `discover`/`metadata` non lo chiamano. Ruling sotto.
+3. **`DEMOSAIC_MEMORY_BYTES` → 1 GiB**, allineato al fix ffmpeg `RLIMIT_AS`.
+4. **Tetto batch HTTP 10_000** (`keeppix-api::batch::reject_oversized_batch`)
+   su flags/metadata batch + shift.
+
+### Ruling
+
+Ruling: **import `.xmp` preesistenti all'indicizzazione non è in Fase 2
+chiusa** — Task 5 ha consegnato lettura/scrittura atomica e il job
+`WriteSidecar` (Keeppix→disco); collegare `read_sidecar` in
+`discover`/`metadata` (disco→`asset_overrides`/`asset_flags` del
+proprietario) è un pezzo di ingest Fase 1b non elencato nei file del
+Task 5 e non cablato. Costo se sbagliato: un archivio Lightroom importato
+oggi non porta rating/titoli finché non si implementa il pezzo. Da fare
+prima di dichiarare "import Lightroom-complete" in produzione.
+
+Ruling: **CI backend PR #4 fallito per disco pieno sul runner**
+(`pg_wal: No space left`), non per regressione di codice. Mitigazione:
+step "Libera disco prima dei test" che rimuove toolchain inutili
+(dotnet/android/ghc/…).
+
+### MEASUREMENTS (criterio ≥1000)
+
+| Cosa | Valore |
+|---|---|
+| `FlagRepo::batch_set` 1000 asset | **~13 ms** |
+| Sidecar write su 1000 file (995 JPEG + 5 RAW) | **~270 ms** |
+| RAW blake3 prima/dopo sidecar | **identici** (5/5) |
+| Frontend culling store 1000 start + 200 voti | **<2 s** (vitest) |
+
