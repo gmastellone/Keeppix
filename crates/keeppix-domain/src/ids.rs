@@ -55,6 +55,7 @@ id_type!(FolderId);
 id_type!(AssetId);
 id_type!(BatchId);
 id_type!(StackId);
+id_type!(TrashEntryId);
 
 #[cfg(test)]
 mod tests {
