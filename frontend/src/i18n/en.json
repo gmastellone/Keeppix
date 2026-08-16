@@ -39,6 +39,51 @@
     "invalid": "Invalid query."
   },
   "viewer": { "title": "Photo", "close": "Close" },
+  "culling": {
+    "entry": "Culling",
+    "title": "Culling",
+    "close": "Close",
+    "ofTotal": "of {total}",
+    "empty": "No photos to review.",
+    "rating": {
+      "group": "Rating",
+      "star": "{n} stars"
+    },
+    "stats": {
+      "picks": "Picks",
+      "rejects": "Rejects",
+      "pending": "Pending"
+    },
+    "filters": {
+      "label": "Filter",
+      "all": "All",
+      "pending": "Pending",
+      "picks": "Picks",
+      "rejects": "Rejects"
+    },
+    "badges": { "pick": "Pick", "reject": "Reject" },
+    "filmstrip": { "label": "Session thumbnails" },
+    "deleteRejects": "Delete the {count} rejects",
+    "deleteDialog": {
+      "title": "Delete {count} photos",
+      "cancel": "Cancel",
+      "confirm": "Delete",
+      "options": {
+        "kept": {
+          "label": "Remove from the index only",
+          "hint": "The files stay on disk. Keeppix will re-index them on the next scan."
+        },
+        "moved_to_trash": {
+          "label": "Move to the Keeppix trash",
+          "hint": "Recoverable for 30 days. Files are moved into .keeppix-trash/ inside the same library."
+        },
+        "purged": {
+          "label": "Delete from disk now",
+          "hint": "Irreversible."
+        }
+      }
+    }
+  },
   "problems": {
     "title": "Problems",
     "offlineLibraries": "Offline libraries",

@@ -12,6 +12,7 @@ import {
 } from '@/api/timeline'
 import Button from '@/components/ui/Button.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
+import { useCullingStore } from '@/stores/culling'
 import { useSessionStore } from '@/stores/session'
 import { clampDensity, justify, bucketMinHeight } from '@/timeline/justify'
 import { monthAtOffset, yearLabel } from '@/timeline/scrubber'
@@ -25,6 +26,7 @@ type KindFilter = 'all' | 'photo' | 'video'
 const { t } = useI18n()
 const router = useRouter()
 const session = useSessionStore()
+const culling = useCullingStore()
 
 const buckets = ref<MonthBucket[]>([])
 const assetsByBucket = ref<Record<string, TimelineAsset[]>>({})
@@ -141,6 +143,18 @@ async function signOut() {
 
 async function goSearch() {
   await router.push({ path: '/search', query: { q: query.value } })
+}
+
+/**
+ * Unico punto d'ingresso al culling (spec §4.2, hard rule del piano): un
+ * pulsante, non scorciatoie sparse. In assenza di una vista per cartella o
+ * di una selezione multipla in questa fase del frontend, l'insieme di
+ * lavoro è quanto già caricato in timeline — coerente con "cartella o
+ * selezione" finché quelle viste non esistono.
+ */
+async function startCulling() {
+  culling.start(flatAssets.value)
+  await router.push('/culling')
 }
 
 function setDensity(next: number) {
@@ -266,6 +280,14 @@ watch([days, density, gridWidth], () => observe())
       >
         {{ t('problems.title') }}
       </RouterLink>
+      <button
+        v-if="flatAssets.length > 0"
+        type="button"
+        class="rounded-lg border border-border px-3 py-1 text-sm"
+        @click="startCulling"
+      >
+        {{ t('culling.entry') }}
+      </button>
       <div
         class="flex rounded-lg border border-border text-sm"
         role="group"
