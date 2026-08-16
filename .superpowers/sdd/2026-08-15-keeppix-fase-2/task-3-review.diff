@@ -1,0 +1,1183 @@
+BASE 2d72067 HEAD e12e3080272b0186477e24bf2f5beb0b68366c0f
+e12e308 docs(sdd): record Task 3 report and ledger for DeriveRaw
+86a8a3e feat(jobs): derive raw assets from the embedded preview
+ .../sdd/2026-08-15-keeppix-fase-2/progress.md      |  94 +++++++-
+ .../sdd/2026-08-15-keeppix-fase-2/task-3-report.md | 203 ++++++++++++++++
+ crates/keeppix-domain/src/job.rs                   |   6 +-
+ crates/keeppix-jobs/src/dispatch.rs                |   9 +
+ crates/keeppix-jobs/src/hash.rs                    |  19 +-
+ crates/keeppix-jobs/src/lib.rs                     |   1 +
+ crates/keeppix-jobs/src/raw.rs                     | 129 ++++++++++
+ crates/keeppix-jobs/tests/raw.rs                   | 268 +++++++++++++++++++++
+ crates/keeppix-media/src/derive.rs                 |  64 ++++-
+ crates/keeppix-media/src/lib.rs                    |   9 +-
+ crates/keeppix-media/src/raw.rs                    | 115 +++++++++
+ crates/keeppix-media/tests/raw.rs                  |  38 ++-
+ 12 files changed, 935 insertions(+), 20 deletions(-)
+diff --git a/.superpowers/sdd/2026-08-15-keeppix-fase-2/progress.md b/.superpowers/sdd/2026-08-15-keeppix-fase-2/progress.md
+index c8a9cf6..d64dd17 100644
+--- a/.superpowers/sdd/2026-08-15-keeppix-fase-2/progress.md
++++ b/.superpowers/sdd/2026-08-15-keeppix-fase-2/progress.md
+@@ -60,7 +60,7 @@ da NAS reale, non necessario per questo task che opera su byte già in RAM.
+ | 0 | Harness PortNotExposed retry | complete | `319e9e5` |
+ | 1 | Preview RAW incorporata | complete | `d5db5d6` |
+ | 2 | `derive_from_bytes` | complete | `55e5e70` |
+-| 3 | Job DeriveRaw | — | |
++| 3 | Job DeriveRaw | complete | `86a8a3e` |
+ | 4 | overrides + flags | — | |
+ | 5 | Sidecar XMP | — | |
+ | 6 | Stack RAW+JPEG | — | |
+@@ -103,3 +103,95 @@ piccolo per test derivati). Costo se sbagliato: nessuno, stessa pipeline.
+ Estratto `derive_from_bytes(bytes, data_dir, hash)` da `derive_jpeg`;
+ controllo idempotenza (`thumb.is_file()`) duplicato in entrambe le entry
+ point come da brief.
++
++### Task 3: complete (commit `86a8a3e`, test verdi)
++
++`cargo test -p keeppix-jobs --test raw -- --test-threads=1` → 7 passed
++(4 richiesti dal piano + gli assert di harness). `cargo test -p
++keeppix-media --test raw` → 10 passed (8 precedenti + 2 nuovi su
++`demosaic_half`, gated su `dcraw_emu_available()` come già fa
++`video::ffprobe_available`). Suite completa (`./scripts/test.sh`
++sostituito da un loop equivalente, vedi Ruling sotto) → 60/60 blocchi
++`test result: ok` su tutto il workspace, incluso `keeppix-server`.
++`cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
++warnings` verdi. `cargo deny check bans` verde (nessun arco nuovo fra
++`keeppix-media` e `keeppix-db`).
++
++**TDD sul test critico** (`a_raw_with_a_large_preview_never_calls_libraw`):
++scritti tutti e 4 i test del piano, eseguiti e verdi al primo colpo con
++l'implementazione già scritta (design esplorato prima per via
++dell'interazione fra trait di iniezione e cascata — vedi Ruling
++sotto). Per non fidarsi di un test verde che non ha mai visto il rosso,
++ho mutato la cascata in `derive_raw` per saltare il controllo dei
++1440px e chiamare sempre `demosaic.demosaic(src)`: il test è failato
++correttamente (`left: 1, right: 0`, vedi report), poi ripristinato e
++riverificato verde. Vedi `task-3-report.md` per l'output completo.
++
++Ruling (Task 3): `JobKind::DeriveRaw` (non l'estensione di `DeriveAsset`
++via branch su `AssetKind`) — come da piano/brief, così il dispatcher
++resta un match piatto un-kind-per-ramo invece di annidare una seconda
++cascata dentro `derive::run`. Nessuna migrazione necessaria: `jobs.kind`
++è `text` senza `CHECK` (a differenza di `assets.kind`), quindi
++aggiungere una variante è solo codice Rust. `hash.rs` sceglie
++`DeriveRaw` vs `DeriveAsset` in base ad `asset.kind` con dedup key
++`derive_raw:{hex}` separata da `derive:{hex}`. Costo se sbagliato:
++nessuno strutturale — tornare a un branch unico dentro `DeriveAsset`
++sarebbe un refactor locale a `derive.rs`/`raw.rs`, non uno schema da
++disfare.
++
++Ruling (Task 3): demosaic iniettato via trait object (`dyn Demosaic`),
++non via feature flag o mock del processo — l'unica interfaccia di cui
++il job ha bisogno è "dammi pixel RGB8 e le dimensioni per questo file",
++e un trait la rende sostituibile nei test senza toccare `sandbox::run`
++né avviare mai `dcraw_emu`. Il contatore delle chiamate vive nel mock
++di test, non nel job. Costo se sbagliato: nessuno, è puro dependency
++injection, zero comportamento diverso in produzione (`SandboxDemosaic`
++è l'unica implementazione usata da `raw::run`).
++
++Ruling (Task 3): `keeppix_media::derive_from_rgb` è una nuova funzione
++pubblica (non prevista esplicitamente dal brief, che elenca solo
++`derive_from_bytes` fra le interfacce consumate) perché l'uscita di
++`dcraw_emu` è un PPM di pixel RGB8 già decodificati, non un JPEG:
++`derive_from_bytes` decodifica sempre con `zune_jpeg` e non può
++accettarla. La coda condivisa (resize, webp, thumbhash) è stata
++estratta in un helper privato `build_derivatives` usato da entrambe le
++funzioni, per non duplicare la logica di encoding fra il percorso
++preview-incorporata e quello demosaic. Costo se sbagliato: un secondo
++punto di manutenzione nel modulo derive, ma la duplicazione sarebbe
++stata peggiore (due copie della stessa logica di resize/webp/thumbhash
++che potrebbero divergere silenziosamente).
++
++Ruling (Task 3): il parsing del PPM (`P6`) prodotto da `dcraw_emu -Z -`
++è scritto a mano (un parser di ~30 righe in `keeppix-media::raw`)
++invece di aggiungere una dipendenza come `image`/`ppm` — è un formato
++che generiamo e consumiamo noi stessi con un solo produttore
++conosciuto, tre token interi e un separatore fisso; non serve un parser
++PNM completo (commenti multipli, P1-P6, 16-bit). Verificato manualmente
++sui 5 fixture RAW (ARW/NEF/CR2/CR3/DNG, tempi 130-360ms per il
++demosaic half-size sulle risoluzioni ridotte dei fixture) e su un file
++corrotto (`dcraw_emu` esce con status 2, stdout vuoto, il parser lo
++riconosce come errore invece di panicare). Costo se sbagliato:
++riscrivere il parser se un giorno si usa un altro strumento di demosaic
++che scrive PPM in modo diverso (16-bit, commenti) — isolato in una
++funzione, non nel job.
++
++Ruling (Task 3): timeout della sandbox per il demosaic 30s CPU / 512MiB
++RAM — stessi ordini di grandezza già usati per `ffmpeg`/`ffprobe` in
++`video.rs`. La spec stima 1,5-4s su ARM per RAW reali; sui 5 fixture di
++Fase 2 (bassa risoluzione) `dcraw_emu -h -w` ha impiegato 130-360ms.
++30s è generoso ma finito, coerente col vincolo del task. Costo se
++sbagliato: un RAW anomalo (medio formato, sensore molto più grande dei
++consumer testati) potrebbe eccedere il rlimit RAM e fallire con
++`set_error` invece di completare — comportamento sicuro, non un
++crash, ma da rivedere se emergono RAW di fascia più alta in Fase 2+.
++
++Ruling (Task 3): `./scripts/test.sh` non gira su questa macchina — usa
++`mapfile`, builtin di bash ≥4, e macOS spedisce bash 3.2 senza
++un'alternativa in `/opt/homebrew/bin`. Ho rieseguito manualmente la
++stessa logica (un crate alla volta, `--jobs 1 -- --test-threads=1`,
++rimozione dei container testcontainers fra un crate e l'altro) invece
++di modificare lo script, che probabilmente gira su CI/Linux con bash
++recente — fuori dallo scope di questo task. Costo se sbagliato: nessuno
++per la correttezza dei test di Task 3 (rieseguiti e verdi), ma lo
++script resta rotto per chiunque lavori da questa stessa macchina finché
++qualcuno non lo aggiorna o installa bash via Homebrew.
+diff --git a/.superpowers/sdd/2026-08-15-keeppix-fase-2/task-3-report.md b/.superpowers/sdd/2026-08-15-keeppix-fase-2/task-3-report.md
+new file mode 100644
+index 0000000..fdb20f6
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-15-keeppix-fase-2/task-3-report.md
+@@ -0,0 +1,203 @@
++# Task 3 report — Job di derivazione dei RAW (`JobKind::DeriveRaw`)
++
++**Status:** complete
++**Commit:** `86a8a3e` — `feat(jobs): derive raw assets from the embedded preview`
++**Branch:** `fase-2` (non pushato, come richiesto)
++
++## Cosa è stato fatto
++
++- `keeppix_domain::JobKind::DeriveRaw` (nuova variante; nessuna migrazione
++  necessaria — `jobs.kind` è `text` senza `CHECK`).
++- `crates/keeppix-jobs/src/raw.rs`: la cascata (spec §2.1, sidecar XMP escluso
++  — Task 5):
++  1. `extract_embedded_preview(path)`.
++  2. Se il lato lungo della preview è ≥1440px → `derive_from_bytes` su quei
++     byte. Fine, zero demosaic.
++  3. Altrimenti (piccola, assente, o file non riconosciuto come RAW) →
++     demosaic half-size in sandbox (`dcraw_emu -h -w`, camera white balance).
++  4. Se anche il demosaic fallisce → tutti gli asset con quel `content_hash`
++     vanno in `AssetStatus::Error` via `AssetRepo::set_error`; il job
++     ritorna `Ok(())`, non blocca la coda.
++  5. Idempotenza: se il derivato (`{hash}-thumb.webp`) esiste già, il job
++     esce subito, prima di leggere il RAW o chiamare il demosaic.
++- Il demosaic è dietro un trait `Demosaic` (`fn demosaic(&self, path) ->
++  Result<RawPreview, JobError>`), iniettato in `run_with`. `run()` usa
++  `SandboxDemosaic` (produzione); i test usano un mock che conta le
++  chiamate. Nessun timing nei test — solo conteggio.
++- `crates/keeppix-jobs/src/dispatch.rs`: nuovo ramo `JobKind::DeriveRaw` →
++  `raw::run`, con un `ram_hint_bytes` da 512MiB (il demosaic gira in un
++  processo separato ma il gate deve comunque limitare quanti ne girano in
++  parallelo).
++- `crates/keeppix-jobs/src/hash.rs`: `enqueue_derive` ora sceglie
++  `DeriveRaw`/`derive_raw:{hex}` per `AssetKind::RawImage`, altrimenti
++  `DeriveAsset`/`derive:{hex}` come prima.
++- `keeppix-media`:
++  - `derive_from_rgb(rgb, width, height, data_dir, hash)`: stessa pipeline
++    di `derive_from_bytes` (resize, webp, thumbhash) ma per pixel RGB8 già
++    decodificati — l'uscita del demosaic non è un JPEG. Coda condivisa
++    estratta in `build_derivatives` per non duplicare la logica di encoding.
++  - `demosaic_half(path, memory_bytes, cpu_secs)`: esegue `dcraw_emu -h -w
++    -Z -` via `sandbox::run` (mai in-process) e parsa il PPM (`P6`) che
++    scrive su stdout.
++  - `dcraw_emu_available()`: come `video::ffprobe_available`, per far
++    saltare i test che dipendono dal binario su una macchina senza libraw.
++
++## TDD — RED prima, poi GREEN
++
++I quattro test richiesti dal piano sono in
++`crates/keeppix-jobs/tests/raw.rs`. Dato che l'interfaccia (trait di
++iniezione + cascata) andava progettata insieme al codice per essere
++testabile, l'implementazione e i test sono stati scritti nello stesso giro;
++la garanzia richiesta dal task — *"il test deve fallire se rompo la
++cascata"* — è stata verificata **con una mutazione**, non assumendola.
++
++### 1. Prima esecuzione: tutti verdi con l'implementazione corretta
++
++```
++$ cargo test -p keeppix-jobs --test raw -- --test-threads=1 --nocapture
++
++running 7 tests
++test a_corrupt_raw_sets_the_asset_to_error_and_does_not_block_the_queue ... ok
++test a_raw_with_a_large_preview_never_calls_libraw ... ok
++test a_raw_without_a_preview_falls_back_to_demosaic ... ok
++test harness::tests::appends_when_the_url_has_no_database ... ok
++test harness::tests::preserves_the_query_string ... ok
++test harness::tests::replaces_an_existing_database_name ... ok
++test the_job_is_idempotent ... ok
++
++test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.36s
++```
++
++### 2. RED — mutazione della cascata per dimostrare che il test critico morde
++
++Ho rotto deliberatamente `derive_raw` in `crates/keeppix-jobs/src/raw.rs`
++per saltare il controllo dei 1440px e chiamare **sempre** il demosaic:
++
++```rust
++// MUTATION (temporanea, non committata):
++let preview = extract_embedded_preview(src).ok().flatten();
++let chosen = demosaic.demosaic(src).map_err(|e| e.to_string())?; // salta il controllo >=1440px
++let _ = preview;
++```
++
++Rieseguendo solo il test critico:
++
++```
++$ cargo test -p keeppix-jobs --test raw a_raw_with_a_large_preview_never_calls_libraw \
++    -- --test-threads=1 --nocapture
++
++running 1 test
++test a_raw_with_a_large_preview_never_calls_libraw ...
++thread 'a_raw_with_a_large_preview_never_calls_libraw' panicked at crates/keeppix-jobs/tests/raw.rs:166:5:
++assertion `left == right` failed: la preview incorporata di sample.arw supera 1440px: libraw non deve partire
++  left: 1
++ right: 0
++FAILED
++
++test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 6.59s
++```
++
++Il test **fallisce correttamente** quando la cascata è rotta: prova che
++`demosaic.calls()` non è un conteggio decorativo, ma verifica davvero che
++`sample.arw` (preview incorporata 1616×1080, misurata al Task 1) non fa mai
++partire il demosaic quando non serve.
++
++### 3. GREEN — mutazione ripristinata
++
++```rust
++let preview = extract_embedded_preview(src).ok().flatten();
++let chosen = match preview {
++    Some(p) if p.width.max(p.height) >= MIN_PREVIEW_LONG_SIDE => p,
++    _ => demosaic.demosaic(src).map_err(|e| e.to_string())?,
++};
++```
++
++```
++$ cargo test -p keeppix-jobs --test raw -- --test-threads=1 --nocapture
++
++running 7 tests
++test a_corrupt_raw_sets_the_asset_to_error_and_does_not_block_the_queue ... ok
++test a_raw_with_a_large_preview_never_calls_libraw ... ok
++test a_raw_without_a_preview_falls_back_to_demosaic ... ok
++test harness::tests::appends_when_the_url_has_no_database ... ok
++test harness::tests::preserves_the_query_string ... ok
++test harness::tests::replaces_an_existing_database_name ... ok
++test the_job_is_idempotent ... ok
++
++test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.69s
++```
++
++Nessuna traccia della mutazione è rimasta nel codice committato — verificato
++con `git diff` prima del commit.
++
++## Cosa provano i quattro test
++
++- **`a_raw_with_a_large_preview_never_calls_libraw`**: usa il fixture reale
++  `sample.arw` (Task 1: preview incorporata 1616×1080). Il mock demosaic
++  restituisce sempre `Err` — se venisse chiamato, il test fallirebbe sia sul
++  conteggio sia (indirettamente) perché l'asset finirebbe in errore invece
++  che avere un thumbnail. Verifica anche che il thumbnail sia stato
++  generato dalla preview.
++- **`a_raw_without_a_preview_falls_back_to_demosaic`**: un TIFF minimo
++  valido (header + una IFD vuota, nessun tag di preview) → `Ok(None)`. Il
++  mock demosaic restituisce pixel RGB8 finti; il test verifica che sia
++  stato chiamato esattamente una volta e che il thumbnail derivi da quei
++  pixel (via `derive_from_rgb`).
++- **`a_corrupt_raw_sets_the_asset_to_error_and_does_not_block_the_queue`**:
++  un file che non è un RAW riconosciuto (`extract_embedded_preview` fallisce)
++  *e* un mock demosaic che fallisce sempre → l'asset passa a
++  `AssetStatus::Error`, ma `run_with` ritorna `Ok(())`. Un secondo asset
++  (RAW valido, `sample.nef`) processato subito dopo nello stesso test va a
++  buon fine, a dimostrazione che l'errore sul primo non impedisce la
++  lavorazione del successivo.
++- **`the_job_is_idempotent`**: usa lo scenario "senza preview" per contare il
++  demosaic. Prima esecuzione: 1 chiamata, thumbnail creato. Seconda
++  esecuzione sullo stesso hash: 0 chiamate aggiuntive (il job vede il
++  thumbnail e esce prima di leggere il file), byte del thumbnail invariati.
++
++## Verifica completa prima di dichiarare fatto
++
++```
++cargo test -p keeppix-media --test raw               → 10 passed (8 preesistenti + 2 nuovi)
++cargo test -p keeppix-jobs --test raw -- --test-threads=1  → 7 passed
++cargo fmt --check                                     → pulito
++cargo clippy --workspace --all-targets -- -D warnings → pulito
++cargo deny check bans                                 → "bans ok" (nessun arco nuovo media↔db)
++```
++
++**Suite completa del workspace** (vedi Ruling nel ledger: `./scripts/test.sh`
++non gira su questa macchina perché usa `mapfile`, builtin di bash ≥4, e
++macOS spedisce bash 3.2 senza alternativa in `/opt/homebrew/bin` — rieseguita
++manualmente la stessa logica, crate per crate, `--jobs 1 -- --test-threads=1`,
++container testcontainers ripuliti fra un crate e l'altro):
++
++```
++keeppix-domain, keeppix-media, keeppix-api, keeppix-db, keeppix-test-support,
++keeppix-dav, keeppix-jobs, keeppix-server
++→ 60/60 blocchi "test result: ok", 0 failed, in tutto il workspace.
++```
++
++I test di `demosaic_half` in `keeppix-media` esercitano davvero `dcraw_emu`
++(non un mock): confermato su `sample.arw` (1392×936 dopo half-size,
++misurato) e su un file corrotto (`dcraw_emu` esce con status 2, il parser
++del PPM lo riporta come `RawError::Corrupt` invece di panicare). Gated su
++`dcraw_emu_available()` per non rompere una macchina/CI senza libraw.
++
++## Note di self-review
++
++- Nessun `unwrap()`/`expect()` fuori dai test.
++- `dcraw_emu`/libraw gira **sempre** in `sandbox::run` (mai in-process),
++  come richiesto dagli invarianti di AGENTS.md.
++- Nessuna query SQL fuori da `keeppix-db`: `raw.rs` in `keeppix-jobs` usa
++  solo `AssetRepo`/`FolderRepo`.
++- `cargo deny check bans` conferma che non è stato introdotto nessun arco
++  fra `keeppix-media` e `keeppix-db`.
++- Non ho toccato Task 4+ né fatto push/PR.
++
++## Docker
++
++Docker Desktop era raggiungibile ma non visibile dalla sandbox di default
++(serve il permesso `all` per il socket); con quel permesso tutti i test di
++integrazione (incluso l'harness `TestDb` via testcontainers) hanno
++funzionato senza il flake `PortNotExposed` menzionato nel ledger — il retry
++di Task 0 non è nemmeno stato esercitato in questa run.
+diff --git a/crates/keeppix-domain/src/job.rs b/crates/keeppix-domain/src/job.rs
+index f4950a9..ce6e0af 100644
+--- a/crates/keeppix-domain/src/job.rs
++++ b/crates/keeppix-domain/src/job.rs
+@@ -10,6 +10,7 @@ pub enum JobKind {
+     ExtractMetadata,
+     HashAsset,
+     DeriveAsset,
++    DeriveRaw,
+     ReapStale,
+ }
+ 
+@@ -21,18 +22,20 @@ impl JobKind {
+             Self::ExtractMetadata => "extract_metadata",
+             Self::HashAsset => "hash_asset",
+             Self::DeriveAsset => "derive_asset",
++            Self::DeriveRaw => "derive_raw",
+             Self::ReapStale => "reap_stale",
+         }
+     }
+ 
+     /// # Errors
+-    /// `DomainError::InvalidJobKind` se la stringa non è uno dei cinque tipi.
++    /// `DomainError::InvalidJobKind` se la stringa non è uno dei tipi noti.
+     pub fn parse(raw: &str) -> Result<Self, DomainError> {
+         match raw {
+             "discover_library" => Ok(Self::DiscoverLibrary),
+             "extract_metadata" => Ok(Self::ExtractMetadata),
+             "hash_asset" => Ok(Self::HashAsset),
+             "derive_asset" => Ok(Self::DeriveAsset),
++            "derive_raw" => Ok(Self::DeriveRaw),
+             "reap_stale" => Ok(Self::ReapStale),
+             other => Err(DomainError::InvalidJobKind(other.to_owned())),
+         }
+@@ -127,6 +130,7 @@ mod tests {
+             JobKind::ExtractMetadata,
+             JobKind::HashAsset,
+             JobKind::DeriveAsset,
++            JobKind::DeriveRaw,
+             JobKind::ReapStale,
+         ] {
+             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
+diff --git a/crates/keeppix-jobs/src/dispatch.rs b/crates/keeppix-jobs/src/dispatch.rs
+index a4e371a..156c677 100644
+--- a/crates/keeppix-jobs/src/dispatch.rs
++++ b/crates/keeppix-jobs/src/dispatch.rs
+@@ -9,6 +9,7 @@ use crate::derive as derive_job;
+ use crate::discover;
+ use crate::hash as hash_job;
+ use crate::metadata;
++use crate::raw as raw_job;
+ 
+ /// Handler unico della pipeline 1b.
+ #[derive(Clone)]
+@@ -22,6 +23,10 @@ impl crate::JobHandler for IngestHandler {
+     fn ram_hint_bytes(&self, job: &Job) -> u64 {
+         match job.kind {
+             JobKind::DeriveAsset => DEFAULT_RAM_HINT,
++            // Il demosaic gira in un processo a parte con il proprio rlimit,
++            // ma il gate deve comunque evitare di farne partire troppi in
++            // parallelo sulla stessa macchina.
++            JobKind::DeriveRaw => 512 * 1024 * 1024,
+             _ => 8 * 1024 * 1024,
+         }
+     }
+@@ -44,6 +49,10 @@ impl crate::JobHandler for IngestHandler {
+                 let hash = derive_job::hash_from_payload(&job.payload)?;
+                 derive_job::run(&self.db, &self.data_dir, hash).await
+             }
++            JobKind::DeriveRaw => {
++                let hash = derive_job::hash_from_payload(&job.payload)?;
++                raw_job::run(&self.db, &self.data_dir, hash).await
++            }
+             JobKind::ReapStale => {
+                 keeppix_db::JobRepo::new(&self.db)
+                     .reap_stale(Duration::from_secs(600))
+diff --git a/crates/keeppix-jobs/src/hash.rs b/crates/keeppix-jobs/src/hash.rs
+index 523bb5f..9ef89e8 100644
+--- a/crates/keeppix-jobs/src/hash.rs
++++ b/crates/keeppix-jobs/src/hash.rs
+@@ -1,5 +1,5 @@
+ use keeppix_db::{AssetRepo, Db, FolderRepo, JobRepo};
+-use keeppix_domain::{AssetId, JobKind, JobPriority};
++use keeppix_domain::{AssetId, AssetKind, JobKind, JobPriority};
+ use keeppix_media::hash_file;
+ 
+ use crate::JobError;
+@@ -25,29 +25,36 @@ pub async fn run(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
+         && mtime_ok
+         && inode_ok
+     {
+-        enqueue_derive(db, hash).await?;
++        enqueue_derive(db, hash, asset.kind).await?;
+         return Ok(());
+     }
+ 
+     let hash = hash_file(&path).map_err(|e| JobError::Worker(e.to_string()))?;
+     assets.set_hash(asset_id, hash).await?;
+     crate::moves::after_hash(db, asset_id, hash, size).await?;
+-    enqueue_derive(db, hash).await?;
++    enqueue_derive(db, hash, asset.kind).await?;
+     Ok(())
+ }
+ 
+-async fn enqueue_derive(db: &Db, hash: [u8; 32]) -> Result<(), JobError> {
++/// I RAW hanno una pipeline di derivazione diversa (preview incorporata
++/// prima del demosaic, `JobKind::DeriveRaw`); tutti gli altri kind restano
++/// su `DeriveAsset`.
++async fn enqueue_derive(db: &Db, hash: [u8; 32], kind: AssetKind) -> Result<(), JobError> {
+     let mut hex = String::with_capacity(64);
+     for b in hash {
+         use std::fmt::Write as _;
+         let _ = write!(hex, "{b:02x}");
+     }
++    let (job_kind, dedup_prefix) = match kind {
++        AssetKind::RawImage => (JobKind::DeriveRaw, "derive_raw"),
++        _ => (JobKind::DeriveAsset, "derive"),
++    };
+     JobRepo::new(db)
+         .enqueue(
+-            JobKind::DeriveAsset,
++            job_kind,
+             serde_json::json!({ "content_hash": hex }),
+             JobPriority::Background,
+-            Some(&format!("derive:{hex}")),
++            Some(&format!("{dedup_prefix}:{hex}")),
+         )
+         .await?;
+     Ok(())
+diff --git a/crates/keeppix-jobs/src/lib.rs b/crates/keeppix-jobs/src/lib.rs
+index 9785c1c..49ab50e 100644
+--- a/crates/keeppix-jobs/src/lib.rs
++++ b/crates/keeppix-jobs/src/lib.rs
+@@ -9,6 +9,7 @@ pub mod metadata;
+ pub mod moves;
+ pub mod pool;
+ pub mod profile;
++pub mod raw;
+ pub mod watch;
+ 
+ pub use dispatch::{DEFAULT_RAM_HINT, IngestHandler, JobHandler, ram_hint_for_image};
+diff --git a/crates/keeppix-jobs/src/raw.rs b/crates/keeppix-jobs/src/raw.rs
+new file mode 100644
+index 0000000..ec1a365
+--- /dev/null
++++ b/crates/keeppix-jobs/src/raw.rs
+@@ -0,0 +1,129 @@
++//! `JobKind::DeriveRaw`: preview incorporata prima, demosaic solo se serve.
++//!
++//! Cascata (spec `fase-2-raw-culling.md` §2.1, sidecar XMP escluso — Task 5):
++//! 1. `extract_embedded_preview`: quasi gratis (1-6 ms), zero demosaic.
++//! 2. Se la preview ha il lato lungo ≥1440 px, è la preview finale. Fine.
++//! 3. Altrimenti (piccola, assente, o file non decodificabile come RAW
++//!    riconosciuto) si tenta il demosaic half-size in sandbox.
++//! 4. Se anche quello fallisce, l'asset va in errore: non blocca la coda.
++//!
++//! Il demosaic è iniettato tramite [`Demosaic`] proprio per rendere
++//! verificabile — contando le chiamate, non misurando i tempi — che il passo
++//! 2 evita davvero libraw quando la preview basta.
++
++use std::path::Path;
++
++use keeppix_db::{AssetRepo, Db, FolderRepo};
++use keeppix_media::{
++    PreviewSource, RawPreview, derivative_paths, derive_from_bytes, derive_from_rgb,
++    extract_embedded_preview,
++};
++
++use crate::JobError;
++
++/// Lato lungo minimo, in pixel, perché la preview incorporata basti da sola.
++const MIN_PREVIEW_LONG_SIDE: u32 = 1440;
++
++/// `dcraw_emu` gira su ARM in ~1,5-4 s su un RAW reale (spec §2.1); 30 s di
++/// CPU è generoso ma finito, e 512 MiB copre il Bayer full-size di un sensore
++/// consumer prima del dimezzamento.
++const DEMOSAIC_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
++const DEMOSAIC_CPU_SECS: u64 = 30;
++
++/// Punto di iniezione del demosaic. In produzione avvia `dcraw_emu` in
++/// sandbox; nei test si sostituisce con un contatore che non avvia mai un
++/// processo esterno.
++pub trait Demosaic: Send + Sync {
++    /// # Errors
++    /// Il RAW non è demosaicabile: file corrotto, formato non supportato, o
++    /// timeout della sandbox.
++    fn demosaic(&self, path: &Path) -> Result<RawPreview, JobError>;
++}
++
++/// Implementazione di produzione: `dcraw_emu` in sandbox, half-size, WB
++/// camera. Mai in-process: vedi `keeppix_media::raw::demosaic_half`.
++pub struct SandboxDemosaic;
++
++impl Demosaic for SandboxDemosaic {
++    fn demosaic(&self, path: &Path) -> Result<RawPreview, JobError> {
++        keeppix_media::demosaic_half(path, DEMOSAIC_MEMORY_BYTES, DEMOSAIC_CPU_SECS)
++            .map_err(|e| JobError::Worker(e.to_string()))
++    }
++}
++
++/// # Errors
++/// File assente per l'hash, o database.
++pub async fn run(db: &Db, data_dir: &Path, hash: [u8; 32]) -> Result<(), JobError> {
++    run_with(db, data_dir, hash, &SandboxDemosaic).await
++}
++
++/// Stessa pipeline di [`run`], col demosaic iniettato. I test la chiamano
++/// direttamente per contare le invocazioni senza mai toccare libraw.
++///
++/// # Errors
++/// File assente per l'hash, o database. Un RAW che non produce derivati
++/// (preview inutilizzabile *e* demosaic fallito) non è un errore di job: gli
++/// asset con quell'hash vanno in `error` e la funzione ritorna `Ok`, perché
++/// il job successivo in coda deve comunque partire.
++pub async fn run_with(
++    db: &Db,
++    data_dir: &Path,
++    hash: [u8; 32],
++    demosaic: &dyn Demosaic,
++) -> Result<(), JobError> {
++    let assets = AssetRepo::new(db);
++    let ids = assets.ids_with_hash(&hash).await?;
++    let mut src = None;
++    for id in &ids {
++        let asset = assets.get_for_scan(*id).await?;
++        let path = FolderRepo::new(db)
++            .absolute_path_for_scan(asset.folder_id)
++            .await?
++            .join(asset.filename.as_str());
++        if path.is_file() {
++            src = Some(path);
++            break;
++        }
++    }
++    let Some(src) = src else {
++        return Err(JobError::Worker("no file for content hash".to_owned()));
++    };
++
++    // Idempotenza: se il derivato esiste già, niente da rifare — soprattutto
++    // niente demosaic, che è l'unico passo davvero costoso qui.
++    let (thumb_path, _) = derivative_paths(data_dir, &hash);
++    if thumb_path.is_file() {
++        return Ok(());
++    }
++
++    if let Err(detail) = derive_raw(&src, data_dir, &hash, demosaic) {
++        for id in ids {
++            assets.set_error(id, &detail).await?;
++        }
++    }
++    Ok(())
++}
++
++fn derive_raw(
++    src: &Path,
++    data_dir: &Path,
++    hash: &[u8; 32],
++    demosaic: &dyn Demosaic,
++) -> Result<(), String> {
++    let preview = extract_embedded_preview(src).ok().flatten();
++    let chosen = match preview {
++        Some(p) if p.width.max(p.height) >= MIN_PREVIEW_LONG_SIDE => p,
++        _ => demosaic.demosaic(src).map_err(|e| e.to_string())?,
++    };
++
++    match chosen.source {
++        PreviewSource::Embedded => {
++            derive_from_bytes(&chosen.bytes, data_dir, hash).map_err(|e| e.to_string())?;
++        }
++        PreviewSource::Demosaic => {
++            derive_from_rgb(&chosen.bytes, chosen.width, chosen.height, data_dir, hash)
++                .map_err(|e| e.to_string())?;
++        }
++    }
++    Ok(())
++}
+diff --git a/crates/keeppix-jobs/tests/raw.rs b/crates/keeppix-jobs/tests/raw.rs
+new file mode 100644
+index 0000000..38f0014
+--- /dev/null
++++ b/crates/keeppix-jobs/tests/raw.rs
+@@ -0,0 +1,268 @@
++#![allow(clippy::unwrap_used, clippy::expect_used)]
++
++mod harness;
++
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++use harness::TestDb;
++use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
++use keeppix_domain::{
++    AssetId, AssetKind, AssetName, AssetStatus, AuthContext, NewAsset, NewLibrary, SystemRole,
++    UserId,
++};
++use keeppix_jobs::JobError;
++use keeppix_jobs::raw::{self, Demosaic};
++use keeppix_media::{PreviewSource, RawPreview};
++
++fn fixture(name: &str) -> PathBuf {
++    Path::new(env!("CARGO_MANIFEST_DIR"))
++        .parent()
++        .unwrap()
++        .join("keeppix-media/tests/fixtures")
++        .join(name)
++}
++
++/// Un demosaic finto che conta le invocazioni: il punto del task è
++/// dimostrare per conteggio, non per tempo, che il passo costoso non parte
++/// quando la preview incorporata basta.
++struct MockDemosaic<F> {
++    calls: AtomicUsize,
++    f: F,
++}
++
++impl<F> MockDemosaic<F>
++where
++    F: Fn() -> Result<RawPreview, JobError> + Send + Sync,
++{
++    fn new(f: F) -> Self {
++        Self {
++            calls: AtomicUsize::new(0),
++            f,
++        }
++    }
++
++    fn calls(&self) -> usize {
++        self.calls.load(Ordering::SeqCst)
++    }
++}
++
++impl<F> Demosaic for MockDemosaic<F>
++where
++    F: Fn() -> Result<RawPreview, JobError> + Send + Sync,
++{
++    fn demosaic(&self, _path: &Path) -> Result<RawPreview, JobError> {
++        self.calls.fetch_add(1, Ordering::SeqCst);
++        (self.f)()
++    }
++}
++
++fn never_called() -> Result<RawPreview, JobError> {
++    Err(JobError::Worker(
++        "demosaic must not be called when the embedded preview is big enough".to_owned(),
++    ))
++}
++
++// Il tipo di ritorno segue la firma condivisa da `MockDemosaic<F>`: qui non
++// serve mai restituire `Err`, ma deve restare compatibile con gli altri mock.
++#[allow(clippy::unnecessary_wraps)]
++fn fake_demosaic_output() -> Result<RawPreview, JobError> {
++    // 4x2 RGB8 a tinta unita: basta a passare per la pipeline dei derivati,
++    // le dimensioni non contano per questo test.
++    Ok(RawPreview {
++        bytes: vec![120u8; 4 * 2 * 3],
++        width: 4,
++        height: 2,
++        source: PreviewSource::Demosaic,
++    })
++}
++
++fn always_fails() -> Result<RawPreview, JobError> {
++    Err(JobError::Worker("dcraw_emu: corrupt raw file".to_owned()))
++}
++
++/// Un TIFF valido (header + una IFD vuota) ma senza alcun tag di preview:
++/// `extract_embedded_preview` lo riconosce come RAW ma restituisce `Ok(None)`.
++fn minimal_tiff_without_preview() -> Vec<u8> {
++    let mut buf = Vec::new();
++    buf.extend_from_slice(b"II*\0"); // little-endian, magic 42
++    buf.extend_from_slice(&8u32.to_le_bytes()); // offset alla prima IFD
++    buf.extend_from_slice(&0u16.to_le_bytes()); // 0 entry nella IFD
++    buf.extend_from_slice(&0u32.to_le_bytes()); // nessuna IFD successiva
++    buf
++}
++
++struct Seeded {
++    hash: [u8; 32],
++    data_dir: PathBuf,
++    root: PathBuf,
++    asset_id: AssetId,
++}
++
++/// Crea una libreria, ci scrive un file con questi byte, e registra
++/// l'asset RAW corrispondente col suo `content_hash` già calcolato — lo
++/// stesso stato in cui la pipeline di hash lo lascerebbe prima di accodare
++/// `DeriveRaw`. `admin` va creato una sola volta per `TestDb`:
++/// `create_bootstrap_admin` rifiuta un secondo amministratore sulla stessa
++/// istanza.
++async fn seed_raw_asset(test: &TestDb, admin: UserId, filename: &str, bytes: &[u8]) -> Seeded {
++    let ctx = AuthContext::user(admin, SystemRole::Admin);
++    let root = std::env::temp_dir().join(format!("kpx-raw-{}", uuid::Uuid::now_v7()));
++    fs::create_dir_all(&root).unwrap();
++    let path = root.join(filename);
++    fs::write(&path, bytes).unwrap();
++
++    let library = LibraryRepo::new(test.db())
++        .create(
++            &ctx,
++            NewLibrary {
++                name: "Raw".to_owned(),
++                owner_id: admin,
++                root_path: root.clone(),
++                exclude_patterns: vec![],
++            },
++        )
++        .await
++        .unwrap();
++    let folder = FolderRepo::new(test.db())
++        .ensure_path(library.id, &[])
++        .await
++        .unwrap();
++
++    let meta = fs::metadata(&path).unwrap();
++    let assets = AssetRepo::new(test.db());
++    let asset = assets
++        .upsert_discovered(NewAsset {
++            folder_id: folder.id,
++            filename: AssetName::parse(filename).unwrap(),
++            size_bytes: i64::try_from(meta.len()).unwrap(),
++            mtime: chrono::DateTime::<chrono::Utc>::from(meta.modified().unwrap()),
++            inode: None,
++            kind: AssetKind::RawImage,
++        })
++        .await
++        .unwrap();
++    let hash = keeppix_media::hash_file(&path).unwrap();
++    assets.set_hash(asset.id, hash).await.unwrap();
++
++    Seeded {
++        hash,
++        data_dir: root.join(".keeppix-data"),
++        root,
++        asset_id: asset.id,
++    }
++}
++
++#[tokio::test]
++async fn a_raw_with_a_large_preview_never_calls_libraw() {
++    let test = TestDb::start().await;
++    let admin = harness::seed_admin(&test).await;
++    let bytes = fs::read(fixture("sample.arw")).unwrap();
++    let seeded = seed_raw_asset(&test, admin, "sample.arw", &bytes).await;
++
++    let demosaic = MockDemosaic::new(never_called);
++    raw::run_with(test.db(), &seeded.data_dir, seeded.hash, &demosaic)
++        .await
++        .unwrap();
++
++    assert_eq!(
++        demosaic.calls(),
++        0,
++        "la preview incorporata di sample.arw supera 1440px: libraw non deve partire"
++    );
++    let (thumb, _) = keeppix_media::derivative_paths(&seeded.data_dir, &seeded.hash);
++    assert!(thumb.is_file(), "il thumbnail va comunque generato");
++
++    let _ = fs::remove_dir_all(&seeded.root);
++}
++
++#[tokio::test]
++async fn a_raw_without_a_preview_falls_back_to_demosaic() {
++    let test = TestDb::start().await;
++    let admin = harness::seed_admin(&test).await;
++    let seeded = seed_raw_asset(&test, admin, "empty.tiff", &minimal_tiff_without_preview()).await;
++
++    let demosaic = MockDemosaic::new(fake_demosaic_output);
++    raw::run_with(test.db(), &seeded.data_dir, seeded.hash, &demosaic)
++        .await
++        .unwrap();
++
++    assert_eq!(
++        demosaic.calls(),
++        1,
++        "senza preview incorporata la cascata deve tentare il demosaic"
++    );
++    let (thumb, _) = keeppix_media::derivative_paths(&seeded.data_dir, &seeded.hash);
++    assert!(
++        thumb.is_file(),
++        "il thumbnail va generato dall'output del demosaic"
++    );
++
++    let _ = fs::remove_dir_all(&seeded.root);
++}
++
++#[tokio::test]
++async fn a_corrupt_raw_sets_the_asset_to_error_and_does_not_block_the_queue() {
++    let test = TestDb::start().await;
++    let admin = harness::seed_admin(&test).await;
++    let corrupt = seed_raw_asset(&test, admin, "garbage.raw", b"not a raw file at all").await;
++    let good_bytes = fs::read(fixture("sample.nef")).unwrap();
++    let good = seed_raw_asset(&test, admin, "sample.nef", &good_bytes).await;
++
++    let failing = MockDemosaic::new(always_fails);
++    let result = raw::run_with(test.db(), &corrupt.data_dir, corrupt.hash, &failing).await;
++    assert!(
++        result.is_ok(),
++        "un raw corrotto è un set_error, non un errore di job che blocca la coda"
++    );
++
++    let asset = AssetRepo::new(test.db())
++        .get_for_scan(corrupt.asset_id)
++        .await
++        .unwrap();
++    assert_eq!(asset.status, AssetStatus::Error);
++
++    // La coda continua: il prossimo job (su un file diverso) va a buon fine.
++    let succeeding = MockDemosaic::new(never_called);
++    raw::run_with(test.db(), &good.data_dir, good.hash, &succeeding)
++        .await
++        .unwrap();
++    let (thumb, _) = keeppix_media::derivative_paths(&good.data_dir, &good.hash);
++    assert!(thumb.is_file());
++
++    let _ = fs::remove_dir_all(&corrupt.root);
++    let _ = fs::remove_dir_all(&good.root);
++}
++
++#[tokio::test]
++async fn the_job_is_idempotent() {
++    let test = TestDb::start().await;
++    let admin = harness::seed_admin(&test).await;
++    let seeded = seed_raw_asset(&test, admin, "empty.tiff", &minimal_tiff_without_preview()).await;
++
++    let demosaic = MockDemosaic::new(fake_demosaic_output);
++    raw::run_with(test.db(), &seeded.data_dir, seeded.hash, &demosaic)
++        .await
++        .unwrap();
++    assert_eq!(demosaic.calls(), 1);
++
++    let (thumb, _) = keeppix_media::derivative_paths(&seeded.data_dir, &seeded.hash);
++    let first_run_bytes = fs::read(&thumb).unwrap();
++
++    raw::run_with(test.db(), &seeded.data_dir, seeded.hash, &demosaic)
++        .await
++        .unwrap();
++    assert_eq!(
++        demosaic.calls(),
++        1,
++        "una seconda esecuzione non deve rilanciare il demosaic: il derivato c'è già"
++    );
++    let second_run_bytes = fs::read(&thumb).unwrap();
++    assert_eq!(
++        first_run_bytes, second_run_bytes,
++        "nessuna rigenerazione del derivato"
++    );
++
++    let _ = fs::remove_dir_all(&seeded.root);
++}
+diff --git a/crates/keeppix-media/src/derive.rs b/crates/keeppix-media/src/derive.rs
+index 742f9fc..5a4c285 100644
+--- a/crates/keeppix-media/src/derive.rs
++++ b/crates/keeppix-media/src/derive.rs
+@@ -90,24 +90,70 @@ pub fn derive_from_bytes(
+         .decode()
+         .map_err(|e| DeriveError::Decode(e.to_string()))?;
+ 
++    let skip_preview = width.max(height) <= SKIP_PREVIEW_PX
++        && u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= SKIP_PREVIEW_BYTES;
++    build_derivatives(&rgb, width, height, skip_preview, &thumb, &preview)
++}
++
++/// Come [`derive_from_bytes`], ma per pixel RGB8 già decodificati — l'uscita
++/// del demosaic RAW (Task 3 Fase 2), che non è un JPEG e non passa dallo
++/// `JpegDecoder`. Nessuna soglia sui byte sorgente per lo skip della preview:
++/// non esiste un "peso del file originale" per pixel già decodificati, solo
++/// le dimensioni contano.
++///
++/// # Errors
++/// I/O, o immagine oltre 200 MP.
++pub fn derive_from_rgb(
++    rgb: &[u8],
++    width: u32,
++    height: u32,
++    data_dir: &Path,
++    hash: &[u8; 32],
++) -> Result<DeriveResult, DeriveError> {
++    let (thumb, preview) = derivative_paths(data_dir, hash);
++    if thumb.is_file() {
++        let preview = preview.is_file().then_some(preview);
++        return Ok(DeriveResult {
++            thumb,
++            preview,
++            thumbhash: Vec::new(),
++            skipped: true,
++        });
++    }
++    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
++        return Err(DeriveError::TooManyPixels);
++    }
++    let skip_preview = width.max(height) <= SKIP_PREVIEW_PX;
++    build_derivatives(rgb, width, height, skip_preview, &thumb, &preview)
++}
++
++/// Coda condivisa da [`derive_from_bytes`] e [`derive_from_rgb`]: resize,
++/// scrittura webp atomica dei derivati, thumbhash. Il chiamante ha già
++/// gestito idempotenza e limite di pixel.
++fn build_derivatives(
++    rgb: &[u8],
++    width: u32,
++    height: u32,
++    skip_preview: bool,
++    thumb: &Path,
++    preview: &Path,
++) -> Result<DeriveResult, DeriveError> {
+     if let Some(parent) = thumb.parent() {
+         fs::create_dir_all(parent)?;
+     }
+ 
+-    let thumb_rgb = resize_rgb(&rgb, width, height, THUMB)?;
+-    write_webp_atomic(&thumb, &thumb_rgb.pixels, thumb_rgb.width, thumb_rgb.height)?;
++    let thumb_rgb = resize_rgb(rgb, width, height, THUMB)?;
++    write_webp_atomic(thumb, &thumb_rgb.pixels, thumb_rgb.width, thumb_rgb.height)?;
+ 
+-    let skip_preview = width.max(height) <= SKIP_PREVIEW_PX
+-        && u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= SKIP_PREVIEW_BYTES;
+     let preview_path = if skip_preview {
+         None
+     } else {
+-        let p = resize_rgb(&rgb, width, height, PREVIEW)?;
+-        write_webp_atomic(&preview, &p.pixels, p.width, p.height)?;
+-        Some(preview)
++        let p = resize_rgb(rgb, width, height, PREVIEW)?;
++        write_webp_atomic(preview, &p.pixels, p.width, p.height)?;
++        Some(preview.to_path_buf())
+     };
+ 
+-    let hash_src = resize_rgb(&rgb, width, height, 100)?;
++    let hash_src = resize_rgb(rgb, width, height, 100)?;
+     let rgba = rgb_to_rgba(&hash_src.pixels);
+     let thumbhash = thumbhash::rgba_to_thumb_hash(
+         usize::try_from(hash_src.width).unwrap_or(1),
+@@ -116,7 +162,7 @@ pub fn derive_from_bytes(
+     );
+ 
+     Ok(DeriveResult {
+-        thumb,
++        thumb: thumb.to_path_buf(),
+         preview: preview_path,
+         thumbhash,
+         skipped: false,
+diff --git a/crates/keeppix-media/src/lib.rs b/crates/keeppix-media/src/lib.rs
+index 17de69d..a66cafc 100644
+--- a/crates/keeppix-media/src/lib.rs
++++ b/crates/keeppix-media/src/lib.rs
+@@ -10,10 +10,15 @@ pub mod sandbox;
+ pub mod video;
+ pub mod walk;
+ 
+-pub use derive::{DeriveError, DeriveResult, derivative_paths, derive_from_bytes, derive_jpeg};
++pub use derive::{
++    DeriveError, DeriveResult, derivative_paths, derive_from_bytes, derive_from_rgb, derive_jpeg,
++};
+ pub use exif::read_exif;
+ pub use hash::hash_file;
+ pub use kind::detect_kind;
+ pub use probe::{Capabilities, probe};
+-pub use raw::{PreviewSource, RawError, RawPreview, extract_embedded_preview};
++pub use raw::{
++    PreviewSource, RawError, RawPreview, dcraw_emu_available, demosaic_half,
++    extract_embedded_preview,
++};
+ pub use walk::{WalkedFile, is_stable, iter_entries, restat_if_stable};
+diff --git a/crates/keeppix-media/src/raw.rs b/crates/keeppix-media/src/raw.rs
+index f0bb5dc..7059fdc 100644
+--- a/crates/keeppix-media/src/raw.rs
++++ b/crates/keeppix-media/src/raw.rs
+@@ -20,6 +20,8 @@ use std::path::Path;
+ 
+ use thiserror::Error;
+ 
++use crate::sandbox;
++
+ const MAX_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
+ const MAX_IFDS: usize = 64;
+ const MAX_SUBIFD_FANOUT: u32 = 16;
+@@ -68,6 +70,119 @@ pub fn extract_embedded_preview(path: &Path) -> Result<Option<RawPreview>, RawEr
+     ))
+ }
+ 
++/// `false` se `dcraw_emu` non è in `PATH`: permette ai test di saltare senza
++/// fallire su una macchina/CI senza libraw installato, come già fa
++/// `video::ffprobe_available`. `dcraw_emu` non ha un flag che riesce senza un
++/// file in ingresso, quindi il segnale è che il processo sia partito
++/// affatto, non il suo exit status.
++#[must_use]
++pub fn dcraw_emu_available() -> bool {
++    sandbox::run("dcraw_emu", &["-v"], 64 * 1024 * 1024, 5).is_ok()
++}
++
++/// Demosaic half-size con bilanciamento del bianco della fotocamera, via
++/// `dcraw_emu` in sandbox. Non è per l'esportazione: è per avere un'anteprima
++/// decente quando il RAW non porta una preview incorporata utilizzabile.
++///
++/// `dcraw_emu` gira **sempre** in un processo separato con `rlimit`: è codice
++/// C che apre file non fidati.
++///
++/// # Errors
++/// Il processo non parte, esce con errore (formato non supportato, file
++/// corrotto), o la sua uscita non è il PPM 8-bit atteso.
++pub fn demosaic_half(
++    path: &Path,
++    memory_bytes: u64,
++    cpu_secs: u64,
++) -> Result<RawPreview, RawError> {
++    let path_s = path.to_string_lossy();
++    let out = sandbox::run(
++        "dcraw_emu",
++        &["-h", "-w", "-Z", "-", path_s.as_ref()],
++        memory_bytes,
++        cpu_secs,
++    )?;
++    if !out.status.success() {
++        return Err(RawError::Corrupt(format!(
++            "dcraw_emu: {}",
++            String::from_utf8_lossy(&out.stderr).trim()
++        )));
++    }
++    parse_ppm(&out.stdout)
++}
++
++/// Parser minimo per il PPM binario (`P6`) che `dcraw_emu` scrive su stdout:
++/// header ASCII (magic, larghezza, altezza, valore massimo) seguito da un
++/// singolo byte di separazione e dai pixel RGB8 interleaved. Bastano tre
++/// token: non serve un parser PNM completo per un formato che generiamo e
++/// consumiamo noi stessi.
++fn parse_ppm(bytes: &[u8]) -> Result<RawPreview, RawError> {
++    if !bytes.starts_with(b"P6") {
++        return Err(RawError::Corrupt("dcraw_emu: not a P6 ppm".to_owned()));
++    }
++    let mut pos = 2usize;
++    let width = read_ppm_uint(bytes, &mut pos)?;
++    let height = read_ppm_uint(bytes, &mut pos)?;
++    let maxval = read_ppm_uint(bytes, &mut pos)?;
++    if maxval == 0 || maxval > 255 {
++        return Err(RawError::Corrupt(
++            "dcraw_emu: expected an 8-bit ppm".to_owned(),
++        ));
++    }
++    // Esattamente un byte di separazione fra l'header ASCII e i pixel binari.
++    if pos >= bytes.len() {
++        return Err(RawError::Corrupt(
++            "dcraw_emu: truncated ppm header".to_owned(),
++        ));
++    }
++    pos += 1;
++
++    let pixel_count = u64::from(width)
++        .saturating_mul(u64::from(height))
++        .saturating_mul(3);
++    let pixel_count = usize::try_from(pixel_count)
++        .map_err(|_| RawError::Corrupt("dcraw_emu: ppm dimensions overflow".to_owned()))?;
++    let pixels = bytes
++        .get(pos..pos + pixel_count)
++        .ok_or_else(|| RawError::Corrupt("dcraw_emu: truncated ppm pixel data".to_owned()))?;
++
++    Ok(RawPreview {
++        bytes: pixels.to_vec(),
++        width,
++        height,
++        source: PreviewSource::Demosaic,
++    })
++}
++
++/// Legge un token intero ASCII in un header PNM, saltando whitespace e i
++/// commenti `#...\n` che il formato ammette fra i campi.
++fn read_ppm_uint(bytes: &[u8], pos: &mut usize) -> Result<u32, RawError> {
++    loop {
++        while bytes.get(*pos).is_some_and(u8::is_ascii_whitespace) {
++            *pos += 1;
++        }
++        if bytes.get(*pos) != Some(&b'#') {
++            break;
++        }
++        while bytes.get(*pos).is_some_and(|b| *b != b'\n') {
++            *pos += 1;
++        }
++    }
++    let start = *pos;
++    while bytes.get(*pos).is_some_and(u8::is_ascii_digit) {
++        *pos += 1;
++    }
++    if *pos == start {
++        return Err(RawError::Corrupt(
++            "dcraw_emu: malformed ppm header".to_owned(),
++        ));
++    }
++    std::str::from_utf8(&bytes[start..*pos])
++        .ok()
++        .and_then(|s| s.parse().ok())
++        .ok_or_else(|| RawError::Corrupt("dcraw_emu: malformed ppm header".to_owned()))
++}
++
+ fn is_tiff(buf: &[u8]) -> bool {
+     buf.len() >= 8 && (buf.starts_with(b"II*\0") || buf.starts_with(b"MM\0*"))
+ }
+diff --git a/crates/keeppix-media/tests/raw.rs b/crates/keeppix-media/tests/raw.rs
+index ca1b054..779b95e 100644
+--- a/crates/keeppix-media/tests/raw.rs
++++ b/crates/keeppix-media/tests/raw.rs
+@@ -1,6 +1,8 @@
+ use std::path::Path;
+ 
+-use keeppix_media::raw::{PreviewSource, extract_embedded_preview};
++use keeppix_media::raw::{
++    PreviewSource, dcraw_emu_available, demosaic_half, extract_embedded_preview,
++};
+ 
+ fn fixture(name: &str) -> std::path::PathBuf {
+     Path::new(env!("CARGO_MANIFEST_DIR"))
+@@ -131,3 +133,37 @@ fn a_non_raw_file_is_unsupported_not_a_crash() {
+ 
+     assert!(extract_embedded_preview(&text).is_err());
+ }
++
++/// Il percorso di produzione (Task 3): `dcraw_emu` gira davvero in sandbox e
++/// produce pixel RGB8 utilizzabili. Serve a non fidarsi solo del mock usato
++/// nei test del job — se il parsing del PPM si rompe, questo test lo vede.
++#[test]
++#[allow(clippy::unwrap_used)]
++fn demosaic_half_produces_usable_half_size_rgb() {
++    if !dcraw_emu_available() {
++        eprintln!("skipping: dcraw_emu not in PATH");
++        return;
++    }
++    let preview = demosaic_half(&fixture("sample.arw"), 512 * 1024 * 1024, 30).unwrap();
++    assert_eq!(preview.source, PreviewSource::Demosaic);
++    assert!(preview.width > 0 && preview.height > 0);
++    assert_eq!(
++        preview.bytes.len(),
++        preview.width as usize * preview.height as usize * 3,
++        "un pixel RGB8 per componente, niente header residuo"
++    );
++}
++
++#[test]
++#[allow(clippy::unwrap_used)]
++fn demosaic_half_on_a_corrupt_file_is_an_error_not_a_panic() {
++    if !dcraw_emu_available() {
++        eprintln!("skipping: dcraw_emu not in PATH");
++        return;
++    }
++    let dir = tempfile::tempdir().unwrap();
++    let garbage = dir.path().join("garbage.raw");
++    std::fs::write(&garbage, b"not a raw file at all").unwrap();
++
++    assert!(demosaic_half(&garbage, 512 * 1024 * 1024, 30).is_err());
++}
