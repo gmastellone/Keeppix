@@ -1,8 +1,10 @@
 # Fase 2R2 — difetti trovati dal field test sull'archivio reale
 
-**Stato:** 🟡 D1–D3 corretti e verificati sul branch `fase-2r2` (commit
-`925b70e`, non pushato). **D4 scoperto dopo, ancora aperto — blocca la
-chiusura della Fase 2.**
+**Stato:** ✅ **chiuso**. D1–D4 corretti e verificati sul branch `fase-2r2`
+(HEAD `7cc3bed`). Terzo field test sull'archivio reale, con la libreria ferma
+28 minuti dopo la fine della scansione: `discover_library` resta a **1**
+(prima della correzione di D4 erano 482 in 34 minuti), `extract_metadata` e
+`hash_asset` restano a 779. Pronto per il merge.
 **Branch di partenza:** `fase-2r` (HEAD `716e253`).
 **Branch di lavoro:** `fase-2r2`.
 
@@ -544,17 +546,25 @@ Non è «i test passano». È il field test rieseguito sullo stesso archivio:
 - [ ] lasciando girare l'istanza **15 minuti a libreria ferma**, i conteggi di
       `extract_metadata` e `hash_asset` **non aumentano** — verificato, tengono;
       **ma la riga sotto è nuova e blocca comunque la chiusura**:
-- [ ] lasciando girare l'istanza **15 minuti a libreria ferma**, il conteggio
-      di `discover_library` **non cresce oltre la prima passata** — oggi cresce
-      senza fermarsi mai (D4);
+- [x] lasciando girare l'istanza **15 minuti a libreria ferma**, il conteggio
+      di `discover_library` **non cresce oltre la prima passata** — verificato
+      con la correzione di D4 (`9badcb8`): **28 minuti** a libreria ferma,
+      `discover_library` resta a **1** (era 482 in 34 minuti prima della
+      correzione);
 - [x] aprendo la timeline nel browser si vedono le miniature, non riquadri vuoti.
 
-Il criterio della Fase 2R — «una persona, da istanza vuota e usando solo il
-browser, crea l'admin, aggiunge una libreria, avvia la scansione e vede le
-foto» — **è soddisfatto** per la parte visibile all'utente. Resta aperto D4,
-che non si vede nell'interfaccia ma consuma la macchina all'infinito in
-sottofondo: sul Pi 5 con 200.000 foto significa non fermarsi mai di
-camminare l'intero albero.
+Tutti i criteri sono soddisfatti. Il criterio della Fase 2R — «una persona, da
+istanza vuota e usando solo il browser, crea l'admin, aggiunge una libreria,
+avvia la scansione e vede le foto» — è soddisfatto, e la macchina smette di
+lavorare quando non c'è nulla da fare.
+
+## Storico dei field test
+
+| Report | Esito |
+|---|---|
+| `.superpowers/field-test-20260817-0918.md` | Primo run 2R2, prima di D1-D3: scoperti D1/D2/D3 |
+| `.superpowers/field-test-20260817-1034.md` | Dopo D1-D3 (`925b70e`): D1-D3 confermati, scoperto D4 |
+| `.superpowers/field-test-20260817-1146.md` | Dopo D4 (`7cc3bed`): tutti i criteri soddisfatti, chiusura |
 
 ## Lezione di processo, da non perdere
 
