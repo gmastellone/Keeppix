@@ -151,3 +151,52 @@ sopra. GREEN dopo quei task.
 
 ---
 
+## Task 2 — anteprima 2048, livello `full` pigro, zoom RAW
+
+**Riproduzione prima della correzione.** Pagina che imita il culling
+(`<img src="/media/original/…">` su `sample.arw`, `Content-Type:
+application/octet-stream`). Chrome: icona di immagine rotta, alt
+`sample.arw`, `naturalWidth=0`, `naturalHeight=0`, `event=timeout`.
+L'analisi del piano è confermata: il browser non disegna un ARW.
+
+**RED osservato:**
+- `loads the full derivative on z, not the RAW original` — src era
+  `/media/original/a`
+- `preloads the full derivative… never the RAW file` — preload su
+  `/media/original/`
+- `derived_preview_long_side_is_2048` / `ensure_full_*` non compilavano
+  (API assente)
+
+Ruling: `MIN_PREVIEW_LONG_SIDE` resta **1440**, non sale a 2048. La
+fixture `sample.arw` (e i CR3 ~1620 px) sta fra 1440 e 2047: alzare la
+soglia avrebbe mandato in demosaic foto la cui JPEG incorporata è già
+usabile. Il derivato preview è `min(lato_lungo, 2048)` senza upscale.
+Costo se sbagliato: su un ARW con JPEG da 1600 px l'anteprima resta
+1600 invece di demosaicare a piena risoluzione — il demosaic sul Pi
+costa secondi, 1600 px a schermo no.
+
+Ruling: tetto cache `full` = **512 MiB** (`KEEPPIX_FULL_CACHE_BYTES`,
+`DEFAULT_FULL_CACHE_BYTES`). ~200-300 zoom da 1,5-2,5 MB, una sessione
+di culling. LRU su atime (mtime invariato al hit, così il test di
+cache non vede una rigenerazione). Costo se sbagliato: una sessione
+lunghissima sfratta i full già visti; si alza il tetto.
+
+Ruling: `/media/full/{hash}` genera in `spawn_blocking` alla prima
+richiesta (JPEG letto, RAW via preview incorporata). Non è un job in
+coda: lo zoom deve rispondere a quella richiesta. Costo se sbagliato:
+il primo `z` su un RAW grosso tiene occupato un worker Tokio per la
+durata dell'encode.
+
+Misura dopo 2048 (stessa fixture ARW, profilo test): preview **255 466 B**
+(a 1440 lossy era 213 048 B). Ancora ~1/8 del lossless 1440 da 1,94 MB.
+
+Verifica locale: vitest CullingView, `cargo test -p keeppix-media --test
+derive`, `cargo test -p keeppix-api --test media` (incluso
+`full_of_a_raw_is_drawable_webp_not_the_arw`), raw jobs, config,
+clippy sui crate toccati. Field test zoom sull'archivio reale: lo
+esegue l'operatore.
+
+Task 2: complete (commit da annotare)
+
+---
+
