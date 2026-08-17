@@ -57,6 +57,7 @@ async fn ingest_fixture_indexes_three_jpegs() {
         db: test.db().clone(),
         data_dir: data_dir.clone(),
         stability_wait: Duration::ZERO,
+        trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
     };
     let night = keeppix_jobs::default_night_window();
     let pool = WorkerPool::new(

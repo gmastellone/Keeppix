@@ -78,6 +78,7 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         db: db.clone(),
         data_dir: config.data_dir.clone(),
         stability_wait: keeppix_jobs::PRODUCTION_SETTLED_AFTER,
+        trash_retention_days: config.trash_retention_days,
     };
     let night = keeppix_jobs::default_night_window();
     let workers = keeppix_jobs::worker_count(
@@ -104,6 +105,23 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
                     Ok(true) => {}
                     Ok(false) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
                     Err(e) => tracing::error!(error = %e, "worker step"),
+                }
+            }
+        });
+    }
+
+    if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
+        tracing::warn!(error = %e, "trash cleanup could not be scheduled");
+    }
+    {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
+                    tracing::warn!(error = %e, "trash cleanup could not be scheduled");
                 }
             }
         });

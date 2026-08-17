@@ -21,6 +21,7 @@ fn production_ingest_handler(db: keeppix_db::Db, data_dir: PathBuf) -> IngestHan
         db,
         data_dir,
         stability_wait: PRODUCTION_SETTLED_AFTER,
+        trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
     }
 }
 

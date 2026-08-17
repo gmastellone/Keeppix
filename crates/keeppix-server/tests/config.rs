@@ -69,6 +69,11 @@ fn defaults_are_applied() {
         keeppix_jobs::DEFAULT_FULL_CACHE_BYTES,
         "default KEEPPIX_FULL_CACHE_BYTES: 512 MiB, una sessione di culling"
     );
+    assert_eq!(
+        cfg.trash_retention_days,
+        keeppix_db::TRASH_RETENTION_DAYS,
+        "default KEEPPIX_TRASH_RETENTION_DAYS: 30, la finestra dichiarata all'utente"
+    );
 }
 
 #[test]

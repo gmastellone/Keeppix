@@ -196,7 +196,23 @@ derive`, `cargo test -p keeppix-api --test media` (incluso
 clippy sui crate toccati. Field test zoom sull'archivio reale: lo
 esegue l'operatore.
 
-Task 2: complete (commit da annotare)
+Task 2: complete (commit `e0eade4`, test verdi sui crate toccati)
+
+---
+
+## Task 4 — potatura automatica del cestino
+
+**RED osservato:** `expired_trash_is_removed_by_the_maintenance_job_without_a_manual_empty` non compilava (`cleanup_trash` assente). `check-wired.py` elencava `cleanup_expired`.
+
+Ruling: job `CleanupTrash` a priorità Background, accodato all'avvio e ogni 24 h dal binario. Il job **non** si ri-accoda da solo: il `dedup_key` collide col job ancora `running` (stesso buco potenziale di `WriteSidecar`). Costo se sbagliato: un riavvio prima delle 24 h riaccoda subito (dedup), non perde giri.
+
+Ruling: finestra da `KEEPPIX_TRASH_RETENTION_DAYS` (default 30, la stessa `TRASH_RETENTION_DAYS` dell'API). L'API dei giorni residui resta sulla costante: senza UI delle impostazioni due manopole divergerebbero. Costo se sbagliato: l'operatore che mette 7 giorni vede ancora «30» in interfaccia.
+
+Dopo: `check-wired.py` non elenca più `cleanup_expired`; restano `/ws` e `/ws/ticket`.
+
+Task 4: complete (commit da annotare)
+
+---
 
 ---
 

@@ -1,5 +1,6 @@
 //! Coda e worker di ingestione. Unisce `keeppix-db` e `keeppix-media`.
 
+pub mod cleanup_trash;
 pub mod derive;
 pub mod discover;
 pub mod dispatch;
