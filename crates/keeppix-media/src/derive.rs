@@ -2,14 +2,21 @@ use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use fast_image_resize::images::Image;
 use fast_image_resize::{FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer};
-use image_webp::WebPEncoder;
 use thiserror::Error;
+use webp::Encoder as WebPEncoder;
 use zune_jpeg::JpegDecoder;
 
 const THUMB: u32 = 240;
 const PREVIEW: u32 = 1440;
+/// Default della qualità WebP con perdita. Sotto 75 si vede; sopra 88
+/// si paga per una differenza invisibile. Sovrascrivibile con
+/// [`set_webp_quality`] / `KEEPPIX_WEBP_QUALITY`.
+pub const DEFAULT_WEBP_QUALITY: u8 = 82;
+static WEBP_QUALITY: AtomicU8 = AtomicU8::new(DEFAULT_WEBP_QUALITY);
 const MAX_PIXELS: u64 = 200_000_000;
 const SKIP_PREVIEW_PX: u32 = 1600;
 const SKIP_PREVIEW_BYTES: u64 = 400 * 1024;
@@ -30,6 +37,19 @@ pub struct DeriveResult {
     pub preview: Option<PathBuf>,
     pub thumbhash: Vec<u8>,
     pub skipped: bool,
+}
+
+/// Qualità di encoding WebP (1–100). Chiamato all'avvio da `Config`.
+pub fn set_webp_quality(quality: u8) {
+    WEBP_QUALITY.store(quality.clamp(1, 100), Ordering::Relaxed);
+}
+
+fn webp_quality() -> u8 {
+    std::env::var("KEEPPIX_WEBP_QUALITY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|q: &u8| (1..=100).contains(q))
+        .unwrap_or_else(|| WEBP_QUALITY.load(Ordering::Relaxed))
 }
 
 /// Una decodifica, write su `.tmp`, `rename`. Idempotente se i file ci sono già.
@@ -222,13 +242,13 @@ fn rgb_to_rgba(rgb: &[u8]) -> Vec<u8> {
 
 fn write_webp_atomic(path: &Path, rgb: &[u8], w: u32, h: u32) -> Result<(), DeriveError> {
     let tmp = path.with_extension(format!("webp.{}.tmp", std::process::id()));
-    let mut buf = Vec::new();
-    WebPEncoder::new(&mut buf)
-        .encode(rgb, w, h, image_webp::ColorType::Rgb8)
-        .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    let encoded = WebPEncoder::from_rgb(rgb, w, h).encode(f32::from(webp_quality()));
+    if encoded.is_empty() {
+        return Err(DeriveError::Decode("webp encode returned empty".to_owned()));
+    }
     {
         let mut f = fs::File::create(&tmp)?;
-        f.write_all(&buf)?;
+        f.write_all(&encoded)?;
     }
     fs::rename(tmp, path)?;
     Ok(())

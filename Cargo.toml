@@ -44,6 +44,16 @@ opt-level = 2
 [profile.test.package.keeppix-media]
 opt-level = 2
 
+# libwebp-sys è C: a opt-level=0 l'encoder lossy risultava più lento del
+# lossless Rust (1,06 s vs 0,48 s sulla stessa fixture). Stesso motivo
+# dell'ottimizzazione di keeppix-media: i budget devono parlare della
+# produzione, non di rustc -O0 sul C.
+[profile.dev.package.libwebp-sys]
+opt-level = 2
+
+[profile.test.package.libwebp-sys]
+opt-level = 2
+
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
