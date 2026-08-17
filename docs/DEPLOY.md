@@ -7,6 +7,18 @@
 - PostgreSQL 17 con PostGIS 3.5 (incluso, oppure esterno)
 - 2 GB di RAM liberi, architettura `amd64` o `arm64`
 
+L'immagine include `dcraw_emu` (pacchetto Debian `libraw-bin`) con le sue
+librerie — `libraw`, `liblcms2`, `libjpeg`, `libgomp` — in
+`/usr/local/lib/keeppix`, raggiunte via `LD_LIBRARY_PATH`. Serve al demosaic
+dei RAW: senza, le fotocamere che incorporano anteprime piccole non
+otterrebbero miniature, e lo zoom a piena risoluzione nel culling
+risponderebbe `503 keeppix/full-unavailable`. Costa ~4 MB sull'immagine.
+
+Chi ricostruisce l'immagine per conto proprio, o la ricompone su una base
+diversa da quella del `Dockerfile`, deve portarsi dietro quel binario: gira
+sempre in un processo separato con `rlimit`, mai dentro il processo di
+Keeppix.
+
 ## Avvio con tutto incluso
 
 `docker compose` legge automaticamente un file `.env` nella stessa cartella
