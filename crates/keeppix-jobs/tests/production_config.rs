@@ -149,9 +149,24 @@ async fn production_handler_discovers_settled_files_within_budget() {
     let elapsed = start.elapsed();
     eprintln!("MEASUREMENT production handler discover 200 settled: {elapsed:?}");
 
+    // 30 s come `discover_perf.rs`, che il commento sopra dichiarava già di
+    // seguire mentre asseriva 5 s.
+    //
+    // La soglia si deriva dal difetto che il test protegge, non da quanto è
+    // veloce la macchina di turno: il difetto è `restat_if_stable` che dormiva
+    // 5 s **per file** (D1 della Fase 2R), quindi su 200 file costerebbe ~1000
+    // secondi. Qualsiasi soglia molto sotto quel valore lo cattura; 30 s lascia
+    // 33× di margine sul difetto e smette di misurare l'umore del runner.
+    //
+    // A 5 s non lo faceva: in CI questo test ha misurato 5,95 s
+    // (run 32026578024) per contesa sul Postgres condiviso — su 200 file il
+    // costo fisso di seed, creazione libreria e round-trip domina, e non ha
+    // niente a che vedere con un sonno per file. Un budget che passa o fallisce
+    // secondo il carico del runner non prova ciò che il suo nome afferma.
     assert!(
-        elapsed < Duration::from_secs(5),
-        "handler con PRODUCTION_SETTLED_AFTER ha impiegato {elapsed:?} su 200 file assestati"
+        elapsed < Duration::from_secs(30),
+        "handler con PRODUCTION_SETTLED_AFTER ha impiegato {elapsed:?} su 200 file assestati: \
+         la discovery sta dormendo per file invece di saltare i file già fermi"
     );
 
     let count = AssetRepo::new(test.db())
