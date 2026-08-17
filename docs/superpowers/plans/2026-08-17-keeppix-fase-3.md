@@ -85,6 +85,9 @@ rende critici:
 | **V7** | Creo un album con foto da cartelle diverse, lo condivido con un link protetto da password e con scadenza; un estraneo lo apre dal telefono | 3, 5, 10 |
 | **V8** | Revoco il link: chi ce l'ha non entra più, **subito** | 5, 11 |
 | **V9** | Un cliente carica le sue foto attraverso un link di upload; le trovo in una coda di revisione | 7 |
+| **V10** | Da amministratore creo un secondo utente e lo disabilito, tutto dal browser | 12a |
+| **V11** | Torno da un servizio: sfoglio la cartella, seleziono 200 scatti, sposto le date perché la fotocamera era avanti di un'ora, e annullo quando sbaglio | 12c, 12e |
+| **V12** | Cancello per errore, apro il cestino e ripristino | 12d |
 
 ---
 
@@ -803,12 +806,18 @@ in un chunk a sé.
 
 ---
 
-## Task 11: I viaggi V5-V9
+## Task 11: I viaggi V5-V12
 
 **Files:**
 - Modify: `crates/keeppix-api/tests/journeys.rs`
 
-Cinque test end-to-end nella forma introdotta dalla Fase 2R.
+Otto test end-to-end nella forma introdotta dalla Fase 2R: V5-V9 sulla
+condivisione, V10-V12 sulle interfacce del Task 12.
+
+**V10-V12 vanno scritti dopo il Task 12**, e devono attraversare l'interfaccia
+come la attraverserebbe una persona: se passano chiamando l'API senza che
+esista un modo di arrivarci dal browser, non provano ciò che il loro nome
+afferma — è il difetto che ha prodotto cinque occorrenze in questo progetto.
 
 Il più importante è **V8**: la revoca deve avere effetto **immediato**, e il
 test deve provarlo **usando il link dopo la revoca**, non verificando che la
@@ -837,62 +846,166 @@ async fn v8_revoking_a_link_locks_out_whoever_holds_it() {
 
 ---
 
-## Task 12: i debiti che la guardia attribuisce a questa fase
+## Task 12: le interfacce mancanti — i debiti che la guardia ha scoperto
 
-La guardia della Fase 2R3 (`scripts/check-wired.py`) ha scoperto superficie
-spedita e mai raggiungibile, e `scripts/wired-exceptions.txt` ne attribuisce
-**17 voci a `fase-3`**. Se questa fase si chiude senza pagarle, quel file
-mente — e diventa esattamente la malattia che la 2R3 ha appena curato:
-un'etichetta che dichiara un'intenzione inesistente.
+La guardia della Fase 2R3 (`scripts/check-wired.py`) ha scoperto **17 voci**
+spedite e mai raggiungibili dall'utente. Vengono **tutte** pagate qui.
 
-Non tutte però appartengono davvero al multiutente. Vanno separate.
+Non sono rifiniture. Sono la differenza fra un'API e un prodotto: oggi
+l'amministratore non può creare un utente, nessuno può sfogliare per cartelle,
+il cestino non si apre, i metadati non si correggono in blocco e la sessione
+scade senza rinnovo — mentre il backend, per ognuna di queste, funziona già ed
+è testato.
 
-### 12a — quelle che sono di questa fase: le paghiamo
+È lo stesso principio scritto in `AGENTS.md` e violato quattro volte:
+**una funzione che l'utente non può raggiungere non esiste.**
 
-| Voce | Perché è di qui |
-|---|---|
-| `/users`, `/users/me/password`, `/users/{id}`, `/users/{id}/disable` | La 2R ha spedito la gestione utenti **senza interfaccia**, contro il proprio principio dichiarato («una funzione che l'utente non può raggiungere non esiste»). Questa è la fase del multiutente: se l'amministratore non può creare o disabilitare un utente dal browser, la fase non è finita |
-| `/auth/refresh` | La sessione oggi ha un TTL assoluto e nessun rinnovo: l'utente viene espulso a orologio. Il Task 1 tocca già `refresh`/`rotate` per il ricontrollo di `disabled_at` — il consumatore va cablato qui, insieme |
+**Vincolo di leggerezza, valido per tutto il task:** ogni pannello qui sotto è
+un **chunk lazy separato**. Chi guarda le foto non paga per la gestione degli
+account, per il cestino o per l'editor in blocco. Il bundle d'ingresso resta
+sotto **150 KB gzip**, verificato in CI.
 
-Il pannello utenti è **amministrazione**: va in un **chunk lazy separato**,
-come la pagina pubblica del Task 10. Chi guarda le foto non paga per la
-gestione degli account.
+### 12a — Gestione utenti
 
-**Test.** Un amministratore crea un utente, gli cambia il ruolo, lo disabilita
-e ne vede sparire le sessioni — tutto dal browser, senza SQL. Un utente non
-amministratore che apre la stessa pagina riceve `Forbidden`, e non la vede
-nemmeno nel menu.
+**Rotte già spedite, senza consumatore:** `/users`, `/users/me/password`,
+`/users/{id}`, `/users/{id}/disable`.
 
-### 12b — quelle che NON sono di questa fase: le riassegniamo, dichiarandolo
+La 2R le ha costruite e testate, e nessuna interfaccia le chiama: la gestione
+utenti si fa oggi solo con `curl`. In una fase che si chiama «multiutente» è
+il primo debito da saldare.
 
-Queste sono interfacce mancanti di funzioni delle Fasi 1c e 2. Trascinarle
-qui gonfierebbe una fase già da undici task, e mescolerebbe di nuovo debiti e
-funzioni nuove — l'errore che la 2R3 ha corretto separandosi dalla 3.
+Serve: elenco utenti con ruolo e stato, creazione, cambio ruolo,
+disabilitazione, e cambio della propria password. Disabilitare un utente deve
+**revocargli le sessioni**, non solo impedirgli il prossimo accesso.
 
-| Voce | Origine | Cosa manca |
-|---|---|---|
-| `/folders/tree`, `/folders/{id}/children`, `fn move_subtree`, `fn regroup_folder` | Fase 1c | navigazione e riorganizzazione delle cartelle |
-| `/search/suggest`, `/saved-searches` | Fase 1c | suggerimenti e ricerche salvate |
-| `/trash`, `/trash/empty` | Fase 2 | vista del cestino, ripristino, svuotamento |
-| `/metadata/batch`, `/metadata/batch/shift-taken-at`, `/metadata/batch/{batch_id}/undo`, `/flags/batch` | Fase 2 | modifica di metadati e flag in blocco |
+**Test.**
+1. Un amministratore crea un utente, ne cambia il ruolo, lo disabilita, e le
+   sessioni di quell'utente smettono di funzionare **subito**.
+2. Un utente non amministratore che apre la pagina riceve `Forbidden`, e la
+   voce non compare nemmeno nel menu — nascondere il link non basta, ma
+   mostrarlo a chi non può usarlo è un difetto di interfaccia.
+3. Un utente cambia la propria password e le **altre** sue sessioni cadono,
+   quella corrente no.
 
-**Non sono dettagli.** Un archivio in cui non si può sfogliare per cartelle,
-non si vede il cestino e non si modificano i metadati in blocco è incompleto
-per l'utente professionale descritto nella spec — è la persona che scarta
-centinaia di scatti e poi corregge date e didascalie in massa.
+### 12b — Rinnovo della sessione
 
-**Serve una decisione dell'utente**, e finché non c'è, in
-`wired-exceptions.txt` vanno attribuite alla fase che le pagherà davvero —
-non a `fase-3` per inerzia. La proposta è una **Fase 3R** dedicata alle
-interfacce mancanti, sul modello di 2R e 2R3: sono debiti, non funzioni
-nuove, e mescolarli è già stato l'errore una volta.
+**Rotta già spedita, senza consumatore:** `/auth/refresh`.
 
-- [ ] **Decisione dell'utente su dove vanno le voci di 12b**
-- [ ] **Step 1-3: Scrivere, verificare, committare (solo 12a)**
-- [ ] **Aggiornare `wired-exceptions.txt`**: le voci di 12a spariscono perché
-      pagate, quelle di 12b cambiano fase secondo la decisione presa.
+Oggi la sessione ha un TTL assoluto e la SPA non la rinnova mai: l'utente viene
+espulso a orologio, nel mezzo di quello che sta facendo. Su una sessione di
+culling di due ore è inaccettabile.
 
----
+Il Task 1 tocca già `refresh`/`rotate` per il ricontrollo di `disabled_at`: il
+cablaggio va fatto **insieme**, non dopo.
+
+Serve un rinnovo silenzioso prima della scadenza, che non parta se la scheda è
+in background e inattiva — un watchdog che rinnova a vuoto tutta la notte è
+esattamente il consumo continuo che il bersaglio Pi vieta.
+
+**Test.** Con un TTL abbreviato nei test, una sessione attiva **non** cade alla
+scadenza; una scheda lasciata inattiva oltre la finestra **cade**, e il ritorno
+mostra il login senza schermate rotte.
+
+### 12c — Navigazione e riorganizzazione delle cartelle
+
+**Rotte e funzioni già spedite, senza consumatore:** `/folders/tree`,
+`/folders/{id}/children`, `fn move_subtree`, `fn regroup_folder`.
+
+L'albero `ltree` esiste dalla Fase 1a, l'API dalla 1c, e non c'è modo di
+sfogliarlo. Per chi organizza le foto in cartelle sul disco — il modello che
+hai scelto contro quello a soli album — è la vista principale che manca.
+
+Serve: albero navigabile con conteggi, apertura di una cartella in timeline
+filtrata, e spostamento di un sottoalbero.
+
+**Attenzione al peso:** l'albero **non si carica tutto**. Si espande un livello
+alla volta con `/folders/{id}/children`; `/folders/tree` serve solo la radice.
+Su 200.000 foto e migliaia di cartelle, un albero completo in una risposta sola
+è esattamente ciò che `AGENTS.md` vieta.
+
+**Test.**
+1. L'albero mostra i figli solo quando si espande un nodo, non prima —
+   verificato contando le richieste.
+2. Spostare una cartella con molte foto **non** riscrive le righe degli asset
+   (l'invariante dell'`ltree`: si sposta il sottoalbero, non i figli).
+3. Un utente vede solo le cartelle che i suoi permessi gli concedono — questo
+   task arriva **dopo** il Task 1, e ne usa la funzione di visibilità.
+
+### 12d — Cestino
+
+**Rotte già spedite, senza consumatore:** `/trash`, `/trash/empty`.
+
+La Fase 2 ha costruito il cestino con conservazione a termine, la 2R3 ne ha
+schedulato la potatura automatica, e l'utente **non può vederlo**. Cancella
+foto e non ha modo di recuperarle né di liberare spazio prima della scadenza.
+
+Serve: elenco degli elementi in cestino con quando scadono, ripristino
+selettivo, svuotamento immediato con conferma.
+
+**Lo svuotamento è distruttivo e irreversibile**: la conferma deve dire quanti
+file e quanto spazio, non un «sei sicuro?» generico.
+
+**Test.** Una foto cancellata compare in cestino con la sua data di scadenza; il
+ripristino la rimette nella timeline; lo svuotamento chiede conferma con i
+numeri e poi cancella davvero.
+
+### 12e — Modifica di metadati e flag in blocco
+
+**Rotte già spedite, senza consumatore:** `/metadata/batch`,
+`/metadata/batch/shift-taken-at`, `/metadata/batch/{batch_id}/undo`,
+`/flags/batch`.
+
+Questa è la funzione del **professionista** descritto nella spec: torna da un
+servizio con centinaia di scatti, la fotocamera aveva l'ora sbagliata, e deve
+spostare le date di tutti e mettere una didascalia comune. Il backend lo fa
+già, incluso l'**annullamento** di un'operazione in blocco.
+
+Serve: selezione multipla in timeline, pannello di modifica applicato alla
+selezione, spostamento delle date con anteprima del risultato, e un annulla
+raggiungibile **dopo** l'operazione — un `undo` che esiste nell'API ma che
+l'utente non trova non lo salva da niente.
+
+**Test.**
+1. Selezionate N foto e spostate le date, tutte cambiano e l'annulla le
+   riporta esattamente com'erano.
+2. L'annulla resta raggiungibile finché l'operazione è annullabile, e sparisce
+   quando non lo è più — senza lasciare un pulsante che fallisce.
+3. I metadati originali **non** vengono riscritti: la modifica vive in
+   `asset_overrides` e il valore mostrato è `COALESCE(override, exif)`
+   (invariante di `AGENTS.md`).
+
+### 12f — Suggerimenti e ricerche salvate
+
+**Rotte già spedite, senza consumatore:** `/search/suggest`, `/saved-searches`.
+
+Serve: suggerimenti mentre si digita, e salvataggio di una ricerca con
+richiamo dalla barra laterale.
+
+**I suggerimenti sono su un percorso caldo**: vanno con debounce e con la
+richiesta precedente annullata, altrimenti ogni tasto è una query su 200.000
+righe.
+
+**Test.** Digitando non parte una richiesta per carattere; selezionare un
+suggerimento esegue la ricerca; una ricerca salvata si richiama e dà gli stessi
+risultati.
+
+### 12g — Ripulire il registro delle eccezioni
+
+Pagati i debiti, `scripts/wired-exceptions.txt` va **svuotato** della sezione
+«Debiti»: se resta una voce, o non è stata pagata o la guardia non la vede più
+per un motivo che va capito, non silenziato.
+
+Restano solo i **rinvii** veri — `fase-6` per video e capacità hardware, `ops`
+per `/health`, `ci` per `/api/openapi.json`.
+
+**Attenzione a una trappola già vista:** costruire le URL da un parametro
+(`/media/${kind}/…`) rende le rotte invisibili alla guardia, che le segnala
+come mai usate. Se succede, la correzione è **rendere il consumo visibile**,
+non aggiungere un'eccezione per una rotta che è davvero usata.
+
+- [ ] **Step 1-3: Scrivere, verificare, committare** (una unità logica per
+      ognuna delle sei aree, non un commit unico)
+
 
 ## Task 13-15: spostati in Fase 2R3
 
@@ -916,14 +1029,18 @@ scala che la 2R3 lascia in eredità, invece di doverla scrivere.
 Ognuno è **eseguibile**.
 
 - [ ] `cargo test --workspace -- --test-threads=1` verde; clippy e fmt puliti.
-- [ ] I viaggi **V5-V9** passano, oltre a V1-V4 della Fase 2R.
+- [ ] I viaggi **V5-V12** passano, oltre a V1-V4 della Fase 2R.
 - [ ] **Budget**: `GET /timeline` sotto 300 ms con 50 permessi e 10.000 asset,
       misurato e registrato nel ledger insieme alla strada scelta per
       l'ereditarietà (CTE o `NOT EXISTS`) con i numeri di `EXPLAIN ANALYZE`.
-- [ ] **I debiti di 12a sono pagati**: un amministratore gestisce gli utenti
-      dal browser, e `wired-exceptions.txt` non contiene più `/users*` né
-      `/auth/refresh`. Le voci di 12b puntano alla fase decisa, non a
-      `fase-3` per inerzia.
+- [ ] **Tutti i debiti del Task 12 sono pagati**, e la sezione «Debiti» di
+      `scripts/wired-exceptions.txt` è **vuota**. Restano solo i rinvii veri
+      (`fase-6`, `ops`, `ci`). Una voce che resta lì è un debito non pagato,
+      non una formalità.
+- [ ] **Provato a mano dal browser, senza toccare SQL né `curl`:** creare e
+      disabilitare un utente; sfogliare l'albero delle cartelle; aprire il
+      cestino e ripristinare una foto; selezionare più foto e spostarne le
+      date, poi annullare; salvare una ricerca e richiamarla.
 - [ ] **Budget retto a 200.000 asset**, usando l'impalcatura di scala
       lasciata dalla Fase 2R3 (suo Task 8): la query di visibilità del Task 1
       va misurata **lì**, non solo sui 10.000 della riga sopra. È il bersaglio
