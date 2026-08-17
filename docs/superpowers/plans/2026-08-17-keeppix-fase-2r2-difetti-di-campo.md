@@ -1,6 +1,8 @@
 # Fase 2R2 — difetti trovati dal field test sull'archivio reale
 
-**Stato:** ⬜ da eseguire. Blocca la chiusura della Fase 2.
+**Stato:** 🟡 D1–D3 corretti e verificati sul branch `fase-2r2` (commit
+`925b70e`, non pushato). **D4 scoperto dopo, ancora aperto — blocca la
+chiusura della Fase 2.**
 **Branch di partenza:** `fase-2r` (HEAD `716e253`).
 **Branch di lavoro:** `fase-2r2`.
 
@@ -362,6 +364,136 @@ decodificare non è una foto da mostrare.
 
 ---
 
+## D4 — la riscansione nativa si autoalimenta all'infinito
+
+**Gravità: critica.** Trovato **dopo** i task 1–5 sopra, rieseguendo il field
+test sul branch `fase-2r2` (commit `925b70e`) che li implementa. I task 1–4
+funzionano — vedi «Cosa è stato verificato» più sotto — ma questo difetto è
+nuovo e resta aperto.
+
+### Osservazione
+
+Stesso archivio, stessa libreria, **lasciata ferma**. Query ripetute nel
+tempo:
+
+```
+09:09:14  discover_library: 482 job, cadenza ~ogni 2-3s, nessun segno di rallentare
+09:09:14  extract_metadata: 779   hash_asset: 779        ← fermi, corretto
+```
+
+**34 minuti dopo l'avvio**, con la scansione iniziale e tutte le derivazioni
+finite da tempo (l'ultimo lavoro pesante risale a **08:41**), il container
+continua ad accodare `discover_library` **ogni 2-3 secondi, senza fermarsi
+mai**. Non è transitorio: il conteggio cresce linearmente e senza segni di
+esaurimento per tutta la finestra osservata.
+
+I task 1–3 (D1+D2) funzionano correttamente: ogni singola riscansione non
+riaccoda più `extract_metadata`/`hash_asset` per gli 808 asset invariati — i
+loro conteggi restano fermi. **Il problema non è più il costo di una
+riscansione. È che la riscansione non si ferma mai.** Su un archivio di
+200.000 foto, ogni passata cammina comunque l'intero albero e fa uno `stat()`
+per file: anche resa "economica" a valle, farla ogni 2-3 secondi per sempre
+è esattamente il tipo di consumo continuo che il vincolo di leggerezza vieta.
+
+### Causa
+
+`crates/keeppix-jobs/src/watch.rs`, `watch_native`, riceve gli eventi dal
+watcher `notify` e li filtra con:
+
+```rust
+fn interesting(event: &Event) -> bool {
+    event.paths.iter().any(|p| !is_hidden_path(p))
+}
+```
+
+Filtra solo per **percorso**. Non guarda mai `event.kind`. Il tipo
+`notify::Event` porta un `EventKind` con cinque famiglie (`notify-types
+2.1.0`, `event.rs`): `Access`, `Create`, `Modify`, `Remove`, `Other`/`Any`. Un
+evento `Access` — apertura o lettura di un file, **senza alcuna modifica** —
+oggi passa il filtro `interesting` esattamente come una scrittura vera.
+
+`std::fs::metadata()` (lo `stat()` fatto su ogni file a ogni `discover::run`,
+e anche dentro `hash.rs`/`metadata.rs` per leggere size/mtime) è già di per sé
+un accesso. Su un bind mount Docker Desktop via virtiofs, questi accessi sono
+noti per essere rispecchiati come eventi filesystem verso l'host. Il quadro
+osservato è coerente con un ciclo chiuso:
+
+```
+discover cammina l'albero e fa stat() su 779 file
+  → il bridge virtiofs genera eventi di accesso sull'host
+    → il watcher nativo li riceve, "interesting" li accetta
+      → dopo il debounce di 2s, enqueue_rescan
+        → una nuova discover cammina l'albero e fa stat() su 779 file
+          → (si ripete da capo, indefinitamente)
+```
+
+Il timing lo conferma: la cadenza osservata (~2-3s) è compatibile con
+`DEFAULT_DEBOUNCE = Duration::from_secs(2)` più il tempo di camminare 779
+file. E la tempesta non accenna a fermarsi nemmeno 28 minuti dopo che
+l'ultimo lavoro di lettura "genuino" (hash, EXIF, demosaic) è terminato —
+l'unica attività filesystem rimasta è la discovery stessa.
+
+### Correzione
+
+Filtrare per tipo di evento, non solo per percorso. Reagire solo a
+`Create`, `Modify`, `Remove`; ignorare `Access` e la famiglia generica
+`Any`/`Other` quando il backend non sa essere più preciso:
+
+```rust
+fn interesting(event: &Event) -> bool {
+    use notify::EventKind;
+    matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    ) && event.paths.iter().any(|p| !is_hidden_path(p))
+}
+```
+
+Va verificato che questo non rompa il rilevamento di file nuovi/modificati
+sui backend reali (inotify su Linux, FSEvents su macOS): `Create` e `Modify`
+sono le famiglie che contano per la scoperta di foto nuove o cambiate;
+`Access` non lo è mai, per definizione del tipo stesso (il doc comment di
+`EventKind::Access` in notify-types lo dice esplicitamente: «non-mutating
+access operations»).
+
+Come difesa in profondità, oltre al filtro sul tipo: **limitare la cadenza
+minima fra due riscansioni della stessa libreria**, indipendentemente da
+quanti eventi arrivano nel frattempo. Anche con `interesting()` corretto, un
+editor RAW di terzi che tocca ripetutamente i sidecar, o un futuro storage di
+rete più rumoroso di virtiofs, non deve poter causare più di una riscansione
+ogni N secondi. Un intervallo minimo (es. non più di una ogni 30s per
+libreria) è economico da implementare accanto al debounce esistente e chiude
+la classe di problema, non solo l'istanza osservata.
+
+### Test che devono fallire prima della correzione
+
+1. Costruire un `Event` con `EventKind::Access(AccessKind::Open(_))` su un
+   percorso non nascosto: `interesting()` deve restituire `false`. Oggi
+   restituisce `true`.
+2. Costruire un `Event` con `EventKind::Modify(ModifyKind::Data(_))`:
+   `interesting()` deve restituire `true` (invariato — non deve regredire il
+   rilevamento reale).
+3. Un test di integrazione più difficile da isolare senza toccare
+   `notify` reale: aprire (senza scrivere) tutti i file di una libreria
+   fittizia dopo l'avvio del watcher, e verificare che **non** venga accodata
+   nessuna `discover_library` aggiuntiva entro il periodo di debounce più un
+   margine. Se l'ambiente CI non genera eventi `Access` in modo affidabile
+   (molti filesystem Linux in container non li emettono senza `mount
+   -o strictatime` e flag dedicati), documentare l'esito nel ledger invece di
+   far finta che il test provi qualcosa che non può verificare in quel
+   contesto.
+
+### Da verificare durante l'esecuzione
+
+Il timing osservato è coerente con la teoria del ciclo chiuso, ma non è stato
+isolato con un test che disattiva la discovery e osserva se la tempesta
+cessa da sola. Se dopo la correzione del filtro la tempesta persistesse,
+significherebbe che la causa non è (solo) `Access`, e andrebbe ripresa
+l'indagine guardando `event.kind` effettivo ricevuto in produzione (loggarlo
+temporaneamente al livello `trace`).
+
+---
+
 ## Ordine di esecuzione
 
 I difetti sono intrecciati: D2 va fatto **insieme** a D1, non dopo, perché la
@@ -374,25 +506,55 @@ riga `SET kind = EXCLUDED.kind` annullerebbe D1 alla prima riscansione.
 | 3 | `metadata::run` legge 4 KB, chiama `detect_kind`, persiste, e accoda `HashAsset` solo se il tipo è noto | `crates/keeppix-jobs/src/metadata.rs` |
 | 4 | Denylist estesa ai sidecar; timeline esclude `unknown` | `crates/keeppix-media/src/walk.rs`, timeline |
 | 5 | Verifica del modo watcher e dell'intervallo di polling | `crates/keeppix-jobs/src/watch.rs` |
+| 6 | `interesting()` filtra per `EventKind`, non solo per percorso; cadenza minima fra riscansioni della stessa libreria | `crates/keeppix-jobs/src/watch.rs` |
 
 Task 1–3 vanno in un unico ciclo di verifica: separarli lascia il repository in
-uno stato in cui i test di D1 passano e quelli di D2 no, o viceversa.
+uno stato in cui i test di D1 passano e quelli di D2 no, o viceversa. Task 6
+(D4) è stato scoperto **dopo** l'esecuzione di 1–5 e non dipende da loro, ma
+va comunque chiuso prima del merge: senza, l'istanza non si ferma mai di
+camminare l'albero.
+
+## Cosa è stato verificato — field test su `fase-2r2` (commit `925b70e`)
+
+Rieseguito lo stesso field test (779 ARW reali, 36 GB) su branch pulito. Stato
+al momento della verifica, con la libreria ferma:
+
+| Criterio | Esito |
+|---|---|
+| `kind = raw_image` per tutti gli asset RAW, zero `.DOP` indicizzati | ✅ `raw_image \| 779`, nessuna estensione `.DOP` fra gli asset |
+| `derive_raw` presente, zero `derive_asset \| failed` | ✅ `derive_raw \| done \| 761`, nessun fallimento di alcun tipo |
+| Timeline con miniature reali nel browser | ✅ verificato con login e screenshot: foto reali, non placeholder |
+| Stabilità dei job pesanti | ✅ `extract_metadata` e `hash_asset` restano fermi a **779** anche dopo **482 riscansioni** in 34 minuti — D1+D2 tengono sotto stress ben oltre lo scenario previsto |
+| Nessuna riscansione oltre la prima entro 15 minuti a libreria ferma | ❌ **482 riscansioni** in 34 minuti, cadenza ~2-3s, nessun segno di fermarsi — vedi **D4** |
+
+I `761` job `derive_raw` contro `689` hash `content_hash` distinti (779 asset,
+alcune foto duplicate fra cartelle) non sono un difetto: il codice ha già un
+guard di idempotenza in `raw.rs` (`if thumb_path.is_file() { return Ok(()) }`)
+che salta il demosaic — l'unico passo davvero costoso — quando il derivato
+esiste già. I job in più costano uno `stat()`, non un demosaic.
 
 ## Criterio di chiusura
 
 Non è «i test passano». È il field test rieseguito sullo stesso archivio:
 
-- [ ] `SELECT kind, count(*) FROM assets` restituisce `raw_image | 779`, e
+- [x] `SELECT kind, count(*) FROM assets` restituisce `raw_image | 779`, e
       nessun `.DOP` fra gli asset;
-- [ ] `SELECT kind, status, count(*) FROM jobs` mostra job `derive_raw`, e
+- [x] `SELECT kind, status, count(*) FROM jobs` mostra job `derive_raw`, e
       **zero** `derive_asset | failed`;
 - [ ] lasciando girare l'istanza **15 minuti a libreria ferma**, i conteggi di
-      `extract_metadata` e `hash_asset` **non aumentano**;
-- [ ] aprendo la timeline nel browser si vedono le miniature, non riquadri vuoti.
+      `extract_metadata` e `hash_asset` **non aumentano** — verificato, tengono;
+      **ma la riga sotto è nuova e blocca comunque la chiusura**:
+- [ ] lasciando girare l'istanza **15 minuti a libreria ferma**, il conteggio
+      di `discover_library` **non cresce oltre la prima passata** — oggi cresce
+      senza fermarsi mai (D4);
+- [x] aprendo la timeline nel browser si vedono le miniature, non riquadri vuoti.
 
-L'ultimo punto è il criterio che la Fase 2R si era data — «una persona, da
-istanza vuota e usando solo il browser, crea l'admin, aggiunge una libreria,
-avvia la scansione e vede le foto» — e che oggi non è soddisfatto.
+Il criterio della Fase 2R — «una persona, da istanza vuota e usando solo il
+browser, crea l'admin, aggiunge una libreria, avvia la scansione e vede le
+foto» — **è soddisfatto** per la parte visibile all'utente. Resta aperto D4,
+che non si vede nell'interfaccia ma consuma la macchina all'infinito in
+sottofondo: sul Pi 5 con 200.000 foto significa non fermarsi mai di
+camminare l'intero albero.
 
 ## Lezione di processo, da non perdere
 
