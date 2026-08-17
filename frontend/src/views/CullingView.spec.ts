@@ -15,15 +15,16 @@ vi.mock('@/api/culling', () => ({
 }))
 
 import CullingView from './CullingView.vue'
+import { fullSrc } from '@/api/media'
 
-function photo(id: string): TimelineAsset {
+function photo(id: string, kind = 'image', filename = `${id}.jpg`): TimelineAsset {
   return {
     id,
     folder_id: 'f',
-    filename: `${id}.jpg`,
+    filename,
     content_hash: `${id}${'a'.repeat(63)}`.slice(0, 64),
     size_bytes: 1,
-    kind: 'image',
+    kind,
     status: 'indexed',
     taken_at_utc: '2024-07-10T12:00:00Z',
     width: 100,
@@ -112,6 +113,86 @@ describe('CullingView keyboard shortcuts', () => {
     await flushPromises()
     expect(store.flagsFor('a').pick).toBe('none')
 
+    wrapper.unmount()
+  })
+})
+
+describe('CullingView zoom', () => {
+  it('loads the full derivative on z, not the RAW original', async () => {
+    const store = useCullingStore()
+    const raw = photo('a', 'raw_image', 'a.arw')
+    store.start([raw])
+
+    const { wrapper } = await mountCulling()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z' }))
+    await flushPromises()
+
+    const img = wrapper.get(`img[src="${fullSrc(raw.content_hash!)}"]`)
+    expect(img.attributes('src')).toBe(fullSrc(raw.content_hash!))
+    expect(wrapper.find(`img[src="/media/original/${raw.id}"]`).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not preload full until zoomed: demosaic is seconds and RAM-gated', async () => {
+    const loaded: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      (input: RequestInfo | URL) => {
+        loaded.push(String(input))
+        return Promise.resolve(new Response())
+      }
+    )
+
+    const store = useCullingStore()
+    const first = photo('a', 'raw_image', 'a.arw')
+    const second = photo('b', 'raw_image', 'b.arw')
+    const third = photo('c', 'raw_image', 'c.arw')
+    store.start([first, second, third])
+
+    const { wrapper } = await mountCulling()
+    await flushPromises()
+
+    expect(loaded.some((src) => src.includes('/media/full/'))).toBe(false)
+    expect(loaded.some((src) => src.includes('/media/original/'))).toBe(false)
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+  })
+
+  it('when zoomed, preloads at most the next photo, never three ahead', async () => {
+    const loaded: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      (input: RequestInfo | URL) => {
+        loaded.push(String(input))
+        return Promise.resolve(new Response())
+      }
+    )
+
+    const store = useCullingStore()
+    const photos = ['a', 'b', 'c', 'd'].map((id) => photo(id, 'raw_image', `${id}.arw`))
+    store.start(photos)
+
+    const { wrapper } = await mountCulling()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z' }))
+    await flushPromises()
+
+    const fullLoads = loaded.filter((src) => src.includes('/media/full/'))
+    expect(fullLoads.some((src) => src.includes('/media/original/'))).toBe(false)
+    expect(fullLoads).toContain(fullSrc(photos[1].content_hash!))
+    expect(fullLoads).not.toContain(fullSrc(photos[2].content_hash!))
+    expect(fullLoads).not.toContain(fullSrc(photos[3].content_hash!))
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+  })
+
+  it('shows a loading state while the full image has not loaded', async () => {
+    const store = useCullingStore()
+    store.start([photo('a', 'raw_image', 'a.arw')])
+    const { wrapper } = await mountCulling()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Loading')
     wrapper.unmount()
   })
 })

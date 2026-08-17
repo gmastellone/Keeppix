@@ -38,6 +38,8 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::load(Some(&cli.config))?;
     telemetry::init(config.log_format);
+    keeppix_jobs::set_webp_quality(config.webp_quality);
+    keeppix_jobs::set_webp_method(config.webp_method);
 
     let db = Db::connect(&config.database_url, config.db_max_connections)
         .await
@@ -77,6 +79,7 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         db: db.clone(),
         data_dir: config.data_dir.clone(),
         stability_wait: keeppix_jobs::PRODUCTION_SETTLED_AFTER,
+        trash_retention_days: config.trash_retention_days,
     };
     let night = keeppix_jobs::default_night_window();
     let workers = keeppix_jobs::worker_count(
@@ -108,6 +111,8 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         });
     }
 
+    spawn_maintenance(db.clone()).await;
+
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(addr = %config.bind, "keeppix listening");
 
@@ -119,7 +124,8 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
                     std::sync::Arc::new(move || tracker.notify_authenticated_request())
                 })
                 .with_allowed_origins(config.allowed_origins.clone())
-                .with_library_roots(config.library_roots.clone());
+                .with_library_roots(config.library_roots.clone())
+                .with_full_cache_bytes(config.full_cache_bytes);
         if let Some(watchers) = library_watchers {
             state = state.with_library_watchers(watchers);
         }
@@ -130,6 +136,38 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+async fn spawn_maintenance(db: Db) {
+    if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
+        tracing::warn!(error = %e, "trash cleanup could not be scheduled");
+    }
+    if let Err(e) = keeppix_jobs::retry_derives::schedule(&db).await {
+        tracing::warn!(error = %e, "error-asset retry could not be scheduled");
+    }
+    {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
+                    tracing::warn!(error = %e, "trash cleanup could not be scheduled");
+                }
+            }
+        });
+    }
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            if let Err(e) = keeppix_jobs::retry_derives::schedule(&db).await {
+                tracing::warn!(error = %e, "error-asset retry could not be scheduled");
+            }
+        }
+    });
 }
 
 /// Chiusura garbata su SIGTERM (Docker) e Ctrl-C (sviluppo).

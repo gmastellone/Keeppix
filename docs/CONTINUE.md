@@ -6,75 +6,120 @@ lo stesso contesto, non una versione diluita.
 
 ---
 
-Sei un agente che riprende Keeppix. Non aprire la Fase 3. Non fare merge su
-`main` e non fare push/PR se l'utente non lo chiede (salvo aggiornare una
-PR draft già richiesta).
+Sei un agente che riprende Keeppix, una galleria fotografica self-hosted
+(Rust + Vue). Il documento che comanda il tuo comportamento è `AGENTS.md`
+nella root: **invarianti prima del giudizio**. Se spec e piano divergono,
+vince la spec, e annoti il ruling nel ledger.
 
-Keeppix è una galleria fotografica self-hosted (Rust + Vue). Il documento che
-comanda il tuo comportamento è `AGENTS.md` nella root: **invarianti prima del
-giudizio**. Se spec e piano divergono, vince la spec; annota il ruling nel
-ledger.
+Non fare push, PR o merge se l'utente non lo chiede.
 
-## Snapshot (2026-08-16)
+## Snapshot (2026-08-17)
 
-- **Branch di lavoro:** `fase-2` (traccia `origin/fase-2`). Non lavorare su `main`.
-- **HEAD al handoff:** vedi `git log -1` su `fase-2` (chiusura Fase 2 + fix
-  `RLIMIT_AS` video `20eafc6`).
-- **Fase 0 + 1:** su `main` (o integrate).
-- **Fase 2:** implementata e **chiusa** sul branch `fase-2` (9/9 task + fix
-  poster). Consegna:
-  `docs/superpowers/plans/2026-08-15-keeppix-fase-2-STATO.md`
-- **Fase 3+:** non iniziate. Vietato anticiparle.
+- **`main`** contiene le Fasi 0, 1a-1c, 2, e le tre fasi di rimedio 2R, 2R2,
+  2R3. Tutte verificate sull'archivio reale, non solo dai test.
+- **Prossima fase: la 3** — multiutente, condivisione, link pubblici, più le
+  17 interfacce mancanti scoperte dalla guardia della 2R3.
+- **Fasi 4, 5, 6:** non iniziate, e i piani non sono ancora scritti. Vietato
+  anticiparle.
 
-## Cosa fare adesso (in quest'ordine)
+## Cosa leggere, in quest'ordine
 
-1. `git checkout fase-2 && git pull` (no force-push).
-2. Leggere, in quest'ordine:
-   - `AGENTS.md`
-   - `docs/superpowers/plans/2026-08-15-keeppix-fase-2-STATO.md` ← **consegna
-     corrente**
-   - `docs/superpowers/plans/2026-08-13-keeppix-roadmap.md`
-   - `docs/superpowers/specs/2026-08-13-keeppix-design.md`
-   - ledger `.superpowers/sdd/2026-08-15-keeppix-fase-2/progress.md`
-3. Solo se l'utente lo chiede: review, PR verso `main`, CI, merge.
-4. Se la suite è rossa: fix minimi TDD. Non «sistemare» fuori dal fallimento.
+1. `AGENTS.md`
+2. `docs/superpowers/plans/2026-08-17-keeppix-fase-2r3.md` — l'ultima fase
+   chiusa. La sezione finale «Rilievi del field test» racconta come è stata
+   verificata e cosa ne è uscito.
+3. `docs/superpowers/plans/2026-08-13-keeppix-roadmap.md` — le fasi e i
+   contratti congelati.
+4. `docs/superpowers/specs/2026-08-13-keeppix-design.md` — architettura.
+5. La spec e il piano della fase su cui lavori.
 
-**Non** aprire Fase 3 (sharing, album, permessi) finché l'utente non lo chiede.
+L'indice completo è `docs/superpowers/README.md`.
 
-## Cosa c'è già in Fase 2 (non rifarla)
+## La lezione che questo progetto ha pagato cinque volte
 
-| Pezzo | Note |
+Cinque difetti, in cinque fasi diverse, erano **lo stesso difetto**: una
+funzione scritta, testata, e mai collegata al percorso reale.
+
+| Cosa | Come è stato trovato |
 |---|---|
-| Preview RAW embedded (TIFF/BMFF, no rawler) | 1–6 ms; cascade ≥1440 senza demosaic |
-| `derive_from_bytes` + job `DeriveRaw` | fallback `dcraw_emu` sandbox |
-| `asset_overrides` + `asset_flags` | EXIF immutabile; rating/pick per utente |
-| Sidecar XMP atomici (`quick-xml`) | campi estranei preservati |
-| Stack RAW+JPEG (regola basename) | regola 2s/camera differita |
-| Trash 3 opzioni + `.keeppix-trash/` escluso dallo scan | |
-| Duplicati + batch flags/overrides | 5000 apply ~57 ms release |
-| Frontend culling lazy `/culling` | ingresso da Timeline; ~80 KB gzip iniziale |
-| ffmpeg poster sandbox | `RLIMIT_AS` **1 GiB** (512 era troppo basso su Ubuntu) |
+| `restat_if_stable` dormiva 5 s per file | field test |
+| La scansione richiedeva il riavvio del container | field test |
+| `detect_kind` mai chiamata → pipeline RAW morta in produzione | field test |
+| `TrashRepo::cleanup_expired` mai chiamata | `grep` |
+| Il WebSocket montato e mai usato dal frontend | `grep` |
 
-Ledger: `.superpowers/sdd/2026-08-15-keeppix-fase-2/progress.md` (`git add -f`).
+Nessuno è stato trovato dai test unitari, **per costruzione**: un test unitario
+invoca la funzione direttamente, che è esattamente ciò che la produzione non
+fa.
 
-## Aperto / differito (vedi STATO)
+Ce ne sono stati altri due che nemmeno un `grep` poteva vedere:
 
-- Stack rule 2; XMP sweep solo su override; trash cleanup non schedulato
-- Culling senza UI cartella/selezione; zoom 1:1 RAW puro
-- Conferma manuale ≥100 foto + hash RAW invariati; CI/PR; compose smoke
-- WS nativo `Authorization` senza Origin (Fase app)
+- `dcraw_emu` non veniva **spedito** nell'immagine Docker: lo zoom sui RAW
+  rispondeva 503 per sempre, e una fotocamera con anteprime incorporate piccole
+  avrebbe prodotto un archivio senza miniature.
+- `probe()` restituiva `"software"` come costante: il chiamante esisteva e
+  girava, salvava il dato, e il dato era inventato.
 
-## Invarianti (difetto grave se li violi)
+**Conseguenze pratiche per te:**
 
-Sono in `AGENTS.md`. In più, specifici Fase 2: **RAW mai riscritti**;
-`asset_exif` immutabile; scritture file atomiche; decoder C in sandbox.
+- `scripts/check-wired.py` gira in CI e fallisce se una funzione pubblica non
+  ha chiamanti, o se una rotta montata non ha consumatori nel frontend. Se
+  diventa rossa, la correzione di norma è **rendere il consumo visibile**, non
+  aggiungere un'eccezione. Le eccezioni vanno in `scripts/wired-exceptions.txt`,
+  separate fra **rinvii** (fase futura) e **debiti** (fase già chiusa).
+- Un test deve fallire se ciò che il suo nome dichiara regredisce. Chiediti
+  sempre: *se rompo di proposito la cosa che questo test protegge, fallisce?*
+- Una fase si chiude con un passaggio **end-to-end su dati reali**, non con la
+  suite verde.
 
-## Metodo
+## Il vincolo che governa tutto
 
-TDD vero. Commit convenzionali **in inglese**. Ruling nel ledger.
-Fermati per: azioni distruttive, push/merge/PR, info solo dell'utente.
+**Raspberry Pi 5, 8 GB, NVMe, 200.000 foto.** Ogni scelta va pesata contro
+quella macchina, non contro quella su cui sviluppi.
 
-## Fuori scope finché non te lo dicono
+Numeri misurati sull'archivio reale (779 ARW Sony, 36 GB), utili come
+riferimento:
 
-Sharing/album/permessi (Fase 3), mappa (Fase 4), tus/WebDAV (Fase 5),
-video avanzato/backup (Fase 6), seccomp, fan-out WS dai job.
+| | |
+|---|---|
+| Derivati | **178 KB per foto** (~36 GB su 200.000) |
+| Rapporto derivati/originali | **0,4%** |
+| Hash | ~85 MB/s |
+| Demosaic di un RAW da 24 MP | **894 ms** a freddo, 29 ms dalla cache |
+| Query timeline a 200.000 asset sintetici | 3-5 ms contro budget di 300 ms |
+
+Attenzione: le misure di prestazione locali vengono da Docker Desktop su
+macOS, dove il bind mount passa da virtiofs e uno `stat` costa ~190 ms invece
+di microsecondi. **Da quelle non si estrapola il Pi.** Le misure sulle query,
+sì.
+
+## Verifica prima di dichiarare fatto
+
+```bash
+cd frontend && npm ci && npm run build   # senza dist/ il backend non compila
+cd .. && cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+./scripts/test.sh
+```
+
+`npm run build` fa anche il **type-check**: eseguilo **dopo** l'ultima modifica
+ai file `.ts`, non prima. `vitest` non fa type-check, quindi da solo non basta —
+è già costato una CI rossa.
+
+`./scripts/test.sh` forza `--jobs 1 --test-threads=1` e ci mette ~21 minuti:
+avvia un PostGIS reale per modulo di test. È lento di proposito. In produzione
+invece il runtime è multi-thread e i worker sono `(core - 1)` fino a 8.
+
+## Il ledger
+
+Ogni decisione che il piano non specifica del tutto, ogni ambiguità risolta,
+ogni scostamento dal piano:
+
+```
+Ruling: <cosa hai deciso> — <perché> — <costo se è la scelta sbagliata>
+Task <N>: complete (commit <sha>, test verdi)
+```
+
+in `.superpowers/sdd/<piano-corrente>/progress.md`. È ciò che permette a
+chiunque di riprendere senza rileggere la cronologia git: è parte della
+consegna, non un extra.

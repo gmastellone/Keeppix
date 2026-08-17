@@ -68,6 +68,101 @@ pub async fn preview(
 }
 
 /// # Errors
+/// Come `thumb`. Genera il livello `full` alla prima richiesta.
+#[utoipa::path(
+    get,
+    path = "/media/full/{hash}",
+    tag = "media",
+    operation_id = "media_full",
+    security(("session_cookie" = [])),
+    params(("hash" = String, Path, description = "blake3 hex da 64 caratteri")),
+    responses(
+        (status = 200, description = "Full WebP a risoluzione nativa"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Hash non visibile", body = Problem),
+        (status = 404, description = "Originale assente o non derivabile", body = Problem),
+        (status = 503, description = "Full non disponibile (demosaic assente)", body = Problem)
+    )
+)]
+pub async fn full(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    AxumPath(hash_hex): AxumPath<String>,
+) -> Result<Response, Problem> {
+    let hash = parse_hash(&hash_hex).ok_or_else(Problem::forbidden)?;
+    let visible = AssetRepo::new(&state.db).find_by_hash(&ctx, &hash).await?;
+    let Some(asset) = visible.into_iter().next() else {
+        return Err(Problem::forbidden());
+    };
+    let folder_path = FolderRepo::new(&state.db)
+        .absolute_path(&ctx, asset.folder_id)
+        .await?;
+    let src = folder_path.join(asset.filename.as_str());
+    let data_dir = state.data_dir.clone();
+    let cap = state.full_cache_bytes;
+    let kind = asset.kind;
+    let demosaic = state.demosaic.clone();
+    let path = tokio::task::spawn_blocking(move || -> Result<_, keeppix_media::DeriveError> {
+        let path = keeppix_media::full_derivative_path(&data_dir, &hash);
+        if path.is_file() {
+            keeppix_media::ensure_full_from_bytes(&[], &data_dir, &hash)?;
+        } else {
+            build_full(&src, kind, &data_dir, &hash, demosaic.as_ref())?;
+        }
+        keeppix_media::enforce_full_cache_cap(&data_dir, cap)?;
+        Ok(keeppix_media::full_derivative_path(&data_dir, &hash))
+    })
+    .await
+    .map_err(|_| Problem::internal())?
+    .map_err(|err| match err {
+        keeppix_media::DeriveError::FullUnavailable => Problem::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "full-unavailable",
+            "Full resolution is not available",
+        ),
+        _ => Problem::not_found(),
+    })?;
+
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| Problem::not_found())?;
+    Ok(immutable_webp(bytes))
+}
+
+fn build_full(
+    src: &Path,
+    kind: keeppix_domain::AssetKind,
+    data_dir: &Path,
+    hash: &[u8; 32],
+    demosaic: &dyn keeppix_jobs::raw::Demosaic,
+) -> Result<std::path::PathBuf, keeppix_media::DeriveError> {
+    match kind {
+        keeppix_domain::AssetKind::RawImage => {
+            let embedded = keeppix_media::extract_embedded_preview(src)
+                .map_err(|e| keeppix_media::DeriveError::Decode(e.to_string()))?;
+            if let Some(preview) = embedded.as_ref()
+                && keeppix_media::embedded_usable_as_full(preview.width.max(preview.height))
+            {
+                return keeppix_media::ensure_full_from_bytes(&preview.bytes, data_dir, hash);
+            }
+            match demosaic.demosaic(src) {
+                Ok(rgb) => keeppix_media::ensure_full_from_rgb(
+                    &rgb.bytes, rgb.width, rgb.height, data_dir, hash,
+                ),
+                Err(_) => Err(keeppix_media::DeriveError::FullUnavailable),
+            }
+        }
+        keeppix_domain::AssetKind::Video => Err(keeppix_media::DeriveError::Decode(
+            "video has no full still".to_owned(),
+        )),
+        keeppix_domain::AssetKind::Image | keeppix_domain::AssetKind::Unknown => {
+            let bytes = std::fs::read(src).map_err(keeppix_media::DeriveError::from)?;
+            keeppix_media::ensure_full_from_bytes(&bytes, data_dir, hash)
+        }
+    }
+}
+
+/// # Errors
 /// `401` / `403` come gli altri asset; `404` se il file non è sul disco.
 #[utoipa::path(
     get,

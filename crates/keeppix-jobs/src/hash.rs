@@ -39,7 +39,11 @@ pub async fn run(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
 /// I RAW hanno una pipeline di derivazione diversa (preview incorporata
 /// prima del demosaic, `JobKind::DeriveRaw`); tutti gli altri kind restano
 /// su `DeriveAsset`.
-async fn enqueue_derive(db: &Db, hash: [u8; 32], kind: AssetKind) -> Result<(), JobError> {
+pub(crate) async fn enqueue_derive(
+    db: &Db,
+    hash: [u8; 32],
+    kind: AssetKind,
+) -> Result<(), JobError> {
     let mut hex = String::with_capacity(64);
     for b in hash {
         use std::fmt::Write as _;

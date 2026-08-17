@@ -37,7 +37,17 @@ impl TestServer {
     /// Se il database non è raggiungibile o il server non si avvia.
     #[allow(clippy::expect_used)]
     pub async fn start() -> Self {
-        boot(None, provision().await).await
+        boot(None, provision().await, |state| state).await
+    }
+
+    /// Come [`Self::start`], con uno stato già modificato (demosaic finto,
+    /// tetto cache, TTL). I test di `/media/full` sui RAW lo usano per non
+    /// dipendere da `dcraw_emu` in CI.
+    #[allow(clippy::expect_used)]
+    pub async fn start_with(
+        configure: impl FnOnce(keeppix_api::AppState) -> keeppix_api::AppState,
+    ) -> Self {
+        boot(None, provision().await, configure).await
     }
 
     /// Container dedicato, così `stop_database` non spegne il Postgres degli
@@ -45,7 +55,7 @@ impl TestServer {
     #[allow(clippy::expect_used)]
     pub async fn start_stoppable() -> Self {
         let (container, url) = provision_dedicated().await;
-        boot(container, url).await
+        boot(container, url, |state| state).await
     }
 
     pub fn url(&self, path: &str) -> String {
@@ -76,7 +86,11 @@ impl TestServer {
 }
 
 #[allow(clippy::expect_used)]
-async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestServer {
+async fn boot(
+    container: Option<ContainerAsync<Postgres>>,
+    url: String,
+    configure: impl FnOnce(keeppix_api::AppState) -> keeppix_api::AppState,
+) -> TestServer {
     let db = Db::connect(&url, 5).await.expect("connessione");
     db.migrate().await.expect("migrazioni");
 
@@ -88,12 +102,14 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
     let ping = auth_pings.clone();
     let watchers =
         keeppix_jobs::watch::LibraryWatchers::new(db.clone(), std::time::Duration::from_millis(80));
-    let state = keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone())
-        .with_library_roots(vec![photos_root.clone()])
-        .with_library_watchers(watchers)
-        .with_on_authenticated(std::sync::Arc::new(move || {
-            ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }));
+    let state = configure(
+        keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone())
+            .with_library_roots(vec![photos_root.clone()])
+            .with_library_watchers(watchers)
+            .with_on_authenticated(std::sync::Arc::new(move || {
+                ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            })),
+    );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");

@@ -55,6 +55,7 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/folders/{id}/children",
         "/media/thumb/{hash}",
         "/media/preview/{hash}",
+        "/media/full/{hash}",
         "/media/original/{id}",
         "/api/v1/viewport",
         "/api/v1/search",
@@ -171,8 +172,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 51,
-        "il documento deve descrivere cinquantuno operazioni"
+        checked, 52,
+        "il documento deve descrivere cinquantadue operazioni"
     );
 }
 
@@ -264,6 +265,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/viewport",
             "/api/v1/ws",
             "/api/v1/ws/ticket",
+            "/media/full/{hash}",
             "/media/original/{id}",
             "/media/preview/{hash}",
             "/media/thumb/{hash}",
@@ -323,6 +325,7 @@ fn operation_ids_are_explicit_and_unique() {
             "libraries_preview",
             "libraries_scan_start",
             "libraries_scan_status",
+            "media_full",
             "media_original",
             "media_preview",
             "media_thumb",

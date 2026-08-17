@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import type { DiskAction } from '@/api/culling'
+import { fullSrc as mediaFullSrc, previewSrc as mediaPreviewSrc } from '@/api/media'
 import type { TimelineAsset } from '@/api/timeline'
 import Filmstrip from '@/components/Filmstrip.vue'
 import RatingStars from '@/components/RatingStars.vue'
@@ -33,7 +34,12 @@ const compareAssets = computed<TimelineAsset[]>(() => orderedAssets.value.slice(
 
 function previewSrc(id: string): string {
   const asset = assetsById.value.get(id)
-  return asset?.content_hash ? `/media/preview/${asset.content_hash}` : originalSrc(id)
+  return asset?.content_hash ? mediaPreviewSrc(asset.content_hash) : originalSrc(id)
+}
+
+function fullSrc(id: string): string {
+  const asset = assetsById.value.get(id)
+  return asset?.content_hash ? mediaFullSrc(asset.content_hash) : previewSrc(id)
 }
 
 function originalSrc(id: string): string {
@@ -41,22 +47,38 @@ function originalSrc(id: string): string {
 }
 
 /**
- * L'unico posto in cui il culling legge l'originale in modo aggressivo (spec
- * §4.2): non esiste un endpoint di ritaglio lato server in questa fase, quindi
- * "il ritaglio centrale a piena risoluzione" è una tecnica di sola
- * presentazione — si precarica l'intero originale nella cache del browser e
- * lo si mostra ingrandito e centrato dentro un contenitore con
- * `overflow: hidden` (vedi il template, ramo `store.zoomed`). Il precaricamento
- * è ciò che rende lo zoom istantaneo: il file è già in cache quando l'utente
- * preme `z`.
+ * Precarica il livello `full` (WebP), non il file originale. Sui RAW
+ * l'originale non è disegnabile da un `<img>` e pesa decine di MB.
+ * Conservativo: solo con lo zoom acceso, e solo la foto successiva —
+ * il demosaic costa secondi e passa dal gate della RAM.
  */
 const preloaded = new Set<string>()
-function preloadOriginal(id: string) {
+let preloadAbort: AbortController | null = null
+
+function preloadFull(id: string) {
   if (preloaded.has(id)) return
-  preloaded.add(id)
-  const img = new Image()
-  img.src = originalSrc(id)
+  preloadAbort?.abort()
+  const ctrl = new AbortController()
+  preloadAbort = ctrl
+  void fetch(fullSrc(id), { signal: ctrl.signal, credentials: 'same-origin' })
+    .then((response) => {
+      if (response.ok) preloaded.add(id)
+    })
+    .catch(() => {
+      /* abort o rete: si ritenta quando questa foto torna corrente */
+    })
 }
+
+const zoomReady = ref(false)
+const zoomFailed = ref(false)
+
+watch(
+  () => store.currentAsset?.id,
+  () => {
+    zoomReady.value = false
+    zoomFailed.value = false
+  }
+)
 
 // `radio`/`checkbox` & co. non sono "scrivere testo": il dialogo di
 // cancellazione ha un gruppo di radio, e bloccare anche `Escape` lì dentro
@@ -174,12 +196,14 @@ function onKey(e: KeyboardEvent) {
 }
 
 watch(
-  () => `${store.position}:${store.order.length}`,
+  () => `${store.zoomed}:${store.position}:${store.order.length}`,
   () => {
-    const upcoming = store.order.slice(store.position + 1, store.position + 4)
-    upcoming.forEach(preloadOriginal)
+    preloadAbort?.abort()
     const id = store.currentAsset?.id
     if (id) void store.ensureFlagsLoaded(id)
+    if (!store.zoomed) return
+    const nextId = store.order[store.position + 1]
+    if (nextId) preloadFull(nextId)
   },
   { immediate: true }
 )
@@ -187,6 +211,7 @@ watch(
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
+  preloadAbort?.abort()
   store.stop()
 })
 </script>
@@ -239,11 +264,29 @@ onUnmounted(() => {
           class="relative h-full w-full overflow-hidden"
         >
           <img
+            :key="`preview-${store.currentAsset.id}`"
+            :src="previewSrc(store.currentAsset.id)"
+            :alt="store.currentAsset.filename"
+            class="absolute inset-0 m-auto h-full max-h-full w-full max-w-full object-contain"
+            :class="zoomReady ? 'opacity-0' : 'opacity-100'"
+          >
+          <img
+            v-if="!zoomFailed"
             :key="`zoom-${store.currentAsset.id}`"
-            :src="originalSrc(store.currentAsset.id)"
+            :src="fullSrc(store.currentAsset.id)"
             :alt="store.currentAsset.filename"
             class="absolute left-1/2 top-1/2 max-w-none -translate-x-1/2 -translate-y-1/2"
+            :class="zoomReady ? 'opacity-100' : 'opacity-0'"
+            @load="zoomReady = true"
+            @error="zoomFailed = true"
           >
+          <p
+            v-if="!zoomReady && !zoomFailed"
+            class="absolute bottom-4 left-1/2 -translate-x-1/2 text-sm text-white/80"
+            role="status"
+          >
+            {{ t('culling.zoomLoading') }}
+          </p>
         </div>
         <img
           v-else-if="store.currentAsset"

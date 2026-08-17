@@ -29,6 +29,17 @@ pub struct Config {
     /// Intervallo del watcher in modo polling (`KEEPPIX_WATCH_POLL_SECS`).
     /// Default 15 minuti: su un Pi non si vuole una riscansione continua.
     pub watch_poll_secs: u64,
+    /// Qualità WebP con perdita dei derivati (`KEEPPIX_WEBP_QUALITY`).
+    /// Default 82: sotto 75 si vede, sopra 88 si paga per poco.
+    pub webp_quality: u8,
+    /// Metodo libwebp 0–6 (`KEEPPIX_WEBP_METHOD`). 0 è veloce e più
+    /// grosso; 4 è lento. Default 2: in release ~2× più veloce di 4 con
+    /// ~3% in più di peso, rapporto derivati ancora sotto l'1%.
+    pub webp_method: u8,
+    /// Tetto della cache dei derivati `full` pigri (`KEEPPIX_FULL_CACHE_BYTES`).
+    pub full_cache_bytes: u64,
+    /// Giorni prima che il cestino si svuoti da solo (`KEEPPIX_TRASH_RETENTION_DAYS`).
+    pub trash_retention_days: i64,
 }
 
 /// Valori usati quando né l'ambiente né il file dicono nulla.
@@ -42,6 +53,10 @@ struct Defaults {
     allowed_origins: Vec<String>,
     library_roots: Vec<PathBuf>,
     watch_poll_secs: u64,
+    webp_quality: u8,
+    webp_method: u8,
+    full_cache_bytes: u64,
+    trash_retention_days: i64,
 }
 
 impl Default for Defaults {
@@ -55,6 +70,10 @@ impl Default for Defaults {
             allowed_origins: Vec::new(),
             library_roots: vec![PathBuf::from("/photos")],
             watch_poll_secs: 15 * 60,
+            webp_quality: keeppix_jobs::DEFAULT_WEBP_QUALITY,
+            webp_method: keeppix_jobs::DEFAULT_WEBP_METHOD,
+            full_cache_bytes: keeppix_jobs::DEFAULT_FULL_CACHE_BYTES,
+            trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
         }
     }
 }

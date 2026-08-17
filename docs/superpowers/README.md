@@ -9,8 +9,10 @@ dalla cronologia git.
 
 1. [`/AGENTS.md`](../../AGENTS.md) — invarianti, metodo di lavoro, cosa non
    fare. È letto automaticamente da Cursor, Codex e Claude Code.
-2. [`plans/2026-08-14-keeppix-fase-1c-STATO.md`](plans/2026-08-14-keeppix-fase-1c-STATO.md)
-   — consegna corrente (Fase 1c chiusa sul branch `fase-1`).
+2. [`plans/2026-08-17-keeppix-fase-2r3.md`](plans/2026-08-17-keeppix-fase-2r3.md)
+   — l'ultima fase chiusa. La sezione finale «Rilievi del field test» dice
+   com'è stata verificata sull'archivio reale, e le sei cose che ne sono
+   uscite.
 3. [`plans/2026-08-13-keeppix-roadmap.md`](plans/2026-08-13-keeppix-roadmap.md)
    — le fasi e i **contratti congelati** che nessuna fase può violare.
 4. La **spec della fase** su cui lavori (sotto).
@@ -63,10 +65,10 @@ e non codice da scrivere.
 | [`plans/2026-08-14-keeppix-fase-1b.md`](plans/2026-08-14-keeppix-fase-1b.md) | ✅ completato e mergiato |
 | [`plans/2026-08-14-keeppix-fase-1c.md`](plans/2026-08-14-keeppix-fase-1c.md) | ✅ completato e mergiato (PR #3) |
 | [`plans/2026-08-15-keeppix-fase-2.md`](plans/2026-08-15-keeppix-fase-2.md) | ✅ completato e mergiato (PR #4) |
-| [`plans/2026-08-17-keeppix-fase-2r.md`](plans/2026-08-17-keeppix-fase-2r.md) | ✅ eseguito sul branch `fase-2r` — usabilità, prestazioni, buchi di processo |
-| [`plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md`](plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md) | ✅ chiuso e verificato sull'archivio reale, pronto per il merge |
-| [`plans/2026-08-17-keeppix-fase-2r3.md`](plans/2026-08-17-keeppix-fase-2r3.md) | ⬜ **il prossimo** — derivati con perdita (~308 GB → ~40 GB su 200.000 foto), zoom sui RAW, debiti di processo, prova di scala |
-| [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ⬜ dopo la 2R3 — solo multiutente |
+| [`plans/2026-08-17-keeppix-fase-2r.md`](plans/2026-08-17-keeppix-fase-2r.md) | ✅ completato e mergiato (PR #6) — usabilità da browser, buchi di processo |
+| [`plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md`](plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md) | ✅ completato e mergiato (PR #6) — la pipeline RAW non girava mai in produzione |
+| [`plans/2026-08-17-keeppix-fase-2r3.md`](plans/2026-08-17-keeppix-fase-2r3.md) | ✅ completato e mergiato (PR #7) — derivati con perdita (3,3% → **0,4%**, ~308 GB → ~36 GB su 200.000 foto), zoom sui RAW, guardia in CI, prova di scala |
+| [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ⬜ **il prossimo** — multiutente, condivisione, link pubblici, **più le 17 interfacce mancanti** che la guardia della 2R3 ha scoperto (Task 12) |
 | Fase 4, 5, 6 | da scrivere, una alla volta |
 
 ## Consegne

@@ -13,6 +13,8 @@ pub enum JobKind {
     DeriveRaw,
     WriteSidecar,
     ReapStale,
+    CleanupTrash,
+    RetryErrorAssets,
 }
 
 impl JobKind {
@@ -26,6 +28,8 @@ impl JobKind {
             Self::DeriveRaw => "derive_raw",
             Self::WriteSidecar => "write_sidecar",
             Self::ReapStale => "reap_stale",
+            Self::CleanupTrash => "cleanup_trash",
+            Self::RetryErrorAssets => "retry_error_assets",
         }
     }
 
@@ -40,6 +44,8 @@ impl JobKind {
             "derive_raw" => Ok(Self::DeriveRaw),
             "write_sidecar" => Ok(Self::WriteSidecar),
             "reap_stale" => Ok(Self::ReapStale),
+            "cleanup_trash" => Ok(Self::CleanupTrash),
+            "retry_error_assets" => Ok(Self::RetryErrorAssets),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
     }
@@ -136,6 +142,8 @@ mod tests {
             JobKind::DeriveRaw,
             JobKind::WriteSidecar,
             JobKind::ReapStale,
+            JobKind::CleanupTrash,
+            JobKind::RetryErrorAssets,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
         }

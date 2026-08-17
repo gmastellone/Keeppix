@@ -21,6 +21,7 @@ fn production_ingest_handler(db: keeppix_db::Db, data_dir: PathBuf) -> IngestHan
         db,
         data_dir,
         stability_wait: PRODUCTION_SETTLED_AFTER,
+        trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
     }
 }
 
@@ -42,6 +43,27 @@ fn production_constants_are_non_zero_and_match_baseline() {
 
     assert_ne!(PRODUCTION_BATCH_SIZE, 0);
     assert_eq!(PRODUCTION_BATCH_SIZE, 500);
+}
+
+#[test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+fn default_webp_quality_is_eighty_two() {
+    assert_eq!(
+        keeppix_jobs::DEFAULT_WEBP_QUALITY,
+        82,
+        "sotto 75 si vede; sopra 88 si paga per poco"
+    );
+    let deploy =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/DEPLOY.md"))
+            .expect("DEPLOY.md");
+    assert!(
+        deploy.contains("KEEPPIX_WEBP_QUALITY"),
+        "il default deve essere documentato per l'operatore"
+    );
+    assert!(
+        deploy.contains("| `82` | Qualità WebP"),
+        "DEPLOY.md deve citare il default 82"
+    );
 }
 
 #[test]

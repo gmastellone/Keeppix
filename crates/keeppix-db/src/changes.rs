@@ -98,4 +98,13 @@ impl<'a> ChangeLogRepo<'a> {
 
         Ok(frozen.unwrap_or(cursor).max(cursor))
     }
+
+    /// High-water mark for a live subscriber that already loaded via REST.
+    /// `seq` is global; visibility is applied on each [`Self::since`] poll.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn head_seq(&self, _ctx: &AuthContext) -> Result<i64, DbError> {
+        self.safe_cursor(0).await
+    }
 }
