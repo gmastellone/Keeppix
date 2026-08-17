@@ -403,7 +403,7 @@ fn enforce_full_cache_cap_does_not_walk_the_derivatives_tree() {
     keeppix_media::ensure_full_from_bytes(&jpeg.bytes, dir.path(), &a).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(20));
     keeppix_media::ensure_full_from_bytes(&jpeg.bytes, dir.path(), &b).unwrap();
-    let size_b = std::fs::metadata(&keeppix_media::full_derivative_path(dir.path(), &b))
+    let size_b = std::fs::metadata(keeppix_media::full_derivative_path(dir.path(), &b))
         .unwrap()
         .len();
 
