@@ -94,6 +94,24 @@ Roadmap e contratti congelati:
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Installazione e esercizio. |
 | [`docs/api/openapi.json`](docs/api/openapi.json) | Contratto HTTP `/api/v1` (solo aggiunte). |
 
+## Backlog: rinvii e debiti
+
+`scripts/check-wired.py` tiene in [`scripts/wired-exceptions.txt`](scripts/wired-exceptions.txt)
+le funzioni e le rotte senza consumatore di produzione, in due sezioni
+dichiarate:
+
+- **Rinvii**: il consumatore è in una fase **non ancora eseguita**.
+- **Debiti**: spediti in una fase **già chiusa** senza interfaccia. Il
+  terzo campo è la fase che li salderà, non quella che li ha introdotti.
+
+Esempi di debito: `/users*` (la 2R dichiarava la gestione utenti fatta,
+il frontend ha zero consumatori), `/trash`, `/auth/refresh` (cookie
+assoluto di 30 giorni, niente sliding: non si viene buttati fuori a
+metà culling). Il probe hardware (`probe()` → `"unprobed"`) ha un
+chiamante ma non misura nulla — debito della Fase 1b, saldo in Fase 6.
+La guardia non lo prende: cerca chiamanti, non verifica che una funzione
+faccia qualcosa.
+
 ## Lingue
 
 Interfaccia in italiano e inglese, stesse chiavi. Nessuna stringa utente

@@ -3,7 +3,8 @@
 
 A unit test that invokes the function directly is exactly what production
 does not do — five defects in this repo were that shape. Exceptions live
-in scripts/wired-exceptions.txt with the phase that will consume them.
+in scripts/wired-exceptions.txt in two sections: Rinvii (future phase)
+and Debiti (shipped in a closed phase; the third field is who pays).
 """
 from __future__ import annotations
 
