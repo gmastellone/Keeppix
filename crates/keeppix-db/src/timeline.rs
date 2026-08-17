@@ -84,6 +84,7 @@ impl<'a> TimelineRepo<'a> {
              JOIN folders f ON f.id = a.folder_id \
              WHERE {} \
                AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
                AND a.taken_at_utc >= $1 AND a.taken_at_utc < $2 \
                AND ($3::timestamptz IS NULL \
                     OR a.taken_at_utc < $3 \

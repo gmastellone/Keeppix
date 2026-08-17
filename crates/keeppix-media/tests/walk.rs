@@ -38,6 +38,28 @@ fn walker_skips_sidecars_and_vendor_dirs() {
     assert_eq!(files.len(), 2);
 }
 
+#[test]
+fn walker_skips_dxo_dop_sidecars() {
+    let root = std::env::temp_dir().join(format!(
+        "keeppix-walk-dop-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("foto.ARW"), b"II*\0SONY").unwrap();
+    fs::write(root.join("foto.ARW.dop"), b"DxO sidecar").unwrap();
+    fs::write(root.join("edit.pp3"), b"rawtherapee").unwrap();
+
+    let files: Vec<_> = iter_entries(&root, &[]).map(|f| f.filename).collect();
+    let _ = fs::remove_dir_all(&root);
+
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0], "foto.ARW");
+}
+
 /// Pin critico (Task 7): un asset spostato in `.keeppix-trash/` non deve
 /// tornare a comparire come "scoperto" al giro di scansione successivo —
 /// altrimenti il cestino produce un ciclo infinito di reindicizzazione su

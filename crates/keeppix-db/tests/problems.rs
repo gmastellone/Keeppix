@@ -55,6 +55,7 @@ async fn problems_lists_offline_libraries_and_error_assets() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(photo(folder, "broken.jpg", 10))
         .await
+        .unwrap()
         .unwrap();
     AssetRepo::new(test.db())
         .set_error(asset.id, "unreadable")

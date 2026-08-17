@@ -59,14 +59,19 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
     if let Err(e) = keeppix_jobs::watch::persist_capabilities(&db).await {
         tracing::warn!(error = %e, "hardware probe failed");
     }
-    let library_watchers =
-        match keeppix_jobs::watch::spawn_all(&db, keeppix_jobs::watch::DEFAULT_DEBOUNCE).await {
-            Ok(watchers) => Some(watchers),
-            Err(e) => {
-                tracing::warn!(error = %e, "library watchers failed to start");
-                None
-            }
-        };
+    let library_watchers = match keeppix_jobs::watch::spawn_all(
+        &db,
+        keeppix_jobs::watch::DEFAULT_DEBOUNCE,
+        std::time::Duration::from_secs(config.watch_poll_secs),
+    )
+    .await
+    {
+        Ok(watchers) => Some(watchers),
+        Err(e) => {
+            tracing::warn!(error = %e, "library watchers failed to start");
+            None
+        }
+    };
 
     let handler = keeppix_jobs::IngestHandler {
         db: db.clone(),

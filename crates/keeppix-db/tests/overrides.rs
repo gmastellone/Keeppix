@@ -10,7 +10,7 @@ use keeppix_domain::{
     OverridePatch, SystemRole, UserId,
 };
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
     LibraryRepo::new(test.db())
         .create(
@@ -27,7 +27,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn discovered(folder: keeppix_domain::FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
@@ -41,7 +41,7 @@ fn discovered(folder: keeppix_domain::FolderId, filename: &str) -> NewAsset {
 
 /// Un asset indicizzato, con `taken_at_utc` noto: è l'"exif" con cui
 /// `effective()` fa `COALESCE`.
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_indexed_asset(
     test: &TestDb,
     owner: UserId,
@@ -57,7 +57,8 @@ async fn seed_indexed_asset(
     let asset = repo
         .upsert_discovered(discovered(folder.id, filename))
         .await
-        .expect("asset");
+        .expect("asset")
+        .unwrap();
     repo.set_indexed(asset.id, taken_at, 100, 100)
         .await
         .expect("indicizzazione");
@@ -206,6 +207,7 @@ async fn apply_batch_on_many_assets_is_one_operation() {
         let asset = assets_repo
             .upsert_discovered(discovered(folder.id, &format!("DSC_{i:04}.ARW")))
             .await
+            .unwrap()
             .unwrap();
         ids.push(asset.id);
     }
@@ -679,6 +681,7 @@ async fn shifting_taken_at_moves_every_asset_by_the_same_number_of_hours() {
         .upsert_discovered(discovered(folder.id, "DSC_0010.ARW"))
         .await
         .unwrap()
+        .unwrap()
         .id;
     assets_repo
         .set_indexed(a, exif_taken_at(), 100, 100)
@@ -687,6 +690,7 @@ async fn shifting_taken_at_moves_every_asset_by_the_same_number_of_hours() {
     let b = assets_repo
         .upsert_discovered(discovered(folder.id, "DSC_0011.ARW"))
         .await
+        .unwrap()
         .unwrap()
         .id;
     assets_repo
@@ -761,6 +765,7 @@ async fn shifting_taken_at_on_an_asset_without_any_known_date_stays_unset() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "DSC_0013.ARW"))
         .await
+        .unwrap()
         .unwrap()
         .id;
     let repo = OverrideRepo::new(test.db());

@@ -142,6 +142,7 @@ async fn seed_raw_asset(test: &TestDb, admin: UserId, filename: &str, bytes: &[u
             kind: AssetKind::RawImage,
         })
         .await
+        .unwrap()
         .unwrap();
     let hash = keeppix_media::hash_file(&path).unwrap();
     assets.set_hash(asset.id, hash).await.unwrap();

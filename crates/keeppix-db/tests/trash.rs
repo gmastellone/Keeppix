@@ -14,7 +14,7 @@ use keeppix_domain::{
 /// Una radice di libreria vera sul filesystem, non `/mnt/foto`: il cestino
 /// fa `rename()` per davvero, quindi serve un percorso su cui si possa
 /// scrivere.
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_library_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "keeppix-trash-{}-{}",
@@ -28,7 +28,7 @@ fn temp_library_root() -> PathBuf {
     root
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_library(test: &TestDb, owner: UserId, root: &Path) -> LibraryId {
     LibraryRepo::new(test.db())
         .create(
@@ -45,7 +45,7 @@ async fn seed_library(test: &TestDb, owner: UserId, root: &Path) -> LibraryId {
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
@@ -58,7 +58,7 @@ fn discovered(folder: FolderId, filename: &str) -> NewAsset {
 }
 
 #[cfg(unix)]
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn inode_of(path: &Path) -> u64 {
     use std::os::unix::fs::MetadataExt as _;
     fs::metadata(path).expect("stat").ino()
@@ -87,6 +87,7 @@ async fn moving_to_trash_is_a_rename_that_keeps_the_inode() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "foto.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     let entry = TrashRepo::new(test.db())
@@ -147,6 +148,7 @@ async fn kept_removes_the_asset_from_the_index_but_leaves_the_file() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "foto.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     TrashRepo::new(test.db())
@@ -186,6 +188,7 @@ async fn purged_deletes_the_file_and_the_row() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "foto.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     TrashRepo::new(test.db())
@@ -227,6 +230,7 @@ async fn only_owner_and_admin_can_purge_an_editor_gets_forbidden() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "foto.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     // Nota: mario non vede affatto questa libreria in questa fase (nessuna
@@ -273,6 +277,7 @@ async fn restore_puts_the_file_back_and_marks_the_asset_indexed() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "foto.jpg"))
         .await
+        .unwrap()
         .unwrap();
     TrashRepo::new(test.db())
         .choose(&ctx, asset.id, DiskAction::MovedToTrash)
@@ -316,6 +321,7 @@ async fn restore_does_not_overwrite_a_file_that_now_occupies_the_original_path()
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "foto.jpg"))
         .await
+        .unwrap()
         .unwrap();
     let entry = TrashRepo::new(test.db())
         .choose(&ctx, asset.id, DiskAction::MovedToTrash)
@@ -363,6 +369,7 @@ async fn restoring_an_asset_that_is_not_in_the_trash_is_a_conflict() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "foto.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     let result = TrashRepo::new(test.db()).restore(&ctx, asset.id).await;
@@ -393,6 +400,7 @@ async fn cleanup_expired_deletes_the_file_and_the_row_past_the_cutoff() {
     let old_asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "old.jpg"))
         .await
+        .unwrap()
         .unwrap();
     let old_entry = TrashRepo::new(test.db())
         .choose(&ctx, old_asset.id, DiskAction::MovedToTrash)
@@ -410,6 +418,7 @@ async fn cleanup_expired_deletes_the_file_and_the_row_past_the_cutoff() {
     let recent_asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "recent.jpg"))
         .await
+        .unwrap()
         .unwrap();
     let recent_entry = TrashRepo::new(test.db())
         .choose(&ctx, recent_asset.id, DiskAction::MovedToTrash)
@@ -475,6 +484,7 @@ async fn probing_someone_elses_asset_for_trash_is_forbidden() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "foto.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     let mario_ctx = AuthContext::user(mario, SystemRole::User);
