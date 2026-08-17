@@ -54,6 +54,15 @@ fn default_watch_poll_is_fifteen_minutes() {
 }
 
 #[test]
+fn native_min_rescan_is_thirty_seconds() {
+    assert_eq!(
+        keeppix_jobs::watch::MIN_RESCAN,
+        Duration::from_secs(30),
+        "senza cadenza minima un bind mount rumoroso riaccoda discover in loop"
+    );
+}
+
+#[test]
 fn production_ingest_handler_uses_settled_after_not_zero() {
     // `keeppix-server/src/main.rs` passa `PRODUCTION_SETTLED_AFTER` al campo
     // `stability_wait` dell'`IngestHandler` — non `ZERO`, non
