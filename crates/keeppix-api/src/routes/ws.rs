@@ -6,8 +6,10 @@ use axum::extract::{FromRequestParts, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, header};
 use axum::response::Response;
+use keeppix_db::{ChangeLogRepo, Db};
 use keeppix_domain::AuthContext;
 use serde::Serialize;
+use serde_json::json;
 
 use crate::extract::Auth;
 use crate::json::Json;
@@ -91,19 +93,47 @@ pub async fn ticket(State(state): State<AppState>, Auth(ctx): Auth) -> Json<Tick
         (status = 403, description = "Origin o ticket non validi", body = Problem)
     )
 )]
-pub async fn connect(handshake: TicketHandshake, ws: WebSocketUpgrade) -> Response {
+pub async fn connect(
+    State(state): State<AppState>,
+    handshake: TicketHandshake,
+    ws: WebSocketUpgrade,
+) -> Response {
     ws.protocols([PROTOCOL])
-        .on_upgrade(move |socket| socket_loop(socket, handshake.ctx))
+        .on_upgrade(move |socket| socket_loop(socket, state, handshake.ctx))
 }
 
-async fn socket_loop(mut socket: WebSocket, _ctx: AuthContext) {
+const CHANGE_POLL: Duration = Duration::from_secs(1);
+
+async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
+    let Ok(mut cursor) = ChangeLogRepo::new(&state.db).head_seq(&ctx).await else {
+        return;
+    };
+    let mut outgoing = VecDeque::new();
     let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+    let mut poll = tokio::time::interval(CHANGE_POLL);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tokio::select! {
             _ = heartbeat.tick() => {
                 if socket.send(Message::Ping(Vec::new().into())).await.is_err() {
                     break;
+                }
+            }
+            _ = poll.tick() => {
+                if drain_changes(&state.db, &ctx, &mut cursor, &mut outgoing)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                while let Some(msg) = outgoing.pop_front() {
+                    let Ok(text) = serde_json::to_string(&msg) else {
+                        continue;
+                    };
+                    if socket.send(Message::Text(text.into())).await.is_err() {
+                        return;
+                    }
                 }
             }
             msg = socket.recv() => {
@@ -120,6 +150,43 @@ async fn socket_loop(mut socket: WebSocket, _ctx: AuthContext) {
             }
         }
     }
+}
+
+async fn drain_changes(
+    db: &Db,
+    ctx: &AuthContext,
+    cursor: &mut i64,
+    q: &mut VecDeque<serde_json::Value>,
+) -> Result<(), keeppix_db::DbError> {
+    let page = ChangeLogRepo::new(db).since(ctx, *cursor).await?;
+    if page.cursor == *cursor && page.upserted.is_empty() && page.deleted.is_empty() {
+        return Ok(());
+    }
+    *cursor = page.cursor;
+    if !page.upserted.is_empty() {
+        enqueue(
+            q,
+            json!({
+                "v": 1,
+                "type": "assets.upserted",
+                "payload": {
+                    "ids": page.upserted,
+                    "count": page.upserted.len()
+                }
+            }),
+        );
+    }
+    if !page.deleted.is_empty() {
+        enqueue(
+            q,
+            json!({
+                "v": 1,
+                "type": "assets.deleted",
+                "payload": { "ids": page.deleted }
+            }),
+        );
+    }
+    Ok(())
 }
 
 pub(crate) fn origin_allowed(origin: &str, host: &str, allowlist: &[String]) -> bool {
@@ -156,9 +223,6 @@ fn ticket_from_protocol(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Coda per connessione: al 257° messaggio si svuota e resta un `resync`.
-/// Il fan-out dai job arriverà quando il worker emette eventi; oggi il
-/// contratto è pinnato dai test di modulo.
-#[allow(dead_code)]
 pub(crate) fn enqueue(q: &mut VecDeque<serde_json::Value>, msg: serde_json::Value) {
     if q.len() >= QUEUE_CAP {
         q.clear();
