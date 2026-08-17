@@ -158,6 +158,19 @@ parte un PostGIS per crate in parallelo e `target/` resta a ~9 GB.
 manipolano l'ambiente di processo. Clippy **prima** dei test: lo script
 cancella `target/` dopo.
 
+**In CI è diverso, ed è voluto: non "correggerlo".** Il workflow lancia
+`cargo test --workspace -- --test-threads=1`, **senza** `--jobs 1`, perché lì
+non c'è testcontainers: gira un solo Postgres, dichiarato in `services:` e
+passato con `KEEPPIX_TEST_DATABASE_URL`. Serializzare la compilazione su un
+runner a 4 core costava ~10 minuti per una ragione che in CI non esiste.
+`--test-threads=1` invece resta anche lì, e conta di più che in locale, perché
+i test condividono un unico database.
+
+Stessa logica per `cargo clean`: in CI gira **solo sui PR**, non su `main`.
+Gli step normali vengono eseguiti prima dei post-step, e la cache Rust si
+salva in un post-step — pulendo su `main` si salvava un `target/` vuoto, e
+ogni run ricompilava tutto da capo.
+
 Non dire "fatto" senza aver visto l'output verde. Se qualcosa è rosso, è rosso.
 
 ### Il ledger delle decisioni
