@@ -100,3 +100,19 @@ Task 1: complete (commit `8dc61f5`, test verdi, immagine Docker costruita)
 
 ---
 
+**RED osservato (Task 3):**
+`a_duplicate_hashed_after_the_first_derive_still_gets_the_thumbhash` —
+il secondo asset restava `thumbhash = NULL`.
+
+Ruling: `AssetRepo::propagate_thumbhash_for_hash` (SQL del piano, con
+`assets.` sul WHERE: Postgres 42702 «column reference thumbhash is
+ambiguous» senza qualifica). Chiamata sul ramo idempotente di
+`raw::run_with`. Stessa eccezione `AuthContext` di `set_thumbhash_for_hash`
+(pipeline). Costo se sbagliato: un JPEG duplicato via `derive_asset` ha
+lo stesso buco — differito, il piano parla solo di `derive_raw`.
+
+Task 3: complete (commit SHA dopo commit, test raw verdi)
+
+
+---
+
