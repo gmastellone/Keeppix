@@ -108,10 +108,9 @@ refresh immediato. Costo se troppo raro: si cade dopo 30 giorni di
 scheda sempre aperta senza un giro. Costo se troppo frequente: rotate
 inutili sul Pi. 12 ore è due ordini sotto il TTL e non gira di notte.
 
-Ruling: il test HTTP di sliding usa TTL **2 secondi**, non 800 ms.
-`Cookie Max-Age` è in secondi interi: 800 ms diventava un cookie già
-morto, e il 401 misurava il jar, non `rotate`. Costo: il test è più
-lento (~2.3 s) e resta cieco a un Max-Age sotto il secondo, che in
-produzione non esiste.
+Task 12b: complete (commit 29733c3, vitest session 8, `refresh_rejects_a_disabled_user`
+e `refresh_slides_expiry_so_an_active_session_survives` verdi; `check-wired`
+verde per `/auth/refresh`)
+
 
 
