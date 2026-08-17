@@ -16,8 +16,6 @@ fn move_subtree fase-1c
 fn get_json fase-1a
 fn regroup_folder fase-2
 fn set_status fase-1b
-fn since fase-2r3
-
 # --- ops / contract: not consumed by the SPA, by design ---
 route /health ops
 route /api/openapi.json ci

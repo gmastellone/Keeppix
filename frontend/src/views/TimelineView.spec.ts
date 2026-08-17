@@ -7,6 +7,7 @@ import Button from '@/components/ui/Button.vue'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
 import { fetchBuckets, fetchPage, type TimelineAsset } from '@/api/timeline'
+import { startLiveEvents, type LiveMessage } from '@/api/events'
 
 import TimelineView from './TimelineView.vue'
 
@@ -19,6 +20,10 @@ vi.mock('@/api/timeline', () => ({
   fetchBuckets: vi.fn(async () => []),
   fetchPage: vi.fn(async () => ({ assets: [] })),
   promoteViewport: vi.fn(async () => null)
+}))
+
+vi.mock('@/api/events', () => ({
+  startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
 }))
 
 const { logout } = await import('@/api/auth')
@@ -119,5 +124,35 @@ describe('TimelineView buckets', () => {
 
     const { wrapper } = await mountTimeline()
     expect(wrapper.get('section').attributes('style')).toMatch(/min-height:\s*[1-9]/)
+  })
+})
+
+describe('TimelineView live events', () => {
+  it('shows newly upserted photos without a page reload', async () => {
+    let onEvent: ((msg: LiveMessage) => void) | undefined
+    const close = vi.fn()
+    vi.mocked(startLiveEvents).mockImplementation((cb) => {
+      onEvent = cb
+      return { close }
+    })
+    vi.mocked(fetchBuckets).mockResolvedValue([])
+
+    const { wrapper } = await mountTimeline()
+    expect(startLiveEvents).toHaveBeenCalledTimes(1)
+    const emptyCopy = String(i18n.global.t('timeline.empty'))
+    expect(wrapper.text()).toContain(emptyCopy)
+
+    vi.mocked(fetchBuckets).mockResolvedValue([{ month: '2024-07', count: 1 }])
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('live')] })
+    onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['live'], count: 1 } })
+    await flushPromises()
+
+    expect(fetchBuckets.mock.calls.length).toBeGreaterThan(1)
+    expect(wrapper.text()).toContain('2024-07 · 1')
+    expect(wrapper.text()).toContain('2024-07-10')
+    expect(wrapper.text()).not.toContain(emptyCopy)
+
+    wrapper.unmount()
+    expect(close).toHaveBeenCalled()
   })
 })
