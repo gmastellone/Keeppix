@@ -453,6 +453,14 @@ Task R4: complete (commit `984f293`)
 
 ---
 
+Verifica locale dopo R1–R6, HEAD `207b186`:
+
+- `frontend && npm ci && npm run build`: verde (turno precedente)
+- `cargo fmt --check`: verde
+- `cargo clippy --workspace --all-targets -- -D warnings`: verde
+  (`245b837`)
+- `./scripts/test.sh`: **exit 0**, ~21 min, poi `cargo clean`
+
 Field test sull'archivio reale (zoom strettamente più grande della
 preview, rapporto derivati ancora sotto l'1%): lo esegue l'operatore.
 Nessun push/PR/merge.
