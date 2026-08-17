@@ -70,17 +70,43 @@ jobs:
             /usr/local/share/chromium /usr/local/lib/node_modules || true
           df -h /
 
+      # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
+      # in locale i test usano testcontainers e senza quel limite parte un
+      # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres,
+      # dichiarato in `services:` e passato con `KEEPPIX_TEST_DATABASE_URL`.
+      # Serializzare la compilazione su un runner a 4 core costava ~10 minuti
+      # per una ragione che in CI non esiste.
+      #
+      # `--test-threads=1` invece resta, e qui è ancora più necessario che in
+      # locale: i test condividono un solo database, quindi devono restare in
+      # fila. (Serve anche a `keeppix-server/tests/config.rs`, che manipola
+      # l'ambiente del processo.)
       - name: Test
-        run: cargo test --workspace --jobs 1 -- --test-threads=1
+        run: cargo test --workspace -- --test-threads=1
 
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json
 
+      # `cargo clean` qui rendeva inutile la cache, e non era ovvio: gli step
+      # normali girano **prima** dei post-step, e `Swatinem/rust-cache` salva
+      # in un post-step. Su `main` — l'unico ramo dove `save-if` è vero — si
+      # svuotava `target/` e subito dopo si salvava quel vuoto. Risultato: la
+      # cache ripristinata pesava 105 MB (solo sorgenti delle dipendenze) e
+      # ogni run ricompilava tutto da capo: 3m07s di clippy più 10m36s di
+      # test, misurati sul run 31972217130.
+      #
+      # Sui PR `save-if` è falso, quindi lì la pulizia non toglie niente e
+      # protegge dal problema che l'aveva introdotta ("No space left" durante
+      # il Post della cache). Si pulisce solo dove non si salva.
       - name: Libera disco dopo i test
-        if: always()
+        if: always() && github.ref != 'refs/heads/main'
         run: |
           cargo clean || true
           df -h /
+
+      - name: Spazio disco su main (la cache viene salvata dopo)
+        if: always() && github.ref == 'refs/heads/main'
+        run: df -h /
 
   frontend:
     runs-on: ubuntu-latest
