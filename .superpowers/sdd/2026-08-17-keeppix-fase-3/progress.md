@@ -136,5 +136,9 @@ che paga il debito della guardia. Costo: tre query extra per move.
 
 `./scripts/test.sh` dopo Task 1+12b: verde (~20 min, poi `cargo clean`).
 
+Task 12c: complete (commit 77bf440, vitest FoldersView 2, permissions 16,
+timeline folder tests e openapi verdi; `check-wired` verde per tree,
+children, move_subtree, regroup_folder)
+
 
 
