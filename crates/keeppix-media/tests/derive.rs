@@ -219,6 +219,59 @@ fn webp_quality_changes_the_preview_size() {
 }
 
 #[test]
+fn webp_method_changes_the_encoded_size() {
+    let jpeg = extract_embedded_preview(&fixture("sample.arw"))
+        .unwrap()
+        .unwrap();
+    unsafe { std::env::set_var("KEEPPIX_WEBP_METHOD", "0") };
+    let dir0 = tempfile::tempdir().unwrap();
+    let m0 = derive_from_bytes(&jpeg.bytes, dir0.path(), &[0x70u8; 32]).unwrap();
+    let len0 = std::fs::metadata(m0.preview.as_ref().unwrap())
+        .unwrap()
+        .len();
+
+    unsafe { std::env::set_var("KEEPPIX_WEBP_METHOD", "4") };
+    let dir4 = tempfile::tempdir().unwrap();
+    let m4 = derive_from_bytes(&jpeg.bytes, dir4.path(), &[0x74u8; 32]).unwrap();
+    let len4 = std::fs::metadata(m4.preview.as_ref().unwrap())
+        .unwrap()
+        .len();
+
+    unsafe { std::env::remove_var("KEEPPIX_WEBP_METHOD") };
+
+    assert_ne!(
+        len0, len4,
+        "method 0 ({len0}) e method 4 ({len4}) non devono essere la stessa encode"
+    );
+}
+
+/// Curva `method` su fixture reale: i numeri vanno nel ledger, qui si
+/// verifica solo che resti VP8 con perdita a 0/2/4.
+#[test]
+fn webp_method_curve_stays_lossy_vp8() {
+    let jpeg = extract_embedded_preview(&fixture("sample.arw"))
+        .unwrap()
+        .unwrap();
+    for method in [0_u8, 2, 4] {
+        unsafe { std::env::set_var("KEEPPIX_WEBP_METHOD", method.to_string()) };
+        let dir = tempfile::tempdir().unwrap();
+        let start = std::time::Instant::now();
+        let result = derive_from_bytes(&jpeg.bytes, dir.path(), &[method; 32]).unwrap();
+        let elapsed = start.elapsed();
+        let preview = result.preview.expect("preview Sony");
+        let bytes = std::fs::read(&preview).unwrap();
+        let len = bytes.len() as u64;
+        let chunk = webp_chunk_at(&bytes);
+        eprintln!("MEASUREMENT webp method={method} {elapsed:?} {len} B");
+        assert_eq!(
+            chunk, b"VP8 ",
+            "method {method} deve restare lossy, trovato {chunk:?}"
+        );
+    }
+    unsafe { std::env::remove_var("KEEPPIX_WEBP_METHOD") };
+}
+
+#[test]
 fn derived_preview_long_side_is_2048() {
     let dir = tempfile::tempdir().unwrap();
     let rgb = noisy_rgb(3000, 2000);

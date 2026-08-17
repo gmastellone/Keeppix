@@ -65,6 +65,11 @@ fn defaults_are_applied() {
         "default KEEPPIX_WEBP_QUALITY: 82, visibile a schermo e piccolo sul Pi"
     );
     assert_eq!(
+        cfg.webp_method,
+        keeppix_jobs::DEFAULT_WEBP_METHOD,
+        "default KEEPPIX_WEBP_METHOD: 2, ~2× più veloce di 4 con peso quasi uguale"
+    );
+    assert_eq!(
         cfg.full_cache_bytes,
         keeppix_jobs::DEFAULT_FULL_CACHE_BYTES,
         "default KEEPPIX_FULL_CACHE_BYTES: 512 MiB, una sessione di culling"
@@ -123,4 +128,13 @@ fn webp_quality_is_overridable() {
     unsafe { std::env::set_var("DATABASE_URL", "postgres://localhost/keeppix") };
     unsafe { std::env::set_var("KEEPPIX_WEBP_QUALITY", "70") };
     assert_eq!(Config::load(None).unwrap().webp_quality, 70);
+}
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn webp_method_is_overridable() {
+    clear_env();
+    unsafe { std::env::set_var("DATABASE_URL", "postgres://localhost/keeppix") };
+    unsafe { std::env::set_var("KEEPPIX_WEBP_METHOD", "2") };
+    assert_eq!(Config::load(None).unwrap().webp_method, 2);
 }

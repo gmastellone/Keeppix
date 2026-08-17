@@ -39,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::load(Some(&cli.config))?;
     telemetry::init(config.log_format);
     keeppix_jobs::set_webp_quality(config.webp_quality);
+    keeppix_jobs::set_webp_method(config.webp_method);
 
     let db = Db::connect(&config.database_url, config.db_max_connections)
         .await
