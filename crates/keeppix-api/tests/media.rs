@@ -298,6 +298,7 @@ async fn full_of_a_raw_with_preview_sized_embedded_jpeg_is_strictly_larger() {
 }
 
 /// Lossy VP8 stores coded size in the frame header; VP8L uses a 14-bit pair.
+#[allow(clippy::unwrap_used)]
 fn webp_long_side(bytes: &[u8]) -> u32 {
     assert!(
         bytes.len() > 20 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",

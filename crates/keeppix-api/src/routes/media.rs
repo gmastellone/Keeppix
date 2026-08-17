@@ -114,23 +114,19 @@ pub async fn full(
     })
     .await
     .map_err(|_| Problem::internal())?
-    .map_err(full_error)?;
-
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|_| Problem::not_found())?;
-    Ok(immutable_webp(bytes))
-}
-
-fn full_error(err: keeppix_media::DeriveError) -> Problem {
-    match err {
+    .map_err(|err| match err {
         keeppix_media::DeriveError::FullUnavailable => Problem::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "full-unavailable",
             "Full resolution is not available",
         ),
         _ => Problem::not_found(),
-    }
+    })?;
+
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| Problem::not_found())?;
+    Ok(immutable_webp(bytes))
 }
 
 fn build_full(
