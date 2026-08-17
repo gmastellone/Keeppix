@@ -950,6 +950,44 @@ Serve un ritentativo con backoff, limitato nel numero di tentativi, che non
 passi dalla riscansione. La rotta `/problems` esiste già e mostra gli asset
 in errore: il ritentativo va reso visibile lì.
 
+### 12e — il WebSocket esiste nel backend e nessuno lo usa
+
+**Osservazione.**
+
+```
+$ grep -rn "WebSocket" frontend/src/         → nessun risultato
+$ grep -rn "ws::" crates/keeppix-api/src/lib.rs
+  .route("/ws/ticket", post(routes::ws::ticket))
+  .route("/ws",        get(routes::ws::connect))
+```
+
+Il backend ha l'implementazione **completa e montata**: ticket monouso
+consumato prima dell'upgrade, validazione dell'`Origin`, backpressure con
+`resync`, test in `crates/keeppix-api/tests/ws.rs`, voci in OpenAPI. Il
+frontend non ci si collega **mai**.
+
+Il ledger della 2R lo registra di sfuggita
+(`fase-2r/progress.md:91`): «avanzamento scansione via **polling** ogni 2 s
+[…] non WebSocket — il piano cita WS ma il task chiede polling per
+semplicità; **WS non è cablato nel frontend**». La ripiegatura è stata
+scritta; la lacuna che la rendeva necessaria no.
+
+**Conseguenza.** La timeline **non si aggiorna in diretta**: mentre una
+scansione lavora, le foto nuove non compaiono finché non si ricarica la
+pagina. È esattamente ciò che il WebSocket doveva risolvere, ed è la ragione
+per cui fu scelto rispetto a SSE.
+
+**Quinta occorrenza** dello stesso schema — e la più istruttiva, perché la
+guardia proposta in 12d **non l'avrebbe presa**: sul lato Rust i chiamanti
+esistono (le rotte sono montate), la lacuna sta fra backend e frontend. La
+guardia va quindi estesa: ogni rotta montata deve avere o un consumatore nel
+frontend, o un'eccezione scritta con la fase che la userà.
+
+**Correzione.** Cablare il client WebSocket nel frontend e usarlo per
+l'aggiornamento in diretta della timeline. Il polling del wizard di setup può
+restare — è un uso una tantum su una pagina che l'utente sta guardando — ma
+va allora dichiarato come scelta, non come ripiego.
+
 ### 12d — la guardia in CI contro la quinta occorrenza
 
 Le quattro occorrenze sopra si trovano tutte con lo stesso `grep`. Aggiungere
@@ -964,6 +1002,99 @@ dimenticanza.
 Costo: un `grep` in uno script. Copre la classe di difetto che ci è costata
 tre field test.
 
+**Estensione obbligatoria dopo 12e:** il controllo non può fermarsi al lato
+Rust. Ogni rotta montata in `keeppix-api` deve avere un consumatore nel
+frontend o un'eccezione dichiarata. Senza questa metà, la guardia avrebbe
+lasciato passare proprio il WebSocket.
+
+- [ ] **Step 1-3: Scrivere, verificare, committare**
+
+---
+
+## Task 14: i derivati sono senza perdita, e non dovrebbero esserlo
+
+**Decisione richiesta all'utente prima di implementare** — è un compromesso
+sulla qualità delle sue foto, non una scelta tecnica interna.
+
+### Osservazione
+
+Il field test misura **1,2 GB di derivati per 779 foto**: circa **1,54 MB per
+foto** fra miniatura e anteprima. Il rapporto del 3,3% sul sorgente sembra
+buono, ma il sorgente sono RAW da 46 MB: è il numero sbagliato da guardare.
+I derivati hanno dimensioni **fisse** (240 px e 1440 px), quindi scalano col
+**numero** di foto, non col peso degli originali.
+
+Su 200.000 foto: **~308 GB di derivati**, indipendentemente dal fatto che gli
+originali siano RAW o JPEG.
+
+### Causa
+
+`crates/keeppix-media/src/derive.rs:226` codifica con
+`image_webp::WebPEncoder`. Il crate `image-webp 0.2.4` dichiara nel proprio
+sorgente (`encoder.rs:631`):
+
+```
+/// Only supports "VP8L" lossless encoding.
+```
+
+e scrive chunk `VP8L`. **Ogni derivato è WebP senza perdita** — l'equivalente
+di un PNG. Per un'anteprima da 1440 px destinata alla visualizzazione a
+schermo, è la scelta più costosa possibile in spazio, e fra le più costose in
+tempo di codifica.
+
+Nessuno l'ha deciso: è la conseguenza non esaminata di quale crate è stato
+scelto per scrivere WebP.
+
+### Cosa si guadagna
+
+Una codifica con perdita a qualità 80 su un'anteprima da 1440 px sta
+tipicamente fra 150 e 250 KB, contro oltre 1 MB del lossless. L'ordine di
+grandezza atteso è **7-8× in meno**:
+
+| | Oggi | Con perdita |
+|---|---|---|
+| Per foto | ~1,54 MB | ~0,2 MB |
+| Su 200.000 foto | **~308 GB** | **~40 GB** |
+| Rapporto sul sorgente RAW | 3,3% | ~0,4% |
+
+Su un Pi con storage limitato, 268 GB risparmiati non sono un dettaglio: sono
+la differenza fra un disco che basta e uno che non basta.
+
+**Probabile guadagno anche in tempo**, da misurare e non da dare per scontato:
+la codifica lossless WebP fa trasformazioni ed entropy coding più costosi
+della codifica con perdita. La derivazione dovrebbe accelerare, non
+rallentare.
+
+### Le strade, col loro costo
+
+| Strada | Compressione | Costo |
+|---|---|---|
+| **WebP con perdita** via `webp` (binding libwebp) | migliore | dipendenza **C** nuova |
+| **JPEG con perdita** via `jpeg-encoder` (Rust puro) | ~25-30% peggiore di WebP | nessuna dipendenza C |
+| **AVIF** via `ravif` | migliore di tutte | codifica **lenta**: sbagliata per un Pi con 200.000 foto |
+
+Sulla dipendenza C: la regola in `AGENTS.md` («i decoder scritti in C girano
+in un processo separato con rlimit e seccomp») nasce dal **decodificare input
+non fidato**. Qui si tratta di **codificare** un buffer RGB che abbiamo già
+decodificato noi: profilo di rischio diverso. Se si sceglie libwebp, la
+ragione va comunque scritta nel ledger, come chiede la regola sulle
+dipendenze.
+
+**Raccomandazione:** JPEG con perdita in Rust puro se si vuole restare senza
+C; WebP con perdita se si accetta libwebp, che comprime meglio ed è
+maturissimo. In entrambi i casi la qualità va resa configurabile, con un
+default sensato, e **la miniatura da 240 px e l'anteprima da 1440 px possono
+avere qualità diverse**.
+
+### Test
+
+1. Un'anteprima derivata da un'immagine di prova pesa **meno di un terzo**
+   dell'equivalente lossless odierno (soglia larga di proposito: il test
+   protegge dalla regressione a lossless, non certifica un rapporto esatto).
+2. Il field test riporta un rapporto derivati/originali **sotto l'1%**.
+3. La qualità è configurabile e il default è documentato in `DEPLOY.md`.
+
+- [ ] **Decisione dell'utente su formato e qualità**
 - [ ] **Step 1-3: Scrivere, verificare, committare**
 
 ---
@@ -1036,6 +1167,11 @@ Ognuno è **eseguibile**.
       totale degli asset RAW derivati.
 - [ ] Il cestino si svuota **da solo** oltre la finestra di conservazione
       (Task 12b).
+- [ ] La timeline si aggiorna **in diretta** durante una scansione, senza
+      ricaricare la pagina (Task 12e), e ogni rotta montata ha un consumatore
+      nel frontend o un'eccezione scritta (Task 12d).
+- [ ] Rapporto derivati/originali **sotto l'1%** nel field test (Task 14),
+      contro il 3,3% odierno.
 - [ ] **Nessun percorso legge asset senza passare da `visibility_scope`** —
       verificato per `grep`, con l'elenco nel ledger, non per campione.
 - [ ] **Un utente senza permessi vede zero asset su ogni canale.**
@@ -1060,6 +1196,8 @@ Ognuno è **eseguibile**.
 | Thumbhash perso sulle foto duplicate | 12a |
 | `TrashRepo::cleanup_expired` mai chiamata in produzione | 12b |
 | Ritentativo dei `derive_*` falliti (differito dalla 2R2) | 12c |
+| WebSocket montato nel backend e mai usato dal frontend | 12e |
+| Derivati in WebP **senza perdita**: ~308 GB su 200.000 foto | 14 |
 | Nessuna prova al di sopra di 779 asset | 13 |
 
 ## Cosa NON è in Fase 3
