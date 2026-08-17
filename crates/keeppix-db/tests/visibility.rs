@@ -75,7 +75,12 @@ async fn a_user_with_no_libraries_matches_zero_rows() {
         .await
         .unwrap();
 
-    assert!(scope.grant_ids().is_empty());
+    assert!(
+        scope
+            .filter("folders.path", "folders.library_id", 1)
+            .bind()
+            .is_some_and(<[uuid::Uuid]>::is_empty)
+    );
     assert!(!scope.is_unrestricted());
 
     let filter = scope.filter("folders.path", "folders.library_id", 1);
@@ -103,7 +108,12 @@ async fn scope_updates_when_a_library_is_created() {
     let before = VisibilityScope::resolve(test.db(), &mario_ctx)
         .await
         .unwrap();
-    assert!(before.grant_ids().is_empty());
+    assert!(
+        before
+            .filter("folders.path", "folders.library_id", 1)
+            .bind()
+            .is_some_and(<[uuid::Uuid]>::is_empty)
+    );
 
     let created = LibraryRepo::new(test.db())
         .create(&admin_ctx, new_library("Mario", "/mnt/m", mario))
@@ -117,5 +127,11 @@ async fn scope_updates_when_a_library_is_created() {
     let after = VisibilityScope::resolve(test.db(), &mario_ctx)
         .await
         .unwrap();
-    assert_eq!(after.grant_ids(), vec![root.id.as_uuid()]);
+    assert_eq!(
+        after
+            .filter("folders.path", "folders.library_id", 1)
+            .bind()
+            .unwrap(),
+        [root.id.as_uuid()].as_slice()
+    );
 }
