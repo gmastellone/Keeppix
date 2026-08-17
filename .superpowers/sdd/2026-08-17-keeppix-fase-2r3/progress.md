@@ -327,5 +327,13 @@ Task 8: complete (commit `16f1daf`, test scale_200k verde)
 
 ---
 
+Verifica di chiusura (output verde): `frontend npm ci && npm run build`,
+`cargo fmt --check`, `clippy --workspace --all-targets -- -D warnings`,
+`./scripts/test.sh`. Nessun push/PR.
+
+Field test sull'archivio reale (779 ARW, 36 GB): lo esegue l'operatore —
+rapporto derivati sotto l'1%, zoom RAW, thumbhash stabile fra due scan.
+
+
 
 
