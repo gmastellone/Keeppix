@@ -147,7 +147,7 @@ describe('TimelineView live events', () => {
     onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['live'], count: 1 } })
     await flushPromises()
 
-    expect(fetchBuckets.mock.calls.length).toBeGreaterThan(1)
+    expect(fetchBuckets).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('2024-07 · 1')
     expect(wrapper.text()).toContain('2024-07-10')
     expect(wrapper.text()).not.toContain(emptyCopy)
