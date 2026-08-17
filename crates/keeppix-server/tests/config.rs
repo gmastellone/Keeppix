@@ -49,6 +49,16 @@ fn defaults_are_applied() {
     assert_eq!(cfg.data_dir, std::path::PathBuf::from("/data"));
     assert_eq!(cfg.session_ttl_secs, 60 * 60 * 24 * 30);
     assert!(matches!(cfg.log_format, LogFormat::Json));
+    assert_eq!(
+        cfg.library_roots,
+        vec![std::path::PathBuf::from("/photos")],
+        "default KEEPPIX_LIBRARY_ROOTS"
+    );
+    assert_eq!(
+        cfg.watch_poll_secs,
+        15 * 60,
+        "default KEEPPIX_WATCH_POLL_SECS: 15 min, sostenibile su un Pi"
+    );
 }
 
 #[test]
@@ -80,4 +90,13 @@ fn bare_database_url_is_accepted() {
         Config::load(None).unwrap().database_url,
         "postgres://bare/keeppix"
     );
+}
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn watch_poll_secs_is_overridable() {
+    clear_env();
+    unsafe { std::env::set_var("DATABASE_URL", "postgres://localhost/keeppix") };
+    unsafe { std::env::set_var("KEEPPIX_WATCH_POLL_SECS", "3600") };
+    assert_eq!(Config::load(None).unwrap().watch_poll_secs, 3600);
 }

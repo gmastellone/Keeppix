@@ -92,6 +92,14 @@ impl SessionCache {
             guard.remove(&token.digest());
         }
     }
+
+    /// Svuota la cache. Usato dopo revoke di massa (disable / cambio password)
+    /// così un token già revocato non resta valido fino a 30s.
+    pub fn clear(&self) {
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.clear();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -103,6 +111,11 @@ pub struct AppState {
     pub tickets: TicketStore,
     pub sessions: SessionCache,
     pub allowed_origins: Vec<String>,
+    /// Radici sotto le quali può puntare una libreria. Default produzione:
+    /// `["/photos"]`. Validare `root_path` **dopo** `canonicalize`.
+    pub library_roots: Vec<PathBuf>,
+    /// Watcher delle librerie; `None` solo nei test che non li esercitano.
+    pub library_watchers: Option<keeppix_jobs::watch::LibraryWatchers>,
 }
 
 impl AppState {
@@ -116,6 +129,8 @@ impl AppState {
             tickets: TicketStore::default(),
             sessions: SessionCache::default(),
             allowed_origins: Vec::new(),
+            library_roots: vec![PathBuf::from("/photos")],
+            library_watchers: None,
         }
     }
 
@@ -128,6 +143,18 @@ impl AppState {
     #[must_use]
     pub fn with_allowed_origins(mut self, origins: Vec<String>) -> Self {
         self.allowed_origins = origins;
+        self
+    }
+
+    #[must_use]
+    pub fn with_library_roots(mut self, roots: Vec<PathBuf>) -> Self {
+        self.library_roots = roots;
+        self
+    }
+
+    #[must_use]
+    pub fn with_library_watchers(mut self, watchers: keeppix_jobs::watch::LibraryWatchers) -> Self {
+        self.library_watchers = Some(watchers);
         self
     }
 }

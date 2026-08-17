@@ -158,11 +158,46 @@ fn api_routes() -> Router<AppState> {
             "/duplicates/{content_hash}/resolve",
             axum::routing::post(routes::duplicates::resolve),
         )
+        .route("/libraries/preview", get(routes::libraries::preview))
+        .route(
+            "/libraries",
+            get(routes::libraries::list).post(routes::libraries::create),
+        )
+        .route(
+            "/libraries/{id}",
+            get(routes::libraries::get)
+                .patch(routes::libraries::patch)
+                .delete(routes::libraries::delete),
+        )
+        .route(
+            "/libraries/{id}/scan",
+            get(routes::libraries::scan_status).post(routes::libraries::start_scan),
+        )
+        .route(
+            "/users",
+            get(routes::users::list).post(routes::users::create),
+        )
+        .route(
+            "/users/me/password",
+            axum::routing::post(routes::users::change_password),
+        )
+        .route("/users/{id}", axum::routing::patch(routes::users::patch))
+        .route(
+            "/users/{id}/disable",
+            axum::routing::post(routes::users::disable),
+        )
         .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
         .route(
             "/assets/{id}/restore",
             axum::routing::post(routes::trash::restore),
         )
+        .route(
+            "/assets/{id}/stack/primary",
+            axum::routing::post(routes::stacks::set_primary),
+        )
+        .route("/assets/{id}/stack", get(routes::stacks::get_members))
+        .route("/trash", get(routes::trash::list))
+        .route("/trash/empty", axum::routing::post(routes::trash::empty))
         .route(
             "/assets/{id}/metadata",
             get(routes::metadata::effective).patch(routes::metadata::apply),

@@ -204,6 +204,60 @@ impl<'a> LibraryRepo<'a> {
             .await?;
         Ok(())
     }
+
+    /// Aggiorna nome, `scan_enabled` e/o `exclude_patterns`.
+    ///
+    /// # Errors
+    /// `Forbidden` se il chiamante non può vedere la libreria (anche se l'id
+    /// non esiste, per i non-admin). `NotFound` solo a un admin su id assente.
+    pub async fn update(
+        &self,
+        ctx: &AuthContext,
+        id: LibraryId,
+        name: Option<&str>,
+        scan_enabled: Option<bool>,
+        exclude_patterns: Option<&[String]>,
+    ) -> Result<Library, DbError> {
+        self.find_by_id(ctx, id).await?;
+
+        let row: LibraryRow = sqlx::query_as(&format!(
+            "UPDATE libraries SET \
+                name = COALESCE($2, name), \
+                scan_enabled = COALESCE($3, scan_enabled), \
+                exclude_patterns = COALESCE($4, exclude_patterns), \
+                updated_at = now() \
+              WHERE id = $1 \
+              RETURNING {COLUMNS}"
+        ))
+        .bind(id.as_uuid())
+        .bind(name)
+        .bind(scan_enabled)
+        .bind(exclude_patterns)
+        .fetch_one(self.db.pool())
+        .await?;
+
+        row.into_domain()
+    }
+
+    /// Cancella la riga (e in cascata cartelle/asset). **Non tocca i file
+    /// sul disco.** Solo admin.
+    ///
+    /// # Errors
+    /// `Forbidden` se il chiamante non è admin; `NotFound` se l'id non esiste.
+    pub async fn delete(&self, ctx: &AuthContext, id: LibraryId) -> Result<(), DbError> {
+        if !ctx.is_admin() {
+            return Err(DbError::Forbidden);
+        }
+
+        let result = sqlx::query("DELETE FROM libraries WHERE id = $1")
+            .bind(id.as_uuid())
+            .execute(self.db.pool())
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
 }
 
 fn map_root_path_conflict(err: sqlx::Error) -> DbError {

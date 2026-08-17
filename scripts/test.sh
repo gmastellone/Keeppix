@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 cleanup_containers() {
-  if command -v docker >/dev/null 2>&1; then
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     docker ps -aq --filter 'label=org.testcontainers.managed-by=testcontainers' \
       | while IFS= read -r id; do
           docker rm -f "$id" >/dev/null 2>&1 || true

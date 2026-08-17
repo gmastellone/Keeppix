@@ -23,6 +23,12 @@ pub struct Config {
     pub log_format: LogFormat,
     /// Origini ammesse per CORS e per la verifica dell'`Origin` sul WebSocket.
     pub allowed_origins: Vec<String>,
+    /// Radici sotto cui può vivere una libreria (`KEEPPIX_LIBRARY_ROOTS`).
+    /// Un `root_path` fuori da queste → `422 keeppix/path-not-allowed`.
+    pub library_roots: Vec<PathBuf>,
+    /// Intervallo del watcher in modo polling (`KEEPPIX_WATCH_POLL_SECS`).
+    /// Default 15 minuti: su un Pi non si vuole una riscansione continua.
+    pub watch_poll_secs: u64,
 }
 
 /// Valori usati quando né l'ambiente né il file dicono nulla.
@@ -34,6 +40,8 @@ struct Defaults {
     session_ttl_secs: u64,
     log_format: LogFormat,
     allowed_origins: Vec<String>,
+    library_roots: Vec<PathBuf>,
+    watch_poll_secs: u64,
 }
 
 impl Default for Defaults {
@@ -45,6 +53,8 @@ impl Default for Defaults {
             session_ttl_secs: 60 * 60 * 24 * 30,
             log_format: LogFormat::Json,
             allowed_origins: Vec::new(),
+            library_roots: vec![PathBuf::from("/photos")],
+            watch_poll_secs: 15 * 60,
         }
     }
 }
@@ -64,7 +74,9 @@ impl Config {
         }
 
         let figment = figment
-            .merge(Env::prefixed("KEEPPIX_"))
+            // `split(",")` così `KEEPPIX_LIBRARY_ROOTS=/photos,/data/extra`
+            // (e `allowed_origins`) diventano liste senza JSON.
+            .merge(Env::prefixed("KEEPPIX_").split(","))
             // `DATABASE_URL` senza prefisso: è la convenzione attesa da chiunque.
             .merge(Env::raw().only(&["DATABASE_URL"]));
 

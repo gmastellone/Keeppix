@@ -110,6 +110,60 @@ impl<'a> JobRepo<'a> {
         row.into_domain()
     }
 
+    /// Come [`Self::enqueue`], ma con `run_after` esplicito (ricontrollo
+    /// di file ancora in arrivo senza dormire nel worker).
+    ///
+    /// # Errors
+    /// Come [`Self::enqueue`].
+    pub async fn enqueue_after(
+        &self,
+        kind: JobKind,
+        payload: serde_json::Value,
+        priority: JobPriority,
+        dedup_key: Option<&str>,
+        run_after: DateTime<Utc>,
+    ) -> Result<Job, DbError> {
+        if let Some(key) = dedup_key {
+            sqlx::query(
+                "INSERT INTO jobs (kind, payload, priority, dedup_key, run_after) \
+                 VALUES ($1, $2, $3, $4, $5) \
+                 ON CONFLICT (dedup_key) \
+                 WHERE dedup_key IS NOT NULL AND status IN ('pending', 'running') \
+                 DO NOTHING",
+            )
+            .bind(kind.as_str())
+            .bind(&payload)
+            .bind(priority.as_i16())
+            .bind(key)
+            .bind(run_after)
+            .execute(self.db.pool())
+            .await?;
+
+            let row: JobRow = sqlx::query_as(&format!(
+                "SELECT {COLUMNS} FROM jobs \
+                  WHERE dedup_key = $1 AND status IN ('pending', 'running') \
+                  ORDER BY id LIMIT 1"
+            ))
+            .bind(key)
+            .fetch_one(self.db.pool())
+            .await?;
+            return row.into_domain();
+        }
+
+        let row: JobRow = sqlx::query_as(&format!(
+            "INSERT INTO jobs (kind, payload, priority, run_after) \
+             VALUES ($1, $2, $3, $4) \
+             RETURNING {COLUMNS}"
+        ))
+        .bind(kind.as_str())
+        .bind(&payload)
+        .bind(priority.as_i16())
+        .bind(run_after)
+        .fetch_one(self.db.pool())
+        .await?;
+        row.into_domain()
+    }
+
     /// Prende il prossimo job eseguibile, o `None` se la coda è vuota per
     /// questo tetto di priorità.
     ///
@@ -237,5 +291,36 @@ impl<'a> JobRepo<'a> {
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected())
+    }
+
+    /// Stato del job `discover_library` attivo (o l'ultimo fallito) per una
+    /// libreria. Lo chiama la rotta di stato dopo il controllo di visibilità.
+    ///
+    /// Non prende un `AuthContext`: il chiamante ha già autorizzato.
+    ///
+    /// # Errors
+    /// `Connection` / `Corrupted`.
+    pub async fn discover_status_for_library(
+        &self,
+        library_id: keeppix_domain::LibraryId,
+    ) -> Result<Option<Job>, DbError> {
+        let key = format!("discover:{library_id}");
+        let row: Option<JobRow> = sqlx::query_as(&format!(
+            "SELECT {COLUMNS} FROM jobs \
+              WHERE dedup_key = $1 \
+              ORDER BY \
+                CASE status \
+                  WHEN 'running' THEN 0 \
+                  WHEN 'pending' THEN 1 \
+                  WHEN 'failed' THEN 2 \
+                  ELSE 3 \
+                END, \
+                id DESC \
+              LIMIT 1"
+        ))
+        .bind(&key)
+        .fetch_optional(self.db.pool())
+        .await?;
+        row.map(JobRow::into_domain).transpose()
     }
 }

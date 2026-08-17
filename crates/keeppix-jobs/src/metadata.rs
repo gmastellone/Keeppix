@@ -1,9 +1,15 @@
+use std::io::Read as _;
+use std::path::Path;
+
 use keeppix_db::{AssetRepo, Db, FolderRepo, JobRepo};
-use keeppix_domain::{AssetId, JobKind, JobPriority};
-use keeppix_media::read_exif;
+use keeppix_domain::{AssetId, AssetKind, JobKind, JobPriority};
+use keeppix_media::{detect_kind, read_exif};
 use uuid::Uuid;
 
 use crate::JobError;
+
+/// Quanti byte bastano a `detect_kind` (magic TIFF + stringa produttore).
+const KIND_HEADER_BYTES: u64 = 4096;
 
 /// # Errors
 /// I/O sul file, o database.
@@ -14,6 +20,11 @@ pub async fn run(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
         .absolute_path_for_scan(asset.folder_id)
         .await?;
     let path = folder_path.join(asset.filename.as_str());
+    let kind = classify(&path)?;
+    assets.set_kind(asset_id, kind).await?;
+    if kind == AssetKind::Unknown {
+        return Ok(());
+    }
     let exif = read_exif(&path, asset.mtime).map_err(|e| JobError::Worker(e.to_string()))?;
     assets.insert_exif(asset_id, &exif).await?;
     assets
@@ -33,6 +44,16 @@ pub async fn run(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
         )
         .await?;
     Ok(())
+}
+
+fn classify(path: &Path) -> Result<AssetKind, JobError> {
+    let mut file = std::fs::File::open(path).map_err(|e| JobError::Worker(e.to_string()))?;
+    let mut buf = Vec::new();
+    file.by_ref()
+        .take(KIND_HEADER_BYTES)
+        .read_to_end(&mut buf)
+        .map_err(|e| JobError::Worker(e.to_string()))?;
+    Ok(detect_kind(&buf))
 }
 
 /// # Errors

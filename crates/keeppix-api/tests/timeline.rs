@@ -354,6 +354,7 @@ async fn index_photo_at(
             kind: AssetKind::Image,
         })
         .await
+        .unwrap()
         .unwrap();
     assets.set_indexed(a.id, taken, 1, 1).await.unwrap();
 }

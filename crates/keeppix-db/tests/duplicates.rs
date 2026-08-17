@@ -55,14 +55,17 @@ async fn duplicates_report_reclaimable_space_not_the_total() {
     let a = assets
         .upsert_discovered(photo(folder, "a.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let b = assets
         .upsert_discovered(photo(folder, "b.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let c = assets
         .upsert_discovered(photo(folder, "c.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let hash = [7u8; 32];
     for asset in [&a, &b, &c] {
@@ -101,10 +104,12 @@ async fn a_trashed_copy_does_not_count_as_a_duplicate() {
     let a = assets
         .upsert_discovered(photo(folder, "a.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let b = assets
         .upsert_discovered(photo(folder, "b.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let hash = [9u8; 32];
     assets.set_hash(a.id, hash).await.unwrap();
@@ -169,14 +174,17 @@ async fn resolve_keeps_the_chosen_asset_and_removes_the_rest_from_the_index() {
     let a = assets
         .upsert_discovered(photo(folder, "a.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let b = assets
         .upsert_discovered(photo(folder, "b.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let c = assets
         .upsert_discovered(photo(folder, "c.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let hash = [3u8; 32];
     for asset in [&a, &b, &c] {
@@ -224,14 +232,17 @@ async fn resolving_with_a_keep_id_outside_the_group_is_forbidden_not_not_found()
     let a = assets
         .upsert_discovered(photo(folder, "a.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let b = assets
         .upsert_discovered(photo(folder, "b.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let outsider = assets
         .upsert_discovered(photo(folder, "outsider.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let hash = [5u8; 32];
     assets.set_hash(a.id, hash).await.unwrap();
@@ -267,10 +278,12 @@ async fn a_plain_user_does_not_see_another_owners_duplicates() {
     let a = assets
         .upsert_discovered(photo(folder, "a.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let b = assets
         .upsert_discovered(photo(folder, "b.jpg", 1000))
         .await
+        .unwrap()
         .unwrap();
     let hash = [11u8; 32];
     assets.set_hash(a.id, hash).await.unwrap();

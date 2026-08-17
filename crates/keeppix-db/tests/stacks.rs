@@ -9,7 +9,7 @@ use keeppix_domain::{
 };
 use uuid::Uuid;
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
     LibraryRepo::new(test.db())
         .create(
@@ -26,7 +26,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_folder(test: &TestDb, owner: UserId) -> FolderId {
     let library = seed_library(test, owner).await;
     FolderRepo::new(test.db())
@@ -36,7 +36,7 @@ async fn seed_folder(test: &TestDb, owner: UserId) -> FolderId {
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn discovered(folder: FolderId, filename: &str, kind: AssetKind) -> NewAsset {
     NewAsset {
         folder_id: folder,
@@ -48,16 +48,17 @@ fn discovered(folder: FolderId, filename: &str, kind: AssetKind) -> NewAsset {
     }
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_asset(test: &TestDb, folder: FolderId, filename: &str, kind: AssetKind) -> AssetId {
     AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder, filename, kind))
         .await
         .expect("asset")
+        .unwrap()
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn stack_id_of(test: &TestDb, asset: AssetId) -> Option<Uuid> {
     sqlx::query_scalar("SELECT stack_id FROM assets WHERE id = $1")
         .bind(asset.as_uuid())
@@ -66,7 +67,7 @@ async fn stack_id_of(test: &TestDb, asset: AssetId) -> Option<Uuid> {
         .expect("lettura stack_id")
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn primary_of(test: &TestDb, stack: Uuid) -> Option<Uuid> {
     sqlx::query_scalar("SELECT primary_asset_id FROM stacks WHERE id = $1")
         .bind(stack)
@@ -75,7 +76,7 @@ async fn primary_of(test: &TestDb, stack: Uuid) -> Option<Uuid> {
         .expect("lettura primary_asset_id")
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn stack_count(test: &TestDb) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM stacks")
         .fetch_one(test.db().pool())

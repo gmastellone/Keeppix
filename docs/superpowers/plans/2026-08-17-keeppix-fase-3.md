@@ -837,6 +837,23 @@ async fn v8_revoking_a_link_locks_out_whoever_holds_it() {
 
 ---
 
+## Task 12-14: spostati in Fase 2R3
+
+I debiti scoperti dal field test della 2R2 — thumbhash sui duplicati, potatura
+del cestino, ritentativo dei derive falliti, WebSocket mai cablato, zoom rotto
+sui RAW, derivati senza perdita — e la prova di scala **non stanno più qui**.
+
+Sono in [`2026-08-17-keeppix-fase-2r3.md`](2026-08-17-keeppix-fase-2r3.md), che
+si esegue **prima** di questa fase.
+
+**Perché spostati.** Sono debiti e peso, non funzioni multiutente: mescolarli
+avrebbe reso questa fase impossibile da rivedere. E la prova di scala serve
+*prima*, perché il Task 1 mette l'ereditarietà dei permessi nella query più
+calda del prodotto: se il piano di query non regge a 200.000 asset va scoperto
+prima di costruirci sopra. Il Task 1 di questa fase **usa** l'impalcatura di
+scala che la 2R3 lascia in eredità, invece di doverla scrivere.
+
+
 ## Criteri di completamento
 
 Ognuno è **eseguibile**.
@@ -846,6 +863,10 @@ Ognuno è **eseguibile**.
 - [ ] **Budget**: `GET /timeline` sotto 300 ms con 50 permessi e 10.000 asset,
       misurato e registrato nel ledger insieme alla strada scelta per
       l'ereditarietà (CTE o `NOT EXISTS`) con i numeri di `EXPLAIN ANALYZE`.
+- [ ] **Budget retto a 200.000 asset**, usando l'impalcatura di scala
+      lasciata dalla Fase 2R3 (suo Task 8): la query di visibilità del Task 1
+      va misurata **lì**, non solo sui 10.000 della riga sopra. È il bersaglio
+      dichiarato in `AGENTS.md`.
 - [ ] **Nessun percorso legge asset senza passare da `visibility_scope`** —
       verificato per `grep`, con l'elenco nel ledger, non per campione.
 - [ ] **Un utente senza permessi vede zero asset su ogni canale.**
@@ -867,6 +888,10 @@ Ognuno è **eseguibile**.
 | `sessions.ip` mai popolata | 8 — o dichiarata ancora differita con la ragione |
 | `refresh`/`rotate` non ricontrollano `disabled_at` | 1, insieme ai permessi |
 | `logout` risponde `204` anche se `revoke` fallisce | 4, con `/auth/devices` |
+
+I debiti del field test (thumbhash sui duplicati, cestino, ritentativo dei
+derive, WebSocket, zoom sui RAW, derivati senza perdita, prova di scala) sono
+saldati nella **Fase 2R3**, che precede questa.
 
 ## Cosa NON è in Fase 3
 
