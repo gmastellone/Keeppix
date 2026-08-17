@@ -121,3 +121,43 @@ usciva 1 dopo il primo crate, sul percorso `KEEPPIX_TEST_DATABASE_URL`.
 Ora `cleanup_containers` chiama `docker info` prima. Costo se sbagliato:
 in CI con daemon giù i container orfani non vengono rimossi — già il
 caso precedente, solo che ora non maschera i test.
+
+---
+
+**RED osservato (D4 / Task 6):**
+`access_on_a_visible_file_is_not_interesting` — `EventKind::Access` su
+`/photos/DSC_0042.ARW` dava `interesting() = true`.
+`modify_on_a_visible_file_stays_interesting` era già verde (non
+regredisce). `due_for_rescan` assente → E0425 prima dell'implementazione.
+
+Ruling (Task 6): `interesting()` accetta solo `Create` / `Modify` /
+`Remove`. `Access` non è mai una modifica (doc di `EventKind::Access`:
+non-mutating). `Any`/`Other` esclusi: il piano dice di ignorarli quando
+il backend non sa essere più preciso, e inotify/FSEvents emettono
+Create/Modify per i casi reali. Costo se sbagliato: un backend che
+emette solo `Any` non innescherebbe la riscansione nativa — su NFS/SMB
+si è già in polling; su Linux/macOS Create/Modify sono le famiglie
+usate. Se dopo il filtro la tempesta persistesse, loggare `event.kind`
+a `trace` come indica il piano.
+
+Ruling (Task 6): cadenza minima `MIN_RESCAN = 30s` **solo** nel watcher
+nativo, per libreria, dopo il debounce. `enqueue_rescan` (POST `/scan`)
+resta immediato. Il polling resta `DEFAULT_POLL` (15 min). La prima
+riscansione dopo lo start del watcher non attende (`last_rescan = None`).
+Costo se sbagliato: un dump di mille file in pochi secondi viene visto a
+burst da 30s — `discover` cammina comunque l'intero albero, quindi è il
+trade-off voluto.
+
+Ruling (Task 6): il test di integrazione «aprire tutti i file senza
+scrivere e non accodare discover» (piano, test 3) **non** è nella suite.
+Inotify in container CI non emette `Access` senza `strictatime` e flag
+dedicati: il test passerebbe a vuoto. Copertura: unit test su
+`EventKind::Access`. La chiusura sul campo (15+ minuti a libreria ferma,
+`discover_library` fermo dopo la prima passata) resta all'operatore.
+
+Verifica (Task 6): `npm ci && npm run build`, `cargo fmt --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`./scripts/test.sh` — tutti verdi. Field test 15+ minuti a libreria
+ferma: lo esegue l'operatore.
+
+Task 6: complete (commit `9badcb8`, test verdi)
