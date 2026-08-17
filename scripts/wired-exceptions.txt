@@ -1,0 +1,40 @@
+# Functions and routes that exist without a production consumer, with the
+# phase that will consume them. Format: fn|route <name> <phase>
+# A name without a future consumer is a defect — do not add it here.
+#
+# Do not list TrashRepo::cleanup_expired or /ws|/ws/ticket: those are the
+# Fase 2R3 defects this guard exists to catch (Tasks 4 and 6).
+
+# --- keeppix-db: documented deferred, or leftover of an earlier phase ---
+fn get_or_create_secret fase-6
+fn ping fase-1
+fn purge_expired fase-0
+fn extract_poster fase-6
+fn count_by_status fase-1b
+fn ensure_child fase-1a
+fn move_subtree fase-1c
+fn get_json fase-1a
+fn regroup_folder fase-2
+fn set_status fase-1b
+fn since fase-2r3
+
+# --- ops / contract: not consumed by the SPA, by design ---
+route /health ops
+route /api/openapi.json ci
+
+# --- API shipped, SPA never built (not this phase) ---
+route /folders/tree fase-1c
+route /folders/{id}/children fase-1c
+route /search/suggest fase-1c
+route /saved-searches fase-1c
+route /auth/refresh fase-0
+route /users fase-3
+route /users/me/password fase-3
+route /users/{id} fase-3
+route /users/{id}/disable fase-3
+route /trash fase-2
+route /trash/empty fase-2
+route /metadata/batch fase-2
+route /metadata/batch/shift-taken-at fase-2
+route /metadata/batch/{batch_id}/undo fase-2
+route /flags/batch fase-2

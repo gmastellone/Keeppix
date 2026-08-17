@@ -29,6 +29,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Funzioni pubbliche e rotte senza chiamanti
+        run: python3 scripts/check-wired.py
+
       # keeppix-server incorpora frontend/dist nel binario tramite
       # `#[derive(Embed)]` (rust-embed): se la cartella manca, il crate non
       # compila affatto (non un test che si salta). Il job `frontend` gira su
