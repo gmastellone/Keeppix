@@ -507,3 +507,177 @@ a piena risoluzione taglierebbe RAM e tempo di un fattore 4-16 — ma richiede d
 cambiare decoder, e **non si cambia decoder senza prima aver misurato che il
 decoder è il collo**. Voce differita, da riprendere con i numeri del Task 8 in
 mano.
+
+---
+
+# Rilievi del field test — da chiudere prima del merge
+
+Field test sull'archivio reale (779 ARW Sony, 36 GB) eseguito sul branch
+`fase-2r3` a `1e31fb4`. Due criteri su tre pieni, il terzo a metà.
+
+| Criterio | Esito |
+|---|---|
+| Rapporto derivati sotto l'1% | ✅ **0,4%** — 139 MB, 178 KB/foto (era 1,54 MB). Chunk `VP8 ` verificato sui byte |
+| Thumbhash stabile fra due esecuzioni | ✅ **779/779**, zero mancanti; i **177** asset con hash duplicato — la popolazione che prima falliva — ce l'hanno tutti |
+| Zoom sui RAW | ⚠️ **parziale**: si vede (prima `naturalWidth=0`) e serve `/media/full`, ma alla stessa risoluzione dell'anteprima |
+
+`full: 0` file su disco dopo la scansione: la generazione pigra funziona.
+
+## R1 — `full` ha la stessa risoluzione di `preview`: non serve a niente
+
+### L'assunzione sbagliata, e di chi era
+
+Il Task 2 è stato progettato su un'affermazione **mia**: «gli ARW Sony
+incorporano un JPEG a dimensione piena, quindi il livello a piena risoluzione è
+quasi gratis». **È falsa per questa fotocamera.**
+
+Misurato su tutti i 689 derivati dell'archivio:
+
+```
+thumb:    240x160     8 KB
+preview:  1616x1080  193 KB     ← mai 2048: l'incorporata è 1616, e il codice
+full:     1616x1080  150 KB       fa bene a non ingrandire
+```
+
+Il JPEG incorporato più grande in questi ARW è **1616×1080**.
+`extract_embedded_preview` già sceglie il più grande disponibile: non è un
+difetto di estrazione, è che non c'è niente di più grande.
+
+Quindi `full` è, su questo archivio, **un secondo file con gli stessi pixel**:
+un'altra codifica, una cache da gestire, zero dettaglio in più. E lo zoom del
+culling — che per la spec §4.2 serve a controllare la messa a fuoco al 100% —
+mostra esattamente ciò che si vedeva già.
+
+### Correzione
+
+`full` deve essere **sensibilmente più dettagliato di `preview`, oppure non
+esistere**. Regola:
+
+1. anteprima incorporata **se il lato lungo supera quello di `preview`**;
+2. altrimenti **demosaic** — la macchina esiste già (`demosaic_half`,
+   `SandboxDemosaic`), oggi usata da `derive_raw` solo quando l'incorporata sta
+   sotto `MIN_PREVIEW_LONG_SIDE`;
+3. se il demosaic non è disponibile (`dcraw_emu` assente), **dirlo**: niente
+   livello `full`, e il frontend degrada all'anteprima senza fingere uno zoom
+   che non c'è.
+
+`demosaic_half` dà metà sensore: su 6000×4000 sono 3000×2000, quasi il doppio
+lineare di adesso. **Non è 1:1.** Se il 100% vero è un requisito, va valutato
+il demosaic pieno e ne va misurato il costo — ma la decisione va scritta, non
+lasciata implicita nel nome della funzione.
+
+### Attenzione al precaricamento
+
+Il demosaic costa **secondi**, non millisecondi, e gira in un processo separato
+col gate della RAM. `preloadOriginal` nel culling precaricava in modo
+aggressivo: se ora precarica `/media/full`, navigare veloce accoda una fila di
+demosaic e satura il gate.
+
+Serve: precaricamento **conservativo** (l'immagine corrente, al più la
+successiva), uno stato di caricamento visibile, e nessuna richiesta in volo
+quando l'utente ha già cambiato foto.
+
+### Test
+
+1. Su un ARW la cui incorporata è 1616×1080 e la cui `preview` è 1616,
+   `/media/full` restituisce un'immagine **strettamente più grande**.
+2. Su un file la cui incorporata supera già `preview`, `full` usa
+   l'incorporata e **non** fa demosaic (verificabile contando le invocazioni).
+3. Senza `dcraw_emu`, la richiesta non fallisce con un errore opaco: degrada in
+   modo dichiarato.
+4. Il tempo di demosaic su un ARW reale è **misurato e scritto nel ledger**.
+
+## R2 — la cache scandisce l'intero albero a ogni zoom
+
+`enforce_full_cache_cap` (`crates/keeppix-media/src/derive.rs:334`) fa un
+`WalkDir` su **tutta** `data/derivatives` a **ogni** richiesta di `/media/full`.
+
+Su 200.000 foto sono ~400.000 file in 65.536 directory, percorsi ogni volta che
+l'utente preme `z`. Nel culling, dove si zooma in sequenza, è uno stallo
+ripetuto — e viola il principio di `AGENTS.md` per cui niente percorre l'intero
+insieme dei dati su un percorso caldo.
+
+**Correzione.** Il costo di far rispettare il tetto deve essere indipendente
+dal numero totale di derivati: un totale mantenuto in modo incrementale, oppure
+lo sfratto spostato su un job periodico (come la potatura del cestino del
+Task 4, che è lo stesso problema risolto bene).
+
+`touch_accessed` va tenuto: aggiornare l'atime esplicitamente invece di
+affidarsi al filesystem è la scelta giusta, perché molti mount sono `relatime`
+o `noatime`.
+
+**Test.** Con N livelli `full` in cache, far rispettare il tetto non percorre
+l'albero completo — verificato con un budget che non cresce col numero di
+`thumb`/`preview` presenti.
+
+## R3 — la leva sulla velocità di libwebp non è stata toccata
+
+Misura riportata nel ledger: il lossy è più lento del lossless (136 ms contro
+45 ms). **La misura è giusta e va rispettata** — ma la causa non è «lossy
+contro lossless»: è che `WebPEncoder::from_rgb(...).encode(q)`
+(`derive.rs:249`) usa l'API semplice di libwebp, che significa **`method = 4`**,
+il default orientato alla compressione.
+
+`method` va da 0 a 6 e scambia velocità con dimensione. A 1-2 la codifica
+accelera parecchio perdendo poco.
+
+Sul totale l'impatto è oggi piccolo — 7m52s contro 7m30s, perché dominano hash
+e I/O — ma su 200.000 foto sono ore di differenza in ingestione.
+
+**Da fare.** Esporre `method`, misurare la curva a 0, 2, 4 su un campione
+reale (tempo **e** dimensione), scegliere il default e **scrivere i numeri nel
+ledger**. Vincolo: il rapporto derivati deve restare **sotto l'1%**.
+
+## R4 — la lista di eccezioni dice «fase futura» dove sono debiti passati
+
+Il Task 7 ha funzionato: la guardia ha scoperto molta superficie spedita e mai
+raggiungibile. Verificato nel frontend:
+
+| Rotta | Consumatori nel frontend |
+|---|---|
+| `/users`, `/users/me/password`, `/users/{id}`, `/users/{id}/disable` | **0** |
+| `/trash`, `/trash/empty` | **0** (i riferimenti a "trash" sono etichette di culling e i18n) |
+| `/metadata/batch*`, `/flags/batch` | **0** |
+| `/folders/tree`, `/folders/{id}/children` | **0** |
+| `/search/suggest`, `/saved-searches` | **0** |
+| `/auth/refresh` | **0** |
+
+`scripts/wired-exceptions.txt` si presenta come «the phase that will consume
+them», ma quasi tutte le voci puntano a fasi **già chiuse** (`fase-0`,
+`fase-1a`, `fase-1b`, `fase-1c`, `fase-2`). Non sono rinvii: sono **debiti di
+fasi dichiarate complete**.
+
+Metterli in lista per sbloccare la guardia è legittimo. Etichettarli come
+attese future non lo è: nasconde che la 2R aveva scritto «una funzione che
+l'utente non può raggiungere non esiste» e poi ha spedito la gestione utenti
+senza interfaccia.
+
+**Correzione.** Due sezioni distinte e dichiarate:
+
+- **Rinvii**: consumatore previsto in una fase **non ancora eseguita**.
+- **Debiti**: spediti in una fase **già chiusa** senza consumatore, con la fase
+  che li salderà.
+
+E nel README/ledger vada scritto che il backlog esiste, invece di viverne solo
+in un file di eccezioni.
+
+## R5 — `/auth/refresh` non è chiamato da nessuno: verificare cosa comporta
+
+Emerge da R4 e merita una verifica a sé, perché non è superficie mancante ma
+possibile difetto funzionale: se la SPA non rinnova mai la sessione, questa
+scade durante l'uso e l'utente viene buttato fuori.
+
+**Da fare.** Verificare il comportamento reale alla scadenza. Se l'utente viene
+espulso, è un difetto di questa fase; se una rotazione avviene per altra via, è
+un rinvio legittimo e va scritto quale.
+
+## Criterio di chiusura dei rilievi
+
+- [ ] `/media/full` su un ARW restituisce un'immagine **strettamente più
+      grande** dell'anteprima, verificato nel browser sull'archivio reale.
+- [ ] Il tempo di demosaic su un ARW reale è misurato e nel ledger.
+- [ ] Il tetto della cache si fa rispettare senza percorrere l'albero completo.
+- [ ] `method` di libwebp misurato a 0/2/4 con tempo e dimensione, default
+      scelto e motivato; rapporto derivati ancora **sotto l'1%**.
+- [ ] `wired-exceptions.txt` distingue rinvii da debiti.
+- [ ] Il comportamento alla scadenza della sessione è verificato e dichiarato.
