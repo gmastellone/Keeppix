@@ -111,8 +111,43 @@ ambiguous» senza qualifica). Chiamata sul ramo idempotente di
 (pipeline). Costo se sbagliato: un JPEG duplicato via `derive_asset` ha
 lo stesso buco — differito, il piano parla solo di `derive_raw`.
 
-Task 3: complete (commit SHA dopo commit, test raw verdi)
+Task 3: complete (commit `33b0499`, test raw verdi)
 
+---
+
+## Task 7 — guardia CI (RED, prima di cablare 4 e 6)
+
+**RED osservato** (`python3 scripts/check-wired.py`, exit 1):
+
+```
+public functions with no production caller:
+  keeppix-db::cleanup_expired (crates/keeppix-db/src/trash.rs)
+mounted routes with no frontend consumer:
+  /ws/ticket
+  /ws
+```
+
+Sono i due difetti veri (Task 4 e 6), non un caso costruito.
+
+Ruling: lo script ignora `*.spec.ts` / `*.spec.vue` e i moduli
+`#[cfg(test)]`, come i test Rust — un test che chiama la funzione è
+esattamente ciò che la produzione non fa. Costo se sbagliato: una rotta
+citata solo in un spec (oggi `/auth/refresh`) non conta come cablata.
+
+Ruling: le altre funzioni/rotte senza chiamante non sono Task 4/6.
+Eccezioni in `scripts/wired-exceptions.txt` con la fase che le consumerà
+(o `ops`/`ci` per `/health` e `/api/openapi.json`, che non passano dalla
+SPA). Costo se sbagliato: restano morte e la CI è verde. Voci già
+documentate (`get_or_create_secret` → Fase 6, `ping` → Fase 1) non si
+ricablano qui.
+
+Ruling: `ChangeLogRepo::since` è eccezione `fase-2r3` — è la fonte
+eventi del WS, da consumare nel Task 6. Se il Task 6 non la tocca, si
+toglie l'eccezione o si sposta la fase. Costo se sbagliato: il WS si
+collega e non emette cambiamenti.
+
+La CI ha lo step; resta rossa finché 4 e 6 non cablano i tre nomi
+sopra. GREEN dopo quei task.
 
 ---
 
