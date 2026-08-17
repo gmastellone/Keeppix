@@ -11,6 +11,7 @@ pub mod moves;
 pub mod pool;
 pub mod profile;
 pub mod raw;
+pub mod retry_derives;
 pub mod watch;
 pub mod xmp;
 
