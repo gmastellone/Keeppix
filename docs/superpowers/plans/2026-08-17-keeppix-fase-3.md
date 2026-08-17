@@ -837,7 +837,64 @@ async fn v8_revoking_a_link_locks_out_whoever_holds_it() {
 
 ---
 
-## Task 12-14: spostati in Fase 2R3
+## Task 12: i debiti che la guardia attribuisce a questa fase
+
+La guardia della Fase 2R3 (`scripts/check-wired.py`) ha scoperto superficie
+spedita e mai raggiungibile, e `scripts/wired-exceptions.txt` ne attribuisce
+**17 voci a `fase-3`**. Se questa fase si chiude senza pagarle, quel file
+mente — e diventa esattamente la malattia che la 2R3 ha appena curato:
+un'etichetta che dichiara un'intenzione inesistente.
+
+Non tutte però appartengono davvero al multiutente. Vanno separate.
+
+### 12a — quelle che sono di questa fase: le paghiamo
+
+| Voce | Perché è di qui |
+|---|---|
+| `/users`, `/users/me/password`, `/users/{id}`, `/users/{id}/disable` | La 2R ha spedito la gestione utenti **senza interfaccia**, contro il proprio principio dichiarato («una funzione che l'utente non può raggiungere non esiste»). Questa è la fase del multiutente: se l'amministratore non può creare o disabilitare un utente dal browser, la fase non è finita |
+| `/auth/refresh` | La sessione oggi ha un TTL assoluto e nessun rinnovo: l'utente viene espulso a orologio. Il Task 1 tocca già `refresh`/`rotate` per il ricontrollo di `disabled_at` — il consumatore va cablato qui, insieme |
+
+Il pannello utenti è **amministrazione**: va in un **chunk lazy separato**,
+come la pagina pubblica del Task 10. Chi guarda le foto non paga per la
+gestione degli account.
+
+**Test.** Un amministratore crea un utente, gli cambia il ruolo, lo disabilita
+e ne vede sparire le sessioni — tutto dal browser, senza SQL. Un utente non
+amministratore che apre la stessa pagina riceve `Forbidden`, e non la vede
+nemmeno nel menu.
+
+### 12b — quelle che NON sono di questa fase: le riassegniamo, dichiarandolo
+
+Queste sono interfacce mancanti di funzioni delle Fasi 1c e 2. Trascinarle
+qui gonfierebbe una fase già da undici task, e mescolerebbe di nuovo debiti e
+funzioni nuove — l'errore che la 2R3 ha corretto separandosi dalla 3.
+
+| Voce | Origine | Cosa manca |
+|---|---|---|
+| `/folders/tree`, `/folders/{id}/children`, `fn move_subtree`, `fn regroup_folder` | Fase 1c | navigazione e riorganizzazione delle cartelle |
+| `/search/suggest`, `/saved-searches` | Fase 1c | suggerimenti e ricerche salvate |
+| `/trash`, `/trash/empty` | Fase 2 | vista del cestino, ripristino, svuotamento |
+| `/metadata/batch`, `/metadata/batch/shift-taken-at`, `/metadata/batch/{batch_id}/undo`, `/flags/batch` | Fase 2 | modifica di metadati e flag in blocco |
+
+**Non sono dettagli.** Un archivio in cui non si può sfogliare per cartelle,
+non si vede il cestino e non si modificano i metadati in blocco è incompleto
+per l'utente professionale descritto nella spec — è la persona che scarta
+centinaia di scatti e poi corregge date e didascalie in massa.
+
+**Serve una decisione dell'utente**, e finché non c'è, in
+`wired-exceptions.txt` vanno attribuite alla fase che le pagherà davvero —
+non a `fase-3` per inerzia. La proposta è una **Fase 3R** dedicata alle
+interfacce mancanti, sul modello di 2R e 2R3: sono debiti, non funzioni
+nuove, e mescolarli è già stato l'errore una volta.
+
+- [ ] **Decisione dell'utente su dove vanno le voci di 12b**
+- [ ] **Step 1-3: Scrivere, verificare, committare (solo 12a)**
+- [ ] **Aggiornare `wired-exceptions.txt`**: le voci di 12a spariscono perché
+      pagate, quelle di 12b cambiano fase secondo la decisione presa.
+
+---
+
+## Task 13-15: spostati in Fase 2R3
 
 I debiti scoperti dal field test della 2R2 — thumbhash sui duplicati, potatura
 del cestino, ritentativo dei derive falliti, WebSocket mai cablato, zoom rotto
@@ -863,6 +920,10 @@ Ognuno è **eseguibile**.
 - [ ] **Budget**: `GET /timeline` sotto 300 ms con 50 permessi e 10.000 asset,
       misurato e registrato nel ledger insieme alla strada scelta per
       l'ereditarietà (CTE o `NOT EXISTS`) con i numeri di `EXPLAIN ANALYZE`.
+- [ ] **I debiti di 12a sono pagati**: un amministratore gestisce gli utenti
+      dal browser, e `wired-exceptions.txt` non contiene più `/users*` né
+      `/auth/refresh`. Le voci di 12b puntano alla fase decisa, non a
+      `fase-3` per inerzia.
 - [ ] **Budget retto a 200.000 asset**, usando l'impalcatura di scala
       lasciata dalla Fase 2R3 (suo Task 8): la query di visibilità del Task 1
       va misurata **lì**, non solo sui 10.000 della riga sopra. È il bersaglio
