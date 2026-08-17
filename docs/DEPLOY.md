@@ -60,6 +60,7 @@ esempio con `docker compose --env-file .env.docker …`) o esporta
 | `KEEPPIX_ALLOWED_ORIGINS` | `[]` | Origini ammesse, es. `["https://foto.example.com"]` |
 | `KEEPPIX_WATCH_POLL_SECS` | `900` | Intervallo del watcher in modo polling (15 min) |
 | `KEEPPIX_WEBP_QUALITY` | `82` | Qualità WebP con perdita dei derivati (1–100). Sotto 75 si inizia a vedere; sopra 88 si paga per una differenza invisibile. Miniatura e anteprima usano lo stesso valore. |
+| `KEEPPIX_FULL_CACHE_BYTES` | `536870912` | Tetto della cache dei derivati `full` (piena risoluzione, generati al primo zoom). Default 512 MiB. Senza tetto la cache crescerebbe come il cestino che non si svuota. |
 | `RUST_LOG` | `info,sqlx=warn,tower_http=info` | Verbosità dei log |
 
 Le stesse chiavi sono impostabili in `/data/config.toml` in minuscolo e senza

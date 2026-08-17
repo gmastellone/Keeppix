@@ -12,8 +12,9 @@ pub mod walk;
 pub mod xmp;
 
 pub use derive::{
-    DEFAULT_WEBP_QUALITY, DeriveError, DeriveResult, derivative_paths, derive_from_bytes,
-    derive_from_rgb, derive_jpeg, set_webp_quality,
+    DEFAULT_FULL_CACHE_BYTES, DEFAULT_WEBP_QUALITY, DeriveError, DeriveResult, derivative_paths,
+    derive_from_bytes, derive_from_rgb, derive_jpeg, enforce_full_cache_cap,
+    ensure_full_from_bytes, full_derivative_path, set_webp_quality,
 };
 pub use exif::read_exif;
 pub use hash::hash_file;

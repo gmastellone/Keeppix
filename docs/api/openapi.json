@@ -2841,6 +2841,66 @@
         ]
       }
     },
+    "/media/full/{hash}": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "# Errors\nCome `thumb`. Genera il livello `full` alla prima richiesta.",
+        "operationId": "media_full",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "description": "blake3 hex da 64 caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full WebP a risoluzione nativa"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hash non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Originale assente o non derivabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/media/original/{id}": {
       "get": {
         "tags": [

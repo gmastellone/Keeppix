@@ -11,7 +11,10 @@ use webp::Encoder as WebPEncoder;
 use zune_jpeg::JpegDecoder;
 
 const THUMB: u32 = 240;
-const PREVIEW: u32 = 1440;
+const PREVIEW: u32 = 2048;
+/// Tetto della cache `full` pigra. ~200-300 zoom da 1,5-2,5 MB: una sessione
+/// di culling, non l'archivio. Senza tetto è il cestino in un'altra forma.
+pub const DEFAULT_FULL_CACHE_BYTES: u64 = 512 * 1024 * 1024;
 /// Default della qualità WebP con perdita. Sotto 75 si vede; sopra 88
 /// si paga per una differenza invisibile. Sovrascrivibile con
 /// [`set_webp_quality`] / `KEEPPIX_WEBP_QUALITY`.
@@ -164,6 +167,7 @@ fn build_derivatives(
 
     let thumb_rgb = resize_rgb(rgb, width, height, THUMB)?;
     write_webp_atomic(thumb, &thumb_rgb.pixels, thumb_rgb.width, thumb_rgb.height)?;
+    // Il livello `full` non si scrive qui: è pigro, alla prima richiesta di zoom.
 
     let preview_path = if skip_preview {
         None
@@ -254,17 +258,109 @@ fn write_webp_atomic(path: &Path, rgb: &[u8], w: u32, h: u32) -> Result<(), Deri
     Ok(())
 }
 
-#[must_use]
-pub fn derivative_paths(data_dir: &Path, hash: &[u8; 32]) -> (PathBuf, PathBuf) {
+fn derivative_dir(data_dir: &Path, hash: &[u8; 32]) -> (String, PathBuf) {
     let hex = hex32(hash);
     let dir = data_dir
         .join("derivatives")
         .join(&hex[0..2])
         .join(&hex[2..4]);
+    (hex, dir)
+}
+
+#[must_use]
+pub fn derivative_paths(data_dir: &Path, hash: &[u8; 32]) -> (PathBuf, PathBuf) {
+    let (hex, dir) = derivative_dir(data_dir, hash);
     (
         dir.join(format!("{hex}-thumb.webp")),
         dir.join(format!("{hex}-preview.webp")),
     )
+}
+
+#[must_use]
+pub fn full_derivative_path(data_dir: &Path, hash: &[u8; 32]) -> PathBuf {
+    let (hex, dir) = derivative_dir(data_dir, hash);
+    dir.join(format!("{hex}-full.webp"))
+}
+
+/// Scrive il WebP a piena risoluzione se manca. Idempotente: se il file c'è
+/// già non si ricodifica (si aggiorna solo l'atime per lo LRU).
+///
+/// # Errors
+/// I/O, JPEG illeggibile, o immagine oltre 200 MP.
+pub fn ensure_full_from_bytes(
+    bytes: &[u8],
+    data_dir: &Path,
+    hash: &[u8; 32],
+) -> Result<PathBuf, DeriveError> {
+    let path = full_derivative_path(data_dir, hash);
+    if path.is_file() {
+        touch_accessed(&path)?;
+        return Ok(path);
+    }
+
+    let mut decoder = JpegDecoder::new(bytes);
+    decoder
+        .decode_headers()
+        .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    let info = decoder
+        .info()
+        .ok_or_else(|| DeriveError::Decode("missing jpeg info".to_owned()))?;
+    let width = u32::from(info.width);
+    let height = u32::from(info.height);
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
+        return Err(DeriveError::TooManyPixels);
+    }
+    let rgb = decoder
+        .decode()
+        .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    write_webp_atomic(&path, &rgb, width, height)?;
+    Ok(path)
+}
+
+fn touch_accessed(path: &Path) -> Result<(), DeriveError> {
+    let file = fs::File::open(path)?;
+    let times = fs::FileTimes::new().set_accessed(std::time::SystemTime::now());
+    file.set_times(times)?;
+    Ok(())
+}
+
+/// Sfratta i `*-full.webp` meno usati di recente finché il totale sta nel tetto.
+///
+/// # Errors
+/// I/O sulla directory dei derivati.
+pub fn enforce_full_cache_cap(data_dir: &Path, cap_bytes: u64) -> Result<(), DeriveError> {
+    let root = data_dir.join("derivatives");
+    if !root.is_dir() {
+        return Ok(());
+    }
+    let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = Vec::new();
+    for entry in walkdir::WalkDir::new(&root)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        let path = entry.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if !name.ends_with("-full.webp") || !path.is_file() {
+            continue;
+        }
+        let meta = fs::metadata(path)?;
+        let accessed = meta.accessed().or_else(|_| meta.modified())?;
+        files.push((accessed, meta.len(), path.to_path_buf()));
+    }
+    files.sort_by_key(|(accessed, _, _)| *accessed);
+    let mut total: u64 = files.iter().map(|(_, len, _)| *len).sum();
+    for (_, len, path) in files {
+        if total <= cap_bytes {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total = total.saturating_sub(len);
+        }
+    }
+    Ok(())
 }
 
 fn hex32(hash: &[u8; 32]) -> String {

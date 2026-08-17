@@ -16,14 +16,14 @@ vi.mock('@/api/culling', () => ({
 
 import CullingView from './CullingView.vue'
 
-function photo(id: string): TimelineAsset {
+function photo(id: string, kind = 'image', filename = `${id}.jpg`): TimelineAsset {
   return {
     id,
     folder_id: 'f',
-    filename: `${id}.jpg`,
+    filename,
     content_hash: `${id}${'a'.repeat(63)}`.slice(0, 64),
     size_bytes: 1,
-    kind: 'image',
+    kind,
     status: 'indexed',
     taken_at_utc: '2024-07-10T12:00:00Z',
     width: 100,
@@ -113,5 +113,45 @@ describe('CullingView keyboard shortcuts', () => {
     expect(store.flagsFor('a').pick).toBe('none')
 
     wrapper.unmount()
+  })
+})
+
+describe('CullingView zoom', () => {
+  it('loads the full derivative on z, not the RAW original', async () => {
+    const store = useCullingStore()
+    const raw = photo('a', 'raw_image', 'a.arw')
+    store.start([raw])
+
+    const { wrapper } = await mountCulling()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z' }))
+    await flushPromises()
+
+    const img = wrapper.get('img')
+    expect(img.attributes('src')).toBe(`/media/full/${raw.content_hash}`)
+    expect(img.attributes('src')).not.toContain('/media/original/')
+    wrapper.unmount()
+  })
+
+  it('preloads the full derivative for upcoming photos, never the RAW file', async () => {
+    const loaded: string[] = []
+    class FakeImage {
+      set src(value: string) {
+        loaded.push(value)
+      }
+    }
+    vi.stubGlobal('Image', FakeImage)
+
+    const store = useCullingStore()
+    const first = photo('a', 'raw_image', 'a.arw')
+    const second = photo('b', 'raw_image', 'b.arw')
+    store.start([first, second])
+
+    const { wrapper } = await mountCulling()
+    await flushPromises()
+
+    expect(loaded.some((src) => src.includes('/media/original/'))).toBe(false)
+    expect(loaded).toContain(`/media/full/${second.content_hash}`)
+    wrapper.unmount()
+    vi.unstubAllGlobals()
   })
 })
