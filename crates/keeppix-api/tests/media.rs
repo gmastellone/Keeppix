@@ -147,7 +147,8 @@ async fn original_serves_a_byte_range_by_id() {
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn full_of_a_raw_is_drawable_webp_not_the_arw() {
-    let server = TestServer::start().await;
+    let server =
+        TestServer::start_with(|s| s.with_demosaic(std::sync::Arc::new(LargeDemosaic))).await;
     let (folder, root) = seed_library(&server).await;
     let arw = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../keeppix-media/tests/fixtures/sample.arw");
@@ -218,6 +219,184 @@ async fn full_of_a_raw_is_drawable_webp_not_the_arw() {
         original.headers().get("content-type").unwrap(),
         "application/octet-stream"
     );
+}
+
+/// Field test R1: the Sony ARW class embeds a JPEG at preview size
+/// (1616×1080 on the archive, same class as `sample.arw`). `/media/full`
+/// must return something *strictly* larger, otherwise zoom shows the
+/// pixels already on screen.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn full_of_a_raw_with_preview_sized_embedded_jpeg_is_strictly_larger() {
+    let server =
+        TestServer::start_with(|s| s.with_demosaic(std::sync::Arc::new(LargeDemosaic))).await;
+    let (folder, root) = seed_library(&server).await;
+    let arw = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../keeppix-media/tests/fixtures/sample.arw");
+    let dest = root.join("sample.arw");
+    std::fs::copy(&arw, &dest).unwrap();
+    let raw_bytes = std::fs::read(&dest).unwrap();
+    let hash = keeppix_media::hash_file(&dest).unwrap();
+    let embedded = keeppix_media::extract_embedded_preview(&dest)
+        .unwrap()
+        .unwrap();
+    assert!(
+        embedded.width.max(embedded.height) <= 2048,
+        "fixture must be the field-test class, not a full-size JPEG: {}x{}",
+        embedded.width,
+        embedded.height
+    );
+    keeppix_media::derive_from_bytes(&embedded.bytes, &server.data_dir, &hash).unwrap();
+    let asset = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("sample.arw").unwrap(),
+            size_bytes: i64::try_from(raw_bytes.len()).unwrap(),
+            mtime: Utc.with_ymd_and_hms(2024, 7, 1, 0, 0, 0).unwrap(),
+            inode: Some(1),
+            kind: AssetKind::RawImage,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    AssetRepo::new(&server.db)
+        .set_hash(asset.id, hash)
+        .await
+        .unwrap();
+
+    let mut hex = String::with_capacity(64);
+    for b in hash {
+        use std::fmt::Write as _;
+        let _ = write!(hex, "{b:02x}");
+    }
+
+    let preview = server
+        .client
+        .get(server.url(&format!("/media/preview/{hex}")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(preview.status(), 200);
+    let preview_long = webp_long_side(&preview.bytes().await.unwrap());
+
+    let full = server
+        .client
+        .get(server.url(&format!("/media/full/{hex}")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        full.status(),
+        200,
+        "full must be a drawable image, not an error"
+    );
+    let full_long = webp_long_side(&full.bytes().await.unwrap());
+    assert!(
+        full_long > preview_long,
+        "full {full_long}px must be strictly larger than preview {preview_long}px"
+    );
+}
+
+/// Lossy VP8 stores coded size in the frame header; VP8L uses a 14-bit pair.
+fn webp_long_side(bytes: &[u8]) -> u32 {
+    assert!(
+        bytes.len() > 20 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",
+        "not a WebP"
+    );
+    let mut offset = 12usize;
+    while offset + 8 <= bytes.len() {
+        let tag = &bytes[offset..offset + 4];
+        let size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        let data_at = offset + 8;
+        let data = bytes.get(data_at..data_at + size).unwrap_or(&[]);
+        if tag == b"VP8 " && data.len() >= 10 {
+            let width = u32::from(u16::from_le_bytes(data[6..8].try_into().unwrap()) & 0x3fff);
+            let height = u32::from(u16::from_le_bytes(data[8..10].try_into().unwrap()) & 0x3fff);
+            return width.max(height);
+        }
+        if tag == b"VP8L" && data.len() >= 5 {
+            let bits = u32::from_le_bytes(data[1..5].try_into().unwrap());
+            let width = (bits & 0x3fff) + 1;
+            let height = ((bits >> 14) & 0x3fff) + 1;
+            return width.max(height);
+        }
+        offset = data_at + size + (size % 2);
+    }
+    panic!("no VP8 chunk with dimensions");
+}
+
+struct LargeDemosaic;
+
+impl keeppix_jobs::raw::Demosaic for LargeDemosaic {
+    fn demosaic(
+        &self,
+        _path: &std::path::Path,
+    ) -> Result<keeppix_media::RawPreview, keeppix_jobs::JobError> {
+        Ok(keeppix_media::RawPreview {
+            bytes: vec![90u8; 3000 * 2000 * 3],
+            width: 3000,
+            height: 2000,
+            source: keeppix_media::PreviewSource::Demosaic,
+        })
+    }
+}
+
+struct FailingDemosaic;
+
+impl keeppix_jobs::raw::Demosaic for FailingDemosaic {
+    fn demosaic(
+        &self,
+        _path: &std::path::Path,
+    ) -> Result<keeppix_media::RawPreview, keeppix_jobs::JobError> {
+        Err(keeppix_jobs::JobError::Worker(
+            "dcraw_emu missing".to_owned(),
+        ))
+    }
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn full_without_demosaic_declares_full_unavailable() {
+    let server =
+        TestServer::start_with(|s| s.with_demosaic(std::sync::Arc::new(FailingDemosaic))).await;
+    let (folder, root) = seed_library(&server).await;
+    let arw = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../keeppix-media/tests/fixtures/sample.arw");
+    let dest = root.join("sample.arw");
+    std::fs::copy(&arw, &dest).unwrap();
+    let raw_bytes = std::fs::read(&dest).unwrap();
+    let hash = keeppix_media::hash_file(&dest).unwrap();
+    let asset = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("sample.arw").unwrap(),
+            size_bytes: i64::try_from(raw_bytes.len()).unwrap(),
+            mtime: Utc.with_ymd_and_hms(2024, 7, 1, 0, 0, 0).unwrap(),
+            inode: Some(1),
+            kind: AssetKind::RawImage,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    AssetRepo::new(&server.db)
+        .set_hash(asset.id, hash)
+        .await
+        .unwrap();
+    let mut hex = String::with_capacity(64);
+    for b in hash {
+        use std::fmt::Write as _;
+        let _ = write!(hex, "{b:02x}");
+    }
+
+    let response = server
+        .client
+        .get(server.url(&format!("/media/full/{hex}")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/full-unavailable");
 }
 
 #[allow(clippy::unwrap_used, clippy::expect_used)]

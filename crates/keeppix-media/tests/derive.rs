@@ -239,6 +239,35 @@ fn derived_preview_long_side_is_2048() {
 }
 
 #[test]
+fn sample_arw_embedded_jpeg_does_not_beat_the_preview_budget() {
+    let jpeg = extract_embedded_preview(&fixture("sample.arw"))
+        .unwrap()
+        .unwrap();
+    assert!(
+        !keeppix_media::embedded_usable_as_full(jpeg.width.max(jpeg.height)),
+        "sample.arw is the field-test class (embedded {}x{}): full must demosaic, not re-encode this JPEG",
+        jpeg.width,
+        jpeg.height
+    );
+    assert!(!keeppix_media::embedded_usable_as_full(2048));
+    assert!(keeppix_media::embedded_usable_as_full(2049));
+}
+
+#[test]
+fn ensure_full_from_rgb_keeps_native_resolution() {
+    let dir = tempfile::tempdir().unwrap();
+    let hash = [0x23u8; 32];
+    let width = 3000u32;
+    let height = 2000u32;
+    let rgb = vec![80u8; (width * height * 3) as usize];
+    let path = keeppix_media::ensure_full_from_rgb(&rgb, width, height, dir.path(), &hash).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let features = webp::BitstreamFeatures::new(&bytes).expect("full WebP");
+    assert_eq!(features.width(), width);
+    assert_eq!(features.height(), height);
+}
+
+#[test]
 fn ensure_full_is_lazy_and_cached() {
     let dir = tempfile::tempdir().unwrap();
     let jpeg = extract_embedded_preview(&fixture("sample.arw"))

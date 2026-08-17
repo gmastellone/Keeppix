@@ -11,7 +11,11 @@ use webp::Encoder as WebPEncoder;
 use zune_jpeg::JpegDecoder;
 
 const THUMB: u32 = 240;
-const PREVIEW: u32 = 2048;
+/// Lato lungo del derivato `preview`. Pubblico perché `full` usa
+/// l'incorporata solo se la supera — altrimenti è un secondo file
+/// con gli stessi pixel.
+pub const PREVIEW_LONG_SIDE: u32 = 2048;
+const PREVIEW: u32 = PREVIEW_LONG_SIDE;
 /// Tetto della cache `full` pigra. ~200-300 zoom da 1,5-2,5 MB: una sessione
 /// di culling, non l'archivio. Senza tetto è il cestino in un'altra forma.
 pub const DEFAULT_FULL_CACHE_BYTES: u64 = 512 * 1024 * 1024;
@@ -32,6 +36,11 @@ pub enum DeriveError {
     Decode(String),
     #[error("image exceeds 200 megapixels")]
     TooManyPixels,
+    /// Il livello `full` richiederebbe un demosaic e quello non è
+    /// disponibile (binario assente, timeout, file illeggibile). Non è un
+    /// 404: il file c'è, manca il dettaglio in più.
+    #[error("full resolution unavailable")]
+    FullUnavailable,
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +54,13 @@ pub struct DeriveResult {
 /// Qualità di encoding WebP (1–100). Chiamato all'avvio da `Config`.
 pub fn set_webp_quality(quality: u8) {
     WEBP_QUALITY.store(quality.clamp(1, 100), Ordering::Relaxed);
+}
+
+/// L'incorporata vale come `full` solo se è **strettamente** più grande
+/// del derivato preview. Uguale o più piccola è un secondo file inutile.
+#[must_use]
+pub fn embedded_usable_as_full(long_side: u32) -> bool {
+    long_side > PREVIEW_LONG_SIDE
 }
 
 fn webp_quality() -> u8 {
@@ -317,6 +333,33 @@ pub fn ensure_full_from_bytes(
         fs::create_dir_all(parent)?;
     }
     write_webp_atomic(&path, &rgb, width, height)?;
+    Ok(path)
+}
+
+/// Come [`ensure_full_from_bytes`], da pixel RGB8 già decodificati — l'uscita
+/// del demosaic, che non è un JPEG.
+///
+/// # Errors
+/// I/O, o immagine oltre 200 MP.
+pub fn ensure_full_from_rgb(
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+    data_dir: &Path,
+    hash: &[u8; 32],
+) -> Result<PathBuf, DeriveError> {
+    let path = full_derivative_path(data_dir, hash);
+    if path.is_file() {
+        touch_accessed(&path)?;
+        return Ok(path);
+    }
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
+        return Err(DeriveError::TooManyPixels);
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    write_webp_atomic(&path, rgb, width, height)?;
     Ok(path)
 }
 
