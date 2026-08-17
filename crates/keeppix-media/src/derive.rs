@@ -283,6 +283,12 @@ fn derivative_dir(data_dir: &Path, hash: &[u8; 32]) -> (String, PathBuf) {
     (hex, dir)
 }
 
+fn full_cache_dir(data_dir: &Path, hash: &[u8; 32]) -> (String, PathBuf) {
+    let hex = hex32(hash);
+    let dir = data_dir.join("full").join(&hex[0..2]).join(&hex[2..4]);
+    (hex, dir)
+}
+
 #[must_use]
 pub fn derivative_paths(data_dir: &Path, hash: &[u8; 32]) -> (PathBuf, PathBuf) {
     let (hex, dir) = derivative_dir(data_dir, hash);
@@ -294,7 +300,7 @@ pub fn derivative_paths(data_dir: &Path, hash: &[u8; 32]) -> (PathBuf, PathBuf) 
 
 #[must_use]
 pub fn full_derivative_path(data_dir: &Path, hash: &[u8; 32]) -> PathBuf {
-    let (hex, dir) = derivative_dir(data_dir, hash);
+    let (hex, dir) = full_cache_dir(data_dir, hash);
     dir.join(format!("{hex}-full.webp"))
 }
 
@@ -371,11 +377,13 @@ fn touch_accessed(path: &Path) -> Result<(), DeriveError> {
 }
 
 /// Sfratta i `*-full.webp` meno usati di recente finché il totale sta nel tetto.
+/// Cammina solo `data/full/`: il costo è O(full in cache), non O(tutto
+/// l'archivio di thumb/preview).
 ///
 /// # Errors
-/// I/O sulla directory dei derivati.
+/// I/O sulla directory della cache full.
 pub fn enforce_full_cache_cap(data_dir: &Path, cap_bytes: u64) -> Result<(), DeriveError> {
-    let root = data_dir.join("derivatives");
+    let root = data_dir.join("full");
     if !root.is_dir() {
         return Ok(());
     }
