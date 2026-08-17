@@ -112,5 +112,29 @@ Task 12b: complete (commit 29733c3, vitest session 8, `refresh_rejects_a_disable
 e `refresh_slides_expiry_so_an_active_session_survives` verdi; `check-wired`
 verde per `/auth/refresh`)
 
+---
+
+## Task 12c — navigazione cartelle
+
+Ruling: `GET /folders/tree?roots=true` è un'aggiunta (query opzionale).
+Senza, l'endpoint 1c restituisce l'albero intero — vietato su migliaia
+di cartelle. Per un utente con uno share la «radice» è la cartella
+concessa, non `parent_id IS NULL` (quella è la radice della libreria
+altrui). Costo se sbagliato: il destinatario vede un albero vuoto.
+
+Ruling: `PATCH /api/v1/folders/{id}` è un'aggiunta a `/api/v1`. Spostare
+richiede owner della libreria, admin, o `editor` **diretto** sulla
+cartella. Un viewer condiviso prende `Forbidden`. L'`editor` ereditato
+da un antenato non basta — `effective_role` non cammina gli antenati
+(Task 4 / explain). Costo: un editor sul padre non sposta i figli
+finché Task 4 non allarga il ruolo effettivo.
+
+Ruling: dopo lo spostamento si chiama `regroup_folder` sulla cartella
+mossa, sul vecchio padre e sul nuovo. Gli asset non cambiano
+`folder_id`, quindi è lavoro a vuoto, ma è il chiamante di produzione
+che paga il debito della guardia. Costo: tre query extra per move.
+
+`./scripts/test.sh` dopo Task 1+12b: verde (~20 min, poi `cargo clean`).
+
 
 

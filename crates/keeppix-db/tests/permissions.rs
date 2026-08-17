@@ -217,6 +217,66 @@ async fn sharing_a_folder_grants_its_whole_subtree() {
 }
 
 #[tokio::test]
+async fn a_shared_viewer_cannot_move_the_folder() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/nas/foto").await;
+    let folders = FolderRepo::new(test.db());
+    let y2024 = folders.ensure_path(library, &["2024"]).await.unwrap();
+    let grecia = folders
+        .ensure_path(library, &["2024", "Grecia"])
+        .await
+        .unwrap();
+    grant_folder(
+        &test,
+        admin,
+        SubjectType::User,
+        mario.as_uuid(),
+        y2024.id,
+        ObjectRole::Viewer,
+        true,
+    )
+    .await;
+
+    let ctx = AuthContext::user(mario, SystemRole::User);
+    assert!(matches!(
+        folders.move_subtree(&ctx, grecia.id, y2024.id).await,
+        Err(DbError::Forbidden)
+    ));
+}
+
+#[tokio::test]
+async fn roots_for_a_share_are_the_granted_folder_not_the_library() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/nas/foto").await;
+    let folders = FolderRepo::new(test.db());
+    let y2024 = folders.ensure_path(library, &["2024"]).await.unwrap();
+    folders
+        .ensure_path(library, &["2024", "Grecia"])
+        .await
+        .unwrap();
+    grant_folder(
+        &test,
+        admin,
+        SubjectType::User,
+        mario.as_uuid(),
+        y2024.id,
+        ObjectRole::Viewer,
+        true,
+    )
+    .await;
+
+    let ctx = AuthContext::user(mario, SystemRole::User);
+    let roots = folders.roots(&ctx).await.unwrap();
+    let names = folder_names(&roots);
+    assert_eq!(names, vec!["2024"]);
+    assert!(!names.contains(&"Grecia"));
+}
+
+#[tokio::test]
 async fn inherit_false_stops_the_subtree_at_that_node() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;

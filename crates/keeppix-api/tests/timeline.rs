@@ -245,6 +245,86 @@ async fn probing_someone_elses_folder_is_forbidden() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn folder_tree_roots_omits_descendants() {
+    let server = TestServer::start().await;
+    let (root, library) = seed_library(&server).await;
+    FolderRepo::new(&server.db)
+        .ensure_path(library, &["Vacanze"])
+        .await
+        .unwrap();
+
+    let full = server
+        .client
+        .get(server.url("/api/v1/folders/tree"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(full.status(), 200);
+    assert_eq!(
+        full.json::<serde_json::Value>()
+            .await
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let roots = server
+        .client
+        .get(server.url("/api/v1/folders/tree?roots=true"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(roots.status(), 200);
+    let body: serde_json::Value = roots.json().await.unwrap();
+    let folders = body.as_array().unwrap();
+    assert_eq!(folders.len(), 1);
+    assert_eq!(folders[0]["id"], root.to_string());
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn moving_a_folder_does_not_rewrite_asset_rows() {
+    let server = TestServer::start().await;
+    let (_root, library) = seed_library(&server).await;
+    let folders = FolderRepo::new(&server.db);
+    let ctx = admin_ctx(&server).await;
+    folders
+        .ensure_path(library, &["2024", "Grecia"])
+        .await
+        .unwrap();
+    let archive = folders.ensure_path(library, &["Archivio"]).await.unwrap();
+    let root_folder = folders.ensure_root(library).await.unwrap();
+    let y2024 = folders.ensure_child(&root_folder, "2024").await.unwrap();
+    let greece = folders.ensure_child(&y2024, "Grecia").await.unwrap();
+    index_photo(&server, greece.id, "DSC_0042.ARW", 2024, 7, 1).await;
+
+    let before = AssetRepo::new(&server.db)
+        .find_by_folder(&ctx, greece.id)
+        .await
+        .unwrap();
+    assert_eq!(before.len(), 1);
+    let asset_id = before[0].id;
+
+    let moved = server
+        .client
+        .patch(server.url(&format!("/api/v1/folders/{}", greece.id)))
+        .json(&json!({ "parent_id": archive.id.to_string() }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(moved.status(), 204);
+
+    let after = AssetRepo::new(&server.db)
+        .find_by_id(&ctx, asset_id)
+        .await
+        .unwrap();
+    assert_eq!(after.folder_id, greece.id);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn probing_someone_elses_library_buckets_is_forbidden() {
     let server = TestServer::start().await;
     let (_, library) = seed_library(&server).await;

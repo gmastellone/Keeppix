@@ -58,6 +58,13 @@
     }
   },
   "home": { "greeting": "Hello, {name}", "logout": "Sign out" },
+  "folders": {
+    "entry": "Folders",
+    "title": "Folders",
+    "back": "Photos",
+    "empty": "No folders to show.",
+    "move": "Move"
+  },
   "timeline": {
     "kind": "Type",
     "kinds": { "all": "All", "photo": "Photos", "video": "Videos" },

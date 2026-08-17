@@ -1031,6 +1031,87 @@
         ]
       }
     },
+    "/api/v1/folders/{id}": {
+      "patch": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "Sposta il sottoalbero. Gli asset restano sulla stessa riga: si riscrive\nsolo `folders.path`.",
+        "description": "# Errors\n`401`; `403` se non visibile o se il chiamante è solo viewer; `409` su\nciclo o collisione di nome.",
+        "operationId": "folders_move",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della cartella da spostare",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveFolderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Sottoalbero spostato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Cartella non visibile o ruolo insufficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ciclo o nome già presente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/folders/{id}/children": {
       "get": {
         "tags": [
@@ -3687,6 +3768,17 @@
           "month": {
             "type": "string",
             "description": "Calendario `YYYY-MM`."
+          }
+        }
+      },
+      "MoveFolderRequest": {
+        "type": "object",
+        "required": [
+          "parent_id"
+        ],
+        "properties": {
+          "parent_id": {
+            "type": "string"
           }
         }
       },
