@@ -64,6 +64,11 @@ fn defaults_are_applied() {
         keeppix_jobs::DEFAULT_WEBP_QUALITY,
         "default KEEPPIX_WEBP_QUALITY: 82, visibile a schermo e piccolo sul Pi"
     );
+    assert_eq!(
+        cfg.full_cache_bytes,
+        keeppix_jobs::DEFAULT_FULL_CACHE_BYTES,
+        "default KEEPPIX_FULL_CACHE_BYTES: 512 MiB, una sessione di culling"
+    );
 }
 
 #[test]

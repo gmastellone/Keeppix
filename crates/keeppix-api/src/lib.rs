@@ -235,6 +235,7 @@ fn all_routes() -> Router<AppState> {
         .route("/api/openapi.json", get(openapi::serve))
         .route("/media/thumb/{hash}", get(routes::media::thumb))
         .route("/media/preview/{hash}", get(routes::media::preview))
+        .route("/media/full/{hash}", get(routes::media::full))
         .route("/media/original/{id}", get(routes::media::original))
         .nest("/api/v1", api_routes())
         // Va chiamata **dopo** aver registrato le rotte: imposta il fallback

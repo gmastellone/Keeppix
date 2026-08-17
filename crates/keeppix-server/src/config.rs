@@ -32,6 +32,8 @@ pub struct Config {
     /// Qualità WebP con perdita dei derivati (`KEEPPIX_WEBP_QUALITY`).
     /// Default 82: sotto 75 si vede, sopra 88 si paga per poco.
     pub webp_quality: u8,
+    /// Tetto della cache dei derivati `full` pigri (`KEEPPIX_FULL_CACHE_BYTES`).
+    pub full_cache_bytes: u64,
 }
 
 /// Valori usati quando né l'ambiente né il file dicono nulla.
@@ -46,6 +48,7 @@ struct Defaults {
     library_roots: Vec<PathBuf>,
     watch_poll_secs: u64,
     webp_quality: u8,
+    full_cache_bytes: u64,
 }
 
 impl Default for Defaults {
@@ -60,6 +63,7 @@ impl Default for Defaults {
             library_roots: vec![PathBuf::from("/photos")],
             watch_poll_secs: 15 * 60,
             webp_quality: keeppix_jobs::DEFAULT_WEBP_QUALITY,
+            full_cache_bytes: keeppix_jobs::DEFAULT_FULL_CACHE_BYTES,
         }
     }
 }

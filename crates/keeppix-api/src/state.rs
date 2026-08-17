@@ -116,6 +116,8 @@ pub struct AppState {
     pub library_roots: Vec<PathBuf>,
     /// Watcher delle librerie; `None` solo nei test che non li esercitano.
     pub library_watchers: Option<keeppix_jobs::watch::LibraryWatchers>,
+    /// Tetto in byte della cache `*-full.webp`. Default 512 MiB.
+    pub full_cache_bytes: u64,
 }
 
 impl AppState {
@@ -131,6 +133,7 @@ impl AppState {
             allowed_origins: Vec::new(),
             library_roots: vec![PathBuf::from("/photos")],
             library_watchers: None,
+            full_cache_bytes: keeppix_media::DEFAULT_FULL_CACHE_BYTES,
         }
     }
 
@@ -155,6 +158,12 @@ impl AppState {
     #[must_use]
     pub fn with_library_watchers(mut self, watchers: keeppix_jobs::watch::LibraryWatchers) -> Self {
         self.library_watchers = Some(watchers);
+        self
+    }
+
+    #[must_use]
+    pub fn with_full_cache_bytes(mut self, bytes: u64) -> Self {
+        self.full_cache_bytes = bytes;
         self
     }
 }

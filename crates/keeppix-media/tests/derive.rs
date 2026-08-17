@@ -178,7 +178,7 @@ fn derived_preview_is_under_one_third_of_lossless() {
     decoder.decode_headers().unwrap();
     let info = decoder.info().unwrap();
     let rgb = decoder.decode().unwrap();
-    let (prgb, pw, ph) = resize_lanczos(&rgb, u32::from(info.width), u32::from(info.height), 1440);
+    let (prgb, pw, ph) = resize_lanczos(&rgb, u32::from(info.width), u32::from(info.height), 2048);
     let lossless = lossless_webp(&prgb, pw, ph);
 
     let dir = tempfile::tempdir().unwrap();
@@ -215,4 +215,102 @@ fn webp_quality_changes_the_preview_size() {
         lo_len < hi_len,
         "q40 ({lo_len}) deve pesare meno di q90 ({hi_len})"
     );
+}
+
+#[test]
+fn derived_preview_long_side_is_2048() {
+    let dir = tempfile::tempdir().unwrap();
+    let rgb = noisy_rgb(3000, 2000);
+    let result = derive_from_rgb(&rgb, 3000, 2000, dir.path(), &[0x20u8; 32]).unwrap();
+    let preview = result.preview.expect("3000px deve produrre una preview");
+    let bytes = std::fs::read(&preview).unwrap();
+    let features = webp::BitstreamFeatures::new(&bytes).expect("preview WebP decodificabile");
+    assert_eq!(
+        features.width().max(features.height()),
+        2048,
+        "l'anteprima deve essere 2048 px sul lato lungo, non 1440"
+    );
+
+    let full = keeppix_media::full_derivative_path(dir.path(), &[0x20u8; 32]);
+    assert!(
+        !full.is_file(),
+        "la derivazione iniziale non deve scrivere il livello full"
+    );
+}
+
+#[test]
+fn ensure_full_is_lazy_and_cached() {
+    let dir = tempfile::tempdir().unwrap();
+    let jpeg = extract_embedded_preview(&fixture("sample.arw"))
+        .unwrap()
+        .unwrap();
+    let hash = [0x21u8; 32];
+    derive_from_bytes(&jpeg.bytes, dir.path(), &hash).unwrap();
+    let full = keeppix_media::full_derivative_path(dir.path(), &hash);
+    assert!(!full.is_file(), "nessun full prima dello zoom");
+
+    keeppix_media::ensure_full_from_bytes(&jpeg.bytes, dir.path(), &hash).unwrap();
+    assert!(full.is_file());
+    let first_len = std::fs::metadata(&full).unwrap().len();
+    let first_mtime = std::fs::metadata(&full).unwrap().modified().unwrap();
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    keeppix_media::ensure_full_from_bytes(&jpeg.bytes, dir.path(), &hash).unwrap();
+    let second_mtime = std::fs::metadata(&full).unwrap().modified().unwrap();
+    assert_eq!(first_len, std::fs::metadata(&full).unwrap().len());
+    assert_eq!(
+        first_mtime, second_mtime,
+        "la seconda richiesta non deve rigenerare il file"
+    );
+}
+
+#[test]
+fn full_cache_evicts_oldest_when_over_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let jpeg = extract_embedded_preview(&fixture("sample.arw"))
+        .unwrap()
+        .unwrap();
+    let a = [0xa1u8; 32];
+    let b = [0xb1u8; 32];
+    keeppix_media::ensure_full_from_bytes(&jpeg.bytes, dir.path(), &a).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    keeppix_media::ensure_full_from_bytes(&jpeg.bytes, dir.path(), &b).unwrap();
+    let path_a = keeppix_media::full_derivative_path(dir.path(), &a);
+    let path_b = keeppix_media::full_derivative_path(dir.path(), &b);
+    let size_b = std::fs::metadata(&path_b).unwrap().len();
+
+    keeppix_media::enforce_full_cache_cap(dir.path(), size_b).unwrap();
+    assert!(
+        !path_a.is_file(),
+        "il full meno recente deve uscire quando si supera il tetto"
+    );
+    assert!(path_b.is_file(), "il più recente resta");
+    let remaining: u64 = walk_full_bytes(dir.path());
+    assert!(
+        remaining <= size_b,
+        "la cache full non deve superare il tetto ({remaining} > {size_b})"
+    );
+}
+
+fn walk_full_bytes(data_dir: &std::path::Path) -> u64 {
+    let mut total = 0;
+    let mut stack = vec![data_dir.join("derivatives")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with("-full.webp"))
+            {
+                total += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+    total
 }

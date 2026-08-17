@@ -36,26 +36,25 @@ function previewSrc(id: string): string {
   return asset?.content_hash ? `/media/preview/${asset.content_hash}` : originalSrc(id)
 }
 
+function fullSrc(id: string): string {
+  const asset = assetsById.value.get(id)
+  return asset?.content_hash ? `/media/full/${asset.content_hash}` : previewSrc(id)
+}
+
 function originalSrc(id: string): string {
   return `/media/original/${id}`
 }
 
 /**
- * L'unico posto in cui il culling legge l'originale in modo aggressivo (spec
- * §4.2): non esiste un endpoint di ritaglio lato server in questa fase, quindi
- * "il ritaglio centrale a piena risoluzione" è una tecnica di sola
- * presentazione — si precarica l'intero originale nella cache del browser e
- * lo si mostra ingrandito e centrato dentro un contenitore con
- * `overflow: hidden` (vedi il template, ramo `store.zoomed`). Il precaricamento
- * è ciò che rende lo zoom istantaneo: il file è già in cache quando l'utente
- * preme `z`.
+ * Precarica il livello `full` (WebP), non il file originale. Sui RAW
+ * l'originale non è disegnabile da un `<img>` e pesa decine di MB.
  */
 const preloaded = new Set<string>()
-function preloadOriginal(id: string) {
+function preloadFull(id: string) {
   if (preloaded.has(id)) return
   preloaded.add(id)
   const img = new Image()
-  img.src = originalSrc(id)
+  img.src = fullSrc(id)
 }
 
 // `radio`/`checkbox` & co. non sono "scrivere testo": il dialogo di
@@ -177,7 +176,7 @@ watch(
   () => `${store.position}:${store.order.length}`,
   () => {
     const upcoming = store.order.slice(store.position + 1, store.position + 4)
-    upcoming.forEach(preloadOriginal)
+    upcoming.forEach(preloadFull)
     const id = store.currentAsset?.id
     if (id) void store.ensureFlagsLoaded(id)
   },
@@ -240,7 +239,7 @@ onUnmounted(() => {
         >
           <img
             :key="`zoom-${store.currentAsset.id}`"
-            :src="originalSrc(store.currentAsset.id)"
+            :src="fullSrc(store.currentAsset.id)"
             :alt="store.currentAsset.filename"
             class="absolute left-1/2 top-1/2 max-w-none -translate-x-1/2 -translate-y-1/2"
           >

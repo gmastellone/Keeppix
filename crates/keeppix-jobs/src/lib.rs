@@ -17,7 +17,7 @@ use std::time::Duration;
 
 pub use dispatch::{DEFAULT_RAM_HINT, IngestHandler, JobHandler, ram_hint_for_image};
 pub use error::JobError;
-pub use keeppix_media::{DEFAULT_WEBP_QUALITY, set_webp_quality};
+pub use keeppix_media::{DEFAULT_FULL_CACHE_BYTES, DEFAULT_WEBP_QUALITY, set_webp_quality};
 pub use pool::{RamGate, WorkerPool};
 pub use profile::{ActivityTracker, EnergyProfile, default_night_window, worker_count};
 
