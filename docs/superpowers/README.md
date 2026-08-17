@@ -64,8 +64,8 @@ e non codice da scrivere.
 | [`plans/2026-08-14-keeppix-fase-1c.md`](plans/2026-08-14-keeppix-fase-1c.md) | ✅ completato e mergiato (PR #3) |
 | [`plans/2026-08-15-keeppix-fase-2.md`](plans/2026-08-15-keeppix-fase-2.md) | ✅ completato e mergiato (PR #4) |
 | [`plans/2026-08-17-keeppix-fase-2r.md`](plans/2026-08-17-keeppix-fase-2r.md) | ✅ eseguito sul branch `fase-2r` — usabilità, prestazioni, buchi di processo |
-| [`plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md`](plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md) | ⬜ **il prossimo** — difetti trovati dal field test sull'archivio reale. **Blocca la chiusura della Fase 2** |
-| [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ⬜ dopo la 2R2 |
+| [`plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md`](plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md) | ✅ chiuso sul branch `fase-2r2` (HEAD `7cc3bed`) — difetti del field test corretti e riverificati sull'archivio reale, pronto per il merge |
+| [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ⬜ **il prossimo**, dopo il merge della 2R2 |
 | Fase 4, 5, 6 | da scrivere, una alla volta |
 
 ## Consegne
