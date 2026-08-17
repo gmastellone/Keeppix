@@ -8,7 +8,7 @@ use keeppix_domain::{
     NewLibrary, SystemRole, UserId,
 };
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_library(test: &TestDb, owner: UserId, name: &str, path: &str) -> LibraryId {
     LibraryRepo::new(test.db())
         .create(
@@ -25,7 +25,7 @@ async fn seed_library(test: &TestDb, owner: UserId, name: &str, path: &str) -> L
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn discovered(folder: FolderId, filename: &str, size: i64) -> NewAsset {
     NewAsset {
         folder_id: folder,
@@ -52,13 +52,14 @@ async fn upsert_discovered_is_idempotent_and_refreshes_stat() {
     let first = repo
         .upsert_discovered(discovered(folder.id, "DSC_0042.ARW", 1000))
         .await
+        .unwrap()
         .unwrap();
     assert_eq!(first.status, AssetStatus::Discovered);
     assert_eq!(first.size_bytes, 1000);
 
     let mut again = discovered(folder.id, "DSC_0042.ARW", 2000);
     again.mtime = Utc.with_ymd_and_hms(2024, 6, 2, 12, 0, 0).unwrap();
-    let second = repo.upsert_discovered(again).await.unwrap();
+    let second = repo.upsert_discovered(again).await.unwrap().unwrap();
 
     assert_eq!(first.id, second.id, "riscansionare non duplica l'asset");
     assert_eq!(second.size_bytes, 2000);
@@ -82,10 +83,12 @@ async fn the_same_filename_in_two_folders_is_two_assets() {
     let left = repo
         .upsert_discovered(discovered(a.id, "DSC_0042.ARW", 100))
         .await
+        .unwrap()
         .unwrap();
     let right = repo
         .upsert_discovered(discovered(b.id, "DSC_0042.ARW", 100))
         .await
+        .unwrap()
         .unwrap();
 
     assert_ne!(left.id, right.id);
@@ -108,10 +111,12 @@ async fn the_same_hash_on_two_assets_is_not_a_conflict() {
     let a = repo
         .upsert_discovered(discovered(folder.id, "a.jpg", 100))
         .await
+        .unwrap()
         .unwrap();
     let b = repo
         .upsert_discovered(discovered(folder.id, "b.jpg", 100))
         .await
+        .unwrap()
         .unwrap();
     repo.set_hash(a.id, hash).await.unwrap();
     repo.set_hash(b.id, hash).await.unwrap();
@@ -137,6 +142,7 @@ async fn status_transitions_follow_the_pipeline() {
     let asset = repo
         .upsert_discovered(discovered(folder.id, "DSC_0042.ARW", 100))
         .await
+        .unwrap()
         .unwrap();
     assert_eq!(asset.status, AssetStatus::Discovered);
 
@@ -181,6 +187,7 @@ async fn a_plain_user_cannot_read_someone_elses_assets() {
     let asset = repo
         .upsert_discovered(discovered(folder.id, "DSC_0042.ARW", 100))
         .await
+        .unwrap()
         .unwrap();
 
     let mario_ctx = AuthContext::user(mario, SystemRole::User);
@@ -268,6 +275,7 @@ async fn moving_a_folder_does_not_touch_assets() {
     let asset = repo
         .upsert_discovered(discovered(greece.id, "DSC_0042.ARW", 100))
         .await
+        .unwrap()
         .unwrap();
 
     folders
@@ -296,10 +304,12 @@ async fn find_by_folder_omits_trashed_assets() {
     let live = repo
         .upsert_discovered(discovered(folder.id, "live.jpg", 10))
         .await
+        .unwrap()
         .unwrap();
     let dumped = repo
         .upsert_discovered(discovered(folder.id, "bin.jpg", 10))
         .await
+        .unwrap()
         .unwrap();
     sqlx::query("UPDATE assets SET status = 'trashed' WHERE id = $1")
         .bind(dumped.id.as_uuid())
@@ -311,4 +321,79 @@ async fn find_by_folder_omits_trashed_assets() {
     let ids: Vec<_> = listed.iter().map(|a| a.id).collect();
     assert!(ids.contains(&live.id));
     assert!(!ids.contains(&dumped.id));
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn upsert_discovered_returns_none_when_stat_is_unchanged() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let repo = AssetRepo::new(test.db());
+    let new = discovered(folder.id, "DSC_0042.ARW", 1000);
+
+    let first = repo.upsert_discovered(new.clone()).await.unwrap();
+    assert!(first.is_some(), "primo insert restituisce l'asset");
+
+    let second = repo.upsert_discovered(new).await.unwrap();
+    assert!(
+        second.is_none(),
+        "stessi mtime e size_bytes → None, niente da rifare (D2)"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn upsert_discovered_returns_some_when_size_changes() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let repo = AssetRepo::new(test.db());
+
+    let first = repo
+        .upsert_discovered(discovered(folder.id, "DSC_0042.ARW", 1000))
+        .await
+        .unwrap()
+        .unwrap();
+    let second = repo
+        .upsert_discovered(discovered(folder.id, "DSC_0042.ARW", 2000))
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(first.id, second.id);
+    assert_eq!(second.size_bytes, 2000);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn set_kind_persists_and_unchanged_upsert_does_not_reset_it() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let repo = AssetRepo::new(test.db());
+    let mut new = discovered(folder.id, "DSC_0042.ARW", 1000);
+    new.kind = AssetKind::Unknown;
+
+    let asset = repo.upsert_discovered(new.clone()).await.unwrap().unwrap();
+    repo.set_kind(asset.id, AssetKind::RawImage).await.unwrap();
+
+    assert!(
+        repo.upsert_discovered(new).await.unwrap().is_none(),
+        "file invariato"
+    );
+    let again = repo.get_for_scan(asset.id).await.unwrap();
+    assert_eq!(again.kind, AssetKind::RawImage);
 }

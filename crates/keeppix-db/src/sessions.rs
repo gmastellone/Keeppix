@@ -178,6 +178,49 @@ impl<'a> SessionRepo<'a> {
         Ok(())
     }
 
+    /// Revoca tutte le sessioni di un utente. Usato quando lo si disabilita.
+    ///
+    /// # Errors
+    /// `DbError::Connection`.
+    pub async fn revoke_all_for_user(
+        &self,
+        user_id: keeppix_domain::UserId,
+    ) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "UPDATE sessions SET revoked_at = now() \
+              WHERE user_id = $1 AND revoked_at IS NULL",
+        )
+        .bind(user_id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Revoca tutte le famiglie dell'utente tranne quella del token corrente
+    /// (cambio password: le altre sessioni devono cadere).
+    ///
+    /// # Errors
+    /// `DbError::Connection`.
+    pub async fn revoke_other_families(
+        &self,
+        user_id: keeppix_domain::UserId,
+        keep_token: &SessionToken,
+    ) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "UPDATE sessions SET revoked_at = now() \
+              WHERE user_id = $1 AND revoked_at IS NULL \
+                AND family_id <> ( \
+                  SELECT family_id FROM sessions \
+                   WHERE refresh_token_hash = $2 LIMIT 1 \
+                )",
+        )
+        .bind(user_id.as_uuid())
+        .bind(keep_token.digest().as_slice())
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     /// # Errors
     /// `DbError::Connection` se la cancellazione fallisce.
     pub async fn purge_expired(&self) -> Result<u64, DbError> {

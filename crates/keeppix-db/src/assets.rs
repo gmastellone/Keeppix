@@ -30,6 +30,11 @@ pub(crate) struct AssetRow {
 }
 
 impl AssetRow {
+    #[must_use]
+    pub(crate) const fn id(&self) -> uuid::Uuid {
+        self.id
+    }
+
     pub(crate) fn into_domain(self) -> Result<Asset, DbError> {
         Ok(Asset {
             id: AssetId::from_uuid(self.id),
@@ -110,13 +115,18 @@ impl<'a> AssetRepo<'a> {
 
     /// Inserisce il file trovato dal walker, o aggiorna size/mtime se c'è già.
     ///
+    /// Restituisce `None` quando mtime e size sono identici a quelli già
+    /// noti: il chiamante non deve riaccodare metadata/hash. `kind` si
+    /// riazzera solo se il file è davvero cambiato — altrimenti una
+    /// riscansione cancellerebbe `detect_kind`.
+    ///
     /// Non prende un `AuthContext` perché la chiama lo scanner.
     ///
     /// # Errors
     /// `Connection` se l'inserimento fallisce; `Corrupted` se la riga
     /// restituita non passa la validazione di dominio.
-    pub async fn upsert_discovered(&self, new: NewAsset) -> Result<Asset, DbError> {
-        let row: AssetRow = sqlx::query_as(&format!(
+    pub async fn upsert_discovered(&self, new: NewAsset) -> Result<Option<Asset>, DbError> {
+        let row: Option<AssetRow> = sqlx::query_as(&format!(
             "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, inode, kind) \
              VALUES ($1, $2, $3, $4, $5, $6, $7) \
              ON CONFLICT (folder_id, filename) DO UPDATE SET \
@@ -125,6 +135,8 @@ impl<'a> AssetRepo<'a> {
                 inode = EXCLUDED.inode, \
                 kind = EXCLUDED.kind, \
                 updated_at = now() \
+             WHERE assets.mtime IS DISTINCT FROM EXCLUDED.mtime \
+                OR assets.size_bytes IS DISTINCT FROM EXCLUDED.size_bytes \
              RETURNING {COLUMNS}"
         ))
         .bind(AssetId::new().as_uuid())
@@ -134,10 +146,23 @@ impl<'a> AssetRepo<'a> {
         .bind(new.mtime)
         .bind(new.inode)
         .bind(kind_str(new.kind))
-        .fetch_one(self.db.pool())
+        .fetch_optional(self.db.pool())
         .await?;
 
-        row.into_domain()
+        row.map(AssetRow::into_domain).transpose()
+    }
+
+    /// Non prende un `AuthContext`: la chiama la pipeline di metadati.
+    ///
+    /// # Errors
+    /// `Connection` se l'aggiornamento fallisce.
+    pub async fn set_kind(&self, id: AssetId, kind: AssetKind) -> Result<(), DbError> {
+        sqlx::query("UPDATE assets SET kind = $2, updated_at = now() WHERE id = $1")
+            .bind(id.as_uuid())
+            .bind(kind_str(kind))
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
     }
 
     /// Non prende un `AuthContext`: la chiama la pipeline di hashing.

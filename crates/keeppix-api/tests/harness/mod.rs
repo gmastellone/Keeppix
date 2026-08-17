@@ -25,6 +25,8 @@ pub struct TestServer {
     container: Option<ContainerAsync<Postgres>>,
     pub db: Db,
     pub data_dir: std::path::PathBuf,
+    /// Radice allowlist per `KEEPPIX_LIBRARY_ROOTS` nei test (sotto `data_dir`).
+    pub photos_root: std::path::PathBuf,
     pub auth_pings: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub base_url: String,
     pub client: reqwest::Client,
@@ -80,9 +82,15 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
 
     let data_dir = std::env::temp_dir().join(format!("keeppix-api-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&data_dir).expect("data_dir");
+    let photos_root = data_dir.join("photos");
+    std::fs::create_dir_all(&photos_root).expect("photos_root");
     let auth_pings = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let ping = auth_pings.clone();
+    let watchers =
+        keeppix_jobs::watch::LibraryWatchers::new(db.clone(), std::time::Duration::from_millis(80));
     let state = keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone())
+        .with_library_roots(vec![photos_root.clone()])
+        .with_library_watchers(watchers)
         .with_on_authenticated(std::sync::Arc::new(move || {
             ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }));
@@ -105,6 +113,7 @@ async fn boot(container: Option<ContainerAsync<Postgres>>, url: String) -> TestS
         container,
         db,
         data_dir,
+        photos_root,
         auth_pings,
         base_url: format!("http://{addr}"),
         client,

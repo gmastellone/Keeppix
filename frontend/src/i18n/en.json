@@ -13,6 +13,38 @@
       "invalidUsername": "Invalid username: use 3 to 32 characters from letters, digits, dot, hyphen and underscore.",
       "invalidPassword": "The password must be at least 10 characters long.",
       "alreadyInitialised": "This instance is already set up."
+    },
+    "library": {
+      "title": "Where are your photos?",
+      "subtitle": "Choose the folder on the server that contains your library.",
+      "name": "Library name",
+      "path": "Photo folder path",
+      "pathHint": "The path must be under an allowed server root (for example /photos).",
+      "preview": "Preview",
+      "previewTotal": "{count} files found",
+      "previewExtension": "{ext}: {count}",
+      "continue": "Add library and continue",
+      "errors": {
+        "pathNotAllowed": "That path is not allowed. Check the server library roots.",
+        "previewFailed": "Could not preview that folder.",
+        "createFailed": "Could not create the library."
+      }
+    },
+    "scan": {
+      "title": "Indexing your photos",
+      "subtitle": "Keeppix is scanning your library. This may take a few minutes.",
+      "assetCount": "{count} photos indexed",
+      "phase": {
+        "discovering": "Discovering files…",
+        "idle": "Scan complete",
+        "failed": "Scan failed",
+        "offline": "Library offline"
+      },
+      "goToPhotos": "View photos",
+      "errors": {
+        "startFailed": "Could not start the scan.",
+        "unauthenticated": "Your session expired. Sign in again to continue."
+      }
     }
   },
   "login": {

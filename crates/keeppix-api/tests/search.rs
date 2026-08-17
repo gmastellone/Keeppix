@@ -117,6 +117,7 @@ async fn seed_photo(server: &TestServer, name: &str) {
             kind: AssetKind::Image,
         })
         .await
+        .unwrap()
         .unwrap();
     AssetRepo::new(&server.db)
         .set_indexed(

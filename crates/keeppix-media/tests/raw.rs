@@ -95,15 +95,9 @@ fn a_truncated_raw_is_an_error_not_a_panic() {
 #[test]
 #[allow(clippy::unwrap_used)]
 fn measures_extraction_time_per_format() {
-    // Non un'asserzione: un log per il ledger. `cargo test --release --
-    // --nocapture` lo stampa. Vedi Step 7 del piano.
-    for name in [
-        "sample.arw",
-        "sample.nef",
-        "sample.cr2",
-        "sample.cr3",
-        "sample.dng",
-    ] {
+    // Log per il ledger; l'asserzione di budget è in
+    // `embedded_preview_extraction_stays_within_budget`.
+    for name in raw_fixture_names() {
         let path = fixture(name);
         let start = std::time::Instant::now();
         let preview = extract_embedded_preview(&path).unwrap();
@@ -121,6 +115,49 @@ fn measures_extraction_time_per_format() {
                 elapsed.as_secs_f64() * 1000.0
             ),
         }
+    }
+}
+
+fn raw_fixture_names() -> [&'static str; 5] {
+    [
+        "sample.arw",
+        "sample.nef",
+        "sample.cr2",
+        "sample.cr3",
+        "sample.dng",
+    ]
+}
+
+/// Budget Fase 2R Task 8: < 50 ms per file su Pi 5 (release). In debug
+/// `sample.cr3` può superare 50 ms (~80 ms misurati); 100 ms cattura
+/// regressioni di ordine di grandezza senza falsi positivi in CI.
+#[test]
+#[allow(clippy::unwrap_used)]
+fn embedded_preview_extraction_stays_within_budget() {
+    let budget_ms = if cfg!(debug_assertions) { 100 } else { 50 };
+    let budget = std::time::Duration::from_millis(budget_ms);
+
+    for name in raw_fixture_names() {
+        let path = fixture(name);
+        if !path.is_file() {
+            eprintln!("skip {name}: fixture missing at {}", path.display());
+            continue;
+        }
+        let start = std::time::Instant::now();
+        let preview = extract_embedded_preview(&path).unwrap();
+        let elapsed = start.elapsed();
+        eprintln!(
+            "MEASUREMENT RAW preview {name}: {:.2}ms (budget {budget_ms}ms)",
+            elapsed.as_secs_f64() * 1000.0
+        );
+        assert!(
+            preview.is_some(),
+            "{name} deve restituire una preview incorporata per il budget"
+        );
+        assert!(
+            elapsed < budget,
+            "estrazione preview {name}: {elapsed:?} (budget {budget_ms} ms)"
+        );
     }
 }
 

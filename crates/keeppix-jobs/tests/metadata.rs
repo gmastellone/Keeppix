@@ -16,7 +16,7 @@ async fn metadata_indexes_and_enqueues_hash() {
     let test = TestDb::start().await;
     let root = std::env::temp_dir().join(format!("kpx-meta-{}", uuid::Uuid::now_v7()));
     fs::create_dir_all(&root).unwrap();
-    fs::write(root.join("foto.jpg"), b"not a jpeg").unwrap();
+    fs::write(root.join("foto.jpg"), b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00").unwrap();
     let admin = harness::seed_admin(&test).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let library = LibraryRepo::new(test.db())
@@ -55,4 +55,99 @@ async fn metadata_indexes_and_enqueues_hash() {
     .unwrap();
     let _ = fs::remove_dir_all(&root);
     assert_eq!(hashes, 1);
+}
+
+fn sony_tiff_header() -> Vec<u8> {
+    let mut header = vec![0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
+    header.extend_from_slice(&[0; 32]);
+    header.extend_from_slice(b"SONY");
+    header
+}
+
+async fn seed_tree(
+    test: &TestDb,
+    root: &std::path::Path,
+    filename: &str,
+    bytes: &[u8],
+) -> uuid::Uuid {
+    fs::create_dir_all(root).unwrap();
+    fs::write(root.join(filename), bytes).unwrap();
+    let admin = harness::seed_admin(test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let library = LibraryRepo::new(test.db())
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Foto".to_owned(),
+                owner_id: admin,
+                root_path: root.to_path_buf(),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    discover::run(test.db(), library.id, Duration::ZERO)
+        .await
+        .unwrap();
+    sqlx::query_scalar("SELECT id FROM assets")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap()
+}
+
+/// D1: `detect_kind` deve classificare il RAW nel job metadata, e hash
+/// deve accodare `derive_raw` — non `derive_asset`.
+#[tokio::test]
+async fn metadata_classifies_sony_tiff_as_raw_and_hash_enqueues_derive_raw() {
+    let test = TestDb::start().await;
+    let root = std::env::temp_dir().join(format!("kpx-d1-raw-{}", uuid::Uuid::now_v7()));
+    let asset_id = seed_tree(&test, &root, "DSC.ARW", &sony_tiff_header()).await;
+    let id = keeppix_domain::AssetId::from_uuid(asset_id);
+
+    metadata::run(test.db(), id).await.unwrap();
+    let asset = AssetRepo::new(test.db()).get_for_scan(id).await.unwrap();
+    assert_eq!(asset.kind, keeppix_domain::AssetKind::RawImage);
+
+    keeppix_jobs::hash::run(test.db(), id).await.unwrap();
+    let derive_raw: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'derive_raw'")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    let derive_asset: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'derive_asset'")
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
+    let _ = fs::remove_dir_all(&root);
+    assert_eq!(derive_raw, 1, "RAW deve andare su derive_raw");
+    assert_eq!(derive_asset, 0, "RAW non deve andare sul decoder JPEG");
+}
+
+/// D1: un file di testo con estensione media resta unknown e non genera hash.
+#[tokio::test]
+async fn metadata_leaves_unknown_files_unhashed() {
+    let test = TestDb::start().await;
+    let root = std::env::temp_dir().join(format!("kpx-d1-unk-{}", uuid::Uuid::now_v7()));
+    let asset_id = seed_tree(&test, &root, "notes.jpg", b"this is not a jpeg").await;
+    let id = keeppix_domain::AssetId::from_uuid(asset_id);
+
+    metadata::run(test.db(), id).await.unwrap();
+    let asset = AssetRepo::new(test.db()).get_for_scan(id).await.unwrap();
+    assert_eq!(asset.kind, keeppix_domain::AssetKind::Unknown);
+
+    let hashes: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'hash_asset'")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    let _ = fs::remove_dir_all(&root);
+    assert_eq!(hashes, 0, "unknown non deve generare hash_asset (D1/D3)");
+}
+
+#[test]
+fn detect_kind_is_wired_into_the_metadata_job() {
+    let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/metadata.rs"));
+    assert!(
+        src.contains("detect_kind"),
+        "D1: detect_kind deve essere chiamata da metadata::run, non solo dai suoi test"
+    );
 }

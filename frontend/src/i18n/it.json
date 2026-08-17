@@ -13,6 +13,38 @@
       "invalidUsername": "Nome utente non valido: usa da 3 a 32 caratteri fra lettere, numeri, punto, trattino e trattino basso.",
       "invalidPassword": "La password deve avere almeno 10 caratteri.",
       "alreadyInitialised": "Questa istanza è già configurata."
+    },
+    "library": {
+      "title": "Dove sono le tue foto?",
+      "subtitle": "Scegli la cartella sul server che contiene la libreria.",
+      "name": "Nome libreria",
+      "path": "Percorso cartella foto",
+      "pathHint": "Il percorso deve stare sotto una radice consentita dal server (ad esempio /photos).",
+      "preview": "Anteprima",
+      "previewTotal": "{count} file trovati",
+      "previewExtension": "{ext}: {count}",
+      "continue": "Aggiungi libreria e continua",
+      "errors": {
+        "pathNotAllowed": "Percorso non consentito. Controlla le radici libreria del server.",
+        "previewFailed": "Impossibile mostrare l'anteprima di quella cartella.",
+        "createFailed": "Impossibile creare la libreria."
+      }
+    },
+    "scan": {
+      "title": "Indicizzazione delle foto",
+      "subtitle": "Keeppix sta scansionando la libreria. Potrebbero volerci alcuni minuti.",
+      "assetCount": "{count} foto indicizzate",
+      "phase": {
+        "discovering": "Ricerca file in corso…",
+        "idle": "Scansione completata",
+        "failed": "Scansione non riuscita",
+        "offline": "Libreria non raggiungibile"
+      },
+      "goToPhotos": "Vai alle foto",
+      "errors": {
+        "startFailed": "Impossibile avviare la scansione.",
+        "unauthenticated": "Sessione scaduta. Accedi di nuovo per continuare."
+      }
     }
   },
   "login": {

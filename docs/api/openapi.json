@@ -400,6 +400,143 @@
         ]
       }
     },
+    "/api/v1/assets/{id}/stack": {
+      "get": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile al chiamante.",
+        "operationId": "assets_stack_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Membri dello stack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/{id}/stack/primary": {
+      "post": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile; `409` se\nl'asset non è in uno stack.",
+        "operationId": "assets_stack_set_primary",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset da promuovere",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Primario aggiornato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Asset non in uno stack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -955,6 +1092,498 @@
           },
           "500": {
             "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/libraries": {
+      "get": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "# Errors\n`401` se non autenticato.",
+        "operationId": "libraries_list",
+        "responses": {
+          "200": {
+            "description": "Librerie visibili",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LibraryView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "# Errors\n`403` se non admin; `409` se `root_path` già indicizzato; `422` se fuori\ndall'allowlist.",
+        "operationId": "libraries_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLibraryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Libreria creata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "root_path già indicizzato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Percorso non ammesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/libraries/preview": {
+      "get": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Conteggio per estensione sotto `path`, senza creare nulla.",
+        "description": "# Errors\n`403` se non admin; `422` se il percorso è fuori dall'allowlist.",
+        "operationId": "libraries_preview",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conteggi per estensione",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Percorso non ammesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/libraries/{id}": {
+      "get": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "# Errors\n`403` su id altrui o inesistente (non-admin); `404` solo admin su id\nassente.",
+        "operationId": "libraries_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Libreria",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Inesistente (solo admin)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Cancella la riga nel database. **Non tocca i file sul disco.**",
+        "description": "# Errors\n`403` se non admin; `404` se l'id non esiste.",
+        "operationId": "libraries_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eliminata; i file restano",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteLibraryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Inesistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "# Errors\nCome `get`; campi assenti restano invariati.",
+        "operationId": "libraries_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchLibraryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Libreria aggiornata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non consentito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/libraries/{id}/scan": {
+      "get": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Stato corrente della scansione / indicizzazione della libreria.",
+        "description": "# Errors\nVisibilità come `get`.",
+        "operationId": "libraries_scan_status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stato scansione",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanStatusView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non consentito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Accoda `DiscoverLibrary` (idempotente via `dedup_key`).",
+        "description": "# Errors\nVisibilità come `get`; errori di coda → 503.",
+        "operationId": "libraries_scan_start",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Scansione accodata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanAccepted"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non consentito",
             "content": {
               "application/json": {
                 "schema": {
@@ -1654,6 +2283,449 @@
         ]
       }
     },
+    "/api/v1/trash": {
+      "get": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`400` se il cursore non è leggibile; `401` se non autenticato.",
+        "operationId": "trash_list",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Keyset deleted_at|id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1..=100, default 50",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pagina del cestino navigabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrashListPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cursore illeggibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/trash/empty": {
+      "post": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se il chiamante non è owner di alcuna\nlibreria né admin.",
+        "operationId": "trash_empty",
+        "responses": {
+          "200": {
+            "description": "Cestino svuotato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyTrashResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo owner/admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database o del filesystem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "# Errors\n`403` se non admin.",
+        "operationId": "users_list",
+        "responses": {
+          "200": {
+            "description": "Elenco utenti",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "# Errors\n`403` se non admin; `409` username/email già in uso; `422` dati non validi.",
+        "operationId": "users_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Utente creato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Username o email già in uso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Dati non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/me/password": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Cambio password: richiede la password attuale; revoca le altre sessioni.",
+        "description": "# Errors\n`403` se la password attuale è sbagliata.",
+        "operationId": "users_change_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Password aggiornata"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Password attuale errata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Password nuova non valida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{id}": {
+      "patch": {
+        "tags": [
+          "users"
+        ],
+        "summary": "# Errors\nAdmin o sé stessi; altrimenti `403`.",
+        "operationId": "users_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id utente",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Utente aggiornato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non consentito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{id}/disable": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "# Errors\n`403` se non admin.",
+        "operationId": "users_disable",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id utente",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Utente disabilitato; sessioni terminate"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Utente assente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/viewport": {
       "post": {
         "tags": [
@@ -2118,6 +3190,70 @@
           }
         }
       },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateLibraryRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "root_path"
+        ],
+        "properties": {
+          "exclude_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "root_path": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateUserRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "display_name",
+          "password"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "DeleteAssetRequest": {
         "type": "object",
         "required": [
@@ -2128,6 +3264,18 @@
             "type": "string",
             "description": "`kept`, `moved_to_trash`, o `purged` — nessun default: il client deve\nsempre scegliere (spec §6).",
             "example": "moved_to_trash"
+          }
+        }
+      },
+      "DeleteLibraryResponse": {
+        "type": "object",
+        "required": [
+          "files_untouched"
+        ],
+        "properties": {
+          "files_untouched": {
+            "type": "boolean",
+            "description": "Sempre `true`: la cancellazione è solo sul database."
           }
         }
       },
@@ -2202,6 +3350,19 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "EmptyTrashResponse": {
+        "type": "object",
+        "required": [
+          "emptied"
+        ],
+        "properties": {
+          "emptied": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -2307,6 +3468,54 @@
           "lon": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "LibraryView": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "owner_id",
+          "root_path",
+          "scan_enabled",
+          "exclude_patterns",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "exclude_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_scan_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "root_path": {
+            "type": "string"
+          },
+          "scan_enabled": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
           }
         }
       },
@@ -2423,6 +3632,74 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "PatchLibraryRequest": {
+        "type": "object",
+        "properties": {
+          "exclude_patterns": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scan_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "PatchUserRequest": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PreviewResponse": {
+        "type": "object",
+        "required": [
+          "total",
+          "extensions"
+        ],
+        "properties": {
+          "extensions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -2548,6 +3825,72 @@
           }
         }
       },
+      "ScanAccepted": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "status"
+        ],
+        "properties": {
+          "library_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "ScanStatusView": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "library_status",
+          "phase",
+          "asset_count"
+        ],
+        "properties": {
+          "asset_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "eta_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Sempre `null` per ora: niente stima finché non c'è throughput misurato."
+          },
+          "job_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_scan_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "library_status": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string",
+            "description": "`idle` | `discovering` | `failed` | `offline`"
+          }
+        }
+      },
       "SearchPage": {
         "type": "object",
         "required": [
@@ -2639,6 +3982,50 @@
           }
         }
       },
+      "StackMemberView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AssetView"
+          },
+          {
+            "type": "object",
+            "required": [
+              "is_primary"
+            ],
+            "properties": {
+              "is_primary": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "StackView": {
+        "type": "object",
+        "required": [
+          "members"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StackMemberView"
+            }
+          },
+          "primary_asset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stack_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "SuggestResponse": {
         "type": "object",
         "required": [
@@ -2680,6 +4067,65 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AssetView"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TrashItemView": {
+        "type": "object",
+        "required": [
+          "id",
+          "asset_id",
+          "deleted_at",
+          "original_path",
+          "disk_action",
+          "days_remaining"
+        ],
+        "properties": {
+          "asset_id": {
+            "type": "string"
+          },
+          "days_remaining": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disk_action": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "original_path": {
+            "type": "string"
+          },
+          "trash_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TrashListPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrashItemView"
             }
           },
           "next_cursor": {
@@ -2760,6 +4206,10 @@
       "description": "Autenticazione e sessioni"
     },
     {
+      "name": "users",
+      "description": "Gestione utenti"
+    },
+    {
       "name": "timeline",
       "description": "Bucket mensili e pagine keyset"
     },
@@ -2782,6 +4232,10 @@
     {
       "name": "library",
       "description": "Problemi e duplicati"
+    },
+    {
+      "name": "libraries",
+      "description": "Librerie e percorsi indicizzati"
     },
     {
       "name": "trash",

@@ -63,12 +63,21 @@ const fn role_str(role: SystemRole) -> &'static str {
     }
 }
 
-/// Traduce la violazione dell'indice unico in un conflitto leggibile.
+/// Traduce la violazione dell'indice unico in un conflitto leggibile,
+/// distinguendo username ed email così il client sa quale campo cambiare.
 fn map_unique_violation(err: sqlx::Error) -> DbError {
     if let sqlx::Error::Database(ref db_err) = err
         && db_err.code().as_deref() == Some("23505")
     {
-        return DbError::Conflict("username or email already in use".to_owned());
+        let constraint = db_err.constraint().unwrap_or("");
+        let detail = if constraint.contains("username") {
+            "username is already in use"
+        } else if constraint.contains("email") {
+            "email is already in use"
+        } else {
+            "username or email already in use"
+        };
+        return DbError::Conflict(detail.to_owned());
     }
     DbError::Connection(err)
 }
@@ -171,6 +180,102 @@ impl<'a> UserRepo<'a> {
         .await?;
 
         row.ok_or(DbError::NotFound)?.into_domain()
+    }
+
+    /// Elenco di tutti gli utenti. Solo admin.
+    ///
+    /// # Errors
+    /// `Forbidden` se non admin.
+    pub async fn list(&self, ctx: &AuthContext) -> Result<Vec<User>, DbError> {
+        if !ctx.is_admin() {
+            return Err(DbError::Forbidden);
+        }
+        let rows: Vec<UserRow> = sqlx::query_as(
+            "SELECT id, username, email, display_name, role, locale, created_at, disabled_at \
+               FROM users ORDER BY username",
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+        rows.into_iter().map(UserRow::into_domain).collect()
+    }
+
+    /// Aggiorna `display_name` e/o `locale`. Admin può chiunque; altrimenti solo sé.
+    ///
+    /// # Errors
+    /// `Forbidden` / `NotFound` come `find_by_id`.
+    pub async fn update_profile(
+        &self,
+        ctx: &AuthContext,
+        id: UserId,
+        display_name: Option<&str>,
+        locale: Option<&str>,
+    ) -> Result<User, DbError> {
+        self.find_by_id(ctx, id).await?;
+        let row: UserRow = sqlx::query_as(
+            "UPDATE users SET \
+                display_name = COALESCE($2, display_name), \
+                locale = COALESCE($3, locale), \
+                updated_at = now() \
+              WHERE id = $1 \
+              RETURNING id, username, email, display_name, role, locale, created_at, disabled_at",
+        )
+        .bind(id.as_uuid())
+        .bind(display_name)
+        .bind(locale)
+        .fetch_one(self.db.pool())
+        .await?;
+        row.into_domain()
+    }
+
+    /// Imposta `disabled_at = now()`. Solo admin. Non revoca le sessioni:
+    /// lo fa il chiamante HTTP con `SessionRepo`.
+    ///
+    /// # Errors
+    /// `Forbidden` se non admin; `NotFound` se l'id non esiste.
+    pub async fn disable(&self, ctx: &AuthContext, id: UserId) -> Result<(), DbError> {
+        if !ctx.is_admin() {
+            return Err(DbError::Forbidden);
+        }
+        let result = sqlx::query(
+            "UPDATE users SET disabled_at = now(), updated_at = now() \
+              WHERE id = $1 AND disabled_at IS NULL",
+        )
+        .bind(id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        if result.rows_affected() == 0 {
+            // Già disabilitato o inesistente: distingue.
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+                    .bind(id.as_uuid())
+                    .fetch_one(self.db.pool())
+                    .await?;
+            if exists {
+                return Ok(());
+            }
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Sostituisce l'hash della password. Il chiamante ha già verificato
+    /// la password attuale (o è un reset admin futuro).
+    ///
+    /// # Errors
+    /// `Forbidden` / `NotFound` come `find_by_id`.
+    pub async fn set_password_hash(
+        &self,
+        ctx: &AuthContext,
+        id: UserId,
+        password_hash: &str,
+    ) -> Result<(), DbError> {
+        self.find_by_id(ctx, id).await?;
+        sqlx::query("UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1")
+            .bind(id.as_uuid())
+            .bind(password_hash)
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
     }
 }
 

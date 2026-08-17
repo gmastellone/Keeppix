@@ -12,7 +12,7 @@ use keeppix_domain::{
 /// condivisione (Fase 3): per provare che il rating è per utente su un
 /// **singolo** asset, i due chiamanti devono vedere la stessa libreria, e
 /// nella Fase 2 solo un admin vede librerie che non possiede.
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_second_admin(test: &TestDb, admin: UserId, username: &str) -> UserId {
     use keeppix_domain::Password;
 
@@ -34,7 +34,7 @@ async fn seed_second_admin(test: &TestDb, admin: UserId, username: &str) -> User
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
     LibraryRepo::new(test.db())
         .create(
@@ -51,7 +51,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn discovered(folder: keeppix_domain::FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
@@ -63,7 +63,7 @@ fn discovered(folder: keeppix_domain::FolderId, filename: &str) -> NewAsset {
     }
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_asset(test: &TestDb, owner: UserId, filename: &str) -> AssetId {
     let library = seed_library(test, owner).await;
     let folder = FolderRepo::new(test.db())
@@ -74,6 +74,7 @@ async fn seed_asset(test: &TestDb, owner: UserId, filename: &str) -> AssetId {
         .upsert_discovered(discovered(folder.id, filename))
         .await
         .expect("asset")
+        .unwrap()
         .id
 }
 
@@ -183,6 +184,7 @@ async fn batch_set_applies_the_same_flags_to_many_assets_at_once() {
         let asset = assets_repo
             .upsert_discovered(discovered(folder.id, &format!("DSC_{i:04}.ARW")))
             .await
+            .unwrap()
             .unwrap();
         ids.push(asset.id);
     }
