@@ -96,6 +96,7 @@ pub async fn run_with(
     // niente demosaic, che è l'unico passo davvero costoso qui.
     let (thumb_path, _) = derivative_paths(data_dir, &hash);
     if thumb_path.is_file() {
+        assets.propagate_thumbhash_for_hash(&hash).await?;
         return Ok(());
     }
 

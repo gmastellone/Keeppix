@@ -397,6 +397,29 @@ impl<'a> AssetRepo<'a> {
         Ok(result.rows_affected())
     }
 
+    /// Copia il thumbhash già noto sugli asset con lo stesso `content_hash`
+    /// che ancora non ce l'hanno. Lo chiama `DeriveRaw` sul ramo
+    /// idempotente: il file derivato esiste, ma un duplicato hashed dopo
+    /// la prima derivazione resterebbe senza placeholder.
+    ///
+    /// Non prende un `AuthContext`: è la pipeline dei derivati, come
+    /// [`Self::set_thumbhash_for_hash`].
+    ///
+    /// # Errors
+    /// `Connection` se l'aggiornamento fallisce.
+    pub async fn propagate_thumbhash_for_hash(&self, hash: &[u8; 32]) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "UPDATE assets SET thumbhash = src.thumbhash, updated_at = now() \
+             FROM (SELECT thumbhash FROM assets \
+                    WHERE content_hash = $1 AND thumbhash IS NOT NULL LIMIT 1) src \
+             WHERE assets.content_hash = $1 AND assets.thumbhash IS NULL",
+        )
+        .bind(hash.as_slice())
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     /// Non prende un `AuthContext`: la chiama la pipeline dei derivati.
     ///
     /// # Errors
