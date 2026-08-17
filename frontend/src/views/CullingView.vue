@@ -48,14 +48,36 @@ function originalSrc(id: string): string {
 /**
  * Precarica il livello `full` (WebP), non il file originale. Sui RAW
  * l'originale non è disegnabile da un `<img>` e pesa decine di MB.
+ * Conservativo: solo con lo zoom acceso, e solo la foto successiva —
+ * il demosaic costa secondi e passa dal gate della RAM.
  */
 const preloaded = new Set<string>()
+let preloadAbort: AbortController | null = null
+
 function preloadFull(id: string) {
   if (preloaded.has(id)) return
-  preloaded.add(id)
-  const img = new Image()
-  img.src = fullSrc(id)
+  preloadAbort?.abort()
+  const ctrl = new AbortController()
+  preloadAbort = ctrl
+  void fetch(fullSrc(id), { signal: ctrl.signal, credentials: 'same-origin' })
+    .then((response) => {
+      if (response.ok) preloaded.add(id)
+    })
+    .catch(() => {
+      /* abort o rete: si ritenta quando questa foto torna corrente */
+    })
 }
+
+const zoomReady = ref(false)
+const zoomFailed = ref(false)
+
+watch(
+  () => store.currentAsset?.id,
+  () => {
+    zoomReady.value = false
+    zoomFailed.value = false
+  }
+)
 
 // `radio`/`checkbox` & co. non sono "scrivere testo": il dialogo di
 // cancellazione ha un gruppo di radio, e bloccare anche `Escape` lì dentro
@@ -173,12 +195,14 @@ function onKey(e: KeyboardEvent) {
 }
 
 watch(
-  () => `${store.position}:${store.order.length}`,
+  () => `${store.zoomed}:${store.position}:${store.order.length}`,
   () => {
-    const upcoming = store.order.slice(store.position + 1, store.position + 4)
-    upcoming.forEach(preloadFull)
+    preloadAbort?.abort()
     const id = store.currentAsset?.id
     if (id) void store.ensureFlagsLoaded(id)
+    if (!store.zoomed) return
+    const nextId = store.order[store.position + 1]
+    if (nextId) preloadFull(nextId)
   },
   { immediate: true }
 )
@@ -186,6 +210,7 @@ watch(
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
+  preloadAbort?.abort()
   store.stop()
 })
 </script>
@@ -238,11 +263,29 @@ onUnmounted(() => {
           class="relative h-full w-full overflow-hidden"
         >
           <img
+            :key="`preview-${store.currentAsset.id}`"
+            :src="previewSrc(store.currentAsset.id)"
+            :alt="store.currentAsset.filename"
+            class="absolute inset-0 m-auto h-full max-h-full w-full max-w-full object-contain"
+            :class="zoomReady ? 'opacity-0' : 'opacity-100'"
+          >
+          <img
+            v-if="!zoomFailed"
             :key="`zoom-${store.currentAsset.id}`"
             :src="fullSrc(store.currentAsset.id)"
             :alt="store.currentAsset.filename"
             class="absolute left-1/2 top-1/2 max-w-none -translate-x-1/2 -translate-y-1/2"
+            :class="zoomReady ? 'opacity-100' : 'opacity-0'"
+            @load="zoomReady = true"
+            @error="zoomFailed = true"
           >
+          <p
+            v-if="!zoomReady && !zoomFailed"
+            class="absolute bottom-4 left-1/2 -translate-x-1/2 text-sm text-white/80"
+            role="status"
+          >
+            {{ t('culling.zoomLoading') }}
+          </p>
         </div>
         <img
           v-else-if="store.currentAsset"
