@@ -7,6 +7,10 @@ import { ApiProblem } from '@/api/client'
 
 export type { User }
 
+/** TTL cookie 30 giorni: un giro ogni 12 ore, e solo a scheda visibile,
+ * tiene la sessione viva senza ruotare tutta la notte su un Pi. */
+export const SESSION_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000
+
 export const useSessionStore = defineStore('session', () => {
   const user = ref<User | null>(null)
   const initialised = ref<boolean | null>(null)
@@ -16,6 +20,9 @@ export const useSessionStore = defineStore('session', () => {
    * conferma dal server. Letto (e azzerato) dalla vista che accoglie
    * l'utente dopo il redirect, per segnalarlo senza bloccare l'uscita. */
   const logoutError = ref(false)
+
+  let timer: ReturnType<typeof setInterval> | undefined
+  let listening = false
 
   /** Determina lo stato dell'istanza e ripristina la sessione se presente. */
   async function bootstrap(): Promise<void> {
@@ -28,10 +35,12 @@ export const useSessionStore = defineStore('session', () => {
         try {
           const result = await authApi.me()
           user.value = result.user
+          startWatchdog()
         } catch (error) {
           // 401 è normale: nessuna sessione attiva.
           if (!(error instanceof ApiProblem) || error.status !== 401) throw error
           user.value = null
+          stopWatchdog()
         }
       }
     } catch (error) {
@@ -53,12 +62,14 @@ export const useSessionStore = defineStore('session', () => {
   async function login(username: string, password: string): Promise<void> {
     const result = await authApi.login(username, password)
     user.value = result.user
+    startWatchdog()
   }
 
   async function setup(payload: SetupPayload): Promise<void> {
     const result = await authApi.setupAccount(payload)
     user.value = result.user
     initialised.value = true
+    startWatchdog()
   }
 
   /**
@@ -77,8 +88,70 @@ export const useSessionStore = defineStore('session', () => {
       logoutError.value = true
     } finally {
       user.value = null
+      stopWatchdog()
     }
   }
 
-  return { user, initialised, ready, unavailable, logoutError, bootstrap, retryBootstrap, login, setup, logout }
+  async function tick(): Promise<void> {
+    if (document.visibilityState !== 'visible' || !user.value) return
+    try {
+      await authApi.refresh()
+    } catch (error) {
+      if (error instanceof ApiProblem && error.status === 401) {
+        user.value = null
+        stopWatchdog()
+      }
+    }
+  }
+
+  function armInterval(): void {
+    if (timer !== undefined) clearInterval(timer)
+    timer = setInterval(() => {
+      void tick()
+    }, SESSION_REFRESH_INTERVAL_MS)
+  }
+
+  function onVisibility(): void {
+    if (document.visibilityState === 'visible') {
+      void tick()
+      armInterval()
+    } else if (timer !== undefined) {
+      clearInterval(timer)
+      timer = undefined
+    }
+  }
+
+  function startWatchdog(): void {
+    stopWatchdog()
+    document.addEventListener('visibilitychange', onVisibility)
+    listening = true
+    if (document.visibilityState === 'visible') {
+      armInterval()
+    }
+  }
+
+  function stopWatchdog(): void {
+    if (timer !== undefined) {
+      clearInterval(timer)
+      timer = undefined
+    }
+    if (listening) {
+      document.removeEventListener('visibilitychange', onVisibility)
+      listening = false
+    }
+  }
+
+  return {
+    user,
+    initialised,
+    ready,
+    unavailable,
+    logoutError,
+    bootstrap,
+    retryBootstrap,
+    login,
+    setup,
+    logout,
+    stopWatchdog
+  }
 })

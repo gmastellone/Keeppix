@@ -22,13 +22,14 @@ fn extract_poster fase-6
 route /health ops
 route /api/openapi.json ci
 
+# Task 4 (explain) è il chiamante. Nata col Task 1, non è un debito
+# di una fase chiusa: senza questa riga la guardia è rossa a metà fase.
+fn effective_role fase-3
+
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore
 # =============================================================================
-# origine fase-0 (sessioni). La SPA non chiama /auth/refresh; il TTL è
-# assoluto (30 giorni, niente sliding). Non è un kick a metà culling.
-# Saldo: quando la SPA avrà un watchdog di sessione.
-route /auth/refresh fase-3
+# origine fase-0 (sessioni). /auth/refresh: pagato in 12b (watchdog SPA).
 fn purge_expired fase-6
 fn ping fase-6
 

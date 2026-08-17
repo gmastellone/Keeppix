@@ -406,7 +406,11 @@ async fn explain_page_cte(
         .and_hms_opt(0, 0, 0)
         .unwrap()
         .and_utc();
-    let grants = scope.grant_ids();
+    let grants = scope
+        .filter("f.path", "f.library_id", 6)
+        .bind()
+        .unwrap()
+        .to_vec();
     let rows: Vec<(String,)> = sqlx::query_as(
         "EXPLAIN (ANALYZE, BUFFERS) \
          WITH RECURSIVE vis AS ( \

@@ -114,11 +114,6 @@ impl VisibilityScope {
         self.unrestricted
     }
 
-    #[must_use]
-    pub fn grant_ids(&self) -> Vec<uuid::Uuid> {
-        self.grants.iter().map(|g| g.id).collect()
-    }
-
     /// True se la cartella cade sotto un prefisso concesso **nella stessa
     /// libreria** e non sotto un buco. Un path illeggibile è un no.
     #[must_use]

@@ -84,6 +84,34 @@ pretendono `disabled_at IS NULL`. Il disable HTTP revoca già le sessioni;
 questo è la rete sotto, se una riga resta. `FOR UPDATE OF s` perché il
 join su `users` non è nella riga bloccata.
 
-Task 1: complete (commit in arrivo, test `permissions` 14, `visibility` 7,
+Task 1: complete (commit f2d8e83, test `permissions` 14, `visibility` 7,
 `sessions` 16, `scale_200k::timeline_with_fifty_permissions` verdi)
+
+Ruling (post-commit): `grant_ids()` era pubblico solo per i test e la
+guardia `check-wired` lo segnalava. I test usano `filter().bind()`.
+`PermissionRepo::effective_role` resta in Rinvii `fase-3` fino al Task 4
+(explain). Costo: dimenticarsene a fine fase lascia un rinvio della
+fase corrente. Task 4 deve togliere quella riga.
+
+Differito: `check-wired` non vede `PermissionRepo::grant` come inutilizzato
+perché `\bgrant\b` matcha il nome del parametro nello stesso file. La
+guardia ha lo stesso buco per ogni fn il cui nome è anche un ident locale.
+
+---
+
+## Task 12b — rinnovo sessione
+
+Ruling: niente `expires_at` su `/auth/me`. Il cookie è HttpOnly, il TTL
+di produzione è 30 giorni. Watchdog: `setInterval` 12 ore **solo** con
+`document.visibilityState === 'visible'`; al ritorno in primo piano un
+refresh immediato. Costo se troppo raro: si cade dopo 30 giorni di
+scheda sempre aperta senza un giro. Costo se troppo frequente: rotate
+inutili sul Pi. 12 ore è due ordini sotto il TTL e non gira di notte.
+
+Ruling: il test HTTP di sliding usa TTL **2 secondi**, non 800 ms.
+`Cookie Max-Age` è in secondi interi: 800 ms diventava un cookie già
+morto, e il 401 misurava il jar, non `rotate`. Costo: il test è più
+lento (~2.3 s) e resta cieco a un Max-Age sotto il secondo, che in
+produzione non esiste.
+
 
