@@ -13,6 +13,7 @@ pub enum JobKind {
     DeriveRaw,
     WriteSidecar,
     ReapStale,
+    CleanupTrash,
 }
 
 impl JobKind {
@@ -26,6 +27,7 @@ impl JobKind {
             Self::DeriveRaw => "derive_raw",
             Self::WriteSidecar => "write_sidecar",
             Self::ReapStale => "reap_stale",
+            Self::CleanupTrash => "cleanup_trash",
         }
     }
 
@@ -40,6 +42,7 @@ impl JobKind {
             "derive_raw" => Ok(Self::DeriveRaw),
             "write_sidecar" => Ok(Self::WriteSidecar),
             "reap_stale" => Ok(Self::ReapStale),
+            "cleanup_trash" => Ok(Self::CleanupTrash),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
     }
@@ -136,6 +139,7 @@ mod tests {
             JobKind::DeriveRaw,
             JobKind::WriteSidecar,
             JobKind::ReapStale,
+            JobKind::CleanupTrash,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
         }
