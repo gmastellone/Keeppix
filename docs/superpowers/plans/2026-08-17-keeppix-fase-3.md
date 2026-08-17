@@ -988,6 +988,57 @@ l'aggiornamento in diretta della timeline. Il polling del wizard di setup può
 restare — è un uso una tantum su una pagina che l'utente sta guardando — ma
 va allora dichiarato come scelta, non come ripiego.
 
+### 12f — lo zoom del culling è rotto sui RAW, e scarica 46 MB per foto
+
+**Trovato per ispezione** rispondendo alla domanda «quando zoommo si vede
+male?». Non verificato nel browser: l'ambiente di prova era già smontato. Il
+percorso di codice però è univoco.
+
+`frontend/src/views/CullingView.vue` usa tre sorgenti diverse:
+
+| Vista | Sorgente |
+|---|---|
+| Griglia timeline, ricerca, filmstrip | `/media/thumb/{hash}` — 240 px |
+| Apertura foto, culling normale, confronto | `/media/preview/{hash}` — 1440 px |
+| **Zoom del culling (`z`)** | **`/media/original/{id}`** |
+
+E `crates/keeppix-api/src/routes/media.rs:87` serve l'originale così com'è:
+
+```rust
+let path = folder_path.join(asset.filename.as_str());
+stream_file(&path, …, mime_for_name(asset.filename.as_str()), false).await
+```
+
+Su un archivio RAW quel percorso restituisce i byte di un `.ARW` dentro un
+`<img>`. **Nessun browser sa disegnarlo.** Lo zoom — la funzione che serve
+proprio al fotografo che scarta a fuoco, cioè l'utente di riferimento della
+Fase 2 — non mostra nulla sui RAW.
+
+Peggio: `preloadOriginal` precarica l'originale per rendere lo zoom istantaneo.
+Su questo archivio sono **46 MB per foto** trasferiti in anticipo per
+un'immagine che poi non si vede. Su un Pi che serve in rete è traffico e I/O
+sprecato a ogni navigazione nel culling.
+
+Il commento nel codice dichiara il limite («non esiste un endpoint di ritaglio
+lato server in questa fase») ma non ne traccia la conseguenza sui RAW.
+
+**Correzione — è anche una decisione di progetto, non solo un fix.** Lo zoom a
+piena risoluzione su un RAW richiede un'immagine renderizzata che oggi non
+esiste: ci sono solo la miniatura da 240 px, l'anteprima da 1440 px e il RAW.
+Le strade:
+
+1. **Un terzo derivato ad alta risoluzione** (piena o ~3000 px), generato
+   pigramente alla prima richiesta di zoom e non per tutti gli asset. Lega
+   questa voce al **Task 14**: un derivato a piena risoluzione *senza perdita*
+   sarebbe enorme, con perdita è sostenibile.
+2. **Un endpoint di ritaglio lato server**, che ritaglia dal RAW su richiesta.
+   Più economico in spazio, più costoso in CPU a ogni zoom — sul Pi va pesato.
+
+In entrambi i casi, `preloadOriginal` non deve più precaricare il RAW.
+
+**Test.** Aperto un asset `raw_image` nel culling e premuto `z`, la risposta
+servita ha un content-type che il browser sa disegnare, e non è il file RAW.
+
 ### 12d — la guardia in CI contro la quinta occorrenza
 
 Le quattro occorrenze sopra si trovano tutte con lo stesso `grep`. Aggiungere
@@ -1085,6 +1136,36 @@ C; WebP con perdita se si accetta libwebp, che comprime meglio ed è
 maturissimo. In entrambi i casi la qualità va resa configurabile, con un
 default sensato, e **la miniatura da 240 px e l'anteprima da 1440 px possono
 avere qualità diverse**.
+
+### Dove va a finire il risparmio: alzare la risoluzione
+
+Il senza-perdita a 1440 px conserva dettaglio che **il ridimensionamento ha
+già buttato via**. Gli artefatti di una codifica a qualità 82 su un'immagine
+già ridotta sono ben sotto la perdita di dettaglio del ridimensionamento
+stesso: si sta pagando 8× lo spazio per niente.
+
+Il che apre l'opzione più interessante: **usare parte del risparmio per
+alzare la risoluzione dell'anteprima**. Oggi 1440 px, aperti a tutto schermo
+su un monitor 4K, sono già interpolati e morbidi — un limite di risoluzione,
+non di compressione, che il lossless non risolve. Un'anteprima da **2560 px
+con perdita** peserebbe comunque **meno** dei 1440 px senza perdita di oggi, e
+si vedrebbe **meglio**.
+
+Da valutare insieme al **Task 12f**, che ha bisogno di un derivato ad alta
+risoluzione per far funzionare lo zoom sui RAW.
+
+### RAM e CPU: la codifica con perdita costa meno, non di più
+
+Va detto perché l'intuizione porta fuori strada. Il lossless WebP (`VP8L`) fa
+trasformazioni ed entropy coding **più** costosi di una codifica con perdita:
+il passaggio dovrebbe **accelerare** la derivazione, non rallentarla.
+
+Sulla RAM il quadro non cambia: il picco è dominato dal buffer RGB a piena
+risoluzione per decodifica e ridimensionamento, non dall'encoder — che lavora
+sull'immagine **già ridotta**, quindi su pochi megabyte.
+
+Entrambe le affermazioni vanno **misurate** nel field test, non date per
+buone: il piano chiede il numero, non l'aspettativa.
 
 ### Test
 
@@ -1198,6 +1279,7 @@ Ognuno è **eseguibile**.
 | Ritentativo dei `derive_*` falliti (differito dalla 2R2) | 12c |
 | WebSocket montato nel backend e mai usato dal frontend | 12e |
 | Derivati in WebP **senza perdita**: ~308 GB su 200.000 foto | 14 |
+| Zoom del culling rotto sui RAW, 46 MB precaricati per foto | 12f |
 | Nessuna prova al di sopra di 779 asset | 13 |
 
 ## Cosa NON è in Fase 3
