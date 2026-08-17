@@ -2892,6 +2892,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Full non disponibile (demosaic assente)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         },
         "security": [
