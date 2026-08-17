@@ -261,6 +261,64 @@ async fn deriving_from_the_embedded_preview_populates_the_thumbhash() {
 }
 
 #[tokio::test]
+async fn a_duplicate_hashed_after_the_first_derive_still_gets_the_thumbhash() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let bytes = fs::read(fixture("sample.arw")).unwrap();
+    let first = seed_raw_asset(&test, admin, "a.arw", &bytes).await;
+
+    let demosaic = MockDemosaic::new(never_called);
+    raw::run_with(test.db(), &first.data_dir, first.hash, &demosaic)
+        .await
+        .unwrap();
+
+    let assets = AssetRepo::new(test.db());
+    let asset_a = assets.get_for_scan(first.asset_id).await.unwrap();
+    let folder_a = FolderRepo::new(test.db())
+        .find_by_id(&ctx, asset_a.folder_id)
+        .await
+        .unwrap();
+    fs::create_dir_all(first.root.join("copy")).unwrap();
+    fs::write(first.root.join("copy/b.arw"), &bytes).unwrap();
+    let folder_b = FolderRepo::new(test.db())
+        .ensure_path(folder_a.library_id, &["copy"])
+        .await
+        .unwrap();
+    let meta = fs::metadata(first.root.join("copy/b.arw")).unwrap();
+    let asset_b = assets
+        .upsert_discovered(NewAsset {
+            folder_id: folder_b.id,
+            filename: AssetName::parse("b.arw").unwrap(),
+            size_bytes: i64::try_from(meta.len()).unwrap(),
+            mtime: chrono::DateTime::<chrono::Utc>::from(meta.modified().unwrap()),
+            inode: None,
+            kind: AssetKind::RawImage,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assets.set_hash(asset_b.id, first.hash).await.unwrap();
+
+    raw::run_with(test.db(), &first.data_dir, first.hash, &demosaic)
+        .await
+        .unwrap();
+
+    let a = assets.get_for_scan(first.asset_id).await.unwrap();
+    let b = assets.get_for_scan(asset_b.id).await.unwrap();
+    assert!(
+        a.thumbhash.is_some_and(|h| !h.is_empty()),
+        "il primo asset deve restare col thumbhash"
+    );
+    assert!(
+        b.thumbhash.is_some_and(|h| !h.is_empty()),
+        "il duplicato hashed dopo la prima derive_raw non deve restare senza thumbhash"
+    );
+
+    let _ = fs::remove_dir_all(&first.root);
+}
+
+#[tokio::test]
 async fn deriving_from_the_demosaic_fallback_populates_the_thumbhash() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
