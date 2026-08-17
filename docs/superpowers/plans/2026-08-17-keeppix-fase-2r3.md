@@ -671,6 +671,74 @@ scade durante l'uso e l'utente viene buttato fuori.
 espulso, è un difetto di questa fase; se una rotazione avviene per altra via, è
 un rinvio legittimo e va scritto quale.
 
+## R6 — il rilevamento hardware non rileva niente
+
+Trovato rispondendo alla domanda «l'accelerazione hardware funziona?».
+
+**Non funziona, e non è mai stata scritta.** `crates/keeppix-media/src/probe.rs`:
+
+```rust
+pub fn probe() -> Capabilities {
+    Capabilities {
+        backend: "software".to_owned(),   // costante
+        decode_fps: None,
+    }
+}
+```
+
+Nel workspace, `grep -rni "vaapi|hwaccel|qsv|nvenc|videotoolbox|v4l2"` non
+restituisce **nulla**.
+
+### Perché è un debito e non un rinvio
+
+La spec della **Fase 1b §4** — fase dichiarata completa e già in `main` — lo
+specifica per esteso:
+
+> «Al primo avvio, e su richiesta da Impostazioni, Keeppix **misura invece di
+> indovinare**.» Clip di test di 2 secondi, backend candidati in ordine
+> (`rkmpp`, `nvenc`, `v4l2m2m`, `videotoolbox`, `vaapi`, `qsv`, `amf`,
+> software), SoC rilevato da `/proc/device-tree/compatible`, `/proc/cpuinfo`,
+> `/dev/dri/*`, `nvidia-smi`; risultato in `system_capabilities` con **gli fps
+> misurati**, mostrato in Impostazioni e sovrascrivibile a mano.
+>
+> «Un driver presente ma rotto — capita spessissimo con V4L2 e VAAPI a metà —
+> deve fallire **durante il probe**, non sul video di Natale alle 23:00.»
+
+Niente di tutto questo esiste.
+
+### La forma nuova del solito difetto
+
+Le cinque occorrenze precedenti erano *funzioni senza chiamante*. Questa è
+peggio: **`persist_capabilities` chiama `probe()` regolarmente e ne salva il
+risultato.** Il chiamante c'è, il dato finisce in `settings`, tutto sembra
+funzionare — solo che il valore è una costante.
+
+**La guardia del Task 7 non può prenderla**, perché cerca chiamanti, non
+verifica che una funzione faccia qualcosa. Vale la pena scriverlo: la guardia
+copre una classe, non tutte.
+
+### Cosa NON fare adesso
+
+**Non implementare il probe completo in questa fase.** L'accelerazione hardware
+serve alla transcodifica video, che è Fase 6 — e la spec della Fase 6 dice
+esplicitamente «accelerazione hardware secondo quanto misurato dal probe della
+Fase 1b». La pipeline fotografica di oggi non ha alcun percorso GPU: decodifica
+JPEG e codifica WebP sono CPU. **La sua assenza non ci è costata nulla finora**,
+e costruirlo qui sarebbe lavoro di Fase 6 fatto fuori posto, per giunta
+dipendente da build ffmpeg con i flag giusti (la spec generale avverte che le
+build statiche pronte spesso non includono VAAPI, rkmpp e v4l2m2m).
+
+### Cosa fare adesso
+
+**Smettere di fingere.** Oggi il valore salvato afferma `"software"` come se
+fosse stato misurato. Deve dichiarare di **non essere stato rilevato** — un
+backend `"unprobed"` o equivalente, con il doc comment che dice che il
+rilevamento arriva in Fase 6 — così nessuno costruisce sopra un dato inventato,
+e chi legge `settings` distingue «misurato: software» da «mai misurato».
+
+E la voce va nel backlog dei debiti (vedi R4), attribuita alla Fase 1b come
+origine e alla Fase 6 come saldo.
+
 ## Criterio di chiusura dei rilievi
 
 - [ ] `/media/full` su un ARW restituisce un'immagine **strettamente più
@@ -681,3 +749,5 @@ un rinvio legittimo e va scritto quale.
       scelto e motivato; rapporto derivati ancora **sotto l'1%**.
 - [ ] `wired-exceptions.txt` distingue rinvii da debiti.
 - [ ] Il comportamento alla scadenza della sessione è verificato e dichiarato.
+- [ ] `probe()` non afferma più `"software"` come se l'avesse misurato, e il
+      debito è registrato con origine Fase 1b e saldo Fase 6.
