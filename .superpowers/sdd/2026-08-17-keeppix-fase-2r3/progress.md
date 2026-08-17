@@ -210,9 +210,56 @@ Ruling: finestra da `KEEPPIX_TRASH_RETENTION_DAYS` (default 30, la stessa `TRASH
 
 Dopo: `check-wired.py` non elenca più `cleanup_expired`; restano `/ws` e `/ws/ticket`.
 
-Task 4: complete (commit da annotare)
+Task 4: complete (commit `8c76f34`, test trash job verde)
 
 ---
 
+## Task 6 — WebSocket cablato
+
+**RED osservato:** `a_new_asset_is_pushed_as_assets_upserted` andava in
+timeout (3 s, nessuna busta). `shows newly upserted photos without a
+page reload` vedeva `startLiveEvents` chiamato 0 volte.
+
+Ruling: il backend montava `/ws` ma `socket_loop` mandava solo ping.
+Il piano diceva «implementazione completa»; il campo no. Si polla
+`ChangeLogRepo::since` ogni 1 s e si emette `assets.upserted` /
+`assets.deleted`. Costo se sbagliato: 1 query/s per connessione
+(tetto 8/utente); su 200k il `since` è un index lookup sul seq.
+
+Ruling: all'handshake si parte da `head_seq` (MAX seq già committato),
+non da 0. Il client ha già caricato la timeline via REST; riprodurre
+200k upsert al connect gonfierebbe la coda e manderebbe `resync`.
+Costo se sbagliato: un asset inserito *durante* `head_seq` si perde
+fino al poll successivo — il test aspetta il primo ping prima di
+inserire.
+
+Ruling: il wizard di setup resta in polling. È una pagina che
+l'utente sta guardando, una tantum; il piano lo consente se dichiarato.
+Costo se sbagliato: lo setup non vede l'avanzamento se il poll si
+rompe — già coperto dai test del wizard.
+
+Ruling: `tokio-tungstenite 0.29` è solo `[dev-dependencies]` di
+`keeppix-api` (già nel lockfile via axum). Serve a parlare il socket
+vero: un helper estratto non avrebbe intercettato il loop che non
+leggeva il change_log. Costo se sbagliato: un breaking change di
+tungstenite tocca solo i test.
+
+Ruling: su `resync` / `assets.upserted` / `assets.deleted` la timeline
+rifà GET buckets e svuota la cache dei mesi. Il WS è notifica, REST è
+fonte di verità (spec 1c §4.1). Costo se sbagliato: uno scan che
+emette ogni secondo rifà due pagine di timeline; è il prezzo del
+delta assente in SPA.
+
+`check-wired.py` è verde: `/ws` e `/ws/ticket` hanno il client in
+`events.ts` + `TimelineView.vue`; `since` ha il chiamante in
+`socket_loop`. Tolta l'eccezione `fn since`.
+
+Task 6: complete (commits `f0f3b7d` + `8be1c53`, test ws e TimelineView verdi)
+
+Task 7 GREEN: la guardia scritta in RED ora passa sul codice reale,
+non su un caso costruito. `cleanup_expired` dal Task 4, `/ws` dal
+Task 6.
+
 ---
+
 
