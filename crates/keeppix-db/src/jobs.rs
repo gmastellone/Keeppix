@@ -273,21 +273,30 @@ impl<'a> JobRepo<'a> {
         priority: JobPriority,
     ) -> Result<u64, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.library_id", 3);
+        let filter = scope.filter("f.path", "f.library_id", 3);
         let result = sqlx::query(
             "UPDATE jobs j SET priority = LEAST(priority, $1) \
               WHERE j.dedup_key = ANY($2) AND j.status = 'pending' \
                 AND ($3::uuid[] IS NULL OR EXISTS ( \
                   SELECT 1 FROM assets a \
                   JOIN folders f ON f.id = a.folder_id \
+                  JOIN folders vis_g ON vis_g.id = ANY($3::uuid[]) \
                   WHERE a.content_hash IS NOT NULL \
                     AND j.dedup_key = 'derive:' || encode(a.content_hash, 'hex') \
-                    AND f.library_id = ANY($3::uuid[]) \
+                    AND f.library_id = vis_g.library_id \
+                    AND f.path <@ vis_g.path \
+                    AND NOT EXISTS ( \
+                      SELECT 1 FROM folders vis_h \
+                       WHERE vis_h.id = ANY($4::uuid[]) \
+                         AND f.library_id = vis_h.library_id \
+                         AND f.path <@ vis_h.path \
+                    ) \
                 ))",
         )
         .bind(priority.as_i16())
         .bind(dedup_keys)
         .bind(filter.bind())
+        .bind(filter.holes())
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected())

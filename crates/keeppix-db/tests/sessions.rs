@@ -250,3 +250,23 @@ async fn a_disabled_user_cannot_authenticate() {
         Err(DbError::NotFound)
     ));
 }
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn a_disabled_user_cannot_rotate() {
+    let test = TestDb::start().await;
+    let user_id = seed_admin(&test).await;
+    let repo = SessionRepo::new(test.db());
+    let token = repo.create(user_id, TTL, None).await.unwrap();
+
+    sqlx::query("UPDATE users SET disabled_at = now() WHERE id = $1")
+        .bind(user_id.as_uuid())
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        repo.rotate(&token, TTL).await,
+        Err(DbError::NotFound)
+    ));
+}

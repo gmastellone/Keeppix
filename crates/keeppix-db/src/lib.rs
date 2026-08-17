@@ -9,6 +9,7 @@ pub mod folders;
 pub mod jobs;
 pub mod libraries;
 pub mod overrides;
+pub mod permissions;
 pub mod problems;
 mod row;
 pub mod search;
@@ -29,6 +30,7 @@ pub use folders::FolderRepo;
 pub use jobs::JobRepo;
 pub use libraries::LibraryRepo;
 pub use overrides::{OverrideRepo, SidecarSource};
+pub use permissions::{NewGrant, ObjectType, PermissionRepo, SubjectType};
 pub use problems::{ProblemSet, ProblemsRepo};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
@@ -44,7 +46,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0014_trash.
+// rivede la directory. 0015_permissions.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
