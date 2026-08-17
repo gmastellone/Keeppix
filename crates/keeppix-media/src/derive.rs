@@ -24,6 +24,11 @@ pub const DEFAULT_FULL_CACHE_BYTES: u64 = 512 * 1024 * 1024;
 /// [`set_webp_quality`] / `KEEPPIX_WEBP_QUALITY`.
 pub const DEFAULT_WEBP_QUALITY: u8 = 82;
 static WEBP_QUALITY: AtomicU8 = AtomicU8::new(DEFAULT_WEBP_QUALITY);
+/// Default `method` di libwebp (0=veloce … 6=lento/piccolo). L'API semplice
+/// usava 4. 2 è ~2× più veloce in release con ~3% in più di peso.
+/// Sovrascrivibile con [`set_webp_method`] / `KEEPPIX_WEBP_METHOD`.
+pub const DEFAULT_WEBP_METHOD: u8 = 2;
+static WEBP_METHOD: AtomicU8 = AtomicU8::new(DEFAULT_WEBP_METHOD);
 const MAX_PIXELS: u64 = 200_000_000;
 const SKIP_PREVIEW_PX: u32 = 1600;
 const SKIP_PREVIEW_BYTES: u64 = 400 * 1024;
@@ -56,6 +61,11 @@ pub fn set_webp_quality(quality: u8) {
     WEBP_QUALITY.store(quality.clamp(1, 100), Ordering::Relaxed);
 }
 
+/// Metodo di encode libwebp (0–6). Chiamato all'avvio da `Config`.
+pub fn set_webp_method(method: u8) {
+    WEBP_METHOD.store(method.min(6), Ordering::Relaxed);
+}
+
 /// L'incorporata vale come `full` solo se è **strettamente** più grande
 /// del derivato preview. Uguale o più piccola è un secondo file inutile.
 #[must_use]
@@ -69,6 +79,14 @@ fn webp_quality() -> u8 {
         .and_then(|s| s.parse().ok())
         .filter(|q: &u8| (1..=100).contains(q))
         .unwrap_or_else(|| WEBP_QUALITY.load(Ordering::Relaxed))
+}
+
+fn webp_method() -> u8 {
+    std::env::var("KEEPPIX_WEBP_METHOD")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|m: &u8| *m <= 6)
+        .unwrap_or_else(|| WEBP_METHOD.load(Ordering::Relaxed))
 }
 
 /// Una decodifica, write su `.tmp`, `rename`. Idempotente se i file ci sono già.
@@ -262,7 +280,15 @@ fn rgb_to_rgba(rgb: &[u8]) -> Vec<u8> {
 
 fn write_webp_atomic(path: &Path, rgb: &[u8], w: u32, h: u32) -> Result<(), DeriveError> {
     let tmp = path.with_extension(format!("webp.{}.tmp", std::process::id()));
-    let encoded = WebPEncoder::from_rgb(rgb, w, h).encode(f32::from(webp_quality()));
+    let mut config = webp::WebPConfig::new()
+        .map_err(|()| DeriveError::Decode("webp config init failed".to_owned()))?;
+    config.lossless = 0;
+    config.quality = f32::from(webp_quality());
+    config.method = i32::from(webp_method());
+    config.alpha_compression = 1;
+    let encoded = WebPEncoder::from_rgb(rgb, w, h)
+        .encode_advanced(&config)
+        .map_err(|e| DeriveError::Decode(format!("webp encode: {e:?}")))?;
     if encoded.is_empty() {
         return Err(DeriveError::Decode("webp encode returned empty".to_owned()));
     }
