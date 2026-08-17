@@ -6,7 +6,8 @@
 )]
 
 use keeppix_media::{
-    derive_from_bytes, derive_from_rgb, derive_jpeg, extract_embedded_preview, hash_file,
+    derivative_paths, derive_from_bytes, derive_from_rgb, derive_jpeg, extract_embedded_preview,
+    hash_file,
 };
 
 fn fixture(name: &str) -> std::path::PathBuf {
@@ -321,9 +322,48 @@ fn full_cache_evicts_oldest_when_over_cap() {
     );
 }
 
+/// Il tetto non può percorrere `derivatives/` (thumb+preview di tutto
+/// l'archivio). Un `*-full.webp` messo lì è un esca: se lo sfratto lo
+/// tocca, sta ancora camminando l'albero sbagliato.
+#[test]
+fn enforce_full_cache_cap_does_not_walk_the_derivatives_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let jpeg = extract_embedded_preview(&fixture("sample.arw"))
+        .unwrap()
+        .unwrap();
+
+    let decoy_dir = dir.path().join("derivatives").join("ff").join("ff");
+    std::fs::create_dir_all(&decoy_dir).unwrap();
+    let decoy = decoy_dir.join(format!("{}-full.webp", "ff".repeat(32)));
+    std::fs::write(&decoy, vec![0u8; 80_000]).unwrap();
+
+    for i in 0..80u8 {
+        let hash = [i; 32];
+        let (thumb, preview) = derivative_paths(dir.path(), &hash);
+        std::fs::create_dir_all(thumb.parent().unwrap()).unwrap();
+        std::fs::write(&thumb, [1u8; 32]).unwrap();
+        std::fs::write(&preview, [1u8; 32]).unwrap();
+    }
+
+    let a = [0xa2u8; 32];
+    let b = [0xb2u8; 32];
+    keeppix_media::ensure_full_from_bytes(&jpeg.bytes, dir.path(), &a).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    keeppix_media::ensure_full_from_bytes(&jpeg.bytes, dir.path(), &b).unwrap();
+    let size_b = std::fs::metadata(&keeppix_media::full_derivative_path(dir.path(), &b))
+        .unwrap()
+        .len();
+
+    keeppix_media::enforce_full_cache_cap(dir.path(), size_b).unwrap();
+    assert!(
+        decoy.is_file(),
+        "un *-full.webp sotto derivatives/ non fa parte della cache full"
+    );
+}
+
 fn walk_full_bytes(data_dir: &std::path::Path) -> u64 {
     let mut total = 0;
-    let mut stack = vec![data_dir.join("derivatives")];
+    let mut stack = vec![data_dir.join("full")];
     while let Some(dir) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
