@@ -23,6 +23,27 @@ lto = true
 codegen-units = 1
 strip = true
 
+# I test di budget misurano prestazioni, e `cargo test` compila a
+# `opt-level = 0`: misurerebbero rustc senza ottimizzazioni, non ciò che
+# gira in produzione. Su `keeppix-media`, che macina byte, la differenza
+# non è marginale — misurata sulle stesse fixture:
+#
+#     estrazione preview CR3    debug 116,90 ms    release 4,19 ms
+#
+# 28×, abbastanza da far fallire un budget che in release ha 12× di
+# margine. Il numero in debug non dice niente di utile: dipende dalla
+# macchina, e infatti passava su una e falliva su un'altra.
+#
+# Si ottimizzano solo le crate che macinano byte: il resto resta veloce da
+# compilare. `dev` e `test` sono entrambi necessari — le librerie usate dai
+# test di integrazione si compilano col profilo `dev`, i binari di test col
+# profilo `test`.
+[profile.dev.package.keeppix-media]
+opt-level = 2
+
+[profile.test.package.keeppix-media]
+opt-level = 2
+
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
