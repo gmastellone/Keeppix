@@ -15,6 +15,7 @@ vi.mock('@/api/culling', () => ({
 }))
 
 import CullingView from './CullingView.vue'
+import { fullSrc } from '@/api/media'
 
 function photo(id: string, kind = 'image', filename = `${id}.jpg`): TimelineAsset {
   return {
@@ -126,8 +127,8 @@ describe('CullingView zoom', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z' }))
     await flushPromises()
 
-    const img = wrapper.get(`img[src="/media/full/${raw.content_hash}"]`)
-    expect(img.attributes('src')).toBe(`/media/full/${raw.content_hash}`)
+    const img = wrapper.get(`img[src="${fullSrc(raw.content_hash)}"]`)
+    expect(img.attributes('src')).toBe(fullSrc(raw.content_hash))
     expect(wrapper.find(`img[src="/media/original/${raw.id}"]`).exists()).toBe(false)
     wrapper.unmount()
   })
@@ -177,9 +178,9 @@ describe('CullingView zoom', () => {
 
     const fullLoads = loaded.filter((src) => src.includes('/media/full/'))
     expect(fullLoads.some((src) => src.includes('/media/original/'))).toBe(false)
-    expect(fullLoads).toContain(`/media/full/${photos[1].content_hash}`)
-    expect(fullLoads).not.toContain(`/media/full/${photos[2].content_hash}`)
-    expect(fullLoads).not.toContain(`/media/full/${photos[3].content_hash}`)
+    expect(fullLoads).toContain(fullSrc(photos[1].content_hash))
+    expect(fullLoads).not.toContain(fullSrc(photos[2].content_hash))
+    expect(fullLoads).not.toContain(fullSrc(photos[3].content_hash))
     wrapper.unmount()
     vi.unstubAllGlobals()
   })

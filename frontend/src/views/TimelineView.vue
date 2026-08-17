@@ -11,6 +11,7 @@ import {
   type TimelineAsset
 } from '@/api/timeline'
 import { startLiveEvents, type LiveSocket } from '@/api/events'
+import { thumbSrc as mediaThumbSrc } from '@/api/media'
 import Button from '@/components/ui/Button.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
 import { useCullingStore } from '@/stores/culling'
@@ -135,7 +136,7 @@ function reserveHeight(bucket: MonthBucket): number {
 }
 
 function thumbSrc(asset: TimelineAsset): string | undefined {
-  return asset.content_hash ? `/media/thumb/${asset.content_hash}` : undefined
+  return asset.content_hash ? mediaThumbSrc(asset.content_hash) : undefined
 }
 
 async function signOut() {

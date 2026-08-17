@@ -10,6 +10,33 @@ use thiserror::Error;
 use webp::Encoder as WebPEncoder;
 use zune_jpeg::JpegDecoder;
 
+/// Versione della **ricetta** dei derivati, non del formato del file.
+///
+/// Le URL `/media/{thumb,preview,full}/{hash}` escono con
+/// `Cache-Control: … immutable`, che promette al browser che quell'URL non
+/// cambierà mai: non rivalida per un anno. Ma l'hash indirizza il file
+/// **sorgente**, non i byte serviti — e quelli dipendono da come li
+/// produciamo. Quando la ricetta cambia, lo stesso URL restituisce
+/// un'immagine diversa, e chi ha già in cache la vecchia se la tiene per
+/// sempre.
+///
+/// È già successo: passando da WebP senza perdita a 1440 px a WebP con
+/// perdita a 2048 px, e da anteprima incorporata a demosaic per `full`, un
+/// browser che aveva visitato quelle URL continuava a mostrare le immagini
+/// vecchie. Se ne è accorto solo un confronto fatto a mano fra ciò che
+/// mostrava la pagina e ciò che rispondeva `curl`.
+///
+/// Il frontend appende `?v=` a questo numero, così una ricetta nuova produce
+/// URL nuove e la cache si invalida da sola. Il server **ignora** il
+/// parametro: serve solo come chiave di cache.
+///
+/// **Va incrementato a ogni modifica che cambi i byte prodotti a parità di
+/// sorgente**: formato, qualità, `method`, dimensioni, encoder, o la scelta
+/// fra incorporata e demosaic. Il valore è legato a
+/// `frontend/src/api/media.ts` da un test: cambiarne uno solo fa fallire la
+/// build.
+pub const DERIVATIVE_VERSION: u32 = 2;
+
 const THUMB: u32 = 240;
 /// Lato lungo del derivato `preview`. Pubblico perché `full` usa
 /// l'incorporata solo se la supera — altrimenti è un secondo file
