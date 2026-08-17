@@ -521,6 +521,40 @@ async fn refresh_rotates_the_session_cookie() {
     );
 }
 
+/// La SPA non chiama `/auth/refresh`. La sessione è un cookie assoluto:
+/// scaduto, il prossimo GET è 401. Non c'è sliding sulle richieste
+/// autenticate. Con il default di 30 giorni non si viene buttati fuori a
+/// metà culling; si viene buttati fuori dopo 30 giorni di orologio.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn an_expired_session_is_unauthenticated_without_calling_refresh() {
+    let server =
+        TestServer::start_with(|s| s.with_session_ttl(std::time::Duration::from_secs(0))).await;
+    let setup = server
+        .client
+        .post(server.url("/api/v1/setup"))
+        .json(&json!({
+            "username": "giovanni",
+            "display_name": "Giovanni",
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), 201);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let me = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(me.status(), 401);
+    let body: serde_json::Value = me.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/unauthenticated");
+}
+
 /// `SessionRepo::rotate` revoca l'intera famiglia quando un token già
 /// consumato viene ripresentato — il segnale che una copia sia finita in
 /// mano a qualcun altro. La documentazione di `refresh` lo promette

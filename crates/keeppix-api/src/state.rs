@@ -176,6 +176,12 @@ impl AppState {
         self.demosaic = demosaic;
         self
     }
+
+    #[must_use]
+    pub const fn with_session_ttl(mut self, ttl: Duration) -> Self {
+        self.session_ttl = ttl;
+        self
+    }
 }
 
 #[cfg(test)]
