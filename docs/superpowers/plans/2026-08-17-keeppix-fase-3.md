@@ -7,7 +7,7 @@
 **Architecture:** Nessun motore nuovo. La funzione di visibilità della Fase 1a — la cui firma era stata congelata apposta — viene estesa con la tabella `permissions`, e **i chiamanti non cambiano**. Un link pubblico è un `AuthContext::ShareLink`: lo stesso motore con un contesto diverso, non una strada parallela con regole proprie.
 
 **Spec:** [`../specs/fase-3-multiutente.md`](../specs/fase-3-multiutente.md) — leggerla prima; se piano e spec divergono, **vince la spec**
-**Dipende da:** [`2026-08-17-keeppix-fase-2r.md`](2026-08-17-keeppix-fase-2r.md) — **da completare prima**. Senza gestione utenti e librerie da interfaccia, metà di questa fase non sarebbe collaudabile da una persona, e i test di viaggio della 2R sono la rete che serve qui.
+**Dipende da:** [`2026-08-17-keeppix-fase-2r3.md`](2026-08-17-keeppix-fase-2r3.md) — chiusa e mergiata in `main`, insieme a 2R e 2R2. Da lì arrivano tre cose che questa fase usa: i test di viaggio V1-V4 come rete, l'impalcatura di scala a 200.000 asset per misurare il Task 1, e la guardia `check-wired.py` che ha scoperto i debiti del Task 12.
 
 ---
 
@@ -1007,7 +1007,10 @@ non aggiungere un'eccezione per una rotta che è davvero usata.
       ognuna delle sei aree, non un commit unico)
 
 
-## Task 13-15: spostati in Fase 2R3
+## Nota storica: cosa è stato spostato in Fase 2R3
+
+**Non sono task da eseguire.** Questa sezione esiste perché chi legge il piano
+non si chieda dove siano finiti i task che una versione precedente conteneva.
 
 I debiti scoperti dal field test della 2R2 — thumbhash sui duplicati, potatura
 del cestino, ritentativo dei derive falliti, WebSocket mai cablato, zoom rotto
@@ -1023,6 +1026,7 @@ calda del prodotto: se il piano di query non regge a 200.000 asset va scoperto
 prima di costruirci sopra. Il Task 1 di questa fase **usa** l'impalcatura di
 scala che la 2R3 lascia in eredità, invece di doverla scrivere.
 
+---
 
 ## Criteri di completamento
 
@@ -1066,10 +1070,21 @@ Ognuno è **eseguibile**.
 | `sessions.ip` mai popolata | 8 — o dichiarata ancora differita con la ragione |
 | `refresh`/`rotate` non ricontrollano `disabled_at` | 1, insieme ai permessi |
 | `logout` risponde `204` anche se `revoke` fallisce | 4, con `/auth/devices` |
+| Gestione utenti senza interfaccia (Fase 2R) | 12a |
+| Sessione senza rinnovo, espulsione a orologio (Fase 0) | 12b |
+| Albero cartelle non navigabile (Fase 1c) | 12c |
+| Cestino non apribile (Fase 2) | 12d |
+| Metadati e flag in blocco senza interfaccia (Fase 2) | 12e |
+| Suggerimenti e ricerche salvate senza interfaccia (Fase 1c) | 12f |
 
-I debiti del field test (thumbhash sui duplicati, cestino, ritentativo dei
-derive, WebSocket, zoom sui RAW, derivati senza perdita, prova di scala) sono
-saldati nella **Fase 2R3**, che precede questa.
+Le prime quattro righe sono debiti di autenticazione noti da tempo. Le sei
+sotto le ha scoperte la guardia della Fase 2R3, e sono **tutte** interfacce
+mancanti per funzioni che il backend implementa già.
+
+I debiti del field test (thumbhash sui duplicati, potatura del cestino,
+ritentativo dei derive, WebSocket mai cablato, zoom rotto sui RAW, derivati
+senza perdita, prova di scala) sono invece saldati nella **Fase 2R3**, che
+precede questa.
 
 ## Cosa NON è in Fase 3
 
