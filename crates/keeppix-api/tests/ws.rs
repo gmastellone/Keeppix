@@ -1,7 +1,16 @@
 mod harness;
 
+use std::time::Duration;
+
+use futures_util::StreamExt as _;
 use harness::TestServer;
+use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, UserRepo};
+use keeppix_domain::{
+    AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, Username,
+};
 use serde_json::json;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
@@ -51,6 +60,54 @@ async fn a_wrong_origin_is_forbidden() {
     assert_eq!(status, 403);
 }
 
+/// Il socket è un canale di notifica: un asset nuovo deve uscire come
+/// `assets.upserted` senza che il client ricarichi la pagina.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn a_new_asset_is_pushed_as_assets_upserted() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+    let (folder, _) = seed_library_after_setup(&server).await;
+
+    let issued = server
+        .client
+        .post(server.url("/api/v1/ws/ticket"))
+        .send()
+        .await
+        .unwrap();
+    let ticket = issued.json::<serde_json::Value>().await.unwrap()["ticket"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let mut ws = open_socket(&server, &ticket).await;
+    wait_until_looping(&mut ws).await;
+
+    let asset = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("live.jpg").unwrap(),
+            size_bytes: 10,
+            mtime: chrono::Utc::now(),
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+    let msg = recv_json(&mut ws).await;
+    assert_eq!(msg["v"], 1);
+    assert_eq!(msg["type"], "assets.upserted");
+    let ids = msg["payload"]["ids"].as_array().expect("ids");
+    assert!(
+        ids.iter()
+            .any(|id| id.as_str() == Some(&asset.id.to_string())),
+        "expected {} in {ids:?}",
+        asset.id
+    );
+}
+
 #[allow(clippy::unwrap_used)]
 async fn handshake(server: &TestServer, ticket: &str, origin: &str) -> u16 {
     server
@@ -85,4 +142,92 @@ async fn setup(server: &TestServer) {
         .send()
         .await
         .unwrap();
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn seed_library_after_setup(
+    server: &TestServer,
+) -> (keeppix_domain::FolderId, keeppix_domain::LibraryId) {
+    let username = Username::parse("giovanni").unwrap();
+    let (user, _) = UserRepo::new(&server.db)
+        .find_by_username(&username)
+        .await
+        .unwrap()
+        .expect("admin");
+    let ctx = AuthContext::user(user.id, SystemRole::Admin);
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Foto".to_owned(),
+                owner_id: user.id,
+                root_path: std::path::PathBuf::from("/mnt/foto"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(&server.db)
+        .ensure_path(library.id, &[])
+        .await
+        .unwrap();
+    (folder.id, library.id)
+}
+
+type LiveSocket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn open_socket(server: &TestServer, ticket: &str) -> LiveSocket {
+    let ws_url = server.url("/api/v1/ws").replacen("http", "ws", 1);
+    let mut request = ws_url.into_client_request().unwrap();
+    request.headers_mut().insert(
+        header::ORIGIN,
+        HeaderValue::from_str(&server.base_url).unwrap(),
+    );
+    request.headers_mut().insert(
+        header::SEC_WEBSOCKET_PROTOCOL,
+        HeaderValue::from_str(&format!("keeppix.v1, ticket.{ticket}")).unwrap(),
+    );
+    let (ws, _) = tokio_tungstenite::connect_async(request)
+        .await
+        .expect("websocket connect");
+    ws
+}
+
+/// Il primo ping prova che `socket_loop` ha passato `head_seq`: inserire
+/// prima di quel punto farebbe avanzare il cursore *oltre* l'asset nuovo.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn wait_until_looping(ws: &mut LiveSocket) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let frame = tokio::time::timeout(remaining, ws.next())
+            .await
+            .expect("timed out waiting for the socket loop")
+            .expect("socket closed")
+            .expect("websocket frame");
+        match frame {
+            tokio_tungstenite::tungstenite::Message::Ping(_)
+            | tokio_tungstenite::tungstenite::Message::Pong(_) => return,
+            _ => {}
+        }
+    }
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn recv_json(ws: &mut LiveSocket) -> serde_json::Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let frame = tokio::time::timeout(remaining, ws.next())
+            .await
+            .expect("timed out waiting for assets.upserted")
+            .expect("socket closed")
+            .expect("websocket frame");
+        let tokio_tungstenite::tungstenite::Message::Text(text) = frame else {
+            continue;
+        };
+        return serde_json::from_str(text.as_str()).expect("json envelope");
+    }
 }
