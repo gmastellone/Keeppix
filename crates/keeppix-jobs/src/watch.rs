@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use keeppix_db::{Db, JobRepo, LibraryRepo};
 use keeppix_domain::{JobKind, JobPriority, LibraryId};
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher as _};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -11,6 +11,10 @@ use crate::JobError;
 
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_secs(2);
 pub const DEFAULT_POLL: Duration = Duration::from_secs(15 * 60);
+/// Non più di una riscansione nativa ogni tanto, anche se gli eventi
+/// continuano ad arrivare. Chiude il ciclo Access→stat→Access (D4) e
+/// copre editor rumorosi.
+pub const MIN_RESCAN: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WatcherMode {
@@ -190,6 +194,7 @@ async fn watch_native(
         .map_err(|e| JobError::Worker(format!("watch {}: {e}", root.display())))?;
 
     let mut pending = false;
+    let mut last_rescan: Option<Instant> = None;
     loop {
         if pending {
             tokio::select! {
@@ -201,7 +206,16 @@ async fn watch_native(
                     }
                 }
                 () = tokio::time::sleep(debounce) => {
+                    // Cadenza minima per libreria, indipendente dal volume
+                    // di eventi. La prima riscansione (last_rescan = None)
+                    // non attende.
+                    if let Some(last) = last_rescan
+                        && !due_for_rescan(Some(last), Instant::now(), MIN_RESCAN)
+                    {
+                        tokio::time::sleep(MIN_RESCAN.saturating_sub(last.elapsed())).await;
+                    }
                     enqueue_rescan(&db, library_id).await?;
+                    last_rescan = Some(Instant::now());
                     pending = false;
                 }
             }
@@ -216,7 +230,14 @@ async fn watch_native(
 }
 
 fn interesting(event: &Event) -> bool {
-    event.paths.iter().any(|p| !is_hidden_path(p))
+    matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    ) && event.paths.iter().any(|p| !is_hidden_path(p))
+}
+
+fn due_for_rescan(last: Option<Instant>, now: Instant, min: Duration) -> bool {
+    last.is_none_or(|t| now.saturating_duration_since(t) >= min)
 }
 
 fn is_hidden_path(path: &Path) -> bool {
@@ -286,4 +307,89 @@ pub async fn persist_capabilities(db: &Db) -> Result<(), JobError> {
         .put_json("capabilities", &value)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::EventKind;
+    use notify::event::{AccessKind, AccessMode, DataChange, EventAttributes, ModifyKind};
+
+    fn event(kind: EventKind, path: &str) -> Event {
+        Event {
+            kind,
+            paths: vec![PathBuf::from(path)],
+            attrs: EventAttributes::new(),
+        }
+    }
+
+    #[test]
+    fn access_on_a_visible_file_is_not_interesting() {
+        let ev = event(
+            EventKind::Access(AccessKind::Open(AccessMode::Any)),
+            "/photos/DSC_0042.ARW",
+        );
+        assert!(
+            !interesting(&ev),
+            "Access non è una modifica: non deve innescare una riscansione (D4)"
+        );
+    }
+
+    #[test]
+    fn modify_on_a_visible_file_stays_interesting() {
+        let ev = event(
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            "/photos/DSC_0042.ARW",
+        );
+        assert!(
+            interesting(&ev),
+            "Modify deve continuare a innescare la discovery"
+        );
+    }
+
+    #[test]
+    fn create_and_remove_on_a_visible_file_are_interesting() {
+        assert!(interesting(&event(
+            EventKind::Create(notify::event::CreateKind::File),
+            "/photos/nuova.ARW",
+        )));
+        assert!(interesting(&event(
+            EventKind::Remove(notify::event::RemoveKind::File),
+            "/photos/vecchia.ARW",
+        )));
+    }
+
+    #[test]
+    fn generic_any_and_other_are_not_interesting() {
+        assert!(!interesting(&event(EventKind::Any, "/photos/DSC.ARW")));
+        assert!(!interesting(&event(EventKind::Other, "/photos/DSC.ARW")));
+    }
+
+    #[test]
+    fn a_hidden_path_is_never_interesting_even_on_modify() {
+        let ev = event(
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            "/photos/.DS_Store",
+        );
+        assert!(!interesting(&ev));
+    }
+
+    #[test]
+    fn rescan_is_due_only_after_the_minimum_interval() {
+        let t0 = std::time::Instant::now();
+        assert!(
+            due_for_rescan(None, t0, MIN_RESCAN),
+            "la prima riscansione non deve aspettare"
+        );
+        assert!(!due_for_rescan(
+            Some(t0),
+            t0 + Duration::from_secs(29),
+            MIN_RESCAN
+        ));
+        assert!(due_for_rescan(
+            Some(t0),
+            t0 + Duration::from_secs(30),
+            MIN_RESCAN
+        ));
+    }
 }
