@@ -837,6 +837,184 @@ async fn v8_revoking_a_link_locks_out_whoever_holds_it() {
 
 ---
 
+## Task 12: i debiti scoperti dal field test della 2R2
+
+Aggiunti dopo la chiusura della 2R2, analizzando i tre field test
+sull'archivio reale. Nessuno è grande; insieme valgono un task.
+
+### 12a — il thumbhash si perde sulle foto duplicate
+
+**Osservazione.** Due esecuzioni identiche dello stesso field test, stesso
+archivio, stesso commit, danno numeri **diversi**:
+
+```
+run 10:34   Con thumbhash | 707     RAW con preview | 707 / 779
+run 11:46   Con thumbhash | 700     RAW con preview | 700 / 779
+```
+
+779 asset, ma solo **689 `content_hash` distinti**: 90 foto sono la stessa
+immagine in due cartelle. Gli asset senza thumbhash (72–79) sono un
+sottoinsieme di quei 90, e quali siano cambia da un'esecuzione all'altra.
+
+**Causa.** In `crates/keeppix-jobs/src/raw.rs`, il guard di idempotenza:
+
+```rust
+let (thumb_path, _) = derivative_paths(data_dir, &hash);
+if thumb_path.is_file() {
+    return Ok(());          // ← esce senza propagare il thumbhash
+}
+```
+
+e la propagazione avviene per `content_hash`
+(`crates/keeppix-db/src/assets.rs:391`):
+
+```sql
+UPDATE assets SET thumbhash = $2, updated_at = now() WHERE content_hash = $1
+```
+
+La corsa è questa:
+
+```
+asset A e asset B sono la stessa foto (hash H) in cartelle diverse
+  hash_job(A) → set_hash(A, H) → accoda derive_raw:H
+    derive_raw(H) → deriva, scrive il file, UPDATE ... WHERE content_hash = H
+                     → aggiorna solo A: B non ha ancora content_hash
+  hash_job(B) → set_hash(B, H) → accoda di nuovo derive_raw:H
+    derive_raw(H) → il file c'è già → return Ok(()) → B resta senza thumbhash
+```
+
+**Impatto: contenuto, ma reale.** Il derivato esiste su disco, quindi la foto
+si vede; manca solo il placeholder sfocato del caricamento progressivo, su
+circa il 10% degli asset. Non è un buco nero in timeline. È però un difetto
+non deterministico, e in Fase 3 la condivisione aumenta il traffico di
+lettura sulle stesse foto.
+
+**Correzione.** Nel ramo di uscita anticipata, propagare il thumbhash già
+noto agli asset che non ce l'hanno, senza rifare il demosaic:
+
+```sql
+UPDATE assets SET thumbhash = src.thumbhash, updated_at = now()
+  FROM (SELECT thumbhash FROM assets
+         WHERE content_hash = $1 AND thumbhash IS NOT NULL LIMIT 1) src
+ WHERE content_hash = $1 AND thumbhash IS NULL
+```
+
+Una query, nessun ricalcolo, nessuna lettura di file.
+
+**Test che deve fallire prima.** Due asset in cartelle diverse con lo stesso
+contenuto; far completare `derive_raw` per il primo, poi assegnare
+`content_hash` al secondo ed eseguire di nuovo `derive_raw` con lo stesso
+hash. **Entrambi** devono avere `thumbhash` non nullo. Oggi il secondo resta
+`NULL`.
+
+### 12b — `TrashRepo::cleanup_expired` non ha chiamanti di produzione
+
+**Osservazione.** Verificabile con un `grep`:
+
+```
+$ grep -rn "cleanup_expired" --include="*.rs" crates/
+crates/keeppix-db/src/trash.rs:403:    pub async fn cleanup_expired(...)   ← definizione
+crates/keeppix-db/tests/trash.rs:383,431                                    ← solo test
+```
+
+**Zero** chiamanti di produzione. Il cestino ha una rotta manuale
+(`/trash/empty`) ma **la scadenza automatica non avviene mai**: le foto
+cancellate restano su disco per sempre.
+
+Su un Pi con storage limitato è una perdita di capacità silenziosa, e rompe
+la promessa di conservazione a termine fatta all'utente.
+
+**È la quarta occorrenza dello stesso difetto di processo** — funzione
+scritta, testata, mai collegata. Le altre tre: `restat_if_stable` con lo
+sleep, la scansione che richiedeva il riavvio, `detect_kind` mai chiamata.
+
+**Correzione.** Schedulare la potatura come job periodico, con la stessa
+disciplina degli altri job di manutenzione (priorità bassa, cadenza tarata
+sul fatto che è un'operazione di pulizia, non interattiva). La finestra di
+conservazione va letta dalla configurazione, non incisa nel codice.
+
+**Test.** Una riga in cestino più vecchia della finestra sparisce senza
+intervento manuale; una più recente resta.
+
+### 12c — ritentativo dei job di derivazione falliti
+
+Voce differita correttamente nel ledger della 2R2 («il ritentativo dei
+derive falliti non passa dalla riscansione»), ma **nessun piano la possiede**.
+
+Oggi un fallimento transitorio — disco momentaneamente occupato, processo di
+demosaic ucciso dal gate della RAM — lascia la foto **senza miniatura per
+sempre**: la riscansione non la ritenta, perché D2 salta correttamente gli
+asset invariati.
+
+Serve un ritentativo con backoff, limitato nel numero di tentativi, che non
+passi dalla riscansione. La rotta `/problems` esiste già e mostra gli asset
+in errore: il ritentativo va reso visibile lì.
+
+### 12d — la guardia in CI contro la quinta occorrenza
+
+Le quattro occorrenze sopra si trovano tutte con lo stesso `grep`. Aggiungere
+un controllo in CI che fallisce se una funzione pubblica di `keeppix-media` o
+`keeppix-db` non ha **almeno un chiamante fuori dai test**.
+
+Serve una lista di eccezioni dichiarate — una funzione può legittimamente
+esistere in attesa della fase che la userà — ma l'eccezione va **scritta**,
+con la fase che la consumerà. È esattamente la differenza fra una scelta e una
+dimenticanza.
+
+Costo: un `grep` in uno script. Copre la classe di difetto che ci è costata
+tre field test.
+
+- [ ] **Step 1-3: Scrivere, verificare, committare**
+
+---
+
+## Task 13: la prova di scala
+
+**Il piano, così com'è, non prova mai il vincolo che lo governa.**
+
+`AGENTS.md` dichiara il bersaglio: **Pi 5, 8 GB, 200.000 foto**. Il criterio
+di completamento più severo che abbiamo scritto finora è «`GET /timeline`
+sotto 300 ms con 50 permessi e **10.000 asset**» — il 5% del bersaglio. E il
+field test più grande mai eseguito ha **779 asset**: lo 0,4%.
+
+779 foto provano la **correttezza**. Non dicono niente sulla **scala**.
+
+**Cosa fare.** Una prova di scala **sintetica**: generare 200.000 righe in
+`assets` con date, cartelle e permessi realistici, **senza file veri** — non
+servono, perché ciò che va misurato sono le query, non l'I/O di ingestione.
+Costa minuti, non ore, e si può rieseguire a ogni fase.
+
+Misurare, con `EXPLAIN ANALYZE` nel ledger:
+
+| Query | Budget |
+|---|---|
+| `GET /timeline` prima pagina | < 300 ms |
+| `GET /timeline` pagina profonda (keyset, mesi indietro) | < 300 ms |
+| Conteggi per mese (le intestazioni dei bucket) | < 300 ms |
+| Ricerca testuale (`pg_trgm`) | < 500 ms |
+| La query di visibilità del Task 1, con 50 permessi | < 300 ms |
+
+**Perché qui e non più avanti.** Il Task 1 di questa fase introduce
+l'ereditarietà dei permessi nella query più calda del prodotto. Se la strada
+scelta (CTE o `NOT EXISTS`) non regge a 200.000 asset, va scoperto **mentre
+la si scrive**, non in Fase 6 quando ci saranno sopra mappe, WebDAV e video.
+
+E se un budget non è raggiungibile, la risposta giusta non è alzarlo in
+silenzio: è scriverlo nel ledger con il numero misurato e la ragione.
+
+**Nota onesta sui numeri che abbiamo.** Tutte le misure di prestazione
+esistenti vengono da Docker Desktop su macOS, dove il bind mount passa da
+virtiofs. La camminata dell'albero ha impiegato ~5 minuti per ~1.600 voci di
+directory (~190 ms per `stat`): è il costo di virtiofs, non del codice — su
+un filesystem nativo uno `stat` sta nei microsecondi. **Da quei numeri non si
+può estrapolare il comportamento sul Pi.** Questa prova di scala misura le
+query, che dipendono da Postgres e dagli indici, non dal filesystem: è
+l'unica delle due che si trasferisce onestamente al bersaglio.
+
+- [ ] **Step 1-3: Scrivere, verificare, committare**
+
+---
+
 ## Criteri di completamento
 
 Ognuno è **eseguibile**.
@@ -846,6 +1024,18 @@ Ognuno è **eseguibile**.
 - [ ] **Budget**: `GET /timeline` sotto 300 ms con 50 permessi e 10.000 asset,
       misurato e registrato nel ledger insieme alla strada scelta per
       l'ereditarietà (CTE o `NOT EXISTS`) con i numeri di `EXPLAIN ANALYZE`.
+- [ ] **Prova di scala (Task 13)**: gli stessi budget retti a **200.000
+      asset** sintetici, con `EXPLAIN ANALYZE` nel ledger. È il bersaglio
+      dichiarato in `AGENTS.md`; finora il test più grande ne aveva 779.
+- [ ] **Zero funzioni pubbliche senza chiamante di produzione** in
+      `keeppix-media` e `keeppix-db`, o eccezione scritta con la fase che la
+      consumerà (Task 12d). Quattro difetti sono già usciti da qui.
+- [ ] Un asset duplicato in due cartelle ha il thumbhash su **entrambi**
+      (Task 12a), verificato su due esecuzioni consecutive del field test:
+      il numero di `thumbhash IS NOT NULL` deve essere **identico** e pari al
+      totale degli asset RAW derivati.
+- [ ] Il cestino si svuota **da solo** oltre la finestra di conservazione
+      (Task 12b).
 - [ ] **Nessun percorso legge asset senza passare da `visibility_scope`** —
       verificato per `grep`, con l'elenco nel ledger, non per campione.
 - [ ] **Un utente senza permessi vede zero asset su ogni canale.**
@@ -867,6 +1057,10 @@ Ognuno è **eseguibile**.
 | `sessions.ip` mai popolata | 8 — o dichiarata ancora differita con la ragione |
 | `refresh`/`rotate` non ricontrollano `disabled_at` | 1, insieme ai permessi |
 | `logout` risponde `204` anche se `revoke` fallisce | 4, con `/auth/devices` |
+| Thumbhash perso sulle foto duplicate | 12a |
+| `TrashRepo::cleanup_expired` mai chiamata in produzione | 12b |
+| Ritentativo dei `derive_*` falliti (differito dalla 2R2) | 12c |
+| Nessuna prova al di sopra di 779 asset | 13 |
 
 ## Cosa NON è in Fase 3
 
