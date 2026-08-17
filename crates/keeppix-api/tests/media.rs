@@ -482,3 +482,41 @@ async fn seed_user(server: &TestServer, username: &str) {
         .await
         .unwrap();
 }
+
+/// Le URL dei derivati escono `immutable`: il browser non rivalida per un
+/// anno. Ma l'hash indirizza il file **sorgente**, non i byte serviti, quindi
+/// cambiare la ricetta cambia il contenuto dello stesso URL e chi ha la
+/// vecchia in cache se la tiene. Il frontend appende `?v=DERIVATIVE_VERSION`
+/// per rendere l'URL una vera chiave di contenuto — ma solo se i due numeri
+/// restano uguali, e nessuno se ne accorgerebbe leggendo un file solo.
+///
+/// Il difetto che questo test previene si è già visto: la pagina mostrava
+/// un'anteprima a 1616×1080 mentre `curl` sullo stesso URL ne restituiva una
+/// a 3012×2012.
+#[test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+fn the_frontend_derivative_version_matches_the_backend() {
+    let ts =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../frontend/src/api/media.ts");
+    let source =
+        std::fs::read_to_string(&ts).unwrap_or_else(|e| panic!("leggo {}: {e}", ts.display()));
+
+    let line = source
+        .lines()
+        .find(|l| l.contains("export const DERIVATIVE_VERSION"))
+        .expect("frontend/src/api/media.ts deve esportare DERIVATIVE_VERSION");
+    let frontend: u32 = line
+        .rsplit('=')
+        .next()
+        .and_then(|v| v.trim().trim_end_matches(';').parse().ok())
+        .unwrap_or_else(|| panic!("non riesco a leggere il numero da: {line}"));
+
+    assert_eq!(
+        frontend,
+        keeppix_media::DERIVATIVE_VERSION,
+        "frontend/src/api/media.ts dice {frontend}, keeppix-media dice {}. \
+         Vanno incrementati insieme: se cambia la ricetta dei derivati e la \
+         versione no, i browser continuano a mostrare le immagini vecchie.",
+        keeppix_media::DERIVATIVE_VERSION
+    );
+}

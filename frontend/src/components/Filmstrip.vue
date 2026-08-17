@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 
 import type { AssetFlags } from '@/api/culling'
+import { thumbSrc as mediaThumbSrc } from '@/api/media'
 import type { TimelineAsset } from '@/api/timeline'
 
 // Nome multi-parola esplicito: il file si chiama `Filmstrip.vue` per
@@ -18,7 +19,7 @@ const emit = defineEmits<{ select: [id: string] }>()
 const { t } = useI18n()
 
 function thumbSrc(asset: TimelineAsset): string | undefined {
-  return asset.content_hash ? `/media/thumb/${asset.content_hash}` : undefined
+  return asset.content_hash ? mediaThumbSrc(asset.content_hash) : undefined
 }
 </script>
 

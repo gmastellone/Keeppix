@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import type { DiskAction } from '@/api/culling'
+import { fullSrc as mediaFullSrc, previewSrc as mediaPreviewSrc } from '@/api/media'
 import type { TimelineAsset } from '@/api/timeline'
 import Filmstrip from '@/components/Filmstrip.vue'
 import RatingStars from '@/components/RatingStars.vue'
@@ -33,12 +34,12 @@ const compareAssets = computed<TimelineAsset[]>(() => orderedAssets.value.slice(
 
 function previewSrc(id: string): string {
   const asset = assetsById.value.get(id)
-  return asset?.content_hash ? `/media/preview/${asset.content_hash}` : originalSrc(id)
+  return asset?.content_hash ? mediaPreviewSrc(asset.content_hash) : originalSrc(id)
 }
 
 function fullSrc(id: string): string {
   const asset = assetsById.value.get(id)
-  return asset?.content_hash ? `/media/full/${asset.content_hash}` : previewSrc(id)
+  return asset?.content_hash ? mediaFullSrc(asset.content_hash) : previewSrc(id)
 }
 
 function originalSrc(id: string): string {

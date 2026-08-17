@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { previewSrc as mediaPreviewSrc } from '@/api/media'
 import type { TimelineAsset } from '@/api/timeline'
 
 const props = defineProps<{
@@ -15,7 +16,7 @@ const info = ref(false)
 
 function previewSrc(asset: TimelineAsset): string {
   return asset.content_hash
-    ? `/media/preview/${asset.content_hash}`
+    ? mediaPreviewSrc(asset.content_hash)
     : `/media/original/${asset.id}`
 }
 
