@@ -323,7 +323,7 @@ Piani (testo):
 
 I budget tengono con un ordine di grandezza. Non si alzano.
 
-Task 8: complete (commit da annotare)
+Task 8: complete (commit `16f1daf`, test scale_200k verde)
 
 ---
 
