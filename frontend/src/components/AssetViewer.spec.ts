@@ -32,7 +32,7 @@ describe('AssetViewer', () => {
       global: { plugins: [i18n] }
     })
     expect(wrapper.get('img[alt="aaaa.jpg"]').attributes('src')).toBe(
-      previewSrc(first.content_hash)
+      previewSrc(first.content_hash!)
     )
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
@@ -40,7 +40,7 @@ describe('AssetViewer', () => {
 
     await wrapper.setProps({ asset: second, prev: first })
     expect(wrapper.get('img[alt="bbbb.jpg"]').attributes('src')).toBe(
-      previewSrc(second.content_hash)
+      previewSrc(second.content_hash!)
     )
   })
 })

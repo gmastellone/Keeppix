@@ -19,18 +19,26 @@
  */
 export const DERIVATIVE_VERSION = 2
 
-function mediaSrc(kind: 'thumb' | 'preview' | 'full', hash: string): string {
-  return `/media/${kind}/${hash}?v=${DERIVATIVE_VERSION}`
+/** Suffisso di invalidazione, uguale per tutti i derivati. */
+function v(): string {
+  return `?v=${DERIVATIVE_VERSION}`
 }
+
+// I percorsi sono scritti **per esteso** in ognuna delle tre funzioni invece
+// di essere composti da un parametro (`/media/${kind}/…`). Non è ripetizione
+// distratta: `scripts/check-wired.py` verifica che ogni rotta montata abbia un
+// consumatore nel frontend cercando la stringa letterale. Componendole
+// dinamicamente le rotte diventano invisibili alla guardia, che le segnala
+// come mai usate — ed è successo davvero, alla prima stesura di questo file.
 
 /** Miniatura 240 px: griglia della timeline, ricerca, filmstrip. */
 export function thumbSrc(hash: string): string {
-  return mediaSrc('thumb', hash)
+  return `/media/thumb/${hash}${v()}`
 }
 
 /** Anteprima 2048 px: apertura della foto, culling, confronto. */
 export function previewSrc(hash: string): string {
-  return mediaSrc('preview', hash)
+  return `/media/preview/${hash}${v()}`
 }
 
 /**
@@ -39,5 +47,5 @@ export function previewSrc(hash: string): string {
  * non millisecondi.
  */
 export function fullSrc(hash: string): string {
-  return mediaSrc('full', hash)
+  return `/media/full/${hash}${v()}`
 }
