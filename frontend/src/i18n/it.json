@@ -58,6 +58,13 @@
     }
   },
   "home": { "greeting": "Ciao, {name}", "logout": "Esci" },
+  "folders": {
+    "entry": "Cartelle",
+    "title": "Cartelle",
+    "back": "Foto",
+    "empty": "Nessuna cartella da mostrare.",
+    "move": "Sposta"
+  },
   "timeline": {
     "kind": "Tipo",
     "kinds": { "all": "Tutti", "photo": "Foto", "video": "Video" },

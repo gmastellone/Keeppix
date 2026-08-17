@@ -22,10 +22,6 @@ fn extract_poster fase-6
 route /health ops
 route /api/openapi.json ci
 
-# Task 4 (explain) è il chiamante. Nata col Task 1, non è un debito
-# di una fase chiusa: senza questa riga la guardia è rossa a metà fase.
-fn effective_role fase-3
-
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore
 # =============================================================================
@@ -43,12 +39,9 @@ fn get_json fase-6
 fn count_by_status fase-6
 fn set_status fase-6
 
-# origine fase-1c (albero cartelle e ricerche salvate: API sì, SPA no)
-route /folders/tree fase-3
-route /folders/{id}/children fase-3
+# origine fase-1c (ricerche salvate: API sì, SPA no)
 route /search/suggest fase-3
 route /saved-searches fase-3
-fn move_subtree fase-3
 
 # origine fase-2 / 2R (gestione utenti dichiarata fatta, zero UI)
 route /users fase-3
@@ -63,4 +56,3 @@ route /metadata/batch fase-3
 route /metadata/batch/shift-taken-at fase-3
 route /metadata/batch/{batch_id}/undo fase-3
 route /flags/batch fase-3
-fn regroup_folder fase-3

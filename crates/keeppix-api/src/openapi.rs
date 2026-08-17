@@ -56,6 +56,7 @@ impl utoipa::Modify for SecurityAddon {
         timeline::page,
         folders::tree,
         folders::children,
+        folders::relocate,
         media::thumb,
         media::preview,
         media::full,

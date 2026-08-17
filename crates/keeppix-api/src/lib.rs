@@ -139,6 +139,10 @@ fn api_routes() -> Router<AppState> {
         .route("/timeline", get(routes::timeline::page))
         .route("/folders/tree", get(routes::folders::tree))
         .route("/folders/{id}/children", get(routes::folders::children))
+        .route(
+            "/folders/{id}",
+            axum::routing::patch(routes::folders::relocate),
+        )
         .route("/viewport", axum::routing::post(routes::viewport::promote))
         .route("/search", axum::routing::post(routes::search::run))
         .route("/search/suggest", get(routes::search::suggest))

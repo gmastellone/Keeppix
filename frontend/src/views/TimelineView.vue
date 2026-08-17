@@ -294,6 +294,12 @@ watch([days, density, gridWidth], () => observe())
       </form>
       <RouterLink
         class="text-sm underline"
+        to="/folders"
+      >
+        {{ t('folders.entry') }}
+      </RouterLink>
+      <RouterLink
+        class="text-sm underline"
         to="/problems"
       >
         {{ t('problems.title') }}
