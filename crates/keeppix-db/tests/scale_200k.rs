@@ -16,9 +16,7 @@ const N: i32 = 200_000;
 const TIMELINE_BUDGET: Duration = Duration::from_millis(300);
 const SEARCH_BUDGET: Duration = Duration::from_millis(500);
 
-async fn seed_two_hundred_thousand(
-    test: &TestDb,
-) -> (AuthContext, keeppix_domain::LibraryId) {
+async fn seed_two_hundred_thousand(test: &TestDb) -> (AuthContext, keeppix_domain::LibraryId) {
     let admin = harness::seed_admin(test).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let library = LibraryRepo::new(test.db())
