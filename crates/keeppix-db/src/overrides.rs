@@ -114,7 +114,7 @@ impl<'a> OverrideRepo<'a> {
         asset_id: AssetId,
     ) -> Result<EffectiveMetadata, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.library_id", 2);
+        let filter = scope.filter("f.path", "f.library_id", 2);
         let row: Option<EffectiveRow> = sqlx::query_as(&format!(
             "SELECT o.title, o.description, \
                     COALESCE(o.taken_at, a.taken_at_utc) AS taken_at, \
@@ -130,6 +130,7 @@ impl<'a> OverrideRepo<'a> {
         ))
         .bind(asset_id.as_uuid())
         .bind(filter.bind())
+        .bind(filter.holes())
         .fetch_optional(self.db.pool())
         .await?;
 
