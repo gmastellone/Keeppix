@@ -12,7 +12,7 @@ use keeppix_jobs::discover;
 use keeppix_jobs::watch::{self, WatcherMode};
 
 #[tokio::test]
-async fn persist_capabilities_writes_software() {
+async fn persist_capabilities_writes_unprobed() {
     let test = TestDb::start().await;
     watch::persist_capabilities(test.db()).await.unwrap();
     let value = SettingsRepo::new(test.db())
@@ -20,7 +20,7 @@ async fn persist_capabilities_writes_software() {
         .await
         .unwrap()
         .expect("capabilities");
-    assert_eq!(value["backend"], "software");
+    assert_eq!(value["backend"], "unprobed");
 }
 
 #[tokio::test]

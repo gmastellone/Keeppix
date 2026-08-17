@@ -58,6 +58,7 @@ impl utoipa::Modify for SecurityAddon {
         folders::children,
         media::thumb,
         media::preview,
+        media::full,
         media::original,
         viewport::promote,
         search::run,

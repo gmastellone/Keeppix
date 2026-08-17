@@ -10,6 +10,8 @@ import {
   type MonthBucket,
   type TimelineAsset
 } from '@/api/timeline'
+import { startLiveEvents, type LiveSocket } from '@/api/events'
+import { thumbSrc as mediaThumbSrc } from '@/api/media'
 import Button from '@/components/ui/Button.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
 import { useCullingStore } from '@/stores/culling'
@@ -42,6 +44,7 @@ const viewing = ref<TimelineAsset | null>(null)
 const visibleHashes = new Set<string>()
 const placeholders = new Map<string, string>()
 let promoteTimer: ReturnType<typeof setTimeout> | undefined
+let live: LiveSocket | undefined
 
 function isKind(asset: TimelineAsset): boolean {
   if (kind.value === 'all') return true
@@ -133,7 +136,7 @@ function reserveHeight(bucket: MonthBucket): number {
 }
 
 function thumbSrc(asset: TimelineAsset): string | undefined {
-  return asset.content_hash ? `/media/thumb/${asset.content_hash}` : undefined
+  return asset.content_hash ? mediaThumbSrc(asset.content_hash) : undefined
 }
 
 async function signOut() {
@@ -177,6 +180,14 @@ async function loadBucket(month: string) {
     cursor = page.next_cursor
   } while (cursor)
   assetsByBucket.value = { ...assetsByBucket.value, [month]: collected }
+}
+
+async function refreshTimeline() {
+  const list = await fetchBuckets()
+  buckets.value = list
+  empty.value = list.length === 0
+  assetsByBucket.value = {}
+  await Promise.all(list.slice(0, 2).map((b) => loadBucket(b.month)))
 }
 
 function onScrubMove(event: MouseEvent) {
@@ -240,15 +251,22 @@ function measure() {
 
 onMounted(async () => {
   measure()
-  const list = await fetchBuckets()
-  buckets.value = list
-  empty.value = list.length === 0
-  await Promise.all(list.slice(0, 2).map((b) => loadBucket(b.month)))
+  await refreshTimeline()
   observe()
   window.addEventListener('resize', measure)
+  live = startLiveEvents((msg) => {
+    if (
+      msg.type === 'resync' ||
+      msg.type === 'assets.upserted' ||
+      msg.type === 'assets.deleted'
+    ) {
+      void refreshTimeline()
+    }
+  })
 })
 
 onUnmounted(() => {
+  live?.close()
   observer?.disconnect()
   if (promoteTimer) clearTimeout(promoteTimer)
   window.removeEventListener('resize', measure)

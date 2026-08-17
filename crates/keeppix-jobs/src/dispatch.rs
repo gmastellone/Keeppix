@@ -18,6 +18,7 @@ pub struct IngestHandler {
     pub db: Db,
     pub data_dir: PathBuf,
     pub stability_wait: Duration,
+    pub trash_retention_days: i64,
 }
 
 impl crate::JobHandler for IngestHandler {
@@ -59,6 +60,10 @@ impl crate::JobHandler for IngestHandler {
                 raw_job::run(&self.db, &self.data_dir, hash).await
             }
             JobKind::WriteSidecar => xmp_job::run(&self.db).await,
+            JobKind::CleanupTrash => {
+                crate::cleanup_trash::run(&self.db, self.trash_retention_days).await
+            }
+            JobKind::RetryErrorAssets => crate::retry_derives::run(&self.db).await,
             JobKind::ReapStale => {
                 keeppix_db::JobRepo::new(&self.db)
                     .reap_stale(Duration::from_secs(600))

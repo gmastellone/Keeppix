@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { runSearch } from '@/api/library'
 import type { TimelineAsset } from '@/api/timeline'
+import { thumbSrc } from '@/api/media'
 import { parseSearch } from '@/search/parse'
 
 import AssetViewer from '@/components/AssetViewer.vue'
@@ -114,7 +115,7 @@ onMounted(() => {
         >
           <img
             v-if="asset.content_hash"
-            :src="`/media/thumb/${asset.content_hash}`"
+            :src="thumbSrc(asset.content_hash)"
             :alt="asset.filename"
             class="h-32 w-full object-cover"
           >

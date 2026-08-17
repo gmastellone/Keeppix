@@ -22,6 +22,8 @@ use keeppix_media::{
 use crate::JobError;
 
 /// Lato lungo minimo, in pixel, perché la preview incorporata basti da sola.
+/// Resta 1440, non 2048: alzarlo forzerebbero il demosaic su fixture (e su
+/// macchine) la cui JPEG incorporata sta fra 1440 e 2047, che è già usabile.
 const MIN_PREVIEW_LONG_SIDE: u32 = 1440;
 
 /// `dcraw_emu` gira su ARM in ~1,5-4 s su un RAW reale (spec §2.1); 30 s di
@@ -96,6 +98,7 @@ pub async fn run_with(
     // niente demosaic, che è l'unico passo davvero costoso qui.
     let (thumb_path, _) = derivative_paths(data_dir, &hash);
     if thumb_path.is_file() {
+        assets.propagate_thumbhash_for_hash(&hash).await?;
         return Ok(());
     }
 

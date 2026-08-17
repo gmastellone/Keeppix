@@ -2,14 +2,60 @@ use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use fast_image_resize::images::Image;
 use fast_image_resize::{FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer};
-use image_webp::WebPEncoder;
 use thiserror::Error;
+use webp::Encoder as WebPEncoder;
 use zune_jpeg::JpegDecoder;
 
+/// Versione della **ricetta** dei derivati, non del formato del file.
+///
+/// Le URL `/media/{thumb,preview,full}/{hash}` escono con
+/// `Cache-Control: … immutable`, che promette al browser che quell'URL non
+/// cambierà mai: non rivalida per un anno. Ma l'hash indirizza il file
+/// **sorgente**, non i byte serviti — e quelli dipendono da come li
+/// produciamo. Quando la ricetta cambia, lo stesso URL restituisce
+/// un'immagine diversa, e chi ha già in cache la vecchia se la tiene per
+/// sempre.
+///
+/// È già successo: passando da WebP senza perdita a 1440 px a WebP con
+/// perdita a 2048 px, e da anteprima incorporata a demosaic per `full`, un
+/// browser che aveva visitato quelle URL continuava a mostrare le immagini
+/// vecchie. Se ne è accorto solo un confronto fatto a mano fra ciò che
+/// mostrava la pagina e ciò che rispondeva `curl`.
+///
+/// Il frontend appende `?v=` a questo numero, così una ricetta nuova produce
+/// URL nuove e la cache si invalida da sola. Il server **ignora** il
+/// parametro: serve solo come chiave di cache.
+///
+/// **Va incrementato a ogni modifica che cambi i byte prodotti a parità di
+/// sorgente**: formato, qualità, `method`, dimensioni, encoder, o la scelta
+/// fra incorporata e demosaic. Il valore è legato a
+/// `frontend/src/api/media.ts` da un test: cambiarne uno solo fa fallire la
+/// build.
+pub const DERIVATIVE_VERSION: u32 = 2;
+
 const THUMB: u32 = 240;
-const PREVIEW: u32 = 1440;
+/// Lato lungo del derivato `preview`. Pubblico perché `full` usa
+/// l'incorporata solo se la supera — altrimenti è un secondo file
+/// con gli stessi pixel.
+pub const PREVIEW_LONG_SIDE: u32 = 2048;
+const PREVIEW: u32 = PREVIEW_LONG_SIDE;
+/// Tetto della cache `full` pigra. ~200-300 zoom da 1,5-2,5 MB: una sessione
+/// di culling, non l'archivio. Senza tetto è il cestino in un'altra forma.
+pub const DEFAULT_FULL_CACHE_BYTES: u64 = 512 * 1024 * 1024;
+/// Default della qualità WebP con perdita. Sotto 75 si vede; sopra 88
+/// si paga per una differenza invisibile. Sovrascrivibile con
+/// [`set_webp_quality`] / `KEEPPIX_WEBP_QUALITY`.
+pub const DEFAULT_WEBP_QUALITY: u8 = 82;
+static WEBP_QUALITY: AtomicU8 = AtomicU8::new(DEFAULT_WEBP_QUALITY);
+/// Default `method` di libwebp (0=veloce … 6=lento/piccolo). L'API semplice
+/// usava 4. 2 è ~2× più veloce in release con ~3% in più di peso.
+/// Sovrascrivibile con [`set_webp_method`] / `KEEPPIX_WEBP_METHOD`.
+pub const DEFAULT_WEBP_METHOD: u8 = 2;
+static WEBP_METHOD: AtomicU8 = AtomicU8::new(DEFAULT_WEBP_METHOD);
 const MAX_PIXELS: u64 = 200_000_000;
 const SKIP_PREVIEW_PX: u32 = 1600;
 const SKIP_PREVIEW_BYTES: u64 = 400 * 1024;
@@ -22,6 +68,11 @@ pub enum DeriveError {
     Decode(String),
     #[error("image exceeds 200 megapixels")]
     TooManyPixels,
+    /// Il livello `full` richiederebbe un demosaic e quello non è
+    /// disponibile (binario assente, timeout, file illeggibile). Non è un
+    /// 404: il file c'è, manca il dettaglio in più.
+    #[error("full resolution unavailable")]
+    FullUnavailable,
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +81,39 @@ pub struct DeriveResult {
     pub preview: Option<PathBuf>,
     pub thumbhash: Vec<u8>,
     pub skipped: bool,
+}
+
+/// Qualità di encoding WebP (1–100). Chiamato all'avvio da `Config`.
+pub fn set_webp_quality(quality: u8) {
+    WEBP_QUALITY.store(quality.clamp(1, 100), Ordering::Relaxed);
+}
+
+/// Metodo di encode libwebp (0–6). Chiamato all'avvio da `Config`.
+pub fn set_webp_method(method: u8) {
+    WEBP_METHOD.store(method.min(6), Ordering::Relaxed);
+}
+
+/// L'incorporata vale come `full` solo se è **strettamente** più grande
+/// del derivato preview. Uguale o più piccola è un secondo file inutile.
+#[must_use]
+pub fn embedded_usable_as_full(long_side: u32) -> bool {
+    long_side > PREVIEW_LONG_SIDE
+}
+
+fn webp_quality() -> u8 {
+    std::env::var("KEEPPIX_WEBP_QUALITY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|q: &u8| (1..=100).contains(q))
+        .unwrap_or_else(|| WEBP_QUALITY.load(Ordering::Relaxed))
+}
+
+fn webp_method() -> u8 {
+    std::env::var("KEEPPIX_WEBP_METHOD")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|m: &u8| *m <= 6)
+        .unwrap_or_else(|| WEBP_METHOD.load(Ordering::Relaxed))
 }
 
 /// Una decodifica, write su `.tmp`, `rename`. Idempotente se i file ci sono già.
@@ -144,6 +228,7 @@ fn build_derivatives(
 
     let thumb_rgb = resize_rgb(rgb, width, height, THUMB)?;
     write_webp_atomic(thumb, &thumb_rgb.pixels, thumb_rgb.width, thumb_rgb.height)?;
+    // Il livello `full` non si scrive qui: è pigro, alla prima richiesta di zoom.
 
     let preview_path = if skip_preview {
         None
@@ -222,29 +307,164 @@ fn rgb_to_rgba(rgb: &[u8]) -> Vec<u8> {
 
 fn write_webp_atomic(path: &Path, rgb: &[u8], w: u32, h: u32) -> Result<(), DeriveError> {
     let tmp = path.with_extension(format!("webp.{}.tmp", std::process::id()));
-    let mut buf = Vec::new();
-    WebPEncoder::new(&mut buf)
-        .encode(rgb, w, h, image_webp::ColorType::Rgb8)
-        .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    let mut config = webp::WebPConfig::new()
+        .map_err(|()| DeriveError::Decode("webp config init failed".to_owned()))?;
+    config.lossless = 0;
+    config.quality = f32::from(webp_quality());
+    config.method = i32::from(webp_method());
+    config.alpha_compression = 1;
+    let encoded = WebPEncoder::from_rgb(rgb, w, h)
+        .encode_advanced(&config)
+        .map_err(|e| DeriveError::Decode(format!("webp encode: {e:?}")))?;
+    if encoded.is_empty() {
+        return Err(DeriveError::Decode("webp encode returned empty".to_owned()));
+    }
     {
         let mut f = fs::File::create(&tmp)?;
-        f.write_all(&buf)?;
+        f.write_all(&encoded)?;
     }
     fs::rename(tmp, path)?;
     Ok(())
 }
 
-#[must_use]
-pub fn derivative_paths(data_dir: &Path, hash: &[u8; 32]) -> (PathBuf, PathBuf) {
+fn derivative_dir(data_dir: &Path, hash: &[u8; 32]) -> (String, PathBuf) {
     let hex = hex32(hash);
     let dir = data_dir
         .join("derivatives")
         .join(&hex[0..2])
         .join(&hex[2..4]);
+    (hex, dir)
+}
+
+fn full_cache_dir(data_dir: &Path, hash: &[u8; 32]) -> (String, PathBuf) {
+    let hex = hex32(hash);
+    let dir = data_dir.join("full").join(&hex[0..2]).join(&hex[2..4]);
+    (hex, dir)
+}
+
+#[must_use]
+pub fn derivative_paths(data_dir: &Path, hash: &[u8; 32]) -> (PathBuf, PathBuf) {
+    let (hex, dir) = derivative_dir(data_dir, hash);
     (
         dir.join(format!("{hex}-thumb.webp")),
         dir.join(format!("{hex}-preview.webp")),
     )
+}
+
+#[must_use]
+pub fn full_derivative_path(data_dir: &Path, hash: &[u8; 32]) -> PathBuf {
+    let (hex, dir) = full_cache_dir(data_dir, hash);
+    dir.join(format!("{hex}-full.webp"))
+}
+
+/// Scrive il WebP a piena risoluzione se manca. Idempotente: se il file c'è
+/// già non si ricodifica (si aggiorna solo l'atime per lo LRU).
+///
+/// # Errors
+/// I/O, JPEG illeggibile, o immagine oltre 200 MP.
+pub fn ensure_full_from_bytes(
+    bytes: &[u8],
+    data_dir: &Path,
+    hash: &[u8; 32],
+) -> Result<PathBuf, DeriveError> {
+    let path = full_derivative_path(data_dir, hash);
+    if path.is_file() {
+        touch_accessed(&path)?;
+        return Ok(path);
+    }
+
+    let mut decoder = JpegDecoder::new(bytes);
+    decoder
+        .decode_headers()
+        .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    let info = decoder
+        .info()
+        .ok_or_else(|| DeriveError::Decode("missing jpeg info".to_owned()))?;
+    let width = u32::from(info.width);
+    let height = u32::from(info.height);
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
+        return Err(DeriveError::TooManyPixels);
+    }
+    let rgb = decoder
+        .decode()
+        .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    write_webp_atomic(&path, &rgb, width, height)?;
+    Ok(path)
+}
+
+/// Come [`ensure_full_from_bytes`], da pixel RGB8 già decodificati — l'uscita
+/// del demosaic, che non è un JPEG.
+///
+/// # Errors
+/// I/O, o immagine oltre 200 MP.
+pub fn ensure_full_from_rgb(
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+    data_dir: &Path,
+    hash: &[u8; 32],
+) -> Result<PathBuf, DeriveError> {
+    let path = full_derivative_path(data_dir, hash);
+    if path.is_file() {
+        touch_accessed(&path)?;
+        return Ok(path);
+    }
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
+        return Err(DeriveError::TooManyPixels);
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    write_webp_atomic(&path, rgb, width, height)?;
+    Ok(path)
+}
+
+fn touch_accessed(path: &Path) -> Result<(), DeriveError> {
+    let file = fs::File::open(path)?;
+    let times = fs::FileTimes::new().set_accessed(std::time::SystemTime::now());
+    file.set_times(times)?;
+    Ok(())
+}
+
+/// Sfratta i `*-full.webp` meno usati di recente finché il totale sta nel tetto.
+/// Cammina solo `data/full/`: il costo è O(full in cache), non O(tutto
+/// l'archivio di thumb/preview).
+///
+/// # Errors
+/// I/O sulla directory della cache full.
+pub fn enforce_full_cache_cap(data_dir: &Path, cap_bytes: u64) -> Result<(), DeriveError> {
+    let root = data_dir.join("full");
+    if !root.is_dir() {
+        return Ok(());
+    }
+    let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = Vec::new();
+    for entry in walkdir::WalkDir::new(&root)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        let path = entry.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if !name.ends_with("-full.webp") || !path.is_file() {
+            continue;
+        }
+        let meta = fs::metadata(path)?;
+        let accessed = meta.accessed().or_else(|_| meta.modified())?;
+        files.push((accessed, meta.len(), path.to_path_buf()));
+    }
+    files.sort_by_key(|(accessed, _, _)| *accessed);
+    let mut total: u64 = files.iter().map(|(_, len, _)| *len).sum();
+    for (_, len, path) in files {
+        if total <= cap_bytes {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total = total.saturating_sub(len);
+        }
+    }
+    Ok(())
 }
 
 fn hex32(hash: &[u8; 32]) -> String {

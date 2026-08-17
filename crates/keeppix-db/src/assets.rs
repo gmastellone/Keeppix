@@ -388,10 +388,42 @@ impl<'a> AssetRepo<'a> {
         thumbhash: &[u8],
     ) -> Result<u64, DbError> {
         let result = sqlx::query(
-            "UPDATE assets SET thumbhash = $2, updated_at = now() WHERE content_hash = $1",
+            "UPDATE assets SET \
+                 thumbhash = $2, \
+                 error_detail = NULL, \
+                 status = CASE \
+                     WHEN status = 'error' AND taken_at_utc IS NOT NULL THEN 'indexed' \
+                     WHEN status = 'error' THEN 'discovered' \
+                     ELSE status \
+                 END, \
+                 updated_at = now() \
+              WHERE content_hash = $1",
         )
         .bind(hash.as_slice())
         .bind(thumbhash)
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Copia il thumbhash già noto sugli asset con lo stesso `content_hash`
+    /// che ancora non ce l'hanno. Lo chiama `DeriveRaw` sul ramo
+    /// idempotente: il file derivato esiste, ma un duplicato hashed dopo
+    /// la prima derivazione resterebbe senza placeholder.
+    ///
+    /// Non prende un `AuthContext`: è la pipeline dei derivati, come
+    /// [`Self::set_thumbhash_for_hash`].
+    ///
+    /// # Errors
+    /// `Connection` se l'aggiornamento fallisce.
+    pub async fn propagate_thumbhash_for_hash(&self, hash: &[u8; 32]) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "UPDATE assets SET thumbhash = src.thumbhash, updated_at = now() \
+             FROM (SELECT thumbhash FROM assets \
+                    WHERE content_hash = $1 AND thumbhash IS NOT NULL LIMIT 1) src \
+             WHERE assets.content_hash = $1 AND assets.thumbhash IS NULL",
+        )
+        .bind(hash.as_slice())
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected())
@@ -408,6 +440,33 @@ impl<'a> AssetRepo<'a> {
                 .fetch_all(self.db.pool())
                 .await?;
         Ok(rows.into_iter().map(AssetId::from_uuid).collect())
+    }
+
+    /// Hash degli asset in `error` da ritentare. Lo chiama il job di
+    /// manutenzione, non un utente: niente `AuthContext`.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn error_hashes_for_retry(&self) -> Result<Vec<([u8; 32], AssetKind)>, DbError> {
+        let rows: Vec<(Vec<u8>, String)> = sqlx::query_as(
+            "SELECT DISTINCT ON (content_hash) content_hash, kind FROM assets \
+              WHERE status = 'error' AND content_hash IS NOT NULL \
+              ORDER BY content_hash, id",
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for (bytes, kind) in rows {
+            let Ok(hash) = <[u8; 32]>::try_from(bytes.as_slice()) else {
+                continue;
+            };
+            let Ok(kind) = parse_kind(&kind) else {
+                continue;
+            };
+            out.push((hash, kind));
+        }
+        Ok(out)
     }
 
     /// Verifica in una sola query che il chiamante veda **tutti** gli id

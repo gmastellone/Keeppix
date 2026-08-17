@@ -40,6 +40,36 @@ async fn a_fresh_token_authenticates() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn authenticate_does_not_slide_expiry() {
+    let test = TestDb::start().await;
+    let user_id = seed_admin(&test).await;
+    let repo = SessionRepo::new(test.db());
+    let token = repo.create(user_id, TTL, None).await.unwrap();
+    let before: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT expires_at FROM sessions WHERE refresh_token_hash = $1")
+            .bind(token.digest().as_slice())
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
+
+    repo.authenticate(&token).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    repo.authenticate(&token).await.unwrap();
+
+    let after: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT expires_at FROM sessions WHERE refresh_token_hash = $1")
+            .bind(token.digest().as_slice())
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        before, after,
+        "le richieste autenticate non slittano expires_at: senza /auth/refresh la sessione è assoluta"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn an_unknown_token_is_rejected() {
     let test = TestDb::start().await;
     seed_admin(&test).await;

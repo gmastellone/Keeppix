@@ -144,6 +144,30 @@ Decisi nello spec, validi da subito, **non rinegoziabili per fase**. Ogni fase l
 
 ---
 
+## Fasi 2R, 2R2, 2R3 — rimedio (non previste da questa roadmap)
+
+Fra la Fase 2 e la Fase 3 si sono inserite tre fasi di rimedio, nate da field
+test su un archivio reale invece che dalla pianificazione. **Non erano
+previste qui, e vale la pena che restino visibili proprio per questo:** ciò che
+le ha rese necessarie è che i test unitari non vedevano un'intera classe di
+difetti — funzioni scritte, testate, e mai collegate al percorso reale.
+
+| | Cosa ha risolto |
+|---|---|
+| **2R** | Creazione di librerie e gestione utenti raggiungibili dal browser; niente più riavvio del container per scansionare |
+| **2R2** | La pipeline RAW non veniva eseguita **mai** in produzione (`detect_kind` senza chiamanti); la riscansione riaccodava tutto e non si fermava più |
+| **2R3** | Derivati senza perdita (3,3% → **0,4%**, ~308 GB → ~36 GB su 200.000 foto); zoom sui RAW; guardia in CI contro la classe di difetti sopra; prova di scala a 200.000 asset |
+
+La lezione è nel documento di continuazione (`docs/CONTINUE.md`) e nella
+guardia `scripts/check-wired.py`, che ora fallisce la CI se una funzione
+pubblica non ha chiamanti o una rotta montata non ha consumatori.
+
+**Conseguenza sulla Fase 3:** assorbe anche le **17 interfacce mancanti** che
+quella guardia ha scoperto (suo Task 12) — gestione utenti, navigazione
+cartelle, cestino, modifica in blocco, ricerche salvate, rinnovo sessione.
+
+---
+
 ## Fase 3 — Multiutente e condivisione
 
 **Obiettivo.** Più utenti, gruppi, condivisione di foto, cartelle e album, link pubblici.
