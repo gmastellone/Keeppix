@@ -327,12 +327,136 @@ Task 8: complete (commit `16f1daf`, test scale_200k verde)
 
 ---
 
-Verifica di chiusura (output verde): `frontend npm ci && npm run build`,
-`cargo fmt --check`, `clippy --workspace --all-targets -- -D warnings`,
-`./scripts/test.sh`. Nessun push/PR.
+## Field test findings (R1–R6) — close before merge
 
-Field test sull'archivio reale (779 ARW, 36 GB): lo esegue l'operatore —
-rapporto derivati sotto l'1%, zoom RAW, thumbhash stabile fra due scan.
+Field test on the real archive (779 Sony ARW, 36 GB) ran on `1e31fb4`.
+Derivative ratio 0.4%, thumbhash 779/779, lazy `full` = 0 files after
+scan. Zoom was the same pixels as preview. These six close that gap.
+
+### R1 — `full` must be strictly larger than `preview`
+
+**RED osservato:**
+`full_of_a_raw_with_preview_sized_embedded_jpeg_is_strictly_larger` —
+preview 1616px, full 1616px. `sample.arw` is the same class as the
+archive (embedded JPEG not larger than 2048).
+
+Ruling: `embedded_usable_as_full` is **strictly greater than**
+`PREVIEW_LONG_SIDE` (2048). Equal or smaller → demosaic via injected
+`Demosaic` (`SandboxDemosaic` in produzione, fake 3000×2000 nei test).
+Costo se sbagliato: un RAW con JPEG incorporata da 2048 px va in
+demosaic invece di riusarla — secondi in più, ma 2048 non batte
+l'anteprima quindi lo zoom non ci guadagnava comunque.
+
+Ruling: `demosaic_half`, non 1:1. Su un 6000×4000 sono 3000×2000. Il
+100% vero è una decisione da scrivere e misurare, non un implicito nel
+nome `full`. Costo se sbagliato: il culling al 100% resta un half-sensor.
+
+Ruling: `dcraw_emu` assente → `503 keeppix/full-unavailable`, non un
+404 e non un full uguale alla preview. Il culling mostra l'anteprima e
+uno stato di caricamento finché il `full` non arriva; `@error` resta
+sull'anteprima. Costo se sbagliato: uno zoom su un host senza libraw
+sembra rotto invece di degradare.
+
+Ruling: precaricamento solo a zoom acceso, al più la foto successiva,
+`fetch` + `AbortController`. Il demosaic costa secondi e passa dal
+gate della RAM; tre full in volo saturano. Costo se sbagliato: lo zoom
+sulla foto N+1 parte un attimo dopo invece che essere già in cache.
+
+Ruling: HTTP `/media/full` chiama `SandboxDemosaic` (rlimit nel
+sottoprocesso) ma **non** il `RamGate` dell'ingest. Il precaricamento
+conservativo è il controllo di concorrenza; il target è un utente sul
+Pi. Costo se sbagliato: due zoom paralleli si accavallano.
+
+**Misura demosaic** su `sample.arw` (fixture, sensore piccolo:
+`dcraw_emu -h -w` → 1392×936): **47–61 ms** wall su questa macchina
+x86. Non è l'archivio: i body Sony da 6000×4000 restano nella forchetta
+della spec (1,5–4 s su ARM). L'operatore misura sul field test.
+
+Task R1: complete (commit `f3feb24`)
+
+### R2 — cache cap without walking all derivatives
+
+**RED osservato:**
+`enforce_full_cache_cap_does_not_walk_the_derivatives_tree` — un
+`*-full.webp` esca sotto `derivatives/` veniva sfrattato.
+
+Ruling: i `full` vivono in `data/full/{aa}/{aabb…}-full.webp`, non
+accanto a thumb/preview. Lo WalkDir del tetto è O(full in cache).
+Nessuna migrazione: il field test aveva 0 full su disco. `touch_accessed`
+resta. Costo se sbagliato: un full vecchio sotto `derivatives/` resta
+orfano (non c'erano).
+
+Task R2: complete (commit `294551b`)
+
+### R3 — libwebp `method`
+
+**RED osservato:** `webp_method_changes_the_encoded_size` — method 0 e
+4 producevano entrambi 255 466 B (l'API semplice fissa method=4).
+
+Misura, stessa fixture `sample.arw` → `derive_from_bytes` (q82):
+
+| method | test (opt-level 2) | release | size |
+|---|---|---|---|
+| 0 | 498 ms | **60 ms** | 385 986 B |
+| 2 | 510 ms | **74 ms** | 262 614 B |
+| 4 | 586 ms | **151 ms** | 255 466 B |
+
+Ruling: default **2** (`KEEPPIX_WEBP_METHOD`, `Config.webp_method`,
+`set_webp_method`). ~2× più veloce di 4 in release, +2,8% di peso.
+Sul field test 0,4% × 1,028 ≈ **0,41%**, sotto l'1%. Method 0 è +51%
+di peso (≈0,60%) per 14 ms: non vale. Non si alza nessun budget di
+tempo. Costo se sbagliato: si rimette 4.
+
+Task R3: complete (commit `7b7d952`)
+
+### R6 — probe must not pretend it measured software
+
+**RED osservato:** `probe_does_not_claim_software_was_measured` —
+`backend` era `"software"`.
+
+Ruling: `"unprobed"`, doc comment che il rilevamento è Fase 6. Non si
+implementa il probe hardware qui (serve al video). Costo se sbagliato:
+Impostazioni in Fase 6 dovranno distinguere unprobed da software
+misurato — è esattamente il punto.
+
+Ruling: la guardia del Task 7 **non prende questa classe**. Cerca
+chiamanti; `persist_capabilities` chiama `probe()` e gira. Un valore
+costante con un chiamante è invisibile. Costo se sbagliato: la
+prossima costante travestita da misura passerà di nuovo.
+
+Task R6: complete (commit `3aa84e5`)
+
+### R5 — `/auth/refresh` unused
+
+Verificato, non è un difetto di questa fase.
+
+- `SessionRepo::authenticate` non aggiorna `expires_at` (test
+  `authenticate_does_not_slide_expiry`).
+- TTL default **30 giorni**, cookie assoluto.
+- SPA: `apiFetch` non chiama `/auth/refresh` su 401.
+- Scaduto → `401 keeppix/unauthenticated` (test HTTP con TTL 0).
+
+Non si viene buttati fuori a metà culling. Si viene buttati fuori dopo
+30 giorni di orologio. Debito della Fase 0, saldo quando la SPA avrà
+un watchdog di sessione (Fase 3 nel file eccezioni).
+
+Task R5: complete (commit `bbca2e5`)
+
+### R4 — rinvii vs debiti
+
+`scripts/wired-exceptions.txt` ha due sezioni dichiarate. Il parser è
+invariato (le sezioni sono commenti). README punta al backlog.
+`/users*` origine 2R, saldo Fase 3. Probe: non è una riga della
+guardia, è nel README/ledger.
+
+Task R4: complete (commit `984f293`)
+
+---
+
+Field test sull'archivio reale (zoom strettamente più grande della
+preview, rapporto derivati ancora sotto l'1%): lo esegue l'operatore.
+Nessun push/PR/merge.
+
 
 
 
