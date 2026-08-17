@@ -48,10 +48,12 @@ async fn buckets_sum_indexed_photos_by_month() {
     let a = assets
         .upsert_discovered(photo(folder, "a.jpg"))
         .await
+        .unwrap()
         .unwrap();
     let b = assets
         .upsert_discovered(photo(folder, "b.jpg"))
         .await
+        .unwrap()
         .unwrap();
     assets
         .set_indexed(
@@ -97,7 +99,11 @@ async fn page_uses_keyset_not_offset() {
     let assets = AssetRepo::new(test.db());
     let mut ids = Vec::new();
     for (i, name) in ["c.jpg", "d.jpg", "e.jpg"].iter().enumerate() {
-        let a = assets.upsert_discovered(photo(folder, name)).await.unwrap();
+        let a = assets
+            .upsert_discovered(photo(folder, name))
+            .await
+            .unwrap()
+            .unwrap();
         let t = Utc
             .with_ymd_and_hms(2024, 7, 10 - u32::try_from(i).unwrap(), 12, 0, 0)
             .unwrap();
@@ -114,6 +120,38 @@ async fn page_uses_keyset_not_offset() {
     assert_eq!(second.len(), 1);
     assert_ne!(second[0].id, first[0].id);
     assert_ne!(second[0].id, first[1].id);
+}
+
+#[tokio::test]
+async fn timeline_page_omits_unknown_assets() {
+    let test = TestDb::start().await;
+    let (admin, _library, folder) = seed(&test).await;
+    let assets = AssetRepo::new(test.db());
+    let taken = Utc.with_ymd_and_hms(2024, 7, 2, 12, 0, 0).unwrap();
+
+    let visible = assets
+        .upsert_discovered(photo(folder, "a.jpg"))
+        .await
+        .unwrap()
+        .unwrap();
+    assets.set_indexed(visible.id, taken, 1, 1).await.unwrap();
+
+    let mut junk = photo(folder, "notes.jpg");
+    junk.kind = AssetKind::Unknown;
+    let hidden = assets.upsert_discovered(junk).await.unwrap().unwrap();
+    assets.set_indexed(hidden.id, taken, 1, 1).await.unwrap();
+
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let page = TimelineRepo::new(test.db())
+        .page(&ctx, NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(), None, 50)
+        .await
+        .unwrap();
+    let ids: Vec<_> = page.iter().map(|a| a.id).collect();
+    assert!(ids.contains(&visible.id));
+    assert!(
+        !ids.contains(&hidden.id),
+        "un asset unknown non è una foto da mostrare (D3)"
+    );
 }
 
 #[tokio::test]

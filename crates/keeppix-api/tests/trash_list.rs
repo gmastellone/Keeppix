@@ -12,7 +12,7 @@ use keeppix_domain::{
 };
 use serde_json::json;
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn setup_admin(server: &TestServer) -> UserId {
     let response = server
         .client
@@ -33,7 +33,7 @@ async fn setup_admin(server: &TestServer) -> UserId {
         .expect("uuid")
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn login_as(server: &TestServer, username: &str, password: &str) -> reqwest::Client {
     let client = reqwest::Client::builder()
         .cookie_store(true)
@@ -50,14 +50,14 @@ async fn login_as(server: &TestServer, username: &str, password: &str) -> reqwes
     client
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root(server: &TestServer, name: &str) -> PathBuf {
     let root = server.photos_root.join(name);
     fs::create_dir_all(&root).expect("radice");
     root
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_library(
     server: &TestServer,
     admin: UserId,
@@ -78,7 +78,7 @@ async fn seed_library(
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_asset(
     server: &TestServer,
     library: keeppix_domain::LibraryId,
@@ -105,10 +105,11 @@ async fn seed_asset(
         })
         .await
         .expect("asset")
+        .unwrap()
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn trash_asset(server: &TestServer, asset_id: AssetId) {
     let response = server
         .client

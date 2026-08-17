@@ -26,6 +26,9 @@ pub struct Config {
     /// Radici sotto cui può vivere una libreria (`KEEPPIX_LIBRARY_ROOTS`).
     /// Un `root_path` fuori da queste → `422 keeppix/path-not-allowed`.
     pub library_roots: Vec<PathBuf>,
+    /// Intervallo del watcher in modo polling (`KEEPPIX_WATCH_POLL_SECS`).
+    /// Default 15 minuti: su un Pi non si vuole una riscansione continua.
+    pub watch_poll_secs: u64,
 }
 
 /// Valori usati quando né l'ambiente né il file dicono nulla.
@@ -38,6 +41,7 @@ struct Defaults {
     log_format: LogFormat,
     allowed_origins: Vec<String>,
     library_roots: Vec<PathBuf>,
+    watch_poll_secs: u64,
 }
 
 impl Default for Defaults {
@@ -50,6 +54,7 @@ impl Default for Defaults {
             log_format: LogFormat::Json,
             allowed_origins: Vec::new(),
             library_roots: vec![PathBuf::from("/photos")],
+            watch_poll_secs: 15 * 60,
         }
     }
 }

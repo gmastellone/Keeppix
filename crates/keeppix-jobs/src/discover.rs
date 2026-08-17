@@ -115,7 +115,7 @@ async fn flush_batch(
         let folder = folders.ensure_path(library_id, &relative).await?;
         let filename = AssetName::parse(&file.filename)
             .map_err(|e| JobError::Worker(format!("filename: {e}")))?;
-        let asset = assets
+        let Some(asset) = assets
             .upsert_discovered(NewAsset {
                 folder_id: folder.id,
                 filename,
@@ -124,7 +124,10 @@ async fn flush_batch(
                 inode: file.inode,
                 kind: AssetKind::Unknown,
             })
-            .await?;
+            .await?
+        else {
+            continue;
+        };
         jobs.enqueue(
             JobKind::ExtractMetadata,
             serde_json::json!({ "asset_id": asset.id.to_string() }),

@@ -278,6 +278,7 @@ async fn promote_does_not_raise_jobs_outside_visibility() {
             kind: keeppix_domain::AssetKind::Image,
         })
         .await
+        .unwrap()
         .unwrap();
     keeppix_db::AssetRepo::new(test.db())
         .set_hash(asset.id, hash)

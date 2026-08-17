@@ -93,7 +93,16 @@ fn is_excluded_name(name: &str) -> bool {
     ) || name.starts_with('.')
         || Path::new(name)
             .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("xmp"))
+            .is_some_and(is_sidecar_extension)
+}
+
+fn is_sidecar_extension(ext: &std::ffi::OsStr) -> bool {
+    ext.eq_ignore_ascii_case("xmp")
+        || ext.eq_ignore_ascii_case("dop")
+        || ext.eq_ignore_ascii_case("pp3")
+        || ext.eq_ignore_ascii_case("arp")
+        || ext.eq_ignore_ascii_case("thm")
+        || ext.eq_ignore_ascii_case("aae")
 }
 
 fn globish(pattern: &str, relative: &str) -> bool {

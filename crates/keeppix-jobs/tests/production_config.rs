@@ -45,6 +45,15 @@ fn production_constants_are_non_zero_and_match_baseline() {
 }
 
 #[test]
+fn default_watch_poll_is_fifteen_minutes() {
+    assert_eq!(
+        keeppix_jobs::watch::DEFAULT_POLL,
+        Duration::from_secs(15 * 60),
+        "polling troppo frequente riaccoderebbe discover in loop su un Pi"
+    );
+}
+
+#[test]
 fn production_ingest_handler_uses_settled_after_not_zero() {
     // `keeppix-server/src/main.rs` passa `PRODUCTION_SETTLED_AFTER` al campo
     // `stability_wait` dell'`IngestHandler` — non `ZERO`, non

@@ -53,6 +53,7 @@ async fn index(
     let a = assets
         .upsert_discovered(photo(folder, name, kind))
         .await
+        .unwrap()
         .unwrap();
     assets
         .set_indexed(

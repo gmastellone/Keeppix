@@ -11,7 +11,7 @@ use keeppix_domain::{
 };
 use serde_json::json;
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn setup_admin(server: &TestServer) -> UserId {
     let response = server
         .client
@@ -32,7 +32,7 @@ async fn setup_admin(server: &TestServer) -> UserId {
         .expect("uuid valido")
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn ensure_folder(server: &TestServer, admin: UserId, root: &std::path::Path) -> FolderId {
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let library = LibraryRepo::new(&server.db)
@@ -57,7 +57,7 @@ async fn ensure_folder(server: &TestServer, admin: UserId, root: &std::path::Pat
 }
 
 /// Un solo asset dentro una cartella già preparata da [`ensure_folder`].
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_asset(
     server: &TestServer,
     folder: FolderId,
@@ -77,10 +77,11 @@ async fn seed_asset(
         })
         .await
         .expect("asset")
+        .unwrap()
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!("keeppix-api-flags-{}", uuid::Uuid::now_v7()));
     fs::create_dir_all(&root).expect("radice di test");

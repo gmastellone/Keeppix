@@ -7,7 +7,7 @@ use keeppix_domain::{
 };
 use sqlx::PgConnection;
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_library_and_folder(test: &TestDb, owner: UserId) -> FolderId {
     let library = LibraryRepo::new(test.db())
         .create(
@@ -29,7 +29,7 @@ async fn seed_library_and_folder(test: &TestDb, owner: UserId) -> FolderId {
         .id
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
@@ -41,7 +41,7 @@ fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     }
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn insert_asset_on(conn: &mut PgConnection, folder: FolderId, name: &str) -> AssetId {
     let id = AssetId::new();
     sqlx::query(
@@ -68,6 +68,7 @@ async fn inserting_an_asset_appends_an_upsert() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder, "a.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     let page = ChangeLogRepo::new(test.db()).since(&ctx, 0).await.unwrap();
@@ -86,6 +87,7 @@ async fn deleting_an_asset_appends_a_delete() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder, "a.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     sqlx::query("DELETE FROM assets WHERE id = $1")
@@ -108,6 +110,7 @@ async fn deleting_a_folder_still_logs_asset_deletes() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder, "a.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     sqlx::query("DELETE FROM folders WHERE id = $1")
@@ -174,6 +177,7 @@ async fn a_plain_user_does_not_see_someone_elses_changes() {
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder, "a.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     let page = ChangeLogRepo::new(test.db())

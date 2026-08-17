@@ -36,6 +36,7 @@ async fn existing_thumb_is_immutable() {
     let asset = AssetRepo::new(&server.db)
         .upsert_discovered(photo(folder, "a.jpg"))
         .await
+        .unwrap()
         .unwrap();
     AssetRepo::new(&server.db)
         .set_hash(asset.id, hash)
@@ -73,6 +74,7 @@ async fn probing_someone_elses_existing_thumb_is_forbidden() {
     let asset = AssetRepo::new(&server.db)
         .upsert_discovered(photo(folder, "secret.jpg"))
         .await
+        .unwrap()
         .unwrap();
     AssetRepo::new(&server.db)
         .set_hash(asset.id, hash)
@@ -127,6 +129,7 @@ async fn original_serves_a_byte_range_by_id() {
     let asset = AssetRepo::new(&server.db)
         .upsert_discovered(photo(folder, "orig.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     let response = server

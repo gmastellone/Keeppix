@@ -11,7 +11,7 @@ use keeppix_domain::{
 };
 use serde_json::json;
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn setup_admin(server: &TestServer) -> UserId {
     let response = server
         .client
@@ -32,14 +32,14 @@ async fn setup_admin(server: &TestServer) -> UserId {
         .expect("uuid")
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root(server: &TestServer, name: &str) -> PathBuf {
     let root = server.photos_root.join(name);
     fs::create_dir_all(&root).expect("radice");
     root
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_stacked_pair(
     server: &TestServer,
     admin: UserId,
@@ -77,6 +77,7 @@ async fn seed_stacked_pair(
         })
         .await
         .expect("raw")
+        .unwrap()
         .id;
     let jpeg = AssetRepo::new(&server.db)
         .upsert_discovered(NewAsset {
@@ -89,6 +90,7 @@ async fn seed_stacked_pair(
         })
         .await
         .expect("jpeg")
+        .unwrap()
         .id;
 
     StackRepo::new(&server.db)

@@ -50,10 +50,12 @@ async fn month_counts_match_indexed_assets_after_index_move_and_delete() {
     let a = assets
         .upsert_discovered(photo(folder, "a.jpg"))
         .await
+        .unwrap()
         .unwrap();
     let b = assets
         .upsert_discovered(photo(folder, "b.jpg"))
         .await
+        .unwrap()
         .unwrap();
 
     let empty: i32 =
@@ -123,6 +125,7 @@ async fn month_bucket_uses_utc_when_the_session_timezone_is_not() {
     let a = assets
         .upsert_discovered(photo(folder, "edge.jpg"))
         .await
+        .unwrap()
         .unwrap();
     let ts = Utc.with_ymd_and_hms(2024, 7, 31, 23, 30, 0).unwrap();
 

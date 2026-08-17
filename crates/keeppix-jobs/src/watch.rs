@@ -63,15 +63,22 @@ pub async fn enqueue_rescan(db: &Db, library_id: LibraryId) -> Result<(), JobErr
 pub struct LibraryWatchers {
     db: Db,
     debounce: Duration,
+    poll: Duration,
     inner: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<LibraryId, JoinHandle<()>>>>,
 }
 
 impl LibraryWatchers {
     #[must_use]
     pub fn new(db: Db, debounce: Duration) -> Self {
+        Self::with_poll(db, debounce, DEFAULT_POLL)
+    }
+
+    #[must_use]
+    pub fn with_poll(db: Db, debounce: Duration, poll: Duration) -> Self {
         Self {
             db,
             debounce,
+            poll,
             inner: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
@@ -96,11 +103,15 @@ impl LibraryWatchers {
         if guard.contains_key(&library_id) {
             return;
         }
-        let mode = mode_for(&root);
+        let mut mode = mode_for(&root);
         if matches!(mode, WatcherMode::Polling { .. }) {
+            mode = WatcherMode::Polling { every: self.poll };
+        }
+        if let WatcherMode::Polling { every } = mode {
             tracing::warn!(
                 library = %library_id,
                 root = %root.display(),
+                poll_secs = every.as_secs(),
                 "watcher_mode=polling"
             );
         }
@@ -115,8 +126,12 @@ impl LibraryWatchers {
 ///
 /// # Errors
 /// Database.
-pub async fn spawn_all(db: &Db, debounce: Duration) -> Result<LibraryWatchers, JobError> {
-    let watchers = LibraryWatchers::new(db.clone(), debounce);
+pub async fn spawn_all(
+    db: &Db,
+    debounce: Duration,
+    poll: Duration,
+) -> Result<LibraryWatchers, JobError> {
+    let watchers = LibraryWatchers::with_poll(db.clone(), debounce, poll);
     watchers.spawn_existing().await?;
     Ok(watchers)
 }
