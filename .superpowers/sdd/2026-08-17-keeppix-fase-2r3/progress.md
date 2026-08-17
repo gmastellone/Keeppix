@@ -262,4 +262,70 @@ Task 6.
 
 ---
 
+## Task 5 — ritentativo dei derive in errore
+
+**RED osservato:** `retry_derives` non compilava. Senza il job, un
+`DeriveRaw` che fa `set_error` + `Ok` resta `done` e la riscansione
+salta l'invariato.
+
+Ruling: tetto = 3 righe `jobs` con la stessa `dedup_key` (qualsiasi
+stato). `JobRepo::fail` copre il JPEG che ritorna `Err`; il RAW
+corrotto resta `Ok` + `error` (il test `a_corrupt_raw_…` è intatto).
+I `done` di quel percorso sono il conteggio. Costo se sbagliato: un
+JPEG già `failed` dopo 3 attempt di `fail` non viene riaccodato
+(status `failed` conta nel tetto).
+
+Ruling: cadenza 15 min dal binario, come la trash a 24 h. Un kill del
+gate RAM durante lo scan si ritenta in minuti, non il giorno dopo.
+Il job non si ri-accoda da solo (stesso buco `dedup_key`/`running`).
+Costo se sbagliato: un file davvero corrotto viene tentato tre volte
+in ~45 min, poi resta in `/problems`.
+
+Ruling: `set_thumbhash_for_hash` azzera `error_detail` e, se c'è
+`taken_at_utc`, rimette `indexed`. Altrimenti un retry riuscito
+lasciava la foto in `/problems` senza miniatura in timeline.
+Costo se sbagliato: un asset in errore senza data torna `discovered`.
+
+Task 5: complete (commit `12aa899`, test retry verdi)
+
+---
+
+## Task 8 — prova di scala 200k
+
+Sintetica, 200.000 righe `assets` senza file, 10 cartelle, date da
+2010-01 a 2032-10 (274 mesi, un'ora fra un asset e il successivo).
+Macchina del cloud agent, Postgres 17 locale.
+
+Ruling: il trigger `assets_month_counts` è disabilitato durante
+l'INSERT e i contatori si ricostruiscono con un `GROUP BY`. Si
+misurano le SELECT, non il costo per-riga dell'ingest. Costo se
+sbagliato: non sappiamo se 200k INSERT col trigger stanno in un
+budget di scansione — quella è un'altra misura.
+
+Ruling: `make_interval(hours => g)`, non `g || ' hours'`. La
+concatenazione produceva ~5 mesi densi (il `::interval` mangiava
+la stringa). Vince la misura sul calendario sparso.
+
+| Query | Budget | Misurato (repo) | EXPLAIN ANALYZE |
+|---|---|---|---|
+| buckets | < 300 ms | **3,4 ms** | Hash Join `folder_month_counts` ⋈ `folders`, 2740 righe, **1,09 ms** |
+| timeline prima pagina | < 300 ms | **3,4 ms** | Index Scan `assets_timeline_idx` sul mese, 585 righe, top-N 200, **0,34 ms** |
+| timeline keyset profondo | < 300 ms | **3,3 ms** | stesso indice, mese di metà archivio |
+| ricerca filename (ILIKE + gin_trgm) | < 500 ms | **4,9 ms** | Bitmap Index Scan `assets_filename_trgm`, **1,45 ms** |
+
+Piani (testo):
+
+```
+-- buckets: Seq Scan folder_month_counts → Hash Join folders → GroupAggregate
+-- page: Index Scan assets_timeline_idx (taken_at range) → Limit 200
+-- search: Bitmap Index Scan assets_filename_trgm (filename ~~* '%IMG_150000%')
+```
+
+I budget tengono con un ordine di grandezza. Non si alzano.
+
+Task 8: complete (commit da annotare)
+
+---
+
+
 
