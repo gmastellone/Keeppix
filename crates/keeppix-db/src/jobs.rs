@@ -323,4 +323,20 @@ impl<'a> JobRepo<'a> {
         .await?;
         row.map(JobRow::into_domain).transpose()
     }
+
+    /// Quante righe (qualsiasi stato) condividono questa `dedup_key`.
+    /// Lo usa il ritentativo dei derive: il vincolo unique vale solo su
+    /// pending/running, quindi i `done` si accumulano e sono il tetto.
+    ///
+    /// Non prende un `AuthContext`: è la pipeline.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn count_for_dedup_key(&self, dedup_key: &str) -> Result<i64, DbError> {
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE dedup_key = $1")
+            .bind(dedup_key)
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(n)
+    }
 }

@@ -388,7 +388,16 @@ impl<'a> AssetRepo<'a> {
         thumbhash: &[u8],
     ) -> Result<u64, DbError> {
         let result = sqlx::query(
-            "UPDATE assets SET thumbhash = $2, updated_at = now() WHERE content_hash = $1",
+            "UPDATE assets SET \
+                 thumbhash = $2, \
+                 error_detail = NULL, \
+                 status = CASE \
+                     WHEN status = 'error' AND taken_at_utc IS NOT NULL THEN 'indexed' \
+                     WHEN status = 'error' THEN 'discovered' \
+                     ELSE status \
+                 END, \
+                 updated_at = now() \
+              WHERE content_hash = $1",
         )
         .bind(hash.as_slice())
         .bind(thumbhash)
@@ -431,6 +440,33 @@ impl<'a> AssetRepo<'a> {
                 .fetch_all(self.db.pool())
                 .await?;
         Ok(rows.into_iter().map(AssetId::from_uuid).collect())
+    }
+
+    /// Hash degli asset in `error` da ritentare. Lo chiama il job di
+    /// manutenzione, non un utente: niente `AuthContext`.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn error_hashes_for_retry(&self) -> Result<Vec<([u8; 32], AssetKind)>, DbError> {
+        let rows: Vec<(Vec<u8>, String)> = sqlx::query_as(
+            "SELECT DISTINCT ON (content_hash) content_hash, kind FROM assets \
+              WHERE status = 'error' AND content_hash IS NOT NULL \
+              ORDER BY content_hash, id",
+        )
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for (bytes, kind) in rows {
+            let Ok(hash) = <[u8; 32]>::try_from(bytes.as_slice()) else {
+                continue;
+            };
+            let Ok(kind) = parse_kind(&kind) else {
+                continue;
+            };
+            out.push((hash, kind));
+        }
+        Ok(out)
     }
 
     /// Verifica in una sola query che il chiamante veda **tutti** gli id

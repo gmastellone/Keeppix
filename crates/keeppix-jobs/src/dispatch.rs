@@ -63,6 +63,7 @@ impl crate::JobHandler for IngestHandler {
             JobKind::CleanupTrash => {
                 crate::cleanup_trash::run(&self.db, self.trash_retention_days).await
             }
+            JobKind::RetryErrorAssets => crate::retry_derives::run(&self.db).await,
             JobKind::ReapStale => {
                 keeppix_db::JobRepo::new(&self.db)
                     .reap_stale(Duration::from_secs(600))

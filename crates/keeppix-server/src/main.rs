@@ -110,22 +110,7 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         });
     }
 
-    if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
-        tracing::warn!(error = %e, "trash cleanup could not be scheduled");
-    }
-    {
-        let db = db.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
-            interval.tick().await;
-            loop {
-                interval.tick().await;
-                if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
-                    tracing::warn!(error = %e, "trash cleanup could not be scheduled");
-                }
-            }
-        });
-    }
+    spawn_maintenance(db.clone()).await;
 
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(addr = %config.bind, "keeppix listening");
@@ -150,6 +135,38 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+async fn spawn_maintenance(db: Db) {
+    if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
+        tracing::warn!(error = %e, "trash cleanup could not be scheduled");
+    }
+    if let Err(e) = keeppix_jobs::retry_derives::schedule(&db).await {
+        tracing::warn!(error = %e, "error-asset retry could not be scheduled");
+    }
+    {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
+                    tracing::warn!(error = %e, "trash cleanup could not be scheduled");
+                }
+            }
+        });
+    }
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            if let Err(e) = keeppix_jobs::retry_derives::schedule(&db).await {
+                tracing::warn!(error = %e, "error-asset retry could not be scheduled");
+            }
+        }
+    });
 }
 
 /// Chiusura garbata su SIGTERM (Docker) e Ctrl-C (sviluppo).
