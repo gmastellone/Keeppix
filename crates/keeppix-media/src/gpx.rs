@@ -24,13 +24,14 @@ struct TrackPoint {
     point: GeoPoint,
 }
 
-/// Traccia normalizzata e ordinata per timestamp.
+/// Traccia normalizzata per timestamp, con i confini fra segmenti preservati.
 #[derive(Debug, Clone)]
 pub struct Track {
-    points: Vec<TrackPoint>,
+    segments: Vec<Vec<TrackPoint>>,
 }
 
-/// Legge i `trkpt` con coordinate e timestamp RFC 3339.
+/// Legge i `trkpt` con coordinate e timestamp RFC 3339, mantenendo ogni
+/// `trkseg` separato dagli altri segmenti e dalle altre tracce.
 ///
 /// # Errors
 /// `Malformed` per XML non valido, coordinate fuori WGS84 o timestamp non
@@ -41,16 +42,25 @@ pub fn parse(bytes: &[u8]) -> Result<Track, GpxError> {
     let mut buf = Vec::new();
     let mut depth = 0_usize;
     let mut current_point = None;
+    let mut current_segment = None;
     let mut reading_time = false;
     let mut time_text = String::new();
-    let mut points = Vec::new();
+    let mut segments = Vec::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(start)) => {
                 depth = depth.saturating_add(1);
                 match start.local_name().as_ref() {
-                    b"trkpt" => current_point = Some(point_from(&start)?),
+                    b"trkseg" => {
+                        if current_segment.is_some() {
+                            return Err(GpxError::Malformed("nested trkseg elements".to_owned()));
+                        }
+                        current_segment = Some(Vec::new());
+                    }
+                    b"trkpt" if current_segment.is_some() => {
+                        current_point = Some(point_from(&start)?);
+                    }
                     b"time" if current_point.is_some() => {
                         reading_time = true;
                         time_text.clear();
@@ -70,14 +80,25 @@ pub fn parse(bytes: &[u8]) -> Result<Track, GpxError> {
                         let at = DateTime::parse_from_rfc3339(time_text.trim())
                             .map_err(|e| GpxError::Malformed(format!("invalid track time: {e}")))?
                             .with_timezone(&Utc);
-                        if let Some(point) = current_point {
-                            points.push(TrackPoint { at, point });
+                        if let (Some(point), Some(segment)) =
+                            (current_point, current_segment.as_mut())
+                        {
+                            segment.push(TrackPoint { at, point });
                         }
                         reading_time = false;
                     }
                     b"trkpt" => {
                         current_point = None;
                         reading_time = false;
+                    }
+                    b"trkseg" => {
+                        if let Some(mut segment) = current_segment.take()
+                            && !segment.is_empty()
+                        {
+                            segment.sort_unstable_by_key(|point| point.at);
+                            segment.dedup_by_key(|point| point.at);
+                            segments.push(segment);
+                        }
                     }
                     _ => {}
                 }
@@ -97,27 +118,47 @@ pub fn parse(bytes: &[u8]) -> Result<Track, GpxError> {
         buf.clear();
     }
 
-    if points.is_empty() {
+    if segments.is_empty() {
         return Err(GpxError::NoTrackPoints);
     }
-    points.sort_unstable_by_key(|point| point.at);
-    points.dedup_by_key(|point| point.at);
-    Ok(Track { points })
+    Ok(Track { segments })
 }
 
-/// Abbina `at` alla traccia. Fra due punti interpola linearmente; entro la
-/// tolleranza fuori dagli estremi usa la coordinata dell'estremo, senza
-/// estrapolare una velocità inventata.
+/// Abbina `at` alla traccia. Fra due punti dello stesso segmento interpola
+/// linearmente; nei vuoti fra segmenti e fuori dalla traccia usa l'estremo
+/// temporalmente più vicino solo entro `tolerance`.
 #[must_use]
 pub fn interpolate(track: &Track, at: DateTime<Utc>, tolerance: Duration) -> Option<GeoPoint> {
-    let first = track.points.first()?;
-    let last = track.points.last()?;
-
-    if at < first.at {
-        return (first.at - at <= tolerance).then_some(first.point);
+    if let Some(point) = track
+        .segments
+        .iter()
+        .find_map(|segment| interpolate_segment(segment, at))
+    {
+        return Some(point);
     }
-    if at > last.at {
-        return (at - last.at <= tolerance).then_some(last.point);
+
+    let nearest = track
+        .segments
+        .iter()
+        .flat_map(|segment| [segment.first(), segment.last()])
+        .flatten()
+        .map(|endpoint| {
+            let delta = if at >= endpoint.at {
+                at - endpoint.at
+            } else {
+                endpoint.at - at
+            };
+            (delta, endpoint.point)
+        })
+        .min_by_key(|(delta, _)| *delta)?;
+    (nearest.0 <= tolerance).then_some(nearest.1)
+}
+
+fn interpolate_segment(segment: &[TrackPoint], at: DateTime<Utc>) -> Option<GeoPoint> {
+    let first = segment.first()?;
+    let last = segment.last()?;
+    if at < first.at || at > last.at {
+        return None;
     }
     if at == first.at {
         return Some(first.point);
@@ -126,8 +167,7 @@ pub fn interpolate(track: &Track, at: DateTime<Utc>, tolerance: Duration) -> Opt
         return Some(last.point);
     }
 
-    let pair = track
-        .points
+    let pair = segment
         .windows(2)
         .find(|pair| pair[0].at <= at && at <= pair[1].at)?;
     let total_ms = (pair[1].at - pair[0].at).num_milliseconds();

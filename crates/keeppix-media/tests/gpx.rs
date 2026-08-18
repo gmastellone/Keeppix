@@ -9,6 +9,20 @@ const GPX: &str = r#"<?xml version="1.0"?>
   </trkseg></trk>
 </gpx>"#;
 
+const MULTI_SEGMENT_GPX: &str = r#"<?xml version="1.0"?>
+<gpx version="1.1" creator="keeppix-test">
+  <trk>
+    <trkseg>
+      <trkpt lat="40.0" lon="8.0"><time>2026-08-18T10:00:00Z</time></trkpt>
+      <trkpt lat="41.0" lon="9.0"><time>2026-08-18T10:10:00Z</time></trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="50.0" lon="18.0"><time>2026-08-18T10:30:00Z</time></trkpt>
+      <trkpt lat="51.0" lon="19.0"><time>2026-08-18T10:40:00Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>"#;
+
 #[test]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn interpolation_is_linear_and_default_tolerance_uses_endpoints_without_extrapolating() {
@@ -57,4 +71,29 @@ fn interpolation_is_linear_and_default_tolerance_uses_endpoints_without_extrapol
 fn malformed_or_coordinate_free_gpx_is_rejected() {
     assert!(parse(b"<gpx><trkpt>").is_err());
     assert!(parse(b"<gpx version=\"1.1\"></gpx>").is_err());
+}
+
+#[test]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+fn interpolation_does_not_cross_segment_gaps() {
+    let track = parse(MULTI_SEGMENT_GPX.as_bytes()).expect("valid segmented GPX");
+
+    assert!(
+        interpolate(
+            &track,
+            Utc.with_ymd_and_hms(2026, 8, 18, 10, 20, 0).unwrap(),
+            DEFAULT_TOLERANCE,
+        )
+        .is_none(),
+        "a timestamp farther than tolerance from both segment endpoints must stay untagged"
+    );
+
+    let near_second_segment = interpolate(
+        &track,
+        Utc.with_ymd_and_hms(2026, 8, 18, 10, 28, 0).unwrap(),
+        DEFAULT_TOLERANCE,
+    )
+    .expect("two minutes before the second segment uses its endpoint");
+    assert!((near_second_segment.lat - 50.0).abs() < 1e-9);
+    assert!((near_second_segment.lon - 18.0).abs() < 1e-9);
 }
