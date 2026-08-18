@@ -271,6 +271,21 @@ pub async fn folder_id_by_name(server: &TestServer, name: &str) -> String {
 
 #[allow(clippy::expect_used)]
 pub async fn grant_folder_viewer(server: &TestServer, subject_user_id: &str, folder_id: &str) {
+    grant_folder_role(server, subject_user_id, folder_id, "viewer").await;
+}
+
+#[allow(clippy::expect_used)]
+pub async fn grant_folder_editor(server: &TestServer, subject_user_id: &str, folder_id: &str) {
+    grant_folder_role(server, subject_user_id, folder_id, "editor").await;
+}
+
+#[allow(clippy::expect_used)]
+async fn grant_folder_role(
+    server: &TestServer,
+    subject_user_id: &str,
+    folder_id: &str,
+    role: &str,
+) {
     let response = server
         .client
         .post(server.url("/api/v1/permissions"))
@@ -279,7 +294,7 @@ pub async fn grant_folder_viewer(server: &TestServer, subject_user_id: &str, fol
             "subject_id": subject_user_id,
             "object_type": "folder",
             "object_id": folder_id,
-            "role": "viewer",
+            "role": role,
             "inherit": true
         }))
         .send()

@@ -1,6 +1,6 @@
 //! Permessi solo-allow. I gruppi si risolvono con un join, mai nel token.
 
-use keeppix_domain::{AuthContext, FolderId, ObjectRole};
+use keeppix_domain::{AssetId, AuthContext, FolderId, ObjectRole, UserId};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -136,6 +136,47 @@ impl<'a> PermissionRepo<'a> {
         .await?;
 
         Ok(role.as_deref().and_then(ObjectRole::parse))
+    }
+
+    /// Stesso cancello di `FolderRepo::move_subtree`: owner/admin, oppure
+    /// `editor` sulla cartella dell'asset. Un viewer che *vede* non scrive.
+    ///
+    /// # Errors
+    /// `Forbidden` se anche un solo asset è sotto una cartella dove il
+    /// chiamante non è owner/admin né editor. `Connection` se la query fallisce.
+    pub async fn assert_can_edit_assets(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+    ) -> Result<(), DbError> {
+        if asset_ids.is_empty() || ctx.is_admin() {
+            return Ok(());
+        }
+        let ids: Vec<Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
+        let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT DISTINCT a.folder_id, l.owner_id \
+               FROM assets a \
+               JOIN folders f ON f.id = a.folder_id \
+               JOIN libraries l ON l.id = f.library_id \
+              WHERE a.id = ANY($1)",
+        )
+        .bind(&ids)
+        .fetch_all(self.db.pool())
+        .await?;
+
+        for (folder_id, owner_id) in rows {
+            if ctx.user_id() == Some(UserId::from_uuid(owner_id)) {
+                continue;
+            }
+            match self
+                .effective_role(ctx, FolderId::from_uuid(folder_id))
+                .await?
+            {
+                Some(ObjectRole::Editor) => {}
+                _ => return Err(DbError::Forbidden),
+            }
+        }
+        Ok(())
     }
 
     /// Elenco permessi diretti su un oggetto.
