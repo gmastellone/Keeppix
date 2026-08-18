@@ -11,6 +11,7 @@ export interface User {
   email: string | null
   role: 'admin' | 'user'
   locale: string | null
+  disabled_at?: string | null
 }
 
 export interface SetupPayload {

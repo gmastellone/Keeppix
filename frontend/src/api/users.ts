@@ -6,6 +6,7 @@ export interface UserSummary {
   display_name: string
   role: string
   locale: string | null
+  disabled_at: string | null
 }
 
 export function fetchUsers(): Promise<UserSummary[]> {
@@ -26,7 +27,7 @@ export function createUser(body: {
 
 export function updateUser(
   id: string,
-  patch: { display_name?: string; locale?: string }
+  patch: { display_name?: string; locale?: string; role?: string }
 ): Promise<UserSummary> {
   return apiFetch(`/api/v1/users/${id}`, {
     method: 'PATCH',
@@ -36,6 +37,10 @@ export function updateUser(
 
 export function disableUser(id: string): Promise<null> {
   return apiFetch(`/api/v1/users/${id}/disable`, { method: 'POST' })
+}
+
+export function enableUser(id: string): Promise<null> {
+  return apiFetch(`/api/v1/users/${id}/enable`, { method: 'POST' })
 }
 
 export function changePassword(current_password: string, new_password: string): Promise<null> {

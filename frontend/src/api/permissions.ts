@@ -15,6 +15,7 @@ export interface ExplainChainLink {
   role: string
   granted_on_type: string
   granted_on_name: string
+  inherited_in?: string | null
 }
 
 export interface ExplainResult {

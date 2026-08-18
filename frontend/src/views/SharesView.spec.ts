@@ -49,7 +49,8 @@ const bob = {
   username: 'bob',
   display_name: 'Bob',
   role: 'user',
-  locale: null
+  locale: null,
+  disabled_at: null
 }
 
 const famiglia = {
@@ -144,7 +145,8 @@ describe('SharesView', () => {
           subject_name: 'Famiglia',
           role: 'viewer',
           granted_on_type: 'folder',
-          granted_on_name: '/Foto/Vacanze'
+          granted_on_name: '/Foto/Vacanze',
+          inherited_in: '/Foto/Vacanze/2024/Grecia'
         }
       ]
     })
@@ -160,6 +162,10 @@ describe('SharesView', () => {
     expect(chain).toContain('Famiglia')
     expect(chain).toContain('viewer')
     expect(chain).toContain('/Foto/Vacanze')
+    expect(chain).toContain('/Foto/Vacanze/2024/Grecia')
+    expect(chain).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+    )
   })
 
   it('condivide una cartella con un gruppo scegliendo gruppo nel form', async () => {
