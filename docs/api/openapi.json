@@ -1799,6 +1799,346 @@
         ]
       }
     },
+    "/api/v1/map/regions": {
+      "get": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`401` senza sessione.",
+        "operationId": "map_regions_list",
+        "responses": {
+          "200": {
+            "description": "Stato regioni PMTiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RegionView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`403` per non-admin, `409` se già in download, `422` per metadati o URL\nfuori allowlist.",
+        "operationId": "map_regions_download",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadRegionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Download accodato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Download già attivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Sorgente o metadati non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/map/regions/{id}": {
+      "delete": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`403` per non-admin, `404` se assente, `500` se i file non sono rimovibili.",
+        "operationId": "map_regions_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id regione",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Regione eliminata"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Regione assente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/map/regions/{id}/cancel": {
+      "post": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`403` per non-admin, `404` se assente, `409` se non in download.",
+        "operationId": "map_regions_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id regione",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Download annullato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Regione assente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Regione non in download",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/map/tiles/{region}/{z}/{x}/{y}": {
+      "get": {
+        "tags": [
+          "map"
+        ],
+        "summary": "Serve il file PMTiles locale tramite byte range. Le coordinate restano nel\npercorso per il protocollo della mappa, ma il payload è letto direttamente\ndall'archivio senza decompressione o rendering server-side.",
+        "description": "# Errors\n`401` senza sessione; `404` se la regione è assente o è stata cancellata;\n`416` per un range non valido.",
+        "operationId": "map_tile_archive",
+        "parameters": [
+          {
+            "name": "region",
+            "in": "path",
+            "description": "Id della regione locale",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "z",
+            "in": "path",
+            "description": "Zoom",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "x",
+            "in": "path",
+            "description": "Coordinata tile X",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "y",
+            "in": "path",
+            "description": "Coordinata tile Y",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archivio PMTiles"
+          },
+          "206": {
+            "description": "Byte range PMTiles"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Regione non disponibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Range non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/metadata/batch": {
       "post": {
         "tags": [
@@ -4037,6 +4377,38 @@
           }
         }
       },
+      "DownloadRegionRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "size_bytes",
+          "version",
+          "source_url",
+          "checksum_sha256"
+        ],
+        "properties": {
+          "checksum_sha256": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
       "DuplicateGroupView": {
         "type": "object",
         "required": [
@@ -4654,6 +5026,51 @@
         ],
         "properties": {
           "library_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RegionView": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "size_bytes",
+          "version",
+          "status",
+          "downloaded_bytes"
+        ],
+        "properties": {
+          "downloaded_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "downloaded_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
             "type": "string"
           }
         }

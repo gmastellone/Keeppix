@@ -14,6 +14,7 @@ pub mod metadata;
 pub mod permissions;
 pub mod places;
 pub mod problems;
+pub mod regions;
 pub mod search;
 pub mod setup;
 pub mod share;

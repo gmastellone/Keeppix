@@ -152,6 +152,19 @@ fn api_routes() -> Router<AppState> {
         .route("/places/reverse", get(routes::places::reverse))
         .route("/places/suggest", get(routes::places::suggest))
         .route("/map/clusters", get(routes::map::clusters))
+        .route("/map/tiles/{region}/{z}/{x}/{y}", get(routes::map::tiles))
+        .route(
+            "/map/regions",
+            get(routes::regions::list).post(routes::regions::download),
+        )
+        .route(
+            "/map/regions/{id}",
+            axum::routing::delete(routes::regions::delete),
+        )
+        .route(
+            "/map/regions/{id}/cancel",
+            axum::routing::post(routes::regions::cancel),
+        )
         .route(
             "/saved-searches",
             get(routes::search::list_saved).post(routes::search::create_saved),

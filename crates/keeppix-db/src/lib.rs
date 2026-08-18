@@ -17,6 +17,7 @@ pub mod overrides;
 pub mod permissions;
 pub mod places;
 pub mod problems;
+pub mod regions;
 mod row;
 pub mod search;
 pub mod sessions;
@@ -50,6 +51,7 @@ pub use permissions::{
 };
 pub use places::PlaceRepo;
 pub use problems::{ProblemSet, ProblemsRepo};
+pub use regions::{MapRegion, NewMapRegion, RegionDownloadSource, RegionRepo, RegionStatus};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
@@ -65,7 +67,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0021_tz_boundaries.
+// rivede la directory. 0022_map_regions.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
