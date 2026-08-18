@@ -39,6 +39,10 @@ pub struct CreateLinkRequest {
     pub allow_upload: bool,
     #[serde(default)]
     pub allow_cdn_cache: bool,
+    /// When true, the public asset list omits capture dates (`taken_at_utc`).
+    /// It does not strip GPS: `AssetView` has no lat/lon, and the spec §6.2
+    /// home-radius geofence is deferred (Fase 4). The field name is kept
+    /// because `/api/v1` is frozen.
     #[serde(default = "default_true")]
     pub hide_metadata: bool,
     pub upload_quota_bytes: Option<i64>,
@@ -351,6 +355,8 @@ pub async fn public_assets(
     };
 
     let mut views = assets;
+    // Capture dates only. Coordinates are not on AssetView; spec §6.2
+    // (radius around "home") is deferred — see the Fase 3 ledger.
     if *hide_metadata {
         for asset in &mut views {
             asset.taken_at_utc = None;

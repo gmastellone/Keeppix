@@ -11,6 +11,7 @@ export interface ShareLink {
   allow_download: boolean
   allow_original: boolean
   allow_upload: boolean
+  /** Public list omits capture dates when true. Not a location geofence. */
   hide_metadata: boolean
   revoked_at: string | null
   last_accessed_at: string | null
