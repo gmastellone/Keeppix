@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keeppix_db::Db;
-use keeppix_domain::{AuthContext, SessionToken};
+use keeppix_domain::{AuthContext, SessionToken, ShareToken};
 
 use crate::ratelimit::RateLimiter;
 
@@ -104,6 +104,43 @@ impl SessionCache {
     }
 }
 
+const SHARE_UNLOCK_TTL: Duration = Duration::from_secs(60 * 60);
+
+/// Opaque unlock tokens issued after a correct share-link password.
+/// In-process on purpose (same reason as the rate limiter: single node, no
+/// Redis). A restart asks guests to re-enter the password.
+#[derive(Clone, Default)]
+pub struct ShareUnlockStore {
+    inner: Arc<Mutex<HashMap<[u8; 32], (uuid::Uuid, Instant)>>>,
+}
+
+impl ShareUnlockStore {
+    #[must_use]
+    pub fn issue(&self, link_id: uuid::Uuid) -> ShareToken {
+        let token = ShareToken::generate();
+        if let Ok(mut guard) = self.inner.lock() {
+            sweep_expired(&mut guard);
+            guard.insert(token.digest(), (link_id, Instant::now() + SHARE_UNLOCK_TTL));
+        }
+        token
+    }
+
+    #[must_use]
+    pub fn check(&self, link_id: uuid::Uuid, token: &ShareToken) -> bool {
+        let Ok(mut guard) = self.inner.lock() else {
+            return false;
+        };
+        let Some((stored_link, expires)) = guard.get(&token.digest()).copied() else {
+            return false;
+        };
+        if Instant::now() > expires {
+            guard.remove(&token.digest());
+            return false;
+        }
+        stored_link == link_id
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
@@ -127,6 +164,8 @@ pub struct AppState {
     pub share_limiter: RateLimiter,
     /// Rate limiter for login attempts (per IP/username).
     pub login_limiter: RateLimiter,
+    /// In-process unlock proofs for password-protected share links.
+    pub share_unlocks: ShareUnlockStore,
 }
 
 impl AppState {
@@ -146,6 +185,7 @@ impl AppState {
             demosaic: std::sync::Arc::new(keeppix_jobs::raw::SandboxDemosaic),
             share_limiter: RateLimiter::new(Duration::from_secs(60), 60),
             login_limiter: RateLimiter::new(Duration::from_secs(300), 10),
+            share_unlocks: ShareUnlockStore::default(),
         }
     }
 

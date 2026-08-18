@@ -296,6 +296,7 @@ pub fn share_client(token: &str) -> reqwest::Client {
         reqwest::header::HeaderValue::from_str(token).expect("token header"),
     );
     reqwest::Client::builder()
+        .cookie_store(true)
         .default_headers(headers)
         .build()
         .expect("share client")
