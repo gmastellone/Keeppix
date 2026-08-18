@@ -146,7 +146,8 @@ impl<'a> OverrideRepo<'a> {
     /// l'annullamento — quello lo fa solo [`Self::apply_batch`].
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non vede l'asset.
+    /// `Forbidden` se il chiamante non vede l'asset, o lo vede solo come
+    /// viewer (spec §1.2: modificare i metadati è editor+).
     pub async fn apply(
         &self,
         ctx: &AuthContext,
@@ -155,6 +156,9 @@ impl<'a> OverrideRepo<'a> {
     ) -> Result<(), DbError> {
         AssetRepo::new(self.db)
             .assert_visible(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+        crate::PermissionRepo::new(self.db)
+            .assert_can_edit_assets(ctx, std::slice::from_ref(&asset_id))
             .await?;
         let mut conn = self.db.pool().acquire().await?;
         apply_patch(
@@ -172,7 +176,8 @@ impl<'a> OverrideRepo<'a> {
     /// [`Self::undo_batch`].
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo asset non è visibile al chiamante.
+    /// `Forbidden` se anche un solo asset non è visibile al chiamante, o
+    /// lo è solo come viewer.
     pub async fn apply_batch(
         &self,
         ctx: &AuthContext,
@@ -181,6 +186,9 @@ impl<'a> OverrideRepo<'a> {
     ) -> Result<BatchId, DbError> {
         AssetRepo::new(self.db)
             .assert_visible(ctx, asset_ids)
+            .await?;
+        crate::PermissionRepo::new(self.db)
+            .assert_can_edit_assets(ctx, asset_ids)
             .await?;
         let Some(actor) = ctx.user_id() else {
             return Err(DbError::Forbidden);
@@ -303,7 +311,8 @@ impl<'a> OverrideRepo<'a> {
     /// [`Self::apply_batch`]: la stessa [`Self::undo_batch`] lo ripristina.
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo asset non è visibile al chiamante.
+    /// `Forbidden` se anche un solo asset non è visibile al chiamante, o
+    /// lo è solo come viewer.
     pub async fn shift_taken_at(
         &self,
         ctx: &AuthContext,
@@ -312,6 +321,9 @@ impl<'a> OverrideRepo<'a> {
     ) -> Result<BatchId, DbError> {
         AssetRepo::new(self.db)
             .assert_visible(ctx, asset_ids)
+            .await?;
+        crate::PermissionRepo::new(self.db)
+            .assert_can_edit_assets(ctx, asset_ids)
             .await?;
         let Some(actor) = ctx.user_id() else {
             return Err(DbError::Forbidden);
