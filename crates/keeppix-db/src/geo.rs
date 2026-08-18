@@ -244,22 +244,13 @@ impl ClusterQuery<'_> {
                  LEFT JOIN asset_flags fl ON fl.asset_id = a.id AND fl.user_id = $1 \
                  LEFT JOIN asset_exif e ON e.asset_id = a.id \
                 WHERE a.status = 'indexed' \
-                  AND COALESCE(o.location, a.location) IS NOT NULL \
-                  AND ( \
-                       ($2 <= $4 AND COALESCE(o.location, a.location)::geometry \
-                           && ST_MakeEnvelope($2, $3, $4, $5, 4326)) \
-                    OR ($2 > $4 AND ( \
-                           COALESCE(o.location, a.location)::geometry \
-                               && ST_MakeEnvelope($2, $3, 180.0, $5, 4326) \
-                        OR COALESCE(o.location, a.location)::geometry \
-                               && ST_MakeEnvelope(-180.0, $3, $4, $5, 4326) \
-                       )) \
-                  ) \
+                  AND ({}) \
                   AND $6::double precision > 0 \
                   AND ({}) \
                   AND {} \
                   AND ({}) \
              )",
+            bbox_filter_sql(),
             self.scope_clause,
             self.filter.sql(),
             self.search_clause
@@ -310,6 +301,31 @@ fn cell_degrees(zoom: u8) -> f64 {
     90.0 / 2_f64.powi(i32::from(zoom.min(30)))
 }
 
+const fn bbox_filter_sql() -> &'static str {
+    "($2 <= $4 AND (\
+         (o.location IS NOT NULL AND o.location \
+          && ST_Segmentize(ST_MakeEnvelope($2, $3, $4, $5, 4326), 90.0)::geography) \
+         OR (o.location IS NULL AND a.location \
+             && ST_Segmentize(ST_MakeEnvelope($2, $3, $4, $5, 4326), 90.0)::geography)\
+     )) OR ($2 > $4 AND (\
+         (o.location IS NOT NULL AND (\
+             o.location && ST_Segmentize(\
+                 ST_MakeEnvelope($2, $3, 180.0, $5, 4326), 90.0\
+             )::geography \
+             OR o.location && ST_Segmentize(\
+                 ST_MakeEnvelope(-180.0, $3, $4, $5, 4326), 90.0\
+             )::geography\
+         )) OR (o.location IS NULL AND (\
+             a.location && ST_Segmentize(\
+                 ST_MakeEnvelope($2, $3, 180.0, $5, 4326), 90.0\
+             )::geography \
+             OR a.location && ST_Segmentize(\
+                 ST_MakeEnvelope(-180.0, $3, $4, $5, 4326), 90.0\
+             )::geography\
+         ))\
+     ))"
+}
+
 fn into_clusters(rows: Vec<ClusterRow>, clustered: bool) -> Vec<MapCluster> {
     rows.into_iter()
         .map(|row| MapCluster {
@@ -320,4 +336,35 @@ fn into_clusters(rows: Vec<ClusterRow>, clustered: bool) -> Vec<MapCluster> {
             clustered,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bbox_filter_sql;
+
+    #[test]
+    fn bbox_filter_keeps_geography_columns_bare_for_gist() {
+        let sql = bbox_filter_sql();
+
+        assert!(sql.contains(
+            "o.location IS NOT NULL AND o.location \
+             && ST_Segmentize(ST_MakeEnvelope($2, $3, $4, $5, 4326), 90.0)::geography"
+        ));
+        assert!(sql.contains(
+            "o.location IS NULL AND a.location \
+             && ST_Segmentize(ST_MakeEnvelope($2, $3, $4, $5, 4326), 90.0)::geography"
+        ));
+        assert_eq!(
+            sql.matches("o.location && ST_Segmentize").count(),
+            3,
+            "normal bounds plus both antimeridian envelopes"
+        );
+        assert_eq!(
+            sql.matches("a.location && ST_Segmentize").count(),
+            3,
+            "normal bounds plus both antimeridian envelopes"
+        );
+        assert!(!sql.contains("COALESCE"));
+        assert!(!sql.contains("::geometry"));
+    }
 }
