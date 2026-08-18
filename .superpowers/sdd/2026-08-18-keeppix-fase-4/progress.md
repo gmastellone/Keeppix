@@ -29,6 +29,16 @@ Cost if wrong: every `TestDb` fails to migrate.
 
 Task 2: complete (commits 8e38016..7e31820, review clean)
 
+Ruling: reverse fallback rows (`population = 0` region/country) are emitted
+by `scripts/build-geonames.sh`, not only by tests. Cost if wrong: ocean
+points 404 instead of "Campania"/"Italy".
+
+Ruling: suggest uses pg_trgm `%` only — no `ILIKE '%'||q||'%'`, so `q=%%`
+cannot dump the table.
+
+Task 3: complete (commits b5b0b1a..794debe, review clean after fallback
+rows + wildcard fix)
+
 Ruling: Task 2 usa la migrazione schema-only `0020_places.sql`; il dump non
 entra nella migrazione perché `TestDb` non monta artefatti GeoNames e le
 migrazioni applicate non si modificano. Costo se sbagliato: l'import resta un
