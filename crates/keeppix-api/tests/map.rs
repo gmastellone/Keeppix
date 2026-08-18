@@ -2,7 +2,7 @@ mod harness;
 
 use chrono::{TimeZone as _, Utc};
 use harness::TestServer;
-use keeppix_db::{FolderRepo, LibraryRepo, UserRepo};
+use keeppix_db::{FolderRepo, LibraryRepo, NewMapRegion, RegionRepo, UserRepo};
 use keeppix_domain::{AuthContext, NewLibrary, SystemRole, UserId, Username};
 use serde_json::json;
 
@@ -117,6 +117,141 @@ async fn a_foreign_scope_id_is_forbidden_not_not_found() {
         response.json::<serde_json::Value>().await.unwrap()["type"],
         "keeppix/forbidden"
     );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn deleted_region_returns_clean_404_after_range_serving() {
+    let server = TestServer::start().await;
+    let user = setup(&server).await;
+    let ctx = AuthContext::user(user, SystemRole::Admin);
+    RegionRepo::new(&server.db)
+        .begin_download(
+            &ctx,
+            NewMapRegion {
+                id: "IT".to_owned(),
+                label: "Italia".to_owned(),
+                size_bytes: 10,
+                version: "2026-08".to_owned(),
+                source_url: "https://build.protomaps.com/IT.pmtiles".to_owned(),
+                checksum_sha256: "ab".repeat(32),
+            },
+        )
+        .await
+        .unwrap();
+    RegionRepo::new(&server.db)
+        .mark_available("IT")
+        .await
+        .unwrap();
+    tokio::fs::create_dir_all(server.data_dir.join("maps"))
+        .await
+        .unwrap();
+    tokio::fs::write(server.data_dir.join("maps/IT.pmtiles"), b"0123456789")
+        .await
+        .unwrap();
+
+    let ranged = server
+        .client
+        .get(server.url("/api/v1/map/tiles/IT/0/0/0"))
+        .header(reqwest::header::RANGE, "bytes=2-5")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ranged.status(), 206);
+    assert_eq!(ranged.headers()["content-range"], "bytes 2-5/10");
+    assert_eq!(ranged.bytes().await.unwrap().as_ref(), b"2345");
+
+    let deleted = server
+        .client
+        .delete(server.url("/api/v1/map/regions/IT"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), 204);
+
+    let missing = server
+        .client
+        .get(server.url("/api/v1/map/tiles/IT/0/0/0"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+    assert_eq!(
+        missing.headers()["content-type"],
+        "application/problem+json"
+    );
+    assert_eq!(
+        missing.json::<serde_json::Value>().await.unwrap()["type"],
+        "keeppix/not-found"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn region_enqueue_rejects_a_non_allowlisted_source() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/map/regions"))
+        .json(&json!({
+            "id": "IT",
+            "label": "Italia",
+            "size_bytes": 10,
+            "version": "2026-08",
+            "source_url": "https://127.0.0.1/private",
+            "checksum_sha256": "ab".repeat(32)
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 422);
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap()["type"],
+        "keeppix/region-source-not-allowed"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn cancelling_a_region_removes_its_partial_file() {
+    let server = TestServer::start().await;
+    let user = setup(&server).await;
+    let ctx = AuthContext::user(user, SystemRole::Admin);
+    RegionRepo::new(&server.db)
+        .begin_download(
+            &ctx,
+            NewMapRegion {
+                id: "IT".to_owned(),
+                label: "Italia".to_owned(),
+                size_bytes: 10,
+                version: "2026-08".to_owned(),
+                source_url: "https://build.protomaps.com/IT.pmtiles".to_owned(),
+                checksum_sha256: "ab".repeat(32),
+            },
+        )
+        .await
+        .unwrap();
+    tokio::fs::create_dir_all(server.data_dir.join("maps"))
+        .await
+        .unwrap();
+    let partial = server.data_dir.join("maps/IT.pmtiles.part");
+    tokio::fs::write(&partial, b"partial").await.unwrap();
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/map/regions/IT/cancel"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 204);
+    assert!(!partial.exists());
+    let region = RegionRepo::new(&server.db).find(&ctx, "IT").await.unwrap();
+    assert_eq!(region.status, keeppix_db::RegionStatus::Error);
+    assert_eq!(region.last_error.as_deref(), Some("Download cancelled"));
 }
 
 #[allow(clippy::unwrap_used, clippy::expect_used)]

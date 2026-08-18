@@ -180,8 +180,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 61,
-        "il documento deve descrivere sessantuno operazioni"
+        checked, 66,
+        "il documento deve descrivere sessantasei operazioni"
     );
 }
 
@@ -255,6 +255,11 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/libraries/{id}/scan",
             "/api/v1/libraries/{id}/scan",
             "/api/v1/map/clusters",
+            "/api/v1/map/regions",
+            "/api/v1/map/regions",
+            "/api/v1/map/regions/{id}",
+            "/api/v1/map/regions/{id}/cancel",
+            "/api/v1/map/tiles/{region}/{z}/{x}/{y}",
             "/api/v1/metadata/batch",
             "/api/v1/metadata/batch/copy-location",
             "/api/v1/metadata/batch/import-gpx",
@@ -344,6 +349,11 @@ fn operation_ids_are_explicit_and_unique() {
             "libraries_scan_start",
             "libraries_scan_status",
             "map_clusters",
+            "map_regions_cancel",
+            "map_regions_delete",
+            "map_regions_download",
+            "map_regions_list",
+            "map_tile_archive",
             "media_full",
             "media_original",
             "media_preview",

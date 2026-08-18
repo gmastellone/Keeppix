@@ -1,6 +1,8 @@
-use axum::extract::rejection::QueryRejection;
-use axum::extract::{Query, State};
-use keeppix_db::{GeoRepo, MapBounds, MapCluster, MapScope};
+use axum::extract::rejection::{PathRejection, QueryRejection};
+use axum::extract::{Path as AxumPath, Query, State};
+use axum::http::{HeaderMap, header};
+use axum::response::Response;
+use keeppix_db::{GeoRepo, MapBounds, MapCluster, MapScope, RegionRepo};
 use keeppix_domain::{AlbumId, FolderId, LibraryId};
 use serde::{Deserialize, Serialize};
 
@@ -92,6 +94,61 @@ pub async fn clusters(
         .clusters(&ctx, bounds, zoom, map_scope)
         .await?;
     Ok(Json(rows.into_iter().map(MapClusterView::from).collect()))
+}
+
+/// Serve il file PMTiles locale tramite byte range. Le coordinate restano nel
+/// percorso per il protocollo della mappa, ma il payload è letto direttamente
+/// dall'archivio senza decompressione o rendering server-side.
+///
+/// # Errors
+/// `401` senza sessione; `404` se la regione è assente o è stata cancellata;
+/// `416` per un range non valido.
+#[utoipa::path(
+    get,
+    path = "/api/v1/map/tiles/{region}/{z}/{x}/{y}",
+    tag = "map",
+    operation_id = "map_tile_archive",
+    security(("session_cookie" = [])),
+    params(
+        ("region" = String, Path, description = "Id della regione locale"),
+        ("z" = u8, Path, description = "Zoom"),
+        ("x" = u32, Path, description = "Coordinata tile X"),
+        ("y" = u32, Path, description = "Coordinata tile Y")
+    ),
+    responses(
+        (status = 200, description = "Archivio PMTiles"),
+        (status = 206, description = "Byte range PMTiles"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 404, description = "Regione non disponibile", body = Problem),
+        (status = 416, description = "Range non valido", body = Problem)
+    )
+)]
+pub async fn tiles(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    path: Result<AxumPath<(String, u8, u32, u32)>, PathRejection>,
+    headers: HeaderMap,
+) -> Result<Response, Problem> {
+    let AxumPath((region_id, _z, _x, _y)) = path.map_err(|rejection| {
+        Problem::bad_request("invalid-map-tile-path", "Invalid map tile path")
+            .with_detail(rejection.body_text())
+    })?;
+    RegionRepo::new(&state.db)
+        .find_available(&ctx, &region_id)
+        .await?;
+    let path = state
+        .data_dir
+        .join("maps")
+        .join(format!("{region_id}.pmtiles"));
+    super::media::stream_file(
+        &path,
+        headers
+            .get(header::RANGE)
+            .and_then(|value| value.to_str().ok()),
+        "application/vnd.pmtiles",
+        false,
+    )
+    .await
 }
 
 fn parse_bounds(raw: &str) -> Result<MapBounds, Problem> {

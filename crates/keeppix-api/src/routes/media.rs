@@ -229,7 +229,7 @@ fn immutable_webp(bytes: Vec<u8>) -> Response {
     response
 }
 
-async fn stream_file(
+pub(crate) async fn stream_file(
     path: &Path,
     range: Option<&str>,
     content_type: &'static str,
