@@ -232,6 +232,7 @@ enum Token {
     LeftParen,
     RightParen,
     Value(String),
+    QuotedValue(String),
 }
 
 struct Parser {
@@ -303,6 +304,7 @@ impl Parser {
                 Ok(node)
             }
             Token::Value(value) => Ok(value_node(&value)),
+            Token::QuotedValue(value) => Ok(SearchNode::Text { value }),
             Token::And | Token::Or | Token::Not | Token::RightParen => Err(invalid_saved_search()),
         }
     }
@@ -333,6 +335,20 @@ fn tokenize(input: &str) -> Result<Vec<Token>, DbError> {
         if chars[at] == ')' {
             tokens.push(Token::RightParen);
             at += 1;
+            continue;
+        }
+        if chars[at] == '"' {
+            at += 1;
+            let mut value = String::new();
+            while at < chars.len() && chars[at] != '"' {
+                value.push(chars[at]);
+                at += 1;
+            }
+            if at == chars.len() {
+                return Err(invalid_saved_search());
+            }
+            at += 1;
+            tokens.push(Token::QuotedValue(value));
             continue;
         }
 
