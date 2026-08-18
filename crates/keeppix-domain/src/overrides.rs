@@ -1,8 +1,9 @@
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// Punto geografico WGS84, in gradi decimali — lo stesso sistema di
 /// `assets.location` (`geography(Point, 4326)`).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GeoPoint {
     pub lat: f64,
     pub lon: f64,

@@ -131,6 +131,7 @@ async fn camera_and_iso_and_year_and_has_gps() {
                 f_number: None,
                 exposure: None,
                 focal_length: None,
+                gps: None,
             },
         )
         .await
@@ -152,6 +153,7 @@ async fn camera_and_iso_and_year_and_has_gps() {
                 f_number: None,
                 exposure: None,
                 focal_length: None,
+                gps: None,
             },
         )
         .await
@@ -210,6 +212,7 @@ async fn not_camera_includes_assets_without_exif() {
                 f_number: None,
                 exposure: None,
                 focal_length: None,
+                gps: None,
             },
         )
         .await
