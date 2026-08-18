@@ -640,3 +640,63 @@ async fn a_share_does_not_open_another_library_with_the_same_ltree_label() {
         Err(DbError::Forbidden)
     ));
 }
+
+fn looks_like_uuid(s: &str) -> bool {
+    let hex: String = s.chars().filter(|c| *c != '-').collect();
+    hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+#[tokio::test]
+async fn explain_uses_names_and_folder_paths_not_uuids() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/nas/foto").await;
+    let folders = FolderRepo::new(test.db());
+    let vacanze = folders.ensure_path(library, &["Vacanze"]).await.unwrap();
+    let grecia = folders
+        .ensure_path(library, &["Vacanze", "2024", "Grecia"])
+        .await
+        .unwrap();
+    let famiglia = insert_group(&test, "Famiglia", admin).await;
+    add_member(&test, famiglia, mario).await;
+    grant_folder(
+        &test,
+        admin,
+        SubjectType::Group,
+        famiglia.as_uuid(),
+        vacanze.id,
+        ObjectRole::Viewer,
+        true,
+    )
+    .await;
+
+    let explained = PermissionRepo::new(test.db())
+        .explain(
+            &AuthContext::user(admin, SystemRole::Admin),
+            ObjectType::Folder,
+            grecia.id.as_uuid(),
+            mario.as_uuid(),
+        )
+        .await
+        .unwrap();
+
+    assert!(explained.granted);
+    assert_eq!(explained.chain.len(), 1);
+    let link = &explained.chain[0];
+    assert_eq!(link.subject_type, "group");
+    assert_eq!(link.subject_name, "Famiglia");
+    assert_eq!(link.role, "viewer");
+    assert_eq!(link.granted_on_name, "/Foto/Vacanze");
+    assert_eq!(
+        link.inherited_in.as_deref(),
+        Some("/Foto/Vacanze/2024/Grecia")
+    );
+    for s in [
+        link.subject_name.as_str(),
+        link.granted_on_name.as_str(),
+        link.inherited_in.as_deref().unwrap(),
+    ] {
+        assert!(!looks_like_uuid(s), "uuid al posto del nome: {s}");
+    }
+}
