@@ -225,7 +225,7 @@ pub async fn public_info(
     let row = ShareLinkRepo::new(&state.db)
         .lookup_by_token_hash(&hash)
         .await?
-        .ok_or_else(Problem::not_found)?;
+        .ok_or_else(Problem::forbidden)?;
 
     ShareLinkRepo::new(&state.db).record_view(row.id).await?;
 
@@ -267,7 +267,7 @@ pub async fn public_auth(
     let row = ShareLinkRepo::new(&state.db)
         .lookup_by_token_hash(&hash)
         .await?
-        .ok_or_else(Problem::not_found)?;
+        .ok_or_else(Problem::forbidden)?;
 
     if let Some(pw_hash) = &row.password_hash {
         let provided = req.password.unwrap_or_default();

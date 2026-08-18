@@ -223,3 +223,24 @@ async fn a_password_protected_link_rejects_media_without_unlock() {
         200
     );
 }
+
+#[tokio::test]
+async fn an_unknown_share_token_is_forbidden_not_not_found() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let resp = server
+        .client
+        .get(server.url("/api/v1/share/this-token-does-not-exist"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+    let auth = server
+        .client
+        .post(server.url("/api/v1/share/this-token-does-not-exist/auth"))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(auth.status(), 403);
+}
