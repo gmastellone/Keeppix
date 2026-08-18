@@ -199,3 +199,53 @@ fn maker_note_only_gps_is_ignored_without_error() {
 
     assert_eq!(data.gps, None);
 }
+
+#[test]
+fn minutes_or_seconds_of_60_or_more_are_not_gps() {
+    let minutes_overflow = tiff_with_gps(
+        b'N',
+        [(10, 1), (60, 1), (0, 1)],
+        b'E',
+        [(12, 1), (0, 1), (0, 1)],
+    );
+    let seconds_overflow = tiff_with_gps(
+        b'N',
+        [(10, 1), (0, 1), (60, 1)],
+        b'E',
+        [(12, 1), (0, 1), (0, 1)],
+    );
+
+    assert_eq!(
+        read_fixture(&jpeg_with_tiff(&minutes_overflow), "jpg").gps,
+        None
+    );
+    assert_eq!(
+        read_fixture(&jpeg_with_tiff(&seconds_overflow), "jpg").gps,
+        None
+    );
+}
+
+#[test]
+fn coordinates_outside_wgs84_are_not_gps() {
+    let too_far_north = tiff_with_gps(
+        b'N',
+        [(91, 1), (0, 1), (0, 1)],
+        b'E',
+        [(12, 1), (0, 1), (0, 1)],
+    );
+    let too_far_west = tiff_with_gps(
+        b'N',
+        [(10, 1), (0, 1), (0, 1)],
+        b'W',
+        [(181, 1), (0, 1), (0, 1)],
+    );
+
+    assert_eq!(
+        read_fixture(&jpeg_with_tiff(&too_far_north), "jpg").gps,
+        None
+    );
+    assert_eq!(
+        read_fixture(&jpeg_with_tiff(&too_far_west), "jpg").gps,
+        None
+    );
+}

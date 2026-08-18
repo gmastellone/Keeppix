@@ -149,6 +149,9 @@ fn gps_point(exif: &exif::Exif) -> Option<GeoPoint> {
     if lat.abs() <= ZERO_COORDINATE_EPSILON && lon.abs() <= ZERO_COORDINATE_EPSILON {
         return None;
     }
+    if lat.abs() > 90.0 || lon.abs() > 180.0 {
+        return None;
+    }
     Some(GeoPoint { lat, lon })
 }
 
@@ -169,7 +172,12 @@ fn signed_dms(
     if degrees.denom == 0 || minutes.denom == 0 || seconds.denom == 0 {
         return None;
     }
-    let value = degrees.to_f64() + minutes.to_f64() / 60.0 + seconds.to_f64() / 3600.0;
+    let minutes_value = minutes.to_f64();
+    let seconds_value = seconds.to_f64();
+    if minutes_value >= 60.0 || seconds_value >= 60.0 {
+        return None;
+    }
+    let value = degrees.to_f64() + minutes_value / 60.0 + seconds_value / 3600.0;
     let reference = gps_reference(exif, reference_tag)?;
     match reference.to_ascii_uppercase() {
         reference if reference == positive => Some(value),
