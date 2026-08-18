@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use axum_extra::extract::cookie::{Cookie, SameSite};
-use keeppix_domain::SessionToken;
+use keeppix_domain::{SessionToken, ShareToken};
 
-use crate::extract::SESSION_COOKIE;
+use crate::extract::{SESSION_COOKIE, SHARE_LINK_COOKIE, SHARE_UNLOCK_COOKIE};
 
 /// Cookie di sessione con prefisso `__Host-`.
 ///
@@ -55,4 +55,30 @@ pub fn clearing_cookie() -> Cookie<'static> {
     cookie.set_path("/");
     cookie.set_max_age(Some(time::Duration::ZERO));
     cookie
+}
+
+fn host_cookie(name: &'static str, value: String, ttl: Duration) -> Cookie<'static> {
+    let mut cookie = Cookie::new(name, value);
+    cookie.set_http_only(true);
+    cookie.set_secure(true);
+    cookie.set_same_site(SameSite::Lax);
+    cookie.set_path("/");
+    cookie.set_max_age(Some(
+        time::Duration::try_from(ttl).unwrap_or(time::Duration::hours(1)),
+    ));
+    cookie
+}
+
+/// Unlock proof for a password-protected share link. Same `__Host-` rules as
+/// the session cookie. TTL is short: losing it only means re-entering the
+/// password, not losing a login.
+#[must_use]
+pub fn share_unlock_cookie(token: &ShareToken, ttl: Duration) -> Cookie<'static> {
+    host_cookie(SHARE_UNLOCK_COOKIE, token.as_str().to_owned(), ttl)
+}
+
+/// Lets the public page's `<img>` tags authenticate without a custom header.
+#[must_use]
+pub fn share_link_cookie(token: &ShareToken, ttl: Duration) -> Cookie<'static> {
+    host_cookie(SHARE_LINK_COOKIE, token.as_str().to_owned(), ttl)
 }

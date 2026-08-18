@@ -4,13 +4,15 @@
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
+use axum_extra::extract::CookieJar;
 use keeppix_db::{AlbumRepo, AssetRepo, AuditRepo, GuestUploadRepo, NewShareLink, ShareLinkRepo};
 use keeppix_domain::{
-    Actor, AlbumId, AssetId, AuthContext, FolderId, Password, PasswordHash, ShareToken,
-    hash_password, verify_password,
+    Actor, AlbumId, AssetId, FolderId, Password, PasswordHash, ShareToken, hash_password,
+    verify_password,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::cookie::{share_link_cookie, share_unlock_cookie};
 use crate::extract::{Auth, ShareAuth};
 use crate::json::Json;
 use crate::problem::Problem;
@@ -210,6 +212,7 @@ pub struct ShareInfoResponse {
 
 pub async fn public_info(
     State(state): State<AppState>,
+    jar: CookieJar,
     Path(token): Path<String>,
 ) -> Result<impl IntoResponse, Problem> {
     if !state.share_limiter.check_and_record(&token) {
@@ -236,7 +239,11 @@ pub async fn public_info(
         has_password: row.password_hash.is_some(),
     };
 
-    Ok((share_headers(), Json(resp)))
+    let jar = jar.add(share_link_cookie(
+        &share_token,
+        std::time::Duration::from_secs(60 * 60),
+    ));
+    Ok((share_headers(), jar, Json(resp)))
 }
 
 #[derive(Deserialize)]
@@ -246,6 +253,7 @@ pub struct ShareAuthRequest {
 
 pub async fn public_auth(
     State(state): State<AppState>,
+    jar: CookieJar,
     Path(token): Path<String>,
     Json(req): Json<ShareAuthRequest>,
 ) -> Result<impl IntoResponse, Problem> {
@@ -270,19 +278,17 @@ pub async fn public_auth(
         }
     }
 
-    let _ctx = AuthContext::share_link(
-        row.id,
-        keeppix_domain::ShareLinkParams {
-            object_type: row.object_type,
-            object_id: row.object_id,
-            allow_download: row.allow_download,
-            allow_original: row.allow_original,
-            hide_metadata: row.hide_metadata,
-            allow_upload: row.allow_upload,
-        },
-    );
-
-    Ok((share_headers(), StatusCode::NO_CONTENT))
+    let unlock = state.share_unlocks.issue(row.id);
+    let jar = jar
+        .add(share_link_cookie(
+            &share_token,
+            std::time::Duration::from_secs(60 * 60),
+        ))
+        .add(share_unlock_cookie(
+            &unlock,
+            std::time::Duration::from_secs(60 * 60),
+        ));
+    Ok((share_headers(), jar, StatusCode::NO_CONTENT))
 }
 
 #[derive(Serialize)]

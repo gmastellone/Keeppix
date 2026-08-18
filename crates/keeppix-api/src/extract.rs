@@ -9,6 +9,10 @@ use crate::problem::Problem;
 use crate::state::AppState;
 
 pub const SESSION_COOKIE: &str = "__Host-kpx_session";
+/// Opaque proof that the guest unlocked a password-protected share link.
+pub const SHARE_UNLOCK_COOKIE: &str = "__Host-kpx_share";
+/// Share-link token for same-origin media requests that cannot set headers.
+pub const SHARE_LINK_COOKIE: &str = "__Host-kpx_share_link";
 
 /// Traduce l'errore di una verifica di sessione. È l'unico posto in cui questa
 /// decisione viene presa: la usano sia l'extractor `Auth` sia l'handler
@@ -118,6 +122,11 @@ impl FromRequestParts<AppState> for ShareAuth {
                     .and_then(|rest| rest.split('/').next())
                     .map(str::to_owned)
             })
+            .or_else(|| {
+                CookieJar::from_headers(&parts.headers)
+                    .get(SHARE_LINK_COOKIE)
+                    .map(|c| c.value().to_owned())
+            })
             .ok_or_else(Problem::forbidden)?;
 
         if !state.share_limiter.check_and_record(&token_str) {
@@ -132,6 +141,21 @@ impl FromRequestParts<AppState> for ShareAuth {
             .await
             .map_err(|_| Problem::forbidden())?
             .ok_or_else(Problem::forbidden)?;
+
+        if row.password_hash.is_some() {
+            let jar = CookieJar::from_headers(&parts.headers);
+            let unlock = parts
+                .headers
+                .get("x-share-unlock")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+                .or_else(|| jar.get(SHARE_UNLOCK_COOKIE).map(|c| c.value().to_owned()))
+                .ok_or_else(Problem::forbidden)?;
+            let unlock_token = ShareToken::from_string(unlock);
+            if !state.share_unlocks.check(row.id, &unlock_token) {
+                return Err(Problem::forbidden());
+            }
+        }
 
         let ctx = AuthContext::share_link(
             row.id,
