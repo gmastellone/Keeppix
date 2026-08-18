@@ -38,7 +38,7 @@ pub use flags::FlagRepo;
 pub use folders::FolderRepo;
 pub use geo::{
     GeoRepo, MAX_UNCLUSTERED_POINTS, MapBounds, MapCluster, MapScope, TimezoneChange,
-    UNCLUSTERED_ZOOM,
+    TimezoneChangePreview, UNCLUSTERED_ZOOM,
 };
 pub use groups::{GroupMember, GroupRepo, GroupView};
 pub use guest_uploads::{GuestUploadRepo, GuestUploadRow};

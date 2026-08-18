@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
-use keeppix_domain::{AlbumId, AssetId, AuthContext, FolderId, GeoPoint, LibraryId};
+use keeppix_domain::{AlbumId, AssetId, AuthContext, BatchId, FolderId, GeoPoint, LibraryId};
 use sqlx::PgConnection;
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 
@@ -60,6 +60,12 @@ pub struct TimezoneChange {
     pub timezone: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimezoneChangePreview {
+    pub count: usize,
+    pub example: Option<TimezoneChange>,
+}
+
 #[derive(sqlx::FromRow)]
 struct ClusterRow {
     lon: f64,
@@ -75,6 +81,16 @@ struct TimezoneChangeRow {
     before: DateTime<Utc>,
     after: DateTime<Utc>,
     timezone: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct TimezonePreviewRow {
+    asset_id: uuid::Uuid,
+    filename: String,
+    before: DateTime<Utc>,
+    after: DateTime<Utc>,
+    timezone: String,
+    total_count: i64,
 }
 
 pub struct GeoRepo<'a> {
@@ -97,21 +113,24 @@ impl<'a> GeoRepo<'a> {
     /// # Errors
     /// `Connection` se la query fallisce.
     pub async fn timezone_for(&self, point: GeoPoint) -> Result<Option<String>, DbError> {
-        sqlx::query_scalar(
-            "SELECT tz_name \
-               FROM tz_boundaries \
-              WHERE ST_Contains( \
-                        boundary::geometry, \
-                        ST_SetSRID(ST_MakePoint($1, $2), 4326) \
-                    ) \
-              ORDER BY tz_name \
-              LIMIT 1",
-        )
-        .bind(point.lon)
-        .bind(point.lat)
-        .fetch_optional(self.db.pool())
-        .await
-        .map_err(DbError::from)
+        let match_sql = timezone_match_sql("boundary.boundary", "input.point");
+        let sql = format!(
+            "WITH input(point) AS ( \
+                 VALUES (ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) \
+             ) \
+             SELECT boundary.tz_name \
+               FROM tz_boundaries boundary \
+               CROSS JOIN input \
+              WHERE {match_sql} \
+              ORDER BY boundary.tz_name \
+              LIMIT 1"
+        );
+        sqlx::query_scalar(&sql)
+            .bind(point.lon)
+            .bind(point.lat)
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(DbError::from)
     }
 
     /// Importa il TSV normalizzato dei confini solo se il catalogo è vuoto.
@@ -179,6 +198,87 @@ impl<'a> GeoRepo<'a> {
         Ok(imported)
     }
 
+    /// Calcola conteggio e primo esempio senza materializzare tutti i candidati.
+    ///
+    /// # Errors
+    /// `Forbidden` se la libreria non appartiene al chiamante; `Connection` se
+    /// la query fallisce; `Corrupted` se PostgreSQL restituisce un conteggio
+    /// non rappresentabile.
+    pub async fn timezone_change_preview(
+        &self,
+        ctx: &AuthContext,
+        library_id: LibraryId,
+    ) -> Result<TimezoneChangePreview, DbError> {
+        crate::LibraryRepo::new(self.db)
+            .find_by_id(ctx, library_id)
+            .await?;
+
+        let sql = format!(
+            "{} \
+             SELECT asset_id, filename, before, after, timezone, \
+                    count(*) OVER () AS total_count \
+               FROM candidates \
+              WHERE after IS DISTINCT FROM before \
+              ORDER BY asset_id \
+              LIMIT 1",
+            timezone_candidates_sql()
+        );
+        let row: Option<TimezonePreviewRow> = sqlx::query_as(&sql)
+            .bind(library_id.as_uuid())
+            .fetch_optional(self.db.pool())
+            .await?;
+        let Some(row) = row else {
+            return Ok(TimezoneChangePreview {
+                count: 0,
+                example: None,
+            });
+        };
+        let count = usize::try_from(row.total_count)
+            .map_err(|error| DbError::Corrupted(format!("timezone preview count: {error}")))?;
+        Ok(TimezoneChangePreview {
+            count,
+            example: Some(timezone_change(row)),
+        })
+    }
+
+    /// Calcola e scrive le correzioni nella stessa transazione annullabile.
+    ///
+    /// La scrittura ricontrolla inoltre `asset_overrides.taken_at` nel suo
+    /// `ON CONFLICT`, quindi un override concorrente vince anche se nasce dopo
+    /// la lettura dei candidati.
+    ///
+    /// # Errors
+    /// `Forbidden` se la libreria non appartiene al chiamante; `Connection` se
+    /// la transazione fallisce.
+    pub async fn apply_timezone_changes(
+        &self,
+        ctx: &AuthContext,
+        library_id: LibraryId,
+    ) -> Result<(usize, Option<BatchId>), DbError> {
+        crate::LibraryRepo::new(self.db)
+            .find_by_id(ctx, library_id)
+            .await?;
+        let actor = ctx.user_id().ok_or(DbError::Forbidden)?;
+        let mut transaction = self.db.pool().begin().await?;
+        let changes = timezone_changes_on(&mut transaction, library_id).await?;
+        let assignments: Vec<_> = changes
+            .iter()
+            .map(|change| (change.asset_id, change.after))
+            .collect();
+        let (changed_count, batch_id) =
+            crate::overrides::apply_taken_at_assignments_in_transaction(
+                &mut transaction,
+                &assignments,
+                actor.as_uuid(),
+            )
+            .await?;
+        transaction.commit().await?;
+        if changed_count != 0 {
+            crate::overrides::enqueue_sidecar_sweep(self.db).await?;
+        }
+        Ok((changed_count, batch_id))
+    }
+
     /// Calcola le correzioni applicabili a una libreria senza scrivere nulla.
     ///
     /// Il timestamp originale viene trattato come quadrante ingenuo salvato
@@ -198,50 +298,11 @@ impl<'a> GeoRepo<'a> {
             .find_by_id(ctx, library_id)
             .await?;
 
-        let rows: Vec<TimezoneChangeRow> = sqlx::query_as(
-            "WITH candidates AS ( \
-                 SELECT a.id AS asset_id, a.filename, a.taken_at_utc AS before, \
-                        ((a.taken_at_utc AT TIME ZONE 'UTC') \
-                            AT TIME ZONE timezone.tz_name) AS after, \
-                        timezone.tz_name AS timezone \
-                   FROM assets a \
-                   JOIN folders f ON f.id = a.folder_id \
-                   LEFT JOIN asset_overrides o ON o.asset_id = a.id \
-                   JOIN LATERAL ( \
-                       SELECT boundary.tz_name \
-                         FROM tz_boundaries boundary \
-                        WHERE ST_Contains( \
-                                  boundary.boundary::geometry, \
-                                  COALESCE(o.location, a.location)::geometry \
-                              ) \
-                        ORDER BY boundary.tz_name \
-                        LIMIT 1 \
-                   ) timezone ON true \
-                  WHERE f.library_id = $1 \
-                    AND a.status = 'indexed' \
-                    AND a.taken_at_utc IS NOT NULL \
-                    AND o.taken_at IS NULL \
-                    AND COALESCE(o.location, a.location) IS NOT NULL \
-             ) \
-             SELECT asset_id, filename, before, after, timezone \
-               FROM candidates \
-              WHERE after IS DISTINCT FROM before \
-              ORDER BY asset_id",
-        )
-        .bind(library_id.as_uuid())
-        .fetch_all(self.db.pool())
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| TimezoneChange {
-                asset_id: AssetId::from_uuid(row.asset_id),
-                filename: row.filename,
-                before: row.before,
-                after: row.after,
-                timezone: row.timezone,
-            })
-            .collect())
+        let rows: Vec<TimezoneChangeRow> = sqlx::query_as(&timezone_changes_sql())
+            .bind(library_id.as_uuid())
+            .fetch_all(self.db.pool())
+            .await?;
+        Ok(rows.into_iter().map(timezone_change_from_row).collect())
     }
 
     /// Restituisce celle a griglia fino allo zoom 14. Dallo zoom 15 restituisce
@@ -402,6 +463,79 @@ impl<'a> GeoRepo<'a> {
     }
 }
 
+fn timezone_match_sql(boundary: &str, point: &str) -> String {
+    format!("{boundary} && {point} AND ST_Covers({boundary}, {point})")
+}
+
+fn timezone_candidates_sql() -> String {
+    let match_sql = timezone_match_sql("boundary.boundary", "COALESCE(o.location, a.location)");
+    format!(
+        "WITH candidates AS ( \
+             SELECT a.id AS asset_id, a.filename, a.taken_at_utc AS before, \
+                    ((a.taken_at_utc AT TIME ZONE 'UTC') \
+                        AT TIME ZONE timezone.tz_name) AS after, \
+                    timezone.tz_name AS timezone \
+               FROM assets a \
+               JOIN folders f ON f.id = a.folder_id \
+               LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+               JOIN LATERAL ( \
+                   SELECT boundary.tz_name \
+                     FROM tz_boundaries boundary \
+                    WHERE {match_sql} \
+                    ORDER BY boundary.tz_name \
+                    LIMIT 1 \
+               ) timezone ON true \
+              WHERE f.library_id = $1 \
+                AND a.status = 'indexed' \
+                AND a.taken_at_utc IS NOT NULL \
+                AND o.taken_at IS NULL \
+                AND COALESCE(o.location, a.location) IS NOT NULL \
+         )"
+    )
+}
+
+fn timezone_changes_sql() -> String {
+    format!(
+        "{} \
+         SELECT asset_id, filename, before, after, timezone \
+           FROM candidates \
+          WHERE after IS DISTINCT FROM before \
+          ORDER BY asset_id",
+        timezone_candidates_sql()
+    )
+}
+
+async fn timezone_changes_on(
+    connection: &mut PgConnection,
+    library_id: LibraryId,
+) -> Result<Vec<TimezoneChange>, DbError> {
+    let rows: Vec<TimezoneChangeRow> = sqlx::query_as(&timezone_changes_sql())
+        .bind(library_id.as_uuid())
+        .fetch_all(connection)
+        .await?;
+    Ok(rows.into_iter().map(timezone_change_from_row).collect())
+}
+
+fn timezone_change_from_row(row: TimezoneChangeRow) -> TimezoneChange {
+    TimezoneChange {
+        asset_id: AssetId::from_uuid(row.asset_id),
+        filename: row.filename,
+        before: row.before,
+        after: row.after,
+        timezone: row.timezone,
+    }
+}
+
+fn timezone_change(row: TimezonePreviewRow) -> TimezoneChange {
+    TimezoneChange {
+        asset_id: AssetId::from_uuid(row.asset_id),
+        filename: row.filename,
+        before: row.before,
+        after: row.after,
+        timezone: row.timezone,
+    }
+}
+
 fn parse_timezone_boundary(line: &str, line_number: usize) -> Result<(String, String), DbError> {
     let Some((tz_name, geojson)) = line.split_once('\t') else {
         return Err(corrupted_timezone_line(
@@ -438,6 +572,23 @@ async fn upsert_timezone_batch(
     boundaries: &[(String, String)],
 ) -> Result<(), DbError> {
     let names: Vec<&str> = boundaries.iter().map(|(name, _)| name.as_str()).collect();
+    let unknown_name: Option<String> = sqlx::query_scalar(
+        "SELECT input.tz_name \
+           FROM unnest($1::text[]) AS input(tz_name) \
+          WHERE NOT EXISTS ( \
+                    SELECT 1 FROM pg_timezone_names known WHERE known.name = input.tz_name \
+                ) \
+          ORDER BY input.tz_name \
+          LIMIT 1",
+    )
+    .bind(&names)
+    .fetch_optional(&mut *connection)
+    .await?;
+    if let Some(name) = unknown_name {
+        return Err(DbError::Corrupted(format!(
+            "timezone boundary CSV contains unknown IANA timezone name {name:?}"
+        )));
+    }
     let geometries: Vec<&str> = boundaries
         .iter()
         .map(|(_, geometry)| geometry.as_str())
@@ -577,7 +728,7 @@ fn into_clusters(rows: Vec<ClusterRow>, clustered: bool) -> Vec<MapCluster> {
 
 #[cfg(test)]
 mod tests {
-    use super::bbox_filter_sql;
+    use super::{bbox_filter_sql, timezone_match_sql};
 
     #[test]
     fn bbox_filter_keeps_geography_columns_bare_for_gist() {
@@ -602,6 +753,17 @@ mod tests {
             "normal bounds plus both antimeridian envelopes"
         );
         assert!(!sql.contains("COALESCE"));
+        assert!(!sql.contains("::geometry"));
+    }
+
+    #[test]
+    fn timezone_match_keeps_the_geography_column_bare_for_gist() {
+        let sql = timezone_match_sql("boundary.boundary", "$1");
+
+        assert_eq!(
+            sql,
+            "boundary.boundary && $1 AND ST_Covers(boundary.boundary, $1)"
+        );
         assert!(!sql.contains("::geometry"));
     }
 }

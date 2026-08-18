@@ -55,18 +55,18 @@ impl<'a> RecalculateTimezones<'a> {
         ctx: &AuthContext,
         library_id: LibraryId,
     ) -> Result<TimezonePreview, GeotagError> {
-        let changes = GeoRepo::new(self.db)
-            .timezone_changes(ctx, library_id)
+        let preview = GeoRepo::new(self.db)
+            .timezone_change_preview(ctx, library_id)
             .await?;
-        let example = changes.first().map(|change| TimezoneExample {
+        let example = preview.example.map(|change| TimezoneExample {
             asset_id: change.asset_id,
-            filename: change.filename.clone(),
+            filename: change.filename,
             before: change.before,
             after: change.after,
-            timezone: change.timezone.clone(),
+            timezone: change.timezone,
         });
         Ok(TimezonePreview {
-            count: changes.len(),
+            count: preview.count,
             example,
         })
     }
@@ -80,18 +80,11 @@ impl<'a> RecalculateTimezones<'a> {
         ctx: &AuthContext,
         library_id: LibraryId,
     ) -> Result<TimezoneApply, GeotagError> {
-        let changes = GeoRepo::new(self.db)
-            .timezone_changes(ctx, library_id)
-            .await?;
-        let assignments: Vec<_> = changes
-            .iter()
-            .map(|change| (change.asset_id, change.after))
-            .collect();
-        let batch_id = OverrideRepo::new(self.db)
-            .apply_taken_at_batch(ctx, &assignments)
+        let (changed_count, batch_id) = GeoRepo::new(self.db)
+            .apply_timezone_changes(ctx, library_id)
             .await?;
         Ok(TimezoneApply {
-            changed_count: assignments.len(),
+            changed_count,
             batch_id,
         })
     }
