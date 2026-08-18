@@ -7,12 +7,13 @@ pub mod extract;
 pub mod json;
 pub mod openapi;
 pub mod problem;
+pub mod ratelimit;
 pub mod routes;
 pub mod state;
 
 pub mod batch;
 
-pub use extract::{AdminAuth, Auth, SESSION_COOKIE};
+pub use extract::{AdminAuth, Auth, SESSION_COOKIE, ShareAuth};
 pub use json::Json;
 pub use problem::Problem;
 pub use state::AppState;
@@ -225,6 +226,19 @@ fn api_routes() -> Router<AppState> {
         .route(
             "/flags/batch",
             axum::routing::post(routes::flags::batch_set),
+        )
+        .route(
+            "/share/links",
+            get(routes::share::list_links).post(routes::share::create_link),
+        )
+        .route(
+            "/share/links/{id}",
+            axum::routing::delete(routes::share::revoke_link),
+        )
+        .route("/share/{token}", get(routes::share::public_info))
+        .route(
+            "/share/{token}/auth",
+            axum::routing::post(routes::share::public_auth),
         )
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
