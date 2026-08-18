@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
+import { isUnauthenticated } from '@/api/client'
 import {
   emptyTrash,
   fetchTrash,
   restoreAsset,
   type TrashedAsset
 } from '@/api/trash'
+import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
+const router = useRouter()
+const session = useSessionStore()
 
 const items = ref<TrashedAsset[]>([])
 const loadError = ref(false)
@@ -23,7 +28,12 @@ async function load() {
   try {
     const page = await fetchTrash()
     items.value = page.items
-  } catch {
+  } catch (error) {
+    if (isUnauthenticated(error)) {
+      session.user = null
+      await router.push('/login')
+      return
+    }
     loadError.value = true
   }
 }

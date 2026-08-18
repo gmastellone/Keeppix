@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import { fetchAuditLog } from '@/api/audit'
+import { isUnauthenticated } from '@/api/client'
 import {
   changePassword,
   createUser,
@@ -15,6 +17,7 @@ import {
 import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
+const router = useRouter()
 const session = useSessionStore()
 
 const users = ref<UserSummary[]>([])
@@ -39,7 +42,12 @@ async function load() {
   try {
     users.value = await fetchUsers()
     await fetchAuditLog(1).catch(() => undefined)
-  } catch {
+  } catch (error) {
+    if (isUnauthenticated(error)) {
+      session.user = null
+      await router.push('/login')
+      return
+    }
     loadError.value = true
   }
 }

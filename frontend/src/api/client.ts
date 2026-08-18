@@ -60,3 +60,14 @@ export async function apiFetch<T = unknown>(
 
   return (await response.json()) as T
 }
+
+/**
+ * Una vista che carica dati al mount non può distinguere, da un `catch`
+ * generico, una sessione scaduta da un guasto reale — e mostrare "errore
+ * imprevisto" per un 401 manda l'utente a ricaricare invece che a rifare
+ * login. Le view lo controllano esplicitamente e reindirizzano loro stesse:
+ * vedi `TimelineView.signOut` per lo stesso pattern di redirect a `/login`.
+ */
+export function isUnauthenticated(error: unknown): boolean {
+  return error instanceof ApiProblem && error.status === 401
+}

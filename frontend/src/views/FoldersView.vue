@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import {
   fetchChildren,
@@ -9,9 +10,13 @@ import {
   type FolderChildren,
   type FolderView
 } from '@/api/folders'
+import { isUnauthenticated } from '@/api/client'
 import FolderBranch from '@/components/FolderBranch.vue'
+import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
+const router = useRouter()
+const session = useSessionStore()
 
 const roots = ref<FolderView[]>([])
 const kids = ref<Record<string, FolderChildren>>({})
@@ -26,7 +31,12 @@ async function loadRoots() {
   loadError.value = false
   try {
     roots.value = await fetchTree()
-  } catch {
+  } catch (error) {
+    if (isUnauthenticated(error)) {
+      session.user = null
+      await router.push('/login')
+      return
+    }
     loadError.value = true
   }
 }

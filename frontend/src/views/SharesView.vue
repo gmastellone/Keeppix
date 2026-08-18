@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
+import { isUnauthenticated } from '@/api/client'
 import { fetchTree, type FolderView } from '@/api/folders'
 import { fetchGroups, type Group } from '@/api/groups'
 import {
@@ -14,8 +16,11 @@ import {
 } from '@/api/permissions'
 import { fetchShareLinks, revokeShareLink, type ShareLink } from '@/api/shares'
 import { fetchUsers, type UserSummary } from '@/api/users'
+import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
+const router = useRouter()
+const session = useSessionStore()
 
 const links = ref<ShareLink[]>([])
 const folders = ref<FolderView[]>([])
@@ -68,7 +73,12 @@ async function load() {
     folders.value = tree
     users.value = userRows
     groups.value = groupRows
-  } catch {
+  } catch (error) {
+    if (isUnauthenticated(error)) {
+      session.user = null
+      await router.push('/login')
+      return
+    }
     loadError.value = true
   }
 }

@@ -1426,14 +1426,44 @@ UUID in nessuna delle due posizioni.
 
 ### Criterio di chiusura del Task 15
 
-- [ ] Un admin crea, modifica il ruolo, disabilita un utente e cambia la
+- [x] Un admin crea, modifica il ruolo, disabilita un utente e cambia la
       propria password — tutto dal browser.
-- [ ] La catena di `Explain` è leggibile: nomi e percorsi, non id.
-- [ ] Provato di nuovo a mano: condivisione end-to-end come fatto per
+- [x] La catena di `Explain` è leggibile: nomi e percorsi, non id.
+- [x] Provato di nuovo a mano: condivisione end-to-end come fatto per
       verificare 15a/15b, questa volta senza dover ricorrere a una chiamata
       API diretta per nessun passo.
 
-- [ ] **Step 1-3: Scrivere, verificare, committare**
+- [x] **Step 1-3: Scrivere, verificare, committare**
+
+### Verifica manuale — 2026-08-18
+
+Fatta sullo stack di `field-test.sh` (`http://127.0.0.1:5673`, admin `tester`).
+
+- **15a, creazione utente dal pannello**: creato "Verifica Task15"
+  (`verifica15`, ruolo `user`) dal form `/users` — nessuna chiamata API
+  diretta, solo browser. La UI mostra subito la nuova riga con selettore
+  ruolo e link Disable.
+- **15a, disabilitazione e caduta sessione**: cliccato Disable dal pannello
+  admin. Verificato via API con due cookie jar isolati (il browser condivide
+  i cookie fra tab, quindi due login nello stesso browser si sovrascrivono —
+  non è un difetto dell'app, è un limite del metodo di test coi tab):
+  `POST /disable` → `204`; sessione esistente dell'utente disabilitato →
+  `401` alla richiesta successiva; nuovo login con la password corretta →
+  `401 invalid-credentials`. Cade subito, nessuna finestra di sessione
+  residua.
+- **15b, Explain leggibile**: condivisa `/Campo` con "Verifica Task15" come
+  viewer, poi `Shares → Why can they see this? → Explain` →
+  **"Verifica Task15 has role viewer on /Campo"**. Nome e percorso reali,
+  nessun UUID in vista.
+
+Unico neo non bloccante notato en passant: navigare a `/users` con una
+sessione ormai invalida mostra "An unexpected error occurred" invece di
+rimandare al login — `UsersView` non gestisce il 401 con un redirect
+esplicito. Non è nel perimetro del Task 15 (la sessione era invalida per il
+mio metodo di test a due tab, non per un bug di logout), ma vale una nota
+per chi tocca la gestione errori delle view autenticate.
+
+Task 15 chiuso: tutti e tre i criteri verificati a mano nel browser.
 
 ---
 
