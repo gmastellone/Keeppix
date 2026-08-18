@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use keeppix_domain::{
-    Asset, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, ExifData, FolderId, LibraryId,
-    NewAsset,
+    Asset, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, ExifData, FolderId, GeoPoint,
+    LibraryId, LocationSource, NewAsset,
 };
 
 use crate::visibility::VisibilityScope;
@@ -429,6 +429,37 @@ impl<'a> AssetRepo<'a> {
         .bind(exif.f_number)
         .bind(&exif.exposure)
         .bind(exif.focal_length)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Salva le coordinate EXIF senza calpestare una correzione manuale.
+    ///
+    /// Non prende un `AuthContext`: la chiama la pipeline di metadati.
+    ///
+    /// # Errors
+    /// `Connection` se l'aggiornamento fallisce.
+    pub async fn set_exif_location(
+        &self,
+        asset_id: AssetId,
+        point: GeoPoint,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE assets \
+             SET location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, \
+                 location_source = $4, \
+                 updated_at = now() \
+             WHERE id = $1 \
+               AND location_source IS DISTINCT FROM $5 \
+               AND location_source IS DISTINCT FROM $6",
+        )
+        .bind(asset_id.as_uuid())
+        .bind(point.lon)
+        .bind(point.lat)
+        .bind(LocationSource::Exif.as_str())
+        .bind(LocationSource::User.as_str())
+        .bind(LocationSource::MapPin.as_str())
         .execute(self.db.pool())
         .await?;
         Ok(())

@@ -64,6 +64,47 @@ fn sony_tiff_header() -> Vec<u8> {
     header
 }
 
+fn push_u16(bytes: &mut Vec<u8>, value: u16) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_u32(bytes: &mut Vec<u8>, value: u32) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_ifd_entry(bytes: &mut Vec<u8>, tag: u16, kind: u16, count: u32, value: u32) {
+    push_u16(bytes, tag);
+    push_u16(bytes, kind);
+    push_u32(bytes, count);
+    push_u32(bytes, value);
+}
+
+fn jpeg_with_gps() -> Vec<u8> {
+    let mut tiff = vec![b'I', b'I', 0x2A, 0x00];
+    push_u32(&mut tiff, 8);
+    push_u16(&mut tiff, 1);
+    push_ifd_entry(&mut tiff, 0x8825, 4, 1, 26);
+    push_u32(&mut tiff, 0);
+    push_u16(&mut tiff, 4);
+    push_ifd_entry(&mut tiff, 0x0001, 2, 2, u32::from(b'S'));
+    push_ifd_entry(&mut tiff, 0x0002, 5, 3, 80);
+    push_ifd_entry(&mut tiff, 0x0003, 2, 2, u32::from(b'W'));
+    push_ifd_entry(&mut tiff, 0x0004, 5, 3, 104);
+    push_u32(&mut tiff, 0);
+    for (numerator, denominator) in [(34, 1), (30, 1), (0, 1), (58, 1), (22, 1), (30, 1)] {
+        push_u32(&mut tiff, numerator);
+        push_u32(&mut tiff, denominator);
+    }
+
+    let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE1];
+    let segment_len = u16::try_from(2 + 6 + tiff.len()).expect("fixture APP1 fits");
+    jpeg.extend_from_slice(&segment_len.to_be_bytes());
+    jpeg.extend_from_slice(b"Exif\0\0");
+    jpeg.extend_from_slice(&tiff);
+    jpeg.extend_from_slice(&[0xFF, 0xD9]);
+    jpeg
+}
+
 async fn seed_tree(
     test: &TestDb,
     root: &std::path::Path,
@@ -93,6 +134,68 @@ async fn seed_tree(
         .fetch_one(test.db().pool())
         .await
         .unwrap()
+}
+
+#[tokio::test]
+async fn metadata_ingest_persists_standard_exif_gps() {
+    let test = TestDb::start().await;
+    let root = std::env::temp_dir().join(format!("kpx-gps-{}", uuid::Uuid::now_v7()));
+    let asset_id = seed_tree(&test, &root, "gps.jpg", &jpeg_with_gps()).await;
+    let id = keeppix_domain::AssetId::from_uuid(asset_id);
+
+    metadata::run(test.db(), id).await.unwrap();
+
+    let location: (Option<f64>, Option<f64>, Option<String>) = sqlx::query_as(
+        "SELECT ST_Y(location::geometry), ST_X(location::geometry), location_source \
+         FROM assets WHERE id = $1",
+    )
+    .bind(asset_id)
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    let _ = fs::remove_dir_all(&root);
+    assert_eq!(
+        location,
+        (Some(-34.5), Some(-58.375), Some("exif".to_owned()))
+    );
+}
+
+#[tokio::test]
+async fn metadata_rerun_does_not_overwrite_user_or_map_pin_locations() {
+    let test = TestDb::start().await;
+    let root = std::env::temp_dir().join(format!("kpx-gps-manual-{}", uuid::Uuid::now_v7()));
+    let asset_id = seed_tree(&test, &root, "gps.jpg", &jpeg_with_gps()).await;
+    let id = keeppix_domain::AssetId::from_uuid(asset_id);
+    metadata::run(test.db(), id).await.unwrap();
+
+    for (source, lon, lat) in [("user", 9.0_f64, 45.0_f64), ("map_pin", 12.5_f64, 41.9_f64)] {
+        sqlx::query(
+            "UPDATE assets \
+             SET location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, \
+                 location_source = $4 \
+             WHERE id = $1",
+        )
+        .bind(asset_id)
+        .bind(lon)
+        .bind(lat)
+        .bind(source)
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+        metadata::run(test.db(), id).await.unwrap();
+
+        let location: (Option<f64>, Option<f64>, Option<String>) = sqlx::query_as(
+            "SELECT ST_Y(location::geometry), ST_X(location::geometry), location_source \
+             FROM assets WHERE id = $1",
+        )
+        .bind(asset_id)
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+        assert_eq!(location, (Some(lat), Some(lon), Some(source.to_owned())));
+    }
+    let _ = fs::remove_dir_all(&root);
 }
 
 /// D1: `detect_kind` deve classificare il RAW nel job metadata, e hash
