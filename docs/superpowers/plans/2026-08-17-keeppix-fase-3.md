@@ -1202,6 +1202,139 @@ piano cercava.
 
 ---
 
+## Task 14: la fase non è completa come *funzione*, non solo come test
+
+Trovato controllando la copertura funzionale dopo che il Task 13 era già
+verde — non "i test passano", ma "la cosa che l'utente vuole fare esiste
+davvero". Tre buchi, verificati leggendo il codice sorgente, non per
+ispezione dei nomi delle rotte.
+
+### 14a — non esiste modo, dal browser, di condividere una cartella con una persona
+
+**È il cuore della fase, e manca.** `frontend/src/api/permissions.ts` espone
+`fetchPermissions`, `grantPermission`, `explainPermission` — e:
+
+```
+$ grep -rln "from '@/api/permissions'" frontend/src/
+(nessun risultato)
+```
+
+**Zero componenti lo importano.** `SharesView.vue` (82 righe) gestisce solo i
+link pubblici (Task 5) — nessuna menzione di permessi, ruoli o soggetti al
+suo interno.
+
+**Come sono sopravvissuti i viaggi V5 e V6** — quelli che definiscono
+"multiutente" più di ogni altro — nonostante questo: entrambi creano il
+permesso con un helper di test che chiama l'API direttamente
+(`crates/keeppix-api/tests/journey/mod.rs:273`,
+`grant_folder_viewer` → `POST /api/v1/permissions`), non attraverso
+un'azione utente. Il backend è corretto e testato; l'interfaccia sopra non
+esiste.
+
+**Perché la guardia non l'ha presa.** `scripts/check-wired.py` verifica che
+la stringa della rotta compaia in `frontend/src` — e compare, dentro
+`permissions.ts` stesso, che la contiene senza mai chiamarla da una vista. La
+guardia prova "il backend ha un consumatore nel codice sorgente frontend",
+non "un componente lo importa ed è raggiungibile". Va stretta: cercare anche
+un `import` di quel modulo API da un file `.vue`, non solo la stringa della
+rotta.
+
+**Correzione.** Una pagina — dentro `SharesView` o a sé — dove il
+proprietario di una cartella/album sceglie una persona o un gruppo, un ruolo
+(viewer/editor), e vede la catena che la spec descrive: «hai accesso perché
+il gruppo Famiglia ha ruolo viewer su /Foto/Vacanze, ereditato in
+/2024/Grecia» (`explainPermission`, già scritta e mai chiamata).
+
+**Test.** Un utente A condivide una cartella con l'utente B **dal browser,
+senza `curl` né SQL**; B la vede al prossimo accesso senza che A faccia
+altro. Il pannello mostra l'elenco dei permessi diretti e, per un asset
+scelto, la catena di `explain`.
+
+### 14b — viewer ed editor sono lo stesso ruolo ovunque tranne due punti
+
+Verificato per ogni mutazione che poggia su `permissions`:
+
+| Azione | Cosa controlla oggi | Cosa chiede la spec |
+|---|---|---|
+| `move_subtree` | `effective_role >= Editor` | editor+ ✅ |
+| Cancellazione dal disco (`Purged`) | `may_purge` (owner/admin) | owner+ ✅ |
+| Ri-condividere (`PermissionRepo::grant`) | `assert_can_manage` (owner/admin) | owner+ ✅ |
+| Modifica metadati (`OverrideRepo::apply`/`apply_batch`) | `assert_visible` — **solo visibilità** | editor+ ❌ |
+| Spostare in cestino (`TrashRepo::choose`, `Trashed`/`Kept`) | `assert_visible` — **solo visibilità** | editor+ ❌ |
+
+Le prime tre sono corrette — verificate leggendo il codice, non assunte. Le
+ultime due no: un viewer può oggi modificare i metadati e cestinare gli asset
+che vede, cosa che la spec §1.2 vieta esplicitamente.
+
+**Non è una svista di questa revisione.** Il commento in
+`crates/keeppix-db/src/trash.rs`, scritto in Fase 2:
+
+```rust
+// Cancello comune alle tre opzioni: senza visibilità sull'asset
+// nessuna delle tre è ammessa. È l'aggancio che la Fase 3 estenderà
+// a chi ha visibilità condivisa (editor/viewer) senza toccare
+// questo metodo.
+```
+
+La Fase 3 ha esteso il cancello per `Purged` (owner/admin) ma non per
+`Trashed`/`Kept` (editor+): il promemoria è stato letto a metà.
+
+**Correzione.** In `TrashRepo::choose`, per `Trashed`/`Kept`, aggiungere lo
+stesso controllo che `move_subtree` già fa — `effective_role >=
+Editor` quando il chiamante non è owner/admin. Stessa cosa in
+`OverrideRepo::apply` e `apply_batch`.
+
+**Test.** Un utente con ruolo `viewer` su una cartella condivisa: `PATCH
+/assets/{id}/metadata` e `POST /trash/choose` (o equivalente) rispondono
+`403`. Un utente con ruolo `editor` sugli stessi endpoint: `204`.
+
+### 14c — «nascondi le posizioni sensibili» non è la funzione della spec
+
+`docs/superpowers/specs/fase-3-multiutente.md`, §6.2:
+
+> Impostazione «nascondi le posizioni entro N metri da un punto»: si
+> definisce casa propria, e nei contenuti condivisi le foto scattate lì
+> appaiono senza coordinate. Il dato resta intatto nel database.
+
+Un raggio configurabile attorno a un punto "casa". Quello che esiste è
+`hide_metadata: bool` su un link pubblico, che azzera `taken_at_utc` — **la
+data, non le coordinate** (`crates/keeppix-api/src/routes/share.rs:353-357`).
+
+**Non è una fuga attiva**: `AssetView` (la vista usata da timeline e contenuti
+condivisi) non porta mai `lat`/`lon` — quei campi esistono solo in
+`crates/keeppix-api/src/routes/metadata.rs`, dietro `Auth` (solo sessione,
+mai raggiungibile da un link pubblico). Ma la funzione descritta nella spec —
+il raggio, il punto "casa", la logica di distanza — **non esiste**.
+
+**Correzione.** O si implementa: coordinate "casa" per utente, raggio in
+metri, calcolo di distanza al momento di servire un contenuto condiviso, e
+`lat`/`lon` esclusi (non azzerati: *esclusi*, per non rivelare "c'era
+qualcosa qui") quando la foto cade nel raggio. O si dichiara esplicitamente
+differita a una fase successiva, con la ragione scritta — non lasciata
+implicita dietro un nome di campo che promette una cosa diversa.
+
+**Test**, se implementata: una foto scattata entro il raggio da "casa" non
+porta `lat`/`lon` in nessuna risposta raggiungibile da un link pubblico; una
+foto fuori dal raggio le porta.
+
+### Criterio di chiusura del Task 14
+
+- [ ] Una cartella si condivide con una persona o un gruppo **dal browser**,
+      verificato a mano, non solo per API.
+- [ ] Il pannello di `explain` mostra la catena di ereditarietà per un asset
+      scelto.
+- [ ] Un viewer riceve `403` su modifica metadati e spostamento in cestino;
+      un editor riceve `204`.
+- [ ] `check-wired.py` esteso: una rotta con solo un client API senza `import`
+      da alcun `.vue` è **segnalata**, non silenziata.
+- [ ] «Nascondi le posizioni sensibili» è implementata secondo la spec §6.2,
+      o la sua assenza è scritta nel ledger con la ragione — non lasciata
+      dietro un flag che fa altro.
+
+- [ ] **Step 1-3: Scrivere, verificare, committare**
+
+---
+
 ## Nota storica: cosa è stato spostato in Fase 2R3
 
 **Non sono task da eseguire.** Questa sezione esiste perché chi legge il piano
@@ -1227,9 +1360,10 @@ scala che la 2R3 lascia in eredità, invece di doverla scrivere.
 
 Ognuno è **eseguibile**.
 
-- [ ] **Il Task 13 è chiuso** — i suoi sei rilievi, non solo i task 1-12.
-      Nessun altro criterio qui sotto conta se un link con password concede
-      accesso senza password.
+- [ ] **I Task 13 e 14 sono chiusi** — i sei rilievi di sicurezza e i tre
+      buchi funzionali, non solo i task 1-12. Nessun altro criterio qui sotto
+      conta se un link con password concede accesso senza password, o se
+      nessuno può condividere una cartella dal browser.
 - [ ] `cargo test --workspace -- --test-threads=1` verde; clippy e fmt puliti
       — **rieseguiti sull'ultimo commit**, non dedotti da una fase precedente.
 - [ ] I viaggi **V5-V12** passano, oltre a V1-V4 della Fase 2R, e **V9 passa
