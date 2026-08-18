@@ -156,3 +156,48 @@ covered with seeded region/country rows, as requested, but the baked production
 catalog must emit those rows before region/country fallback can occur outside
 tests. Adding a feature-kind column later would also remove the small ambiguity
 with a GeoNames locality whose population is zero.
+
+## Fix after review
+
+Commits:
+
+- `824c604` — `fix(db): prevent wildcard place searches`
+- `437bbd9` — `fix(build): include GeoNames fallback rows`
+
+The normalizer now emits one `population = 0` row per admin1/country that has
+city coordinates, using the city-coordinate average. Its optional fixture
+directory avoids all network access in the regression test. Place search now
+uses only the spec's `ascii_name % $query` trigram predicate.
+
+RED evidence for `q=%%`:
+
+```text
+$ cargo test -p keeppix-db --test places --jobs 1 -- --test-threads=1
+test search_does_not_treat_sql_wildcards_as_match_all ... FAILED
+assertion failed: results.is_empty()
+test result: FAILED. 13 passed; 1 failed
+```
+
+Fresh verification after both fixes:
+
+```text
+$ scripts/test-build-geonames.sh
+GeoNames normalizer fixture test: ok (2 cities, 1 region, 1 country)
+
+$ cargo test -p keeppix-db --test places --jobs 1 -- --test-threads=1
+running 14 tests
+test result: ok. 14 passed; 0 failed
+
+$ cargo test -p keeppix-api --test places --jobs 1 -- --test-threads=1
+running 6 tests
+test result: ok. 6 passed; 0 failed
+
+$ cargo fmt --check
+exit 0
+
+$ cargo clippy -p keeppix-db -p keeppix-api --all-targets -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.54s
+exit 0, no warnings
+```
+
+As required, `./scripts/test.sh` was not run. No Task 4 work was started.
