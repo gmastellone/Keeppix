@@ -159,4 +159,7 @@ espone in futuro un costruttore GIDX rettangolare pubblico.
 Task 6 review fixes: complete (commit `1578736`; RED/GREEN, geo 9/9, suite DB,
 fmt e clippy verdi; evidenza in `.superpowers/sdd/task-6-report.md`)
 
+Task 6: complete (commits 482a554..6fa7ae0, review clean after saved-search
+quotes + geography GiST filter)
+
 
