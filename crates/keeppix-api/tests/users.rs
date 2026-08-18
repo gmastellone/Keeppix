@@ -310,3 +310,110 @@ async fn changing_your_password_revokes_other_sessions() {
         .unwrap();
     assert_eq!(me2.status(), 200);
 }
+
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn an_admin_patches_a_user_role_to_admin() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/users"))
+        .json(&json!({
+            "username": "mario",
+            "display_name": "Mario",
+            "password": "mario-password-ok",
+            "role": "user"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status(), 201);
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let patched = server
+        .client
+        .patch(server.url(&format!("/api/v1/users/{id}")))
+        .json(&json!({ "role": "admin" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(patched.status(), 200);
+    let body: serde_json::Value = patched.json().await.unwrap();
+    assert_eq!(body["role"], "admin");
+
+    let listed = server
+        .client
+        .get(server.url("/api/v1/users"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(listed.status(), 200);
+    let users: Vec<serde_json::Value> = listed.json().await.unwrap();
+    let mario = users
+        .iter()
+        .find(|u| u["username"] == "mario")
+        .expect("mario listed");
+    assert_eq!(mario["role"], "admin");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn enabling_a_disabled_user_lets_them_log_in_again() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/users"))
+        .json(&json!({
+            "username": "mario",
+            "display_name": "Mario",
+            "password": "mario-password-ok",
+            "role": "user"
+        }))
+        .send()
+        .await
+        .unwrap();
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let disabled = server
+        .client
+        .post(server.url(&format!("/api/v1/users/{id}/disable")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(disabled.status(), 204);
+
+    let denied = server
+        .client
+        .post(server.url("/api/v1/auth/login"))
+        .json(&json!({ "username": "mario", "password": "mario-password-ok" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 401);
+
+    let enabled = server
+        .client
+        .post(server.url(&format!("/api/v1/users/{id}/enable")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(enabled.status(), 204);
+
+    let mario = login_as(&server, "mario", "mario-password-ok").await;
+    let me = mario
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(me.status(), 200);
+}

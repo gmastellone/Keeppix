@@ -206,6 +206,10 @@ fn api_routes() -> Router<AppState> {
             "/users/{id}/disable",
             axum::routing::post(routes::users::disable),
         )
+        .route(
+            "/users/{id}/enable",
+            axum::routing::post(routes::users::enable),
+        )
         .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
         .route(
             "/assets/{id}/restore",
