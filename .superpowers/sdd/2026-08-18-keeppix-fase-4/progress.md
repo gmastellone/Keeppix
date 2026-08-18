@@ -191,4 +191,22 @@ IANA lessicograficamente primo finché il dataset non viene corretto.
 Task 5: complete (commit `9f7b481`; fixture offline, fmt, clippy, DB, jobs e API
 verdi; evidenza in `.superpowers/sdd/task-5-report.md`)
 
+Ruling (Task 5 review): il writer timezone ricontrolla
+`asset_overrides.taken_at IS NULL` nell'upsert e conserva nello snapshot undo
+solo gli id effettivamente scritti. Candidati e scrittura ora vivono nella
+stessa transazione; `enqueue_sidecar_sweep` resta volutamente dopo il commit,
+come `apply_batch`. Costo se sbagliato: la coda sidecar può ancora fallire dopo
+un commit riuscito, comportamento globale preesistente che questo fix non
+ridefinisce.
+
+Ruling (Task 5 review): il catalogo rifiuta durante il seed ogni nome assente
+da `pg_timezone_names`; lookup singolo e LATERAL usano entrambi geography
+`&&` + `ST_Covers` con la colonna GiST senza cast. Questo sostituisce il ruling
+precedente su `ST_Contains`; `ORDER BY tz_name LIMIT 1` resta invariato. Costo
+se sbagliato: un alias non esposto dal PostgreSQL installato ferma il boot e
+richiede correggere il dataset normalizzato.
+
+Task 5 review fixes: complete (commit `e9ae7f4`; RED/GREEN, fmt, clippy, DB,
+jobs e API verdi; evidenza in `.superpowers/sdd/task-5-report.md`)
+
 

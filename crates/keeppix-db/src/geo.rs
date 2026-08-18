@@ -202,7 +202,7 @@ impl<'a> GeoRepo<'a> {
     ///
     /// # Errors
     /// `Forbidden` se la libreria non appartiene al chiamante; `Connection` se
-    /// la query fallisce; `Corrupted` se PostgreSQL restituisce un conteggio
+    /// la query fallisce; `Corrupted` se `PostgreSQL` restituisce un conteggio
     /// non rappresentabile.
     pub async fn timezone_change_preview(
         &self,

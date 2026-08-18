@@ -171,3 +171,53 @@ Testcontainers.
 ## Commits
 
 - `9f7b481 feat(jobs): correct capture timestamps from GPS timezone boundaries`
+
+## Review fix round
+
+Commit `e9ae7f4` closes the four Important findings:
+
+- apply computes candidates and writes them in one transaction; the upsert
+  rechecks `asset_overrides.taken_at IS NULL` and records only rows actually
+  changed, so an existing/concurrent user override is preserved;
+- seed validates each parameterized batch against `pg_timezone_names`;
+- both lookup paths use bare-geography `&&` plus `ST_Covers`, preserving
+  `ORDER BY tz_name LIMIT 1`;
+- preview asks the repository for a windowed count and one example instead of
+  collecting every candidate in `keeppix-jobs`.
+
+The existing after-commit `enqueue_sidecar_sweep` pattern is intentionally
+unchanged and still matches `apply_batch`.
+
+### Review RED
+
+```text
+cargo test -p keeppix-db --test overrides \
+  timezone_writer_preserves_a_taken_at_override_present_at_write_time \
+  --jobs 1 -- --exact --test-threads=1
+  FAIL — returned Some(batch) instead of skipping the write-time override
+
+cargo test -p keeppix-db --test geo \
+  timezone_seed_rejects_an_unknown_iana_name_atomically \
+  --jobs 1 -- --exact --test-threads=1
+  FAIL — Mars/Olympus_Mons was accepted
+
+cargo test -p keeppix-db --lib \
+  timezone_match_keeps_the_geography_column_bare_for_gist \
+  --jobs 1 -- --exact --test-threads=1
+  FAIL — timezone_match_sql did not exist; lookup still cast boundary::geometry
+```
+
+### Review GREEN and verification
+
+```text
+All three focused regressions: PASS
+cargo fmt --check: PASS
+cargo clippy -p keeppix-db -p keeppix-jobs -p keeppix-api \
+  --all-targets -- -D warnings: PASS
+cargo test -p keeppix-db --jobs 1 -- --test-threads=1: PASS
+cargo test -p keeppix-jobs --jobs 1 -- --test-threads=1: PASS
+cargo test -p keeppix-api --jobs 1 -- --test-threads=1: PASS
+```
+
+`./scripts/test.sh` was not run, as requested. PMTiles, MapLibre, and geofence
+were not implemented or modified.
