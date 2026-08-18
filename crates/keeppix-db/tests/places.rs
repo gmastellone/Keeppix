@@ -2,9 +2,13 @@ mod harness;
 
 use std::path::PathBuf;
 
+use chrono::{TimeZone as _, Utc};
 use harness::TestDb;
-use keeppix_db::PlaceRepo;
-use keeppix_domain::{GeoPoint, Place};
+use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, OverrideRepo, PlaceRepo};
+use keeppix_domain::{
+    AssetKind, AssetName, AuthContext, GeoPoint, NewAsset, NewLibrary, OverridePatch, Place,
+    SystemRole, UserId,
+};
 
 fn fixture() -> Vec<Place> {
     vec![
@@ -85,6 +89,10 @@ async fn seed(repo: &PlaceRepo<'_>) {
     }
 }
 
+fn context(user: UserId) -> AuthContext {
+    AuthContext::user(user, SystemRole::Admin)
+}
+
 #[tokio::test]
 #[allow(clippy::expect_used)]
 async fn nearest_returns_the_closest_fixture_place() {
@@ -111,12 +119,19 @@ async fn search_uses_ascii_trigrams_and_preserves_the_original_name() {
     let test = TestDb::start().await;
     let repo = PlaceRepo::new(test.db());
     seed(&repo).await;
+    let ctx = context(UserId::new());
 
-    let munich = repo.search("Munch", 10).await.expect("Munich search");
+    let munich = repo
+        .search(&ctx, "Munch", false, 10)
+        .await
+        .expect("Munich search");
     assert_eq!(munich.first().expect("Munich result").name, "München");
     assert_eq!(munich.first().expect("Munich result").ascii_name, "Munich");
 
-    let beijing = repo.search("Beijing", 10).await.expect("Beijing search");
+    let beijing = repo
+        .search(&ctx, "Beijing", false, 10)
+        .await
+        .expect("Beijing search");
     assert_eq!(beijing.first().expect("Beijing result").name, "北京");
     assert_eq!(
         beijing.first().expect("Beijing result").ascii_name,
@@ -136,7 +151,10 @@ async fn upsert_updates_an_existing_geoname_id_without_duplication() {
     updated.population = 1_600_000;
     repo.upsert(&updated).await.expect("update place");
 
-    let results = repo.search("Munich", 10).await.expect("updated search");
+    let results = repo
+        .search(&context(UserId::new()), "Munich", false, 10)
+        .await
+        .expect("updated search");
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, updated.id);
     assert_eq!(results[0].name, "München updated");
@@ -177,7 +195,10 @@ async fn normalized_csv_seeds_an_empty_table_only_once() {
         0
     );
 
-    let results = repo.search("Munich", 10).await.expect("seeded search");
+    let results = repo
+        .search(&context(UserId::new()), "Munich", false, 10)
+        .await
+        .expect("seeded search");
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "München");
     let _ = tokio::fs::remove_file(path).await;
@@ -200,4 +221,224 @@ async fn a_missing_normalized_csv_is_a_noop() {
 
 fn temporary_csv_path() -> PathBuf {
     std::env::temp_dir().join(format!("keeppix-places-{}.csv", uuid::Uuid::now_v7()))
+}
+
+#[tokio::test]
+#[allow(clippy::expect_used)]
+async fn reverse_uses_each_localitys_population_weighted_radius() {
+    let test = TestDb::start().await;
+    let repo = PlaceRepo::new(test.db());
+    repo.upsert(&place(
+        10,
+        "Tiny village",
+        "Tiny village",
+        "IT",
+        45.0,
+        10.041,
+        600,
+    ))
+    .await
+    .expect("tiny village");
+    repo.upsert(&place(
+        11,
+        "Large city",
+        "Large city",
+        "IT",
+        45.18,
+        10.0,
+        500_000,
+    ))
+    .await
+    .expect("large city");
+
+    let found = repo
+        .nearest(GeoPoint {
+            lat: 45.0,
+            lon: 10.0,
+        })
+        .await
+        .expect("reverse query")
+        .expect("large city is inside its radius");
+
+    assert_eq!(found.id, 11);
+}
+
+#[tokio::test]
+#[allow(clippy::expect_used)]
+async fn reverse_falls_back_to_region_then_country_catalog_rows() {
+    let test = TestDb::start().await;
+    let repo = PlaceRepo::new(test.db());
+    let mut region = place(20, "Campania", "Campania", "IT", 40.84, 14.25, 0);
+    region.admin1 = Some("Campania".to_owned());
+    repo.upsert(&region).await.expect("region");
+    let country = place(21, "Italia", "Italy", "IT", 42.5, 12.5, 0);
+    repo.upsert(&country).await.expect("country");
+
+    let region_found = repo
+        .nearest(GeoPoint {
+            lat: 40.0,
+            lon: 14.25,
+        })
+        .await
+        .expect("region fallback")
+        .expect("region row");
+    assert_eq!(region_found.id, region.id);
+
+    sqlx::query("DELETE FROM places WHERE id = $1")
+        .bind(region.id)
+        .execute(test.db().pool())
+        .await
+        .expect("remove region");
+    let country_found = repo
+        .nearest(GeoPoint {
+            lat: 40.0,
+            lon: 14.25,
+        })
+        .await
+        .expect("country fallback")
+        .expect("country row");
+    assert_eq!(country_found.id, country.id);
+}
+
+#[tokio::test]
+#[allow(clippy::expect_used)]
+async fn reverse_returns_none_when_every_threshold_is_missed() {
+    let test = TestDb::start().await;
+    let repo = PlaceRepo::new(test.db());
+    repo.upsert(&place(
+        30, "Rome", "Rome", "IT", 41.891_93, 12.511_33, 2_318_895,
+    ))
+    .await
+    .expect("Rome");
+
+    let found = repo
+        .nearest(GeoPoint {
+            lat: -30.0,
+            lon: -140.0,
+        })
+        .await
+        .expect("ocean reverse");
+
+    assert!(found.is_none());
+}
+
+#[tokio::test]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn search_boosts_sorrento_near_the_callers_last_fifty_overrides() {
+    let test = TestDb::start().await;
+    let user = harness::seed_admin(&test).await;
+    let ctx = context(user);
+    let repo = PlaceRepo::new(test.db());
+    let campania = place(
+        40, "Sorrento", "Sorrento", "IT", 40.626_78, 14.377_71, 14_950,
+    );
+    let california = place(
+        41,
+        "Sorrento Valley",
+        // The normalized names deliberately tie, so removing personalization
+        // makes the larger Californian result win and this test fail.
+        "Sorrento",
+        "US",
+        32.899_77,
+        -117.194_26,
+        20_000,
+    );
+    repo.upsert(&campania).await.expect("Campania Sorrento");
+    repo.upsert(&california).await.expect("California Sorrento");
+    seed_override_history(&test, user, 50).await;
+
+    let results = repo
+        .search(&ctx, "sorren", true, 10)
+        .await
+        .expect("personalized search");
+
+    assert_eq!(results.first().expect("Sorrento result").id, campania.id);
+}
+
+#[tokio::test]
+#[allow(clippy::expect_used)]
+async fn search_without_location_history_falls_back_to_population() {
+    let test = TestDb::start().await;
+    let repo = PlaceRepo::new(test.db());
+    repo.upsert(&place(
+        50,
+        "Small Springfield",
+        "Springfield",
+        "US",
+        39.8,
+        -89.6,
+        10_000,
+    ))
+    .await
+    .expect("small Springfield");
+    repo.upsert(&place(
+        51,
+        "Large Springfield",
+        "Springfield",
+        "US",
+        44.0,
+        -123.0,
+        100_000,
+    ))
+    .await
+    .expect("large Springfield");
+
+    let results = repo
+        .search(&context(UserId::new()), "spring", true, 10)
+        .await
+        .expect("unpersonalized search");
+
+    assert_eq!(results.first().expect("Springfield result").id, 51);
+}
+
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn seed_override_history(test: &TestDb, user: UserId, count: usize) {
+    let ctx = context(user);
+    let library = LibraryRepo::new(test.db())
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Campania history".to_owned(),
+                owner_id: user,
+                root_path: PathBuf::from("/mnt/campania"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .expect("history library");
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library.id, &[])
+        .await
+        .expect("history folder");
+    let assets = AssetRepo::new(test.db());
+    let overrides = OverrideRepo::new(test.db());
+    for index in 0..count {
+        let asset = assets
+            .upsert_discovered(NewAsset {
+                folder_id: folder.id,
+                filename: AssetName::parse(&format!("campania-{index:02}.jpg"))
+                    .expect("asset name"),
+                size_bytes: 1,
+                mtime: Utc.with_ymd_and_hms(2026, 8, 1, 12, 0, 0).unwrap(),
+                inode: None,
+                kind: AssetKind::Image,
+            })
+            .await
+            .expect("history asset")
+            .expect("new history asset");
+        overrides
+            .apply(
+                &ctx,
+                asset.id,
+                &OverridePatch {
+                    location: Some(Some(GeoPoint {
+                        lat: 40.75,
+                        lon: 14.5,
+                    })),
+                    ..OverridePatch::default()
+                },
+            )
+            .await
+            .expect("history override");
+    }
 }

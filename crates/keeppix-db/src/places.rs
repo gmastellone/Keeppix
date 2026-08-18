@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use keeppix_domain::{GeoPoint, Place};
+use keeppix_domain::{AuthContext, GeoPoint, Place};
 use sqlx::{PgConnection, Row as _};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 
@@ -10,10 +10,13 @@ pub struct PlaceRepo<'a> {
     db: &'a Db,
 }
 
-const COLUMNS: &str = "id, name, ascii_name, country_code::text AS country_code, \
-                       admin1, admin2, ST_X(location::geometry) AS lon, \
-                       ST_Y(location::geometry) AS lat, population";
+const COLUMNS: &str = "p.id, p.name, p.ascii_name, p.country_code::text AS country_code, \
+                       p.admin1, p.admin2, ST_X(p.location::geometry) AS lon, \
+                       ST_Y(p.location::geometry) AS lat, p.population";
 const IMPORT_BATCH_SIZE: usize = 1_000;
+const REGION_FALLBACK_RADIUS_M: f64 = 200_000.0;
+const COUNTRY_FALLBACK_RADIUS_M: f64 = 1_000_000.0;
+const USER_HISTORY_BOOST_RADIUS_M: f64 = 250_000.0;
 
 #[derive(sqlx::FromRow)]
 struct PlaceRow {
@@ -63,6 +66,14 @@ impl<'a> PlaceRepo<'a> {
         upsert_batch(&mut connection, std::slice::from_ref(place)).await
     }
 
+    /// Reverse geocoding sul catalogo globale.
+    ///
+    /// Le località ordinarie hanno una soglia interpolata linearmente fra
+    /// 3 km a 600 abitanti e 25 km a 500.000 abitanti, con clamp ai due
+    /// estremi. Le righe amministrative hanno `population = 0`: `admin1`
+    /// valorizzato identifica una regione, entrambi i campi amministrativi
+    /// null identificano una nazione.
+    ///
     /// Non prende un `AuthContext`: le località `GeoNames` sono dati globali,
     /// non dati di un utente.
     ///
@@ -70,33 +81,113 @@ impl<'a> PlaceRepo<'a> {
     /// `Connection` se la query fallisce.
     pub async fn nearest(&self, point: GeoPoint) -> Result<Option<Place>, DbError> {
         let row: Option<PlaceRow> = sqlx::query_as(&format!(
-            "SELECT {COLUMNS} FROM places \
-             ORDER BY location <-> \
-                 ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography \
+            "WITH query_point AS (
+                 SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography AS location
+             ),
+             candidates AS (
+                 SELECT {COLUMNS},
+                        0 AS fallback_rank,
+                        p.location <-> q.location AS distance
+                 FROM places p
+                 CROSS JOIN query_point q
+                 WHERE p.population > 0
+                   AND ST_DWithin(
+                       p.location,
+                       q.location,
+                       3000.0 + (
+                           LEAST(GREATEST(p.population, 600), 500000) - 600
+                       )::double precision * (22000.0 / 499400.0)
+                   )
+                 UNION ALL
+                 SELECT {COLUMNS},
+                        1 AS fallback_rank,
+                        p.location <-> q.location AS distance
+                 FROM places p
+                 CROSS JOIN query_point q
+                 WHERE p.population = 0
+                   AND p.admin1 IS NOT NULL
+                   AND p.admin2 IS NULL
+                   AND ST_DWithin(p.location, q.location, $3)
+                 UNION ALL
+                 SELECT {COLUMNS},
+                        2 AS fallback_rank,
+                        p.location <-> q.location AS distance
+                 FROM places p
+                 CROSS JOIN query_point q
+                 WHERE p.population = 0
+                   AND p.admin1 IS NULL
+                   AND p.admin2 IS NULL
+                   AND ST_DWithin(p.location, q.location, $4)
+             )
+             SELECT id, name, ascii_name, country_code, admin1, admin2,
+                    lon, lat, population
+             FROM candidates
+             ORDER BY fallback_rank, distance, id
              LIMIT 1"
         ))
         .bind(point.lon)
         .bind(point.lat)
+        .bind(REGION_FALLBACK_RADIUS_M)
+        .bind(COUNTRY_FALLBACK_RADIUS_M)
         .fetch_optional(self.db.pool())
         .await?;
         Ok(row.map(PlaceRow::into_domain))
     }
 
-    /// Non prende un `AuthContext`: le località `GeoNames` sono dati globali,
-    /// non dati di un utente.
+    /// Cerca nel catalogo globale e, se richiesto, favorisce i risultati entro
+    /// 250 km dal centroide delle ultime 50 posizioni assegnate dal chiamante.
+    ///
+    /// Prende `AuthContext` come primo parametro perché legge
+    /// `asset_overrides.updated_by`; con cronologia vuota l'ordinamento torna
+    /// alla popolazione.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
-    pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<Place>, DbError> {
-        let limit = i64::try_from(limit.min(100))
+    /// `Forbidden` per un attore che non è un utente; `Connection` se la query
+    /// fallisce.
+    pub async fn search(
+        &self,
+        ctx: &AuthContext,
+        query: &str,
+        near_user: bool,
+        limit: usize,
+    ) -> Result<Vec<Place>, DbError> {
+        let user_id = ctx.user_id().ok_or(DbError::Forbidden)?;
+        let limit = i64::try_from(limit.min(10))
             .map_err(|error| DbError::Corrupted(format!("invalid place search limit: {error}")))?;
         let rows: Vec<PlaceRow> = sqlx::query_as(&format!(
-            "SELECT {COLUMNS} FROM places \
-             WHERE ascii_name ILIKE '%' || $1 || '%' OR ascii_name % $1 \
-             ORDER BY similarity(ascii_name, $1) DESC, population DESC, id \
-             LIMIT $2"
+            "WITH recent AS (
+                 SELECT location
+                 FROM asset_overrides
+                 WHERE $2
+                   AND updated_by = $1
+                   AND location IS NOT NULL
+                 ORDER BY updated_at DESC
+                 LIMIT 50
+             ),
+             history AS (
+                 SELECT ST_Centroid(ST_Collect(location::geometry))::geography AS centroid
+                 FROM recent
+             )
+             SELECT {COLUMNS}
+             FROM places p
+             CROSS JOIN history h
+             WHERE p.population > 0
+               AND (p.ascii_name ILIKE '%' || $3 || '%' OR p.ascii_name % $3)
+             ORDER BY similarity(p.ascii_name, $3) DESC,
+                      CASE
+                          WHEN h.centroid IS NOT NULL
+                           AND ST_DWithin(p.location, h.centroid, $4)
+                          THEN 1
+                          ELSE 0
+                      END DESC,
+                      p.population DESC,
+                      p.id
+             LIMIT $5"
         ))
+        .bind(user_id.as_uuid())
+        .bind(near_user)
         .bind(query)
+        .bind(USER_HISTORY_BOOST_RADIUS_M)
         .bind(limit)
         .fetch_all(self.db.pool())
         .await?;

@@ -1873,6 +1873,173 @@
         ]
       }
     },
+    "/api/v1/places/reverse": {
+      "get": {
+        "tags": [
+          "places"
+        ],
+        "summary": "# Errors\n`400` se le coordinate non sono WGS84; `401` se non autenticato; `404` se\nnessuna località o riga amministrativa cade entro la propria soglia.",
+        "operationId": "places_reverse",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "description": "Latitudine WGS84, -90..=90",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "description": "Longitudine WGS84, -180..=180",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Località o area amministrativa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Coordinate non valide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nessuna località entro soglia",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/places/suggest": {
+      "get": {
+        "tags": [
+          "places"
+        ],
+        "summary": "# Errors\n`400` se `q` ha meno di due caratteri; `401` se non autenticato.",
+        "operationId": "places_suggest",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Nome, almeno due caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "near_user",
+            "in": "query",
+            "description": "Favorisce i luoghi vicini alle ultime 50 assegnazioni",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fino a dieci località",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlaceView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Query troppo corta o non valida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/problems": {
       "get": {
         "tags": [
@@ -3906,6 +4073,59 @@
           }
         }
       },
+      "PlaceView": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "ascii_name",
+          "lat",
+          "lon",
+          "population"
+        ],
+        "properties": {
+          "admin1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "admin2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ascii_name": {
+            "type": "string"
+          },
+          "country_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "population": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "PreviewResponse": {
         "type": "object",
         "required": [
@@ -4459,6 +4679,10 @@
     {
       "name": "search",
       "description": "Ricerca da AST e ricerche salvate"
+    },
+    {
+      "name": "places",
+      "description": "Geocoding locale GeoNames"
     },
     {
       "name": "events",
