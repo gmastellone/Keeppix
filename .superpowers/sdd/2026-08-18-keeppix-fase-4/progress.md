@@ -191,6 +191,7 @@ IANA lessicograficamente primo finché il dataset non viene corretto.
 Task 5: complete (commit `9f7b481`; fixture offline, fmt, clippy, DB, jobs e API
 verdi; evidenza in `.superpowers/sdd/task-5-report.md`)
 
+
 Ruling (Task 5 review): il writer timezone ricontrolla
 `asset_overrides.taken_at IS NULL` nell'upsert e conserva nello snapshot undo
 solo gli id effettivamente scritti. Candidati e scrittura ora vivono nella
