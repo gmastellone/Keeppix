@@ -20,6 +20,15 @@ Minor (Task 1 review): closed in `eb320f4`. `signed_dms` rejects minutes/seconds
 Task 1: complete (commits b702c7a..4ff8541, review clean after MakerNote
 fixture + no SQL in jobs tests; bounds follow-up `eb320f4`)
 
+Ruling: migration `places` is `0020_places.sql` — `0015` is already
+permissions. Cost if wrong: sqlx checksum clash on an applied file.
+
+Ruling: no `COPY FROM` in the migration. Testcontainers has no CSV on the
+Postgres disk; import is `PlaceRepo` reading a file in the app image.
+Cost if wrong: every `TestDb` fails to migrate.
+
+Task 2: complete (commits 8e38016..7e31820, review clean)
+
 Ruling: Task 2 usa la migrazione schema-only `0020_places.sql`; il dump non
 entra nella migrazione perché `TestDb` non monta artefatti GeoNames e le
 migrazioni applicate non si modificano. Costo se sbagliato: l'import resta un
