@@ -401,8 +401,8 @@ async fn set_kind_persists_and_unchanged_upsert_does_not_reset_it() {
 }
 
 #[tokio::test]
-#[allow(clippy::unwrap_used)]
-async fn exif_location_does_not_overwrite_user_or_map_pin_locations() {
+#[allow(clippy::too_many_lines, clippy::unwrap_used)]
+async fn exif_location_does_not_overwrite_any_assigned_location() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
     let library = seed_library(&test, admin, "Foto", "/mnt/foto").await;
@@ -426,10 +426,22 @@ async fn exif_location_does_not_overwrite_user_or_map_pin_locations() {
         .await
         .unwrap()
         .unwrap();
+    let copied = repo
+        .upsert_discovered(discovered(folder.id, "copied.jpg", 100))
+        .await
+        .unwrap()
+        .unwrap();
+    let gpx = repo
+        .upsert_discovered(discovered(folder.id, "gpx.jpg", 100))
+        .await
+        .unwrap()
+        .unwrap();
 
     for (asset, source, lon, lat) in [
         (user.id, "user", 9.0_f64, 45.0_f64),
         (map_pin.id, "map_pin", 12.5_f64, 41.9_f64),
+        (copied.id, "copied", 151.2_f64, -33.8_f64),
+        (gpx.id, "gpx", 18.0_f64, 50.0_f64),
     ] {
         sqlx::query(
             "UPDATE assets \
@@ -450,7 +462,7 @@ async fn exif_location_does_not_overwrite_user_or_map_pin_locations() {
         lat: -34.5,
         lon: -58.375,
     };
-    for asset in [unset.id, user.id, map_pin.id] {
+    for asset in [unset.id, user.id, map_pin.id, copied.id, gpx.id] {
         repo.set_exif_location(asset, exif).await.unwrap();
     }
 
@@ -465,6 +477,18 @@ async fn exif_location_does_not_overwrite_user_or_map_pin_locations() {
     assert_eq!(
         rows,
         vec![
+            (
+                "copied.jpg".to_owned(),
+                Some(-33.8),
+                Some(151.2),
+                Some("copied".to_owned()),
+            ),
+            (
+                "gpx.jpg".to_owned(),
+                Some(50.0),
+                Some(18.0),
+                Some("gpx".to_owned()),
+            ),
             (
                 "map-pin.jpg".to_owned(),
                 Some(41.9),

@@ -8,7 +8,9 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use keeppix_db::OverrideRepo;
-use keeppix_domain::{AssetId, BatchId, EffectiveMetadata, GeoPoint, OverridePatch};
+use keeppix_domain::{
+    AssetId, BatchId, EffectiveMetadata, GeoPoint, LocationSource, OverridePatch,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -218,9 +220,24 @@ pub async fn apply_batch(
     Json(body): Json<BatchApplyRequest>,
 ) -> Result<Json<BatchView>, Problem> {
     crate::batch::reject_oversized_batch(&body.asset_ids)?;
-    let batch_id = OverrideRepo::new(&state.db)
-        .apply_batch(&ctx, &body.asset_ids, &body.patch.into_domain())
-        .await?;
+    let mut patch = body.patch.into_domain();
+    let source = match (&patch.location, &patch.place_id) {
+        (Some(Some(_)), Some(Some(_))) => Some(LocationSource::User),
+        (Some(Some(_)), _) => {
+            // Una coordinata libera non è legata a GeoNames: anche se il
+            // client omette `place_id`, un luogo precedente va rimosso.
+            patch.place_id = Some(None);
+            Some(LocationSource::MapPin)
+        }
+        _ => None,
+    };
+    let repo = OverrideRepo::new(&state.db);
+    let batch_id = if let Some(source) = source {
+        repo.apply_location_batch(&ctx, &body.asset_ids, &patch, source)
+            .await?
+    } else {
+        repo.apply_batch(&ctx, &body.asset_ids, &patch).await?
+    };
     Ok(Json(BatchView { batch_id }))
 }
 

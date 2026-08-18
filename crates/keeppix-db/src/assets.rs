@@ -451,15 +451,12 @@ impl<'a> AssetRepo<'a> {
                  location_source = $4, \
                  updated_at = now() \
              WHERE id = $1 \
-               AND location_source IS DISTINCT FROM $5 \
-               AND location_source IS DISTINCT FROM $6",
+               AND (location_source IS NULL OR location_source = $4)",
         )
         .bind(asset_id.as_uuid())
         .bind(point.lon)
         .bind(point.lat)
         .bind(LocationSource::Exif.as_str())
-        .bind(LocationSource::User.as_str())
-        .bind(LocationSource::MapPin.as_str())
         .execute(self.db.pool())
         .await?;
         Ok(())

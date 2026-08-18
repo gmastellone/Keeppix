@@ -237,6 +237,14 @@ fn api_routes() -> Router<AppState> {
             axum::routing::post(routes::metadata::shift_taken_at),
         )
         .route(
+            "/metadata/batch/copy-location",
+            axum::routing::post(routes::geotag::copy_location),
+        )
+        .route(
+            "/metadata/batch/import-gpx",
+            axum::routing::post(routes::geotag::import_gpx),
+        )
+        .route(
             "/metadata/batch/{batch_id}/undo",
             axum::routing::post(routes::metadata::undo_batch),
         )
