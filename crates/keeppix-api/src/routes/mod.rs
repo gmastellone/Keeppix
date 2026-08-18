@@ -8,6 +8,7 @@ pub mod geotag;
 pub mod groups;
 pub mod health;
 pub mod libraries;
+pub mod map;
 pub mod media;
 pub mod metadata;
 pub mod permissions;

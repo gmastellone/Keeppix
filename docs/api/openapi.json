@@ -1681,6 +1681,124 @@
         ]
       }
     },
+    "/api/v1/map/clusters": {
+      "get": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`400` per bbox, zoom o scope malformati; `401` senza sessione; `403` per\nuno scope sconosciuto o non visibile.",
+        "operationId": "map_clusters",
+        "parameters": [
+          {
+            "name": "bbox",
+            "in": "query",
+            "description": "west,south,east,north in gradi WGS84",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "zoom",
+            "in": "query",
+            "description": "Livello di zoom, 0..=30",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "library, album, folder o search",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope_id",
+            "in": "query",
+            "description": "UUID dello scope",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Celle aggregate o punti singoli",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MapClusterView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Parametri non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Scope non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database non disponibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/metadata/batch": {
       "post": {
         "tags": [
@@ -4102,6 +4220,36 @@
           }
         }
       },
+      "MapClusterView": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon",
+          "count",
+          "cover_asset_id",
+          "clustered"
+        ],
+        "properties": {
+          "clustered": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cover_asset_id": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "MeResponse": {
         "type": "object",
         "required": [
@@ -4862,6 +5010,10 @@
     {
       "name": "places",
       "description": "Geocoding locale GeoNames"
+    },
+    {
+      "name": "map",
+      "description": "Cluster geografici con visibilità applicata"
     },
     {
       "name": "events",

@@ -9,8 +9,8 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
-    auth, duplicates, flags, folders, geotag, libraries, media, metadata, places, problems, search,
-    setup, stacks, timeline, trash, users, viewport, ws,
+    auth, duplicates, flags, folders, geotag, libraries, map, media, metadata, places, problems,
+    search, setup, stacks, timeline, trash, users, viewport, ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -66,6 +66,7 @@ impl utoipa::Modify for SecurityAddon {
         search::suggest,
         places::reverse,
         places::suggest,
+        map::clusters,
         search::list_saved,
         search::create_saved,
         ws::ticket,
@@ -128,6 +129,7 @@ impl utoipa::Modify for SecurityAddon {
         search::SearchPage,
         search::SuggestResponse,
         places::PlaceView,
+        map::MapClusterView,
         search::SavedSearchRequest,
         search::SavedSearchView,
         ws::TicketResponse,
@@ -172,6 +174,7 @@ impl utoipa::Modify for SecurityAddon {
         (name = "media", description = "Miniature, preview e originali"),
         (name = "search", description = "Ricerca da AST e ricerche salvate"),
         (name = "places", description = "Geocoding locale GeoNames"),
+        (name = "map", description = "Cluster geografici con visibilità applicata"),
         (name = "events", description = "WebSocket di notifica"),
         (name = "library", description = "Problemi e duplicati"),
         (name = "libraries", description = "Librerie e percorsi indicizzati"),
