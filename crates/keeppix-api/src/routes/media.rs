@@ -11,7 +11,7 @@ use keeppix_media::derivative_paths;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
-use crate::extract::Auth;
+use crate::extract::SessionOrShare;
 use crate::problem::Problem;
 use crate::state::AppState;
 
@@ -37,7 +37,7 @@ const IMMUTABLE: &str = "private, max-age=31536000, immutable";
 )]
 pub async fn thumb(
     State(state): State<AppState>,
-    Auth(ctx): Auth,
+    SessionOrShare(ctx): SessionOrShare,
     AxumPath(hash): AxumPath<String>,
 ) -> Result<Response, Problem> {
     serve_derivative(&state, &ctx, &hash, true).await
@@ -61,7 +61,7 @@ pub async fn thumb(
 )]
 pub async fn preview(
     State(state): State<AppState>,
-    Auth(ctx): Auth,
+    SessionOrShare(ctx): SessionOrShare,
     AxumPath(hash): AxumPath<String>,
 ) -> Result<Response, Problem> {
     serve_derivative(&state, &ctx, &hash, false).await
@@ -86,7 +86,7 @@ pub async fn preview(
 )]
 pub async fn full(
     State(state): State<AppState>,
-    Auth(ctx): Auth,
+    SessionOrShare(ctx): SessionOrShare,
     AxumPath(hash_hex): AxumPath<String>,
 ) -> Result<Response, Problem> {
     let hash = parse_hash(&hash_hex).ok_or_else(Problem::forbidden)?;
@@ -181,7 +181,7 @@ fn build_full(
 )]
 pub async fn original(
     State(state): State<AppState>,
-    Auth(ctx): Auth,
+    SessionOrShare(ctx): SessionOrShare,
     AxumPath(id): AxumPath<AssetId>,
     headers: HeaderMap,
 ) -> Result<Response, Problem> {

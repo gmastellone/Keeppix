@@ -133,6 +133,65 @@
     "none": "Nothing to report.",
     "reclaimable": "{count} copies, {bytes} bytes reclaimable"
   },
+  "groups": {
+    "entry": "Groups",
+    "title": "Groups",
+    "namePlaceholder": "Group name",
+    "create": "Create",
+    "empty": "No groups yet.",
+    "memberCount": "{count} members",
+    "delete": "Delete"
+  },
+  "albums": {
+    "entry": "Albums",
+    "title": "Albums",
+    "namePlaceholder": "Album name",
+    "create": "Create",
+    "empty": "No albums yet.",
+    "assetCount": "{count} photos",
+    "delete": "Delete"
+  },
+  "shares": {
+    "entry": "Shares",
+    "title": "Shared links",
+    "empty": "No shared links.",
+    "expires": "Expires {date}",
+    "revoke": "Revoke"
+  },
+  "users": {
+    "entry": "Users",
+    "title": "Users",
+    "empty": "No users.",
+    "admin": "Admin"
+  },
+  "trash": {
+    "entry": "Trash",
+    "title": "Trash",
+    "empty": "Trash is empty.",
+    "emptyAll": "Empty trash",
+    "restore": "Restore",
+    "purge": "Delete permanently",
+    "expires": "Expires {date}"
+  },
+  "batchEdit": {
+    "title": "Batch edit",
+    "count": "{count} photos selected",
+    "fieldPlaceholder": "Field name",
+    "valuePlaceholder": "New value",
+    "apply": "Apply",
+    "done": "Changes applied."
+  },
+  "shared": {
+    "title": "Shared content",
+    "notFound": "This shared link is invalid or has expired.",
+    "password": "Password",
+    "unlock": "Unlock"
+  },
+  "sharePanel": {
+    "title": "Share",
+    "close": "Close",
+    "createLink": "Create link"
+  },
   "common": {
     "loading": "Loading…",
     "unexpectedError": "An unexpected error occurred.",

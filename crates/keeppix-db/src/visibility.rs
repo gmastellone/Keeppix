@@ -1,4 +1,4 @@
-use keeppix_domain::{AuthContext, FolderPath, LibraryId};
+use keeppix_domain::{Actor, AuthContext, FolderPath, LibraryId};
 
 use crate::{Db, DbError};
 
@@ -10,23 +10,21 @@ struct FolderGrant {
 }
 
 /// Filtro di visibilità risolto per un chiamante.
-///
-/// Prefissi = cartelle visibili (radici delle librerie possedute +
-/// condivisioni). Buchi = `inherit = false`. I path `ltree` sono unici
-/// **dentro** una libreria, non nel database: il filtro accoppia sempre
-/// `library_id` e `path`.
 pub struct VisibilityScope {
     unrestricted: bool,
     grants: Vec<FolderGrant>,
     holes: Vec<FolderGrant>,
+    /// Asset visibili senza passare dall'albero cartelle (album o grant diretto).
+    asset_ids: Vec<uuid::Uuid>,
 }
 
-/// Clausola SQL + due `uuid[]`: id delle cartelle concesse (`NULL` = admin)
-/// e id dei buchi. Un array vuoto di concessi non matcha nulla.
+/// Clausola SQL + tre `uuid[]`: cartelle concesse (`NULL` = admin), buchi,
+/// asset espliciti. Un array vuoto di concessi non matcha nulla via path.
 pub struct VisibilityFilter {
     sql: String,
     grants: Option<Vec<uuid::Uuid>>,
     holes: Vec<uuid::Uuid>,
+    assets: Vec<uuid::Uuid>,
 }
 
 impl VisibilityFilter {
@@ -44,6 +42,11 @@ impl VisibilityFilter {
     pub fn holes(&self) -> &[uuid::Uuid] {
         &self.holes
     }
+
+    #[must_use]
+    pub fn assets(&self) -> &[uuid::Uuid] {
+        &self.assets
+    }
 }
 
 impl VisibilityScope {
@@ -55,7 +58,17 @@ impl VisibilityScope {
                 unrestricted: true,
                 grants: Vec::new(),
                 holes: Vec::new(),
+                asset_ids: Vec::new(),
             });
+        }
+
+        if let Actor::ShareLink {
+            object_type,
+            object_id,
+            ..
+        } = &ctx.actor
+        {
+            return Self::resolve_share_link(db, object_type, *object_id).await;
         }
 
         let Some(owner) = ctx.user_id() else {
@@ -63,6 +76,7 @@ impl VisibilityScope {
                 unrestricted: false,
                 grants: Vec::new(),
                 holes: Vec::new(),
+                asset_ids: Vec::new(),
             });
         };
 
@@ -102,11 +116,95 @@ impl VisibilityScope {
             }
         }
 
+        let asset_ids: Vec<uuid::Uuid> = sqlx::query_scalar(
+            "SELECT p.object_id FROM permissions p \
+              WHERE p.object_type = 'asset' \
+                AND ( \
+                     (p.subject_type = 'user' AND p.subject_id = $1) \
+                  OR (p.subject_type = 'group' AND p.subject_id IN ( \
+                        SELECT group_id FROM group_members WHERE user_id = $1 \
+                     )) \
+                ) \
+             UNION \
+             SELECT aa.asset_id FROM permissions p \
+               JOIN album_assets aa ON aa.album_id = p.object_id \
+              WHERE p.object_type = 'album' \
+                AND ( \
+                     (p.subject_type = 'user' AND p.subject_id = $1) \
+                  OR (p.subject_type = 'group' AND p.subject_id IN ( \
+                        SELECT group_id FROM group_members WHERE user_id = $1 \
+                     )) \
+                )",
+        )
+        .bind(owner.as_uuid())
+        .fetch_all(db.pool())
+        .await?;
+
         Ok(Self {
             unrestricted: false,
             grants,
             holes,
+            asset_ids,
         })
+    }
+
+    async fn resolve_share_link(
+        db: &Db,
+        object_type: &str,
+        object_id: uuid::Uuid,
+    ) -> Result<Self, DbError> {
+        match object_type {
+            "asset" => Ok(Self {
+                unrestricted: false,
+                grants: Vec::new(),
+                holes: Vec::new(),
+                asset_ids: vec![object_id],
+            }),
+            "album" => {
+                let ids: Vec<uuid::Uuid> =
+                    sqlx::query_scalar("SELECT asset_id FROM album_assets WHERE album_id = $1")
+                        .bind(object_id)
+                        .fetch_all(db.pool())
+                        .await?;
+                Ok(Self {
+                    unrestricted: false,
+                    grants: Vec::new(),
+                    holes: Vec::new(),
+                    asset_ids: ids,
+                })
+            }
+            "folder" => {
+                let row: Option<(uuid::Uuid, uuid::Uuid, String)> =
+                    sqlx::query_as("SELECT id, library_id, path::text FROM folders WHERE id = $1")
+                        .bind(object_id)
+                        .fetch_optional(db.pool())
+                        .await?;
+                let Some((id, library_id, path)) = row else {
+                    return Ok(Self {
+                        unrestricted: false,
+                        grants: Vec::new(),
+                        holes: Vec::new(),
+                        asset_ids: Vec::new(),
+                    });
+                };
+                Ok(Self {
+                    unrestricted: false,
+                    grants: vec![FolderGrant {
+                        id,
+                        library_id,
+                        path,
+                    }],
+                    holes: Vec::new(),
+                    asset_ids: Vec::new(),
+                })
+            }
+            _ => Ok(Self {
+                unrestricted: false,
+                grants: Vec::new(),
+                holes: Vec::new(),
+                asset_ids: Vec::new(),
+            }),
+        }
     }
 
     #[must_use]
@@ -114,8 +212,6 @@ impl VisibilityScope {
         self.unrestricted
     }
 
-    /// True se la cartella cade sotto un prefisso concesso **nella stessa
-    /// libreria** e non sotto un buco. Un path illeggibile è un no.
     #[must_use]
     pub fn allows(&self, library_id: LibraryId, path: &str) -> bool {
         if self.unrestricted {
@@ -143,28 +239,37 @@ impl VisibilityScope {
         !blocked
     }
 
-    /// Clausola su `path` + `library_id`. Occupa due parametri da `param`.
-    /// Le espressioni **devono essere qualificate** (`f.path`, `folders.path`):
-    /// il sottoquery `vis_g` ha colonne omonime, e un `path` nudo si lega
-    /// a quello interno — `EXISTS` diventerebbe vero per ogni riga.
+    /// Clausola su path + library + asset id. Occupa tre parametri da `param`.
     #[must_use]
-    pub fn filter(&self, path_sql: &str, library_sql: &str, param: usize) -> VisibilityFilter {
+    pub fn filter(
+        &self,
+        path_sql: &str,
+        library_sql: &str,
+        asset_id_sql: &str,
+        param: usize,
+    ) -> VisibilityFilter {
         let holes_param = param + 1;
+        let assets_param = param + 2;
         VisibilityFilter {
             sql: format!(
-                "(${param}::uuid[] IS NULL OR ( \
-                    EXISTS ( \
-                      SELECT 1 FROM folders vis_g \
-                       WHERE vis_g.id = ANY(${param}::uuid[]) \
-                         AND {library_sql} = vis_g.library_id \
-                         AND {path_sql} <@ vis_g.path \
-                    ) AND NOT EXISTS ( \
-                      SELECT 1 FROM folders vis_h \
-                       WHERE vis_h.id = ANY(${holes_param}::uuid[]) \
-                         AND {library_sql} = vis_h.library_id \
-                         AND {path_sql} <@ vis_h.path \
+                "( \
+                    (${param}::uuid[] IS NULL) \
+                    OR ( \
+                      EXISTS ( \
+                        SELECT 1 FROM folders vis_g \
+                         WHERE vis_g.id = ANY(${param}::uuid[]) \
+                           AND {library_sql} = vis_g.library_id \
+                           AND {path_sql} <@ vis_g.path \
+                      ) AND NOT EXISTS ( \
+                        SELECT 1 FROM folders vis_h \
+                         WHERE vis_h.id = ANY(${holes_param}::uuid[]) \
+                           AND {library_sql} = vis_h.library_id \
+                           AND {path_sql} <@ vis_h.path \
+                      ) \
                     ) \
-                 ))"
+                    OR (cardinality(${assets_param}::uuid[]) > 0 \
+                        AND {asset_id_sql} = ANY(${assets_param}::uuid[])) \
+                 )"
             ),
             grants: if self.unrestricted {
                 None
@@ -175,20 +280,52 @@ impl VisibilityScope {
                 Vec::new()
             } else {
                 self.holes.iter().map(|h| h.id).collect()
+            },
+            assets: if self.unrestricted {
+                Vec::new()
+            } else {
+                self.asset_ids.clone()
             },
         }
     }
 
-    /// Clausola su `library_id` per tabelle senza path (`change_log`).
+    /// Like [`Self::filter`], but asset-level grants match when any indexed asset
+    /// under `folder_fk_sql` is in the grant list (for aggregates without an
+    /// `assets` row in the FROM clause).
     #[must_use]
-    pub fn filter_library(&self, library_id_sql: &str, param: usize) -> VisibilityFilter {
+    pub fn filter_for_folder_aggregate(
+        &self,
+        path_sql: &str,
+        library_sql: &str,
+        folder_fk_sql: &str,
+        param: usize,
+    ) -> VisibilityFilter {
         let holes_param = param + 1;
+        let assets_param = param + 2;
         VisibilityFilter {
             sql: format!(
-                "(${param}::uuid[] IS NULL OR {library_id_sql} IN ( \
-                    SELECT vis_g.library_id FROM folders vis_g \
-                     WHERE vis_g.id = ANY(${param}::uuid[]) \
-                 ) AND cardinality(COALESCE(${holes_param}::uuid[], '{{}}'::uuid[])) >= 0)"
+                "( \
+                    (${param}::uuid[] IS NULL) \
+                    OR ( \
+                      EXISTS ( \
+                        SELECT 1 FROM folders vis_g \
+                         WHERE vis_g.id = ANY(${param}::uuid[]) \
+                           AND {library_sql} = vis_g.library_id \
+                           AND {path_sql} <@ vis_g.path \
+                      ) AND NOT EXISTS ( \
+                        SELECT 1 FROM folders vis_h \
+                         WHERE vis_h.id = ANY(${holes_param}::uuid[]) \
+                           AND {library_sql} = vis_h.library_id \
+                           AND {path_sql} <@ vis_h.path \
+                      ) \
+                    ) \
+                    OR (cardinality(${assets_param}::uuid[]) > 0 \
+                        AND EXISTS ( \
+                          SELECT 1 FROM assets vis_a \
+                           WHERE vis_a.folder_id = {folder_fk_sql} \
+                             AND vis_a.id = ANY(${assets_param}::uuid[]) \
+                        )) \
+                 )"
             ),
             grants: if self.unrestricted {
                 None
@@ -199,6 +336,44 @@ impl VisibilityScope {
                 Vec::new()
             } else {
                 self.holes.iter().map(|h| h.id).collect()
+            },
+            assets: if self.unrestricted {
+                Vec::new()
+            } else {
+                self.asset_ids.clone()
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn filter_library(&self, library_id_sql: &str, param: usize) -> VisibilityFilter {
+        let holes_param = param + 1;
+        let assets_param = param + 2;
+        VisibilityFilter {
+            sql: format!(
+                "( \
+                    (${param}::uuid[] IS NULL) \
+                    OR {library_id_sql} IN ( \
+                        SELECT vis_g.library_id FROM folders vis_g \
+                         WHERE vis_g.id = ANY(${param}::uuid[]) \
+                    ) \
+                    OR cardinality(${assets_param}::uuid[]) > 0 \
+                 ) AND cardinality(COALESCE(${holes_param}::uuid[], '{{}}'::uuid[])) >= 0"
+            ),
+            grants: if self.unrestricted {
+                None
+            } else {
+                Some(self.grants.iter().map(|g| g.id).collect())
+            },
+            holes: if self.unrestricted {
+                Vec::new()
+            } else {
+                self.holes.iter().map(|h| h.id).collect()
+            },
+            assets: if self.unrestricted {
+                Vec::new()
+            } else {
+                self.asset_ids.clone()
             },
         }
     }

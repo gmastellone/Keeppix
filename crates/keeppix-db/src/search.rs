@@ -62,8 +62,8 @@ impl<'a> SearchRepo<'a> {
     ) -> Result<Vec<Asset>, DbError> {
         let limit = limit.clamp(1, 200);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", 1);
-        let mut param = 3_usize;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let mut param = 4_usize;
         let (clause, binds) = compile(ast, &mut param, 0)?;
         let time_p = next(&mut param);
         let id_p = next(&mut param);
@@ -86,7 +86,8 @@ impl<'a> SearchRepo<'a> {
         );
         let mut q = sqlx::query_as::<_, AssetRow>(&sql)
             .bind(filter.bind())
-            .bind(filter.holes());
+            .bind(filter.holes())
+            .bind(filter.assets());
         for b in &binds {
             q = bind_one(q, b);
         }
@@ -109,18 +110,18 @@ impl<'a> SearchRepo<'a> {
             return Ok(Vec::new());
         }
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", 1);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let pattern = like_prefix(q);
         let sql = format!(
             "(SELECT e.camera_model AS s FROM asset_exif e \
               JOIN assets a ON a.id = e.asset_id \
               JOIN folders f ON f.id = a.folder_id \
-              WHERE {} AND e.camera_model ILIKE $3 ESCAPE E'\\\\' \
+              WHERE {} AND e.camera_model ILIKE $4 ESCAPE E'\\\\' \
               LIMIT 8) \
              UNION \
              (SELECT a.filename AS s FROM assets a \
               JOIN folders f ON f.id = a.folder_id \
-              WHERE {} AND a.filename ILIKE $3 ESCAPE E'\\\\' \
+              WHERE {} AND a.filename ILIKE $4 ESCAPE E'\\\\' \
               LIMIT 8) \
              LIMIT 10",
             filter.sql(),
@@ -129,6 +130,7 @@ impl<'a> SearchRepo<'a> {
         let rows: Vec<(String,)> = sqlx::query_as(&sql)
             .bind(filter.bind())
             .bind(filter.holes())
+            .bind(filter.assets())
             .bind(pattern)
             .fetch_all(self.db.pool())
             .await?;

@@ -1,4 +1,5 @@
 //! Gestione gruppi. Solo admin. Nessun SQL: solo `GroupRepo`.
+#![allow(clippy::missing_errors_doc)]
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;

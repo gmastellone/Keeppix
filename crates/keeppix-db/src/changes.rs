@@ -54,6 +54,7 @@ impl<'a> ChangeLogRepo<'a> {
         .bind(cursor)
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 

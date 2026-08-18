@@ -188,13 +188,14 @@ impl<'a> FolderRepo<'a> {
     /// `Connection` se la query fallisce.
     pub async fn tree(&self, ctx: &AuthContext) -> Result<Vec<Folder>, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("folders.path", "folders.library_id", 1);
+        let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 1);
         let rows: Vec<FolderRow> = sqlx::query_as(&format!(
             "SELECT {COLUMNS} FROM folders WHERE {} ORDER BY path",
             filter.sql()
         ))
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 
@@ -208,7 +209,7 @@ impl<'a> FolderRepo<'a> {
     /// `Connection` se la query fallisce.
     pub async fn roots(&self, ctx: &AuthContext) -> Result<Vec<Folder>, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("folders.path", "folders.library_id", 1);
+        let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 1);
         let sql = if scope.is_unrestricted() {
             format!(
                 "SELECT {COLUMNS} FROM folders WHERE parent_id IS NULL AND {} ORDER BY name",
@@ -223,6 +224,7 @@ impl<'a> FolderRepo<'a> {
         let rows: Vec<FolderRow> = sqlx::query_as(&sql)
             .bind(filter.bind())
             .bind(filter.holes())
+            .bind(filter.assets())
             .fetch_all(self.db.pool())
             .await?;
 
@@ -241,7 +243,7 @@ impl<'a> FolderRepo<'a> {
         self.visible(ctx, folder_id).await?;
 
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("folders.path", "folders.library_id", 2);
+        let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 2);
         let rows: Vec<FolderRow> = sqlx::query_as(&format!(
             "SELECT {COLUMNS} FROM folders WHERE parent_id = $1 AND {} ORDER BY name",
             filter.sql()
@@ -249,6 +251,7 @@ impl<'a> FolderRepo<'a> {
         .bind(folder_id.as_uuid())
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 
@@ -267,7 +270,7 @@ impl<'a> FolderRepo<'a> {
     ) -> Result<Vec<Folder>, DbError> {
         let (folder, _) = self.visible(ctx, folder_id).await?;
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("folders.path", "folders.library_id", 3);
+        let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 3);
 
         let rows: Vec<FolderRow> = sqlx::query_as(&format!(
             "SELECT {COLUMNS} FROM folders \
@@ -279,6 +282,7 @@ impl<'a> FolderRepo<'a> {
         .bind(folder.path.as_str())
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 

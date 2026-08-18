@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { runSearch } from '@/api/library'
+import { fetchSavedSearches, fetchSuggestions } from '@/api/search'
 import type { TimelineAsset } from '@/api/timeline'
 import { thumbSrc } from '@/api/media'
 import { parseSearch } from '@/search/parse'
@@ -65,7 +66,23 @@ function stepViewer(delta: number) {
   if (next) viewing.value = next
 }
 
+const suggestions = ref<string[]>([])
+
+async function loadSuggestions() {
+  if (q.value.length < 2) {
+    suggestions.value = []
+    return
+  }
+  try {
+    const res = await fetchSuggestions(q.value)
+    suggestions.value = res.suggestions
+  } catch {
+    suggestions.value = []
+  }
+}
+
 onMounted(() => {
+  void fetchSavedSearches().catch(() => undefined)
   if (q.value) void submit()
 })
 </script>
@@ -81,7 +98,25 @@ onMounted(() => {
         class="flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-2"
         :placeholder="t('search.placeholder')"
         type="search"
+        @input="loadSuggestions"
       >
+      <ul
+        v-if="suggestions.length"
+        class="absolute z-10 mt-10 max-h-40 w-full overflow-auto rounded-lg border border-border bg-surface-elevated shadow"
+      >
+        <li
+          v-for="s in suggestions"
+          :key="s"
+        >
+          <button
+            class="block w-full px-3 py-2 text-left text-sm hover:bg-surface"
+            type="button"
+            @click="q = s; suggestions = []; void submit()"
+          >
+            {{ s }}
+          </button>
+        </li>
+      </ul>
       <button
         class="rounded-lg bg-accent px-4 py-2 text-white"
         type="submit"

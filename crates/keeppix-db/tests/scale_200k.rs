@@ -364,7 +364,7 @@ async fn explain_page_shared(
         .and_hms_opt(0, 0, 0)
         .unwrap()
         .and_utc();
-    let filter = scope.filter("f.path", "f.library_id", 6);
+    let filter = scope.filter("f.path", "f.library_id", "a.id", 6);
     let sql = format!(
         "EXPLAIN (ANALYZE, BUFFERS) \
          SELECT a.id FROM assets a \
@@ -388,6 +388,7 @@ async fn explain_page_shared(
         .bind(200_i64)
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(pool)
         .await
         .unwrap();
@@ -407,7 +408,7 @@ async fn explain_page_cte(
         .unwrap()
         .and_utc();
     let grants = scope
-        .filter("f.path", "f.library_id", 6)
+        .filter("f.path", "f.library_id", "a.id", 6)
         .bind()
         .unwrap()
         .to_vec();

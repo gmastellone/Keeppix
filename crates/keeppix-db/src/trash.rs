@@ -297,7 +297,7 @@ impl<'a> TrashRepo<'a> {
     ) -> Result<Vec<TrashEntry>, DbError> {
         let limit = limit.clamp(1, 100);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", 4);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 4);
         let (cursor_time, cursor_id) = match cursor {
             Some((t, id)) => (Some(t), Some(id.as_uuid())),
             None => (None, None),
@@ -321,6 +321,7 @@ impl<'a> TrashRepo<'a> {
             .bind(limit)
             .bind(filter.bind())
             .bind(filter.holes())
+            .bind(filter.assets())
             .fetch_all(self.db.pool())
             .await?;
         rows.into_iter().map(EntryRow::into_domain).collect()
@@ -349,7 +350,7 @@ impl<'a> TrashRepo<'a> {
         }
 
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", 1);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let rows: Vec<PendingRow> = sqlx::query_as(&format!(
             "SELECT te.id, te.asset_id, te.original_path, te.trash_path \
                FROM trash_entries te \
@@ -361,6 +362,7 @@ impl<'a> TrashRepo<'a> {
         ))
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 

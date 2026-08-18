@@ -13,7 +13,7 @@ pub mod state;
 
 pub mod batch;
 
-pub use extract::{AdminAuth, Auth, SESSION_COOKIE, ShareAuth};
+pub use extract::{AdminAuth, Auth, SESSION_COOKIE, SessionNotShare, SessionOrShare, ShareAuth};
 pub use json::Json;
 pub use problem::Problem;
 pub use state::AppState;
@@ -128,6 +128,7 @@ pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -
         .layer(TraceLayer::new_for_http())
 }
 
+#[allow(clippy::too_many_lines)]
 fn api_routes() -> Router<AppState> {
     Router::new()
         .route("/setup/status", get(routes::setup::status))
@@ -179,6 +180,19 @@ fn api_routes() -> Router<AppState> {
             get(routes::libraries::scan_status).post(routes::libraries::start_scan),
         )
         .route(
+            "/groups",
+            get(routes::groups::list).post(routes::groups::create),
+        )
+        .route(
+            "/groups/{id}",
+            axum::routing::patch(routes::groups::patch).delete(routes::groups::delete),
+        )
+        .route("/groups/{id}/members", get(routes::groups::list_members))
+        .route(
+            "/groups/{group_id}/members/{user_id}",
+            axum::routing::post(routes::groups::add_member).delete(routes::groups::remove_member),
+        )
+        .route(
             "/users",
             get(routes::users::list).post(routes::users::create),
         )
@@ -228,6 +242,34 @@ fn api_routes() -> Router<AppState> {
             axum::routing::post(routes::flags::batch_set),
         )
         .route(
+            "/albums",
+            get(routes::albums::list).post(routes::albums::create),
+        )
+        .route(
+            "/albums/{id}",
+            get(routes::albums::get)
+                .patch(routes::albums::patch)
+                .delete(routes::albums::delete),
+        )
+        .route("/albums/{id}/assets", get(routes::albums::list_assets))
+        .route(
+            "/albums/{id}/assets/{asset_id}",
+            axum::routing::post(routes::albums::add_asset).delete(routes::albums::remove_asset),
+        )
+        .route(
+            "/albums/{id}/assets/{asset_id}/position",
+            axum::routing::patch(routes::albums::reorder_asset),
+        )
+        .route(
+            "/permissions",
+            get(routes::permissions::list).post(routes::permissions::grant),
+        )
+        .route("/permissions/explain", get(routes::permissions::explain))
+        .route(
+            "/permissions/{id}",
+            axum::routing::patch(routes::permissions::patch).delete(routes::permissions::revoke),
+        )
+        .route(
             "/share/links",
             get(routes::share::list_links).post(routes::share::create_link),
         )
@@ -235,7 +277,13 @@ fn api_routes() -> Router<AppState> {
             "/share/links/{id}",
             axum::routing::delete(routes::share::revoke_link),
         )
+        .route(
+            "/guest-uploads/{id}/approve",
+            axum::routing::post(routes::share::approve_guest_upload),
+        )
+        .route("/audit", get(routes::audit::list))
         .route("/share/{token}", get(routes::share::public_info))
+        .route("/share/{token}/assets", get(routes::share::public_assets))
         .route(
             "/share/{token}/auth",
             axum::routing::post(routes::share::public_auth),

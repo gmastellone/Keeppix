@@ -35,6 +35,41 @@ impl AssetRow {
         self.id
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_raw(
+        id: uuid::Uuid,
+        folder_id: uuid::Uuid,
+        filename: String,
+        content_hash: Option<Vec<u8>>,
+        size_bytes: i64,
+        mtime: DateTime<Utc>,
+        inode: Option<i64>,
+        kind: String,
+        status: String,
+        taken_at_utc: Option<DateTime<Utc>>,
+        width: Option<i32>,
+        height: Option<i32>,
+        thumbhash: Option<Vec<u8>>,
+        created_at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            id,
+            folder_id,
+            filename,
+            content_hash,
+            size_bytes,
+            mtime,
+            inode,
+            kind,
+            status,
+            taken_at_utc,
+            width,
+            height,
+            thumbhash,
+            created_at,
+        }
+    }
+
     pub(crate) fn into_domain(self) -> Result<Asset, DbError> {
         Ok(Asset {
             id: AssetId::from_uuid(self.id),
@@ -234,7 +269,7 @@ impl<'a> AssetRepo<'a> {
     /// esiste. `NotFound` solo a un admin che chiede un id inesistente.
     pub async fn find_by_id(&self, ctx: &AuthContext, id: AssetId) -> Result<Asset, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", 2);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
         let row: Option<AssetRow> = sqlx::query_as(&format!(
             "SELECT {A_COLUMNS} FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
@@ -244,6 +279,7 @@ impl<'a> AssetRepo<'a> {
         .bind(id.as_uuid())
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_optional(self.db.pool())
         .await?;
 
@@ -281,7 +317,7 @@ impl<'a> AssetRepo<'a> {
         hash: &[u8; 32],
     ) -> Result<Vec<Asset>, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", 2);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
         let rows: Vec<AssetRow> = sqlx::query_as(&format!(
             "SELECT {A_COLUMNS} FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
@@ -292,6 +328,7 @@ impl<'a> AssetRepo<'a> {
         .bind(hash.as_slice())
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 
@@ -306,7 +343,7 @@ impl<'a> AssetRepo<'a> {
         status: AssetStatus,
     ) -> Result<i64, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", 2);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
         let n: i64 = sqlx::query_scalar(&format!(
             "SELECT count(*) FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
@@ -316,6 +353,7 @@ impl<'a> AssetRepo<'a> {
         .bind(status_str(status))
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_one(self.db.pool())
         .await?;
         Ok(n)
@@ -488,7 +526,7 @@ impl<'a> AssetRepo<'a> {
         }
         let uuids: Vec<uuid::Uuid> = ids.iter().map(AssetId::as_uuid).collect();
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", 2);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
         let visible: i64 = sqlx::query_scalar(&format!(
             "SELECT count(DISTINCT a.id) FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
@@ -498,6 +536,7 @@ impl<'a> AssetRepo<'a> {
         .bind(&uuids)
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_one(self.db.pool())
         .await?;
 

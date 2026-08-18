@@ -48,7 +48,7 @@ impl<'a> DuplicateRepo<'a> {
     /// `Connection` se la query fallisce.
     pub async fn groups(&self, ctx: &AuthContext) -> Result<Vec<DuplicateGroup>, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", 1);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let rows: Vec<(Vec<u8>, i64, i64)> = sqlx::query_as(&format!(
             "SELECT a.content_hash, count(*)::bigint, min(a.size_bytes)::bigint \
                FROM assets a \
@@ -62,6 +62,7 @@ impl<'a> DuplicateRepo<'a> {
         ))
         .bind(filter.bind())
         .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
         Ok(rows

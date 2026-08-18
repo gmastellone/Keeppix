@@ -112,6 +112,16 @@ impl Problem {
         )
     }
 
+    #[must_use]
+    pub fn too_many_requests() -> Self {
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate-limited",
+            "Too many requests, please slow down",
+        )
+        .with_retry_after(60)
+    }
+
     /// Mutazione priva dell'header custom richiesto (vedi `crate::csrf`).
     #[must_use]
     pub fn csrf_check_failed() -> Self {
