@@ -2,6 +2,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum_extra::extract::CookieJar;
+use chrono::{DateTime, Utc};
 use keeppix_db::{SessionRepo, UserRepo};
 use keeppix_domain::{Password, SessionToken, SystemRole, User, Username, verify_password};
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,7 @@ pub struct UserView {
     #[schema(value_type = String)]
     pub role: &'static str,
     pub locale: Option<String>,
+    pub disabled_at: Option<DateTime<Utc>>,
 }
 
 impl From<&User> for UserView {
@@ -40,6 +42,7 @@ impl From<&User> for UserView {
                 SystemRole::User => "user",
             },
             locale: u.locale.clone(),
+            disabled_at: u.disabled_at,
         }
     }
 }

@@ -98,6 +98,7 @@ impl utoipa::Modify for SecurityAddon {
         users::create,
         users::patch,
         users::disable,
+        users::enable,
         users::change_password,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle

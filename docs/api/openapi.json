@@ -2807,6 +2807,66 @@
         ]
       }
     },
+    "/api/v1/users/{id}/enable": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "# Errors\n`403` se non admin.",
+        "operationId": "users_enable",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id utente",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Utente riabilitato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Utente assente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/viewport": {
       "post": {
         "tags": [
@@ -3837,6 +3897,12 @@
               "string",
               "null"
             ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -4308,6 +4374,13 @@
           "role"
         ],
         "properties": {
+          "disabled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "display_name": {
             "type": "string"
           },
