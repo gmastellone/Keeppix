@@ -210,4 +210,24 @@ richiede correggere il dataset normalizzato.
 Task 5 review fixes: complete (commit `e9ae7f4`; RED/GREEN, fmt, clippy, DB,
 jobs e API verdi; evidenza in `.superpowers/sdd/task-5-report.md`)
 
+Task 5: complete (commits d73d6f0..6406358, review clean after atomic apply,
+IANA seed check, geography lookup, and windowed preview)
 
+Ruling: la migrazione regioni è `0022_map_regions.sql`; oltre alle colonne del
+piano conserva `downloaded_bytes` e `last_error`, necessari per mostrare
+avanzamento ed errore leggibile senza interrogare il filesystem dall'API. Costo
+se sbagliato: due colonne globali in più e una futura migrazione per rimuoverle.
+
+Ruling: il file `{data_dir}/maps/{id}.pmtiles.part` è la fonte esatta
+dell'offset di ripresa dopo crash; `downloaded_bytes` ne è uno specchio
+periodico per la UI. Così il resume non dipende dall'ultimo UPDATE riuscito.
+Costo se sbagliato: la barra può restare indietro fino al prossimo checkpoint,
+ma il byte range inviato al server resta esatto.
+
+Ruling: le mutazioni del gestore vivono sotto `/api/v1/map/regions`; `file_path`
+è sempre generato dal server da un id vincolato, mai accettato dal client.
+Costo se sbagliato: il frontend Task 8 deve consumare questo percorso additivo,
+senza cambiare lo schema delle richieste.
+
+Task 7: complete (commit `1aa2844`; RED/GREEN, fmt, clippy, domain, DB, jobs e
+API verdi; evidenza in `.superpowers/sdd/task-7-report.md`)
