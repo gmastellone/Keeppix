@@ -176,13 +176,29 @@
     "explainTitle": "Why can they see this?",
     "explain": "Explain",
     "explainNone": "No access.",
-    "explainLink": "{subject} has role {role} on {on}"
+    "explainLink": "{subject} has role {role} on {on}",
+    "explainLinkInherited": "{subject} has role {role} on {on}, inherited in {inherited}"
   },
   "users": {
     "entry": "Users",
     "title": "Users",
     "empty": "No users.",
-    "admin": "Admin"
+    "admin": "Admin",
+    "createTitle": "New user",
+    "username": "Username",
+    "displayName": "Name",
+    "password": "Initial password",
+    "role": "Role",
+    "roleUser": "User",
+    "roleAdmin": "Admin",
+    "create": "Create user",
+    "disable": "Disable",
+    "enable": "Enable",
+    "disabled": "Disabled",
+    "passwordTitle": "Change my password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "savePassword": "Save password"
   },
   "trash": {
     "entry": "Trash",

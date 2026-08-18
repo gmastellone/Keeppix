@@ -314,11 +314,18 @@ function subjectLabel(grant: PermissionGrant): string {
             :key="index"
           >
             {{
-              t('shares.explainLink', {
-                subject: link.subject_name,
-                role: link.role,
-                on: link.granted_on_name
-              })
+              link.inherited_in
+                ? t('shares.explainLinkInherited', {
+                    subject: link.subject_name,
+                    role: link.role,
+                    on: link.granted_on_name,
+                    inherited: link.inherited_in
+                  })
+                : t('shares.explainLink', {
+                    subject: link.subject_name,
+                    role: link.role,
+                    on: link.granted_on_name
+                  })
             }}
           </li>
         </ul>

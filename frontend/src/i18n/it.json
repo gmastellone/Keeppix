@@ -176,13 +176,29 @@
     "explainTitle": "Perché può vederla?",
     "explain": "Spiega",
     "explainNone": "Nessun accesso.",
-    "explainLink": "{subject} ha ruolo {role} su {on}"
+    "explainLink": "{subject} ha ruolo {role} su {on}",
+    "explainLinkInherited": "{subject} ha ruolo {role} su {on}, ereditato in {inherited}"
   },
   "users": {
     "entry": "Utenti",
     "title": "Utenti",
     "empty": "Nessun utente.",
-    "admin": "Admin"
+    "admin": "Admin",
+    "createTitle": "Nuovo utente",
+    "username": "Username",
+    "displayName": "Nome",
+    "password": "Password iniziale",
+    "role": "Ruolo",
+    "roleUser": "Utente",
+    "roleAdmin": "Admin",
+    "create": "Crea utente",
+    "disable": "Disabilita",
+    "enable": "Riabilita",
+    "disabled": "Disabilitato",
+    "passwordTitle": "Cambia la mia password",
+    "currentPassword": "Password attuale",
+    "newPassword": "Nuova password",
+    "savePassword": "Salva password"
   },
   "trash": {
     "entry": "Cestino",
