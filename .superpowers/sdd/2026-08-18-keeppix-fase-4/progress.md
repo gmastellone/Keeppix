@@ -73,3 +73,6 @@ campo ASCII separato, quindi il nome paese alimenta sia `name` sia
 `ascii_name`. Costo se sbagliato: i pochi nomi paese non ASCII richiederanno una
 traslitterazione esplicita nel build stage.
 
+Task 3 review fix: complete (commits `824c604`, `437bbd9`; DB 14/14, API 6/6,
+fixture normalizer, fmt e clippy verdi)
+
