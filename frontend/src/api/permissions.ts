@@ -9,6 +9,19 @@ export interface PermissionGrant {
   inherited: boolean
 }
 
+export interface ExplainChainLink {
+  subject_type: string
+  subject_name: string
+  role: string
+  granted_on_type: string
+  granted_on_name: string
+}
+
+export interface ExplainResult {
+  granted: boolean
+  chain: ExplainChainLink[]
+}
+
 export function fetchPermissions(object_type: string, object_id: string): Promise<PermissionGrant[]> {
   const q = new URLSearchParams({ object_type, object_id })
   return apiFetch(`/api/v1/permissions?${q}`)
@@ -18,7 +31,7 @@ export function explainPermission(
   object_type: string,
   object_id: string,
   user_id: string
-): Promise<{ granted: boolean; chain: unknown[] }> {
+): Promise<ExplainResult> {
   const q = new URLSearchParams({ object_type, object_id, user_id })
   return apiFetch(`/api/v1/permissions/explain?${q}`)
 }
