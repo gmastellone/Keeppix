@@ -238,7 +238,9 @@ impl<'a> OverrideRepo<'a> {
         let ids: Vec<uuid::Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
         let mut tx = self.db.pool().begin().await?;
 
-        let previous = load_previous(&mut tx, &ids).await?;
+        let captures_location_source =
+            source.is_some() || patch.location.is_some() || patch.place_id.is_some();
+        let previous = load_previous(&mut tx, &ids, captures_location_source).await?;
         let batch_id = BatchId::new();
         sqlx::query("INSERT INTO metadata_batches (id, actor_id, previous) VALUES ($1, $2, $3)")
             .bind(batch_id.as_uuid())
@@ -321,7 +323,7 @@ impl<'a> OverrideRepo<'a> {
 
         let ids: Vec<uuid::Uuid> = assignments.iter().map(|(id, _)| id.as_uuid()).collect();
         let mut tx = self.db.pool().begin().await?;
-        let previous = load_previous(&mut tx, &ids).await?;
+        let previous = load_previous(&mut tx, &ids, true).await?;
         let batch_id = BatchId::new();
         sqlx::query("INSERT INTO metadata_batches (id, actor_id, previous) VALUES ($1, $2, $3)")
             .bind(batch_id.as_uuid())
@@ -456,7 +458,7 @@ impl<'a> OverrideRepo<'a> {
         let ids: Vec<uuid::Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
         let mut tx = self.db.pool().begin().await?;
 
-        let previous = load_previous(&mut tx, &ids).await?;
+        let previous = load_previous(&mut tx, &ids, false).await?;
         let batch_id = BatchId::new();
         sqlx::query("INSERT INTO metadata_batches (id, actor_id, previous) VALUES ($1, $2, $3)")
             .bind(batch_id.as_uuid())
@@ -805,17 +807,20 @@ async fn apply_shift(
 async fn load_previous(
     conn: &mut PgConnection,
     asset_ids: &[uuid::Uuid],
+    capture_location_source: bool,
 ) -> Result<PreviousBatch, DbError> {
     let rows: Vec<OverrideRow> = sqlx::query_as(
         "SELECT a.id AS asset_id, o.asset_id IS NOT NULL AS had_override, \
                 o.title, o.description, o.taken_at, \
                 ST_X(o.location::geometry) AS lon, ST_Y(o.location::geometry) AS lat, \
-                o.place_id, o.orientation, o.updated_by, a.location_source \
+                o.place_id, o.orientation, o.updated_by, \
+                CASE WHEN $2 THEN a.location_source ELSE NULL END AS location_source \
            FROM assets a \
            LEFT JOIN asset_overrides o ON o.asset_id = a.id \
           WHERE a.id = ANY($1)",
     )
     .bind(asset_ids)
+    .bind(capture_location_source)
     .fetch_all(&mut *conn)
     .await?;
 
@@ -833,7 +838,7 @@ async fn load_previous(
                 place_id: row.place_id,
                 orientation: row.orientation,
                 updated_by: row.updated_by,
-                location_source_captured: true,
+                location_source_captured: capture_location_source,
                 location_source: row.location_source,
             },
         );
