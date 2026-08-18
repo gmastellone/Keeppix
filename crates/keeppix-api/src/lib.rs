@@ -19,6 +19,7 @@ pub use problem::Problem;
 pub use state::AppState;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::http::HeaderValue;
 use axum::routing::get;
 use tower_http::compression::CompressionLayer;
@@ -287,6 +288,10 @@ fn api_routes() -> Router<AppState> {
         .route(
             "/share/{token}/auth",
             axum::routing::post(routes::share::public_auth),
+        )
+        .route(
+            "/share/{token}/uploads",
+            axum::routing::post(routes::share::public_upload).layer(DefaultBodyLimit::disable()),
         )
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per

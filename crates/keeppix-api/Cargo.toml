@@ -22,6 +22,7 @@ tokio.workspace = true
 tokio-util = { version = "0.7.19", features = ["io"] }
 tracing.workspace = true
 http = "1.5.0"
+http-body = "1.1.0"
 time = "0.3.55"
 uuid.workspace = true
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }

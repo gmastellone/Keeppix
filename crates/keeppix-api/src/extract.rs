@@ -166,6 +166,7 @@ impl FromRequestParts<AppState> for ShareAuth {
                 allow_original: row.allow_original,
                 hide_metadata: row.hide_metadata,
                 allow_upload: row.allow_upload,
+                upload_quota_bytes: row.upload_quota_bytes,
             },
         );
         Ok(Self(ctx))

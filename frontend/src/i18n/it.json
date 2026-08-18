@@ -185,7 +185,9 @@
     "title": "Contenuto condiviso",
     "notFound": "Questo link condiviso non è valido o è scaduto.",
     "password": "Password",
-    "unlock": "Sblocca"
+    "unlock": "Sblocca",
+    "upload": "Carica una foto",
+    "uploaded": "Caricata. In attesa di revisione."
   },
   "sharePanel": {
     "title": "Condividi",

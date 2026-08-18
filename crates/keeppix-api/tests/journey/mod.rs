@@ -316,6 +316,11 @@ pub async fn create_share_link(
     if let Some(pw) = password {
         body["password"] = json!(pw);
     }
+    create_share_link_from(server, body).await
+}
+
+#[allow(clippy::expect_used)]
+pub async fn create_share_link_from(server: &TestServer, body: serde_json::Value) -> String {
     let response = server
         .client
         .post(server.url("/api/v1/share/links"))

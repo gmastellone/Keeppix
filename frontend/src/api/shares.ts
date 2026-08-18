@@ -58,6 +58,21 @@ export function fetchPublicShareInfo(token: string): Promise<Record<string, unkn
   return apiFetch(`/api/v1/share/${token}`)
 }
 
+export function uploadGuestFile(
+  token: string,
+  filename: string,
+  file: Blob
+): Promise<{ id: string; filename: string }> {
+  return apiFetch(
+    `/api/v1/share/${token}/uploads?filename=${encodeURIComponent(filename)}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: file
+    }
+  )
+}
+
 export function authenticateShare(token: string, password?: string): Promise<null> {
   return apiFetch(`/api/v1/share/${token}/auth`, {
     method: 'POST',
