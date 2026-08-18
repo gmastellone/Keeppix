@@ -198,3 +198,79 @@ Task 14: complete (commits 8ff3c4f wired, c539eff SharesView, dc977a9
 editor guard, plus this docs commit). Local: `npm run build`,
 `cargo fmt --check`, `clippy -D warnings` green. Full `./scripts/test.sh`
 left to GitHub CI (disk).
+
+---
+
+## Task 15 — two holes found only by clicking, not by reading
+
+### 15a — UsersView was still Task 12a's read-only list
+
+`api/users.ts` was imported, so `check-wired.py` treated the file as reached.
+None of create / PATCH role / disable / password were called from a template.
+An admin could not create the second user needed to test sharing without curl.
+
+Ruling: `POST /api/v1/users/{id}/enable` is new; disable already existed.
+The enable button in the panel had nowhere to POST. Additive `/api/v1`.
+Cost if wrong: a disabled user stays disabled until someone curls.
+
+Ruling: `PATCH /users/{id}` accepts `role`. Non-admin sending a role is
+`Forbidden` in `UserRepo::update_profile`. Cost if wrong: a user can
+promote themselves if the HTTP layer forgets the check — the repo is the
+gate.
+
+Ruling: `UserView.disabled_at` is additive on login/me/list so the panel
+can show who is off. Cost if wrong: old generated clients see a new
+nullable field; `/api/v1` allows that.
+
+Ruling: the panel does not offer disable/role on the current user. Cost if
+wrong: an admin can lock themselves out from the UI (the API still can).
+
+Ruling: create/password buttons are `type="button"` + `@click`, same as
+SharesView in 14a — VTU does not fire submit from a submit-button click.
+Cost if wrong: Enter in the browser still works via `@submit.prevent`.
+
+Ruling: `check-wired.py` stays file-level. Making it prove every exported
+function is called from a template is real static analysis, not a grep.
+Cost if wrong: the next "imported but never called" hole slips through
+the same way 12a did.
+
+Tests click the form (`setValue` / `trigger('click')`) and never call
+`createUser` from the test helper. HTTP: PATCH role lists mario as admin;
+disable then enable then login works.
+
+### 15b — Explain printed UUIDs
+
+`PermissionRepo::explain` used `user_id.to_string()` and
+`object_id.to_string()`, and only a direct user grant on the exact object.
+The panel showed `01a015a3-… has role viewer on 01a0159e-…`. Data correct,
+presentation not the spec §3.1 sentence.
+
+Ruling: resolve subject to display name (person or group) and object to a
+readable folder path `/Library/a/b` (root folder name is empty, skipped).
+Missing rows fall back to `"folder"` / `"album"` / `"asset"` / subject_type,
+never to a UUID. Cost if wrong: a renamed library looks stale until reload.
+
+Ruling: `inherited_in` is set when the grant's object is not the target.
+The chain is "Famiglia has role viewer on /Foto/Vacanze, inherited in
+/Foto/Vacanze/2024/Grecia". Cost if wrong: a direct grant on the leaf
+omits the inherited clause (correct).
+
+Ruling: ponytail — explain lists matching grants (`inherit` on an ancestor,
+or exact). It does not punch `inherit=false` holes the way `VisibilityScope`
+does. Soffitto: an ancestor inherit can still appear under a non-inheriting
+node. Upgrade: the same rule as visibility.
+
+Test: group Famiglia, viewer on /Foto/Vacanze, explain on Grecia — names
+and paths, `looks_like_uuid` false. Frontend chain text matches no UUID
+regex.
+
+Local: `cd frontend && npm ci && npm run build` green (UsersView,
+SharesView, i18n: 12 tests). `cargo fmt --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` green.
+Targeted (not `./scripts/test.sh`): `keeppix-api` openapi 6, users 8,
+`keeppix-db` `explain_uses_names_and_folder_paths_not_uuids`. Full suite
+left to GitHub CI.
+
+Task 15: complete (commits 7fd6ade web, cf32c0a enable/role, b14b170
+explain names, plus this ledger)
+
