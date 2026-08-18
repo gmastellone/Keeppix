@@ -1335,6 +1335,108 @@ foto fuori dal raggio le porta.
 
 ---
 
+## Task 15: due buchi trovati solo cliccando davvero, non leggendo il codice
+
+Il Task 14 ha chiuso 14a con una revisione del codice e dei test. Poi, prima
+di dare l'ok al merge, l'ho usato davvero dal browser — condiviso una
+cartella da Tester a un secondo utente, effettuato il login come quel
+secondo utente, verificato che vedesse la timeline. **Il flusso di
+condivisione funziona correttamente, confermato end-to-end**: `SharesView`
+crea il grant, l'utente destinatario vede l'asset al login successivo, il
+menu nasconde correttamente Users/Groups a un non-admin.
+
+Ma usare l'interfaccia — non solo leggerne il codice — ha scoperto due cose
+che la lettura sola non aveva preso.
+
+### 15a — la gestione utenti è di sola lettura
+
+**Non è un rilievo nuovo: è il Task 12a originale, mai chiuso davvero.**
+`frontend/src/views/UsersView.vue`, per intero:
+
+```vue
+<script setup lang="ts">
+import { fetchUsers, type UserSummary } from '@/api/users'
+import { fetchAuditLog } from '@/api/audit'
+// …
+async function load() {
+  users.value = await fetchUsers()
+  await fetchAuditLog(1).catch(() => undefined)   // risultato scartato, non mostrato
+}
+</script>
+```
+
+Il template renderizza solo un elenco (`<li>` per utente, nome, badge admin).
+**Nessun pulsante creazione, nessun cambio ruolo, nessuna disabilitazione,
+nessun cambio password.** Verificato per assenza, non per ispezione
+superficiale: zero occorrenze di `create`, `POST`, `role`, `disable`,
+`password` in tutto il file.
+
+Le rotte backend esistono e sono corrette (`POST /users`,
+`PATCH /users/{id}`, `POST /users/{id}/disable`, `POST /users/me/password`
+— verificate nel Task 13). `check-wired.py` non l'ha preso perché
+`api/users.ts` **è** importato da `UsersView.vue` — la guardia verifica che
+il *file* sia raggiunto da una vista, non che ogni funzione che esporta sia
+davvero chiamata. È un limite noto della guardia, non un difetto della
+guardia: renderla precisa a livello di singola funzione esportata costerebbe
+analisi statica reale, non un `grep`.
+
+Durante la verifica ho dovuto creare un secondo utente con una chiamata
+diretta all'API per poter testare la condivisione — dal pannello non è
+possibile.
+
+**Correzione.** Aggiungere a `UsersView`: form di creazione (username,
+display name, password iniziale, ruolo), controllo di cambio ruolo per
+riga, pulsante disabilita/riabilita, e una sezione "cambia la mia password"
+per l'utente corrente. Le funzioni API esistono già e sono testate — vanno
+solo chiamate da un template, come già fatto per `SharesView` col Task 14a.
+
+**Test.** Un admin crea un utente dal browser, senza `curl` né SQL; l'utente
+appena creato può accedere; l'admin lo disabilita e le sue sessioni cadono
+subito (già provato lato backend da V10 — qui serve lo stesso percorso
+partendo da un click, non da una richiesta HTTP diretta nel test).
+
+### 15b — `explain` mostra id, non la catena leggibile che la spec promette
+
+`docs/superpowers/specs/fase-3-multiutente.md` §3.1, la ragione dichiarata
+per cui questo progetto ha scelto solo-allow invece di un sistema con deny:
+
+> L'interfaccia può sempre rispondere alla domanda **«perché ho accesso a
+> questa foto?»** con una catena leggibile: «Hai accesso perché → il gruppo
+> Famiglia ha ruolo *viewer* su /Foto/Vacanze, ereditato in /2024/Grecia.»
+
+Quello che il pannello mostra oggi, verificato cliccando `Explain`:
+
+```
+01a015a3-6eea-7ca2-8532-d2a5069bae15 has role viewer on 01a0159e-ca85-7a41-a3eb-f15e2ffdf354
+```
+
+UUID dell'utente, UUID della cartella. **I dati sono corretti** — è la
+presentazione a non essere quella promessa. Non un difetto di sicurezza: un
+difetto della ragione stessa per cui questo pannello esiste.
+
+**Correzione.** Nella risposta di `explainPermission`, o nel componente che
+la mostra, risolvere gli id in nomi: display name della persona/gruppo,
+percorso della cartella (non il suo id), e se il permesso è ereditato,
+indicare da quale nodo — esattamente la frase che la spec cita come
+esempio.
+
+**Test.** La catena mostrata per un permesso ereditato contiene il nome
+della persona o del gruppo e il percorso leggibile della cartella, non un
+UUID in nessuna delle due posizioni.
+
+### Criterio di chiusura del Task 15
+
+- [ ] Un admin crea, modifica il ruolo, disabilita un utente e cambia la
+      propria password — tutto dal browser.
+- [ ] La catena di `Explain` è leggibile: nomi e percorsi, non id.
+- [ ] Provato di nuovo a mano: condivisione end-to-end come fatto per
+      verificare 15a/15b, questa volta senza dover ricorrere a una chiamata
+      API diretta per nessun passo.
+
+- [ ] **Step 1-3: Scrivere, verificare, committare**
+
+---
+
 ## Nota storica: cosa è stato spostato in Fase 2R3
 
 **Non sono task da eseguire.** Questa sezione esiste perché chi legge il piano
@@ -1360,10 +1462,12 @@ scala che la 2R3 lascia in eredità, invece di doverla scrivere.
 
 Ognuno è **eseguibile**.
 
-- [ ] **I Task 13 e 14 sono chiusi** — i sei rilievi di sicurezza e i tre
-      buchi funzionali, non solo i task 1-12. Nessun altro criterio qui sotto
-      conta se un link con password concede accesso senza password, o se
-      nessuno può condividere una cartella dal browser.
+- [ ] **I Task 13, 14 e 15 sono chiusi** — i sei rilievi di sicurezza, i tre
+      buchi funzionali, e i due trovati solo cliccando davvero l'interfaccia
+      (non solo i task 1-12). Nessun altro criterio qui sotto conta se un
+      link con password concede accesso senza password, se nessuno può
+      condividere una cartella dal browser, o se un admin non può creare un
+      utente senza `curl`.
 - [ ] `cargo test --workspace -- --test-threads=1` verde; clippy e fmt puliti
       — **rieseguiti sull'ultimo commit**, non dedotti da una fase precedente.
 - [ ] I viaggi **V5-V12** passano, oltre a V1-V4 della Fase 2R, e **V9 passa
