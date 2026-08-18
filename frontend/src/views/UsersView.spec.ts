@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
+import { ApiProblem } from '@/api/client'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
 
@@ -64,6 +65,7 @@ async function mountUsers() {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div />' } },
+      { path: '/login', component: { template: '<div />' } },
       { path: '/users', component: UsersView }
     ]
   })
@@ -71,7 +73,7 @@ async function mountUsers() {
   await router.isReady()
   const wrapper = mount(UsersView, { global: { plugins: [router, i18n, pinia] } })
   await flushPromises()
-  return wrapper
+  return { wrapper, router, session }
 }
 
 beforeEach(() => {
@@ -90,7 +92,7 @@ afterEach(() => {
 
 describe('UsersView', () => {
   it('crea un utente dal form, senza chiamare l’API dal test', async () => {
-    const wrapper = await mountUsers()
+    const { wrapper } = await mountUsers()
 
     await wrapper.get('[data-testid="users-username"]').setValue('bob')
     await wrapper.get('[data-testid="users-display-name"]').setValue('Bob')
@@ -114,7 +116,7 @@ describe('UsersView', () => {
       return bob
     })
 
-    const wrapper = await mountUsers()
+    const { wrapper } = await mountUsers()
     await wrapper.get('[data-testid="users-username"]').setValue('bob')
     await wrapper.get('[data-testid="users-display-name"]').setValue('Bob')
     await wrapper.get('[data-testid="users-password"]').setValue('bob-password-ok')
@@ -126,7 +128,7 @@ describe('UsersView', () => {
 
   it('disabilita un utente con un click, non con una chiamata diretta nel test', async () => {
     vi.mocked(fetchUsers).mockResolvedValue([admin, bob])
-    const wrapper = await mountUsers()
+    const { wrapper } = await mountUsers()
 
     await wrapper.get(`[data-testid="users-disable-${bob.id}"]`).trigger('click')
     await flushPromises()
@@ -140,7 +142,7 @@ describe('UsersView', () => {
       admin,
       { ...bob, disabled_at: '2026-08-18T12:00:00Z' }
     ])
-    const wrapper = await mountUsers()
+    const { wrapper } = await mountUsers()
 
     await wrapper.get(`[data-testid="users-enable-${bob.id}"]`).trigger('click')
     await flushPromises()
@@ -150,7 +152,7 @@ describe('UsersView', () => {
 
   it('cambia il ruolo di una riga dal select', async () => {
     vi.mocked(fetchUsers).mockResolvedValue([admin, bob])
-    const wrapper = await mountUsers()
+    const { wrapper } = await mountUsers()
 
     await wrapper.get(`[data-testid="users-role-${bob.id}"]`).setValue('admin')
     await flushPromises()
@@ -159,7 +161,7 @@ describe('UsersView', () => {
   })
 
   it('cambia la password dell’utente corrente dal form', async () => {
-    const wrapper = await mountUsers()
+    const { wrapper } = await mountUsers()
 
     await wrapper.get('[data-testid="users-current-password"]').setValue('correct horse battery staple')
     await wrapper.get('[data-testid="users-new-password"]').setValue('new-password-ok')
@@ -170,5 +172,16 @@ describe('UsersView', () => {
       'correct horse battery staple',
       'new-password-ok'
     )
+  })
+
+  it('su sessione scaduta (401) rimanda al login invece di mostrare un errore generico', async () => {
+    vi.mocked(fetchUsers).mockRejectedValue(
+      new ApiProblem('keeppix/unauthenticated', 'Authentication required', 401)
+    )
+    const { wrapper, router, session } = await mountUsers()
+
+    expect(router.currentRoute.value.path).toBe('/login')
+    expect(session.user).toBeNull()
+    expect(wrapper.text()).not.toContain('An unexpected error occurred.')
   })
 })

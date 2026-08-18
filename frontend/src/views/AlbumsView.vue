@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import { createAlbum, deleteAlbum, fetchAlbums, type Album } from '@/api/albums'
+import { isUnauthenticated } from '@/api/client'
+import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
+const router = useRouter()
+const session = useSessionStore()
 
 const albums = ref<Album[]>([])
 const loadError = ref(false)
@@ -18,7 +23,12 @@ async function load() {
   loadError.value = false
   try {
     albums.value = await fetchAlbums()
-  } catch {
+  } catch (error) {
+    if (isUnauthenticated(error)) {
+      session.user = null
+      await router.push('/login')
+      return
+    }
     loadError.value = true
   }
 }

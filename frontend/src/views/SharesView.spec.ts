@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
@@ -61,6 +62,8 @@ const famiglia = {
 }
 
 async function mountShares() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -70,7 +73,7 @@ async function mountShares() {
   })
   await router.push('/shares')
   await router.isReady()
-  const wrapper = mount(SharesView, { global: { plugins: [router, i18n] } })
+  const wrapper = mount(SharesView, { global: { plugins: [router, i18n, pinia] } })
   await flushPromises()
   return wrapper
 }
