@@ -128,4 +128,24 @@ verdi; evidenza in `.superpowers/sdd/task-4-report.md`)
 Task 4: complete (commits 3be62ad..397abcc, review clean after undo
 location_source + GPX segment-boundary fixes)
 
+Ruling: la cella della griglia misura `90 / 2^zoom` gradi (64 pixel su una
+tile mondiale da 256 pixel), con zoom interno clampato a 30. Il test pinna
+coordinate di snap esatte a zoom 10. Costo se sbagliato: cambia la densità dei
+cluster, non il contratto HTTP né la visibilità.
+
+Ruling: `saved_searches` conserva solo `query_text`, mentre il cluster riceve
+solo `scope_id`; `SearchRepo::saved_query` interpreta quindi sul server la
+stessa grammatica testuale già usata dal frontend e riusa il compilatore SQL
+parametrizzato esistente. Costo se sbagliato: le due implementazioni del parser
+possono divergere e andranno sostituite da un AST persistito in una migrazione
+compatibile.
+
+Ruling: zoom >= 15 prova al massimo 501 punti; fino a 500 restituisce punti
+singoli, il 501esimo innesca la query aggregata. Così il controllo del cap non
+materializza l'intero viewport. Costo se sbagliato: una seconda query solo nei
+viewport densi ad alto zoom.
+
+Task 6: complete (commit `a42e8cc`, fmt, clippy, DB e API verdi; evidenza in
+`.superpowers/sdd/task-6-report.md`)
+
 
