@@ -147,4 +147,4 @@ One commit per unit from 13a onward. History of `ff03fcb` not rewritten.
 
 ---
 
-Task 13: in progress until fmt/clippy/`test.sh`/`npm run build` are green on this tree.
+Task 13: complete (commit 23a04f9 + this ledger close; `npm run build`, `cargo fmt --check`, `clippy -D warnings`, `./scripts/test.sh` green on 23a04f9)
