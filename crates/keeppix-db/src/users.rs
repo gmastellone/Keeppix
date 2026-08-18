@@ -199,22 +199,29 @@ impl<'a> UserRepo<'a> {
         rows.into_iter().map(UserRow::into_domain).collect()
     }
 
-    /// Aggiorna `display_name` e/o `locale`. Admin può chiunque; altrimenti solo sé.
+    /// Aggiorna `display_name`, `locale` e/o `role`. Admin può chiunque;
+    /// altrimenti solo sé, e non il ruolo.
     ///
     /// # Errors
-    /// `Forbidden` / `NotFound` come `find_by_id`.
+    /// `Forbidden` / `NotFound` come `find_by_id`. `Forbidden` se un non-admin
+    /// prova a cambiare il ruolo.
     pub async fn update_profile(
         &self,
         ctx: &AuthContext,
         id: UserId,
         display_name: Option<&str>,
         locale: Option<&str>,
+        role: Option<SystemRole>,
     ) -> Result<User, DbError> {
         self.find_by_id(ctx, id).await?;
+        if role.is_some() && !ctx.is_admin() {
+            return Err(DbError::Forbidden);
+        }
         let row: UserRow = sqlx::query_as(
             "UPDATE users SET \
                 display_name = COALESCE($2, display_name), \
                 locale = COALESCE($3, locale), \
+                role = COALESCE($4, role), \
                 updated_at = now() \
               WHERE id = $1 \
               RETURNING id, username, email, display_name, role, locale, created_at, disabled_at",
@@ -222,6 +229,7 @@ impl<'a> UserRepo<'a> {
         .bind(id.as_uuid())
         .bind(display_name)
         .bind(locale)
+        .bind(role.map(role_str))
         .fetch_one(self.db.pool())
         .await?;
         row.into_domain()
@@ -245,6 +253,35 @@ impl<'a> UserRepo<'a> {
         .await?;
         if result.rows_affected() == 0 {
             // Già disabilitato o inesistente: distingue.
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+                    .bind(id.as_uuid())
+                    .fetch_one(self.db.pool())
+                    .await?;
+            if exists {
+                return Ok(());
+            }
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Azzera `disabled_at`. Solo admin.
+    ///
+    /// # Errors
+    /// `Forbidden` se non admin; `NotFound` se l'id non esiste.
+    pub async fn enable(&self, ctx: &AuthContext, id: UserId) -> Result<(), DbError> {
+        if !ctx.is_admin() {
+            return Err(DbError::Forbidden);
+        }
+        let result = sqlx::query(
+            "UPDATE users SET disabled_at = NULL, updated_at = now() \
+              WHERE id = $1 AND disabled_at IS NOT NULL",
+        )
+        .bind(id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        if result.rows_affected() == 0 {
             let exists: bool =
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
                     .bind(id.as_uuid())

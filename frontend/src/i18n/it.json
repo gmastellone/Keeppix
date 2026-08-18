@@ -58,6 +58,13 @@
     }
   },
   "home": { "greeting": "Ciao, {name}", "logout": "Esci" },
+  "folders": {
+    "entry": "Cartelle",
+    "title": "Cartelle",
+    "back": "Foto",
+    "empty": "Nessuna cartella da mostrare.",
+    "move": "Sposta"
+  },
   "timeline": {
     "kind": "Tipo",
     "kinds": { "all": "Tutti", "photo": "Foto", "video": "Video" },
@@ -125,6 +132,103 @@
     "duplicates": "Duplicati",
     "none": "Niente da segnalare.",
     "reclaimable": "{count} copie, {bytes} byte recuperabili"
+  },
+  "groups": {
+    "entry": "Gruppi",
+    "title": "Gruppi",
+    "namePlaceholder": "Nome del gruppo",
+    "create": "Crea",
+    "empty": "Nessun gruppo.",
+    "memberCount": "{count} membri",
+    "delete": "Elimina"
+  },
+  "albums": {
+    "entry": "Album",
+    "title": "Album",
+    "namePlaceholder": "Nome dell'album",
+    "create": "Crea",
+    "empty": "Nessun album.",
+    "assetCount": "{count} foto",
+    "delete": "Elimina"
+  },
+  "shares": {
+    "entry": "Condivisioni",
+    "title": "Condivisioni",
+    "linksTitle": "Link pubblici",
+    "peopleTitle": "Persone e gruppi",
+    "empty": "Nessun link condiviso.",
+    "expires": "Scade il {date}",
+    "revoke": "Revoca",
+    "views": "{count} visite",
+    "folder": "Cartella",
+    "chooseFolder": "Scegli una cartella",
+    "subjectType": "Condividi con",
+    "person": "Persona",
+    "group": "Gruppo",
+    "subject": "Chi",
+    "chooseSubject": "Scegli",
+    "role": "Ruolo",
+    "viewer": "Lettore",
+    "editor": "Editor",
+    "inherit": "Includi le sottocartelle",
+    "grant": "Condividi",
+    "grantsEmpty": "Nessun accesso diretto.",
+    "explainTitle": "Perché può vederla?",
+    "explain": "Spiega",
+    "explainNone": "Nessun accesso.",
+    "explainLink": "{subject} ha ruolo {role} su {on}",
+    "explainLinkInherited": "{subject} ha ruolo {role} su {on}, ereditato in {inherited}"
+  },
+  "users": {
+    "entry": "Utenti",
+    "title": "Utenti",
+    "empty": "Nessun utente.",
+    "admin": "Admin",
+    "createTitle": "Nuovo utente",
+    "username": "Username",
+    "displayName": "Nome",
+    "password": "Password iniziale",
+    "role": "Ruolo",
+    "roleUser": "Utente",
+    "roleAdmin": "Admin",
+    "create": "Crea utente",
+    "disable": "Disabilita",
+    "enable": "Riabilita",
+    "disabled": "Disabilitato",
+    "passwordTitle": "Cambia la mia password",
+    "currentPassword": "Password attuale",
+    "newPassword": "Nuova password",
+    "savePassword": "Salva password"
+  },
+  "trash": {
+    "entry": "Cestino",
+    "title": "Cestino",
+    "empty": "Il cestino è vuoto.",
+    "emptyAll": "Svuota cestino",
+    "restore": "Ripristina",
+    "purge": "Elimina definitivamente",
+    "expires": "Scade il {date}"
+  },
+  "batchEdit": {
+    "title": "Modifica in blocco",
+    "count": "{count} foto selezionate",
+    "fieldPlaceholder": "Nome campo",
+    "valuePlaceholder": "Nuovo valore",
+    "apply": "Applica",
+    "done": "Modifiche applicate."
+  },
+  "shared": {
+    "title": "Contenuto condiviso",
+    "notFound": "Questo link condiviso non è valido o è scaduto.",
+    "password": "Password",
+    "unlock": "Sblocca",
+    "upload": "Carica una foto",
+    "uploaded": "Caricata. In attesa di revisione."
+  },
+  "sharePanel": {
+    "title": "Condividi",
+    "close": "Chiudi",
+    "createLink": "Crea link"
   },
   "common": {
     "loading": "Caricamento…",

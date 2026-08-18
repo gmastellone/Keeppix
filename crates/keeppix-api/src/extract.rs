@@ -1,13 +1,18 @@
 use axum::extract::FromRequestParts;
+use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use axum_extra::extract::CookieJar;
-use keeppix_db::{DbError, SessionRepo};
-use keeppix_domain::{AuthContext, SessionToken};
+use keeppix_db::{DbError, SessionRepo, ShareLinkRepo};
+use keeppix_domain::{AuthContext, SessionToken, ShareToken};
 
 use crate::problem::Problem;
 use crate::state::AppState;
 
 pub const SESSION_COOKIE: &str = "__Host-kpx_session";
+/// Opaque proof that the guest unlocked a password-protected share link.
+pub const SHARE_UNLOCK_COOKIE: &str = "__Host-kpx_share";
+/// Share-link token for same-origin media requests that cannot set headers.
+pub const SHARE_LINK_COOKIE: &str = "__Host-kpx_share_link";
 
 /// Traduce l'errore di una verifica di sessione. È l'unico posto in cui questa
 /// decisione viene presa: la usano sia l'extractor `Auth` sia l'handler
@@ -74,6 +79,133 @@ impl FromRequestParts<AppState> for Auth {
             hook();
         }
 
+        Ok(Self(ctx))
+    }
+}
+
+const SHARE_TOKEN_HEADER: &str = "x-share-token";
+
+/// Share links are confined to explicit share routes and media; timeline and
+/// search must not widen the perimeter.
+///
+/// # Errors
+/// `403` when a share token is present on a session-only route.
+pub fn reject_public_share_token(headers: &HeaderMap) -> Result<(), Problem> {
+    if headers.contains_key(SHARE_TOKEN_HEADER) {
+        return Err(Problem::forbidden());
+    }
+    Ok(())
+}
+
+/// Extractor for share-link authentication. Reads the token from the
+/// `X-Share-Token` header or from the path parameter `:token`. Produces an
+/// `AuthContext::ShareLink` if valid; otherwise rejects with 403.
+pub struct ShareAuth(pub AuthContext);
+
+impl FromRequestParts<AppState> for ShareAuth {
+    type Rejection = Problem;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let token_str = parts
+            .headers
+            .get(SHARE_TOKEN_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+            .or_else(|| {
+                parts
+                    .uri
+                    .path()
+                    .strip_prefix("/api/v1/share/")
+                    .and_then(|rest| rest.split('/').next())
+                    .map(str::to_owned)
+            })
+            .or_else(|| {
+                CookieJar::from_headers(&parts.headers)
+                    .get(SHARE_LINK_COOKIE)
+                    .map(|c| c.value().to_owned())
+            })
+            .ok_or_else(Problem::forbidden)?;
+
+        if !state.share_limiter.check_and_record(&token_str) {
+            return Err(Problem::too_many_requests());
+        }
+
+        let share_token = ShareToken::from_string(token_str);
+        let hash = share_token.digest();
+
+        let row = ShareLinkRepo::new(&state.db)
+            .lookup_by_token_hash(&hash)
+            .await
+            .map_err(|_| Problem::forbidden())?
+            .ok_or_else(Problem::forbidden)?;
+
+        if row.password_hash.is_some() {
+            let jar = CookieJar::from_headers(&parts.headers);
+            let unlock = parts
+                .headers
+                .get("x-share-unlock")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+                .or_else(|| jar.get(SHARE_UNLOCK_COOKIE).map(|c| c.value().to_owned()))
+                .ok_or_else(Problem::forbidden)?;
+            let unlock_token = ShareToken::from_string(unlock);
+            if !state.share_unlocks.check(row.id, &unlock_token) {
+                return Err(Problem::forbidden());
+            }
+        }
+
+        let ctx = AuthContext::share_link(
+            row.id,
+            keeppix_domain::ShareLinkParams {
+                object_type: row.object_type,
+                object_id: row.object_id,
+                allow_download: row.allow_download,
+                allow_original: row.allow_original,
+                hide_metadata: row.hide_metadata,
+                allow_upload: row.allow_upload,
+                upload_quota_bytes: row.upload_quota_bytes,
+            },
+        );
+        Ok(Self(ctx))
+    }
+}
+
+/// Rejects share-link tokens on routes that must stay session-only.
+pub struct SessionNotShare(pub AuthContext);
+
+impl FromRequestParts<AppState> for SessionNotShare {
+    type Rejection = Problem;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        reject_public_share_token(&parts.headers)?;
+        let Auth(ctx) = Auth::from_request_parts(parts, state).await?;
+        Ok(Self(ctx))
+    }
+}
+
+/// Session cookie or `X-Share-Token` header — used by media routes that must
+/// work for both logged-in users and public share links.
+pub struct SessionOrShare(pub AuthContext);
+
+impl FromRequestParts<AppState> for SessionOrShare {
+    type Rejection = Problem;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let jar = CookieJar::from_headers(&parts.headers);
+        if jar.get(SESSION_COOKIE).is_some() {
+            let Auth(ctx) = Auth::from_request_parts(parts, state).await?;
+            return Ok(Self(ctx));
+        }
+        let ShareAuth(ctx) = ShareAuth::from_request_parts(parts, state).await?;
         Ok(Self(ctx))
     }
 }

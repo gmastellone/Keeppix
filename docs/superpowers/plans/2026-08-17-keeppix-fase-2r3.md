@@ -1,6 +1,8 @@
 # Fase 2R3 — leggerezza dei derivati e debiti di processo
 
-**Stato:** ⬜ da eseguire.
+**Stato:** ✅ **chiusa e mergiata in `main`** (PR #7, `81b09e5`). Task 1-8 più i
+rilievi R1-R6 tutti verificati sull'archivio reale; vedi la sezione finale di
+questo documento per le misure.
 **Branch di partenza:** `main`, dopo il merge di `fase-2r2`.
 **Branch di lavoro:** `fase-2r3`.
 

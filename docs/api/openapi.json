@@ -1031,6 +1031,87 @@
         ]
       }
     },
+    "/api/v1/folders/{id}": {
+      "patch": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "Sposta il sottoalbero. Gli asset restano sulla stessa riga: si riscrive\nsolo `folders.path`.",
+        "description": "# Errors\n`401`; `403` se non visibile o se il chiamante è solo viewer; `409` su\nciclo o collisione di nome.",
+        "operationId": "folders_move",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della cartella da spostare",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveFolderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Sottoalbero spostato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Cartella non visibile o ruolo insufficiente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ciclo o nome già presente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/folders/{id}/children": {
       "get": {
         "tags": [
@@ -2726,6 +2807,66 @@
         ]
       }
     },
+    "/api/v1/users/{id}/enable": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "# Errors\n`403` se non admin.",
+        "operationId": "users_enable",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id utente",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Utente riabilitato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Utente assente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/viewport": {
       "post": {
         "tags": [
@@ -3690,6 +3831,17 @@
           }
         }
       },
+      "MoveFolderRequest": {
+        "type": "object",
+        "required": [
+          "parent_id"
+        ],
+        "properties": {
+          "parent_id": {
+            "type": "string"
+          }
+        }
+      },
       "OfflineLibraryView": {
         "type": "object",
         "required": [
@@ -3741,6 +3893,12 @@
             ]
           },
           "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
             "type": [
               "string",
               "null"
@@ -4216,6 +4374,13 @@
           "role"
         ],
         "properties": {
+          "disabled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "display_name": {
             "type": "string"
           },

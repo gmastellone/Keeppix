@@ -5,7 +5,7 @@ use keeppix_db::{SearchNode, SearchRepo};
 use keeppix_domain::AssetId;
 use serde::{Deserialize, Serialize};
 
-use crate::extract::Auth;
+use crate::extract::{Auth, SessionNotShare};
 use crate::json::Json;
 use crate::problem::Problem;
 use crate::routes::timeline::{AssetView, encode_cursor};
@@ -66,7 +66,7 @@ pub struct SavedSearchView {
 )]
 pub async fn run(
     State(state): State<AppState>,
-    Auth(ctx): Auth,
+    SessionNotShare(ctx): SessionNotShare,
     Json(body): Json<SearchRequest>,
 ) -> Result<Json<SearchPage>, Problem> {
     let cursor = match body.cursor.as_deref() {

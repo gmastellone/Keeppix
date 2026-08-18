@@ -11,6 +11,7 @@ export interface User {
   email: string | null
   role: 'admin' | 'user'
   locale: string | null
+  disabled_at?: string | null
 }
 
 export interface SetupPayload {
@@ -44,4 +45,8 @@ export function me(): Promise<{ user: User }> {
 
 export function logout(): Promise<null> {
   return apiFetch('/api/v1/auth/logout', { method: 'POST' })
+}
+
+export function refresh(): Promise<null> {
+  return apiFetch('/api/v1/auth/refresh', { method: 'POST' })
 }

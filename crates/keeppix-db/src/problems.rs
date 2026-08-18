@@ -46,7 +46,7 @@ impl<'a> ProblemsRepo<'a> {
     /// `Connection` se una delle query fallisce.
     pub async fn list(&self, ctx: &AuthContext) -> Result<ProblemSet, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let lib_filter = scope.filter("id", 1);
+        let lib_filter = scope.filter_library("id", 1);
         let offline: Vec<(uuid::Uuid, String)> = sqlx::query_as(&format!(
             "SELECT id, name FROM libraries \
               WHERE status = 'offline' AND {} \
@@ -54,10 +54,12 @@ impl<'a> ProblemsRepo<'a> {
             lib_filter.sql()
         ))
         .bind(lib_filter.bind())
+        .bind(lib_filter.holes())
+        .bind(lib_filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 
-        let asset_filter = scope.filter("f.library_id", 1);
+        let asset_filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let errors: Vec<(uuid::Uuid, String)> = sqlx::query_as(&format!(
             "SELECT a.id, a.filename FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
@@ -67,6 +69,8 @@ impl<'a> ProblemsRepo<'a> {
             asset_filter.sql()
         ))
         .bind(asset_filter.bind())
+        .bind(asset_filter.holes())
+        .bind(asset_filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 

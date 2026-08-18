@@ -1,6 +1,8 @@
 mod harness;
 
 use harness::{TestServer, assert_security_headers, plain_client};
+use keeppix_db::UserRepo;
+use keeppix_domain::{AuthContext, SystemRole};
 use serde_json::json;
 
 /// `keeppix_api::router(state)` — il router *con* stato, montato da
@@ -521,10 +523,9 @@ async fn refresh_rotates_the_session_cookie() {
     );
 }
 
-/// La SPA non chiama `/auth/refresh`. La sessione è un cookie assoluto:
-/// scaduto, il prossimo GET è 401. Non c'è sliding sulle richieste
-/// autenticate. Con il default di 30 giorni non si viene buttati fuori a
-/// metà culling; si viene buttati fuori dopo 30 giorni di orologio.
+/// `authenticate` non slitta `expires_at`. Senza un `POST /auth/refresh`
+/// (ora dal watchdog della SPA, a scheda visibile) la sessione è assoluta:
+/// scaduto, il prossimo GET è 401.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn an_expired_session_is_unauthenticated_without_calling_refresh() {
@@ -612,6 +613,96 @@ async fn refresh_rejects_a_reused_token() {
         survivor.status(),
         401,
         "il riuso deve revocare l'intera famiglia, non solo il token ripresentato"
+    );
+}
+
+/// `rotate` ricontrolla `disabled_at`. Il disable HTTP revoca anche le
+/// sessioni: qui si imposta solo la colonna, altrimenti il 401 sarebbe
+/// per token revocato e il join passerebbe inosservato.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn refresh_rejects_a_disabled_user() {
+    let server = TestServer::start().await;
+    let setup = server
+        .client
+        .post(server.url("/api/v1/setup"))
+        .json(&json!({
+            "username": "giovanni",
+            "display_name": "Giovanni",
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), 201);
+
+    let me = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+    let id = me.json::<serde_json::Value>().await.unwrap()["user"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    UserRepo::new(&server.db)
+        .disable(&AuthContext::user(id, SystemRole::Admin), id)
+        .await
+        .unwrap();
+
+    let refresh = server
+        .client
+        .post(server.url("/api/v1/auth/refresh"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refresh.status(), 401);
+    let body: serde_json::Value = refresh.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/unauthenticated");
+}
+
+/// TTL breve: senza refresh la sessione cade; con un refresh a scheda
+/// attiva sopravvive oltre la scadenza originale.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn refresh_slides_expiry_so_an_active_session_survives() {
+    let server =
+        TestServer::start_with(|s| s.with_session_ttl(std::time::Duration::from_secs(2))).await;
+    let setup = server
+        .client
+        .post(server.url("/api/v1/setup"))
+        .json(&json!({
+            "username": "giovanni",
+            "display_name": "Giovanni",
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), 201);
+
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    let refresh = server
+        .client
+        .post(server.url("/api/v1/auth/refresh"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refresh.status(), 204);
+
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let me = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        me.status(),
+        200,
+        "il refresh deve aver slittato expires_at oltre la scadenza originale"
     );
 }
 

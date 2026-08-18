@@ -58,6 +58,13 @@
     }
   },
   "home": { "greeting": "Hello, {name}", "logout": "Sign out" },
+  "folders": {
+    "entry": "Folders",
+    "title": "Folders",
+    "back": "Photos",
+    "empty": "No folders to show.",
+    "move": "Move"
+  },
   "timeline": {
     "kind": "Type",
     "kinds": { "all": "All", "photo": "Photos", "video": "Videos" },
@@ -125,6 +132,103 @@
     "duplicates": "Duplicates",
     "none": "Nothing to report.",
     "reclaimable": "{count} copies, {bytes} bytes reclaimable"
+  },
+  "groups": {
+    "entry": "Groups",
+    "title": "Groups",
+    "namePlaceholder": "Group name",
+    "create": "Create",
+    "empty": "No groups yet.",
+    "memberCount": "{count} members",
+    "delete": "Delete"
+  },
+  "albums": {
+    "entry": "Albums",
+    "title": "Albums",
+    "namePlaceholder": "Album name",
+    "create": "Create",
+    "empty": "No albums yet.",
+    "assetCount": "{count} photos",
+    "delete": "Delete"
+  },
+  "shares": {
+    "entry": "Shares",
+    "title": "Shares",
+    "linksTitle": "Public links",
+    "peopleTitle": "People and groups",
+    "empty": "No shared links.",
+    "expires": "Expires {date}",
+    "revoke": "Revoke",
+    "views": "{count} views",
+    "folder": "Folder",
+    "chooseFolder": "Choose a folder",
+    "subjectType": "Share with",
+    "person": "Person",
+    "group": "Group",
+    "subject": "Who",
+    "chooseSubject": "Choose",
+    "role": "Role",
+    "viewer": "Viewer",
+    "editor": "Editor",
+    "inherit": "Include subfolders",
+    "grant": "Share",
+    "grantsEmpty": "No one has direct access yet.",
+    "explainTitle": "Why can they see this?",
+    "explain": "Explain",
+    "explainNone": "No access.",
+    "explainLink": "{subject} has role {role} on {on}",
+    "explainLinkInherited": "{subject} has role {role} on {on}, inherited in {inherited}"
+  },
+  "users": {
+    "entry": "Users",
+    "title": "Users",
+    "empty": "No users.",
+    "admin": "Admin",
+    "createTitle": "New user",
+    "username": "Username",
+    "displayName": "Name",
+    "password": "Initial password",
+    "role": "Role",
+    "roleUser": "User",
+    "roleAdmin": "Admin",
+    "create": "Create user",
+    "disable": "Disable",
+    "enable": "Enable",
+    "disabled": "Disabled",
+    "passwordTitle": "Change my password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "savePassword": "Save password"
+  },
+  "trash": {
+    "entry": "Trash",
+    "title": "Trash",
+    "empty": "Trash is empty.",
+    "emptyAll": "Empty trash",
+    "restore": "Restore",
+    "purge": "Delete permanently",
+    "expires": "Expires {date}"
+  },
+  "batchEdit": {
+    "title": "Batch edit",
+    "count": "{count} photos selected",
+    "fieldPlaceholder": "Field name",
+    "valuePlaceholder": "New value",
+    "apply": "Apply",
+    "done": "Changes applied."
+  },
+  "shared": {
+    "title": "Shared content",
+    "notFound": "This shared link is invalid or has expired.",
+    "password": "Password",
+    "unlock": "Unlock",
+    "upload": "Upload a photo",
+    "uploaded": "Uploaded. Waiting for review."
+  },
+  "sharePanel": {
+    "title": "Share",
+    "close": "Close",
+    "createLink": "Create link"
   },
   "common": {
     "loading": "Loading…",

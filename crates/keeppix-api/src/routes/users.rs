@@ -34,6 +34,7 @@ fn default_role() -> String {
 pub struct PatchUserRequest {
     pub display_name: Option<String>,
     pub locale: Option<String>,
+    pub role: Option<String>,
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -157,6 +158,7 @@ pub async fn patch(
             id,
             body.display_name.as_deref(),
             body.locale.as_deref(),
+            parse_optional_role(body.role.as_deref())?,
         )
         .await?;
     Ok(Json(UserView::from(&user)))
@@ -186,6 +188,31 @@ pub async fn disable(
     UserRepo::new(&state.db).disable(&ctx, id).await?;
     SessionRepo::new(&state.db).revoke_all_for_user(id).await?;
     state.sessions.clear();
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// # Errors
+/// `403` se non admin.
+#[utoipa::path(
+    post,
+    path = "/api/v1/users/{id}/enable",
+    tag = "users",
+    operation_id = "users_enable",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id utente")),
+    responses(
+        (status = 204, description = "Utente riabilitato"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo admin", body = Problem),
+        (status = 404, description = "Utente assente", body = Problem)
+    )
+)]
+pub async fn enable(
+    State(state): State<AppState>,
+    AdminAuth(ctx): AdminAuth,
+    Path(id): Path<UserId>,
+) -> Result<StatusCode, Problem> {
+    UserRepo::new(&state.db).enable(&ctx, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -249,4 +276,17 @@ pub async fn change_password(
     state.sessions.clear();
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn parse_optional_role(raw: Option<&str>) -> Result<Option<SystemRole>, Problem> {
+    match raw {
+        None => Ok(None),
+        Some("admin") => Ok(Some(SystemRole::Admin)),
+        Some("user") => Ok(Some(SystemRole::User)),
+        Some(_) => Err(Problem::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid-role",
+            "Role must be admin or user",
+        )),
+    }
 }

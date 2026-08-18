@@ -2,6 +2,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum_extra::extract::CookieJar;
+use chrono::{DateTime, Utc};
 use keeppix_db::{SessionRepo, UserRepo};
 use keeppix_domain::{Password, SessionToken, SystemRole, User, Username, verify_password};
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,7 @@ pub struct UserView {
     #[schema(value_type = String)]
     pub role: &'static str,
     pub locale: Option<String>,
+    pub disabled_at: Option<DateTime<Utc>>,
 }
 
 impl From<&User> for UserView {
@@ -40,6 +42,7 @@ impl From<&User> for UserView {
                 SystemRole::User => "user",
             },
             locale: u.locale.clone(),
+            disabled_at: u.disabled_at,
         }
     }
 }
@@ -79,6 +82,11 @@ pub async fn login(
     headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, Problem> {
+    let rate_key = client_ip(&headers);
+    if !state.login_limiter.check_and_record(&rate_key) {
+        return Err(Problem::too_many_requests());
+    }
+
     let invalid = || {
         Problem::new(
             StatusCode::UNAUTHORIZED,
@@ -196,6 +204,16 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoR
         }
     }
     (StatusCode::NO_CONTENT, jar.add(clearing_cookie()))
+}
+
+fn client_ip(headers: &HeaderMap) -> String {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| "unknown".to_owned(), str::to_owned)
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
