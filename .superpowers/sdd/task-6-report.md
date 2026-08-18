@@ -140,3 +140,73 @@ and migration cost are recorded in the phase ledger.
 ## Commits
 
 - `a42e8cc feat(api): grid-clustered map endpoint scoped by permission`
+- `1578736 fix(db): align saved search and spatial filtering`
+
+## Review-fix TDD evidence
+
+### RED — quoted saved-search token
+
+```bash
+cargo test -p keeppix-db --test search \
+  saved_search_quotes_keep_a_field_shaped_token_as_text \
+  --jobs 1 -- --test-threads=1
+```
+
+Failed as intended: the saved query `"camera:Sony"` produced
+`Camera { value: "Sony" }` instead of `Text { value: "camera:Sony" }`.
+
+### GREEN — quoted saved-search token
+
+The same command passed `1 passed; 0 failed`. The test also pins the
+counterpart: unquoted `camera:Sony` remains a camera filter.
+
+### RED — indexable geography bbox
+
+```bash
+cargo test -p keeppix-db --lib \
+  bbox_filter_keeps_geography_columns_bare_for_gist \
+  --jobs 1 -- --test-threads=1
+```
+
+Failed to compile with `no bbox_filter_sql in geo`, before the new predicate
+existed. The regression test rejects `COALESCE` and `::geometry` in the bbox
+filter and requires bare `o.location`/`a.location` geography `&&` branches for
+the normal envelope and both antimeridian envelopes.
+
+### GREEN — indexable geography bbox and map behavior
+
+The unit command passed `1 passed; 0 failed`. The first integration run exposed
+PostGIS rejecting an unsegmented whole-world geography envelope with
+`Antipodal (180 degrees long) edge detected!`; segmenting envelope edges before
+the geography cast fixed that without moving `COALESCE` back into the filter.
+
+```bash
+cargo test -p keeppix-db --test geo --jobs 1 -- --test-threads=1
+```
+
+Passed `9 passed; 0 failed`, including whole-world, override, antimeridian,
+visibility, cap, scope, and performance coverage.
+
+## Review-fix verification
+
+```text
+cargo test -p keeppix-db --test search \
+  saved_search_quotes_keep_a_field_shaped_token_as_text \
+  --jobs 1 -- --test-threads=1
+  PASS — 1 passed, 0 failed
+
+cargo test -p keeppix-db --test geo --jobs 1 -- --test-threads=1
+  PASS — 9 passed, 0 failed
+
+cargo test -p keeppix-db --jobs 1 -- --test-threads=1
+  PASS — every test binary and doc-test green
+
+cargo fmt --check
+  PASS
+
+cargo clippy -p keeppix-db -p keeppix-api --all-targets -- -D warnings
+  PASS
+```
+
+`./scripts/test.sh` was not run. No timezone, PMTiles, frontend, cap setting,
+or OpenAPI content-type changes were made.

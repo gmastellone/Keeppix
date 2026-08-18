@@ -148,4 +148,15 @@ viewport densi ad alto zoom.
 Task 6: complete (commit `a42e8cc`, fmt, clippy, DB e API verdi; evidenza in
 `.superpowers/sdd/task-6-report.md`)
 
+Ruling (Task 6 review): gli envelope vengono segmentati a massimo 90 gradi
+prima del cast a `geography`. Il cast diretto dell'envelope mondo
+`-180,-90,180,90` fallisce in PostGIS per un arco antipodale; la segmentazione
+mantiene `a.location`/`o.location` nudi sul lato sinistro di `&&` e quindi
+compatibili con GiST. Costo se sbagliato: qualche vertice in più nella
+geography costante per query; il filtro può essere semplificato se PostGIS
+espone in futuro un costruttore GIDX rettangolare pubblico.
+
+Task 6 review fixes: complete (commit `1578736`; RED/GREEN, geo 9/9, suite DB,
+fmt e clippy verdi; evidenza in `.superpowers/sdd/task-6-report.md`)
+
 
