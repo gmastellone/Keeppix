@@ -36,7 +36,10 @@ pub use duplicates::{DuplicateGroup, DuplicateRepo};
 pub use error::DbError;
 pub use flags::FlagRepo;
 pub use folders::FolderRepo;
-pub use geo::{GeoRepo, MAX_UNCLUSTERED_POINTS, MapBounds, MapCluster, MapScope, UNCLUSTERED_ZOOM};
+pub use geo::{
+    GeoRepo, MAX_UNCLUSTERED_POINTS, MapBounds, MapCluster, MapScope, TimezoneChange,
+    UNCLUSTERED_ZOOM,
+};
 pub use groups::{GroupMember, GroupRepo, GroupView};
 pub use guest_uploads::{GuestUploadRepo, GuestUploadRow};
 pub use jobs::JobRepo;
@@ -62,7 +65,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0020_places.
+// rivede la directory. 0021_tz_boundaries.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

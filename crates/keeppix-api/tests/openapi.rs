@@ -81,6 +81,8 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/metadata/batch",
         "/api/v1/metadata/batch/copy-location",
         "/api/v1/metadata/batch/import-gpx",
+        "/api/v1/metadata/batch/recalculate-timezones",
+        "/api/v1/metadata/batch/recalculate-timezones/preview",
         "/api/v1/metadata/batch/shift-taken-at",
         "/api/v1/metadata/batch/{batch_id}/undo",
         "/api/v1/assets/{id}/flags",
@@ -178,8 +180,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 59,
-        "il documento deve descrivere cinquantanove operazioni"
+        checked, 61,
+        "il documento deve descrivere sessantuno operazioni"
     );
 }
 
@@ -256,6 +258,8 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/metadata/batch",
             "/api/v1/metadata/batch/copy-location",
             "/api/v1/metadata/batch/import-gpx",
+            "/api/v1/metadata/batch/recalculate-timezones",
+            "/api/v1/metadata/batch/recalculate-timezones/preview",
             "/api/v1/metadata/batch/shift-taken-at",
             "/api/v1/metadata/batch/{batch_id}/undo",
             "/api/v1/places/reverse",
@@ -349,6 +353,8 @@ fn operation_ids_are_explicit_and_unique() {
             "metadata_copy_location",
             "metadata_effective",
             "metadata_import_gpx",
+            "metadata_recalculate_timezones_apply",
+            "metadata_recalculate_timezones_preview",
             "metadata_shift_taken_at",
             "metadata_undo_batch",
             "places_reverse",

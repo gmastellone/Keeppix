@@ -342,6 +342,53 @@ impl<'a> OverrideRepo<'a> {
         Ok(batch_id)
     }
 
+    /// Applica timestamp diversi per asset in un unico batch annullabile.
+    ///
+    /// È il writer parametrico del ricalcolo dei fusi: conserva tutti gli
+    /// altri campi dell'override e riusa `metadata_batches`/`undo_batch`.
+    /// Un elenco vuoto è un no-op e non crea una riga batch vuota.
+    ///
+    /// # Errors
+    /// `Forbidden` se anche un solo asset non è visibile o modificabile.
+    pub async fn apply_taken_at_batch(
+        &self,
+        ctx: &AuthContext,
+        assignments: &[(AssetId, DateTime<Utc>)],
+    ) -> Result<Option<BatchId>, DbError> {
+        if assignments.is_empty() {
+            return Ok(None);
+        }
+        let asset_ids: Vec<AssetId> = assignments.iter().map(|(id, _)| *id).collect();
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, &asset_ids)
+            .await?;
+        crate::PermissionRepo::new(self.db)
+            .assert_can_edit_assets(ctx, &asset_ids)
+            .await?;
+        let Some(actor) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+
+        let ids: Vec<uuid::Uuid> = assignments.iter().map(|(id, _)| id.as_uuid()).collect();
+        let mut tx = self.db.pool().begin().await?;
+        let previous = load_previous(&mut tx, &ids, false).await?;
+        let batch_id = BatchId::new();
+        sqlx::query("INSERT INTO metadata_batches (id, actor_id, previous) VALUES ($1, $2, $3)")
+            .bind(batch_id.as_uuid())
+            .bind(actor.as_uuid())
+            .bind(
+                serde_json::to_value(&previous)
+                    .map_err(|e| DbError::Corrupted(format!("previous batch state: {e}")))?,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+        apply_taken_at_values(&mut tx, assignments, actor.as_uuid()).await?;
+        tx.commit().await?;
+        enqueue_sidecar_sweep(self.db).await?;
+        Ok(Some(batch_id))
+    }
+
     /// Ripristina esattamente i valori precedenti di un batch — anche
     /// quando il valore precedente era `NULL`, e anche quando l'asset non
     /// aveva ancora nessun override (in quel caso la riga viene cancellata,
@@ -743,6 +790,30 @@ async fn apply_points(
     .bind(&ids)
     .bind(&lons)
     .bind(&lats)
+    .bind(updated_by)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+async fn apply_taken_at_values(
+    conn: &mut PgConnection,
+    assignments: &[(AssetId, DateTime<Utc>)],
+    updated_by: uuid::Uuid,
+) -> Result<(), DbError> {
+    let ids: Vec<uuid::Uuid> = assignments.iter().map(|(id, _)| id.as_uuid()).collect();
+    let values: Vec<DateTime<Utc>> = assignments.iter().map(|(_, value)| *value).collect();
+    sqlx::query(
+        "INSERT INTO asset_overrides (asset_id, taken_at, updated_by, updated_at) \
+         SELECT asset_id, taken_at, $3, now() \
+           FROM unnest($1::uuid[], $2::timestamptz[]) AS input(asset_id, taken_at) \
+         ON CONFLICT (asset_id) DO UPDATE SET \
+            taken_at = EXCLUDED.taken_at, \
+            updated_by = EXCLUDED.updated_by, \
+            updated_at = now()",
+    )
+    .bind(&ids)
+    .bind(&values)
     .bind(updated_by)
     .execute(&mut *conn)
     .await?;

@@ -7,6 +7,7 @@ use keeppix_server::config::Config;
 use keeppix_server::telemetry;
 
 const PLACES_CSV_PATH: &str = "/usr/share/keeppix/places.csv";
+const TZ_BOUNDARIES_CSV_PATH: &str = "/usr/share/keeppix/tz_boundaries.csv";
 
 #[derive(Parser)]
 #[command(name = "keeppix", version)]
@@ -66,6 +67,13 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         .context("GeoNames places import")?;
     if imported > 0 {
         tracing::info!(places = imported, "GeoNames places imported");
+    }
+    let imported = keeppix_db::GeoRepo::new(&db)
+        .seed_timezones_from_csv_if_empty(Path::new(TZ_BOUNDARIES_CSV_PATH))
+        .await
+        .context("timezone boundaries import")?;
+    if imported > 0 {
+        tracing::info!(timezones = imported, "timezone boundaries imported");
     }
 
     if let Err(e) = keeppix_jobs::watch::persist_capabilities(&db).await {
