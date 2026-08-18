@@ -1,5 +1,16 @@
 # syntax=docker/dockerfile:1.9
 
+# ── GeoNames ──────────────────────────────────────────────────────────────
+# Il runtime distroless non ha shell né client HTTP. Il dataset viene
+# scaricato e normalizzato qui una volta sola; nell'immagine finale entra
+# soltanto il TSV pronto per l'import in Postgres.
+FROM debian:bookworm-slim AS geonames
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gawk unzip \
+ && rm -rf /var/lib/apt/lists/*
+COPY scripts/build-geonames.sh /usr/local/bin/build-geonames
+RUN /usr/local/bin/build-geonames /usr/share/keeppix/places.csv
+
 # ── Frontend ──────────────────────────────────────────────────────────────
 FROM node:24-bookworm-slim AS frontend
 WORKDIR /app/frontend
@@ -69,6 +80,7 @@ FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
 COPY --from=backend /usr/local/bin/keeppix /usr/local/bin/keeppix
 COPY --from=libraw /staging/bin/dcraw_emu /usr/bin/dcraw_emu
 COPY --from=libraw /staging/lib/ /usr/local/lib/keeppix/
+COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/places.csv /usr/share/keeppix/places.csv
 
 USER nonroot:nonroot
 WORKDIR /data
