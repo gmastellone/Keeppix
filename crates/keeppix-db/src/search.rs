@@ -38,7 +38,7 @@ pub enum SearchNode {
     HasGps,
 }
 
-enum Bind {
+pub(crate) enum SearchBind {
     Text(String),
     I32(i32),
     Uuid(uuid::Uuid),
@@ -64,7 +64,7 @@ impl<'a> SearchRepo<'a> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let mut param = 4_usize;
-        let (clause, binds) = compile(ast, &mut param, 0)?;
+        let (clause, binds) = compile_for_sql(ast, &mut param, 0, "a.location")?;
         let time_p = next(&mut param);
         let id_p = next(&mut param);
         let limit_p = next(&mut param);
@@ -173,6 +173,28 @@ impl<'a> SearchRepo<'a> {
         .await?;
         Ok(row.into_domain())
     }
+
+    /// Carica e interpreta una ricerca salvata del chiamante.
+    ///
+    /// # Errors
+    /// `Forbidden` per id sconosciuti o appartenenti a un altro utente;
+    /// `Conflict` se il testo salvato non è più interpretabile.
+    pub async fn saved_query(
+        &self,
+        ctx: &AuthContext,
+        id: uuid::Uuid,
+    ) -> Result<SearchNode, DbError> {
+        let owner = ctx.user_id().ok_or(DbError::Forbidden)?;
+        let query_text: Option<String> = sqlx::query_scalar(
+            "SELECT query_text FROM saved_searches WHERE id = $1 AND owner_id = $2",
+        )
+        .bind(id)
+        .bind(owner.as_uuid())
+        .fetch_optional(self.db.pool())
+        .await?;
+        let query_text = query_text.ok_or(DbError::Forbidden)?;
+        parse_query_text(&query_text)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -202,40 +224,254 @@ impl SavedSearchRow {
     }
 }
 
-fn bind_one<'q>(
-    q: sqlx::query::QueryAs<'q, sqlx::Postgres, AssetRow, sqlx::postgres::PgArguments>,
-    b: &'q Bind,
-) -> sqlx::query::QueryAs<'q, sqlx::Postgres, AssetRow, sqlx::postgres::PgArguments> {
-    match b {
-        Bind::Text(s) => q.bind(s),
-        Bind::I32(n) => q.bind(n),
-        Bind::Uuid(u) => q.bind(u),
-        Bind::Ts(t) => q.bind(t),
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Token {
+    And,
+    Or,
+    Not,
+    LeftParen,
+    RightParen,
+    Value(String),
+}
+
+struct Parser {
+    tokens: Vec<Token>,
+    next: usize,
+}
+
+impl Parser {
+    fn parse(mut self) -> Result<SearchNode, DbError> {
+        if self.tokens.is_empty() {
+            return Ok(SearchNode::And { args: Vec::new() });
+        }
+        let node = self.parse_or()?;
+        if self.next == self.tokens.len() {
+            Ok(node)
+        } else {
+            Err(invalid_saved_search())
+        }
+    }
+
+    fn parse_or(&mut self) -> Result<SearchNode, DbError> {
+        let mut args = vec![self.parse_and()?];
+        while matches!(self.tokens.get(self.next), Some(Token::Or)) {
+            self.next += 1;
+            args.push(self.parse_and()?);
+        }
+        Ok(single_or_node(args))
+    }
+
+    fn parse_and(&mut self) -> Result<SearchNode, DbError> {
+        let mut args = vec![self.parse_not()?];
+        loop {
+            match self.tokens.get(self.next) {
+                Some(Token::And) => {
+                    self.next += 1;
+                    args.push(self.parse_not()?);
+                }
+                Some(Token::Or | Token::RightParen) | None => break,
+                Some(_) => args.push(self.parse_not()?),
+            }
+        }
+        Ok(single_and_node(args))
+    }
+
+    fn parse_not(&mut self) -> Result<SearchNode, DbError> {
+        if matches!(self.tokens.get(self.next), Some(Token::Not)) {
+            self.next += 1;
+            return Ok(SearchNode::Not {
+                arg: Box::new(self.parse_primary()?),
+            });
+        }
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> Result<SearchNode, DbError> {
+        let token = self
+            .tokens
+            .get(self.next)
+            .cloned()
+            .ok_or_else(invalid_saved_search)?;
+        self.next += 1;
+        match token {
+            Token::LeftParen => {
+                let node = self.parse_or()?;
+                if !matches!(self.tokens.get(self.next), Some(Token::RightParen)) {
+                    return Err(invalid_saved_search());
+                }
+                self.next += 1;
+                Ok(node)
+            }
+            Token::Value(value) => Ok(value_node(&value)),
+            Token::And | Token::Or | Token::Not | Token::RightParen => Err(invalid_saved_search()),
+        }
     }
 }
 
-fn compile(
+fn parse_query_text(input: &str) -> Result<SearchNode, DbError> {
+    Parser {
+        tokens: tokenize(input)?,
+        next: 0,
+    }
+    .parse()
+}
+
+fn tokenize(input: &str) -> Result<Vec<Token>, DbError> {
+    let chars: Vec<char> = input.chars().collect();
+    let mut tokens = Vec::new();
+    let mut at = 0;
+    while at < chars.len() {
+        if chars[at].is_whitespace() {
+            at += 1;
+            continue;
+        }
+        if chars[at] == '(' {
+            tokens.push(Token::LeftParen);
+            at += 1;
+            continue;
+        }
+        if chars[at] == ')' {
+            tokens.push(Token::RightParen);
+            at += 1;
+            continue;
+        }
+
+        let mut value = String::new();
+        let mut quoted = false;
+        while at < chars.len() {
+            let ch = chars[at];
+            if ch == '"' {
+                quoted = !quoted;
+                at += 1;
+                continue;
+            }
+            if !quoted && (ch.is_whitespace() || ch == '(' || ch == ')') {
+                break;
+            }
+            value.push(ch);
+            at += 1;
+        }
+        if quoted || value.is_empty() {
+            return Err(invalid_saved_search());
+        }
+        tokens.push(match value.to_ascii_lowercase().as_str() {
+            "and" => Token::And,
+            "or" => Token::Or,
+            "not" => Token::Not,
+            _ => Token::Value(value),
+        });
+    }
+    Ok(tokens)
+}
+
+fn value_node(value: &str) -> SearchNode {
+    if let Ok(year) = value.parse::<i32>()
+        && value.len() == 4
+    {
+        return SearchNode::Year { value: year };
+    }
+    let Some((field, raw)) = value.split_once(':') else {
+        return SearchNode::Text {
+            value: value.to_owned(),
+        };
+    };
+    match field.to_ascii_lowercase().as_str() {
+        "type" => SearchNode::Type {
+            value: raw.to_ascii_lowercase(),
+        },
+        "camera" => SearchNode::Camera {
+            value: raw.to_owned(),
+        },
+        "lens" => SearchNode::Lens {
+            value: raw.to_owned(),
+        },
+        "iso" => iso_node(value, raw),
+        "folder" => uuid::Uuid::parse_str(raw).map_or_else(
+            |_| SearchNode::Text {
+                value: value.to_owned(),
+            },
+            |id| SearchNode::Folder { id },
+        ),
+        "has" if raw.eq_ignore_ascii_case("gps") => SearchNode::HasGps,
+        _ => SearchNode::Text {
+            value: value.to_owned(),
+        },
+    }
+}
+
+fn iso_node(original: &str, raw: &str) -> SearchNode {
+    let (cmp, number) = if let Some(value) = raw.strip_prefix(">=") {
+        (IsoCmp::Gte, value)
+    } else if let Some(value) = raw.strip_prefix("<=") {
+        (IsoCmp::Lte, value)
+    } else if let Some(value) = raw.strip_prefix('>') {
+        (IsoCmp::Gt, value)
+    } else if let Some(value) = raw.strip_prefix('<') {
+        (IsoCmp::Lt, value)
+    } else {
+        (IsoCmp::Eq, raw.strip_prefix('=').unwrap_or(raw))
+    };
+    number.parse::<i32>().map_or_else(
+        |_| SearchNode::Text {
+            value: original.to_owned(),
+        },
+        |value| SearchNode::Iso { cmp, value },
+    )
+}
+
+fn single_or_node(mut args: Vec<SearchNode>) -> SearchNode {
+    if args.len() == 1 {
+        return args.remove(0);
+    }
+    SearchNode::Or { args }
+}
+
+fn single_and_node(mut args: Vec<SearchNode>) -> SearchNode {
+    if args.len() == 1 {
+        return args.remove(0);
+    }
+    SearchNode::And { args }
+}
+
+fn invalid_saved_search() -> DbError {
+    DbError::Conflict("invalid saved search".to_owned())
+}
+
+fn bind_one<'q>(
+    q: sqlx::query::QueryAs<'q, sqlx::Postgres, AssetRow, sqlx::postgres::PgArguments>,
+    b: &'q SearchBind,
+) -> sqlx::query::QueryAs<'q, sqlx::Postgres, AssetRow, sqlx::postgres::PgArguments> {
+    match b {
+        SearchBind::Text(s) => q.bind(s),
+        SearchBind::I32(n) => q.bind(n),
+        SearchBind::Uuid(u) => q.bind(u),
+        SearchBind::Ts(t) => q.bind(t),
+    }
+}
+
+pub(crate) fn compile_for_sql(
     node: &SearchNode,
     param: &mut usize,
     depth: usize,
-) -> Result<(String, Vec<Bind>), DbError> {
+    gps_sql: &str,
+) -> Result<(String, Vec<SearchBind>), DbError> {
     if depth > 16 {
         return Err(DbError::Conflict("search too nested".to_owned()));
     }
     match node {
         SearchNode::And { args } if args.is_empty() => Ok(("TRUE".to_owned(), Vec::new())),
-        SearchNode::And { args } => join(args, " AND ", param, depth),
+        SearchNode::And { args } => join(args, " AND ", param, depth, gps_sql),
         SearchNode::Or { args } if args.is_empty() => Ok(("FALSE".to_owned(), Vec::new())),
-        SearchNode::Or { args } => join(args, " OR ", param, depth),
+        SearchNode::Or { args } => join(args, " OR ", param, depth, gps_sql),
         SearchNode::Not { arg } => {
-            let (inner, binds) = compile(arg, param, depth + 1)?;
+            let (inner, binds) = compile_for_sql(arg, param, depth + 1, gps_sql)?;
             Ok((format!("NOT COALESCE(({inner}), FALSE)"), binds))
         }
         SearchNode::Text { value } => {
             let p = next(param);
             Ok((
                 format!("a.filename ILIKE ${p} ESCAPE E'\\\\'"),
-                vec![Bind::Text(like_contains(value))],
+                vec![SearchBind::Text(like_contains(value))],
             ))
         }
         SearchNode::Type { value } => {
@@ -245,20 +481,20 @@ fn compile(
                 _ => return Ok(("FALSE".to_owned(), Vec::new())),
             };
             let p = next(param);
-            Ok((format!("a.kind = ${p}"), vec![Bind::Text(kind)]))
+            Ok((format!("a.kind = ${p}"), vec![SearchBind::Text(kind)]))
         }
         SearchNode::Camera { value } => {
             let p = next(param);
             Ok((
                 format!("e.camera_model ILIKE ${p} ESCAPE E'\\\\'"),
-                vec![Bind::Text(like_contains(value))],
+                vec![SearchBind::Text(like_contains(value))],
             ))
         }
         SearchNode::Lens { value } => {
             let p = next(param);
             Ok((
                 format!("e.lens ILIKE ${p} ESCAPE E'\\\\'"),
-                vec![Bind::Text(like_contains(value))],
+                vec![SearchBind::Text(like_contains(value))],
             ))
         }
         SearchNode::Iso { cmp, value } => {
@@ -270,7 +506,7 @@ fn compile(
                 IsoCmp::Eq => "=",
             };
             let p = next(param);
-            Ok((format!("e.iso {op} ${p}"), vec![Bind::I32(*value)]))
+            Ok((format!("e.iso {op} ${p}"), vec![SearchBind::I32(*value)]))
         }
         SearchNode::Year { value } => {
             let end_year = value
@@ -284,17 +520,20 @@ fn compile(
             let p2 = next(param);
             Ok((
                 format!("a.taken_at_utc >= ${p1} AND a.taken_at_utc < ${p2}"),
-                vec![Bind::Ts(midnight(start)), Bind::Ts(midnight(end))],
+                vec![
+                    SearchBind::Ts(midnight(start)),
+                    SearchBind::Ts(midnight(end)),
+                ],
             ))
         }
         SearchNode::Folder { id } => {
             let p = next(param);
             Ok((
                 format!("f.path <@ (SELECT path FROM folders WHERE id = ${p})"),
-                vec![Bind::Uuid(*id)],
+                vec![SearchBind::Uuid(*id)],
             ))
         }
-        SearchNode::HasGps => Ok(("a.location IS NOT NULL".to_owned(), Vec::new())),
+        SearchNode::HasGps => Ok((format!("{gps_sql} IS NOT NULL"), Vec::new())),
     }
 }
 
@@ -303,11 +542,12 @@ fn join(
     sep: &str,
     param: &mut usize,
     depth: usize,
-) -> Result<(String, Vec<Bind>), DbError> {
+    gps_sql: &str,
+) -> Result<(String, Vec<SearchBind>), DbError> {
     let mut parts = Vec::new();
     let mut binds = Vec::new();
     for arg in args {
-        let (sql, b) = compile(arg, param, depth + 1)?;
+        let (sql, b) = compile_for_sql(arg, param, depth + 1, gps_sql)?;
         parts.push(format!("({sql})"));
         binds.extend(b);
     }
