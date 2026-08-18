@@ -110,3 +110,18 @@ override.
 
 Task 4: complete (commit `3fef1dd`, test verdi)
 
+Ruling (Task 4 review): `location_source` entra nello snapshot di undo solo
+quando il batch porta una sorgente esplicita o il patch tocca `location` /
+`place_id`; i batch titolo/descrizione/orientamento e `shift_taken_at` non lo
+catturano. Costo se sbagliato: aggiungere un nuovo writer di posizione che non
+usa quei campi richiederà di passare esplicitamente la semantica allo snapshot.
+
+Ruling (Task 4 review): il parser conserva ogni `trkseg` come sequenza
+indipendente, anche fra `trk` separati. Nei vuoti sceglie l'estremo di segmento
+temporalmente più vicino solo entro la tolleranza, senza interpolare fra
+segmenti. Costo se sbagliato: tracce con segmenti temporalmente sovrapposti
+usano il primo segmento del documento che copre l'istante.
+
+Task 4 review fixes: complete (commit `961546d`, RED/GREEN e test richiesti
+verdi; evidenza in `.superpowers/sdd/task-4-report.md`)
+
