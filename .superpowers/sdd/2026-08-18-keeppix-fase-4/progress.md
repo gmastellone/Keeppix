@@ -20,3 +20,24 @@ Minor (Task 1 review): closed in `eb320f4`. `signed_dms` rejects minutes/seconds
 Task 1: complete (commits b702c7a..4ff8541, review clean after MakerNote
 fixture + no SQL in jobs tests; bounds follow-up `eb320f4`)
 
+Ruling: Task 2 usa la migrazione schema-only `0020_places.sql`; il dump non
+entra nella migrazione perché `TestDb` non monta artefatti GeoNames e le
+migrazioni applicate non si modificano. Costo se sbagliato: l'import resta un
+passo di bootstrap separato invece di essere atomico con la migrazione.
+
+Ruling: l'artefatto `places.csv` è TSV senza header, risolve `admin1`/`admin2`
+nel Docker stage e viene letto in streaming in batch da 1.000 dentro un'unica
+transazione. Evita una nuova dipendenza CSV, non carica ~19 MB in memoria e
+mantiene l'import idempotente tramite `ON CONFLICT (id)`. Costo se sbagliato:
+il formato interno va versionato o convertito prima di aggiungere colonne.
+
+Ruling: `serve` prova il seed dal percorso fisso
+`/usr/share/keeppix/places.csv` solo quando `places` è vuota; file assente è
+un no-op per `cargo run`, mentre file presente ma corrotto ferma il boot per
+non lasciare un catalogo parziale. Costo se sbagliato: un aggiornamento del
+dataset baked non rimpiazza automaticamente una tabella già popolata; servirà
+un comando amministrativo esplicito.
+
+Task 2: complete (commit `03d2e6d`, test verdi; Docker GeoNames stage verde,
+235.408 righe normalizzate)
+
