@@ -50,3 +50,19 @@ un comando amministrativo esplicito.
 Task 2: complete (commit `03d2e6d`, test verdi; Docker GeoNames stage verde,
 235.408 righe normalizzate)
 
+Ruling: la tabella `places` non ha un discriminante di feature. Per il fallback
+Task 3 riserva `population = 0, admin1 IS NOT NULL, admin2 IS NULL` alle regioni
+e `population = 0, admin1 IS NULL, admin2 IS NULL` alle nazioni; le località
+`cities500` hanno popolazione positiva. Raggi fallback: 200 km regione, 1.000 km
+nazione. Costo se sbagliato: una località GeoNames a popolazione zero viene
+esclusa dal reverse/forward finché una migrazione non aggiunge il tipo feature.
+
+Ruling: il boost personale del forward è binario entro 250 km dal centroide
+delle ultime 50 righe `asset_overrides.location` scritte dall'utente, dopo la
+similarità trigram e prima della popolazione. È stabile con cronologia rada e
+non lascia che una differenza di pochi metri domini la popolazione. Costo se
+sbagliato: il raggio va reso configurabile o sostituito con un decadimento
+continuo, senza cambiare il contratto HTTP.
+
+Task 3: complete (commit `f0813d4`, test verdi)
+
