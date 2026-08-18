@@ -29,6 +29,39 @@ fn tiff_without_gps_ifd() -> Vec<u8> {
     tiff
 }
 
+fn tiff_with_maker_note_gps() -> Vec<u8> {
+    const EXIF_IFD_OFFSET: u32 = 26;
+    const MAKER_NOTE_OFFSET: u32 = 44;
+    const MAKER_NOTE_LENGTH: u32 = 102;
+    const LATITUDE_OFFSET: u32 = 98;
+    const LONGITUDE_OFFSET: u32 = 122;
+
+    let mut tiff = vec![b'I', b'I', 0x2A, 0x00];
+    push_u32(&mut tiff, 8);
+
+    push_u16(&mut tiff, 1);
+    push_ifd_entry(&mut tiff, 0x8769, 4, 1, EXIF_IFD_OFFSET);
+    push_u32(&mut tiff, 0);
+
+    push_u16(&mut tiff, 1);
+    push_ifd_entry(&mut tiff, 0x927C, 7, MAKER_NOTE_LENGTH, MAKER_NOTE_OFFSET);
+    push_u32(&mut tiff, 0);
+
+    // A proprietary MakerNote IFD whose private tags mirror GPS DMS fields.
+    // There is deliberately no standard GPSInfo pointer (0x8825) in IFD0.
+    push_u16(&mut tiff, 4);
+    push_ifd_entry(&mut tiff, 0x0001, 2, 2, u32::from(b'S'));
+    push_ifd_entry(&mut tiff, 0x0002, 5, 3, LATITUDE_OFFSET);
+    push_ifd_entry(&mut tiff, 0x0003, 2, 2, u32::from(b'W'));
+    push_ifd_entry(&mut tiff, 0x0004, 5, 3, LONGITUDE_OFFSET);
+    push_u32(&mut tiff, 0);
+    for (numerator, denominator) in [(34, 1), (30, 1), (0, 1), (58, 1), (22, 1), (30, 1)] {
+        push_u32(&mut tiff, numerator);
+        push_u32(&mut tiff, denominator);
+    }
+    tiff
+}
+
 fn tiff_with_gps(lat_ref: u8, latitude: Dms, lon_ref: u8, longitude: Dms) -> Vec<u8> {
     const GPS_IFD_OFFSET: u32 = 26;
     const LATITUDE_OFFSET: u32 = 80;
@@ -138,9 +171,29 @@ fn a_zero_on_only_one_axis_is_a_valid_coordinate() {
 }
 
 #[test]
-fn tiff_without_a_standard_gps_ifd_is_not_an_error() {
-    let mut tiff = tiff_without_gps_ifd();
-    tiff.extend_from_slice(b"SONY MakerNote-only stand-in");
+fn maker_note_only_gps_is_ignored_without_error() {
+    let tiff = tiff_with_maker_note_gps();
+    let parsed = exif::Reader::new()
+        .read_raw(tiff.clone())
+        .expect("fixture is valid TIFF");
+    let maker_note = parsed
+        .fields()
+        .find(|field| field.tag == exif::Tag::MakerNote)
+        .expect("fixture contains a real MakerNote tag");
+    let exif::Value::Undefined(payload, _) = &maker_note.value else {
+        panic!("MakerNote payload must be binary");
+    };
+    assert_eq!(payload.len(), 102);
+    assert!(
+        parsed.fields().all(|field| !matches!(
+            field.tag,
+            exif::Tag::GPSLatitude
+                | exif::Tag::GPSLatitudeRef
+                | exif::Tag::GPSLongitude
+                | exif::Tag::GPSLongitudeRef
+        )),
+        "fixture must not expose standard GPS fields"
+    );
 
     let data = read_fixture(&tiff, "arw");
 

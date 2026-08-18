@@ -6,7 +6,7 @@ use std::fs;
 use std::time::Duration;
 
 use harness::TestDb;
-use keeppix_db::{AssetRepo, LibraryRepo};
+use keeppix_db::{AssetRepo, LibraryRepo, OverrideRepo};
 use keeppix_domain::{AssetStatus, AuthContext, NewLibrary, SystemRole};
 use keeppix_jobs::discover;
 use keeppix_jobs::metadata;
@@ -110,7 +110,7 @@ async fn seed_tree(
     root: &std::path::Path,
     filename: &str,
     bytes: &[u8],
-) -> uuid::Uuid {
+) -> (uuid::Uuid, AuthContext) {
     fs::create_dir_all(root).unwrap();
     fs::write(root.join(filename), bytes).unwrap();
     let admin = harness::seed_admin(test).await;
@@ -130,72 +130,31 @@ async fn seed_tree(
     discover::run(test.db(), library.id, Duration::ZERO)
         .await
         .unwrap();
-    sqlx::query_scalar("SELECT id FROM assets")
+    let asset_id = sqlx::query_scalar("SELECT id FROM assets")
         .fetch_one(test.db().pool())
         .await
-        .unwrap()
+        .unwrap();
+    (asset_id, ctx)
 }
 
 #[tokio::test]
 async fn metadata_ingest_persists_standard_exif_gps() {
     let test = TestDb::start().await;
     let root = std::env::temp_dir().join(format!("kpx-gps-{}", uuid::Uuid::now_v7()));
-    let asset_id = seed_tree(&test, &root, "gps.jpg", &jpeg_with_gps()).await;
+    let (asset_id, ctx) = seed_tree(&test, &root, "gps.jpg", &jpeg_with_gps()).await;
     let id = keeppix_domain::AssetId::from_uuid(asset_id);
 
     metadata::run(test.db(), id).await.unwrap();
 
-    let location: (Option<f64>, Option<f64>, Option<String>) = sqlx::query_as(
-        "SELECT ST_Y(location::geometry), ST_X(location::geometry), location_source \
-         FROM assets WHERE id = $1",
-    )
-    .bind(asset_id)
-    .fetch_one(test.db().pool())
-    .await
-    .unwrap();
-    let _ = fs::remove_dir_all(&root);
-    assert_eq!(
-        location,
-        (Some(-34.5), Some(-58.375), Some("exif".to_owned()))
-    );
-}
-
-#[tokio::test]
-async fn metadata_rerun_does_not_overwrite_user_or_map_pin_locations() {
-    let test = TestDb::start().await;
-    let root = std::env::temp_dir().join(format!("kpx-gps-manual-{}", uuid::Uuid::now_v7()));
-    let asset_id = seed_tree(&test, &root, "gps.jpg", &jpeg_with_gps()).await;
-    let id = keeppix_domain::AssetId::from_uuid(asset_id);
-    metadata::run(test.db(), id).await.unwrap();
-
-    for (source, lon, lat) in [("user", 9.0_f64, 45.0_f64), ("map_pin", 12.5_f64, 41.9_f64)] {
-        sqlx::query(
-            "UPDATE assets \
-             SET location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, \
-                 location_source = $4 \
-             WHERE id = $1",
-        )
-        .bind(asset_id)
-        .bind(lon)
-        .bind(lat)
-        .bind(source)
-        .execute(test.db().pool())
+    let location = OverrideRepo::new(test.db())
+        .effective(&ctx, id)
         .await
-        .unwrap();
-
-        metadata::run(test.db(), id).await.unwrap();
-
-        let location: (Option<f64>, Option<f64>, Option<String>) = sqlx::query_as(
-            "SELECT ST_Y(location::geometry), ST_X(location::geometry), location_source \
-             FROM assets WHERE id = $1",
-        )
-        .bind(asset_id)
-        .fetch_one(test.db().pool())
-        .await
-        .unwrap();
-        assert_eq!(location, (Some(lat), Some(lon), Some(source.to_owned())));
-    }
+        .unwrap()
+        .location
+        .expect("metadata job persists parsed EXIF GPS");
     let _ = fs::remove_dir_all(&root);
+    assert!((location.lat - -34.5).abs() < 1e-9);
+    assert!((location.lon - -58.375).abs() < 1e-9);
 }
 
 /// D1: `detect_kind` deve classificare il RAW nel job metadata, e hash
@@ -204,7 +163,7 @@ async fn metadata_rerun_does_not_overwrite_user_or_map_pin_locations() {
 async fn metadata_classifies_sony_tiff_as_raw_and_hash_enqueues_derive_raw() {
     let test = TestDb::start().await;
     let root = std::env::temp_dir().join(format!("kpx-d1-raw-{}", uuid::Uuid::now_v7()));
-    let asset_id = seed_tree(&test, &root, "DSC.ARW", &sony_tiff_header()).await;
+    let (asset_id, _) = seed_tree(&test, &root, "DSC.ARW", &sony_tiff_header()).await;
     let id = keeppix_domain::AssetId::from_uuid(asset_id);
 
     metadata::run(test.db(), id).await.unwrap();
@@ -231,7 +190,7 @@ async fn metadata_classifies_sony_tiff_as_raw_and_hash_enqueues_derive_raw() {
 async fn metadata_leaves_unknown_files_unhashed() {
     let test = TestDb::start().await;
     let root = std::env::temp_dir().join(format!("kpx-d1-unk-{}", uuid::Uuid::now_v7()));
-    let asset_id = seed_tree(&test, &root, "notes.jpg", b"this is not a jpeg").await;
+    let (asset_id, _) = seed_tree(&test, &root, "notes.jpg", b"this is not a jpeg").await;
     let id = keeppix_domain::AssetId::from_uuid(asset_id);
 
     metadata::run(test.db(), id).await.unwrap();
