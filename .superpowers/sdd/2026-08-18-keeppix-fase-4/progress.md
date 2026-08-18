@@ -162,4 +162,33 @@ fmt e clippy verdi; evidenza in `.superpowers/sdd/task-6-report.md`)
 Task 6: complete (commits 482a554..6fa7ae0, review clean after saved-search
 quotes + geography GiST filter)
 
+Ruling: la migrazione dei confini è `0021_tz_boundaries.sql` e resta
+schema-only. Il dataset è un TSV interno generato dalla release pinned `2026c`
+nel Debian build stage, copiato nel runtime distroless e importato dopo le
+migrazioni solo quando la tabella è vuota. File assente è un no-op; file
+presente corrotto ferma il boot e la transazione non lascia righe parziali.
+Costo se sbagliato: aggiornare il dataset baked non sostituisce un catalogo già
+popolato senza un futuro comando amministrativo/versionamento esplicito.
+
+Ruling: il ricalcolo usa la posizione effettiva
+`COALESCE(asset_overrides.location, assets.location)`, interpreta
+`assets.taken_at_utc` come quadrante ingenuo tramite PostgreSQL `AT TIME ZONE`
+e salta ogni asset con un override `taken_at` già presente. Il valore originale
+resta immutabile. Costo se sbagliato: fotografie già corrette manualmente non
+vengono rivalutate automaticamente quando cambia il dataset dei fusi.
+
+Ruling: le assegnazioni `(asset_id, taken_at)` diverse entrano in un solo
+`metadata_batches` usando lo snapshot e `undo_batch` esistenti; una lista vuota
+non crea un batch. Costo se sbagliato: un futuro writer per-asset di altri campi
+dovrà generalizzare questo metodo o aggiungerne uno parallelo.
+
+Ruling: il lookup usa `ORDER BY tz_name LIMIT 1` oltre a `ST_Contains`. Un punto
+su un bordo normalmente non appartiene a nessun poligono; un dataset corrotto
+con sovrapposizioni produce comunque un solo risultato deterministico invece
+di un errore. Costo se sbagliato: in una sovrapposizione reale vince il nome
+IANA lessicograficamente primo finché il dataset non viene corretto.
+
+Task 5: complete (commit `9f7b481`; fixture offline, fmt, clippy, DB, jobs e API
+verdi; evidenza in `.superpowers/sdd/task-5-report.md`)
+
 
