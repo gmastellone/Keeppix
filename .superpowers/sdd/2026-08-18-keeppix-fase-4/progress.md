@@ -125,3 +125,7 @@ usano il primo segmento del documento che copre l'istante.
 Task 4 review fixes: complete (commit `961546d`, RED/GREEN e test richiesti
 verdi; evidenza in `.superpowers/sdd/task-4-report.md`)
 
+Task 4: complete (commits 3be62ad..397abcc, review clean after undo
+location_source + GPX segment-boundary fixes)
+
+
