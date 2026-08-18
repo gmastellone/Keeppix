@@ -5,6 +5,7 @@ pub mod derive;
 pub mod discover;
 pub mod dispatch;
 pub mod error;
+pub mod geotag;
 pub mod hash;
 pub mod metadata;
 pub mod moves;

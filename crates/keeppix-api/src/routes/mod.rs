@@ -4,6 +4,7 @@ pub mod auth;
 pub mod duplicates;
 pub mod flags;
 pub mod folders;
+pub mod geotag;
 pub mod groups;
 pub mod health;
 pub mod libraries;

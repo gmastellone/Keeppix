@@ -2,6 +2,7 @@
 
 pub mod derive;
 pub mod exif;
+pub mod gpx;
 pub mod hash;
 pub mod kind;
 pub mod probe;

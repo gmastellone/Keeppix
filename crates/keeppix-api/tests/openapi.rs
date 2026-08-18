@@ -78,6 +78,8 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/trash/empty",
         "/api/v1/assets/{id}/metadata",
         "/api/v1/metadata/batch",
+        "/api/v1/metadata/batch/copy-location",
+        "/api/v1/metadata/batch/import-gpx",
         "/api/v1/metadata/batch/shift-taken-at",
         "/api/v1/metadata/batch/{batch_id}/undo",
         "/api/v1/assets/{id}/flags",
@@ -175,8 +177,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 56,
-        "il documento deve descrivere cinquantasei operazioni"
+        checked, 58,
+        "il documento deve descrivere cinquantotto operazioni"
     );
 }
 
@@ -250,6 +252,8 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/libraries/{id}/scan",
             "/api/v1/libraries/{id}/scan",
             "/api/v1/metadata/batch",
+            "/api/v1/metadata/batch/copy-location",
+            "/api/v1/metadata/batch/import-gpx",
             "/api/v1/metadata/batch/shift-taken-at",
             "/api/v1/metadata/batch/{batch_id}/undo",
             "/api/v1/places/reverse",
@@ -339,7 +343,9 @@ fn operation_ids_are_explicit_and_unique() {
             "media_thumb",
             "metadata_apply",
             "metadata_apply_batch",
+            "metadata_copy_location",
             "metadata_effective",
+            "metadata_import_gpx",
             "metadata_shift_taken_at",
             "metadata_undo_batch",
             "places_reverse",

@@ -1747,6 +1747,138 @@
         ]
       }
     },
+    "/api/v1/metadata/batch/copy-location": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`400` se la sorgente non ha coordinate; `403` se sorgente o target non\nsono visibili/modificabili.",
+        "operationId": "metadata_copy_location",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyLocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Posizione effettiva copiata sui target, annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sorgente senza posizione o batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sorgente o target non visibile/modificabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/import-gpx": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`400` per GPX malformato o batch troppo grande; `403` se un asset non è\nvisibile/modificabile.",
+        "operationId": "metadata_import_gpx",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportGpxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Coordinate GPX abbinate e applicate in un batch annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "GPX non valido o batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non è visibile/modificabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/metadata/batch/shift-taken-at": {
       "post": {
         "tags": [
@@ -3583,6 +3715,24 @@
           }
         }
       },
+      "CopyLocationRequest": {
+        "type": "object",
+        "required": [
+          "source_asset_id",
+          "target_asset_ids"
+        ],
+        "properties": {
+          "source_asset_id": {
+            "type": "string"
+          },
+          "target_asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "CreateLibraryRequest": {
         "type": "object",
         "required": [
@@ -3846,6 +3996,35 @@
           "lon": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "ImportGpxRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "gpx"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "gpx": {
+            "type": "string",
+            "description": "Documento GPX UTF-8 completo."
+          },
+          "tolerance_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Se assente vale cinque minuti. Fuori dal range coperto si usa\nl'estremo solo entro questa tolleranza.",
+            "example": 5,
+            "minimum": 0
           }
         }
       },

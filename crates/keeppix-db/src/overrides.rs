@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use chrono::{DateTime, Utc};
 use keeppix_domain::{
     AssetId, AuthContext, BatchId, EffectiveMetadata, GeoPoint, JobKind, JobPriority,
-    OverridePatch, Pick, Rating, UserId,
+    LocationSource, OverridePatch, Pick, Rating, UserId,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
@@ -15,13 +15,10 @@ pub struct OverrideRepo<'a> {
     db: &'a Db,
 }
 
-const COLUMNS: &str = "asset_id, title, description, taken_at, \
-                       ST_X(location::geometry) AS lon, ST_Y(location::geometry) AS lat, \
-                       place_id, orientation, updated_by";
-
 #[derive(sqlx::FromRow)]
 struct OverrideRow {
     asset_id: uuid::Uuid,
+    had_override: bool,
     title: Option<String>,
     description: Option<String>,
     taken_at: Option<DateTime<Utc>>,
@@ -30,6 +27,7 @@ struct OverrideRow {
     place_id: Option<i64>,
     orientation: Option<i16>,
     updated_by: Option<uuid::Uuid>,
+    location_source: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -67,13 +65,16 @@ fn wkt(point: Option<GeoPoint>) -> Option<String> {
     point.map(|p| format!("SRID=4326;POINT({} {})", p.lon, p.lat))
 }
 
-/// Uno dei sei campi di `asset_overrides`, così com'era prima di un batch —
-/// `None` a livello di mappa (vedi [`PreviousBatch`]) significa "l'asset non
-/// aveva ancora nessuna riga di override", non "i campi erano tutti NULL":
-/// i due casi si comportano diversamente in `undo_batch` (DELETE contro
-/// UPSERT), anche se producono lo stesso `effective()`.
+/// Stato di `asset_overrides` e di `assets.location_source` prima di un batch.
+/// `had_override` distingue una riga con tutti i campi `NULL` dall'assenza
+/// della riga: in `undo_batch` diventano rispettivamente UPSERT e DELETE.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredOverride {
+    /// `false` means that the asset had no `asset_overrides` row. Older batch
+    /// payloads predate this field and only serialized `Some` for existing
+    /// rows, so their correct default is `true`.
+    #[serde(default = "default_true")]
+    had_override: bool,
     title: Option<String>,
     description: Option<String>,
     taken_at: Option<DateTime<Utc>>,
@@ -82,11 +83,24 @@ struct StoredOverride {
     place_id: Option<i64>,
     orientation: Option<i16>,
     updated_by: Option<uuid::Uuid>,
+    /// Compatibility flag for batches written before Task 4. `None` is a
+    /// valid previous source, so presence cannot be represented by the source
+    /// field alone.
+    #[serde(default)]
+    location_source_captured: bool,
+    #[serde(default)]
+    location_source: Option<String>,
 }
 
 /// Chiave: `asset_id` come stringa (i campi jsonb non possono avere chiavi
-/// non testuali). Valore: `None` se l'asset non aveva override.
+/// non testuali). I vecchi payload usano `None` per un asset senza override;
+/// i nuovi usano `StoredOverride::had_override` per poter salvare anche la
+/// precedente `location_source`.
 type PreviousBatch = BTreeMap<String, Option<StoredOverride>>;
+
+const fn default_true() -> bool {
+    true
+}
 
 #[allow(clippy::option_option)]
 fn touched<T>(field: Option<Option<T>>) -> (bool, Option<T>) {
@@ -184,6 +198,33 @@ impl<'a> OverrideRepo<'a> {
         asset_ids: &[AssetId],
         patch: &OverridePatch,
     ) -> Result<BatchId, DbError> {
+        self.apply_batch_inner(ctx, asset_ids, patch, None).await
+    }
+
+    /// Applica una posizione uniforme e registra su `assets.location_source`
+    /// chi l'ha assegnata. La sorgente fa parte della stessa transazione e
+    /// dello stesso snapshot di annullamento degli override.
+    ///
+    /// # Errors
+    /// Come [`Self::apply_batch`].
+    pub async fn apply_location_batch(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+        patch: &OverridePatch,
+        source: LocationSource,
+    ) -> Result<BatchId, DbError> {
+        self.apply_batch_inner(ctx, asset_ids, patch, Some(source))
+            .await
+    }
+
+    async fn apply_batch_inner(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+        patch: &OverridePatch,
+        source: Option<LocationSource>,
+    ) -> Result<BatchId, DbError> {
         AssetRepo::new(self.db)
             .assert_visible(ctx, asset_ids)
             .await?;
@@ -210,7 +251,90 @@ impl<'a> OverrideRepo<'a> {
             .await?;
 
         apply_patch(&mut tx, &ids, patch, Some(actor.as_uuid())).await?;
+        if let Some(source) = source {
+            apply_location_source(&mut tx, &ids, source).await?;
+        }
 
+        tx.commit().await?;
+        enqueue_sidecar_sweep(self.db).await?;
+        Ok(batch_id)
+    }
+
+    /// Legge in un solo giro il timestamp effettivo degli asset da abbinare a
+    /// una traccia GPX. Gli asset senza data vengono omessi dal risultato.
+    ///
+    /// # Errors
+    /// `Forbidden` se anche un solo asset non è visibile o modificabile.
+    pub async fn effective_taken_at(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+    ) -> Result<Vec<(AssetId, DateTime<Utc>)>, DbError> {
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, asset_ids)
+            .await?;
+        crate::PermissionRepo::new(self.db)
+            .assert_can_edit_assets(ctx, asset_ids)
+            .await?;
+        if asset_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<uuid::Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
+        let rows: Vec<(uuid::Uuid, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT a.id, COALESCE(o.taken_at, a.taken_at_utc) \
+               FROM assets a \
+               LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+              WHERE a.id = ANY($1) \
+                AND COALESCE(o.taken_at, a.taken_at_utc) IS NOT NULL",
+        )
+        .bind(&ids)
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, taken_at)| (AssetId::from_uuid(id), taken_at))
+            .collect())
+    }
+
+    /// Applica coordinate diverse per asset con un solo `UNNEST`, registrando
+    /// un unico batch annullabile. È il writer parametrico usato dal matching
+    /// GPX; non esegue un `apply()` per fotografia.
+    ///
+    /// # Errors
+    /// `Forbidden` se anche un solo asset non è visibile o modificabile.
+    pub async fn apply_geotag_points(
+        &self,
+        ctx: &AuthContext,
+        assignments: &[(AssetId, GeoPoint)],
+        source: LocationSource,
+    ) -> Result<BatchId, DbError> {
+        let asset_ids: Vec<AssetId> = assignments.iter().map(|(id, _)| *id).collect();
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, &asset_ids)
+            .await?;
+        crate::PermissionRepo::new(self.db)
+            .assert_can_edit_assets(ctx, &asset_ids)
+            .await?;
+        let Some(actor) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+
+        let ids: Vec<uuid::Uuid> = assignments.iter().map(|(id, _)| id.as_uuid()).collect();
+        let mut tx = self.db.pool().begin().await?;
+        let previous = load_previous(&mut tx, &ids).await?;
+        let batch_id = BatchId::new();
+        sqlx::query("INSERT INTO metadata_batches (id, actor_id, previous) VALUES ($1, $2, $3)")
+            .bind(batch_id.as_uuid())
+            .bind(actor.as_uuid())
+            .bind(
+                serde_json::to_value(&previous)
+                    .map_err(|e| DbError::Corrupted(format!("previous batch state: {e}")))?,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+        apply_points(&mut tx, assignments, actor.as_uuid()).await?;
+        apply_location_source(&mut tx, &ids, source).await?;
         tx.commit().await?;
         enqueue_sidecar_sweep(self.db).await?;
         Ok(batch_id)
@@ -592,6 +716,53 @@ async fn apply_patch(
     Ok(())
 }
 
+async fn apply_points(
+    conn: &mut PgConnection,
+    assignments: &[(AssetId, GeoPoint)],
+    updated_by: uuid::Uuid,
+) -> Result<(), DbError> {
+    if assignments.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<uuid::Uuid> = assignments.iter().map(|(id, _)| id.as_uuid()).collect();
+    let lons: Vec<f64> = assignments.iter().map(|(_, point)| point.lon).collect();
+    let lats: Vec<f64> = assignments.iter().map(|(_, point)| point.lat).collect();
+    sqlx::query(
+        "INSERT INTO asset_overrides \
+            (asset_id, location, place_id, updated_by, updated_at) \
+         SELECT aid, ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography, NULL, $4, now() \
+           FROM unnest($1::uuid[], $2::float8[], $3::float8[]) AS t(aid, lon, lat) \
+         ON CONFLICT (asset_id) DO UPDATE SET \
+            location = EXCLUDED.location, \
+            place_id = NULL, \
+            updated_by = EXCLUDED.updated_by, \
+            updated_at = now()",
+    )
+    .bind(&ids)
+    .bind(&lons)
+    .bind(&lats)
+    .bind(updated_by)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+async fn apply_location_source(
+    conn: &mut PgConnection,
+    asset_ids: &[uuid::Uuid],
+    source: LocationSource,
+) -> Result<(), DbError> {
+    if asset_ids.is_empty() {
+        return Ok(());
+    }
+    sqlx::query("UPDATE assets SET location_source = $2, updated_at = now() WHERE id = ANY($1)")
+        .bind(asset_ids)
+        .bind(source.as_str())
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 /// Applica lo scostamento di `hours` ore al `taken_at` effettivo
 /// (`COALESCE(override, exif)`) di ciascun asset, in un solo statement.
 /// Un asset senza alcuna data di scatto nota (né override né exif) resta
@@ -635,9 +806,15 @@ async fn load_previous(
     conn: &mut PgConnection,
     asset_ids: &[uuid::Uuid],
 ) -> Result<PreviousBatch, DbError> {
-    let rows: Vec<OverrideRow> = sqlx::query_as(&format!(
-        "SELECT {COLUMNS} FROM asset_overrides WHERE asset_id = ANY($1)"
-    ))
+    let rows: Vec<OverrideRow> = sqlx::query_as(
+        "SELECT a.id AS asset_id, o.asset_id IS NOT NULL AS had_override, \
+                o.title, o.description, o.taken_at, \
+                ST_X(o.location::geometry) AS lon, ST_Y(o.location::geometry) AS lat, \
+                o.place_id, o.orientation, o.updated_by, a.location_source \
+           FROM assets a \
+           LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+          WHERE a.id = ANY($1)",
+    )
     .bind(asset_ids)
     .fetch_all(&mut *conn)
     .await?;
@@ -647,6 +824,7 @@ async fn load_previous(
         existing.insert(
             row.asset_id,
             StoredOverride {
+                had_override: row.had_override,
                 title: row.title,
                 description: row.description,
                 taken_at: row.taken_at,
@@ -655,6 +833,8 @@ async fn load_previous(
                 place_id: row.place_id,
                 orientation: row.orientation,
                 updated_by: row.updated_by,
+                location_source_captured: true,
+                location_source: row.location_source,
             },
         );
     }
@@ -682,6 +862,8 @@ async fn restore_previous(
     let mut place_ids = Vec::new();
     let mut orientations = Vec::new();
     let mut updated_bys = Vec::new();
+    let mut source_ids = Vec::new();
+    let mut location_sources = Vec::new();
 
     for (key, value) in previous {
         let id = uuid::Uuid::parse_str(key)
@@ -689,14 +871,22 @@ async fn restore_previous(
         match value {
             None => delete_ids.push(id),
             Some(stored) => {
-                restore_ids.push(id);
-                titles.push(stored.title.clone());
-                descriptions.push(stored.description.clone());
-                taken_ats.push(stored.taken_at);
-                locations.push(wkt(point(stored.lon, stored.lat)));
-                place_ids.push(stored.place_id);
-                orientations.push(stored.orientation);
-                updated_bys.push(stored.updated_by);
+                if stored.had_override {
+                    restore_ids.push(id);
+                    titles.push(stored.title.clone());
+                    descriptions.push(stored.description.clone());
+                    taken_ats.push(stored.taken_at);
+                    locations.push(wkt(point(stored.lon, stored.lat)));
+                    place_ids.push(stored.place_id);
+                    orientations.push(stored.orientation);
+                    updated_bys.push(stored.updated_by);
+                } else {
+                    delete_ids.push(id);
+                }
+                if stored.location_source_captured {
+                    source_ids.push(id);
+                    location_sources.push(stored.location_source.clone());
+                }
             }
         }
     }
@@ -736,6 +926,19 @@ async fn restore_previous(
         .bind(&place_ids)
         .bind(&orientations)
         .bind(&updated_bys)
+        .execute(&mut *conn)
+        .await?;
+    }
+
+    if !source_ids.is_empty() {
+        sqlx::query(
+            "UPDATE assets AS a \
+                SET location_source = previous.location_source, updated_at = now() \
+               FROM unnest($1::uuid[], $2::text[]) AS previous(asset_id, location_source) \
+              WHERE a.id = previous.asset_id",
+        )
+        .bind(&source_ids)
+        .bind(&location_sources)
         .execute(&mut *conn)
         .await?;
     }

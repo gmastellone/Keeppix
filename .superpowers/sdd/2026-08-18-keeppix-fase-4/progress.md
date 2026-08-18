@@ -90,3 +90,21 @@ Ruling: Tasks 4 and 6 both patch `crates/keeppix-api/src/lib.rs` and OpenAPI.
 Run them sequentially (4 then 6), not as parallel implementers. Cost if wrong:
 merge conflicts on the router and a torn OpenAPI snapshot.
 
+Ruling: search and pin keep using `POST /metadata/batch`; the HTTP boundary
+infers `user` from location+place and `map_pin` from a free coordinate, clearing
+an omitted old place for pins. Copy and GPX use
+`/metadata/batch/{copy-location,import-gpx}`. Cost if wrong: clients need an
+explicit source field added compatibly to the existing request.
+
+Ruling: `metadata_batches.previous` keeps its existing asset-id map shape and
+adds backward-compatible fields (`had_override`, captured `location_source`) to
+each stored value. This restores both overrides and source without a migration
+and still reads old batches. Cost if wrong: a future batch payload version must
+replace the internal JSON shape explicitly.
+
+Ruling: EXIF ingest may now replace only `NULL`/`exif` sources, not merely guard
+`user` and `map_pin`. Task 4 makes `copied` and `gpx` real assigned sources, and
+a rescan must not relabel either as EXIF. Cost if wrong: newly extracted EXIF
+coordinates remain in `assets.location` only after the user removes the
+override.
+
