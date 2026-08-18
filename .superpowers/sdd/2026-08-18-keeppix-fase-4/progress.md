@@ -108,3 +108,5 @@ a rescan must not relabel either as EXIF. Cost if wrong: newly extracted EXIF
 coordinates remain in `assets.location` only after the user removes the
 override.
 
+Task 4: complete (commit `3fef1dd`, test verdi)
+
