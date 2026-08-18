@@ -532,13 +532,12 @@ async fn v9_guest_uploads_stay_hidden_until_approved() {
     let library_id = create_library(&server, "GuestLib", &root).await;
     scan_and_wait(&server, &library_id, 1, deadline).await;
 
-    let root_folder: (uuid::Uuid,) = sqlx::query_as(
-        "SELECT id FROM folders WHERE library_id = $1 AND parent_id IS NULL",
-    )
-    .bind(uuid::Uuid::parse_str(&library_id).unwrap())
-    .fetch_one(server.db.pool())
-    .await
-    .unwrap();
+    let root_folder: (uuid::Uuid,) =
+        sqlx::query_as("SELECT id FROM folders WHERE library_id = $1 AND parent_id IS NULL")
+            .bind(uuid::Uuid::parse_str(&library_id).unwrap())
+            .fetch_one(server.db.pool())
+            .await
+            .unwrap();
     let folder_id = root_folder.0.to_string();
     let _token = create_share_link(&server, "folder", &folder_id, None).await;
     let link_row: (uuid::Uuid,) =

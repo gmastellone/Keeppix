@@ -24,7 +24,9 @@ async fn a_share_link_is_confined_on_every_channel() {
     fs::create_dir_all(root.join("inside")).unwrap();
     fs::create_dir_all(root.join("outside")).unwrap();
     fs::copy(journey::tiny_fixture_path(), root.join("inside/a.jpg")).unwrap();
-    fs::copy(journey::tiny_fixture_path(), root.join("outside/b.jpg")).unwrap();
+    let mut outside_bytes = fs::read(journey::tiny_fixture_path()).unwrap();
+    outside_bytes.extend_from_slice(b"outside");
+    fs::write(root.join("outside/b.jpg"), outside_bytes).unwrap();
 
     let library_id = create_library(&server, "Confine", &root).await;
     scan_and_wait(&server, &library_id, 2, deadline).await;
@@ -67,6 +69,11 @@ async fn a_share_link_is_confined_on_every_channel() {
         .find(|a| a["filename"].as_str() == Some("a.jpg"))
         .and_then(|a| a["content_hash"].as_str())
         .expect("inside hash");
+    let outside_hash = assets
+        .iter()
+        .find(|a| a["filename"].as_str() == Some("b.jpg"))
+        .and_then(|a| a["content_hash"].as_str())
+        .expect("outside hash");
 
     let guest = share_client(&token);
 
@@ -91,13 +98,26 @@ async fn a_share_link_is_confined_on_every_channel() {
     );
     assert_eq!(
         guest
-            .get(server.url(&format!("/media/original/{outside_id}")))
+            .get(server.url(&format!("/media/original/{inside_id}")))
             .send()
             .await
             .unwrap()
             .status(),
-        403
+        200
     );
+
+    for path in [
+        format!("/media/thumb/{outside_hash}"),
+        format!("/media/preview/{outside_hash}"),
+        format!("/media/full/{outside_hash}"),
+        format!("/media/original/{outside_id}"),
+    ] {
+        assert_eq!(
+            guest.get(server.url(&path)).send().await.unwrap().status(),
+            403,
+            "{path} is outside the shared folder"
+        );
+    }
 
     let search = guest
         .post(server.url("/api/v1/search"))
