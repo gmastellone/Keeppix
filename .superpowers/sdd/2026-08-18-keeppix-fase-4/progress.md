@@ -86,3 +86,7 @@ traslitterazione esplicita nel build stage.
 Task 3 review fix: complete (commits `824c604`, `437bbd9`; DB 14/14, API 6/6,
 fixture normalizer, fmt e clippy verdi)
 
+Ruling: Tasks 4 and 6 both patch `crates/keeppix-api/src/lib.rs` and OpenAPI.
+Run them sequentially (4 then 6), not as parallel implementers. Cost if wrong:
+merge conflicts on the router and a torn OpenAPI snapshot.
+
