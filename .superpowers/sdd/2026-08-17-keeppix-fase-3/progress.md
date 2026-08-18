@@ -148,3 +148,53 @@ One commit per unit from 13a onward. History of `ff03fcb` not rewritten.
 ---
 
 Task 13: complete (commit 23a04f9 + this ledger close; `npm run build`, `cargo fmt --check`, `clippy -D warnings`, `./scripts/test.sh` green on 23a04f9)
+
+---
+
+## Task 14 — the phase as a product, not as a test suite
+
+### 14a — share a folder from the browser
+
+`permissions.ts` existed; no `.vue` imported it. SharesView now grants on a
+folder (person or group, viewer/editor, inherit) and shows `explain` chain.
+Users and groups are loaded from the admin list endpoints; a non-admin
+library owner can still POST `/permissions` but has an empty picker until a
+user-directory API exists.
+
+Ruling: picker is admin-only (`GET /users`, `GET /groups`). Typical owner on
+a family instance is the bootstrap admin. Cost if wrong: a non-admin who owns
+a library cannot pick people in the UI (API still works).
+
+Ruling: `check-wired.py` walks imports from non-spec `.vue` files. A route
+string that lives only in `api/*.ts` is unwired. Transitive imports count
+(`LoginView` → `session` → `auth`). Cost if wrong: a store-only consumer
+looks unused; a dead `.vue` file would still count as a consumer.
+
+### 14b — viewer is not editor
+
+`PermissionRepo::assert_can_edit_assets` is the same bar as `move_subtree`:
+admin, library owner, or `effective_role == Editor` on the asset's folder.
+Called from `OverrideRepo::apply` / `apply_batch` / `shift_taken_at`, and
+from `TrashRepo::choose` for `MovedToTrash`/`Kept`. `Purged` stays
+`may_purge` (owner/admin).
+
+Ruling: `effective_role` still matches the **exact** folder id, not inherited
+ancestors — same as `move_subtree`. Tests grant on the folder that holds the
+assets. Cost if wrong: an editor granted on `/Foto` cannot trash `/Foto/2024`
+until a later pass walks ancestors.
+
+### 14c — home-radius deferred
+
+Spec §6.2 is a configurable radius around a "home" point; photos inside it
+appear in shared content **without coordinates** (omitted, not zeroed).
+`hide_metadata` zeros `taken_at_utc` (the date). Not an active leak:
+`AssetView` has no `lat`/`lon`. Implementing the geofence is Fase 4
+territory (maps). Documented on the field; `/api/v1` name frozen.
+
+Ruling: defer home-radius to Fase 4. Cost if wrong: a future public payload
+that adds coordinates would leak home photos until that work lands.
+
+Task 14: complete (commits 8ff3c4f wired, c539eff SharesView, dc977a9
+editor guard, plus this docs commit). Local: `npm run build`,
+`cargo fmt --check`, `clippy -D warnings` green. Full `./scripts/test.sh`
+left to GitHub CI (disk).
