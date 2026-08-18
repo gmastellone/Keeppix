@@ -3,7 +3,13 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
-import { authenticateShare, fetchPublicShareInfo, fetchSharedContent, type SharedContent } from '@/api/shares'
+import {
+  authenticateShare,
+  fetchPublicShareInfo,
+  fetchSharedContent,
+  uploadGuestFile,
+  type SharedContent
+} from '@/api/shares'
 import { thumbSrc } from '@/api/media'
 
 const { t } = useI18n()
@@ -13,11 +19,14 @@ const content = ref<SharedContent | null>(null)
 const loadError = ref(false)
 const needsPassword = ref(false)
 const password = ref('')
+const allowUpload = ref(false)
+const uploaded = ref(false)
 
 onMounted(async () => {
   const token = route.params.token as string
   try {
     const info = await fetchPublicShareInfo(token)
+    allowUpload.value = Boolean(info.allow_upload)
     if (info.has_password) {
       needsPassword.value = true
       return
@@ -38,6 +47,22 @@ async function submitPassword() {
   } catch {
     loadError.value = true
   }
+}
+
+async function onFile(event: Event) {
+  const token = route.params.token as string
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  uploaded.value = false
+  loadError.value = false
+  try {
+    await uploadGuestFile(token, file.name, file)
+    uploaded.value = true
+  } catch {
+    loadError.value = true
+  }
+  input.value = ''
 }
 </script>
 
@@ -70,26 +95,42 @@ async function submitPassword() {
         {{ t('shared.unlock') }}
       </button>
     </form>
-    <ul
-      v-else-if="content"
-      class="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4"
-    >
-      <li
-        v-for="asset in content.assets"
-        :key="asset.id"
+    <template v-else-if="content">
+      <label
+        v-if="allowUpload"
+        class="mt-4 block text-sm"
       >
-        <img
-          v-if="asset.content_hash"
-          :src="thumbSrc(asset.content_hash)"
-          :alt="asset.filename"
-          class="h-32 w-full rounded object-cover"
+        {{ t('shared.upload') }}
+        <input
+          class="mt-1 block"
+          type="file"
+          @change="onFile"
         >
-        <span
-          v-else
-          class="block truncate text-sm"
-        >{{ asset.filename }}</span>
-      </li>
-    </ul>
+      </label>
+      <p
+        v-if="uploaded"
+        class="mt-2 text-sm text-content-muted"
+      >
+        {{ t('shared.uploaded') }}
+      </p>
+      <ul class="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
+        <li
+          v-for="asset in content.assets"
+          :key="asset.id"
+        >
+          <img
+            v-if="asset.content_hash"
+            :src="thumbSrc(asset.content_hash)"
+            :alt="asset.filename"
+            class="h-32 w-full rounded object-cover"
+          >
+          <span
+            v-else
+            class="block truncate text-sm"
+          >{{ asset.filename }}</span>
+        </li>
+      </ul>
+    </template>
     <p
       v-else
       class="mt-6 text-content-muted"

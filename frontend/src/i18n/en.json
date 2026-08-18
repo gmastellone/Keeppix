@@ -185,7 +185,9 @@
     "title": "Shared content",
     "notFound": "This shared link is invalid or has expired.",
     "password": "Password",
-    "unlock": "Unlock"
+    "unlock": "Unlock",
+    "upload": "Upload a photo",
+    "uploaded": "Uploaded. Waiting for review."
   },
   "sharePanel": {
     "title": "Share",

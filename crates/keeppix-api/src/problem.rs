@@ -131,6 +131,15 @@ impl Problem {
             "Missing required client header",
         )
     }
+
+    #[must_use]
+    pub fn payload_too_large() -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload-too-large",
+            "Upload exceeds the share link quota",
+        )
+    }
 }
 
 /// Attesa suggerita su `503`: abbastanza per un riavvio breve di Postgres,

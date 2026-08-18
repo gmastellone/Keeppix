@@ -13,6 +13,7 @@ use journey::{
 use serde_json::json;
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn a_share_link_is_confined_on_every_channel() {
     let server = TestServer::start().await;
     let deadline = Instant::now() + Duration::from_secs(90);

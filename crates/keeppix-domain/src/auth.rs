@@ -20,6 +20,7 @@ pub enum Actor {
         allow_original: bool,
         hide_metadata: bool,
         allow_upload: bool,
+        upload_quota_bytes: Option<i64>,
     },
 }
 
@@ -34,6 +35,7 @@ pub struct ShareLinkParams {
     pub allow_original: bool,
     pub hide_metadata: bool,
     pub allow_upload: bool,
+    pub upload_quota_bytes: Option<i64>,
 }
 
 /// Contesto richiesto da ogni repository che legge dati di un utente.
@@ -61,6 +63,7 @@ impl AuthContext {
                 allow_original: params.allow_original,
                 hide_metadata: params.hide_metadata,
                 allow_upload: params.allow_upload,
+                upload_quota_bytes: params.upload_quota_bytes,
             },
         }
     }
@@ -115,6 +118,7 @@ mod tests {
                 allow_original: false,
                 hide_metadata: true,
                 allow_upload: false,
+                upload_quota_bytes: None,
             },
         );
         assert!(!ctx.is_admin());

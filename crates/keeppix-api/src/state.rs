@@ -106,12 +106,14 @@ impl SessionCache {
 
 const SHARE_UNLOCK_TTL: Duration = Duration::from_secs(60 * 60);
 
+type UnlockMap = HashMap<[u8; 32], (uuid::Uuid, Instant)>;
+
 /// Opaque unlock tokens issued after a correct share-link password.
 /// In-process on purpose (same reason as the rate limiter: single node, no
 /// Redis). A restart asks guests to re-enter the password.
 #[derive(Clone, Default)]
 pub struct ShareUnlockStore {
-    inner: Arc<Mutex<HashMap<[u8; 32], (uuid::Uuid, Instant)>>>,
+    inner: Arc<Mutex<UnlockMap>>,
 }
 
 impl ShareUnlockStore {

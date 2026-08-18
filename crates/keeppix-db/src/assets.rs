@@ -290,6 +290,21 @@ impl<'a> AssetRepo<'a> {
         }
     }
 
+    /// Clears `uploaded_by_guest` after the owner approves the file.
+    ///
+    /// # Errors
+    /// Come `find_by_id`. `Connection` se l'aggiornamento fallisce.
+    pub async fn clear_guest_flag(&self, ctx: &AuthContext, id: AssetId) -> Result<(), DbError> {
+        self.find_by_id(ctx, id).await?;
+        sqlx::query(
+            "UPDATE assets SET uploaded_by_guest = false, updated_at = now() WHERE id = $1",
+        )
+        .bind(id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
     /// # Errors
     /// Come `FolderRepo::find_by_id` sulla cartella, poi gli asset al suo interno.
     pub async fn find_by_folder(

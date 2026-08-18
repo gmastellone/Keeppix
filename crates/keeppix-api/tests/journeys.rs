@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 
 use harness::TestServer;
 use journey::{
-    build_fixture_archive, create_library, create_share_link, create_user, drain_workers,
-    folder_id_by_name, grant_folder_viewer, login_as, scan_and_wait, setup_admin, share_client,
-    start_scan,
+    build_fixture_archive, create_library, create_share_link, create_share_link_from, create_user,
+    drain_workers, folder_id_by_name, grant_folder_viewer, login_as, scan_and_wait, setup_admin,
+    share_client, start_scan,
 };
 use serde_json::json;
 
@@ -539,34 +539,48 @@ async fn v9_guest_uploads_stay_hidden_until_approved() {
             .await
             .unwrap();
     let folder_id = root_folder.0.to_string();
-    let _token = create_share_link(&server, "folder", &folder_id, None).await;
-    let link_row: (uuid::Uuid,) =
-        sqlx::query_as("SELECT id FROM share_links ORDER BY created_at DESC LIMIT 1")
-            .fetch_one(server.db.pool())
-            .await
-            .unwrap();
+    let token = create_share_link_from(
+        &server,
+        json!({
+            "object_type": "folder",
+            "object_id": folder_id,
+            "allow_upload": true,
+        }),
+    )
+    .await;
 
-    let guest_asset = uuid::Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, kind, status, uploaded_by_guest) \
-         VALUES ($1, $2, 'guest.jpg', 10, now(), 'image', 'indexed', true)",
-    )
-    .bind(guest_asset)
-    .bind(uuid::Uuid::parse_str(&folder_id).unwrap())
-    .execute(server.db.pool())
-    .await
-    .unwrap();
-    let upload_id = uuid::Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO guest_upload_queue (id, asset_id, share_link_id, filename, size_bytes) \
-         VALUES ($1, $2, $3, 'guest.jpg', 10)",
-    )
-    .bind(upload_id)
-    .bind(guest_asset)
-    .bind(link_row.0)
-    .execute(server.db.pool())
-    .await
-    .unwrap();
+    let guest = share_client(&token);
+    let uploaded = guest
+        .post(server.url(&format!("/api/v1/share/{token}/uploads?filename=guest.jpg")))
+        .header("content-type", "application/octet-stream")
+        .body(fs::read(journey::tiny_fixture_path()).unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(uploaded.status(), 201);
+    let upload_id = uploaded.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .expect("upload id")
+        .to_owned();
+
+    let listed = guest
+        .get(server.url(&format!("/api/v1/share/{token}/assets")))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let names: Vec<&str> = listed["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|a| a["filename"].as_str())
+        .collect();
+    assert!(
+        !names.contains(&"guest.jpg"),
+        "pending guest files must stay out of the shared listing"
+    );
 
     let timeline_after = server
         .client
@@ -592,6 +606,25 @@ async fn v9_guest_uploads_stay_hidden_until_approved() {
         .await
         .unwrap();
     assert_eq!(approve.status(), 204);
+
+    drain_workers(&server, deadline).await;
+
+    let timeline_approved = server
+        .client
+        .get(server.url("/api/v1/timeline/buckets"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let count_after: i64 = timeline_approved
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["count"].as_i64().unwrap_or(0))
+        .sum();
+    assert_eq!(count_after, 2);
 }
 
 #[tokio::test]
