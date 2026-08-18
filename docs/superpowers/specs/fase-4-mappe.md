@@ -1,6 +1,6 @@
 # Fase 4 — Mappe e geocoding
 
-**Stato:** specifica di progetto, non ancora pianificata in task
+**Stato:** pianificata in task — vedi [`../plans/2026-08-18-keeppix-fase-4.md`](../plans/2026-08-18-keeppix-fase-4.md)
 **Dipende da:** Fase 1 (asset con `location`), Fase 2 (override per le posizioni
 assegnate a mano)
 **Chiusa quando:** si assegna una località a 400 foto e la mappa le mostra
