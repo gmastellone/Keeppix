@@ -1997,6 +1997,118 @@
         ]
       }
     },
+    "/api/v1/metadata/batch/recalculate-timezones": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se la libreria non appartiene al chiamante.",
+        "operationId": "metadata_recalculate_timezones_apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecalculateTimezonesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Correzioni applicate in un unico batch annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimezoneApplyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Libreria non accessibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/recalculate-timezones/preview": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se la libreria non appartiene al chiamante.",
+        "operationId": "metadata_recalculate_timezones_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecalculateTimezonesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Conteggio ed esempio senza alcuna scrittura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimezonePreviewView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Libreria non accessibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/metadata/batch/shift-taken-at": {
       "post": {
         "tags": [
@@ -4535,6 +4647,17 @@
           }
         }
       },
+      "RecalculateTimezonesRequest": {
+        "type": "object",
+        "required": [
+          "library_id"
+        ],
+        "properties": {
+          "library_id": {
+            "type": "string"
+          }
+        }
+      },
       "ResolveDuplicateRequest": {
         "type": "object",
         "required": [
@@ -4848,6 +4971,75 @@
             "type": [
               "string",
               "null"
+            ]
+          }
+        }
+      },
+      "TimezoneApplyView": {
+        "type": "object",
+        "required": [
+          "changed_count"
+        ],
+        "properties": {
+          "batch_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "TimezoneExampleView": {
+        "type": "object",
+        "required": [
+          "asset_id",
+          "filename",
+          "before",
+          "after",
+          "timezone"
+        ],
+        "properties": {
+          "after": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "asset_id": {
+            "type": "string"
+          },
+          "before": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        }
+      },
+      "TimezonePreviewView": {
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "example": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TimezoneExampleView"
+              }
             ]
           }
         }

@@ -1,13 +1,19 @@
 //! Aggregazione geografica per la mappa. Le coordinate effettive applicano
 //! sempre gli override utente prima del valore EXIF dell'asset.
 
-use keeppix_domain::{AlbumId, AssetId, AuthContext, FolderId, LibraryId};
+use std::path::Path;
+
+use chrono::{DateTime, Utc};
+use keeppix_domain::{AlbumId, AssetId, AuthContext, FolderId, GeoPoint, LibraryId};
+use sqlx::PgConnection;
+use tokio::io::{AsyncBufReadExt as _, BufReader};
 
 use crate::search::{SearchBind, compile_for_sql};
 use crate::{AlbumRepo, Db, DbError, FolderRepo, SearchRepo, VisibilityScope};
 
 pub const UNCLUSTERED_ZOOM: u8 = 15;
 pub const MAX_UNCLUSTERED_POINTS: usize = 500;
+const TIMEZONE_IMPORT_BATCH_SIZE: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MapBounds {
@@ -45,12 +51,30 @@ pub struct MapCluster {
     pub clustered: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimezoneChange {
+    pub asset_id: AssetId,
+    pub filename: String,
+    pub before: DateTime<Utc>,
+    pub after: DateTime<Utc>,
+    pub timezone: String,
+}
+
 #[derive(sqlx::FromRow)]
 struct ClusterRow {
     lon: f64,
     lat: f64,
     count: i64,
     cover_asset_id: uuid::Uuid,
+}
+
+#[derive(sqlx::FromRow)]
+struct TimezoneChangeRow {
+    asset_id: uuid::Uuid,
+    filename: String,
+    before: DateTime<Utc>,
+    after: DateTime<Utc>,
+    timezone: String,
 }
 
 pub struct GeoRepo<'a> {
@@ -61,6 +85,163 @@ impl<'a> GeoRepo<'a> {
     #[must_use]
     pub const fn new(db: &'a Db) -> Self {
         Self { db }
+    }
+
+    /// Restituisce il nome IANA del poligono che contiene il punto.
+    ///
+    /// Non prende un `AuthContext`: i confini dei fusi sono un catalogo
+    /// globale incorporato nell'immagine, non dati appartenenti a un utente.
+    /// `LIMIT 1` rende tollerante il lookup anche se un dataset corrotto
+    /// contenesse poligoni sovrapposti.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn timezone_for(&self, point: GeoPoint) -> Result<Option<String>, DbError> {
+        sqlx::query_scalar(
+            "SELECT tz_name \
+               FROM tz_boundaries \
+              WHERE ST_Contains( \
+                        boundary::geometry, \
+                        ST_SetSRID(ST_MakePoint($1, $2), 4326) \
+                    ) \
+              ORDER BY tz_name \
+              LIMIT 1",
+        )
+        .bind(point.lon)
+        .bind(point.lat)
+        .fetch_optional(self.db.pool())
+        .await
+        .map_err(DbError::from)
+    }
+
+    /// Importa il TSV normalizzato dei confini solo se il catalogo è vuoto.
+    /// Un file assente è normale fuori dall'immagine Docker; un file presente
+    /// ma malformato fallisce senza lasciare un import parziale.
+    ///
+    /// Non prende un `AuthContext`: è bootstrap amministrativo di un catalogo
+    /// globale, non accesso a dati utente.
+    ///
+    /// # Errors
+    /// `Io` se il file presente non è leggibile; `Corrupted` se una riga non
+    /// contiene `tz_name` e una geometria `GeoJSON` `MultiPolygon`;
+    /// `Connection` se l'import database fallisce.
+    pub async fn seed_timezones_from_csv_if_empty(&self, path: &Path) -> Result<usize, DbError> {
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tz_boundaries")
+            .fetch_one(self.db.pool())
+            .await?;
+        if count != 0 {
+            return Ok(0);
+        }
+
+        let file = match tokio::fs::File::open(path).await {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(error) => {
+                return Err(DbError::Io(format!(
+                    "cannot open timezone boundary CSV {}: {error}",
+                    path.display()
+                )));
+            }
+        };
+
+        let mut lines = BufReader::new(file).lines();
+        let mut transaction = self.db.pool().begin().await?;
+        let mut batch = Vec::with_capacity(TIMEZONE_IMPORT_BATCH_SIZE);
+        let mut imported = 0_usize;
+        let mut line_number = 0_usize;
+        while let Some(line) = lines.next_line().await.map_err(|error| {
+            DbError::Io(format!(
+                "cannot read timezone boundary CSV {}: {error}",
+                path.display()
+            ))
+        })? {
+            line_number += 1;
+            if line.is_empty() {
+                continue;
+            }
+            batch.push(parse_timezone_boundary(&line, line_number)?);
+            if batch.len() == TIMEZONE_IMPORT_BATCH_SIZE {
+                upsert_timezone_batch(&mut transaction, &batch).await?;
+                imported += batch.len();
+                batch.clear();
+            }
+        }
+        if !batch.is_empty() {
+            upsert_timezone_batch(&mut transaction, &batch).await?;
+            imported += batch.len();
+        }
+        if imported == 0 {
+            return Err(DbError::Corrupted(
+                "timezone boundary CSV contains no rows".to_owned(),
+            ));
+        }
+        transaction.commit().await?;
+        Ok(imported)
+    }
+
+    /// Calcola le correzioni applicabili a una libreria senza scrivere nulla.
+    ///
+    /// Il timestamp originale viene trattato come quadrante ingenuo salvato
+    /// in UTC: `14:00Z` presso Tokyo significa «14:00 locale», quindi diventa
+    /// `05:00Z`. Gli override di posizione precedono il GPS EXIF; un override
+    /// `taken_at` esistente appartiene invece all'utente e viene escluso.
+    ///
+    /// # Errors
+    /// `Forbidden` se la libreria non appartiene al chiamante; `NotFound` solo
+    /// per un admin su un id inesistente; `Connection` se la query fallisce.
+    pub async fn timezone_changes(
+        &self,
+        ctx: &AuthContext,
+        library_id: LibraryId,
+    ) -> Result<Vec<TimezoneChange>, DbError> {
+        crate::LibraryRepo::new(self.db)
+            .find_by_id(ctx, library_id)
+            .await?;
+
+        let rows: Vec<TimezoneChangeRow> = sqlx::query_as(
+            "WITH candidates AS ( \
+                 SELECT a.id AS asset_id, a.filename, a.taken_at_utc AS before, \
+                        ((a.taken_at_utc AT TIME ZONE 'UTC') \
+                            AT TIME ZONE timezone.tz_name) AS after, \
+                        timezone.tz_name AS timezone \
+                   FROM assets a \
+                   JOIN folders f ON f.id = a.folder_id \
+                   LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+                   JOIN LATERAL ( \
+                       SELECT boundary.tz_name \
+                         FROM tz_boundaries boundary \
+                        WHERE ST_Contains( \
+                                  boundary.boundary::geometry, \
+                                  COALESCE(o.location, a.location)::geometry \
+                              ) \
+                        ORDER BY boundary.tz_name \
+                        LIMIT 1 \
+                   ) timezone ON true \
+                  WHERE f.library_id = $1 \
+                    AND a.status = 'indexed' \
+                    AND a.taken_at_utc IS NOT NULL \
+                    AND o.taken_at IS NULL \
+                    AND COALESCE(o.location, a.location) IS NOT NULL \
+             ) \
+             SELECT asset_id, filename, before, after, timezone \
+               FROM candidates \
+              WHERE after IS DISTINCT FROM before \
+              ORDER BY asset_id",
+        )
+        .bind(library_id.as_uuid())
+        .fetch_all(self.db.pool())
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| TimezoneChange {
+                asset_id: AssetId::from_uuid(row.asset_id),
+                filename: row.filename,
+                before: row.before,
+                after: row.after,
+                timezone: row.timezone,
+            })
+            .collect())
     }
 
     /// Restituisce celle a griglia fino allo zoom 14. Dallo zoom 15 restituisce
@@ -219,6 +400,62 @@ impl<'a> GeoRepo<'a> {
             .await
             .map_err(DbError::from)
     }
+}
+
+fn parse_timezone_boundary(line: &str, line_number: usize) -> Result<(String, String), DbError> {
+    let Some((tz_name, geojson)) = line.split_once('\t') else {
+        return Err(corrupted_timezone_line(
+            line_number,
+            "expected two tab-separated columns",
+        ));
+    };
+    if tz_name.is_empty() {
+        return Err(corrupted_timezone_line(line_number, "empty timezone name"));
+    }
+    let geometry: serde_json::Value = serde_json::from_str(geojson)
+        .map_err(|error| corrupted_timezone_line(line_number, error))?;
+    if geometry.get("type").and_then(serde_json::Value::as_str) != Some("MultiPolygon")
+        || !geometry
+            .get("coordinates")
+            .is_some_and(serde_json::Value::is_array)
+    {
+        return Err(corrupted_timezone_line(
+            line_number,
+            "geometry must be a GeoJSON MultiPolygon",
+        ));
+    }
+    Ok((tz_name.to_owned(), geojson.to_owned()))
+}
+
+fn corrupted_timezone_line(line_number: usize, detail: impl std::fmt::Display) -> DbError {
+    DbError::Corrupted(format!(
+        "timezone boundary CSV line {line_number}: {detail}"
+    ))
+}
+
+async fn upsert_timezone_batch(
+    connection: &mut PgConnection,
+    boundaries: &[(String, String)],
+) -> Result<(), DbError> {
+    let names: Vec<&str> = boundaries.iter().map(|(name, _)| name.as_str()).collect();
+    let geometries: Vec<&str> = boundaries
+        .iter()
+        .map(|(_, geometry)| geometry.as_str())
+        .collect();
+    sqlx::query(
+        "INSERT INTO tz_boundaries (tz_name, boundary) \
+         SELECT input.tz_name, \
+                ST_Multi(ST_CollectionExtract(ST_MakeValid( \
+                    ST_SetSRID(ST_GeomFromGeoJSON(input.geojson), 4326) \
+                ), 3))::geography \
+           FROM unnest($1::text[], $2::text[]) AS input(tz_name, geojson) \
+         ON CONFLICT (tz_name) DO UPDATE SET boundary = EXCLUDED.boundary",
+    )
+    .bind(&names)
+    .bind(&geometries)
+    .execute(connection)
+    .await?;
+    Ok(())
 }
 
 struct ClusterQuery<'a> {

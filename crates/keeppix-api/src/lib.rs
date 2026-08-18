@@ -238,6 +238,14 @@ fn api_routes() -> Router<AppState> {
             axum::routing::post(routes::metadata::shift_taken_at),
         )
         .route(
+            "/metadata/batch/recalculate-timezones/preview",
+            axum::routing::post(routes::metadata::preview_timezones),
+        )
+        .route(
+            "/metadata/batch/recalculate-timezones",
+            axum::routing::post(routes::metadata::apply_timezones),
+        )
+        .route(
             "/metadata/batch/copy-location",
             axum::routing::post(routes::geotag::copy_location),
         )

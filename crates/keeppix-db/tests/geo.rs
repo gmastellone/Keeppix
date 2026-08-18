@@ -2,6 +2,7 @@
 
 mod harness;
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use chrono::{TimeZone as _, Utc};
@@ -11,7 +12,8 @@ use keeppix_db::{
     ObjectType, PermissionRepo, SearchRepo, SubjectType,
 };
 use keeppix_domain::{
-    AlbumId, AssetId, AuthContext, FolderId, LibraryId, NewLibrary, ObjectRole, SystemRole, UserId,
+    AlbumId, AssetId, AuthContext, FolderId, GeoPoint, LibraryId, NewLibrary, ObjectRole,
+    SystemRole, UserId,
 };
 
 async fn library(test: &TestDb, owner: UserId, name: &str) -> (LibraryId, FolderId) {
@@ -332,4 +334,148 @@ async fn four_thousand_points_cluster_within_the_local_budget() {
         elapsed < Duration::from_secs(1),
         "cluster query took {elapsed:?}"
     );
+}
+
+async fn seed_timezone(test: &TestDb, name: &str, west: f64, south: f64, east: f64, north: f64) {
+    sqlx::query(
+        "INSERT INTO tz_boundaries (tz_name, boundary) \
+         VALUES ($1, ST_Multi(ST_MakeEnvelope($2, $3, $4, $5, 4326))::geography)",
+    )
+    .bind(name)
+    .bind(west)
+    .bind(south)
+    .bind(east)
+    .bind(north)
+    .execute(test.db().pool())
+    .await
+    .expect("timezone boundary");
+}
+
+#[tokio::test]
+async fn timezone_lookup_finds_tokyo_and_leaves_the_open_ocean_unmatched() {
+    let test = TestDb::start().await;
+    seed_timezone(&test, "Asia/Tokyo", 138.0, 34.0, 141.0, 37.0).await;
+
+    let repo = GeoRepo::new(test.db());
+    assert_eq!(
+        repo.timezone_for(GeoPoint {
+            lat: 35.6762,
+            lon: 139.6503,
+        })
+        .await
+        .expect("Tokyo lookup")
+        .as_deref(),
+        Some("Asia/Tokyo")
+    );
+    assert_eq!(
+        repo.timezone_for(GeoPoint {
+            lat: 0.0,
+            lon: -140.0,
+        })
+        .await
+        .expect("ocean lookup"),
+        None
+    );
+}
+
+#[tokio::test]
+async fn timezone_lookup_on_a_shared_boundary_never_errors_or_double_matches() {
+    let test = TestDb::start().await;
+    seed_timezone(&test, "Europe/West", 8.0, 40.0, 10.0, 50.0).await;
+    seed_timezone(&test, "Europe/East", 10.0, 40.0, 12.0, 50.0).await;
+
+    let result = GeoRepo::new(test.db())
+        .timezone_for(GeoPoint {
+            lat: 45.0,
+            lon: 10.0,
+        })
+        .await;
+
+    let timezone = result.expect("a boundary point must not make the lookup fail");
+    assert!(
+        matches!(
+            timezone.as_deref(),
+            None | Some("Europe/West" | "Europe/East")
+        ),
+        "a boundary point must produce zero or one timezone: {timezone:?}"
+    );
+}
+
+fn temporary_timezone_csv() -> PathBuf {
+    std::env::temp_dir().join(format!("keeppix-timezones-{}.csv", uuid::Uuid::now_v7()))
+}
+
+#[tokio::test]
+async fn normalized_timezone_csv_seeds_an_empty_catalog_only_once() {
+    let test = TestDb::start().await;
+    let path = temporary_timezone_csv();
+    tokio::fs::write(
+        &path,
+        "Asia/Tokyo\t{\"type\":\"MultiPolygon\",\"coordinates\":[[[[138,34],[141,34],[141,37],[138,37],[138,34]]]]}\n\
+         Europe/Rome\t{\"type\":\"MultiPolygon\",\"coordinates\":[[[[6,35],[19,35],[19,48],[6,48],[6,35]]]]}\n",
+    )
+    .await
+    .expect("timezone fixture");
+    let repo = GeoRepo::new(test.db());
+
+    assert_eq!(
+        repo.seed_timezones_from_csv_if_empty(&path)
+            .await
+            .expect("first seed"),
+        2
+    );
+    assert_eq!(
+        repo.timezone_for(GeoPoint {
+            lat: 35.6762,
+            lon: 139.6503,
+        })
+        .await
+        .unwrap()
+        .as_deref(),
+        Some("Asia/Tokyo")
+    );
+
+    tokio::fs::write(&path, "corrupt replacement\n")
+        .await
+        .expect("replace fixture");
+    assert_eq!(
+        repo.seed_timezones_from_csv_if_empty(&path)
+            .await
+            .expect("second seed"),
+        0,
+        "an already populated catalog is not replaced at boot"
+    );
+    let _ = tokio::fs::remove_file(path).await;
+}
+
+#[tokio::test]
+async fn missing_timezone_csv_is_a_noop_but_a_corrupt_present_file_fails_atomically() {
+    let test = TestDb::start().await;
+    let path = temporary_timezone_csv();
+    let repo = GeoRepo::new(test.db());
+
+    assert_eq!(
+        repo.seed_timezones_from_csv_if_empty(&path)
+            .await
+            .expect("missing file is allowed"),
+        0
+    );
+
+    tokio::fs::write(
+        &path,
+        "Asia/Tokyo\t{\"type\":\"MultiPolygon\",\"coordinates\":[[[[138,34],[141,34],[141,37],[138,37],[138,34]]]]}\n\
+         broken-row\n",
+    )
+    .await
+    .expect("corrupt fixture");
+    assert!(matches!(
+        repo.seed_timezones_from_csv_if_empty(&path).await,
+        Err(DbError::Corrupted(_))
+    ));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tz_boundaries")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "a corrupt import must roll back every row");
+    let _ = tokio::fs::remove_file(path).await;
 }
