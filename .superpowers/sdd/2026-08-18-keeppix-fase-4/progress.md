@@ -14,10 +14,9 @@ Ruling: l'ingest EXIF vive in `keeppix-jobs/src/metadata.rs` +
 posizione resta in `keeppix-db`. Costo se sbagliato: un UPDATE in jobs non
 compila (`sqlx` è solo in keeppix-db).
 
-Minor (Task 1 review, deferred): `signed_dms` non valida minuti/secondi né
-i bound lat/lon. EXIF corrotto può produrre un punto fuori WGS84. Upgrade:
-scartare come `None` se minuti≥60, secondi≥60, |lat|>90, |lon|>180.
+Minor (Task 1 review): closed in `eb320f4`. `signed_dms` rejects minutes/seconds
+≥ 60; `gps_point` rejects |lat|>90 or |lon|>180. Tests in `exif_gps.rs`.
 
 Task 1: complete (commits b702c7a..4ff8541, review clean after MakerNote
-fixture + no SQL in jobs tests)
+fixture + no SQL in jobs tests; bounds follow-up `eb320f4`)
 
