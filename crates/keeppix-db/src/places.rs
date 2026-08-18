@@ -172,7 +172,7 @@ impl<'a> PlaceRepo<'a> {
              FROM places p
              CROSS JOIN history h
              WHERE p.population > 0
-               AND (p.ascii_name ILIKE '%' || $3 || '%' OR p.ascii_name % $3)
+               AND p.ascii_name % $3
              ORDER BY similarity(p.ascii_name, $3) DESC,
                       CASE
                           WHEN h.centroid IS NOT NULL

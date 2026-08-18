@@ -391,6 +391,21 @@ async fn search_without_location_history_falls_back_to_population() {
     assert_eq!(results.first().expect("Springfield result").id, 51);
 }
 
+#[tokio::test]
+#[allow(clippy::expect_used)]
+async fn search_does_not_treat_sql_wildcards_as_match_all() {
+    let test = TestDb::start().await;
+    let repo = PlaceRepo::new(test.db());
+    seed(&repo).await;
+
+    let results = repo
+        .search(&context(UserId::new()), "%%", false, 10)
+        .await
+        .expect("wildcard search");
+
+    assert!(results.is_empty());
+}
+
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_override_history(test: &TestDb, user: UserId, count: usize) {
     let ctx = context(user);
