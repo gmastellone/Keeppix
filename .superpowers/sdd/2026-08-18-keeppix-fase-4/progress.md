@@ -66,3 +66,10 @@ continuo, senza cambiare il contratto HTTP.
 
 Task 3: complete (commit `f0813d4`, test verdi)
 
+Ruling (Task 3 review): `build-geonames.sh` accetta una directory sorgente
+opzionale come secondo argomento per testare il normalizzatore senza rete; senza
+argomento conserva download e soglia produzione. `countryInfo.txt` non offre un
+campo ASCII separato, quindi il nome paese alimenta sia `name` sia
+`ascii_name`. Costo se sbagliato: i pochi nomi paese non ASCII richiederanno una
+traslitterazione esplicita nel build stage.
+
