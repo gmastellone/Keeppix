@@ -1007,6 +1007,466 @@ non aggiungere un'eccezione per una rotta che è davvero usata.
       ognuna delle sei aree, non un commit unico)
 
 
+## Task 13: la consegna non è chiusa — sei rilievi dalla revisione
+
+Trovati rivedendo il commit `ff03fcb` sul branch `fase-3`, prima del merge.
+**Nessuno dei sei è stato riprodotto per ispezione soltanto**: codice letto
+alla fonte, `fmt`/`clippy` rieseguiti, `check-wired.py` rieseguito.
+
+### 13a — la password sui link non protegge nulla
+
+**Gravità: critica.** È il difetto che questa fase esiste per evitare.
+
+`crates/keeppix-api/src/routes/share.rs`, `public_auth` (righe ~244-278):
+
+```rust
+if let Some(pw_hash) = &row.password_hash {
+    let provided = req.password.unwrap_or_default();
+    let parsed = Password::parse(&provided).map_err(|_| Problem::forbidden())?;
+    let stored = PasswordHash::from_stored(pw_hash.clone());
+    if !verify_password(&parsed, &stored) {
+        return Err(Problem::forbidden());
+    }
+}
+
+let _ctx = AuthContext::share_link(
+    row.id,
+    keeppix_domain::ShareLinkParams { /* … */ },
+);
+
+Ok((share_headers(), StatusCode::NO_CONTENT))
+```
+
+La password **è verificata correttamente** — ma il risultato, `_ctx`, viene
+costruito e **scartato**. L'underscore è la firma di chi sapeva che non serve
+a niente. Nessun cookie, nessun token, nessuna prova di sblocco esce da questo
+endpoint: risponde `204` e basta.
+
+E `crates/keeppix-api/src/extract.rs`, l'estrattore `ShareAuth` usato su
+**tutte** le rotte protette incluse `/media/*`:
+
+```rust
+let row = ShareLinkRepo::new(&state.db)
+    .lookup_by_token_hash(&hash)
+    .await
+    .map_err(|_| Problem::forbidden())?
+    .ok_or_else(Problem::forbidden)?;
+
+let ctx = AuthContext::share_link(row.id, /* … */);
+Ok(Self(ctx))
+```
+
+Costruisce il contesto **direttamente dal token**, senza mai leggere
+`row.password_hash`. Il campo esiste nella riga (`ShareLinkRow`), la verifica
+esiste in un altro endpoint, e i due non sono collegati.
+
+**Conseguenza:** un link "protetto da password" concede accesso completo a
+chiunque abbia l'URL, password corretta o no.
+
+**Correzione.** `public_auth`, dopo aver verificato la password, deve emettere
+una prova di sblocco legata a quel token specifico — un cookie firmato a
+breve scadenza, o un secondo token che `ShareAuth` accetti al posto della
+password quando `password_hash` è `Some`. `ShareAuth` deve **rifiutare** con
+`403` una richiesta su un link con password quando quella prova non c'è o non
+corrisponde. Il design è una decisione: scriverla nel ledger con la ragione.
+
+**Test che deve fallire prima.** Un link con password: `GET
+/media/thumb/{hash}` con `X-Share-Token` ma **senza** aver mai chiamato
+`/auth` deve rispondere `403`. Oggi risponde `200`.
+
+### 13b — `fmt` e `clippy` falliscono
+
+```
+cargo fmt --check    → rosso, crates/keeppix-api/tests/journeys.rs
+cargo clippy --workspace --all-targets -- -D warnings
+    → non compila: unused variable `inside_id`,
+      crates/keeppix-api/tests/share_link_channels.rs:55
+```
+
+`./scripts/test.sh` fa `clippy` **prima** dei test: se clippy non compila,
+non può essere stato eseguito su questo commit. La dichiarazione «test.sh
+verde» non regge per `ff03fcb`.
+
+`inside_id` è un asset fetchato e mai riletto: il test verifica che l'asset
+**fuori** dal perimetro condiviso sia bloccato (`/media/original`, 403) ma
+non che quello **dentro** sia raggiungibile per hash su ogni canale (solo
+`inside_hash` via thumb, mai `outside_hash` via thumb, mai `preview`/`full`).
+Non è solo un warning: è un canale di verifica mancante nel test di sicurezza
+più importante della fase.
+
+### 13c — il ledger non prova la misura che contava di più
+
+`.superpowers/sdd/2026-08-17-keeppix-fase-3/progress.md` ha **sei righe**, in
+inglese, per una consegna di 92 file. **Zero** menzioni di 200.000 asset o
+`EXPLAIN ANALYZE` — il criterio di completamento scritto in cima al piano,
+perché il Task 1 mette l'ereditarietà dei permessi nella query più calda del
+prodotto. Nessun ruling per i Task 2, 3, 8, 9, 12a-12g.
+
+Non è cerimonia: senza il numero, non c'è modo di sapere se la query di
+visibilità regge il bersaglio dichiarato, e il piano lo chiedeva esplicitamente
+prima di dichiarare fatto il Task 1.
+
+### 13d — l'upload ospite (Task 7, non un rilievo mio) non ha un endpoint pubblico
+
+`crates/keeppix-api/src/lib.rs` monta **una sola** rotta con `guest` nel
+percorso: `/guest-uploads/{id}/approve`. **Nessuna rotta accetta un upload da
+chi non ha un account.** Il Task 7 del piano — scritto prima di questa
+revisione — chiedeva la coda **e** l'ingresso pubblico; solo la prima metà
+esiste.
+
+Il test che dovrebbe provarlo, `v9_guest_uploads_stay_hidden_until_approved`
+(`crates/keeppix-api/tests/journeys.rs:523`), lo conferma senza volerlo:
+
+```rust
+sqlx::query(
+    "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, kind, status, uploaded_by_guest) \
+     VALUES ($1, $2, 'guest.jpg', 10, now(), 'image', 'indexed', true)",
+)
+// …
+sqlx::query(
+    "INSERT INTO guest_upload_queue (id, asset_id, share_link_id, filename, size_bytes) \
+     VALUES ($1, $2, $3, 'guest.jpg', 10)",
+)
+```
+
+L'asset e la voce di coda sono **inseriti via SQL grezzo**, non prodotti da
+un ospite che carica davvero un file. Il nome del test dichiara «un cliente
+carica le sue foto»: il test non lo fa, perché non può — l'endpoint non
+esiste.
+
+**È la sesta occorrenza della stessa classe di difetto** che questo progetto
+paga da tre fasi: un test che passa senza provare ciò che il suo nome
+afferma. Le prime cinque erano funzioni scritte e mai chiamate; questa è un
+test scritto per una funzione che non è mai stata costruita.
+
+**Correzione.** Serve una rotta pubblica — `POST /share/{token}/uploads` o
+simile — che accetti un file quando `allow_upload` è vero sul link, rispetti
+`upload_quota_bytes`, e crei la riga in `guest_upload_queue` **dall'upload
+reale**, non da un inserimento diretto. Il test V9 va riscritto per passare
+da quella rotta.
+
+### 13e — un commit solo, non un'unità per area
+
+`ff03fcb`: 92 file, +8067, un commit. Il piano chiedeva un commit per unità
+logica — per il solo Task 12, un commit per area (12a-12g). Rende impossibile
+capire cosa appartiene a quale task senza rileggere tutto, e senza commit
+separati un `git revert` mirato non è possibile.
+
+Non serve riscrivere la storia se il branch non è ancora condiviso altrove:
+i prossimi commit di correzione **devono** seguire la disciplina, e il ledger
+va completato retroattivamente per area anche per il lavoro già fatto.
+
+### 13f — incoerenza fra `NotFound` e `Forbidden` sul token
+
+`crates/keeppix-api/src/routes/share.rs`, `public_info` (riga ~225) e
+`public_auth` (riga ~262) rispondono `not_found` per un token
+inesistente/scaduto/revocato. `ShareAuth` (`extract.rs`), sulla stessa identica
+query (`lookup_by_token_hash`, che già filtra `revoked_at IS NULL` e la
+scadenza), risponde `forbidden`.
+
+**Non è un bypass**: entrambe le strade negano l'accesso. Ma è
+un'incoerenza rispetto alla convenzione già seguita ovunque nel resto del
+codice (`Forbidden`, mai `NotFound`, per non trasformare l'endpoint in un
+oracolo). Vanno allineate a `forbidden`.
+
+### Cosa invece è confermato solido
+
+Per non distorcere il quadro: la query di visibilità (Task 1) è **ben
+progettata** — un solo round-trip per i grant, poi una clausola SQL sola con
+`EXISTS`/`NOT EXISTS` innestata nella query principale, niente materializzato.
+Il rate limiter è in-process, limitato, con pulizia periodica — rispetta il
+vincolo «niente Redis». Le migrazioni sono corrette e in sequenza
+(0015-0019). `scripts/wired-exceptions.txt` ha davvero la sezione «Debiti»
+vuota. Il frontend costruisce, i pannelli sono chunk lazy, il bundle
+d'ingresso sta a **~79 KB gzip**. I viaggi **V8, V10, V11, V12** passano tutti
+dalle rotte HTTP reali, senza scorciatoie SQL, e V8 prova la revoca immediata
+riusando la stessa query filtrata sia per il lookup pubblico sia per quello
+protetto — esattamente la riduzione di superficie che l'architettura del
+piano cercava.
+
+### Criterio di chiusura del Task 13
+
+- [ ] Un link con password: senza chiamare `/auth`, ogni rotta protetta
+      (inclusi tutti i canali media) risponde `403`.
+- [ ] `cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
+      warnings` verdi — verificati rieseguendoli, non per fiducia nel
+      commit precedente.
+- [ ] Il ledger ha il numero misurato per il Task 1 a 200.000 asset con
+      `EXPLAIN ANALYZE`, e un ruling per ciascuno dei task 2, 3, 8, 9, 12a-12g.
+- [ ] V9 carica un file attraverso una rotta pubblica reale, non via SQL.
+- [ ] `not_found` sostituito da `forbidden` in `public_info` e `public_auth`
+      per token invalido/scaduto/revocato.
+- [ ] Da qui in avanti, un commit per unità logica.
+
+- [ ] **Step 1-3: Scrivere, verificare, committare**
+
+---
+
+## Task 14: la fase non è completa come *funzione*, non solo come test
+
+Trovato controllando la copertura funzionale dopo che il Task 13 era già
+verde — non "i test passano", ma "la cosa che l'utente vuole fare esiste
+davvero". Tre buchi, verificati leggendo il codice sorgente, non per
+ispezione dei nomi delle rotte.
+
+### 14a — non esiste modo, dal browser, di condividere una cartella con una persona
+
+**È il cuore della fase, e manca.** `frontend/src/api/permissions.ts` espone
+`fetchPermissions`, `grantPermission`, `explainPermission` — e:
+
+```
+$ grep -rln "from '@/api/permissions'" frontend/src/
+(nessun risultato)
+```
+
+**Zero componenti lo importano.** `SharesView.vue` (82 righe) gestisce solo i
+link pubblici (Task 5) — nessuna menzione di permessi, ruoli o soggetti al
+suo interno.
+
+**Come sono sopravvissuti i viaggi V5 e V6** — quelli che definiscono
+"multiutente" più di ogni altro — nonostante questo: entrambi creano il
+permesso con un helper di test che chiama l'API direttamente
+(`crates/keeppix-api/tests/journey/mod.rs:273`,
+`grant_folder_viewer` → `POST /api/v1/permissions`), non attraverso
+un'azione utente. Il backend è corretto e testato; l'interfaccia sopra non
+esiste.
+
+**Perché la guardia non l'ha presa.** `scripts/check-wired.py` verifica che
+la stringa della rotta compaia in `frontend/src` — e compare, dentro
+`permissions.ts` stesso, che la contiene senza mai chiamarla da una vista. La
+guardia prova "il backend ha un consumatore nel codice sorgente frontend",
+non "un componente lo importa ed è raggiungibile". Va stretta: cercare anche
+un `import` di quel modulo API da un file `.vue`, non solo la stringa della
+rotta.
+
+**Correzione.** Una pagina — dentro `SharesView` o a sé — dove il
+proprietario di una cartella/album sceglie una persona o un gruppo, un ruolo
+(viewer/editor), e vede la catena che la spec descrive: «hai accesso perché
+il gruppo Famiglia ha ruolo viewer su /Foto/Vacanze, ereditato in
+/2024/Grecia» (`explainPermission`, già scritta e mai chiamata).
+
+**Test.** Un utente A condivide una cartella con l'utente B **dal browser,
+senza `curl` né SQL**; B la vede al prossimo accesso senza che A faccia
+altro. Il pannello mostra l'elenco dei permessi diretti e, per un asset
+scelto, la catena di `explain`.
+
+### 14b — viewer ed editor sono lo stesso ruolo ovunque tranne due punti
+
+Verificato per ogni mutazione che poggia su `permissions`:
+
+| Azione | Cosa controlla oggi | Cosa chiede la spec |
+|---|---|---|
+| `move_subtree` | `effective_role >= Editor` | editor+ ✅ |
+| Cancellazione dal disco (`Purged`) | `may_purge` (owner/admin) | owner+ ✅ |
+| Ri-condividere (`PermissionRepo::grant`) | `assert_can_manage` (owner/admin) | owner+ ✅ |
+| Modifica metadati (`OverrideRepo::apply`/`apply_batch`) | `assert_visible` — **solo visibilità** | editor+ ❌ |
+| Spostare in cestino (`TrashRepo::choose`, `Trashed`/`Kept`) | `assert_visible` — **solo visibilità** | editor+ ❌ |
+
+Le prime tre sono corrette — verificate leggendo il codice, non assunte. Le
+ultime due no: un viewer può oggi modificare i metadati e cestinare gli asset
+che vede, cosa che la spec §1.2 vieta esplicitamente.
+
+**Non è una svista di questa revisione.** Il commento in
+`crates/keeppix-db/src/trash.rs`, scritto in Fase 2:
+
+```rust
+// Cancello comune alle tre opzioni: senza visibilità sull'asset
+// nessuna delle tre è ammessa. È l'aggancio che la Fase 3 estenderà
+// a chi ha visibilità condivisa (editor/viewer) senza toccare
+// questo metodo.
+```
+
+La Fase 3 ha esteso il cancello per `Purged` (owner/admin) ma non per
+`Trashed`/`Kept` (editor+): il promemoria è stato letto a metà.
+
+**Correzione.** In `TrashRepo::choose`, per `Trashed`/`Kept`, aggiungere lo
+stesso controllo che `move_subtree` già fa — `effective_role >=
+Editor` quando il chiamante non è owner/admin. Stessa cosa in
+`OverrideRepo::apply` e `apply_batch`.
+
+**Test.** Un utente con ruolo `viewer` su una cartella condivisa: `PATCH
+/assets/{id}/metadata` e `POST /trash/choose` (o equivalente) rispondono
+`403`. Un utente con ruolo `editor` sugli stessi endpoint: `204`.
+
+### 14c — «nascondi le posizioni sensibili» non è la funzione della spec
+
+`docs/superpowers/specs/fase-3-multiutente.md`, §6.2:
+
+> Impostazione «nascondi le posizioni entro N metri da un punto»: si
+> definisce casa propria, e nei contenuti condivisi le foto scattate lì
+> appaiono senza coordinate. Il dato resta intatto nel database.
+
+Un raggio configurabile attorno a un punto "casa". Quello che esiste è
+`hide_metadata: bool` su un link pubblico, che azzera `taken_at_utc` — **la
+data, non le coordinate** (`crates/keeppix-api/src/routes/share.rs:353-357`).
+
+**Non è una fuga attiva**: `AssetView` (la vista usata da timeline e contenuti
+condivisi) non porta mai `lat`/`lon` — quei campi esistono solo in
+`crates/keeppix-api/src/routes/metadata.rs`, dietro `Auth` (solo sessione,
+mai raggiungibile da un link pubblico). Ma la funzione descritta nella spec —
+il raggio, il punto "casa", la logica di distanza — **non esiste**.
+
+**Correzione.** O si implementa: coordinate "casa" per utente, raggio in
+metri, calcolo di distanza al momento di servire un contenuto condiviso, e
+`lat`/`lon` esclusi (non azzerati: *esclusi*, per non rivelare "c'era
+qualcosa qui") quando la foto cade nel raggio. O si dichiara esplicitamente
+differita a una fase successiva, con la ragione scritta — non lasciata
+implicita dietro un nome di campo che promette una cosa diversa.
+
+**Test**, se implementata: una foto scattata entro il raggio da "casa" non
+porta `lat`/`lon` in nessuna risposta raggiungibile da un link pubblico; una
+foto fuori dal raggio le porta.
+
+### Criterio di chiusura del Task 14
+
+- [ ] Una cartella si condivide con una persona o un gruppo **dal browser**,
+      verificato a mano, non solo per API.
+- [ ] Il pannello di `explain` mostra la catena di ereditarietà per un asset
+      scelto.
+- [ ] Un viewer riceve `403` su modifica metadati e spostamento in cestino;
+      un editor riceve `204`.
+- [ ] `check-wired.py` esteso: una rotta con solo un client API senza `import`
+      da alcun `.vue` è **segnalata**, non silenziata.
+- [ ] «Nascondi le posizioni sensibili» è implementata secondo la spec §6.2,
+      o la sua assenza è scritta nel ledger con la ragione — non lasciata
+      dietro un flag che fa altro.
+
+- [ ] **Step 1-3: Scrivere, verificare, committare**
+
+---
+
+## Task 15: due buchi trovati solo cliccando davvero, non leggendo il codice
+
+Il Task 14 ha chiuso 14a con una revisione del codice e dei test. Poi, prima
+di dare l'ok al merge, l'ho usato davvero dal browser — condiviso una
+cartella da Tester a un secondo utente, effettuato il login come quel
+secondo utente, verificato che vedesse la timeline. **Il flusso di
+condivisione funziona correttamente, confermato end-to-end**: `SharesView`
+crea il grant, l'utente destinatario vede l'asset al login successivo, il
+menu nasconde correttamente Users/Groups a un non-admin.
+
+Ma usare l'interfaccia — non solo leggerne il codice — ha scoperto due cose
+che la lettura sola non aveva preso.
+
+### 15a — la gestione utenti è di sola lettura
+
+**Non è un rilievo nuovo: è il Task 12a originale, mai chiuso davvero.**
+`frontend/src/views/UsersView.vue`, per intero:
+
+```vue
+<script setup lang="ts">
+import { fetchUsers, type UserSummary } from '@/api/users'
+import { fetchAuditLog } from '@/api/audit'
+// …
+async function load() {
+  users.value = await fetchUsers()
+  await fetchAuditLog(1).catch(() => undefined)   // risultato scartato, non mostrato
+}
+</script>
+```
+
+Il template renderizza solo un elenco (`<li>` per utente, nome, badge admin).
+**Nessun pulsante creazione, nessun cambio ruolo, nessuna disabilitazione,
+nessun cambio password.** Verificato per assenza, non per ispezione
+superficiale: zero occorrenze di `create`, `POST`, `role`, `disable`,
+`password` in tutto il file.
+
+Le rotte backend esistono e sono corrette (`POST /users`,
+`PATCH /users/{id}`, `POST /users/{id}/disable`, `POST /users/me/password`
+— verificate nel Task 13). `check-wired.py` non l'ha preso perché
+`api/users.ts` **è** importato da `UsersView.vue` — la guardia verifica che
+il *file* sia raggiunto da una vista, non che ogni funzione che esporta sia
+davvero chiamata. È un limite noto della guardia, non un difetto della
+guardia: renderla precisa a livello di singola funzione esportata costerebbe
+analisi statica reale, non un `grep`.
+
+Durante la verifica ho dovuto creare un secondo utente con una chiamata
+diretta all'API per poter testare la condivisione — dal pannello non è
+possibile.
+
+**Correzione.** Aggiungere a `UsersView`: form di creazione (username,
+display name, password iniziale, ruolo), controllo di cambio ruolo per
+riga, pulsante disabilita/riabilita, e una sezione "cambia la mia password"
+per l'utente corrente. Le funzioni API esistono già e sono testate — vanno
+solo chiamate da un template, come già fatto per `SharesView` col Task 14a.
+
+**Test.** Un admin crea un utente dal browser, senza `curl` né SQL; l'utente
+appena creato può accedere; l'admin lo disabilita e le sue sessioni cadono
+subito (già provato lato backend da V10 — qui serve lo stesso percorso
+partendo da un click, non da una richiesta HTTP diretta nel test).
+
+### 15b — `explain` mostra id, non la catena leggibile che la spec promette
+
+`docs/superpowers/specs/fase-3-multiutente.md` §3.1, la ragione dichiarata
+per cui questo progetto ha scelto solo-allow invece di un sistema con deny:
+
+> L'interfaccia può sempre rispondere alla domanda **«perché ho accesso a
+> questa foto?»** con una catena leggibile: «Hai accesso perché → il gruppo
+> Famiglia ha ruolo *viewer* su /Foto/Vacanze, ereditato in /2024/Grecia.»
+
+Quello che il pannello mostra oggi, verificato cliccando `Explain`:
+
+```
+01a015a3-6eea-7ca2-8532-d2a5069bae15 has role viewer on 01a0159e-ca85-7a41-a3eb-f15e2ffdf354
+```
+
+UUID dell'utente, UUID della cartella. **I dati sono corretti** — è la
+presentazione a non essere quella promessa. Non un difetto di sicurezza: un
+difetto della ragione stessa per cui questo pannello esiste.
+
+**Correzione.** Nella risposta di `explainPermission`, o nel componente che
+la mostra, risolvere gli id in nomi: display name della persona/gruppo,
+percorso della cartella (non il suo id), e se il permesso è ereditato,
+indicare da quale nodo — esattamente la frase che la spec cita come
+esempio.
+
+**Test.** La catena mostrata per un permesso ereditato contiene il nome
+della persona o del gruppo e il percorso leggibile della cartella, non un
+UUID in nessuna delle due posizioni.
+
+### Criterio di chiusura del Task 15
+
+- [x] Un admin crea, modifica il ruolo, disabilita un utente e cambia la
+      propria password — tutto dal browser.
+- [x] La catena di `Explain` è leggibile: nomi e percorsi, non id.
+- [x] Provato di nuovo a mano: condivisione end-to-end come fatto per
+      verificare 15a/15b, questa volta senza dover ricorrere a una chiamata
+      API diretta per nessun passo.
+
+- [x] **Step 1-3: Scrivere, verificare, committare**
+
+### Verifica manuale — 2026-08-18
+
+Fatta sullo stack di `field-test.sh` (`http://127.0.0.1:5673`, admin `tester`).
+
+- **15a, creazione utente dal pannello**: creato "Verifica Task15"
+  (`verifica15`, ruolo `user`) dal form `/users` — nessuna chiamata API
+  diretta, solo browser. La UI mostra subito la nuova riga con selettore
+  ruolo e link Disable.
+- **15a, disabilitazione e caduta sessione**: cliccato Disable dal pannello
+  admin. Verificato via API con due cookie jar isolati (il browser condivide
+  i cookie fra tab, quindi due login nello stesso browser si sovrascrivono —
+  non è un difetto dell'app, è un limite del metodo di test coi tab):
+  `POST /disable` → `204`; sessione esistente dell'utente disabilitato →
+  `401` alla richiesta successiva; nuovo login con la password corretta →
+  `401 invalid-credentials`. Cade subito, nessuna finestra di sessione
+  residua.
+- **15b, Explain leggibile**: condivisa `/Campo` con "Verifica Task15" come
+  viewer, poi `Shares → Why can they see this? → Explain` →
+  **"Verifica Task15 has role viewer on /Campo"**. Nome e percorso reali,
+  nessun UUID in vista.
+
+Unico neo non bloccante notato en passant: navigare a `/users` con una
+sessione ormai invalida mostra "An unexpected error occurred" invece di
+rimandare al login — `UsersView` non gestisce il 401 con un redirect
+esplicito. Non è nel perimetro del Task 15 (la sessione era invalida per il
+mio metodo di test a due tab, non per un bug di logout), ma vale una nota
+per chi tocca la gestione errori delle view autenticate.
+
+Task 15 chiuso: tutti e tre i criteri verificati a mano nel browser.
+
+---
+
 ## Nota storica: cosa è stato spostato in Fase 2R3
 
 **Non sono task da eseguire.** Questa sezione esiste perché chi legge il piano
@@ -1032,8 +1492,16 @@ scala che la 2R3 lascia in eredità, invece di doverla scrivere.
 
 Ognuno è **eseguibile**.
 
-- [ ] `cargo test --workspace -- --test-threads=1` verde; clippy e fmt puliti.
-- [ ] I viaggi **V5-V12** passano, oltre a V1-V4 della Fase 2R.
+- [ ] **I Task 13, 14 e 15 sono chiusi** — i sei rilievi di sicurezza, i tre
+      buchi funzionali, e i due trovati solo cliccando davvero l'interfaccia
+      (non solo i task 1-12). Nessun altro criterio qui sotto conta se un
+      link con password concede accesso senza password, se nessuno può
+      condividere una cartella dal browser, o se un admin non può creare un
+      utente senza `curl`.
+- [ ] `cargo test --workspace -- --test-threads=1` verde; clippy e fmt puliti
+      — **rieseguiti sull'ultimo commit**, non dedotti da una fase precedente.
+- [ ] I viaggi **V5-V12** passano, oltre a V1-V4 della Fase 2R, e **V9 passa
+      attraverso una rotta pubblica reale di upload**, non attraverso SQL.
 - [ ] **Budget**: `GET /timeline` sotto 300 ms con 50 permessi e 10.000 asset,
       misurato e registrato nel ledger insieme alla strada scelta per
       l'ereditarietà (CTE o `NOT EXISTS`) con i numeri di `EXPLAIN ANALYZE`.

@@ -36,18 +36,20 @@ impl<'a> TimelineRepo<'a> {
             LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
         }
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.library_id", 1);
+        let filter = scope.filter_for_folder_aggregate("f.path", "f.library_id", "f.id", 1);
         let sql = format!(
             "SELECT fmc.month, sum(fmc.asset_count)::bigint AS count \
                FROM folder_month_counts fmc \
                JOIN folders f ON f.id = fmc.folder_id \
-              WHERE {} AND ($2::uuid IS NULL OR f.library_id = $2) \
+              WHERE {} AND ($4::uuid IS NULL OR f.library_id = $4) \
               GROUP BY fmc.month \
               ORDER BY fmc.month DESC",
             filter.sql()
         );
         let rows: Vec<(NaiveDate, i64)> = sqlx::query_as(&sql)
             .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
             .bind(library_id.map(|id| id.as_uuid()))
             .fetch_all(self.db.pool())
             .await?;
@@ -70,7 +72,7 @@ impl<'a> TimelineRepo<'a> {
     ) -> Result<Vec<Asset>, DbError> {
         let limit = limit.clamp(1, 200);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.library_id", 6);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 6);
         let start = month_start(bucket);
         let end = bucket
             .checked_add_months(Months::new(1))
@@ -100,6 +102,8 @@ impl<'a> TimelineRepo<'a> {
             .bind(cursor_id)
             .bind(limit)
             .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
             .fetch_all(self.db.pool())
             .await?;
         rows.into_iter().map(AssetRow::into_domain).collect()

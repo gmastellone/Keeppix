@@ -52,6 +52,7 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/timeline/buckets",
         "/api/v1/timeline",
         "/api/v1/folders/tree",
+        "/api/v1/folders/{id}",
         "/api/v1/folders/{id}/children",
         "/media/thumb/{hash}",
         "/media/preview/{hash}",
@@ -172,8 +173,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 52,
-        "il documento deve descrivere cinquantadue operazioni"
+        checked, 54,
+        "il documento deve descrivere cinquantaquattro operazioni"
     );
 }
 
@@ -236,6 +237,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/duplicates/{content_hash}/resolve",
             "/api/v1/flags/batch",
             "/api/v1/folders/tree",
+            "/api/v1/folders/{id}",
             "/api/v1/folders/{id}/children",
             "/api/v1/libraries",
             "/api/v1/libraries",
@@ -262,6 +264,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/users/me/password",
             "/api/v1/users/{id}",
             "/api/v1/users/{id}/disable",
+            "/api/v1/users/{id}/enable",
             "/api/v1/viewport",
             "/api/v1/ws",
             "/api/v1/ws/ticket",
@@ -316,6 +319,7 @@ fn operation_ids_are_explicit_and_unique() {
             "flags_get",
             "flags_set",
             "folders_children",
+            "folders_move",
             "folders_tree",
             "libraries_create",
             "libraries_delete",
@@ -348,6 +352,7 @@ fn operation_ids_are_explicit_and_unique() {
             "users_change_password",
             "users_create",
             "users_disable",
+            "users_enable",
             "users_list",
             "users_patch",
             "viewport_promote",

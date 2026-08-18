@@ -113,8 +113,12 @@ impl<'a> SessionRepo<'a> {
         let mut tx = self.db.pool().begin().await?;
 
         let row: Option<RotateRow> = sqlx::query_as(
-            "SELECT id, family_id, user_id, consumed_at, revoked_at, expires_at, now() AS db_now \
-               FROM sessions WHERE refresh_token_hash = $1 FOR UPDATE",
+            "SELECT s.id, s.family_id, s.user_id, s.consumed_at, s.revoked_at, s.expires_at, \
+                    now() AS db_now \
+               FROM sessions s \
+               JOIN users u ON u.id = s.user_id \
+              WHERE s.refresh_token_hash = $1 AND u.disabled_at IS NULL \
+              FOR UPDATE OF s",
         )
         .bind(token.digest().as_slice())
         .fetch_optional(&mut *tx)

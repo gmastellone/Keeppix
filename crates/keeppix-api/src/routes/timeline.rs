@@ -4,7 +4,7 @@ use keeppix_db::TimelineRepo;
 use keeppix_domain::{Asset, AssetId, LibraryId};
 use serde::{Deserialize, Serialize};
 
-use crate::extract::Auth;
+use crate::extract::SessionNotShare;
 use crate::json::Json;
 use crate::problem::Problem;
 use crate::state::AppState;
@@ -120,7 +120,7 @@ const fn status_str(status: keeppix_domain::AssetStatus) -> &'static str {
 )]
 pub async fn buckets(
     State(state): State<AppState>,
-    Auth(ctx): Auth,
+    SessionNotShare(ctx): SessionNotShare,
     Query(query): Query<BucketsQuery>,
 ) -> Result<Json<Vec<MonthBucketView>>, Problem> {
     let buckets = TimelineRepo::new(&state.db)
@@ -159,7 +159,7 @@ pub async fn buckets(
 )]
 pub async fn page(
     State(state): State<AppState>,
-    Auth(ctx): Auth,
+    SessionNotShare(ctx): SessionNotShare,
     Query(query): Query<TimelineQuery>,
 ) -> Result<Json<TimelinePage>, Problem> {
     let bucket = parse_bucket(&query.bucket)?;

@@ -112,6 +112,16 @@ impl Problem {
         )
     }
 
+    #[must_use]
+    pub fn too_many_requests() -> Self {
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate-limited",
+            "Too many requests, please slow down",
+        )
+        .with_retry_after(60)
+    }
+
     /// Mutazione priva dell'header custom richiesto (vedi `crate::csrf`).
     #[must_use]
     pub fn csrf_check_failed() -> Self {
@@ -119,6 +129,15 @@ impl Problem {
             StatusCode::FORBIDDEN,
             "csrf-check-failed",
             "Missing required client header",
+        )
+    }
+
+    #[must_use]
+    pub fn payload_too_large() -> Self {
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload-too-large",
+            "Upload exceeds the share link quota",
         )
     }
 }

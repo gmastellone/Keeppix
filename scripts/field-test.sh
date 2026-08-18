@@ -74,6 +74,33 @@ if ! docker compose --profile bundled build >/dev/null 2>&1; then
     echo "docker compose build fallito (daemon Docker disponibile?)"
     exit 1
 fi
+if ! docker compose --profile bundled up -d db >/dev/null 2>&1; then
+    echo "docker compose up (db) fallito"
+    exit 1
+fi
+
+# `rm -rf ./pgdata` sopra ricrea la directory dell'host appena prima che
+# Docker Desktop vi monti sopra: su questa piattaforma il bind mount a volte
+# non è pronto nel momento esatto in cui l'entrypoint di postgres fa
+# `initdb`, che fallisce con "wrong ownership" al primo avvio interno.
+# L'immagine posta comunque "healthy" (il socket accetta connessioni), ma lo
+# script di init salta la creazione del database applicativo, credendo che
+# la cluster fosse già inizializzata. Effetto: `keeppix` si avvia, non trova
+# il database, va in crash-loop, e il polling su `/health` due righe sotto
+# resta appeso per sempre — a occhio sembra uno stack bloccato, non un
+# database mancante.
+#
+# Verificato e riprodotto tre volte di fila su questa macchina (build amd64
+# emulata su Apple Silicon, quindi finestra di race più larga del solito).
+# Piuttosto che sperare che non ricapiti, il controllo si autoripara: se il
+# database manca dopo che `db` è sano, lo crea.
+until docker compose exec -T db pg_isready -U keeppix >/dev/null 2>&1; do sleep 1; done
+if ! docker compose exec -T db psql -U keeppix -d keeppix -c 'SELECT 1' >/dev/null 2>&1; then
+    echo "→ database applicativo assente dopo l'init (bind mount in race): lo creo"
+    docker compose exec -T -u postgres db \
+        psql -U keeppix -d template1 -c 'CREATE DATABASE keeppix OWNER keeppix' >/dev/null
+fi
+
 if ! PHOTOS_PATH="$ARCHIVE" docker compose --profile bundled up -d >/dev/null 2>&1; then
     echo "docker compose up fallito"
     exit 1

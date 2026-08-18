@@ -1,7 +1,8 @@
-use axum::extract::{Path, State};
-use keeppix_db::{AssetRepo, FolderRepo};
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use keeppix_db::{AssetRepo, FolderRepo, StackRepo};
 use keeppix_domain::{Asset, Folder, FolderId};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::extract::Auth;
 use crate::json::Json;
@@ -30,6 +31,17 @@ impl FolderView {
     }
 }
 
+#[derive(Deserialize)]
+pub struct TreeQuery {
+    #[serde(default)]
+    roots: bool,
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct MoveFolderRequest {
+    parent_id: String,
+}
+
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct FolderChildren {
     pub folders: Vec<FolderView>,
@@ -53,8 +65,14 @@ pub struct FolderChildren {
 pub async fn tree(
     State(state): State<AppState>,
     Auth(ctx): Auth,
+    Query(query): Query<TreeQuery>,
 ) -> Result<Json<Vec<FolderView>>, Problem> {
-    let folders = FolderRepo::new(&state.db).tree(&ctx).await?;
+    let repo = FolderRepo::new(&state.db);
+    let folders = if query.roots {
+        repo.roots(&ctx).await?
+    } else {
+        repo.tree(&ctx).await?
+    };
     Ok(Json(folders.iter().map(FolderView::from_folder).collect()))
 }
 
@@ -87,4 +105,51 @@ pub async fn children(
         folders: folders.iter().map(FolderView::from_folder).collect(),
         assets: assets.iter().map(AssetView::from_asset).collect(),
     }))
+}
+
+/// Sposta il sottoalbero. Gli asset restano sulla stessa riga: si riscrive
+/// solo `folders.path`.
+///
+/// # Errors
+/// `401`; `403` se non visibile o se il chiamante è solo viewer; `409` su
+/// ciclo o collisione di nome.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/folders/{id}",
+    tag = "folders",
+    operation_id = "folders_move",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della cartella da spostare")),
+    request_body = MoveFolderRequest,
+    responses(
+        (status = 204, description = "Sottoalbero spostato"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Cartella non visibile o ruolo insufficiente", body = Problem),
+        (status = 409, description = "Ciclo o nome già presente", body = Problem),
+        (status = 500, description = "Errore del database", body = Problem)
+    )
+)]
+pub async fn relocate(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(id): Path<FolderId>,
+    Json(body): Json<MoveFolderRequest>,
+) -> Result<StatusCode, Problem> {
+    let parent_id: FolderId = body.parent_id.parse().map_err(|_| {
+        Problem::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid-id",
+            "Invalid folder id",
+        )
+    })?;
+    let repo = FolderRepo::new(&state.db);
+    let folder = repo.find_by_id(&ctx, id).await?;
+    repo.move_subtree(&ctx, id, parent_id).await?;
+    let stacks = StackRepo::new(&state.db);
+    stacks.regroup_folder(id).await?;
+    if let Some(old_parent) = folder.parent_id {
+        stacks.regroup_folder(old_parent).await?;
+    }
+    stacks.regroup_folder(parent_id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

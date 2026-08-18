@@ -6,11 +6,19 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: () => import('@/views/TimelineView.vue'), meta: { auth: true } },
+    { path: '/folders', component: () => import('@/views/FoldersView.vue'), meta: { auth: true } },
     { path: '/search', component: () => import('@/views/SearchView.vue'), meta: { auth: true } },
     { path: '/problems', component: () => import('@/views/ProblemsView.vue'), meta: { auth: true } },
     // Chunk lazy come mappa e impostazioni (§10.9): il budget dei 150 KB
     // iniziali riguarda solo ciò che `index.html` carica subito.
     { path: '/culling', component: () => import('@/views/CullingView.vue'), meta: { auth: true } },
+    { path: '/albums', component: () => import('@/views/AlbumsView.vue'), meta: { auth: true } },
+    { path: '/shares', component: () => import('@/views/SharesView.vue'), meta: { auth: true } },
+    { path: '/trash', component: () => import('@/views/TrashView.vue'), meta: { auth: true } },
+    { path: '/users', component: () => import('@/views/UsersView.vue'), meta: { auth: true } },
+    { path: '/groups', component: () => import('@/views/GroupsView.vue'), meta: { auth: true } },
+    { path: '/batch-edit', component: () => import('@/views/BatchEditView.vue'), meta: { auth: true } },
+    { path: '/s/:token', component: () => import('@/views/public/SharedView.vue') },
     { path: '/login', component: () => import('@/views/LoginView.vue') },
     { path: '/setup', component: () => import('@/views/SetupView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' }

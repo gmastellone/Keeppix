@@ -188,14 +188,45 @@ impl<'a> FolderRepo<'a> {
     /// `Connection` se la query fallisce.
     pub async fn tree(&self, ctx: &AuthContext) -> Result<Vec<Folder>, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("library_id", 1);
+        let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 1);
         let rows: Vec<FolderRow> = sqlx::query_as(&format!(
             "SELECT {COLUMNS} FROM folders WHERE {} ORDER BY path",
             filter.sql()
         ))
         .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
+
+        rows.into_iter().map(FolderRow::into_domain).collect()
+    }
+
+    /// Radici della foresta visibile: librerie possedute per l'owner,
+    /// cartelle concesse per chi ha uno share. Non l'albero intero.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn roots(&self, ctx: &AuthContext) -> Result<Vec<Folder>, DbError> {
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 1);
+        let sql = if scope.is_unrestricted() {
+            format!(
+                "SELECT {COLUMNS} FROM folders WHERE parent_id IS NULL AND {} ORDER BY name",
+                filter.sql()
+            )
+        } else {
+            format!(
+                "SELECT {COLUMNS} FROM folders WHERE id = ANY($1::uuid[]) AND {} ORDER BY name",
+                filter.sql()
+            )
+        };
+        let rows: Vec<FolderRow> = sqlx::query_as(&sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .fetch_all(self.db.pool())
+            .await?;
 
         rows.into_iter().map(FolderRow::into_domain).collect()
     }
@@ -211,10 +242,16 @@ impl<'a> FolderRepo<'a> {
     ) -> Result<Vec<Folder>, DbError> {
         self.visible(ctx, folder_id).await?;
 
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 2);
         let rows: Vec<FolderRow> = sqlx::query_as(&format!(
-            "SELECT {COLUMNS} FROM folders WHERE parent_id = $1 ORDER BY name"
+            "SELECT {COLUMNS} FROM folders WHERE parent_id = $1 AND {} ORDER BY name",
+            filter.sql()
         ))
         .bind(folder_id.as_uuid())
+        .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 
@@ -232,14 +269,20 @@ impl<'a> FolderRepo<'a> {
         folder_id: FolderId,
     ) -> Result<Vec<Folder>, DbError> {
         let (folder, _) = self.visible(ctx, folder_id).await?;
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 3);
 
         let rows: Vec<FolderRow> = sqlx::query_as(&format!(
             "SELECT {COLUMNS} FROM folders \
-              WHERE library_id = $1 AND path <@ $2::text::ltree \
-              ORDER BY path"
+              WHERE library_id = $1 AND path <@ $2::text::ltree AND {} \
+              ORDER BY path",
+            filter.sql()
         ))
         .bind(folder.library_id.as_uuid())
         .bind(folder.path.as_str())
+        .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 
@@ -265,8 +308,17 @@ impl<'a> FolderRepo<'a> {
         folder_id: FolderId,
         new_parent: FolderId,
     ) -> Result<(), DbError> {
-        let (folder, _) = self.visible(ctx, folder_id).await?;
+        let (folder, library) = self.visible(ctx, folder_id).await?;
         self.visible(ctx, new_parent).await?;
+        if !ctx.is_admin() && ctx.user_id() != Some(library.owner_id) {
+            match crate::PermissionRepo::new(self.db)
+                .effective_role(ctx, folder_id)
+                .await?
+            {
+                Some(keeppix_domain::ObjectRole::Editor) => {}
+                _ => return Err(DbError::Forbidden),
+            }
+        }
 
         let mut tx = self.db.pool().begin().await?;
 
@@ -391,23 +443,33 @@ impl<'a> FolderRepo<'a> {
         Ok(path)
     }
 
-    /// Risolve la visibilità dalla libreria proprietaria, con le stesse regole
-    /// di `LibraryRepo::find_by_id`: `Forbidden` prima di `NotFound`.
+    /// Risolve la visibilità dallo scope (prefissi di cartella), non dalla
+    /// sola proprietà della libreria: una cartella condivisa deve essere
+    /// raggiungibile. `Forbidden` prima di `NotFound`.
     /// Restituisce anche la libreria, che serve a `absolute_path`.
     async fn visible(&self, ctx: &AuthContext, id: FolderId) -> Result<(Folder, Library), DbError> {
         let mut conn = self.db.pool().acquire().await?;
 
         let Some(folder) = load(&mut conn, id).await? else {
-            // A chi non è admin non si dice se un id esiste.
             return Err(if ctx.is_admin() {
                 DbError::NotFound
             } else {
                 DbError::Forbidden
             });
         };
+        drop(conn);
+
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        if !scope.allows(folder.library_id, folder.path.as_str()) {
+            return Err(if ctx.is_admin() {
+                DbError::NotFound
+            } else {
+                DbError::Forbidden
+            });
+        }
 
         let library = LibraryRepo::new(self.db)
-            .find_by_id(ctx, folder.library_id)
+            .load_for_scan(folder.library_id)
             .await?;
         Ok((folder, library))
     }

@@ -9,8 +9,11 @@ use std::time::{Duration, Instant};
 
 use chrono::NaiveDate;
 use harness::TestDb;
-use keeppix_db::{FolderRepo, LibraryRepo, SearchNode, SearchRepo, TimelineRepo};
-use keeppix_domain::{AuthContext, NewLibrary, SystemRole};
+use keeppix_db::{
+    FolderRepo, LibraryRepo, ObjectType, PermissionRepo, SearchNode, SearchRepo, SubjectType,
+    TimelineRepo, VisibilityScope,
+};
+use keeppix_domain::{AuthContext, NewLibrary, ObjectRole, SystemRole};
 
 const N: i32 = 200_000;
 const TIMELINE_BUDGET: Duration = Duration::from_millis(300);
@@ -256,4 +259,187 @@ fn join_plan(rows: Vec<(String,)>) -> String {
         .map(|(line,)| line)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[tokio::test]
+async fn timeline_with_fifty_permissions_stays_under_budget_at_200k() {
+    let test = TestDb::start().await;
+    let (admin_ctx, library_id) = seed_two_hundred_thousand(&test).await;
+    let admin = admin_ctx.user_id().unwrap();
+    let mario = harness::seed_user(&test, admin, "mario").await;
+
+    let folders = FolderRepo::new(test.db());
+    let root = folders.ensure_path(library_id, &[]).await.unwrap();
+    let mut granted = folders.children(&admin_ctx, root.id).await.unwrap();
+    while granted.len() < 50 {
+        let n = granted.len();
+        let extra = folders
+            .ensure_path(library_id, &[&format!("perm{n}")])
+            .await
+            .unwrap();
+        granted.push(extra);
+    }
+    granted.truncate(50);
+
+    let perms = PermissionRepo::new(test.db());
+    for folder in &granted {
+        perms
+            .grant(
+                &admin_ctx,
+                keeppix_db::NewGrant {
+                    subject: SubjectType::User,
+                    subject_id: mario.as_uuid(),
+                    object: ObjectType::Folder,
+                    object_id: folder.id.as_uuid(),
+                    role: ObjectRole::Viewer,
+                    inherit: true,
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    sqlx::query("ANALYZE folders")
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+    sqlx::query("ANALYZE permissions")
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+    sqlx::query("ANALYZE assets")
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    let ctx = AuthContext::user(mario, SystemRole::User);
+    let repo = TimelineRepo::new(test.db());
+
+    let t0 = Instant::now();
+    let buckets = repo.buckets(&ctx, None).await.unwrap();
+    let buckets_elapsed = t0.elapsed();
+    eprintln!(
+        "MEASUREMENT buckets 200k/50perm: {buckets_elapsed:?} ({} mesi)",
+        buckets.len()
+    );
+    assert!(
+        buckets_elapsed < TIMELINE_BUDGET,
+        "buckets con 50 permessi: {buckets_elapsed:?}"
+    );
+
+    let newest = buckets.first().expect("almeno un mese").month;
+    let t1 = Instant::now();
+    let page = repo.page(&ctx, newest, None, 200).await.unwrap();
+    let page_elapsed = t1.elapsed();
+    eprintln!(
+        "MEASUREMENT timeline 200k/50perm: {page_elapsed:?} ({} righe)",
+        page.len()
+    );
+    assert!(!page.is_empty());
+    assert!(
+        page_elapsed < TIMELINE_BUDGET,
+        "timeline con 50 permessi a 200k: {page_elapsed:?}"
+    );
+
+    let scope = VisibilityScope::resolve(test.db(), &ctx).await.unwrap();
+    eprintln!(
+        "EXPLAIN EXISTS/NOT EXISTS (scelta) 200k/50perm:\n{}",
+        explain_page_shared(test.db().pool(), newest, &scope).await
+    );
+    eprintln!(
+        "EXPLAIN CTE ricorsiva (confronto) 200k/50perm:\n{}",
+        explain_page_cte(test.db().pool(), newest, &scope).await
+    );
+}
+
+async fn explain_page_shared(
+    pool: &sqlx::PgPool,
+    month: NaiveDate,
+    scope: &VisibilityScope,
+) -> String {
+    let start = month.and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let end = month
+        .checked_add_months(chrono::Months::new(1))
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc();
+    let filter = scope.filter("f.path", "f.library_id", "a.id", 6);
+    let sql = format!(
+        "EXPLAIN (ANALYZE, BUFFERS) \
+         SELECT a.id FROM assets a \
+         JOIN folders f ON f.id = a.folder_id \
+         WHERE {} \
+           AND a.status = 'indexed' \
+           AND a.kind <> 'unknown' \
+           AND a.taken_at_utc >= $1 AND a.taken_at_utc < $2 \
+           AND ($3::timestamptz IS NULL \
+                OR a.taken_at_utc < $3 \
+                OR (a.taken_at_utc = $3 AND a.id < $4)) \
+         ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
+         LIMIT $5",
+        filter.sql()
+    );
+    let rows: Vec<(String,)> = sqlx::query_as(&sql)
+        .bind(start)
+        .bind(end)
+        .bind(None::<chrono::DateTime<chrono::Utc>>)
+        .bind(None::<uuid::Uuid>)
+        .bind(200_i64)
+        .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
+        .fetch_all(pool)
+        .await
+        .unwrap();
+    join_plan(rows)
+}
+
+async fn explain_page_cte(
+    pool: &sqlx::PgPool,
+    month: NaiveDate,
+    scope: &VisibilityScope,
+) -> String {
+    let start = month.and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let end = month
+        .checked_add_months(chrono::Months::new(1))
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc();
+    let grants = scope
+        .filter("f.path", "f.library_id", "a.id", 6)
+        .bind()
+        .unwrap()
+        .to_vec();
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "EXPLAIN (ANALYZE, BUFFERS) \
+         WITH RECURSIVE vis AS ( \
+             SELECT f.id, f.path, f.library_id FROM folders f \
+              WHERE f.id = ANY($6::uuid[]) \
+             UNION ALL \
+             SELECT c.id, c.path, c.library_id FROM folders c \
+               JOIN vis ON c.parent_id = vis.id \
+         ) \
+         SELECT a.id FROM assets a \
+         JOIN vis ON a.folder_id = vis.id \
+         WHERE a.status = 'indexed' \
+           AND a.kind <> 'unknown' \
+           AND a.taken_at_utc >= $1 AND a.taken_at_utc < $2 \
+           AND ($3::timestamptz IS NULL \
+                OR a.taken_at_utc < $3 \
+                OR (a.taken_at_utc = $3 AND a.id < $4)) \
+         ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
+         LIMIT $5",
+    )
+    .bind(start)
+    .bind(end)
+    .bind(None::<chrono::DateTime<chrono::Utc>>)
+    .bind(None::<uuid::Uuid>)
+    .bind(200_i64)
+    .bind(&grants)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    join_plan(rows)
 }

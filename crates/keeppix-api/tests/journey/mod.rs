@@ -1,4 +1,5 @@
 //! Shared helpers for HTTP-only user-journey integration tests.
+#![allow(dead_code)]
 
 use std::fs;
 use std::path::PathBuf;
@@ -222,4 +223,132 @@ pub async fn scan_and_wait(
 ) -> Duration {
     start_scan(server, library_id).await;
     wait_for_scan(server, library_id, expected_assets, deadline).await
+}
+
+#[allow(clippy::expect_used)]
+pub async fn create_user(server: &TestServer, username: &str, password: &str) -> String {
+    let response = server
+        .client
+        .post(server.url("/api/v1/users"))
+        .json(&json!({
+            "username": username,
+            "display_name": username,
+            "password": password,
+            "role": "user"
+        }))
+        .send()
+        .await
+        .expect("create user");
+    assert_eq!(response.status(), 201);
+    response
+        .json::<serde_json::Value>()
+        .await
+        .expect("user json")["id"]
+        .as_str()
+        .expect("user id")
+        .to_owned()
+}
+
+#[allow(clippy::expect_used)]
+pub async fn folder_id_by_name(server: &TestServer, name: &str) -> String {
+    let tree = server
+        .client
+        .get(server.url("/api/v1/folders/tree"))
+        .send()
+        .await
+        .expect("folders tree")
+        .json::<serde_json::Value>()
+        .await
+        .expect("tree json");
+    tree.as_array()
+        .expect("tree array")
+        .iter()
+        .find(|f| f["name"].as_str() == Some(name))
+        .and_then(|f| f["id"].as_str())
+        .unwrap_or_else(|| panic!("folder {name} not found"))
+        .to_owned()
+}
+
+#[allow(clippy::expect_used)]
+pub async fn grant_folder_viewer(server: &TestServer, subject_user_id: &str, folder_id: &str) {
+    grant_folder_role(server, subject_user_id, folder_id, "viewer").await;
+}
+
+#[allow(clippy::expect_used)]
+pub async fn grant_folder_editor(server: &TestServer, subject_user_id: &str, folder_id: &str) {
+    grant_folder_role(server, subject_user_id, folder_id, "editor").await;
+}
+
+#[allow(clippy::expect_used)]
+async fn grant_folder_role(
+    server: &TestServer,
+    subject_user_id: &str,
+    folder_id: &str,
+    role: &str,
+) {
+    let response = server
+        .client
+        .post(server.url("/api/v1/permissions"))
+        .json(&json!({
+            "subject_type": "user",
+            "subject_id": subject_user_id,
+            "object_type": "folder",
+            "object_id": folder_id,
+            "role": role,
+            "inherit": true
+        }))
+        .send()
+        .await
+        .expect("grant permission");
+    assert_eq!(response.status(), 201);
+}
+
+#[allow(clippy::expect_used)]
+pub fn share_client(token: &str) -> reqwest::Client {
+    let mut headers = harness::client_headers();
+    headers.insert(
+        reqwest::header::HeaderName::from_static("x-share-token"),
+        reqwest::header::HeaderValue::from_str(token).expect("token header"),
+    );
+    reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(headers)
+        .build()
+        .expect("share client")
+}
+
+#[allow(clippy::expect_used)]
+pub async fn create_share_link(
+    server: &TestServer,
+    object_type: &str,
+    object_id: &str,
+    password: Option<&str>,
+) -> String {
+    let mut body = json!({
+        "object_type": object_type,
+        "object_id": object_id,
+    });
+    if let Some(pw) = password {
+        body["password"] = json!(pw);
+    }
+    create_share_link_from(server, body).await
+}
+
+#[allow(clippy::expect_used)]
+pub async fn create_share_link_from(server: &TestServer, body: serde_json::Value) -> String {
+    let response = server
+        .client
+        .post(server.url("/api/v1/share/links"))
+        .json(&body)
+        .send()
+        .await
+        .expect("create share link");
+    assert_eq!(response.status(), 201);
+    response
+        .json::<serde_json::Value>()
+        .await
+        .expect("link json")["token"]
+        .as_str()
+        .expect("token")
+        .to_owned()
 }

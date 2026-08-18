@@ -41,7 +41,7 @@ impl<'a> ChangeLogRepo<'a> {
     /// `Connection` se la query fallisce.
     pub async fn since(&self, ctx: &AuthContext, cursor: i64) -> Result<ChangePage, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("c.library_id", 2);
+        let filter = scope.filter_library("c.library_id", 2);
 
         let rows: Vec<ChangeRow> = sqlx::query_as(&format!(
             "SELECT c.seq, c.entity_id, c.op FROM change_log c \
@@ -53,6 +53,8 @@ impl<'a> ChangeLogRepo<'a> {
         ))
         .bind(cursor)
         .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 

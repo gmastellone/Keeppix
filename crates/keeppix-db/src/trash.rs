@@ -78,9 +78,10 @@ impl<'a> TrashRepo<'a> {
     ///
     /// # Errors
     /// `Forbidden` se il chiamante non vede l'asset — anche quando l'id non
-    /// esiste — o se chiede [`DiskAction::Purged`] senza essere il
-    /// proprietario della libreria o un admin. `Io` se l'operazione sul
-    /// filesystem fallisce.
+    /// esiste — se chiede [`DiskAction::Purged`] senza essere il
+    /// proprietario della libreria o un admin, o se chiede
+    /// [`DiskAction::MovedToTrash`] / [`DiskAction::Kept`] senza ruolo
+    /// editor (spec §1.2). `Io` se l'operazione sul filesystem fallisce.
     pub async fn choose(
         &self,
         ctx: &AuthContext,
@@ -88,9 +89,7 @@ impl<'a> TrashRepo<'a> {
         action: DiskAction,
     ) -> Result<TrashEntry, DbError> {
         // Cancello comune alle tre opzioni: senza visibilità sull'asset
-        // nessuna delle tre è ammessa. È l'aggancio che la Fase 3 estenderà
-        // a chi ha visibilità condivisa (editor/viewer) senza toccare
-        // questo metodo.
+        // nessuna delle tre è ammessa.
         AssetRepo::new(self.db)
             .assert_visible(ctx, std::slice::from_ref(&asset_id))
             .await?;
@@ -98,12 +97,17 @@ impl<'a> TrashRepo<'a> {
         let asset = AssetRepo::new(self.db).get_for_scan(asset_id).await?;
         let library = library_info_for_folder(self.db, asset.folder_id).await?;
 
+        // Viewer vede, non scrive: cestino e "kept" sono editor+ (spec §1.2).
+        // Purged resta owner/admin — un editor non distrugge i file.
+        if !matches!(action, DiskAction::Purged) {
+            crate::PermissionRepo::new(self.db)
+                .assert_can_edit_assets(ctx, std::slice::from_ref(&asset_id))
+                .await?;
+        }
+
         // Secondo cancello, più stretto e solo per `Purged`: la cancellazione
-        // dal disco resta di owner/admin anche quando la Fase 3 concederà ad
-        // altri la visibilità sull'asset (design §4.2: «un editor non può
-        // distruggere file»). Oggi, senza condivisione, coincide con il
-        // primo controllo — ma è un cancello distinto apposta, non lo stesso
-        // scritto due volte.
+        // dal disco resta di owner/admin anche quando altri hanno visibilità
+        // sull'asset (design §4.2: «un editor non può distruggere file»).
         if matches!(action, DiskAction::Purged)
             && !may_purge(ctx, UserId::from_uuid(library.owner_id))
         {
@@ -297,7 +301,7 @@ impl<'a> TrashRepo<'a> {
     ) -> Result<Vec<TrashEntry>, DbError> {
         let limit = limit.clamp(1, 100);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.library_id", 4);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 4);
         let (cursor_time, cursor_id) = match cursor {
             Some((t, id)) => (Some(t), Some(id.as_uuid())),
             None => (None, None),
@@ -320,6 +324,8 @@ impl<'a> TrashRepo<'a> {
             .bind(cursor_id)
             .bind(limit)
             .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
             .fetch_all(self.db.pool())
             .await?;
         rows.into_iter().map(EntryRow::into_domain).collect()
@@ -348,7 +354,7 @@ impl<'a> TrashRepo<'a> {
         }
 
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.library_id", 1);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let rows: Vec<PendingRow> = sqlx::query_as(&format!(
             "SELECT te.id, te.asset_id, te.original_path, te.trash_path \
                FROM trash_entries te \
@@ -359,6 +365,8 @@ impl<'a> TrashRepo<'a> {
             filter.sql()
         ))
         .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
         .fetch_all(self.db.pool())
         .await?;
 

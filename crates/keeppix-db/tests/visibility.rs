@@ -1,7 +1,7 @@
 mod harness;
 
 use harness::TestDb;
-use keeppix_db::{LibraryRepo, VisibilityScope};
+use keeppix_db::{FolderRepo, LibraryRepo, VisibilityScope};
 use keeppix_domain::{AuthContext, NewLibrary, SystemRole};
 
 fn new_library(name: &str, path: &str, owner: keeppix_domain::UserId) -> NewLibrary {
@@ -33,6 +33,7 @@ async fn a_plain_user_sees_only_its_libraries() {
     let mario = harness::seed_user(&test, admin, "mario").await;
     let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
     let repo = LibraryRepo::new(test.db());
+    let folders = FolderRepo::new(test.db());
 
     let admin_lib = repo
         .create(&admin_ctx, new_library("Admin", "/mnt/a", admin))
@@ -42,14 +43,16 @@ async fn a_plain_user_sees_only_its_libraries() {
         .create(&admin_ctx, new_library("Mario", "/mnt/m", mario))
         .await
         .unwrap();
+    let admin_root = folders.ensure_path(admin_lib.id, &[]).await.unwrap();
+    let mario_root = folders.ensure_path(mario_lib.id, &[]).await.unwrap();
 
     let scope = VisibilityScope::resolve(test.db(), &AuthContext::user(mario, SystemRole::User))
         .await
         .unwrap();
 
     assert!(!scope.is_unrestricted());
-    assert_eq!(scope.library_ids(), &[mario_lib.id]);
-    assert!(!scope.library_ids().contains(&admin_lib.id));
+    assert!(scope.allows(mario_lib.id, mario_root.path.as_str()));
+    assert!(!scope.allows(admin_lib.id, admin_root.path.as_str()));
 }
 
 #[tokio::test]
@@ -59,8 +62,12 @@ async fn a_user_with_no_libraries_matches_zero_rows() {
     let admin = harness::seed_admin(&test).await;
     let mario = harness::seed_user(&test, admin, "mario").await;
     let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
-    LibraryRepo::new(test.db())
+    let admin_lib = LibraryRepo::new(test.db())
         .create(&admin_ctx, new_library("Admin", "/mnt/a", admin))
+        .await
+        .unwrap();
+    FolderRepo::new(test.db())
+        .ensure_path(admin_lib.id, &[])
         .await
         .unwrap();
 
@@ -68,18 +75,22 @@ async fn a_user_with_no_libraries_matches_zero_rows() {
         .await
         .unwrap();
 
-    assert!(scope.library_ids().is_empty());
+    assert!(
+        scope
+            .filter("folders.path", "folders.library_id", "NULL::uuid", 1)
+            .bind()
+            .is_some_and(<[uuid::Uuid]>::is_empty)
+    );
     assert!(!scope.is_unrestricted());
 
-    // Il contratto congelato: le query usano la clausola, non l'elenco di id.
-    // Un elenco vuoto interpolato a mano diventerebbe `IN ()`, che è un errore
-    // di sintassi; la clausola deve invece restituire zero righe senza errore.
-    let filter = scope.filter("id", 1);
+    let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 1);
     let n: i64 = sqlx::query_scalar(&format!(
-        "SELECT count(*) FROM libraries WHERE {}",
+        "SELECT count(*) FROM folders WHERE {}",
         filter.sql()
     ))
     .bind(filter.bind())
+    .bind(filter.holes())
+    .bind(filter.assets())
     .fetch_one(test.db().pool())
     .await
     .expect("uno scope vuoto non è un errore");
@@ -98,15 +109,30 @@ async fn scope_updates_when_a_library_is_created() {
     let before = VisibilityScope::resolve(test.db(), &mario_ctx)
         .await
         .unwrap();
-    assert!(before.library_ids().is_empty());
+    assert!(
+        before
+            .filter("folders.path", "folders.library_id", "NULL::uuid", 1)
+            .bind()
+            .is_some_and(<[uuid::Uuid]>::is_empty)
+    );
 
     let created = LibraryRepo::new(test.db())
         .create(&admin_ctx, new_library("Mario", "/mnt/m", mario))
+        .await
+        .unwrap();
+    let root = FolderRepo::new(test.db())
+        .ensure_path(created.id, &[])
         .await
         .unwrap();
 
     let after = VisibilityScope::resolve(test.db(), &mario_ctx)
         .await
         .unwrap();
-    assert_eq!(after.library_ids(), &[created.id]);
+    assert_eq!(
+        after
+            .filter("folders.path", "folders.library_id", "NULL::uuid", 1)
+            .bind()
+            .unwrap(),
+        [root.id.as_uuid()].as_slice()
+    );
 }

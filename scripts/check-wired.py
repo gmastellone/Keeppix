@@ -116,14 +116,80 @@ def route_needle(route: str) -> str:
     return re.sub(r"/\{[^}]+\}.*$", "", route) or route
 
 
+IMPORT_RE = re.compile(
+    r"""(?:from\s+|import\s*\(\s*)['"]([^'"]+)['"]""",
+)
+
+
+def _is_spec(path: Path) -> bool:
+    return path.name.endswith(".spec.ts") or path.name.endswith(".spec.vue")
+
+
+def resolve_frontend_import(src: Path, importer: Path, spec: str) -> Path | None:
+    """Resolve a TS/Vue import to a file under `frontend/src`, or None."""
+    if spec.startswith("@/"):
+        raw = src / spec[2:]
+    elif spec.startswith("."):
+        raw = importer.parent / spec
+    else:
+        return None
+    candidates: list[Path] = []
+    if raw.suffix in {".ts", ".vue", ".js"}:
+        candidates.append(raw)
+    else:
+        candidates.extend(
+            [
+                Path(str(raw) + ".ts"),
+                Path(str(raw) + ".vue"),
+                Path(str(raw) + ".js"),
+                raw / "index.ts",
+                raw / "index.js",
+            ]
+        )
+    src_root = src.resolve()
+    for cand in candidates:
+        try:
+            resolved = cand.resolve()
+            resolved.relative_to(src_root)
+        except (OSError, ValueError):
+            continue
+        if resolved.is_file() and not _is_spec(resolved):
+            return resolved
+    return None
+
+
+def vue_reachable_frontend_files(src: Path) -> list[Path]:
+    """Files a non-spec `.vue` can reach by following imports.
+
+    A route string that lives only in `api/*.ts` — never imported from a
+    view or component — is not a production consumer. V5/V6 used to pass
+    that way: `permissions.ts` mentioned `/api/v1/permissions` and no
+    `.vue` imported it.
+    """
+    reachable: set[Path] = set()
+    queue: list[Path] = [
+        p for p in src.rglob("*.vue") if not _is_spec(p)
+    ]
+    while queue:
+        path = queue.pop()
+        resolved = path.resolve()
+        if resolved in reachable:
+            continue
+        reachable.add(resolved)
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+        for spec in IMPORT_RE.findall(text):
+            imported = resolve_frontend_import(src, path, spec)
+            if imported is not None and imported not in reachable:
+                queue.append(imported)
+    return sorted(reachable)
+
+
 def frontend_mentions(needle: str) -> bool:
     src = ROOT / "frontend" / "src"
-    paths = [
-        p
-        for p in list(src.rglob("*.ts")) + list(src.rglob("*.vue"))
-        if not p.name.endswith(".spec.ts") and not p.name.endswith(".spec.vue")
-    ]
-    for path in paths:
+    for path in vue_reachable_frontend_files(src):
         if needle in path.read_text():
             return True
     return False
