@@ -10,6 +10,7 @@ pub mod libraries;
 pub mod media;
 pub mod metadata;
 pub mod permissions;
+pub mod places;
 pub mod problems;
 pub mod search;
 pub mod setup;

@@ -149,6 +149,8 @@ fn api_routes() -> Router<AppState> {
         .route("/viewport", axum::routing::post(routes::viewport::promote))
         .route("/search", axum::routing::post(routes::search::run))
         .route("/search/suggest", get(routes::search::suggest))
+        .route("/places/reverse", get(routes::places::reverse))
+        .route("/places/suggest", get(routes::places::suggest))
         .route(
             "/saved-searches",
             get(routes::search::list_saved).post(routes::search::create_saved),

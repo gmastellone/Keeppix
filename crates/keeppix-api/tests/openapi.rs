@@ -61,6 +61,8 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/viewport",
         "/api/v1/search",
         "/api/v1/search/suggest",
+        "/api/v1/places/reverse",
+        "/api/v1/places/suggest",
         "/api/v1/saved-searches",
         "/api/v1/ws",
         "/api/v1/ws/ticket",
@@ -173,8 +175,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 54,
-        "il documento deve descrivere cinquantaquattro operazioni"
+        checked, 56,
+        "il documento deve descrivere cinquantasei operazioni"
     );
 }
 
@@ -250,6 +252,8 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/metadata/batch",
             "/api/v1/metadata/batch/shift-taken-at",
             "/api/v1/metadata/batch/{batch_id}/undo",
+            "/api/v1/places/reverse",
+            "/api/v1/places/suggest",
             "/api/v1/problems",
             "/api/v1/saved-searches",
             "/api/v1/saved-searches",
@@ -338,6 +342,8 @@ fn operation_ids_are_explicit_and_unique() {
             "metadata_effective",
             "metadata_shift_taken_at",
             "metadata_undo_batch",
+            "places_reverse",
+            "places_suggest",
             "problems_list",
             "saved_searches_create",
             "saved_searches_list",
