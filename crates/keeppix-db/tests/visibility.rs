@@ -77,19 +77,20 @@ async fn a_user_with_no_libraries_matches_zero_rows() {
 
     assert!(
         scope
-            .filter("folders.path", "folders.library_id", 1)
+            .filter("folders.path", "folders.library_id", "NULL::uuid", 1)
             .bind()
             .is_some_and(<[uuid::Uuid]>::is_empty)
     );
     assert!(!scope.is_unrestricted());
 
-    let filter = scope.filter("folders.path", "folders.library_id", 1);
+    let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 1);
     let n: i64 = sqlx::query_scalar(&format!(
         "SELECT count(*) FROM folders WHERE {}",
         filter.sql()
     ))
     .bind(filter.bind())
     .bind(filter.holes())
+    .bind(filter.assets())
     .fetch_one(test.db().pool())
     .await
     .expect("uno scope vuoto non è un errore");
@@ -110,7 +111,7 @@ async fn scope_updates_when_a_library_is_created() {
         .unwrap();
     assert!(
         before
-            .filter("folders.path", "folders.library_id", 1)
+            .filter("folders.path", "folders.library_id", "NULL::uuid", 1)
             .bind()
             .is_some_and(<[uuid::Uuid]>::is_empty)
     );
@@ -129,7 +130,7 @@ async fn scope_updates_when_a_library_is_created() {
         .unwrap();
     assert_eq!(
         after
-            .filter("folders.path", "folders.library_id", 1)
+            .filter("folders.path", "folders.library_id", "NULL::uuid", 1)
             .bind()
             .unwrap(),
         [root.id.as_uuid()].as_slice()

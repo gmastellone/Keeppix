@@ -1,6 +1,7 @@
 //! Permessi solo-allow. I gruppi si risolvono con un join, mai nel token.
 
 use keeppix_domain::{AuthContext, FolderId, ObjectRole};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::{Db, DbError};
@@ -70,6 +71,8 @@ impl<'a> PermissionRepo<'a> {
     /// # Errors
     /// `Forbidden` senza utente; `Connection` se l'upsert fallisce.
     pub async fn grant(&self, ctx: &AuthContext, grant: NewGrant) -> Result<Permission, DbError> {
+        self.assert_can_manage(ctx, grant.object, grant.object_id)
+            .await?;
         let granted_by = ctx.user_id().ok_or(DbError::Forbidden)?;
         let id = Uuid::now_v7();
         let row: (Uuid, String, bool) = sqlx::query_as(
@@ -133,5 +136,231 @@ impl<'a> PermissionRepo<'a> {
         .await?;
 
         Ok(role.as_deref().and_then(ObjectRole::parse))
+    }
+
+    /// Elenco permessi diretti su un oggetto.
+    ///
+    /// # Errors
+    /// `Forbidden` se il chiamante non può amministrare l'oggetto.
+    pub async fn list_direct(
+        &self,
+        ctx: &AuthContext,
+        object: ObjectType,
+        object_id: Uuid,
+    ) -> Result<Vec<PermissionGrantView>, DbError> {
+        self.assert_can_manage(ctx, object, object_id).await?;
+        let rows: Vec<(Uuid, String, Uuid, String, bool)> = sqlx::query_as(
+            "SELECT id, subject_type, subject_id, role, inherit \
+               FROM permissions \
+              WHERE object_type = $1 AND object_id = $2 \
+              ORDER BY created_at",
+        )
+        .bind(object.as_str())
+        .bind(object_id)
+        .fetch_all(self.db.pool())
+        .await?;
+        rows.into_iter()
+            .map(|(id, st, sid, role, inherit)| {
+                let role = ObjectRole::parse(&role)
+                    .ok_or_else(|| crate::row::corrupted("permission role", &role))?;
+                Ok(PermissionGrantView {
+                    id,
+                    subject_type: st,
+                    subject_id: sid,
+                    role,
+                    inherit,
+                    inherited: false,
+                })
+            })
+            .collect()
+    }
+
+    /// Revoca un permesso per id.
+    ///
+    /// # Errors
+    /// `Forbidden` se non autorizzato; `NotFound` se il permesso non esiste.
+    pub async fn revoke(&self, ctx: &AuthContext, permission_id: Uuid) -> Result<(), DbError> {
+        let row: Option<(String, Uuid)> =
+            sqlx::query_as("SELECT object_type, object_id FROM permissions WHERE id = $1")
+                .bind(permission_id)
+                .fetch_optional(self.db.pool())
+                .await?;
+        let Some((object_type, object_id)) = row else {
+            return Err(DbError::NotFound);
+        };
+        let object = parse_object_type(&object_type)?;
+        self.assert_can_manage(ctx, object, object_id).await?;
+        let n = sqlx::query("DELETE FROM permissions WHERE id = $1")
+            .bind(permission_id)
+            .execute(self.db.pool())
+            .await?
+            .rows_affected();
+        if n == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Aggiorna ruolo o ereditarietà.
+    ///
+    /// # Errors
+    /// `NotFound` se il permesso non esiste; `Forbidden` se il chiamante
+    /// non può gestire l'oggetto; `Connection` su errore DB.
+    pub async fn patch(
+        &self,
+        ctx: &AuthContext,
+        permission_id: Uuid,
+        role: Option<ObjectRole>,
+        inherit: Option<bool>,
+    ) -> Result<Permission, DbError> {
+        let row: Option<(String, Uuid, String, bool)> = sqlx::query_as(
+            "SELECT object_type, object_id, role, inherit FROM permissions WHERE id = $1",
+        )
+        .bind(permission_id)
+        .fetch_optional(self.db.pool())
+        .await?;
+        let Some((object_type, object_id, current_role, current_inherit)) = row else {
+            return Err(DbError::NotFound);
+        };
+        let object = parse_object_type(&object_type)?;
+        self.assert_can_manage(ctx, object, object_id).await?;
+        let new_role = role.map_or(current_role, |r| r.as_str().to_owned());
+        let new_inherit = inherit.unwrap_or(current_inherit);
+        let out: (Uuid, String, bool) = sqlx::query_as(
+            "UPDATE permissions SET role = $2, inherit = $3 WHERE id = $1 \
+             RETURNING id, role, inherit",
+        )
+        .bind(permission_id)
+        .bind(&new_role)
+        .bind(new_inherit)
+        .fetch_one(self.db.pool())
+        .await?;
+        let role = ObjectRole::parse(&out.1)
+            .ok_or_else(|| crate::row::corrupted("permission role", &out.1))?;
+        Ok(Permission {
+            id: out.0,
+            role,
+            inherit: out.2,
+        })
+    }
+
+    /// Spiega perché un utente vede (o non vede) un oggetto.
+    ///
+    /// # Errors
+    /// `Forbidden` se il chiamante non può gestire l'oggetto; `Connection` DB.
+    pub async fn explain(
+        &self,
+        ctx: &AuthContext,
+        object: ObjectType,
+        object_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<ExplainResult, DbError> {
+        self.assert_can_manage(ctx, object, object_id).await?;
+        // ponytail: explain minimale — granted true se esiste un permesso diretto
+        // o ownership; catena completa in iterazione futura.
+        let direct: Option<String> = sqlx::query_scalar(
+            "SELECT role FROM permissions \
+              WHERE object_type = $1 AND object_id = $2 \
+                AND subject_type = 'user' AND subject_id = $3 \
+              LIMIT 1",
+        )
+        .bind(object.as_str())
+        .bind(object_id)
+        .bind(user_id)
+        .fetch_optional(self.db.pool())
+        .await?;
+        let granted = direct.is_some();
+        let chain = direct
+            .map(|role| ExplainChainLink {
+                subject_type: "user".to_owned(),
+                subject_name: user_id.to_string(),
+                role,
+                granted_on_type: object.as_str().to_owned(),
+                granted_on_name: object_id.to_string(),
+            })
+            .into_iter()
+            .collect();
+        Ok(ExplainResult { granted, chain })
+    }
+
+    async fn assert_can_manage(
+        &self,
+        ctx: &AuthContext,
+        object: ObjectType,
+        object_id: Uuid,
+    ) -> Result<(), DbError> {
+        if ctx.is_admin() {
+            return Ok(());
+        }
+        let Some(user_id) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+        let owner: Option<uuid::Uuid> = match object {
+            ObjectType::Folder => {
+                sqlx::query_scalar(
+                    "SELECT l.owner_id FROM folders f \
+                      JOIN libraries l ON l.id = f.library_id \
+                     WHERE f.id = $1",
+                )
+                .bind(object_id)
+                .fetch_optional(self.db.pool())
+                .await?
+            }
+            ObjectType::Album => {
+                sqlx::query_scalar("SELECT owner_id FROM albums WHERE id = $1")
+                    .bind(object_id)
+                    .fetch_optional(self.db.pool())
+                    .await?
+            }
+            ObjectType::Asset => {
+                sqlx::query_scalar(
+                    "SELECT l.owner_id FROM assets a \
+                      JOIN folders f ON f.id = a.folder_id \
+                      JOIN libraries l ON l.id = f.library_id \
+                     WHERE a.id = $1",
+                )
+                .bind(object_id)
+                .fetch_optional(self.db.pool())
+                .await?
+            }
+        };
+        match owner {
+            Some(owner) if owner == user_id.as_uuid() => Ok(()),
+            Some(_) | None => Err(DbError::Forbidden),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PermissionGrantView {
+    pub id: Uuid,
+    pub subject_type: String,
+    pub subject_id: Uuid,
+    pub role: ObjectRole,
+    pub inherit: bool,
+    pub inherited: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExplainResult {
+    pub granted: bool,
+    pub chain: Vec<ExplainChainLink>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExplainChainLink {
+    pub subject_type: String,
+    pub subject_name: String,
+    pub role: String,
+    pub granted_on_type: String,
+    pub granted_on_name: String,
+}
+
+fn parse_object_type(raw: &str) -> Result<ObjectType, DbError> {
+    match raw {
+        "folder" => Ok(ObjectType::Folder),
+        "album" => Ok(ObjectType::Album),
+        "asset" => Ok(ObjectType::Asset),
+        other => Err(crate::row::corrupted("object_type", other)),
     }
 }

@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 use keeppix_db::Db;
 use keeppix_domain::{AuthContext, SessionToken};
 
+use crate::ratelimit::RateLimiter;
+
 #[derive(Clone, Default)]
 pub struct TicketStore {
     inner: Arc<Mutex<HashMap<String, (AuthContext, Instant)>>>,
@@ -121,6 +123,10 @@ pub struct AppState {
     /// Demosaic RAW per `/media/full`. In produzione è `SandboxDemosaic`;
     /// i test iniettano un finto per non dipendere da `dcraw_emu`.
     pub demosaic: std::sync::Arc<dyn keeppix_jobs::raw::Demosaic>,
+    /// Rate limiter for public share link access (per token).
+    pub share_limiter: RateLimiter,
+    /// Rate limiter for login attempts (per IP/username).
+    pub login_limiter: RateLimiter,
 }
 
 impl AppState {
@@ -138,6 +144,8 @@ impl AppState {
             library_watchers: None,
             full_cache_bytes: keeppix_media::DEFAULT_FULL_CACHE_BYTES,
             demosaic: std::sync::Arc::new(keeppix_jobs::raw::SandboxDemosaic),
+            share_limiter: RateLimiter::new(Duration::from_secs(60), 60),
+            login_limiter: RateLimiter::new(Duration::from_secs(300), 10),
         }
     }
 

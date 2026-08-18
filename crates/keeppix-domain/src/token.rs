@@ -43,6 +43,42 @@ impl std::fmt::Debug for SessionToken {
     }
 }
 
+/// Token opaco per link pubblici. Stesso schema di `SessionToken`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ShareToken(String);
+
+impl ShareToken {
+    #[must_use]
+    pub fn generate() -> Self {
+        let mut bytes = [0u8; TOKEN_BYTES];
+        rand::rng().fill_bytes(&mut bytes);
+        Self(URL_SAFE_NO_PAD.encode(bytes))
+    }
+
+    #[must_use]
+    pub const fn from_string(value: String) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn digest(&self) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(self.0.as_bytes());
+        hasher.finalize().into()
+    }
+}
+
+impl std::fmt::Debug for ShareToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ShareToken(***)")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

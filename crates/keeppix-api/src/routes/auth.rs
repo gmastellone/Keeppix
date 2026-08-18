@@ -79,6 +79,11 @@ pub async fn login(
     headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, Problem> {
+    let rate_key = client_ip(&headers);
+    if !state.login_limiter.check_and_record(&rate_key) {
+        return Err(Problem::too_many_requests());
+    }
+
     let invalid = || {
         Problem::new(
             StatusCode::UNAUTHORIZED,
@@ -196,6 +201,16 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoR
         }
     }
     (StatusCode::NO_CONTENT, jar.add(clearing_cookie()))
+}
+
+fn client_ip(headers: &HeaderMap) -> String {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| "unknown".to_owned(), str::to_owned)
 }
 
 #[derive(Serialize, utoipa::ToSchema)]

@@ -300,6 +300,38 @@ watch([days, density, gridWidth], () => observe())
       </RouterLink>
       <RouterLink
         class="text-sm underline"
+        to="/trash"
+      >
+        {{ t('trash.entry') }}
+      </RouterLink>
+      <RouterLink
+        class="text-sm underline"
+        to="/albums"
+      >
+        {{ t('albums.entry') }}
+      </RouterLink>
+      <RouterLink
+        class="text-sm underline"
+        to="/shares"
+      >
+        {{ t('shares.entry') }}
+      </RouterLink>
+      <RouterLink
+        v-if="session.user?.role === 'admin'"
+        class="text-sm underline"
+        to="/users"
+      >
+        {{ t('users.entry') }}
+      </RouterLink>
+      <RouterLink
+        v-if="session.user?.role === 'admin'"
+        class="text-sm underline"
+        to="/groups"
+      >
+        {{ t('groups.entry') }}
+      </RouterLink>
+      <RouterLink
+        class="text-sm underline"
         to="/problems"
       >
         {{ t('problems.title') }}

@@ -133,6 +133,65 @@
     "none": "Niente da segnalare.",
     "reclaimable": "{count} copie, {bytes} byte recuperabili"
   },
+  "groups": {
+    "entry": "Gruppi",
+    "title": "Gruppi",
+    "namePlaceholder": "Nome del gruppo",
+    "create": "Crea",
+    "empty": "Nessun gruppo.",
+    "memberCount": "{count} membri",
+    "delete": "Elimina"
+  },
+  "albums": {
+    "entry": "Album",
+    "title": "Album",
+    "namePlaceholder": "Nome dell'album",
+    "create": "Crea",
+    "empty": "Nessun album.",
+    "assetCount": "{count} foto",
+    "delete": "Elimina"
+  },
+  "shares": {
+    "entry": "Condivisioni",
+    "title": "Link condivisi",
+    "empty": "Nessun link condiviso.",
+    "expires": "Scade il {date}",
+    "revoke": "Revoca"
+  },
+  "users": {
+    "entry": "Utenti",
+    "title": "Utenti",
+    "empty": "Nessun utente.",
+    "admin": "Admin"
+  },
+  "trash": {
+    "entry": "Cestino",
+    "title": "Cestino",
+    "empty": "Il cestino è vuoto.",
+    "emptyAll": "Svuota cestino",
+    "restore": "Ripristina",
+    "purge": "Elimina definitivamente",
+    "expires": "Scade il {date}"
+  },
+  "batchEdit": {
+    "title": "Modifica in blocco",
+    "count": "{count} foto selezionate",
+    "fieldPlaceholder": "Nome campo",
+    "valuePlaceholder": "Nuovo valore",
+    "apply": "Applica",
+    "done": "Modifiche applicate."
+  },
+  "shared": {
+    "title": "Contenuto condiviso",
+    "notFound": "Questo link condiviso non è valido o è scaduto.",
+    "password": "Password",
+    "unlock": "Sblocca"
+  },
+  "sharePanel": {
+    "title": "Condividi",
+    "close": "Chiudi",
+    "createLink": "Crea link"
+  },
   "common": {
     "loading": "Caricamento…",
     "unexpectedError": "Si è verificato un errore imprevisto.",
