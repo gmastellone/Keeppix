@@ -904,3 +904,40 @@ async fn undo_still_works_when_the_sidecar_was_written_before_this_batch_was_app
         "il sidecar non ha mai visto il secondo batch: l'annullamento resta disponibile"
     );
 }
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timezone_writer_preserves_a_taken_at_override_present_at_write_time() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_indexed_asset(&test, admin, "concurrent.ARW", exif_taken_at()).await;
+    let repo = OverrideRepo::new(test.db());
+    let manual_time = exif_taken_at() + chrono::Duration::hours(2);
+
+    repo.apply(
+        &ctx,
+        asset,
+        &OverridePatch {
+            taken_at: Some(Some(manual_time)),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let batch = repo
+        .apply_taken_at_batch(
+            &ctx,
+            &[(asset, exif_taken_at() - chrono::Duration::hours(9))],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(batch, None, "a skipped assignment must not create a batch");
+    assert_eq!(
+        repo.effective(&ctx, asset).await.unwrap().taken_at,
+        Some(manual_time),
+        "the timezone writer must not overwrite a user override"
+    );
+}

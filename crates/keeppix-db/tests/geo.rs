@@ -479,3 +479,28 @@ async fn missing_timezone_csv_is_a_noop_but_a_corrupt_present_file_fails_atomica
     assert_eq!(count, 0, "a corrupt import must roll back every row");
     let _ = tokio::fs::remove_file(path).await;
 }
+
+#[tokio::test]
+async fn timezone_seed_rejects_an_unknown_iana_name_atomically() {
+    let test = TestDb::start().await;
+    let path = temporary_timezone_csv();
+    let repo = GeoRepo::new(test.db());
+
+    tokio::fs::write(
+        &path,
+        "Mars/Olympus_Mons\t{\"type\":\"MultiPolygon\",\"coordinates\":[[[[1,1],[2,1],[2,2],[1,2],[1,1]]]]}\n",
+    )
+    .await
+    .expect("invalid timezone fixture");
+
+    assert!(matches!(
+        repo.seed_timezones_from_csv_if_empty(&path).await,
+        Err(DbError::Corrupted(_))
+    ));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tz_boundaries")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "an unknown IANA timezone must roll back the seed");
+    let _ = tokio::fs::remove_file(path).await;
+}

@@ -369,24 +369,15 @@ impl<'a> OverrideRepo<'a> {
             return Err(DbError::Forbidden);
         };
 
-        let ids: Vec<uuid::Uuid> = assignments.iter().map(|(id, _)| id.as_uuid()).collect();
         let mut tx = self.db.pool().begin().await?;
-        let previous = load_previous(&mut tx, &ids, false).await?;
-        let batch_id = BatchId::new();
-        sqlx::query("INSERT INTO metadata_batches (id, actor_id, previous) VALUES ($1, $2, $3)")
-            .bind(batch_id.as_uuid())
-            .bind(actor.as_uuid())
-            .bind(
-                serde_json::to_value(&previous)
-                    .map_err(|e| DbError::Corrupted(format!("previous batch state: {e}")))?,
-            )
-            .execute(&mut *tx)
-            .await?;
-
-        apply_taken_at_values(&mut tx, assignments, actor.as_uuid()).await?;
+        let (changed_count, batch_id) =
+            apply_taken_at_assignments_in_transaction(&mut tx, assignments, actor.as_uuid())
+                .await?;
         tx.commit().await?;
-        enqueue_sidecar_sweep(self.db).await?;
-        Ok(Some(batch_id))
+        if changed_count != 0 {
+            enqueue_sidecar_sweep(self.db).await?;
+        }
+        Ok(batch_id)
     }
 
     /// Ripristina esattamente i valori precedenti di un batch — anche
@@ -668,7 +659,7 @@ impl SidecarRow {
 ///
 /// # Errors
 /// `Connection` se l'inserimento in coda fallisce.
-async fn enqueue_sidecar_sweep(db: &Db) -> Result<(), DbError> {
+pub(crate) async fn enqueue_sidecar_sweep(db: &Db) -> Result<(), DbError> {
     JobRepo::new(db)
         .enqueue(
             JobKind::WriteSidecar,
@@ -796,28 +787,61 @@ async fn apply_points(
     Ok(())
 }
 
+pub(crate) async fn apply_taken_at_assignments_in_transaction(
+    conn: &mut PgConnection,
+    assignments: &[(AssetId, DateTime<Utc>)],
+    updated_by: uuid::Uuid,
+) -> Result<(usize, Option<BatchId>), DbError> {
+    if assignments.is_empty() {
+        return Ok((0, None));
+    }
+    let ids: Vec<uuid::Uuid> = assignments.iter().map(|(id, _)| id.as_uuid()).collect();
+    let mut previous = load_previous(conn, &ids, false).await?;
+    let applied_ids = apply_taken_at_values(conn, assignments, updated_by).await?;
+    if applied_ids.is_empty() {
+        return Ok((0, None));
+    }
+    let applied_keys: std::collections::HashSet<String> =
+        applied_ids.iter().map(uuid::Uuid::to_string).collect();
+    previous.retain(|key, _| applied_keys.contains(key));
+
+    let batch_id = BatchId::new();
+    sqlx::query("INSERT INTO metadata_batches (id, actor_id, previous) VALUES ($1, $2, $3)")
+        .bind(batch_id.as_uuid())
+        .bind(updated_by)
+        .bind(
+            serde_json::to_value(&previous)
+                .map_err(|error| DbError::Corrupted(format!("previous batch state: {error}")))?,
+        )
+        .execute(&mut *conn)
+        .await?;
+    Ok((applied_ids.len(), Some(batch_id)))
+}
+
 async fn apply_taken_at_values(
     conn: &mut PgConnection,
     assignments: &[(AssetId, DateTime<Utc>)],
     updated_by: uuid::Uuid,
-) -> Result<(), DbError> {
+) -> Result<Vec<uuid::Uuid>, DbError> {
     let ids: Vec<uuid::Uuid> = assignments.iter().map(|(id, _)| id.as_uuid()).collect();
     let values: Vec<DateTime<Utc>> = assignments.iter().map(|(_, value)| *value).collect();
-    sqlx::query(
+    let applied_ids: Vec<uuid::Uuid> = sqlx::query_scalar(
         "INSERT INTO asset_overrides (asset_id, taken_at, updated_by, updated_at) \
          SELECT asset_id, taken_at, $3, now() \
            FROM unnest($1::uuid[], $2::timestamptz[]) AS input(asset_id, taken_at) \
          ON CONFLICT (asset_id) DO UPDATE SET \
             taken_at = EXCLUDED.taken_at, \
             updated_by = EXCLUDED.updated_by, \
-            updated_at = now()",
+            updated_at = now() \
+          WHERE asset_overrides.taken_at IS NULL \
+         RETURNING asset_id",
     )
     .bind(&ids)
     .bind(&values)
     .bind(updated_by)
-    .execute(&mut *conn)
+    .fetch_all(&mut *conn)
     .await?;
-    Ok(())
+    Ok(applied_ids)
 }
 
 async fn apply_location_source(
