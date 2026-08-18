@@ -1007,6 +1007,201 @@ non aggiungere un'eccezione per una rotta che è davvero usata.
       ognuna delle sei aree, non un commit unico)
 
 
+## Task 13: la consegna non è chiusa — sei rilievi dalla revisione
+
+Trovati rivedendo il commit `ff03fcb` sul branch `fase-3`, prima del merge.
+**Nessuno dei sei è stato riprodotto per ispezione soltanto**: codice letto
+alla fonte, `fmt`/`clippy` rieseguiti, `check-wired.py` rieseguito.
+
+### 13a — la password sui link non protegge nulla
+
+**Gravità: critica.** È il difetto che questa fase esiste per evitare.
+
+`crates/keeppix-api/src/routes/share.rs`, `public_auth` (righe ~244-278):
+
+```rust
+if let Some(pw_hash) = &row.password_hash {
+    let provided = req.password.unwrap_or_default();
+    let parsed = Password::parse(&provided).map_err(|_| Problem::forbidden())?;
+    let stored = PasswordHash::from_stored(pw_hash.clone());
+    if !verify_password(&parsed, &stored) {
+        return Err(Problem::forbidden());
+    }
+}
+
+let _ctx = AuthContext::share_link(
+    row.id,
+    keeppix_domain::ShareLinkParams { /* … */ },
+);
+
+Ok((share_headers(), StatusCode::NO_CONTENT))
+```
+
+La password **è verificata correttamente** — ma il risultato, `_ctx`, viene
+costruito e **scartato**. L'underscore è la firma di chi sapeva che non serve
+a niente. Nessun cookie, nessun token, nessuna prova di sblocco esce da questo
+endpoint: risponde `204` e basta.
+
+E `crates/keeppix-api/src/extract.rs`, l'estrattore `ShareAuth` usato su
+**tutte** le rotte protette incluse `/media/*`:
+
+```rust
+let row = ShareLinkRepo::new(&state.db)
+    .lookup_by_token_hash(&hash)
+    .await
+    .map_err(|_| Problem::forbidden())?
+    .ok_or_else(Problem::forbidden)?;
+
+let ctx = AuthContext::share_link(row.id, /* … */);
+Ok(Self(ctx))
+```
+
+Costruisce il contesto **direttamente dal token**, senza mai leggere
+`row.password_hash`. Il campo esiste nella riga (`ShareLinkRow`), la verifica
+esiste in un altro endpoint, e i due non sono collegati.
+
+**Conseguenza:** un link "protetto da password" concede accesso completo a
+chiunque abbia l'URL, password corretta o no.
+
+**Correzione.** `public_auth`, dopo aver verificato la password, deve emettere
+una prova di sblocco legata a quel token specifico — un cookie firmato a
+breve scadenza, o un secondo token che `ShareAuth` accetti al posto della
+password quando `password_hash` è `Some`. `ShareAuth` deve **rifiutare** con
+`403` una richiesta su un link con password quando quella prova non c'è o non
+corrisponde. Il design è una decisione: scriverla nel ledger con la ragione.
+
+**Test che deve fallire prima.** Un link con password: `GET
+/media/thumb/{hash}` con `X-Share-Token` ma **senza** aver mai chiamato
+`/auth` deve rispondere `403`. Oggi risponde `200`.
+
+### 13b — `fmt` e `clippy` falliscono
+
+```
+cargo fmt --check    → rosso, crates/keeppix-api/tests/journeys.rs
+cargo clippy --workspace --all-targets -- -D warnings
+    → non compila: unused variable `inside_id`,
+      crates/keeppix-api/tests/share_link_channels.rs:55
+```
+
+`./scripts/test.sh` fa `clippy` **prima** dei test: se clippy non compila,
+non può essere stato eseguito su questo commit. La dichiarazione «test.sh
+verde» non regge per `ff03fcb`.
+
+`inside_id` è un asset fetchato e mai riletto: il test verifica che l'asset
+**fuori** dal perimetro condiviso sia bloccato (`/media/original`, 403) ma
+non che quello **dentro** sia raggiungibile per hash su ogni canale (solo
+`inside_hash` via thumb, mai `outside_hash` via thumb, mai `preview`/`full`).
+Non è solo un warning: è un canale di verifica mancante nel test di sicurezza
+più importante della fase.
+
+### 13c — il ledger non prova la misura che contava di più
+
+`.superpowers/sdd/2026-08-17-keeppix-fase-3/progress.md` ha **sei righe**, in
+inglese, per una consegna di 92 file. **Zero** menzioni di 200.000 asset o
+`EXPLAIN ANALYZE` — il criterio di completamento scritto in cima al piano,
+perché il Task 1 mette l'ereditarietà dei permessi nella query più calda del
+prodotto. Nessun ruling per i Task 2, 3, 8, 9, 12a-12g.
+
+Non è cerimonia: senza il numero, non c'è modo di sapere se la query di
+visibilità regge il bersaglio dichiarato, e il piano lo chiedeva esplicitamente
+prima di dichiarare fatto il Task 1.
+
+### 13d — l'upload ospite (Task 7, non un rilievo mio) non ha un endpoint pubblico
+
+`crates/keeppix-api/src/lib.rs` monta **una sola** rotta con `guest` nel
+percorso: `/guest-uploads/{id}/approve`. **Nessuna rotta accetta un upload da
+chi non ha un account.** Il Task 7 del piano — scritto prima di questa
+revisione — chiedeva la coda **e** l'ingresso pubblico; solo la prima metà
+esiste.
+
+Il test che dovrebbe provarlo, `v9_guest_uploads_stay_hidden_until_approved`
+(`crates/keeppix-api/tests/journeys.rs:523`), lo conferma senza volerlo:
+
+```rust
+sqlx::query(
+    "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, kind, status, uploaded_by_guest) \
+     VALUES ($1, $2, 'guest.jpg', 10, now(), 'image', 'indexed', true)",
+)
+// …
+sqlx::query(
+    "INSERT INTO guest_upload_queue (id, asset_id, share_link_id, filename, size_bytes) \
+     VALUES ($1, $2, $3, 'guest.jpg', 10)",
+)
+```
+
+L'asset e la voce di coda sono **inseriti via SQL grezzo**, non prodotti da
+un ospite che carica davvero un file. Il nome del test dichiara «un cliente
+carica le sue foto»: il test non lo fa, perché non può — l'endpoint non
+esiste.
+
+**È la sesta occorrenza della stessa classe di difetto** che questo progetto
+paga da tre fasi: un test che passa senza provare ciò che il suo nome
+afferma. Le prime cinque erano funzioni scritte e mai chiamate; questa è un
+test scritto per una funzione che non è mai stata costruita.
+
+**Correzione.** Serve una rotta pubblica — `POST /share/{token}/uploads` o
+simile — che accetti un file quando `allow_upload` è vero sul link, rispetti
+`upload_quota_bytes`, e crei la riga in `guest_upload_queue` **dall'upload
+reale**, non da un inserimento diretto. Il test V9 va riscritto per passare
+da quella rotta.
+
+### 13e — un commit solo, non un'unità per area
+
+`ff03fcb`: 92 file, +8067, un commit. Il piano chiedeva un commit per unità
+logica — per il solo Task 12, un commit per area (12a-12g). Rende impossibile
+capire cosa appartiene a quale task senza rileggere tutto, e senza commit
+separati un `git revert` mirato non è possibile.
+
+Non serve riscrivere la storia se il branch non è ancora condiviso altrove:
+i prossimi commit di correzione **devono** seguire la disciplina, e il ledger
+va completato retroattivamente per area anche per il lavoro già fatto.
+
+### 13f — incoerenza fra `NotFound` e `Forbidden` sul token
+
+`crates/keeppix-api/src/routes/share.rs`, `public_info` (riga ~225) e
+`public_auth` (riga ~262) rispondono `not_found` per un token
+inesistente/scaduto/revocato. `ShareAuth` (`extract.rs`), sulla stessa identica
+query (`lookup_by_token_hash`, che già filtra `revoked_at IS NULL` e la
+scadenza), risponde `forbidden`.
+
+**Non è un bypass**: entrambe le strade negano l'accesso. Ma è
+un'incoerenza rispetto alla convenzione già seguita ovunque nel resto del
+codice (`Forbidden`, mai `NotFound`, per non trasformare l'endpoint in un
+oracolo). Vanno allineate a `forbidden`.
+
+### Cosa invece è confermato solido
+
+Per non distorcere il quadro: la query di visibilità (Task 1) è **ben
+progettata** — un solo round-trip per i grant, poi una clausola SQL sola con
+`EXISTS`/`NOT EXISTS` innestata nella query principale, niente materializzato.
+Il rate limiter è in-process, limitato, con pulizia periodica — rispetta il
+vincolo «niente Redis». Le migrazioni sono corrette e in sequenza
+(0015-0019). `scripts/wired-exceptions.txt` ha davvero la sezione «Debiti»
+vuota. Il frontend costruisce, i pannelli sono chunk lazy, il bundle
+d'ingresso sta a **~79 KB gzip**. I viaggi **V8, V10, V11, V12** passano tutti
+dalle rotte HTTP reali, senza scorciatoie SQL, e V8 prova la revoca immediata
+riusando la stessa query filtrata sia per il lookup pubblico sia per quello
+protetto — esattamente la riduzione di superficie che l'architettura del
+piano cercava.
+
+### Criterio di chiusura del Task 13
+
+- [ ] Un link con password: senza chiamare `/auth`, ogni rotta protetta
+      (inclusi tutti i canali media) risponde `403`.
+- [ ] `cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
+      warnings` verdi — verificati rieseguendoli, non per fiducia nel
+      commit precedente.
+- [ ] Il ledger ha il numero misurato per il Task 1 a 200.000 asset con
+      `EXPLAIN ANALYZE`, e un ruling per ciascuno dei task 2, 3, 8, 9, 12a-12g.
+- [ ] V9 carica un file attraverso una rotta pubblica reale, non via SQL.
+- [ ] `not_found` sostituito da `forbidden` in `public_info` e `public_auth`
+      per token invalido/scaduto/revocato.
+- [ ] Da qui in avanti, un commit per unità logica.
+
+- [ ] **Step 1-3: Scrivere, verificare, committare**
+
+---
+
 ## Nota storica: cosa è stato spostato in Fase 2R3
 
 **Non sono task da eseguire.** Questa sezione esiste perché chi legge il piano
@@ -1032,8 +1227,13 @@ scala che la 2R3 lascia in eredità, invece di doverla scrivere.
 
 Ognuno è **eseguibile**.
 
-- [ ] `cargo test --workspace -- --test-threads=1` verde; clippy e fmt puliti.
-- [ ] I viaggi **V5-V12** passano, oltre a V1-V4 della Fase 2R.
+- [ ] **Il Task 13 è chiuso** — i suoi sei rilievi, non solo i task 1-12.
+      Nessun altro criterio qui sotto conta se un link con password concede
+      accesso senza password.
+- [ ] `cargo test --workspace -- --test-threads=1` verde; clippy e fmt puliti
+      — **rieseguiti sull'ultimo commit**, non dedotti da una fase precedente.
+- [ ] I viaggi **V5-V12** passano, oltre a V1-V4 della Fase 2R, e **V9 passa
+      attraverso una rotta pubblica reale di upload**, non attraverso SQL.
 - [ ] **Budget**: `GET /timeline` sotto 300 ms con 50 permessi e 10.000 asset,
       misurato e registrato nel ledger insieme alla strada scelta per
       l'ereditarietà (CTE o `NOT EXISTS`) con i numeri di `EXPLAIN ANALYZE`.
