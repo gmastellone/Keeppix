@@ -6,6 +6,8 @@ use keeppix_db::Db;
 use keeppix_server::config::Config;
 use keeppix_server::telemetry;
 
+const PLACES_CSV_PATH: &str = "/usr/share/keeppix/places.csv";
+
 #[derive(Parser)]
 #[command(name = "keeppix", version)]
 struct Cli {
@@ -58,6 +60,14 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
+    let imported = keeppix_db::PlaceRepo::new(&db)
+        .seed_from_csv_if_empty(Path::new(PLACES_CSV_PATH))
+        .await
+        .context("GeoNames places import")?;
+    if imported > 0 {
+        tracing::info!(places = imported, "GeoNames places imported");
+    }
+
     if let Err(e) = keeppix_jobs::watch::persist_capabilities(&db).await {
         tracing::warn!(error = %e, "hardware probe failed");
     }

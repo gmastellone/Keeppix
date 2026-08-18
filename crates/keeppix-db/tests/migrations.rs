@@ -34,6 +34,7 @@ async fn expected_tables_exist() {
         "users",
         "groups",
         "group_members",
+        "places",
         "sessions",
         "system_settings",
     ] {
