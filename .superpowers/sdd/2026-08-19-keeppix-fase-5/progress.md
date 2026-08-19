@@ -676,6 +676,24 @@ ritorno" per nessun'altra rotta protetta, quindi non è un'incoerenza
 introdotta da questo task — segnalato qui come voce differita, non
 risolto.
 
+## Fase 5 — chiusura (verifica avversariale finale)
+
+Verifica locale su commit `c6b14f2` (merge `origin/main` incluso):
+- `cd frontend && npm ci && npm run build` — verde
+- `cargo fmt --check` — verde
+- `cargo clippy --workspace --all-targets -- -D warnings` — verde
+- `python3 scripts/check-wired.py` — verde ("all public fns and mounted routes have a production caller")
+- `./scripts/test.sh` — verde (114 blocchi `test result: ok`, zero `FAILED`/`panicked`)
+- `npm run test` (frontend) — verificato in chiusura
+
+CI GitHub Actions su PR #10: tutti e 4 i job (`backend`, `frontend`, `audit`,
+`image`) falliscono in ~2s senza step eseguiti e senza log (`runner_name` vuoto,
+`log not found` via `gh run view`) — problema infrastrutturale del runner/org,
+non del codice. Push su `fase-5` ripetuto (`c6b14f2`), stesso esito. Verifica
+locale sostituisce la CI finché i runner non tornano disponibili.
+
+**Non mergiato in `main`** — come concordato, review domani mattina.
+
 Task 10: complete (commit `60c9a3b`, `feat(frontend): PWA Share Target for
 photo upload from the phone gallery`). Verifica: `npm run test` 92/92 verdi
 (nuovo test `shared_files_are_queued_for_upload` osservato fallire per il
