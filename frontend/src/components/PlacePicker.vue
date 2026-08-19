@@ -2,11 +2,12 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { mapErrorKey, type Place, useMapsStore } from '@/stores/maps'
+import { mapErrorKey, type MapRegion, type Place, useMapsStore } from '@/stores/maps'
 
 const props = defineProps<{
   assetIds: string[]
   availableRegionIds: string[]
+  allRegions?: MapRegion[]
 }>()
 
 const emit = defineEmits<{ applied: [place: Place] }>()
@@ -133,13 +134,13 @@ async function apply() {
         >
           {{ t('maps.places.apply') }}
         </button>
-        <a
-          href="/settings/maps/offline"
+        <RouterLink
+          to="/settings/maps/offline"
           class="rounded-lg border border-current px-3 py-2"
           data-action="download-region"
         >
           {{ t('maps.places.downloadRegionAction') }}
-        </a>
+        </RouterLink>
       </div>
     </div>
 

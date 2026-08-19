@@ -198,7 +198,13 @@
     "errorAssets": "Unreadable files",
     "duplicates": "Duplicates",
     "none": "Nothing to report.",
-    "reclaimable": "{count} copies, {bytes} bytes reclaimable"
+    "reclaimable": "{count} copies, {bytes} bytes reclaimable",
+    "timezones": "Timezone recalculation",
+    "tzLibrary": "Library",
+    "tzPreview": "Preview",
+    "tzCount": "{count} photos to fix",
+    "tzApply": "Apply corrections",
+    "tzDone": "{count} photos corrected."
   },
   "groups": {
     "entry": "Groups",
@@ -262,6 +268,12 @@
     "disable": "Disable",
     "enable": "Enable",
     "disabled": "Disabled",
+    "homeTitle": "Home location",
+    "homeLat": "Latitude",
+    "homeLon": "Longitude",
+    "homeRadius": "Radius (m)",
+    "homeSave": "Save",
+    "homeDelete": "Remove",
     "passwordTitle": "Change my password",
     "currentPassword": "Current password",
     "newPassword": "New password",
@@ -283,6 +295,11 @@
     "valuePlaceholder": "New value",
     "place": "Location",
     "apply": "Apply",
+    "copyLocation": "Copy location from another photo",
+    "copySourcePlaceholder": "Source photo ID",
+    "importGpx": "Import GPX track",
+    "gpxPlaceholder": "Paste GPX content…",
+    "gpxTolerance": "Tolerance (min)",
     "done": "Changes applied."
   },
   "shared": {
