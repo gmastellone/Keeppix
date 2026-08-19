@@ -182,3 +182,38 @@ stati rieseguiti integralmente e sono verdi. `./scripts/test.sh` non è stato
 eseguito.
 
 Task 7 remaining review fixes: complete (commit `25b65bc`).
+
+## Final ownership/RFC 9457 findings — RED
+
+Osservati prima delle correzioni:
+
+1. `old_worker_cannot_finalize_after_a_new_region_job_is_stored` falliva perché
+   `mark_available("IT")` rendeva disponibile la nuova richiesta usando il
+   completamento del vecchio job.
+2. `malformed_region_paths_are_problem_json_400s` falliva su cancel: il `400`
+   aveva `text/plain; charset=utf-8`, non `application/problem+json`. Il primo
+   tentativo era stato bloccato da PostgreSQL `53100`; rimossi i database di
+   test usa-e-getta documentati in `STATO.md`, il rerun ha osservato il difetto.
+
+## Final ownership/RFC 9457 findings — GREEN
+
+- La migrazione `0024` assegna una generazione a ogni download e la copia nel
+  payload del job. Progresso, cancel, `mark_available` e `mark_error` richiedono
+  la stessa generazione; un vecchio worker diventa quindi un no-op.
+- Parziale e finale sono distinti per generazione. Cleanup e rename usano il
+  `file_path` posseduto dal job, quindi il vecchio worker non può toccare i file
+  della nuova richiesta; un checkpoint di ownership precede la finalizzazione.
+- Cancel e delete convertono `PathRejection` in
+  `400 keeppix/invalid-region-path`; il contratto OpenAPI è stato aggiornato con
+  le due risposte additive.
+
+Tutti con exit code 0:
+
+```text
+cargo fmt --check
+cargo clippy -p keeppix-db -p keeppix-jobs -p keeppix-api --all-targets -- -D warnings
+cargo test -p keeppix-jobs --jobs 1 -- --test-threads=1
+cargo test -p keeppix-api --jobs 1 -- --test-threads=1
+```
+
+`./scripts/test.sh` non è stato eseguito, come richiesto.

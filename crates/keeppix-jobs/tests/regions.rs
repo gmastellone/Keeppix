@@ -37,6 +37,49 @@ async fn double_enqueue_creates_only_one_region_writer() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn old_worker_cannot_finalize_after_a_new_region_job_is_stored() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let region = || NewMapRegion {
+        id: "IT".to_owned(),
+        label: "Italia".to_owned(),
+        size_bytes: 11,
+        version: "2026-08".to_owned(),
+        source_url: "https://build.protomaps.com/20260818.pmtiles".to_owned(),
+        checksum_sha256: "ab".repeat(32),
+    };
+    let old_job = keeppix_jobs::regions::enqueue_download(test.db(), &ctx, region())
+        .await
+        .unwrap();
+    let old_generation =
+        uuid::Uuid::parse_str(old_job.payload["download_generation"].as_str().unwrap()).unwrap();
+    let regions = RegionRepo::new(test.db());
+    regions.request_cancel(&ctx, "IT").await.unwrap();
+    JobRepo::new(test.db())
+        .retire_active("map-region:IT", "Download cancelled")
+        .await
+        .unwrap();
+    regions.finish_cancel("IT", old_generation).await.unwrap();
+    let new_job = keeppix_jobs::regions::enqueue_download(test.db(), &ctx, region())
+        .await
+        .unwrap();
+    assert_ne!(old_job.id, new_job.id);
+    assert_ne!(old_job.payload["file_path"], new_job.payload["file_path"]);
+
+    assert!(!regions.mark_available("IT", old_generation).await.unwrap());
+    assert!(
+        !regions
+            .mark_error("IT", old_generation, "old worker failed")
+            .await
+            .unwrap()
+    );
+    let region = regions.find(&ctx, "IT").await.unwrap();
+    assert_eq!(region.status, keeppix_db::RegionStatus::Downloading);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn repair_reenqueues_a_downloading_region_without_a_live_job() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
@@ -95,8 +138,10 @@ async fn repair_reaps_a_claimed_region_job_without_duplicating_it() {
         .await
         .unwrap()
         .unwrap();
+    let generation =
+        uuid::Uuid::parse_str(job.payload["download_generation"].as_str().unwrap()).unwrap();
     RegionRepo::new(test.db())
-        .record_progress("IT", 5)
+        .record_progress("IT", generation, 5)
         .await
         .unwrap();
     sqlx::query("UPDATE jobs SET locked_at = now() - interval '20 minutes' WHERE id = $1")

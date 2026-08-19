@@ -29,8 +29,12 @@ async fn region_lifecycle_persists_progress_and_errors() {
     assert_eq!(created.status, RegionStatus::Downloading);
     assert_eq!(created.downloaded_bytes, 0);
 
-    repo.record_progress("IT", 1_048_576).await.unwrap();
-    repo.mark_error("IT", "disk full").await.unwrap();
+    repo.record_progress("IT", created.download_generation, 1_048_576)
+        .await
+        .unwrap();
+    repo.mark_error("IT", created.download_generation, "disk full")
+        .await
+        .unwrap();
 
     let failed = repo.find(&ctx, "IT").await.unwrap();
     assert_eq!(failed.status, RegionStatus::Error);

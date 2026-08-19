@@ -1934,6 +1934,16 @@
           "204": {
             "description": "Regione eliminata"
           },
+          "400": {
+            "description": "Percorso regione non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Non autenticato",
             "content": {
@@ -1993,6 +2003,16 @@
         "responses": {
           "204": {
             "description": "Download annullato"
+          },
+          "400": {
+            "description": "Percorso regione non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           },
           "401": {
             "description": "Non autenticato",

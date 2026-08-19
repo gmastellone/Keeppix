@@ -324,7 +324,12 @@ impl<'a> JobRepo<'a> {
     pub async fn enqueue_missing_region_downloads(&self) -> Result<u64, DbError> {
         let result = sqlx::query(
             "INSERT INTO jobs (kind, payload, priority, dedup_key) \
-             SELECT 'download_map_region', jsonb_build_object('region_id', r.id), 1, \
+             SELECT 'download_map_region', \
+                    jsonb_build_object( \
+                        'region_id', r.id, \
+                        'download_generation', r.download_generation::text, \
+                        'file_path', r.file_path \
+                    ), 1, \
                     'map-region:' || r.id \
                FROM map_regions r \
               WHERE r.status = 'downloading' AND NOT r.cancel_requested \
