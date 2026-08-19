@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use keeppix_domain::AuthContext;
+use uuid::Uuid;
 
 use crate::{Db, DbError};
 
@@ -34,6 +35,7 @@ pub struct MapRegion {
     pub checksum_sha256: String,
     pub downloaded_bytes: i64,
     pub last_error: Option<String>,
+    pub download_generation: Uuid,
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +54,7 @@ pub struct RegionDownloadSource {
     pub size_bytes: i64,
     pub checksum_sha256: String,
     pub cancel_requested: bool,
+    pub file_path: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -67,6 +70,7 @@ struct RegionRow {
     checksum_sha256: String,
     downloaded_bytes: i64,
     last_error: Option<String>,
+    download_generation: Uuid,
 }
 
 impl RegionRow {
@@ -83,12 +87,14 @@ impl RegionRow {
             checksum_sha256: self.checksum_sha256,
             downloaded_bytes: self.downloaded_bytes,
             last_error: self.last_error,
+            download_generation: self.download_generation,
         })
     }
 }
 
 const COLUMNS: &str = "id, label, file_path, size_bytes, version, downloaded_at, status, \
-                       source_url, checksum_sha256, downloaded_bytes, last_error";
+                       source_url, checksum_sha256, downloaded_bytes, last_error, \
+                       download_generation";
 
 pub struct RegionRepo<'a> {
     db: &'a Db,
@@ -113,20 +119,21 @@ impl<'a> RegionRepo<'a> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
         }
-        let file_path = format!("maps/{}.pmtiles", region.id);
+        let download_generation = Uuid::now_v7();
+        let file_path = format!("maps/{}-{download_generation}.pmtiles", region.id);
         let row: Option<RegionRow> = sqlx::query_as(&format!(
             "INSERT INTO map_regions \
                  (id, label, file_path, size_bytes, version, status, source_url, \
                   checksum_sha256, downloaded_bytes, last_error, downloaded_at, \
-                  cancel_requested) \
-             VALUES ($1, $2, $3, $4, $5, 'downloading', $6, $7, 0, NULL, NULL, false) \
+                  cancel_requested, download_generation) \
+             VALUES ($1, $2, $3, $4, $5, 'downloading', $6, $7, 0, NULL, NULL, false, $8) \
              ON CONFLICT (id) DO UPDATE SET \
                  label = EXCLUDED.label, file_path = EXCLUDED.file_path, \
                  size_bytes = EXCLUDED.size_bytes, version = EXCLUDED.version, \
                  status = 'downloading', source_url = EXCLUDED.source_url, \
                  checksum_sha256 = EXCLUDED.checksum_sha256, \
                  downloaded_bytes = 0, last_error = NULL, downloaded_at = NULL, \
-                 cancel_requested = false \
+                 cancel_requested = false, download_generation = EXCLUDED.download_generation \
              WHERE map_regions.status <> 'downloading' \
              RETURNING {COLUMNS}"
         ))
@@ -137,6 +144,7 @@ impl<'a> RegionRepo<'a> {
         .bind(&region.version)
         .bind(&region.source_url)
         .bind(&region.checksum_sha256)
+        .bind(download_generation)
         .fetch_optional(self.db.pool())
         .await?;
         row.ok_or_else(|| DbError::Conflict("region download already in progress".to_owned()))?
@@ -228,14 +236,16 @@ impl<'a> RegionRepo<'a> {
     ///
     /// # Errors
     /// `Connection` su errore DB.
-    pub async fn finish_cancel(&self, id: &str) -> Result<bool, DbError> {
+    pub async fn finish_cancel(&self, id: &str, generation: Uuid) -> Result<bool, DbError> {
         let result = sqlx::query(
             "UPDATE map_regions \
                 SET status = 'error', downloaded_bytes = 0, \
                     last_error = 'Download cancelled', cancel_requested = false \
-              WHERE id = $1 AND status = 'downloading' AND cancel_requested",
+              WHERE id = $1 AND download_generation = $2 \
+                AND status = 'downloading' AND cancel_requested",
         )
         .bind(id)
+        .bind(generation)
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected() == 1)
@@ -268,20 +278,26 @@ impl<'a> RegionRepo<'a> {
     pub async fn source_for_download(
         &self,
         id: &str,
+        generation: Uuid,
     ) -> Result<Option<RegionDownloadSource>, DbError> {
-        let row: Option<(String, i64, String, bool)> = sqlx::query_as(
-            "SELECT source_url, size_bytes, checksum_sha256, cancel_requested \
-               FROM map_regions WHERE id = $1 AND status = 'downloading'",
+        let row: Option<(String, i64, String, bool, String)> = sqlx::query_as(
+            "SELECT source_url, size_bytes, checksum_sha256, cancel_requested, file_path \
+               FROM map_regions \
+              WHERE id = $1 AND download_generation = $2 AND status = 'downloading'",
         )
         .bind(id)
+        .bind(generation)
         .fetch_optional(self.db.pool())
         .await?;
         Ok(row.map(
-            |(source_url, size_bytes, checksum_sha256, cancel_requested)| RegionDownloadSource {
-                source_url,
-                size_bytes,
-                checksum_sha256,
-                cancel_requested,
+            |(source_url, size_bytes, checksum_sha256, cancel_requested, file_path)| {
+                RegionDownloadSource {
+                    source_url,
+                    size_bytes,
+                    checksum_sha256,
+                    cancel_requested,
+                    file_path,
+                }
             },
         ))
     }
@@ -292,12 +308,19 @@ impl<'a> RegionRepo<'a> {
     ///
     /// # Errors
     /// `Connection` su errore DB.
-    pub async fn record_progress(&self, id: &str, bytes: i64) -> Result<bool, DbError> {
+    pub async fn record_progress(
+        &self,
+        id: &str,
+        generation: Uuid,
+        bytes: i64,
+    ) -> Result<bool, DbError> {
         let result = sqlx::query(
-            "UPDATE map_regions SET downloaded_bytes = $2 \
-              WHERE id = $1 AND status = 'downloading' AND NOT cancel_requested",
+            "UPDATE map_regions SET downloaded_bytes = $3 \
+              WHERE id = $1 AND download_generation = $2 \
+                AND status = 'downloading' AND NOT cancel_requested",
         )
         .bind(id)
+        .bind(generation)
         .bind(bytes)
         .execute(self.db.pool())
         .await?;
@@ -310,14 +333,16 @@ impl<'a> RegionRepo<'a> {
     ///
     /// # Errors
     /// `Connection` su errore DB.
-    pub async fn mark_available(&self, id: &str) -> Result<bool, DbError> {
+    pub async fn mark_available(&self, id: &str, generation: Uuid) -> Result<bool, DbError> {
         let result = sqlx::query(
             "UPDATE map_regions \
                 SET status = 'available', downloaded_bytes = size_bytes, \
                     downloaded_at = now(), last_error = NULL, cancel_requested = false \
-              WHERE id = $1 AND status = 'downloading' AND NOT cancel_requested",
+              WHERE id = $1 AND download_generation = $2 \
+                AND status = 'downloading' AND NOT cancel_requested",
         )
         .bind(id)
+        .bind(generation)
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected() == 1)
@@ -330,14 +355,20 @@ impl<'a> RegionRepo<'a> {
     ///
     /// # Errors
     /// `Connection` su errore DB.
-    pub async fn mark_error(&self, id: &str, error: &str) -> Result<bool, DbError> {
+    pub async fn mark_error(
+        &self,
+        id: &str,
+        generation: Uuid,
+        error: &str,
+    ) -> Result<bool, DbError> {
         let result = sqlx::query(
             "UPDATE map_regions \
-                SET status = 'error', downloaded_bytes = 0, last_error = $2, \
+                SET status = 'error', downloaded_bytes = 0, last_error = $3, \
                     cancel_requested = false \
-              WHERE id = $1 AND status = 'downloading'",
+              WHERE id = $1 AND download_generation = $2 AND status = 'downloading'",
         )
         .bind(id)
+        .bind(generation)
         .bind(error)
         .execute(self.db.pool())
         .await?;

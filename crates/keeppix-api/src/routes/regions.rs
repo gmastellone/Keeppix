@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use axum::extract::rejection::PathRejection;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
 use keeppix_db::{JobRepo, MapRegion, NewMapRegion, RegionRepo, RegionStatus};
@@ -120,6 +121,7 @@ pub async fn download(
     params(("id" = String, Path, description = "Id regione")),
     responses(
         (status = 204, description = "Download annullato"),
+        (status = 400, description = "Percorso regione non valido", body = Problem),
         (status = 401, description = "Non autenticato", body = Problem),
         (status = 403, description = "Solo admin", body = Problem),
         (status = 404, description = "Regione assente", body = Problem),
@@ -129,13 +131,15 @@ pub async fn download(
 pub async fn cancel(
     State(state): State<AppState>,
     AdminAuth(ctx): AdminAuth,
-    AxumPath(id): AxumPath<String>,
+    path: Result<AxumPath<String>, PathRejection>,
 ) -> Result<StatusCode, Problem> {
+    let id = region_path(path)?;
     let repo = RegionRepo::new(&state.db);
+    let region = repo.find(&ctx, &id).await?;
     repo.request_cancel(&ctx, &id).await?;
-    remove_region_files(&state.data_dir, &id).await?;
+    remove_region_files(&state.data_dir, &region.file_path).await?;
     retire_region_job(&state, &id).await?;
-    repo.finish_cancel(&id).await?;
+    repo.finish_cancel(&id, region.download_generation).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -150,6 +154,7 @@ pub async fn cancel(
     params(("id" = String, Path, description = "Id regione")),
     responses(
         (status = 204, description = "Regione eliminata"),
+        (status = 400, description = "Percorso regione non valido", body = Problem),
         (status = 401, description = "Non autenticato", body = Problem),
         (status = 403, description = "Solo admin", body = Problem),
         (status = 404, description = "Regione assente", body = Problem)
@@ -158,14 +163,15 @@ pub async fn cancel(
 pub async fn delete(
     State(state): State<AppState>,
     AdminAuth(ctx): AdminAuth,
-    AxumPath(id): AxumPath<String>,
+    path: Result<AxumPath<String>, PathRejection>,
 ) -> Result<StatusCode, Problem> {
+    let id = region_path(path)?;
     let repo = RegionRepo::new(&state.db);
     let region = repo.find(&ctx, &id).await?;
     if region.status == RegionStatus::Downloading {
         repo.request_cancel(&ctx, &id).await?;
     }
-    remove_region_files(&state.data_dir, &id).await?;
+    remove_region_files(&state.data_dir, &region.file_path).await?;
     if region.status == RegionStatus::Downloading {
         retire_region_job(&state, &id).await?;
     }
@@ -189,6 +195,14 @@ fn region_error(error: keeppix_jobs::regions::RegionError) -> Problem {
     }
 }
 
+fn region_path(path: Result<AxumPath<String>, PathRejection>) -> Result<String, Problem> {
+    let AxumPath(id) = path.map_err(|rejection| {
+        Problem::bad_request("invalid-region-path", "Invalid region path")
+            .with_detail(rejection.body_text())
+    })?;
+    Ok(id)
+}
+
 async fn remove_if_present(path: PathBuf) -> Result<(), Problem> {
     match tokio::fs::remove_file(path).await {
         Ok(()) => Ok(()),
@@ -200,9 +214,9 @@ async fn remove_if_present(path: PathBuf) -> Result<(), Problem> {
     }
 }
 
-async fn remove_region_files(data_dir: &Path, id: &str) -> Result<(), Problem> {
-    remove_if_present(partial_path(data_dir, id)).await?;
-    remove_if_present(final_path(data_dir, id)).await
+async fn remove_region_files(data_dir: &Path, file_path: &str) -> Result<(), Problem> {
+    remove_if_present(partial_path(data_dir, file_path)).await?;
+    remove_if_present(final_path(data_dir, file_path)).await
 }
 
 async fn retire_region_job(state: &AppState, id: &str) -> Result<(), Problem> {
@@ -213,10 +227,12 @@ async fn retire_region_job(state: &AppState, id: &str) -> Result<(), Problem> {
     Ok(())
 }
 
-fn final_path(data_dir: &Path, id: &str) -> PathBuf {
-    data_dir.join("maps").join(format!("{id}.pmtiles"))
+fn final_path(data_dir: &Path, file_path: &str) -> PathBuf {
+    data_dir.join(file_path)
 }
 
-fn partial_path(data_dir: &Path, id: &str) -> PathBuf {
-    data_dir.join("maps").join(format!("{id}.pmtiles.part"))
+fn partial_path(data_dir: &Path, file_path: &str) -> PathBuf {
+    let mut partial = final_path(data_dir, file_path).into_os_string();
+    partial.push(".part");
+    PathBuf::from(partial)
 }

@@ -55,6 +55,7 @@ struct Progress<'repo, 'db> {
     repo: &'repo RegionRepo<'db>,
     jobs: JobRepo<'db>,
     region_id: &'repo str,
+    generation: uuid::Uuid,
     job_id: i64,
     worker_id: Option<uuid::Uuid>,
 }
@@ -67,7 +68,11 @@ impl Progress<'_, '_> {
             return Err(DownloadError::LeaseLost);
         }
         let bytes = i64::try_from(bytes).unwrap_or(i64::MAX);
-        if !self.repo.record_progress(self.region_id, bytes).await? {
+        if !self
+            .repo
+            .record_progress(self.region_id, self.generation, bytes)
+            .await?
+        {
             return Err(DownloadError::Cancelled);
         }
         Ok(())
@@ -156,12 +161,18 @@ pub async fn enqueue_download(
         return Err(RegionError::InvalidRegion);
     }
     let region_id = region.id.clone();
-    RegionRepo::new(db).begin_download(ctx, region).await?;
+    let region = RegionRepo::new(db).begin_download(ctx, region).await?;
+    let generation = region.download_generation;
+    let file_path = region.file_path;
     let dedup_key = format!("map-region:{region_id}");
     match JobRepo::new(db)
         .enqueue(
             JobKind::DownloadMapRegion,
-            serde_json::json!({ "region_id": region_id }),
+            serde_json::json!({
+                "region_id": region_id,
+                "download_generation": generation,
+                "file_path": file_path,
+            }),
             JobPriority::High,
             Some(&dedup_key),
         )
@@ -170,7 +181,7 @@ pub async fn enqueue_download(
         Ok(job) => Ok(job),
         Err(error) => {
             RegionRepo::new(db)
-                .mark_error(&region_id, "Could not enqueue region download")
+                .mark_error(&region_id, generation, "Could not enqueue region download")
                 .await?;
             Err(RegionError::Db(error))
         }
@@ -182,27 +193,28 @@ pub async fn enqueue_download(
 /// # Errors
 /// Errori transitori di rete vengono restituiti al worker per il retry.
 pub async fn run(db: &Db, data_dir: &Path, job: &Job) -> Result<(), JobError> {
-    let region_id = job
-        .payload
-        .get("region_id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| JobError::Worker("missing region_id payload".to_owned()))?;
+    let (region_id, generation, file_path) = job_download(job)?;
     if !valid_region_id(region_id) {
         return Err(JobError::Worker("invalid region_id payload".to_owned()));
     }
     let repo = RegionRepo::new(db);
-    let Some(source) = repo.source_for_download(region_id).await? else {
-        cleanup_partial(data_dir, region_id).await?;
+    let Some(source) = repo.source_for_download(region_id, generation).await? else {
+        cleanup_partial(data_dir, file_path).await?;
         return Ok(());
     };
+    if source.file_path != file_path {
+        return Err(JobError::Worker(
+            "region download file ownership was lost".to_owned(),
+        ));
+    }
     if source.cancel_requested {
-        cleanup_paths(data_dir, region_id).await?;
-        repo.finish_cancel(region_id).await?;
+        cleanup_paths(data_dir, file_path).await?;
+        repo.finish_cancel(region_id, generation).await?;
         return Ok(());
     }
     if !host_allowed(&source.source_url) {
-        cleanup_paths(data_dir, region_id).await?;
-        repo.mark_error(region_id, "Region source URL is not allowed")
+        cleanup_paths(data_dir, file_path).await?;
+        repo.mark_error(region_id, generation, "Region source URL is not allowed")
             .await?;
         return Ok(());
     }
@@ -224,39 +236,46 @@ async fn run_download_from_url(
     url: &Url,
     client: &Client,
 ) -> Result<(), JobError> {
-    let region_id = job
-        .payload
-        .get("region_id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| JobError::Worker("missing region_id payload".to_owned()))?;
+    let (region_id, generation, file_path) = job_download(job)?;
     let repo = RegionRepo::new(db);
-    let Some(source) = repo.source_for_download(region_id).await? else {
-        cleanup_partial(data_dir, region_id).await?;
+    let Some(source) = repo.source_for_download(region_id, generation).await? else {
+        cleanup_partial(data_dir, file_path).await?;
         return Ok(());
     };
+    if source.file_path != file_path {
+        return Err(JobError::Worker(
+            "region download file ownership was lost".to_owned(),
+        ));
+    }
     if source.cancel_requested {
-        cleanup_paths(data_dir, region_id).await?;
-        repo.finish_cancel(region_id).await?;
+        cleanup_paths(data_dir, file_path).await?;
+        repo.finish_cancel(region_id, generation).await?;
         return Ok(());
     }
     let Ok(expected_size) = u64::try_from(source.size_bytes) else {
-        cleanup_paths(data_dir, region_id).await?;
-        repo.mark_error(region_id, "Invalid region size").await?;
+        cleanup_paths(data_dir, file_path).await?;
+        repo.mark_error(region_id, generation, "Invalid region size")
+            .await?;
         return Ok(());
     };
     let maps = data_dir.join("maps");
     if let Err(error) = tokio::fs::create_dir_all(&maps).await {
-        cleanup_paths(data_dir, region_id).await?;
-        repo.mark_error(region_id, &format!("Cannot create maps directory: {error}"))
-            .await?;
+        cleanup_paths(data_dir, file_path).await?;
+        repo.mark_error(
+            region_id,
+            generation,
+            &format!("Cannot create maps directory: {error}"),
+        )
+        .await?;
         return Ok(());
     }
-    let partial = partial_path(data_dir, region_id);
-    let final_path = final_path(data_dir, region_id);
+    let final_path = final_path(data_dir, file_path);
+    let partial = partial_path(data_dir, file_path);
     let progress = Progress {
         repo: &repo,
         jobs: JobRepo::new(db),
         region_id,
+        generation,
         job_id: job.id,
         worker_id: job.locked_by,
     };
@@ -272,20 +291,24 @@ async fn run_download_from_url(
     {
         Ok(_) => {
             if let Err(error) = tokio::fs::rename(&partial, &final_path).await {
-                cleanup_paths(data_dir, region_id).await?;
-                repo.mark_error(region_id, &format!("Cannot finalize region file: {error}"))
-                    .await?;
+                cleanup_paths(data_dir, file_path).await?;
+                repo.mark_error(
+                    region_id,
+                    generation,
+                    &format!("Cannot finalize region file: {error}"),
+                )
+                .await?;
                 return Ok(());
             }
-            if !repo.mark_available(region_id).await? {
-                cleanup_paths(data_dir, region_id).await?;
-                repo.finish_cancel(region_id).await?;
+            if !repo.mark_available(region_id, generation).await? {
+                cleanup_paths(data_dir, file_path).await?;
+                repo.finish_cancel(region_id, generation).await?;
             }
             Ok(())
         }
         Err(DownloadError::Cancelled) => {
-            cleanup_paths(data_dir, region_id).await?;
-            repo.finish_cancel(region_id).await?;
+            cleanup_paths(data_dir, file_path).await?;
+            repo.finish_cancel(region_id, generation).await?;
             Ok(())
         }
         Err(DownloadError::LeaseLost) => {
@@ -293,14 +316,16 @@ async fn run_download_from_url(
         }
         Err(error) if error.is_transient() => {
             if job.attempts >= job.max_attempts {
-                cleanup_paths(data_dir, region_id).await?;
-                repo.mark_error(region_id, &error.to_string()).await?;
+                cleanup_paths(data_dir, file_path).await?;
+                repo.mark_error(region_id, generation, &error.to_string())
+                    .await?;
             }
             Err(JobError::Worker(error.to_string()))
         }
         Err(error) => {
-            cleanup_paths(data_dir, region_id).await?;
-            repo.mark_error(region_id, &error.to_string()).await?;
+            cleanup_paths(data_dir, file_path).await?;
+            repo.mark_error(region_id, generation, &error.to_string())
+                .await?;
             Ok(())
         }
     }
@@ -417,14 +442,29 @@ async fn download_to_partial_with_progress(
         file.flush().await?;
         file.sync_all().await?;
     }
+    let progress = progress.as_ref();
+    verify_completed(partial, expected_size, expected_checksum, progress, offset).await?;
+    Ok(offset)
+}
+
+async fn verify_completed(
+    partial: &Path,
+    expected_size: u64,
+    expected_checksum: &str,
+    progress: Option<&Progress<'_, '_>>,
+    offset: u64,
+) -> Result<(), DownloadError> {
     if offset != expected_size {
         return Err(DownloadError::SizeMismatch);
     }
-    if let Some(progress) = progress.as_ref() {
+    if let Some(progress) = progress {
         progress.checkpoint(offset).await?;
     }
-    verify_checksum(partial, expected_checksum, progress.as_ref(), offset).await?;
-    Ok(offset)
+    verify_checksum(partial, expected_checksum, progress, offset).await?;
+    if let Some(progress) = progress {
+        progress.checkpoint(offset).await?;
+    }
+    Ok(())
 }
 
 fn validate_content_range(
@@ -493,28 +533,55 @@ fn valid_checksum(checksum: &str) -> bool {
     checksum.len() == 64 && checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn final_path(data_dir: &Path, region_id: &str) -> PathBuf {
-    data_dir.join("maps").join(format!("{region_id}.pmtiles"))
+fn job_download(job: &Job) -> Result<(&str, uuid::Uuid, &str), JobError> {
+    let region_id = job
+        .payload
+        .get("region_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| JobError::Worker("missing region_id payload".to_owned()))?;
+    let generation = job
+        .payload
+        .get("download_generation")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+        .ok_or_else(|| JobError::Worker("missing download_generation payload".to_owned()))?;
+    let file_path = job
+        .payload
+        .get("file_path")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| JobError::Worker("missing file_path payload".to_owned()))?;
+    let generated = format!("maps/{region_id}-{generation}.pmtiles");
+    let migrated = format!("maps/{region_id}.pmtiles");
+    if file_path != generated && file_path != migrated {
+        return Err(JobError::Worker(
+            "invalid region file_path payload".to_owned(),
+        ));
+    }
+    Ok((region_id, generation, file_path))
 }
 
-fn partial_path(data_dir: &Path, region_id: &str) -> PathBuf {
-    data_dir
-        .join("maps")
-        .join(format!("{region_id}.pmtiles.part"))
+fn final_path(data_dir: &Path, file_path: &str) -> PathBuf {
+    data_dir.join(file_path)
 }
 
-async fn cleanup_paths(data_dir: &Path, region_id: &str) -> Result<(), JobError> {
+fn partial_path(data_dir: &Path, file_path: &str) -> PathBuf {
+    let mut partial = final_path(data_dir, file_path).into_os_string();
+    partial.push(".part");
+    PathBuf::from(partial)
+}
+
+async fn cleanup_paths(data_dir: &Path, file_path: &str) -> Result<(), JobError> {
     for path in [
-        partial_path(data_dir, region_id),
-        final_path(data_dir, region_id),
+        partial_path(data_dir, file_path),
+        final_path(data_dir, file_path),
     ] {
         remove_path(&path).await?;
     }
     Ok(())
 }
 
-async fn cleanup_partial(data_dir: &Path, region_id: &str) -> Result<(), JobError> {
-    remove_path(&partial_path(data_dir, region_id)).await
+async fn cleanup_partial(data_dir: &Path, file_path: &str) -> Result<(), JobError> {
+    remove_path(&partial_path(data_dir, file_path)).await
 }
 
 async fn remove_path(path: &Path) -> Result<(), JobError> {
@@ -599,7 +666,7 @@ mod tests {
         let admin = seed_admin(&db).await;
         let ctx = keeppix_domain::AuthContext::user(admin, keeppix_domain::SystemRole::Admin);
         let temp = tempfile::tempdir().unwrap();
-        keeppix_db::RegionRepo::new(&db)
+        let started = keeppix_db::RegionRepo::new(&db)
             .begin_download(
                 &ctx,
                 keeppix_db::NewMapRegion {
@@ -618,7 +685,7 @@ mod tests {
         run_download_from_url(
             &db,
             temp.path(),
-            &test_job("IT"),
+            &test_job(&started),
             &url.parse().unwrap(),
             &test_client(),
         )
@@ -631,8 +698,8 @@ mod tests {
             .unwrap();
         assert_eq!(region.status, keeppix_db::RegionStatus::Error);
         assert!(region.last_error.as_deref().unwrap().contains("checksum"));
-        assert!(!temp.path().join("maps/IT.pmtiles.part").exists());
-        assert!(!temp.path().join("maps/IT.pmtiles").exists());
+        assert!(!super::partial_path(temp.path(), &started.file_path).exists());
+        assert!(!super::final_path(temp.path(), &started.file_path).exists());
     }
 
     #[tokio::test]
@@ -640,7 +707,7 @@ mod tests {
         let (db, _container) = test_db().await;
         let admin = seed_admin(&db).await;
         let ctx = keeppix_domain::AuthContext::user(admin, keeppix_domain::SystemRole::Admin);
-        keeppix_db::RegionRepo::new(&db)
+        let started = keeppix_db::RegionRepo::new(&db)
             .begin_download(
                 &ctx,
                 keeppix_db::NewMapRegion {
@@ -654,19 +721,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let job = keeppix_domain::Job {
-            id: 1,
-            kind: keeppix_domain::JobKind::DownloadMapRegion,
-            payload: serde_json::json!({ "region_id": "IT" }),
-            priority: keeppix_domain::JobPriority::High,
-            status: keeppix_domain::JobStatus::Running,
-            attempts: 1,
-            max_attempts: 3,
-            last_error: None,
-            run_after: chrono::Utc::now(),
-            locked_by: None,
-            dedup_key: Some("map-region:IT".to_owned()),
-        };
+        let job = test_job(&started);
         let temp = tempfile::tempdir().unwrap();
 
         super::run(&db, temp.path(), &job).await.unwrap();
@@ -697,6 +752,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(job.attempts, 1);
+        let file_path = job.payload["file_path"].as_str().unwrap().to_owned();
         sqlx::query("UPDATE jobs SET locked_at = now() - interval '20 minutes' WHERE id = $1")
             .bind(job.id)
             .execute(db.pool())
@@ -737,7 +793,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(!temp.path().join("maps/IT.pmtiles.part").exists());
+        assert!(!super::partial_path(temp.path(), &file_path).exists());
         assert_eq!(
             keeppix_db::RegionRepo::new(&db)
                 .find(&ctx, "IT")
@@ -771,6 +827,10 @@ mod tests {
         )
         .await
         .unwrap();
+        let old_generation =
+            uuid::Uuid::parse_str(old_job.payload["download_generation"].as_str().unwrap())
+                .unwrap();
+        let old_file_path = old_job.payload["file_path"].as_str().unwrap().to_owned();
         let jobs = keeppix_db::JobRepo::new(&db);
         sqlx::query("UPDATE jobs SET max_attempts = 1 WHERE id = $1")
             .bind(old_job.id)
@@ -800,11 +860,13 @@ mod tests {
 
         let regions = keeppix_db::RegionRepo::new(&db);
         regions.request_cancel(&ctx, "IT").await.unwrap();
-        super::cleanup_paths(temp.path(), "IT").await.unwrap();
+        super::cleanup_paths(temp.path(), &old_file_path)
+            .await
+            .unwrap();
         jobs.retire_active("map-region:IT", "Download cancelled")
             .await
             .unwrap();
-        regions.finish_cancel("IT").await.unwrap();
+        regions.finish_cancel("IT", old_generation).await.unwrap();
         let new_contents = b"new contents!";
         let new_job = super::enqueue_download(
             &db,
@@ -836,7 +898,7 @@ mod tests {
             region.source_url,
             "https://build.protomaps.com/IT-new.pmtiles"
         );
-        assert!(!temp.path().join("maps/IT.pmtiles").exists());
+        assert!(!super::final_path(temp.path(), &old_file_path).exists());
     }
 
     #[tokio::test]
@@ -847,6 +909,7 @@ mod tests {
         let queued = super::enqueue_download(&db, &ctx, region_fixture("IT", 11))
             .await
             .unwrap();
+        let file_path = queued.payload["file_path"].as_str().unwrap().to_owned();
         sqlx::query("UPDATE jobs SET max_attempts = 1 WHERE id = $1")
             .bind(queued.id)
             .execute(db.pool())
@@ -861,7 +924,7 @@ mod tests {
         tokio::fs::create_dir_all(temp.path().join("maps"))
             .await
             .unwrap();
-        let final_path = temp.path().join("maps/IT.pmtiles");
+        let final_path = super::final_path(temp.path(), &file_path);
         tokio::fs::write(&final_path, b"corrupt").await.unwrap();
         let url = serve_once(b"", "HTTP/1.1 500 Internal Server Error", None, None).await;
 
@@ -902,6 +965,7 @@ mod tests {
         let queued = super::enqueue_download(&db, &ctx, region_fixture("IT", 11))
             .await
             .unwrap();
+        let file_path = queued.payload["file_path"].as_str().unwrap().to_owned();
         sqlx::query("UPDATE jobs SET max_attempts = 1 WHERE id = $1")
             .bind(queued.id)
             .execute(db.pool())
@@ -913,7 +977,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let temp = tempfile::tempdir().unwrap();
-        let final_path = temp.path().join("maps/IT.pmtiles");
+        let final_path = super::final_path(temp.path(), &file_path);
         tokio::fs::create_dir_all(&final_path).await.unwrap();
         let url = serve_once(b"", "HTTP/1.1 500 Internal Server Error", None, None).await;
 
@@ -1049,11 +1113,15 @@ mod tests {
         }
     }
 
-    fn test_job(region_id: &str) -> keeppix_domain::Job {
+    fn test_job(region: &keeppix_db::MapRegion) -> keeppix_domain::Job {
         keeppix_domain::Job {
             id: 1,
             kind: keeppix_domain::JobKind::DownloadMapRegion,
-            payload: serde_json::json!({ "region_id": region_id }),
+            payload: serde_json::json!({
+                "region_id": region.id,
+                "download_generation": region.download_generation,
+                "file_path": region.file_path,
+            }),
             priority: keeppix_domain::JobPriority::High,
             status: keeppix_domain::JobStatus::Running,
             attempts: 1,
@@ -1061,7 +1129,7 @@ mod tests {
             last_error: None,
             run_after: chrono::Utc::now(),
             locked_by: None,
-            dedup_key: Some(format!("map-region:{region_id}")),
+            dedup_key: Some(format!("map-region:{}", region.id)),
         }
     }
 

@@ -133,13 +133,10 @@ pub async fn tiles(
         Problem::bad_request("invalid-map-tile-path", "Invalid map tile path")
             .with_detail(rejection.body_text())
     })?;
-    RegionRepo::new(&state.db)
+    let region = RegionRepo::new(&state.db)
         .find_available(&ctx, &region_id)
         .await?;
-    let path = state
-        .data_dir
-        .join("maps")
-        .join(format!("{region_id}.pmtiles"));
+    let path = state.data_dir.join(region.file_path);
     super::media::stream_file(
         &path,
         headers

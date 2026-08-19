@@ -125,7 +125,7 @@ async fn deleted_region_returns_clean_404_after_range_serving() {
     let server = TestServer::start().await;
     let user = setup(&server).await;
     let ctx = AuthContext::user(user, SystemRole::Admin);
-    RegionRepo::new(&server.db)
+    let region = RegionRepo::new(&server.db)
         .begin_download(
             &ctx,
             NewMapRegion {
@@ -140,13 +140,13 @@ async fn deleted_region_returns_clean_404_after_range_serving() {
         .await
         .unwrap();
     RegionRepo::new(&server.db)
-        .mark_available("IT")
+        .mark_available("IT", region.download_generation)
         .await
         .unwrap();
     tokio::fs::create_dir_all(server.data_dir.join("maps"))
         .await
         .unwrap();
-    tokio::fs::write(server.data_dir.join("maps/IT.pmtiles"), b"0123456789")
+    tokio::fs::write(server.data_dir.join(&region.file_path), b"0123456789")
         .await
         .unwrap();
 
@@ -220,7 +220,7 @@ async fn cancelling_a_region_removes_its_partial_file() {
     let server = TestServer::start().await;
     let user = setup(&server).await;
     let ctx = AuthContext::user(user, SystemRole::Admin);
-    RegionRepo::new(&server.db)
+    let region = RegionRepo::new(&server.db)
         .begin_download(
             &ctx,
             NewMapRegion {
@@ -237,7 +237,7 @@ async fn cancelling_a_region_removes_its_partial_file() {
     tokio::fs::create_dir_all(server.data_dir.join("maps"))
         .await
         .unwrap();
-    let partial = server.data_dir.join("maps/IT.pmtiles.part");
+    let partial = server.data_dir.join(format!("{}.part", region.file_path));
     tokio::fs::write(&partial, b"partial").await.unwrap();
 
     let response = server
@@ -260,7 +260,7 @@ async fn failed_cancel_cleanup_can_be_retried() {
     let server = TestServer::start().await;
     let user = setup(&server).await;
     let ctx = AuthContext::user(user, SystemRole::Admin);
-    RegionRepo::new(&server.db)
+    let region = RegionRepo::new(&server.db)
         .begin_download(
             &ctx,
             NewMapRegion {
@@ -274,7 +274,7 @@ async fn failed_cancel_cleanup_can_be_retried() {
         )
         .await
         .unwrap();
-    let partial = server.data_dir.join("maps/IT.pmtiles.part");
+    let partial = server.data_dir.join(format!("{}.part", region.file_path));
     tokio::fs::create_dir_all(&partial).await.unwrap();
 
     let failed = server
@@ -299,6 +299,36 @@ async fn failed_cancel_cleanup_can_be_retried() {
     assert_eq!(retried.status(), 204);
     let region = RegionRepo::new(&server.db).find(&ctx, "IT").await.unwrap();
     assert_eq!(region.status, keeppix_db::RegionStatus::Error);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn malformed_region_paths_are_problem_json_400s() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    for (method, path) in [
+        (reqwest::Method::POST, "/api/v1/map/regions/%FF/cancel"),
+        (reqwest::Method::DELETE, "/api/v1/map/regions/%FF"),
+    ] {
+        let response = server
+            .client
+            .request(method, server.url(path))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400, "{path}");
+        assert_eq!(
+            response.headers()["content-type"],
+            "application/problem+json",
+            "{path}"
+        );
+        assert_eq!(
+            response.json::<serde_json::Value>().await.unwrap()["type"],
+            "keeppix/invalid-region-path",
+            "{path}"
+        );
+    }
 }
 
 #[allow(clippy::unwrap_used, clippy::expect_used)]
