@@ -314,3 +314,85 @@ lib — inclusi i 6 nuovi di `dav::propfind::tests` —, intera suite
 `task-briefs/task-6-report.md` per l'elenco dei file, il dettaglio TDD
 (inclusa la mutazione deliberata sui due test più importanti) e l'output
 di verifica.
+
+Ruling (Task 7): `COPY` **non è implementata**, resta `501` nel dispatch
+di `dav::handler` — il brief la marca esplicitamente come opzionale
+("se troppo complessa, implementarla come stub 501"). `copy_subtree` in
+`folders.rs` richiederebbe una copia ricorsiva dell'intero sottoalbero con
+nuovi id per ogni cartella e ogni asset (righe `assets` indipendenti, per
+l'invariante "identità = `(folder_id, filename)`"), più un controllo di
+spazio libero sulla libreria di *destinazione* (che il brief nota può
+differire da quella di partenza) e la copia fisica ricorsiva file per
+file sul disco. Nessuno di questi pezzi riusa codice esistente in modo
+diretto: sarebbe una funzionalità nuova di peso comparabile a un intero
+task, non un'estensione di `move_subtree`. Nessun test la esercita, come
+esplicitamente permesso dal brief. Costo se differita: i client `WebDAV`
+che si aspettano `COPY` (duplicare una cartella) ricevono `501`, un
+comportamento esplicito e documentato, non un errore silenzioso o una
+copia parziale.
+
+Ruling (Task 7): il permesso di editor su `MOVE` viene verificato su
+**entrambe** le cartelle (`src_id` e `dst_parent_id`) nel handler
+`write::move_folder`, non delegato del tutto a
+`FolderRepo::move_subtree`. Verificato leggendo il codice:
+`move_subtree` chiama `self.visible(ctx, new_parent)` sul genitore di
+destinazione — solo visibilità, non `effective_role` — mentre controlla
+l'editor solo sulla cartella sorgente. Senza il controllo aggiunto nel
+handler, un viewer con visibilità (ma non editor) sulla cartella di
+destinazione potrebbe spostarvi dentro cartelle di altri editor. Costo se
+la ruling fosse sbagliata (cioè se bastasse il controllo di
+`move_subtree`): nessuno, il controllo aggiunto è ridondante ma non
+dannoso quando `move_subtree` già rifiuta; qui invece è necessario perché
+il brief lo richiede esplicitamente ("Verifica permesso editor su
+entrambe le cartelle coinvolte") e il codice letto conferma che
+altrimenti la seconda cartella non viene controllata per ruolo.
+
+Ruling (Task 7): il brief afferma che lo spostamento fisico su disco in
+`MOVE` è "già fatto da `move_subtree` che chiama `rename()`" — verificato
+leggendo `folders.rs` per intero: **non è vero**, `move_subtree` non
+contiene nessuna chiamata a `rename()`, aggiorna solo `folders.path`
+(`ltree`) nel database sotto lock a livello di libreria. Il piano non
+copriva questo task in dettaglio, quindi vince la spec/brief per priorità
+dichiarata in `AGENTS.md`, ma qui la spec stessa è in errore su un fatto
+verificabile nel codice — non un'ambiguità da risolvere, un'informazione
+sbagliata. Ho aggiunto lo spostamento fisico (`tokio::fs::rename` da
+vecchio a nuovo `absolute_path`) nel handler `write::move_folder`, dopo
+il commit di `move_subtree`. Nota sul rischio residuo: se il `rename()`
+fisico fallisse (solo un errore di I/O reale, perché `move_subtree` ha
+già validato ciclo/libreria/collisione di nome prima di arrivare qui), la
+cartella risulterebbe già spostata nel database ma non sul disco — la
+stessa identica lacuna, non introdotta da questo task, già presente e non
+toccata in `PATCH /api/v1/folders/{id}` (che oggi non sposta la directory
+per niente). Il `MOVE` `WebDAV` qui è quindi già più corretto
+dell'endpoint REST esistente, non più fragile. Costo se differito
+oltre: un'inconsistenza disco/database da correggere a mano nel caso raro
+di un errore di I/O a metà operazione — non coperta da rollback
+automatico in nessuno dei due endpoint.
+
+Ruling (Task 7): un `MKCOL` ripetuto sullo stesso nome non fallisce con
+`405` (RFC 4918 §9.3) — `FolderRepo::ensure_child` è idempotente per
+costruzione (lo stesso motivo per cui lo scanner lo richiama senza
+duplicare nulla), quindi il handler restituisce di nuovo `201` sulla
+cartella già esistente. Nessun client reale in uso in questo progetto
+dipende dal `405`. Costo se sbagliato: un client `WebDAV` che si aspetta
+`405` per rilevare una collisione di nome non lo riceve — mitigato dal
+fatto che il nome finale è comunque quello richiesto (nessuna rinomina a
+sorpresa, a differenza della collisione su `PUT`).
+
+Ruling (Task 7): un dotfile (`filename.starts_with('.')`, coprendo
+`.DS_Store`, `._foto.jpg`, `.hidden`) viene scritto **sovrascrivendo** un
+omonimo già presente sul disco, bypassando il controllo di collisione
+`AssetRepo::ingest_direct`. L'invariante "mai sovrascrittura silenziosa"
+di `AGENTS.md` protegge le foto dell'utente (righe `assets`, la sua
+libreria), non la cache del suo sistema operativo: `.DS_Store` viene
+riscritto in continuazione da Finder, e trattarlo come le foto
+richiederebbe suffissi `_1`, `_2`, ... che si accumulerebbero senza
+motivo a ogni sincronizzazione. Costo se sbagliato: nessuno osservabile
+dall'utente — un dotfile non ha mai una riga `assets` da proteggere.
+
+Task 7 (`PUT`, `MKCOL`, `MOVE`; `COPY` stub `501`): complete (commit
+4d2564e, test verdi: 7/7 in `keeppix-api/tests/webdav_write.rs`, intera
+suite `keeppix-api` verde — 36 binari di test, zero `FAILED`/`panicked`
+—, `cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
+warnings` puliti). Vedi `task-briefs/task-7-report.md` per l'elenco dei
+file, il dettaglio TDD e l'output di verifica.
