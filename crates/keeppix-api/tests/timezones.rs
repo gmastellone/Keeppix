@@ -167,6 +167,124 @@ async fn preview_and_apply_are_separate_authenticated_operations() {
 }
 
 #[tokio::test]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::too_many_lines)]
+async fn apply_rejects_when_data_changes_between_preview_and_apply() {
+    let server = TestServer::start().await;
+    let admin = setup_admin(&server).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Drift".to_owned(),
+                owner_id: admin,
+                root_path: server.photos_root.join("drift"),
+                exclude_patterns: Vec::new(),
+            },
+        )
+        .await
+        .expect("library");
+    let folder = FolderRepo::new(&server.db)
+        .ensure_path(library.id, &["2026"])
+        .await
+        .expect("folder");
+    let naive = Utc.with_ymd_and_hms(2026, 8, 18, 14, 0, 0).unwrap();
+    let asset = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("drift.jpg").unwrap(),
+            size_bytes: 1,
+            mtime: naive,
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .expect("asset")
+        .expect("new asset");
+    AssetRepo::new(&server.db)
+        .set_indexed(asset.id, naive, 100, 100)
+        .await
+        .expect("indexed");
+    AssetRepo::new(&server.db)
+        .set_exif_location(
+            asset.id,
+            GeoPoint {
+                lat: 35.6762,
+                lon: 139.6503,
+            },
+        )
+        .await
+        .expect("GPS");
+    let timezone_fixture = server.data_dir.join("tz_drift.csv");
+    tokio::fs::write(
+        &timezone_fixture,
+        "Asia/Tokyo\t{\"type\":\"MultiPolygon\",\"coordinates\":[[[[138,34],[141,34],[141,37],[138,37],[138,34]]]]}\n",
+    )
+    .await
+    .expect("timezone fixture");
+    GeoRepo::new(&server.db)
+        .seed_timezones_from_csv_if_empty(&timezone_fixture)
+        .await
+        .expect("timezone");
+
+    // Preview sees 1 asset.
+    let preview = server
+        .client
+        .post(server.url("/api/v1/metadata/batch/recalculate-timezones/preview"))
+        .json(&json!({ "library_id": library.id.to_string() }))
+        .send()
+        .await
+        .expect("preview");
+    assert_eq!(preview.status(), 200);
+    let preview: Value = preview.json().await.expect("preview JSON");
+    assert_eq!(preview["count"], 1);
+    let preview_token = preview["preview_token"].as_str().expect("token");
+
+    // Add a second asset with GPS — the count is now 2, drifted from 1.
+    let asset2 = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("drift2.jpg").unwrap(),
+            size_bytes: 1,
+            mtime: naive,
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .expect("asset2")
+        .expect("new asset2");
+    AssetRepo::new(&server.db)
+        .set_indexed(asset2.id, naive, 100, 100)
+        .await
+        .expect("indexed2");
+    AssetRepo::new(&server.db)
+        .set_exif_location(
+            asset2.id,
+            GeoPoint {
+                lat: 35.6762,
+                lon: 139.6503,
+            },
+        )
+        .await
+        .expect("GPS2");
+
+    // Apply with the old token — count drifted, should be 409.
+    let apply = server
+        .client
+        .post(server.url("/api/v1/metadata/batch/recalculate-timezones"))
+        .json(&json!({
+            "library_id": library.id.to_string(),
+            "preview_token": preview_token
+        }))
+        .send()
+        .await
+        .expect("apply");
+    assert_eq!(apply.status(), 409);
+    let body: Value = apply.json().await.expect("body");
+    assert_eq!(body["type"], "keeppix/preview-required");
+}
+
+#[tokio::test]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn a_foreign_library_returns_forbidden_problem_json() {
     let server = TestServer::start().await;

@@ -30,6 +30,8 @@ export interface MapRegion {
   status: 'available' | 'downloading' | 'error'
   downloaded_bytes: number
   last_error: string | null
+  source_url: string
+  checksum_sha256: string
 }
 
 export interface RegionDownloadRequest {
