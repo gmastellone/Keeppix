@@ -1,9 +1,11 @@
 use std::io::Write as _;
 
 use keeppix_server::config::{Config, LogFormat};
+use serial_test::serial;
 
-/// I test manipolano variabili d'ambiente di processo: vanno eseguiti in serie.
-/// `cargo test -- --test-threads=1` è imposto dallo script di verifica.
+/// I test manipolano variabili d'ambiente di processo: vanno eseguiti in serie
+/// fra loro, non con l'intera suite — ogni test qui sotto ha `#[serial]`,
+/// non serve più `cargo test -- --test-threads=1` sul workspace intero.
 ///
 /// L'elenco non è scritto a mano. `Config::load` legge `Env::prefixed("KEEPPIX_")`
 /// più `DATABASE_URL`, cioè **qualunque** variabile con quel prefisso: la
@@ -30,6 +32,7 @@ fn clear_env() {
 }
 
 #[test]
+#[serial]
 fn database_url_is_required() {
     clear_env();
     assert!(
@@ -39,6 +42,7 @@ fn database_url_is_required() {
 }
 
 #[test]
+#[serial]
 #[allow(clippy::unwrap_used)]
 fn defaults_are_applied() {
     clear_env();
@@ -82,6 +86,7 @@ fn defaults_are_applied() {
 }
 
 #[test]
+#[serial]
 #[allow(clippy::unwrap_used)]
 fn environment_overrides_the_file() {
     clear_env();
@@ -102,6 +107,7 @@ fn environment_overrides_the_file() {
 }
 
 #[test]
+#[serial]
 #[allow(clippy::unwrap_used)]
 fn bare_database_url_is_accepted() {
     clear_env();
@@ -113,6 +119,7 @@ fn bare_database_url_is_accepted() {
 }
 
 #[test]
+#[serial]
 #[allow(clippy::unwrap_used)]
 fn watch_poll_secs_is_overridable() {
     clear_env();
@@ -122,6 +129,7 @@ fn watch_poll_secs_is_overridable() {
 }
 
 #[test]
+#[serial]
 #[allow(clippy::unwrap_used)]
 fn webp_quality_is_overridable() {
     clear_env();
@@ -131,6 +139,7 @@ fn webp_quality_is_overridable() {
 }
 
 #[test]
+#[serial]
 #[allow(clippy::unwrap_used)]
 fn webp_method_is_overridable() {
     clear_env();
