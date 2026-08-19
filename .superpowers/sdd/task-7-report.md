@@ -127,3 +127,56 @@ verde. `./scripts/test.sh` non è stato eseguito.
   anche mentre il body HTTP non produce chunk e durante il checksum.
 
 Task 7 review fix: complete (commit `12c97dd`, verifiche prescritte verdi).
+
+## Remaining review findings — RED
+
+Nuovi test di regressione osservati rossi prima delle correzioni:
+
+1. `cancel_retires_running_job_before_a_distinct_download_can_start` non
+   compilava (`E0599`: `JobRepo::retire_active` assente). Dopo il primo fix,
+   impostando il vecchio job all'ultimo tentativo falliva ancora: il worker
+   senza lease marcava `error` la nuova richiesta.
+2. `startup_recovery_resets_a_running_region_job_immediately` non compilava
+   (`E0425`: `recover_interrupted_downloads` assente); il solo percorso
+   esistente applicava sempre la soglia stale di 600 secondi.
+3. `failed_exhausted_cleanup_keeps_region_downloading_for_cancel_retry`
+   falliva con stato osservato `Error` invece di `Downloading`, rendendo il
+   cancel successivo un conflitto mentre il file non rimosso restava presente.
+
+## Remaining review findings — GREEN mirati
+
+Con exit code 0:
+
+```text
+cargo test -p keeppix-jobs cancel_retires_running_job_before_a_distinct_download_can_start -- --test-threads=1
+cargo test -p keeppix-jobs --test regions startup_recovery_resets_a_running_region_job_immediately -- --test-threads=1
+cargo test -p keeppix-jobs failed_exhausted_cleanup_keeps_region_downloading_for_cancel_retry -- --test-threads=1
+```
+
+Scelte di stato:
+
+- il cancel ritira come `failed` il job `pending`/`running` prima di liberare
+  la dedup key; un worker che perde il lease si ferma senza mutare la nuova
+  regione, anche se era all'ultimo tentativo;
+- al boot i soli `DownloadMapRegion` `running` tornano subito `pending`; il
+  `ReapStale` generico resta schedulato ogni cinque minuti per gli altri job;
+- se il cleanup finale fallisce, la regione resta `downloading` e quindi il
+  cancel resta accettato e può ritentare la rimozione.
+
+## Remaining review findings — verifica completa
+
+Tutti con exit code 0:
+
+```text
+cargo fmt --check
+cargo clippy -p keeppix-domain -p keeppix-db -p keeppix-jobs -p keeppix-api -p keeppix-server --all-targets -- -D warnings
+cargo test -p keeppix-jobs --jobs 1 -- --test-threads=1
+CARGO_INCREMENTAL=0 cargo test -p keeppix-db --jobs 1 -- --test-threads=1
+CARGO_INCREMENTAL=0 cargo test -p keeppix-api --jobs 1 -- --test-threads=1
+```
+
+I primi tentativi DB/API hanno saturato il filesystem sugli artefatti Cargo
+(`os error 28` / PostgreSQL `53100`), senza failure applicative. Dopo
+`cargo clean` e la disabilitazione dell'incrementale, gli stessi test sono
+stati rieseguiti integralmente e sono verdi. `./scripts/test.sh` non è stato
+eseguito.

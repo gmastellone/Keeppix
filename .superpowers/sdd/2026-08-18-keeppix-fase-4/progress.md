@@ -231,3 +231,23 @@ senza cambiare lo schema delle richieste.
 
 Task 7: complete (commit `1aa2844`; RED/GREEN, fmt, clippy, domain, DB, jobs e
 API verdi; evidenza in `.superpowers/sdd/task-7-report.md`)
+
+Ruling (Task 7 remaining review): il cancel ritira definitivamente il job
+attivo tramite la dedup key prima di liberare la regione; il checkpoint
+verifica il lease prima di scrivere progresso e `LeaseLost` non applica la
+logica dell'ultimo retry alla richiesta successiva. Costo se sbagliato: il
+worker ritirato produce un singolo errore `NotFound` quando il pool tenta di
+chiuderlo, già innocuo per stato e deduplica.
+
+Ruling (Task 7 remaining review): il recupero al boot resetta immediatamente
+solo i `DownloadMapRegion` `running`, prima di avviare i worker; il reaper
+generico a 600 secondi resta un job periodico ogni cinque minuti. Costo se
+sbagliato: un crash può ripetere byte già scaricati solo secondo il normale
+protocollo resume, mentre gli altri job conservano la protezione dai falsi
+stale durante il processo vivo.
+
+Ruling (Task 7 remaining review): ogni errore di cleanup lascia la regione
+`downloading`; solo la rimozione riuscita consente `status = error`. Costo se
+sbagliato: la UI continua a mostrare un download finché un cancel/retry non
+riesce a rimuovere il residuo, invece di mostrare un errore non più
+cancellabile.

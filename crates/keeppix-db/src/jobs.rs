@@ -244,6 +244,27 @@ impl<'a> JobRepo<'a> {
         Ok(())
     }
 
+    /// Ritira definitivamente i job attivi con una chiave di deduplica.
+    ///
+    /// Serve alle cancellazioni esplicite: lasciare un job `running`
+    /// permetterebbe a un enqueue successivo di riusare il vecchio writer.
+    ///
+    /// # Errors
+    /// `DbError::Connection` se la query fallisce.
+    pub async fn retire_active(&self, dedup_key: &str, error: &str) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "UPDATE jobs SET \
+                 status = 'failed', last_error = $2, \
+                 locked_by = NULL, locked_at = NULL \
+              WHERE dedup_key = $1 AND status IN ('pending', 'running')",
+        )
+        .bind(dedup_key)
+        .bind(error)
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     /// Rinnova il lease di un job ancora posseduto dallo stesso worker.
     ///
     /// # Errors
@@ -271,6 +292,24 @@ impl<'a> JobRepo<'a> {
               WHERE status = 'running' AND locked_at < now() - make_interval(secs => $1)",
         )
         .bind(secs)
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Rimette subito in coda tutti i job `running` di un tipo.
+    ///
+    /// Va usato solo all'avvio, prima di creare i worker: ogni lock ancora
+    /// presente appartiene necessariamente al processo precedente.
+    ///
+    /// # Errors
+    /// `DbError::Connection` se la query fallisce.
+    pub async fn reset_running(&self, kind: JobKind) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "UPDATE jobs SET status = 'pending', locked_by = NULL, locked_at = NULL \
+              WHERE status = 'running' AND kind = $1",
+        )
+        .bind(kind.as_str())
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected())
