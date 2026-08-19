@@ -123,6 +123,19 @@ describe('pannello di upload persistente — store', () => {
     expect(store.sessions.filter((s) => s.status === 'uploading')).toHaveLength(3)
     expect(store.sessions.filter((s) => s.status === 'queued')).toHaveLength(1)
   })
+
+  it('shared_files_are_queued_for_upload', async () => {
+    vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
+    vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-shared.jpg'] })
+
+    const store = useUploadStore()
+    await store.addSharedFiles([file('shared.jpg')])
+
+    const queued = store.sessions.filter((s) => s.status === 'queued')
+    expect(queued).toHaveLength(1)
+    expect(queued[0].filename).toBe('shared.jpg')
+    expect(queued[0].targetFolderId).toBeNull()
+  })
 })
 
 describe('pannello di upload persistente — UploadPanel.vue', () => {

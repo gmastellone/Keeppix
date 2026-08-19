@@ -11,7 +11,11 @@ export interface UploadSessionState {
    * (`local:...`) fino a quel momento, non persistito con quello stato. */
   id: string
   filename: string
-  targetFolderId: string
+  /** `null` = destinazione non ancora scelta (vedi `addSharedFiles`): la
+   * sessione resta "queued" ma `pump()` non la avvia mai finché non le
+   * viene assegnata una cartella — non c'è ancora, in questo codebase,
+   * un'interfaccia che gliela assegni (vedi ledger di Fase 5, Task 10). */
+  targetFolderId: string | null
   expectedSize: number
   receivedBytes: number
   status: UploadStatus
@@ -27,7 +31,7 @@ export interface UploadSessionState {
 interface PersistedSession {
   id: string
   filename: string
-  targetFolderId: string
+  targetFolderId: string | null
   expectedSize: number
   receivedBytes: number
   status: UploadStatus
@@ -134,7 +138,7 @@ export const useUploadStore = defineStore('upload', () => {
    * ha già. I duplicati restano visibili nel pannello come "skipped" —
    * l'utente vede che non sono stati ignorati per errore.
    */
-  async function addFiles(fileList: File[], folderId: string): Promise<void> {
+  async function addFiles(fileList: File[], folderId: string | null): Promise<void> {
     if (fileList.length === 0) return
 
     const hashes = await Promise.all(fileList.map((file) => uploadApi.hashFile(file)))
@@ -173,14 +177,34 @@ export const useUploadStore = defineStore('upload', () => {
     schedulePump()
   }
 
+  /**
+   * Usata dalla vista `/share-target` (Fase 5, Task 10): riceve i file
+   * condivisi dal sistema operativo (es. "Condividi -> Keeppix" dalla
+   * galleria) e li accoda come un upload normale. `null` come cartella di
+   * destinazione perché non esiste, in questo codebase, un modo per
+   * scegliere la cartella prima dell'upload — nemmeno per gli upload
+   * "normali" avviati da `addFiles` (vedi il commento su
+   * `UploadSessionState.targetFolderId`): i file restano "queued" senza mai
+   * partire, finché una futura interfaccia non permette di assegnare la
+   * cartella.
+   */
+  async function addSharedFiles(files: File[]): Promise<void> {
+    await addFiles(files, null)
+  }
+
   function schedulePump(): void {
     setTimeout(() => pump(), 0)
   }
 
-  /** Avvia fino a `MAX_CONCURRENT_UPLOADS` upload in coda, tutti insieme. */
+  /**
+   * Avvia fino a `MAX_CONCURRENT_UPLOADS` upload in coda, tutti insieme.
+   * Una sessione "queued" senza `targetFolderId` (condivisa dall'OS, vedi
+   * `addSharedFiles`) resta visibile ma non viene mai presa in carico: non
+   * c'è ancora modo di assegnarle una cartella.
+   */
   function pump(): void {
     while (activeCount < MAX_CONCURRENT_UPLOADS) {
-      const next = sessions.value.find((s) => s.status === 'queued')
+      const next = sessions.value.find((s) => s.status === 'queued' && s.targetFolderId !== null)
       if (!next) return
       activeCount += 1
       next.status = 'uploading'
@@ -202,11 +226,22 @@ export const useUploadStore = defineStore('upload', () => {
       return
     }
 
+    const targetFolderId = session.targetFolderId
+    if (!targetFolderId) {
+      // Difensivo: `pump()` non dovrebbe mai avviare una sessione senza
+      // cartella, ma il tipo di `session.targetFolderId` resta nullable
+      // anche qui, quindi il controllo serve anche a soddisfare TypeScript.
+      session.status = 'error'
+      session.error = 'upload.errors.missingFolder'
+      persist()
+      return
+    }
+
     try {
       let remoteId = session.id.startsWith('local:') ? undefined : session.id
       if (!remoteId) {
         const created = await uploadApi.createSession({
-          target_folder_id: session.targetFolderId,
+          target_folder_id: targetFolderId,
           filename: session.filename,
           expected_size: session.expectedSize,
           expected_hash: expectedHashes.get(id)
@@ -308,6 +343,7 @@ export const useUploadStore = defineStore('upload', () => {
     sessions,
     initFromStorage,
     addFiles,
+    addSharedFiles,
     pause,
     resume,
     retry,
