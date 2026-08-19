@@ -164,7 +164,7 @@ pub async fn enqueue_download(
     let region = RegionRepo::new(db).begin_download(ctx, region).await?;
     let generation = region.download_generation;
     let file_path = region.file_path;
-    let dedup_key = format!("map-region:{region_id}");
+    let dedup_key = format!("map-region:{region_id}:{generation}");
     match JobRepo::new(db)
         .enqueue(
             JobKind::DownloadMapRegion,
@@ -885,7 +885,7 @@ mod tests {
         super::cleanup_paths(temp.path(), &old_file_path)
             .await
             .unwrap();
-        jobs.retire_active("map-region:IT", "Download cancelled")
+        jobs.retire_active(old_job.dedup_key.as_deref().unwrap(), "Download cancelled")
             .await
             .unwrap();
         regions.finish_cancel("IT", old_generation).await.unwrap();
@@ -1151,7 +1151,10 @@ mod tests {
             last_error: None,
             run_after: chrono::Utc::now(),
             locked_by: None,
-            dedup_key: Some(format!("map-region:{}", region.id)),
+            dedup_key: Some(format!(
+                "map-region:{}:{}",
+                region.id, region.download_generation
+            )),
         }
     }
 

@@ -330,7 +330,7 @@ impl<'a> JobRepo<'a> {
                         'download_generation', r.download_generation::text, \
                         'file_path', r.file_path \
                     ), 1, \
-                    'map-region:' || r.id \
+                    'map-region:' || r.id || ':' || r.download_generation::text \
                FROM map_regions r \
               WHERE r.status = 'downloading' AND NOT r.cancel_requested \
              ON CONFLICT (dedup_key) \

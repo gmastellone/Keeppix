@@ -216,12 +216,14 @@ async fn reap_stale_returns_a_running_job_to_pending() {
 async fn renewing_a_running_job_prevents_stale_reaping() {
     let test = TestDb::start().await;
     let repo = JobRepo::new(test.db());
+    let generation = Uuid::now_v7();
+    let dedup_key = format!("map-region:IT:{generation}");
     let job = repo
         .enqueue(
             JobKind::DownloadMapRegion,
-            json!({"region_id": "IT"}),
+            json!({"region_id": "IT", "download_generation": generation}),
             JobPriority::High,
-            Some("map-region:IT"),
+            Some(&dedup_key),
         )
         .await
         .unwrap();
