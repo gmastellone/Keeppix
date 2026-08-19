@@ -396,3 +396,52 @@ suite `keeppix-api` verde — 36 binari di test, zero `FAILED`/`panicked`
 —, `cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
 warnings` puliti). Vedi `task-briefs/task-7-report.md` per l'elenco dei
 file, il dettaglio TDD e l'output di verifica.
+
+Ruling (Task 7, fix round — Important #1): `ensure_disk_space`
+(`crates/keeppix-db/src/uploads.rs`, già usata da
+`UploadSessionRepo::create` per la sessione `tus`) è diventata **`pub`**,
+non `pub(crate)` — il chiamante nuovo, `dav::write::put` in
+`keeppix-api`, è in un altro crate del workspace, dove `pub(crate)` non
+sarebbe visibile. La funzione non contiene SQL, quindi esportarla non
+viola "nessun SQL fuori da `keeppix-db`" né il divieto di dipendenza
+`keeppix-media` ↔ `keeppix-db`. `dav::write::put` ora legge
+`Content-Length` (passato dal dispatcher in `dav::mod.rs`) e la chiama
+prima di scrivere qualunque byte del temporaneo — un `Content-Length`
+oltre lo spazio libero diventa `507` senza toccare il disco. Aggiunto
+anche un tetto assoluto `MAX_BODY_BYTES = 10 GiB` in `write.rs`, imposto
+byte per byte durante lo streaming (non solo controllato una volta
+sull'header dichiarato): senza questo, un client `chunked` senza
+`Content-Length` avrebbe bypassato sia il controllo sulla dimensione
+dichiarata sia `ensure_disk_space`, riempiendo il disco senza che nessun
+controllo lo intercettasse. Costo se sbagliato: un client che carica
+legittimamente un file più grande di 10 GiB riceve `413` invece di un
+upload riuscito — da rivedere se servirà per RAW/video enormi.
+
+Ruling (Task 7, fix round — Important #2): `mkcol` crea ora la directory
+sul disco **prima** dell'`INSERT` in `folders` (`FolderRepo::ensure_child`),
+non dopo. Prima del fix, un fallimento di `create_dir_all` dopo il commit
+dell'`INSERT` lasciava una riga `folders` fantasma senza directory
+corrispondente. Con l'ordine invertito, un fallimento su disco non tocca
+mai il database; un fallimento dell'`INSERT` **dopo** che la directory è
+stata creata da questa stessa chiamata la rimuove best-effort
+(`remove_dir`, silenzioso se non vuota o già sparita) — ma **solo** se la
+directory non esisteva già prima di questa chiamata (`MKCOL` idempotente
+su un secondo tentativo, o una directory lasciata da uno scanner): non è
+nostra da cancellare. Costo se la condizione fosse sbagliata: un secondo
+`MKCOL` idempotente su una cartella già esistente, seguito da un
+fallimento imprevisto dell'`INSERT`, avrebbe cancellato una directory
+legittima con contenuto reale — evitato dal controllo `already_on_disk`.
+
+Task 7, fix round (2 Important dalla review): complete (commit
+e78c9eac30ffc7bf84266784487c1d2a26e906fb, pushato su `fase-5`). Test
+verdi: 9/9 in `keeppix-api/tests/webdav_write.rs` (7 preesistenti + 2
+nuovi: `put_with_a_declared_content_length_over_the_limit_returns_413`,
+`mkcol_disk_failure_leaves_no_phantom_folder_row`), 4 nuovi unit test in
+`dav::write::tests` (26/26 unit test di `keeppix-api::lib`), intera suite
+`keeppix-api` e `keeppix-db` verde, `cargo fmt --check` e `cargo clippy
+--workspace --all-targets -- -D warnings` puliti. Vedi
+`task-briefs/task-7-report.md`, sezione "Fix round", per il dettaglio
+completo (incluso l'esperimento isolato che verifica che `reqwest`/`hyper`
+inviino sul filo un `Content-Length` impostato a mano anche quando
+diverso dalla dimensione reale del corpo, usato per rendere il test del
+413 deterministico senza spedire davvero terabyte di dati).
