@@ -286,3 +286,6 @@ attuale; gli URL paese campione restituiscono 404. UI, allowlist e protocollo
 sono completi e testati con mock, ma prima del field test servono estratti
 PMTiles reali e il relativo manifest. Costo: i download dal catalogo non
 completano finché quei metadati non vengono sostituiti.
+
+Task 8: complete (commit `9360d9f`; frontend 74/74, API timeline 12/12,
+OpenAPI 6/6, fmt/clippy/build verdi; entry gzip 84.618 byte)
