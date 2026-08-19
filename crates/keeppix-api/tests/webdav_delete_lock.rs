@@ -21,7 +21,7 @@ use base64::engine::general_purpose::STANDARD;
 use harness::TestServer;
 use journey::{
     build_fixture_archive, create_library, create_user, folder_id_by_name, grant_folder_editor,
-    login_as, scan_and_wait, setup_admin,
+    login_as, scan_and_wait, setup_admin, tiny_fixture_path,
 };
 use serde_json::json;
 
@@ -98,6 +98,71 @@ async fn dav_lock(
         req = req.header("depth", depth);
     }
     req.send().await.unwrap()
+}
+
+/// `LOCK` con un header `If: (<token>)` — il percorso di rinnovo (RFC 4918
+/// §10.4), non quello di creazione usato da [`dav_lock`].
+async fn dav_lock_with_if_token(
+    server: &TestServer,
+    path: &str,
+    auth: &str,
+    if_token: &str,
+) -> reqwest::Response {
+    server
+        .client
+        .request(
+            reqwest::Method::from_bytes(b"LOCK").expect("LOCK is a valid method token"),
+            server.url(path),
+        )
+        .header("authorization", auth)
+        .header("if", format!("(<{if_token}>)"))
+        .send()
+        .await
+        .unwrap()
+}
+
+async fn dav_propfind(
+    server: &TestServer,
+    path: &str,
+    auth: &str,
+    depth: &str,
+) -> reqwest::Response {
+    server
+        .client
+        .request(
+            reqwest::Method::from_bytes(b"PROPFIND").expect("PROPFIND is a valid method token"),
+            server.url(path),
+        )
+        .header("authorization", auth)
+        .header("depth", depth)
+        .send()
+        .await
+        .unwrap()
+}
+
+/// Libreria con **una** cartella (`only-album`) e due `tiny.jpg` — a
+/// differenza di [`setup_fixture`] (due cartelle, tre asset ciascuna): il
+/// test sul `DELETE` di cartella vuole un conteggio di asset piccolo e
+/// preciso da verificare uno per uno nel cestino.
+async fn setup_two_asset_folder_fixture(server: &TestServer) -> (String, String) {
+    setup_admin(server).await;
+    let secret = create_app_password(&server.client, server, "Finder").await;
+
+    let root = server
+        .photos_root
+        .join(format!("delete-archive-{}", uuid::Uuid::now_v7().simple()));
+    let dir = root.join("only-album");
+    std::fs::create_dir_all(&dir).unwrap();
+    let bytes = std::fs::read(tiny_fixture_path()).unwrap();
+    for i in 0..2 {
+        std::fs::write(dir.join(format!("photo-{i}.jpg")), &bytes).unwrap();
+    }
+
+    let library_id = create_library(server, "WebDavFolderDeleteLib", &root).await;
+    let deadline = Instant::now() + Duration::from_secs(90);
+    scan_and_wait(server, &library_id, 2, deadline).await;
+    let folder_id = folder_id_by_name(server, "only-album").await;
+    (folder_id, secret)
 }
 
 async fn dav_unlock(
@@ -299,4 +364,139 @@ async fn class_2_lock_token_response_has_correct_headers() {
     let body = response.text().await.unwrap();
     assert!(body.contains("<D:lockdiscovery>"));
     assert!(body.contains("opaquelocktoken:"));
+}
+
+/// `DELETE /dav/folder/{id}` è ricorsiva: ogni asset della cartella deve
+/// finire in `trash_entries` con il file spostato sotto `.keeppix-trash/`
+/// (mai un `rm` diretto), e la riga `folders` deve sparire — verificato sia
+/// via SQL che con un `PROPFIND` successivo, che deve rispondere `403` (un
+/// id mancante non deve mai diventare un oracolo di esistenza, nemmeno per
+/// l'admin: vedi la nota più sotto sul perché non è `404`).
+#[tokio::test]
+async fn folder_delete_moves_all_assets_to_trash_and_removes_folder() {
+    let server = TestServer::start().await;
+    let (folder_id, secret) = setup_two_asset_folder_fixture(&server).await;
+    let auth = basic_auth_header("giovanni", &secret);
+
+    let mut asset_ids = Vec::new();
+    for i in 0..2 {
+        asset_ids.push(asset_id_by_name(&server, &folder_id, &format!("photo-{i}.jpg")).await);
+    }
+
+    let response = dav_delete(&server, &format!("/dav/folder/{folder_id}"), &auth).await;
+    assert_eq!(response.status(), 204);
+
+    for asset_id in &asset_ids {
+        let entry: (String, Option<String>) =
+            sqlx::query_as("SELECT disk_action, trash_path FROM trash_entries WHERE asset_id = $1")
+                .bind(uuid::Uuid::parse_str(asset_id).unwrap())
+                .fetch_one(server.db.pool())
+                .await
+                .expect("every asset of the deleted folder must have a trash_entries row");
+        assert_eq!(entry.0, "moved_to_trash");
+        let trash_path = entry.1.expect("moved_to_trash always has a trash_path");
+        assert!(
+            trash_path.contains(".keeppix-trash"),
+            "the file must be moved under .keeppix-trash, not deleted directly: {trash_path}"
+        );
+        assert!(
+            std::path::Path::new(&trash_path).exists(),
+            "the file must actually be on disk under .keeppix-trash: {trash_path}"
+        );
+
+        // Scoperta (da riportare nel ledger): a differenza di `DELETE
+        // /dav/asset/{id}` (dove la riga `assets` resta con `status =
+        // 'trashed'`), qui la riga `assets` sparisce insieme alla cartella —
+        // `assets.folder_id REFERENCES folders(id) ON DELETE CASCADE`
+        // (migrazione 0005) cancella anche gli asset già "trashed" quando
+        // `folder_repo.delete_subtree` rimuove la riga `folders`. L'unica
+        // traccia che resta è `trash_entries` (che non ha una FK verso
+        // `assets`, migrazione 0014) — motivo per cui gli asserti sopra
+        // bastano a provare "cestinato, non cancellato": il file fisico e
+        // l'audit trail sopravvivono, la riga `assets` no.
+        let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM assets WHERE id = $1")
+            .bind(uuid::Uuid::parse_str(asset_id).unwrap())
+            .fetch_one(server.db.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            remaining, 0,
+            "the assets row is cascaded away with its folder — trash_entries above is the only \
+             surviving record, and it must have already proven the file was moved, not deleted"
+        );
+    }
+
+    let folder_count: i64 = sqlx::query_scalar("SELECT count(*) FROM folders WHERE id = $1")
+        .bind(uuid::Uuid::parse_str(&folder_id).unwrap())
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+    assert_eq!(folder_count, 0, "the folders row must be gone after DELETE");
+
+    // `403`, non `404`: il dispatcher `WebDAV` (`dav::mod::handler`)
+    // costruisce sempre `AuthContext::user(user_id, SystemRole::User)`, mai
+    // `SystemRole::Admin`, indipendentemente dal ruolo reale dell'utente
+    // (`ctx.is_admin()` non è mai vero per un attore WebDAV — vedi il
+    // commento sul `Ruling` del Task 6 in `dav::mod`). `FolderRepo::visible`
+    // risponde `NotFound` solo per un admin, `Forbidden` per chiunque altro:
+    // qui è sempre il secondo caso, anche per giovanni.
+    let after = dav_propfind(&server, &format!("/dav/folder/{folder_id}"), &auth, "0").await;
+    assert_eq!(
+        after.status(),
+        403,
+        "a PROPFIND on the just-deleted folder must not find it — WebDAV auth is never treated \
+         as admin, so a missing folder is 403, not 404 (see FolderRepo::visible)"
+    );
+}
+
+/// Un secondo `LOCK` (senza `If:`) su una risorsa già bloccata da un altro
+/// token attivo deve rispondere `423 Locked` — mai un secondo lock che
+/// finirebbe per far credere a due client di possedere lo stesso lock.
+#[tokio::test]
+async fn locking_an_already_locked_resource_returns_423() {
+    let server = TestServer::start().await;
+    let fixture = setup_fixture(&server).await;
+    let auth = basic_auth_header("giovanni", &fixture.secret);
+    let path = format!("/dav/folder/{}", fixture.album_a);
+
+    let first = dav_lock(&server, &path, &auth, Some("0")).await;
+    assert_eq!(first.status(), 200);
+
+    let second = dav_lock(&server, &path, &auth, Some("0")).await;
+    assert_eq!(
+        second.status(),
+        423,
+        "a second LOCK on an already-locked resource must be rejected, not silently granted"
+    );
+}
+
+/// Un `LOCK` di rinnovo (`If: (<token>)`) su un token già scaduto non deve
+/// mai rispondere `200` — farebbe credere al client di possedere ancora il
+/// lock. Il codice risponde `412 Precondition Failed`
+/// (`dav::lock::lock`), ma il brief lascia margine per `404`: qui si
+/// verifica il comportamento reale senza irrigidire il test su un dettaglio
+/// implementativo non contrattuale.
+#[tokio::test]
+async fn lock_with_expired_if_token_returns_412_or_404() {
+    let server = TestServer::start().await;
+    let fixture = setup_fixture(&server).await;
+    let auth = basic_auth_header("giovanni", &fixture.secret);
+    let path = format!("/dav/folder/{}", fixture.album_a);
+
+    let first = dav_lock(&server, &path, &auth, Some("0")).await;
+    assert_eq!(first.status(), 200);
+    let token = token_from_header(&first);
+
+    sqlx::query("UPDATE dav_locks SET timeout_at = now() - interval '1 hour' WHERE token = $1")
+        .bind(&token)
+        .execute(server.db.pool())
+        .await
+        .unwrap();
+
+    let response = dav_lock_with_if_token(&server, &path, &auth, &token).await;
+    let status = response.status();
+    assert!(
+        status == 412 || status == 404,
+        "expected 412 or 404 for a LOCK renewal with an expired If: token, got {status}"
+    );
 }
