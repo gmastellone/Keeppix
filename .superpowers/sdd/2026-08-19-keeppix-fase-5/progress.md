@@ -186,3 +186,41 @@ scartato dopo il pre-check.
 Verifica: `npm run test` 23 file / 89 test verdi, `npx vue-tsc --noEmit`
 pulito, `npm run lint` 0 errori (9 warning pre-esistenti in
 `SharesView.vue`, non toccato da questo fix).
+
+Task 3: complete (commits eaff018..8a67589, review clean after fix round)
+- Important fix #1+#2: session.error ora mostrato in UploadPanel.vue; errori ApiProblem mappati a upload.errors.unknown
+- Important fix #3: test di mount del componente Vue verifica che session.error raggiunga il DOM
+- Minor applicato: expected_hash passato a createSession dopo pre-check
+
+Ruling: sessioni riprese da localStorage senza il File originale (refresh a metà
+upload) vengono marcate status='error' con error='upload.errors.missingFile'.
+Il pannello mostra il messaggio specifico. La riselezione del file non è
+implementata (fuori scope dei 4 test richiesti e del brief). Costo se sbagliato:
+UX degradata su refresh, ma nessuna regressione di integrità.
+
+Ruling: nuova dipendenza npm `hash-wasm` (MIT, WASM blake3, ~9 KB gzip).
+Non c'è implementazione blake3 in crypto.subtle; il protocollo tus la richiede
+sia per il pre-check sia per Upload-Checksum. Import dinamico: non grava sul
+bundle iniziale. Costo se sbagliato: rimpiazzo con un'alternativa, un rename
+del campo non serve (nessun contratto rotto con il backend).
+
+Ruling: `verify()` in `AppPasswordRepo` NON prende `AuthContext` — eccezione documentata
+al pattern invariante del progetto, usata pre-autenticazione per WebDAV Basic Auth.
+Stesso precedente di `UserRepo::find_by_username`. Costo se sbagliato: nessun rischio
+di sicurezza diretto, ma aumenta la superficie degli endpoint non protetti da AuthContext.
+
+Ruling: `AppPasswordId` implementato manualmente invece di usare la macro `id_type!`
+del workspace. Hash non derivato (non necessario nel brief). Costo: drift futuro se
+la macro cambia. Differita come nota al reviewer del branch finale.
+
+Ruling: `verify()` non controlla `disabled_at` dell'utente — stesso gap della
+sessione-auth (controllo solo al login). Non è una regressione di questo task.
+Da ricordare quando Task 5 cabla il Basic Auth WebDAV attraverso `verify()`.
+
+Ruling: idempotenza di `revoke` — `AND revoked_at IS NULL` nella UPDATE. Una seconda
+revoca sull'id già revocato restituisce 204 anziché 404. Ragionato: WebDAV client
+potrebbe riprovare; l'invariante "password revocata non funziona" è già soddisfatta.
+Costo se sbagliato: semantica leggermente diversa da un DELETE idempotente puro.
+
+Task 4: complete (commits 1cf9d49..618bce9, review clean — Important: ledger entry
+era mancante dal commit dell'implementer, aggiunta ora in questo commit)
