@@ -93,6 +93,9 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         }
     };
 
+    keeppix_jobs::regions::repair_interrupted_downloads(&db)
+        .await
+        .context("interrupted region download repair")?;
     let handler = keeppix_jobs::IngestHandler {
         db: db.clone(),
         data_dir: config.data_dir.clone(),

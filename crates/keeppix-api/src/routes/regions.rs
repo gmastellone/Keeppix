@@ -131,9 +131,10 @@ pub async fn cancel(
     AdminAuth(ctx): AdminAuth,
     AxumPath(id): AxumPath<String>,
 ) -> Result<StatusCode, Problem> {
-    RegionRepo::new(&state.db).cancel(&ctx, &id).await?;
-    remove_if_present(partial_path(&state.data_dir, &id)).await?;
-    remove_if_present(final_path(&state.data_dir, &id)).await?;
+    let repo = RegionRepo::new(&state.db);
+    repo.request_cancel(&ctx, &id).await?;
+    remove_region_files(&state.data_dir, &id).await?;
+    repo.finish_cancel(&id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -158,9 +159,13 @@ pub async fn delete(
     AdminAuth(ctx): AdminAuth,
     AxumPath(id): AxumPath<String>,
 ) -> Result<StatusCode, Problem> {
-    RegionRepo::new(&state.db).delete(&ctx, &id).await?;
-    remove_if_present(partial_path(&state.data_dir, &id)).await?;
-    remove_if_present(final_path(&state.data_dir, &id)).await?;
+    let repo = RegionRepo::new(&state.db);
+    let region = repo.find(&ctx, &id).await?;
+    if region.status == RegionStatus::Downloading {
+        repo.request_cancel(&ctx, &id).await?;
+    }
+    remove_region_files(&state.data_dir, &id).await?;
+    repo.delete(&ctx, &id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -189,6 +194,11 @@ async fn remove_if_present(path: PathBuf) -> Result<(), Problem> {
             Err(Problem::internal())
         }
     }
+}
+
+async fn remove_region_files(data_dir: &Path, id: &str) -> Result<(), Problem> {
+    remove_if_present(partial_path(data_dir, id)).await?;
+    remove_if_present(final_path(data_dir, id)).await
 }
 
 fn final_path(data_dir: &Path, id: &str) -> PathBuf {

@@ -66,9 +66,7 @@ impl crate::JobHandler for IngestHandler {
             JobKind::RetryErrorAssets => crate::retry_derives::run(&self.db).await,
             JobKind::DownloadMapRegion => crate::regions::run(&self.db, &self.data_dir, job).await,
             JobKind::ReapStale => {
-                keeppix_db::JobRepo::new(&self.db)
-                    .reap_stale(Duration::from_secs(600))
-                    .await?;
+                crate::regions::repair_interrupted_downloads(&self.db).await?;
                 Ok(())
             }
         }
