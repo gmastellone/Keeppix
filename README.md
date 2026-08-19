@@ -8,10 +8,9 @@ Un solo processo Rust con il frontend incorporato, più PostgreSQL 17 e
 PostGIS. Gli originali restano sul disco, in sola lettura; Keeppix non li
 riscrive. Hardware minimo dichiarato: Raspberry Pi 5 da 8 GB.
 
-Stato attuale: **Fase 1 chiusa sul branch `fase-1`** (librerie, ingestione,
-timeline). Non è ancora su `main`. La [PR #3](https://github.com/gmastellone/Keeppix/pull/3)
-è una bozza: merge solo dopo la suite complessiva, e solo se chi mantiene
-il progetto lo chiede.
+Stato attuale: **Fasi 0–4 su `main`** (ingestione, RAW e culling, multiutente
+e condivisione, mappe e geocoding). La **Fase 5** (WebDAV e upload
+riprendibili) è in lavorazione.
 
 ## Avvio
 
@@ -67,19 +66,27 @@ poi elimina i container testcontainers e `target/`. Non lanciare
 
 Crate: `keeppix-domain`, `keeppix-db` (unico con SQL), `keeppix-media`
 (nessun database), `keeppix-api`, `keeppix-jobs`, `keeppix-server`,
-`keeppix-dav` (Fase 5), `keeppix-test-support`.
+`keeppix-dav` (Fase 5), `keeppix-test-support`. Previsto: `keeppix-ai`
+(Fasi 7–8, inferenza ONNX; nessun database, come `keeppix-media`).
+
+Le Fasi 7–8 aggiungono **pgvector** allo stesso PostgreSQL — nessun
+database nuovo — e questo richiede un'immagine DB con PostGIS *e*
+`vector`. Chi usa un Postgres esterno senza `vector` continua a funzionare:
+le funzioni AI restano spente e il pannello spiega come attivarle.
 
 ## Fasi
 
 | Fase | Cosa produce | Stato |
 |---|---|---|
 | 0 | Auth, Docker, CI, frontend setup/login | su `main` |
-| 1a–1c | Librerie, ingest, timeline, ricerca, WS | branch `fase-1`, PR #3 |
-| 2 | RAW, sidecar XMP, culling | non iniziata |
-| 3 | Multiutente, album, link pubblici | non iniziata |
-| 4 | Mappe | non iniziata |
-| 5 | WebDAV, upload tus | non iniziata |
-| 6 | Consolidamento | non iniziata |
+| 1a–1c | Librerie, ingest, timeline, ricerca, WS | su `main` (PR #3) |
+| 2 + 2R/2R2/2R3 | RAW, sidecar XMP, culling, derivati con perdita | su `main` (PR #4, #6, #7) |
+| 3 | Multiutente, album, link pubblici, audit | su `main` (PR #8) |
+| 4 | Mappe, geocoding, fusi orari, PMTiles offline | su `main` (PR #9) |
+| 5 | WebDAV, upload tus riprendibile | in lavorazione |
+| 6 | Consolidamento: video, backup, TOTP, PWA | piano da scrivere |
+| 7 | Scene e tag AI, ricerca semantica | spec scritta |
+| 8 | Volti: cluster, correzioni, gruppi | spec scritta |
 
 Roadmap e contratti congelati:
 [`docs/superpowers/plans/2026-08-13-keeppix-roadmap.md`](docs/superpowers/plans/2026-08-13-keeppix-roadmap.md).
@@ -104,13 +111,15 @@ dichiarate:
 - **Debiti**: spediti in una fase **già chiusa** senza interfaccia. Il
   terzo campo è la fase che li salderà, non quella che li ha introdotti.
 
-Esempi di debito: `/users*` (la 2R dichiarava la gestione utenti fatta,
-il frontend ha zero consumatori), `/trash`, `/auth/refresh` (cookie
-assoluto di 30 giorni, niente sliding: non si viene buttati fuori a
-metà culling). Il probe hardware (`probe()` → `"unprobed"`) ha un
-chiamante ma non misura nulla — debito della Fase 1b, saldo in Fase 6.
-La guardia non lo prende: cerca chiamanti, non verifica che una funzione
-faccia qualcosa.
+Il debito più grosso ancora aperto è il **probe hardware**: `probe()`
+restituisce `"unprobed"` e non misura nulla. Nato in Fase 1b, il saldo si
+è spostato dalla Fase 6 alla **Fase 7**: è l'inferenza AI ad avere bisogno
+di una misura vera (quanti thread, quanti ms per foto, se disattivarsi su
+hardware debole), più del video.
+
+La guardia non prende questa classe di difetto: cerca chiamanti, non
+verifica che una funzione faccia ciò che dichiara. Il probe un chiamante
+ce l'ha.
 
 ## Lingue
 
