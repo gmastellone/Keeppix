@@ -9,8 +9,8 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
-    auth, duplicates, flags, folders, geotag, libraries, map, media, metadata, places, problems,
-    regions, search, setup, stacks, timeline, trash, users, viewport, ws,
+    auth, credentials, duplicates, flags, folders, geotag, libraries, map, media, metadata, places,
+    problems, regions, search, setup, stacks, timeline, trash, users, viewport, ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -115,6 +115,9 @@ impl utoipa::Modify for SecurityAddon {
         users::change_password,
         users::set_home,
         users::delete_home,
+        credentials::create,
+        credentials::list,
+        credentials::revoke,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -181,6 +184,9 @@ impl utoipa::Modify for SecurityAddon {
         users::ChangePasswordRequest,
         users::SetHomeRequest,
         users::HomeView,
+        credentials::CreateAppPasswordRequest,
+        credentials::AppPasswordView,
+        credentials::AppPasswordCreatedView,
         crate::problem::Problem,
     )),
     tags(

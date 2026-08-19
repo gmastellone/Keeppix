@@ -221,6 +221,14 @@ fn api_routes() -> Router<AppState> {
             "/users/me/home",
             axum::routing::put(routes::users::set_home).delete(routes::users::delete_home),
         )
+        .route(
+            "/users/me/app-passwords",
+            axum::routing::post(routes::credentials::create).get(routes::credentials::list),
+        )
+        .route(
+            "/users/me/app-passwords/{id}",
+            axum::routing::delete(routes::credentials::revoke),
+        )
         .route("/users/{id}", axum::routing::patch(routes::users::patch))
         .route(
             "/users/{id}/disable",

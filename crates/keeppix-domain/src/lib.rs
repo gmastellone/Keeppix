@@ -2,6 +2,7 @@
 
 pub mod asset;
 pub mod auth;
+pub mod credential;
 pub mod error;
 pub mod exif;
 pub mod flags;
@@ -20,6 +21,7 @@ pub mod user;
 
 pub use asset::{Asset, AssetKind, AssetName, AssetStatus, LocationSource, NewAsset};
 pub use auth::{Actor, AuthContext, ShareLinkParams};
+pub use credential::{AppPasswordId, AppPasswordSecret, AppPasswordSummary};
 pub use error::DomainError;
 pub use exif::ExifData;
 pub use flags::{AssetFlags, Pick, Rating};
