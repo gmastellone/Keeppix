@@ -20,6 +20,7 @@ pub mod search;
 pub mod setup;
 pub mod share;
 pub mod stacks;
+pub mod sync;
 pub mod timeline;
 pub mod trash;
 pub mod upload;
