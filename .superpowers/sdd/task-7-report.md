@@ -180,3 +180,5 @@ I primi tentativi DB/API hanno saturato il filesystem sugli artefatti Cargo
 `cargo clean` e la disabilitazione dell'incrementale, gli stessi test sono
 stati rieseguiti integralmente e sono verdi. `./scripts/test.sh` non è stato
 eseguito.
+
+Task 7 remaining review fixes: complete (commit `25b65bc`).

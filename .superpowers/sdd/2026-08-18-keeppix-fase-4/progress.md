@@ -251,3 +251,7 @@ Ruling (Task 7 remaining review): ogni errore di cleanup lascia la regione
 sbagliato: la UI continua a mostrare un download finché un cancel/retry non
 riesce a rimuovere il residuo, invece di mostrare un errore non più
 cancellabile.
+
+Task 7 remaining review fixes: complete (commit `25b65bc`; RED/GREEN, fmt,
+clippy, jobs, DB e API verdi; evidenza in
+`.superpowers/sdd/task-7-report.md`).
