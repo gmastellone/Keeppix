@@ -1,6 +1,6 @@
 # Fase 5 — WebDAV e upload riprendibili
 
-**Stato:** specifica di progetto, non ancora pianificata in task
+**Stato:** pianificata in task — vedi [`../plans/2026-08-19-keeppix-fase-5.md`](../plans/2026-08-19-keeppix-fase-5.md)
 **Dipende da:** Fase 1 (cartelle, watcher, coda job). Fase 3 se già fatta, per i
 permessi; altrimenti solo il proprietario.
 **Chiusa quando:** `rclone bisync` completa un ciclo su una cartella reale e i
