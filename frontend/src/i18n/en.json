@@ -136,7 +136,8 @@
       "applyAnyway": "The location will still be saved to {count} photos.",
       "apply": "Apply",
       "downloadRegionAction": "Download Region",
-      "downloadRegion": "Download {region}"
+      "downloadRegion": "Download {region}",
+      "regionDownloading": "Region download in progress…"
     }
   },
   "search": {

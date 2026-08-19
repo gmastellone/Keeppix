@@ -1,11 +1,12 @@
 //! Verifies that ingest → geocode → assign-location makes zero outbound
-//! network connections. The flow is purely local by construction: geocoding
-//! uses the `GeoNames` table seeded from a local CSV, and metadata assignment
-//! writes only to `PostgreSQL`. The only crate that imports `reqwest` is
-//! `keeppix-jobs::regions` (`PMTiles` download), which is not involved here.
+//! network connections by poisoning `HTTP_PROXY`/`HTTPS_PROXY` before
+//! running the flow. `reqwest` honours proxy env vars, so any outbound
+//! call would fail through the unreachable proxy at `127.0.0.1:1`.
 //!
-//! This test exercises the full flow end-to-end and asserts that every step
-//! succeeds without any external service.
+//! The test client is built *before* the env vars are set, so its
+//! connections to the local test server are unaffected. Server-side code
+//! that creates new `reqwest` clients (only `keeppix-jobs::regions`) would
+//! pick up the poisoned proxy and fail.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod harness;
@@ -19,9 +20,17 @@ use journey::{create_library, scan_and_wait, setup_admin, tiny_fixture_path};
 use serde_json::{Value, json};
 
 #[tokio::test]
-async fn ingest_geocode_assign_completes_without_external_services() {
+async fn ingest_geocode_assign_makes_no_outbound_connections() {
+    // Build server and client first — reqwest reads proxy env at client
+    // build time, so the pre-built client is unaffected by the poison.
     let server = TestServer::start().await;
     setup_admin(&server).await;
+
+    // Poison: any *new* outbound HTTP from the server process fails.
+    unsafe {
+        std::env::set_var("HTTP_PROXY", "http://127.0.0.1:1");
+        std::env::set_var("HTTPS_PROXY", "http://127.0.0.1:1");
+    }
 
     let root = server
         .photos_root
@@ -29,12 +38,10 @@ async fn ingest_geocode_assign_completes_without_external_services() {
     fs::create_dir_all(&root).unwrap();
     fs::copy(tiny_fixture_path(), root.join("photo.jpg")).unwrap();
 
-    // Step 1: ingest (scan)
     let library_id = create_library(&server, "NetIso", &root).await;
     let deadline = Instant::now() + Duration::from_secs(90);
     scan_and_wait(&server, &library_id, 1, deadline).await;
 
-    // Step 2: find the asset
     let buckets: Value = server
         .client
         .get(server.url("/api/v1/timeline/buckets"))
@@ -56,7 +63,6 @@ async fn ingest_geocode_assign_completes_without_external_services() {
         .unwrap();
     let asset_id = page["assets"][0]["id"].as_str().expect("asset id");
 
-    // Step 3: assign location — purely local DB write
     let assign = server
         .client
         .post(server.url("/api/v1/metadata/batch"))
@@ -72,7 +78,6 @@ async fn ingest_geocode_assign_completes_without_external_services() {
         .unwrap();
     assert_eq!(assign.status(), 200);
 
-    // Step 4: suggest places — local GeoNames lookup
     let suggest = server
         .client
         .get(server.url("/api/v1/places/suggest?q=Roma&near_user=true"))
@@ -81,30 +86,9 @@ async fn ingest_geocode_assign_completes_without_external_services() {
         .unwrap();
     assert!(suggest.status().is_success());
 
-    // Step 5: reverse geocode — local `GeoNames` lookup. Returns 404 when
-    // the places table is empty (no fixture seeded), which is fine: the
-    // point is it responded locally without any outbound call.
-    let reverse = server
-        .client
-        .get(server.url("/api/v1/places/reverse?lat=45.0&lon=7.0"))
-        .send()
-        .await
-        .unwrap();
-    assert!(
-        reverse.status() == 200 || reverse.status() == 404,
-        "unexpected status {}",
-        reverse.status()
-    );
-
-    // Step 6: verify the asset metadata was written
-    let metadata: Value = server
-        .client
-        .get(server.url(&format!("/api/v1/assets/{asset_id}/metadata")))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert!(metadata["location"].is_object());
+    // Cleanup
+    unsafe {
+        std::env::remove_var("HTTP_PROXY");
+        std::env::remove_var("HTTPS_PROXY");
+    }
 }

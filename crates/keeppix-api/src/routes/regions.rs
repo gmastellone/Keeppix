@@ -18,6 +18,8 @@ pub struct RegionView {
     pub status: String,
     pub downloaded_bytes: i64,
     pub last_error: Option<String>,
+    pub source_url: String,
+    pub checksum_sha256: String,
 }
 
 impl From<MapRegion> for RegionView {
@@ -36,6 +38,8 @@ impl From<MapRegion> for RegionView {
             .to_owned(),
             downloaded_bytes: region.downloaded_bytes,
             last_error: region.last_error,
+            source_url: region.source_url,
+            checksum_sha256: region.checksum_sha256,
         }
     }
 }
