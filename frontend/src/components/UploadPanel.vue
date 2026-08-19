@@ -52,6 +52,14 @@ function statusLabel(session: UploadSessionState): string {
   if (session.status === 'skipped') {
     return t('upload.collision.skipped_duplicate')
   }
+  // `session.error` è sempre una chiave i18n (mai testo grezzo dal backend,
+  // vedi `stores/upload.ts`): la mostriamo appena disponibile, anche per una
+  // sessione ancora "paused" che l'ha già perso (es. `missingFile` dopo un
+  // refresh) — altrimenti l'utente vede "In pausa" senza sapere perché non
+  // riparte da sola.
+  if (session.status === 'error' || (session.status === 'paused' && session.error)) {
+    return t(session.error ?? `upload.status.${session.status}`)
+  }
   return t(`upload.status.${session.status}`)
 }
 </script>
