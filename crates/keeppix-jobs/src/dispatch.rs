@@ -29,6 +29,7 @@ impl crate::JobHandler for IngestHandler {
             // ma il gate deve comunque evitare di farne partire troppi in
             // parallelo sulla stessa macchina.
             JobKind::DeriveRaw => 512 * 1024 * 1024,
+            JobKind::TranscodeVideo => 1024 * 1024 * 1024,
             // WriteSidecar scrive un piccolo file di testo per asset:
             // leggero come gli altri job di manutenzione, copre il default.
             _ => 8 * 1024 * 1024,
@@ -65,6 +66,11 @@ impl crate::JobHandler for IngestHandler {
             }
             JobKind::RetryErrorAssets => crate::retry_derives::run(&self.db).await,
             JobKind::TmpCleanup => crate::tmp_cleanup::run(&self.db).await,
+            JobKind::TranscodeVideo => {
+                let id = crate::transcode::asset_id_from_payload(&job.payload)?;
+                let save = crate::transcode::save_bandwidth_from_payload(&job.payload)?;
+                crate::transcode::run(&self.db, &self.data_dir, id, save).await
+            }
             JobKind::DownloadMapRegion => crate::regions::run(&self.db, &self.data_dir, job).await,
             JobKind::ReapStale => {
                 crate::regions::repair_interrupted_downloads(&self.db).await?;

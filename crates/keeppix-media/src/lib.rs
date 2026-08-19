@@ -8,6 +8,7 @@ pub mod kind;
 pub mod probe;
 pub mod raw;
 pub mod sandbox;
+pub mod transcode;
 pub mod video;
 pub mod walk;
 pub mod xmp;
@@ -26,6 +27,11 @@ pub use probe::{Capabilities, VideoBackend, probe};
 pub use raw::{
     PreviewSource, RawError, RawPreview, dcraw_emu_available, demosaic_half,
     extract_embedded_preview,
+};
+pub use transcode::{
+    PlaybackMode, TranscodeProfile, VideoStreamInfo, cache_is_ready, client_accepts_direct,
+    ensure_poster, extract_animated_preview, playback_mode, playlist_path, probe_stream,
+    touch_cache, transcode_cache_dir, transcode_to_hls, video_poster_path, video_preview_anim_path,
 };
 pub use walk::{
     Freshness, SETTLED_AFTER, WalkedFile, freshness, is_stable, iter_entries, restat_if_stable,

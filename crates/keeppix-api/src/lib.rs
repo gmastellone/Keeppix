@@ -369,6 +369,9 @@ fn all_routes() -> Router<AppState> {
         .route("/media/preview/{hash}", get(routes::media::preview))
         .route("/media/full/{hash}", get(routes::media::full))
         .route("/media/original/{id}", get(routes::media::original))
+        .route("/media/video/{id}/playback", get(routes::video::playback))
+        .route("/media/video/{id}/poster", get(routes::video::poster))
+        .route("/media/video/{id}/hls/{file}", get(routes::video::hls))
         // WebDAV (Fase 5): fuori da `/api/v1` di proposito — non è un'API
         // REST e non va nel contratto congelato. Autenticazione via
         // app-password Basic Auth, mai cookie di sessione (`dav::handler`).

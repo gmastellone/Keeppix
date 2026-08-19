@@ -25,5 +25,6 @@ pub mod timeline;
 pub mod trash;
 pub mod upload;
 pub mod users;
+pub mod video;
 pub mod viewport;
 pub mod ws;

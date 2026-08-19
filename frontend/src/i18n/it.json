@@ -145,7 +145,14 @@
     "submit": "Cerca",
     "invalid": "Query non valida."
   },
-  "viewer": { "title": "Foto", "close": "Chiudi" },
+  "viewer": { "title": "Foto", "close": "Chiudi"   },
+  "player": {
+    "close": "Chiudi",
+    "loading": "Preparazione riproduzione…",
+    "error": "Impossibile avviare la riproduzione.",
+    "unsupported": "Questo browser non può riprodurre video HLS.",
+    "saveBandwidth": "Risparmia banda (720p)"
+  },
   "culling": {
     "entry": "Culling",
     "title": "Culling",

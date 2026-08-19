@@ -10,7 +10,7 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
     auth, credentials, duplicates, flags, folders, geotag, libraries, map, media, metadata, places,
-    problems, regions, search, setup, stacks, sync, timeline, trash, users, viewport, ws,
+    problems, regions, search, setup, stacks, sync, timeline, trash, users, video, viewport, ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -62,6 +62,9 @@ impl utoipa::Modify for SecurityAddon {
         media::preview,
         media::full,
         media::original,
+        video::playback,
+        video::hls,
+        video::poster,
         viewport::promote,
         search::run,
         search::suggest,
@@ -154,6 +157,7 @@ impl utoipa::Modify for SecurityAddon {
         duplicates::DuplicateGroupView,
         duplicates::ResolveDuplicateRequest,
         duplicates::ResolveDuplicateResponse,
+        video::PlaybackResponse,
         trash::DeleteAssetRequest,
         trash::TrashListPage,
         trash::TrashItemView,
