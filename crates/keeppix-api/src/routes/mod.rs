@@ -21,6 +21,7 @@ pub mod share;
 pub mod stacks;
 pub mod timeline;
 pub mod trash;
+pub mod upload;
 pub mod users;
 pub mod viewport;
 pub mod ws;

@@ -579,7 +579,9 @@ async fn write_body_capped(
     Ok(written)
 }
 
-async fn peek_header(path: &std::path::Path) -> Result<Vec<u8>, Problem> {
+/// Riusata da [`crate::routes::upload`] per la stessa verifica di
+/// decodificabilità a fine sessione tus.
+pub(crate) async fn peek_header(path: &std::path::Path) -> Result<Vec<u8>, Problem> {
     use tokio::io::AsyncReadExt as _;
     let mut file = tokio::fs::File::open(path)
         .await

@@ -350,6 +350,43 @@ impl<'a> AssetRepo<'a> {
         rows.into_iter().map(AssetRow::into_domain).collect()
     }
 
+    /// Quali di `hashes` esistono già come `content_hash` di un asset
+    /// visibile al chiamante — il pre-check dell'upload (spec §1.2): «questi
+    /// li ho già, caricami solo gli altri». Filtrato per visibilità come
+    /// [`Self::find_by_hash`], così non diventa un oracolo su hash che il
+    /// chiamante non potrebbe vedere altrimenti.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn known_hashes(
+        &self,
+        ctx: &AuthContext,
+        hashes: &[[u8; 32]],
+    ) -> Result<std::collections::HashSet<[u8; 32]>, DbError> {
+        if hashes.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
+        let wanted: Vec<Vec<u8>> = hashes.iter().map(|h| h.to_vec()).collect();
+        let rows: Vec<(Vec<u8>,)> = sqlx::query_as(&format!(
+            "SELECT DISTINCT a.content_hash FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             WHERE a.content_hash = ANY($1) AND {}",
+            filter.sql()
+        ))
+        .bind(&wanted)
+        .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(h,)| <[u8; 32]>::try_from(h.as_slice()).ok())
+            .collect())
+    }
+
     /// # Errors
     /// `Connection` se la query fallisce.
     pub async fn count_by_status(

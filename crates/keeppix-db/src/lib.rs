@@ -27,6 +27,7 @@ pub mod share_links;
 pub mod stacks;
 pub mod timeline;
 pub mod trash;
+pub mod uploads;
 pub mod users;
 pub mod visibility;
 
@@ -61,6 +62,7 @@ pub use share_links::{NewShareLink, ShareLinkRepo, ShareLinkRow};
 pub use stacks::{StackDetails, StackMember, StackRepo};
 pub use timeline::{MonthBucket, TimelineRepo};
 pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
+pub use uploads::{FinalizeOutcome, NewUploadSession, UPLOAD_TMP_DIR_NAME, UploadSessionRepo};
 pub use users::UserRepo;
 pub use visibility::VisibilityScope;
 
@@ -69,7 +71,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0025_user_home_locations.
+// rivede la directory. 0026_upload_sessions.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

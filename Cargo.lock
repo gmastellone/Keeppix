@@ -1928,6 +1928,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "axum-extra",
+ "blake3",
  "chrono",
  "futures-util",
  "http",
@@ -1967,8 +1968,10 @@ name = "keeppix-db"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "blake3",
  "chrono",
  "keeppix-domain",
+ "libc",
  "rand 0.10.2",
  "serde",
  "serde_json",
