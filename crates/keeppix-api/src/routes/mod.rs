@@ -1,6 +1,7 @@
 pub mod albums;
 pub mod audit;
 pub mod auth;
+pub mod credentials;
 pub mod duplicates;
 pub mod flags;
 pub mod folders;

@@ -3602,6 +3602,142 @@
         ]
       }
     },
+    "/api/v1/users/me/app-passwords": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Elenco delle app-password non revocate dell'utente autenticato. Mai il\nsegreto: solo `id`, `label` e le due date.",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "app_passwords_list",
+        "responses": {
+          "200": {
+            "description": "Elenco delle app-password non revocate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AppPasswordView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Crea un'app-password per l'utente autenticato. Il segreto in chiaro\nappare in questa risposta e non sarà mai più recuperabile.",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "app_passwords_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAppPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "App-password creata; `secret` appare qui una sola volta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppPasswordCreatedView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/me/app-passwords/{id}": {
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Revoca immediata: solo la propria, o un admin. L'id di un'app-password\naltrui risponde `403`, **mai** `404` — altrimenti la rotta diventa un\noracolo di esistenza.",
+        "description": "# Errors\n`403` se l'id appartiene a un altro utente (o non esiste, per un\nnon-admin).",
+        "operationId": "app_passwords_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'app-password",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "App-password revocata"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non consentito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/users/me/home": {
       "put": {
         "tags": [
@@ -4305,6 +4441,59 @@
   },
   "components": {
     "schemas": {
+      "AppPasswordCreatedView": {
+        "type": "object",
+        "description": "Risposta alla creazione: **l'unica** in cui `secret` compare. Nessun'altra\nrotta lo restituisce di nuovo — dopo questa risposta, solo l'hash resta.",
+        "required": [
+          "id",
+          "label",
+          "secret",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          }
+        }
+      },
+      "AppPasswordView": {
+        "type": "object",
+        "description": "Riepilogo pubblico: mai `secret`, mai l'hash.",
+        "required": [
+          "id",
+          "label",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "AssetFlagsBody": {
         "type": "object",
         "properties": {
@@ -4515,6 +4704,17 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "CreateAppPasswordRequest": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
           }
         }
       },

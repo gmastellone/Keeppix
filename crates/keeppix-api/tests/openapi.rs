@@ -87,6 +87,8 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/metadata/batch/{batch_id}/undo",
         "/api/v1/assets/{id}/flags",
         "/api/v1/flags/batch",
+        "/api/v1/users/me/app-passwords",
+        "/api/v1/users/me/app-passwords/{id}",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
@@ -180,8 +182,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 69,
-        "il documento deve descrivere sessantanove operazioni"
+        checked, 72,
+        "il documento deve descrivere settantadue operazioni"
     );
 }
 
@@ -193,7 +195,7 @@ async fn documented_operations_are_all_mounted() {
 /// lo abbiano, e che il cookie descritto sia davvero quello che l'extractor
 /// legge.
 #[test]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::too_many_lines)]
 fn security_requirements_name_a_declared_scheme() {
     let doc =
         serde_json::to_value(<keeppix_api::openapi::ApiDoc as utoipa::OpenApi>::openapi()).unwrap();
@@ -281,6 +283,9 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/trash/empty",
             "/api/v1/users",
             "/api/v1/users",
+            "/api/v1/users/me/app-passwords",
+            "/api/v1/users/me/app-passwords",
+            "/api/v1/users/me/app-passwords/{id}",
             "/api/v1/users/me/home",
             "/api/v1/users/me/home",
             "/api/v1/users/me/password",
@@ -326,6 +331,9 @@ fn operation_ids_are_explicit_and_unique() {
     assert_eq!(
         ids,
         [
+            "app_passwords_create",
+            "app_passwords_list",
+            "app_passwords_revoke",
             "assets_delete",
             "assets_get",
             "assets_restore",
