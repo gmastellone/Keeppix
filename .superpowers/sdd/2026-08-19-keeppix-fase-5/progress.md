@@ -108,3 +108,42 @@ Ruling: la finalizzazione upload accoda `JobKind::ExtractMetadata` con
 (`SkippedDuplicate`) non accodano nulla perché l'asset esistente era già
 indicizzato. Costo se sbagliato: job superflui su duplicati o asset nuovi in
 stato `discovered` fino al prossimo rescan.
+
+Ruling: aggiunta la dipendenza npm `hash-wasm` (^4.12.0) per calcolare
+blake3 lato client — necessità reale, non opzionale: sia il pre-check
+(`POST /upload/check`) sia `Upload-Checksum: blake3 <hex>` sul `PATCH`
+richiedono esattamente quell'algoritmo, e `crypto.subtle` del browser non lo
+implementa. Nessuna libreria blake3 esisteva già nel frontend. Per contenere
+l'impatto sul budget di 150 KB gzip (§AGENTS.md), sia `hash-wasm` sia
+`UploadPanel.vue` sono importati con `import()` dinamico — `UploadPanel` via
+`defineAsyncComponent` in `App.vue`, `hash-wasm` dentro `hashBytes()` in
+`api/upload.ts` — quindi finiscono in un chunk lazy separato
+(`UploadPanel-*.js`, 8 KB / 3 KB gzip) verificato con `npm run build` a non
+comparire nei chunk iniziali (`client-*.js`, `index-*.js`). Costo se
+sbagliato: 3 KB gzip in più sul primo caricamento se il code-splitting
+smettesse di funzionare — non l'intero pacchetto (9 KB gzip solo per
+BLAKE3 secondo la tabella upstream).
+
+Ruling: `addFiles()` e `resume()`/`retry()` non avviano l'upload in modo
+sincrono ma con `setTimeout(..., 0)` (`schedulePump`). Necessario perché lo
+store deve poter esporre lo stato "queued" a chi osserva subito dopo
+`await addFiles(...)` (spec del Task 3, test
+`pre_check_skips_files_already_in_library`) prima che il ciclo di
+concorrenza (max 3) faccia scattare "uploading". Costo se sbagliato: un
+ritardo di un tick prima che un upload appena accodato parta davvero — mai
+osservabile per l'utente, un frame a 0 ms.
+
+Ruling: una sessione ripresa da `localStorage` (`initFromStorage`) perde
+sempre l'oggetto `File` — non sopravvive a un refresh della pagina. Lo
+store la segna "paused" con l'offset vero (da `HEAD`), ma non può riprendere
+l'invio dei byte senza che l'utente riselezioni il file: `resume()` su una
+sessione così imposta l'errore `upload.errors.missingFile` invece di
+avviare un upload. Non è nella spec del Task 3 (i 4 test richiesti non lo
+esercitano) — differito qui come limite noto, non silenziato: la UI per
+"riseleziona il file per riprendere" è lavoro di un task successivo.
+
+Task 3 (pannello di upload persistente, frontend): complete (vedi
+`task-briefs/task-3-report.md` per l'elenco dei file e l'output di
+verifica). 4 test Vitest nuovi in `UploadPanel.spec.ts`, tutti osservati
+rossi contro uno stub prima dell'implementazione reale (TDD); `npm run
+test` (88/88), `npx vue-tsc --noEmit` e `npm run build` puliti.

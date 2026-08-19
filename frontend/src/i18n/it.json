@@ -316,6 +316,33 @@
     "close": "Chiudi",
     "createLink": "Crea link"
   },
+  "upload": {
+    "title": "Caricamenti",
+    "collapse": "Riduci",
+    "expand": "Espandi",
+    "clearCompleted": "Rimuovi completati",
+    "retry": "Riprova",
+    "pause": "Pausa",
+    "resume": "Riprendi",
+    "progress": "{received} di {total}",
+    "status": {
+      "queued": "In attesa…",
+      "uploading": "Caricamento…",
+      "paused": "In pausa",
+      "done": "Completato",
+      "error": "Non riuscito",
+      "skipped": "Già in libreria"
+    },
+    "collision": {
+      "skipped_duplicate": "Già presente in libreria",
+      "renamed": "Salvato come {filename}"
+    },
+    "errors": {
+      "expired": "Questo caricamento è scaduto e non può essere ripreso.",
+      "missingFile": "Seleziona di nuovo il file per riprendere questo caricamento.",
+      "unknown": "Il caricamento non è riuscito."
+    }
+  },
   "common": {
     "loading": "Caricamento…",
     "unexpectedError": "Si è verificato un errore imprevisto.",

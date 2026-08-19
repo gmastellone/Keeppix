@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import Button from '@/components/ui/Button.vue'
@@ -6,6 +7,11 @@ import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
 const session = useSessionStore()
+
+// Import differito: il pannello di upload è un overlay globale che vive
+// fuori dal router, ma senza `defineAsyncComponent` finirebbe comunque nel
+// bundle iniziale — anche il primo caricamento di chi non fa mai un upload.
+const UploadPanel = defineAsyncComponent(() => import('@/components/UploadPanel.vue'))
 </script>
 
 <template>
@@ -24,4 +30,5 @@ const session = useSessionStore()
     </Button>
   </main>
   <RouterView v-else />
+  <UploadPanel v-if="!session.unavailable" />
 </template>
