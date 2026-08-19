@@ -316,7 +316,7 @@ fn parse_hash(hex: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
-fn mime_for_name(name: &str) -> &'static str {
+pub(crate) fn mime_for_name(name: &str) -> &'static str {
     match Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
