@@ -1,206 +1,189 @@
-# Task 1 report — EXIF GPS extraction and `LocationSource`
+# Task 1 report — Sessioni di upload tus (schema e protocollo)
+
+Fase 5, Task 1 di 10. Branch `fase-5`, commit `ea660f9`.
 
 ## What I implemented
 
-- Added `LocationSource::as_str()` on the existing enum in
-  `keeppix-domain::asset`, with the exact database CHECK values: `exif`,
-  `user`, `map_pin`, `copied`, and `gpx`.
-- Extended `ExifData` with `gps: Option<GeoPoint>` and reused the existing
-  `keeppix_domain::GeoPoint`. `GeoPoint` now derives serde traits because
-  `ExifData` is serializable.
-- Parsed standard EXIF GPS latitude/longitude DMS rationals and their N/S/E/W
-  references into signed decimal degrees.
-- Discarded only a coordinate pair where both axes are within `1e-12` degrees
-  of zero. A zero latitude or longitude with a non-zero other axis remains
-  valid.
-- Added `AssetRepo::set_exif_location`, a documented pipeline method without
-  `AuthContext`. It uses parameterized SQL and refuses to overwrite
-  `location_source = 'user'` or `'map_pin'`.
-- Wired the metadata job to persist parsed EXIF GPS after writing immutable
-  `asset_exif`.
+- **Migration** `crates/keeppix-db/migrations/0026_upload_sessions.sql`: the
+  `upload_sessions` table verbatim from the brief, plus
+  `upload_sessions_expires_idx` on `expires_at`.
+- **Domain types** `crates/keeppix-domain/src/upload.rs`: `UploadOwner`
+  (`User`/`ShareLink`, mirroring the `upload_sessions_one_actor` CHECK),
+  `UploadSession`, `ChunkChecksum` (wraps 32 raw bytes; hex parsing stays at
+  the HTTP layer), and `CollisionOutcome` (`Created` /
+  `SkippedDuplicate { existing_asset_id }` / `RenamedTo(String)`). Added
+  `UploadSessionId` to `ids.rs`.
+- **`UploadSessionRepo`** (`crates/keeppix-db/src/uploads.rs`):
+  - `create` — checks permission (owner/admin/editor for a user, or
+    `allow_upload` + matching `object_id` for a share link), checks free
+    disk space via `libc::statvfs` on the library's filesystem
+    (`DbError::InsufficientStorage` → `507`), creates `.keeppix-tmp/` inside
+    the library root, inserts the row.
+  - `load_owned` — enforces `Forbidden` (never `NotFound`) for a caller that
+    isn't the owner/admin, and lazily deletes-and-cleans-up any session past
+    `expires_at`, returning `DbError::Gone` (→ `410`).
+  - `advance` — updates `received_bytes`, scoped to the owner.
+  - `fail` — deletes the session row and its temp file (tolerant of a
+    missing file).
+  - `finalize` — resolves the name collision (same name + same hash →
+    `SkippedDuplicate`, no second file; same name + different hash →
+    `name_1.ext`; otherwise `Created`), inserts the asset row, deletes the
+    session row, then does the atomic `rename()` — same filesystem because
+    the temp file lives under the library root.
+  - Added `AssetRepo::known_hashes` (visibility-scoped, like
+    `find_by_hash`) to back the pre-check.
+  - New `DbError` variants: `InsufficientStorage`, `Gone`.
+- **API** `crates/keeppix-api/src/routes/upload.rs`, four handlers wired in
+  `lib.rs` under `/api/v1/upload...` with `DefaultBodyLimit::disable()` on
+  the `HEAD`/`PATCH` route:
+  - `POST /upload/check` → `{ unknown_hashes: [...] }` (see Ruling below).
+  - `POST /upload` → `201` + `Location: /api/v1/upload/{id}`; `403`/`507`
+    surfaced from the repo.
+  - `HEAD /upload/{id}` → `Upload-Offset` header, the server's real
+    `received_bytes`.
+  - `PATCH /upload/{id}` → validates `Upload-Offset` (`409` on mismatch),
+    reads the chunk bounded to the remaining bytes, verifies
+    `Upload-Checksum: blake3 <hex>` against the chunk (`460` on mismatch,
+    chunk not written, offset unchanged), `fsync`s after each append, and on
+    reaching `expected_size` finalizes: blake3 of the whole temp file
+    against `expected_hash` (`422` + temp deleted + session failed on
+    mismatch) and `keeppix_media::detect_kind` for decodability (`422` on
+    `Unknown`, same cleanup), then calls `finalize` and returns `201` with
+    the collision outcome.
+  - New `Problem` constructors: `insufficient_storage` (507), `gone` (410),
+    `offset_mismatch` (409), `chunk_checksum_mismatch` (460, via
+    `StatusCode::from_u16(460)`).
 
-## What I tested and results
+## Deviations from the brief (see ledger)
 
-- `cargo test -p keeppix-domain --jobs 1 -- --test-threads=1`
-  - PASS: 47 unit tests, 0 failures; doc tests pass.
-- `cargo test -p keeppix-media --jobs 1 -- --test-threads=1`
-  - PASS: 60 integration tests, 0 failures; doc tests pass.
-  - GPS coverage includes missing tags, S/W signs, zero-zero, one zero axis,
-    and TIFF/MakerNote-only stand-in without a standard GPS IFD.
-- `cargo test -p keeppix-db --test assets exif_location_does_not_overwrite_user_or_map_pin_locations --jobs 1 -- --exact --test-threads=1`
-  - PASS: 1 focused database test, 0 failures.
-- `cargo test -p keeppix-jobs --test metadata metadata_ --jobs 1 -- --test-threads=1`
-  - PASS: 6 focused metadata tests, 0 failures.
-  - The complete metadata integration binary also passed earlier: 9 tests,
-    0 failures.
-- `cargo fmt --check`
-  - PASS.
-- `cargo clippy -p keeppix-domain -p keeppix-media -p keeppix-db -p keeppix-jobs --all-targets -- -D warnings`
-  - PASS.
-- Per the task instruction, `./scripts/test.sh` was not run.
+Three rulings, written to
+`.superpowers/sdd/2026-08-19-keeppix-fase-5/progress.md`:
 
-## TDD evidence
+1. The pre-check response field is `unknown_hashes`, not `known_hashes` as
+   illustrated — the illustration contradicts the pinned test case («12
+   sconosciuti su 47 → la risposta elenca esattamente quei 12»), which
+   describes returning the unknowns. New API, not yet released, so renaming
+   the field doesn't break the frozen `/api/v1`.
+2. CSRF still applies to `/api/v1/upload/*` in this task; the exemption is
+   explicitly Task 5's job per the phase plan, despite an outdated comment
+   in `csrf.rs`.
+3. No `JobKind::ExtractMetadata` enqueue on finalize — that's Task 2's job
+   per the plan; the finalized asset keeps the default `Discovered` status.
 
-### `LocationSource` mapping
+## Tests (TDD)
 
-RED:
+All 8 brief cases are covered, plus the decodability-failure case and the
+disk-space case, split across two test files.
 
-```text
-$ cargo test -p keeppix-domain location_source_strings_match_the_database_constraint --jobs 1 -- --exact --nocapture
-error[E0599]: no method named `as_str` found for enum `asset::LocationSource`
-error: could not compile `keeppix-domain` (lib test) due to 5 previous errors
+`crates/keeppix-db/tests/uploads.rs` (14 tests, repo-level):
+`creating_a_session_puts_the_temp_path_inside_keeppix_tmp`,
+`insufficient_disk_space_is_rejected_at_creation_not_mid_upload`,
+`a_share_link_without_allow_upload_is_forbidden_before_accepting_any_byte`,
+`a_share_link_with_allow_upload_can_open_a_session_on_its_own_folder`,
+`advance_updates_the_offset_and_is_scoped_to_the_owner`,
+`probing_someone_elses_session_is_forbidden_never_not_found`,
+`an_expired_session_is_cleaned_up_and_reported_as_gone`,
+`fail_removes_both_the_session_row_and_its_temp_file`,
+`finalize_creates_a_new_asset_when_there_is_no_collision`,
+`finalize_skips_a_byte_identical_duplicate_without_a_second_file`,
+`finalize_renames_on_same_name_different_hash_never_overwriting` — plus 3
+harness tests.
+
+`crates/keeppix-api/tests/upload.rs` (9 tests, HTTP-level):
+`precheck_returns_only_the_unknown_hashes`,
+`patch_with_wrong_offset_is_rejected_with_409`,
+`patch_with_wrong_chunk_checksum_is_rejected_and_does_not_advance`,
+`completing_with_a_wrong_expected_hash_never_enters_the_library` (covers the
+decodability/hash-mismatch cleanup path),
+`same_name_and_hash_is_skipped_as_a_duplicate`,
+`same_name_different_hash_is_saved_with_a_numeric_suffix`,
+`opening_a_session_from_a_share_link_without_allow_upload_is_forbidden`,
+`patch_on_an_expired_session_reports_it_is_gone`,
+`insufficient_disk_space_is_rejected_at_session_creation`.
+
+TDD was followed: the test files were written and run first against the
+unimplemented repo/handlers (compile failures / 404s), then
+`upload.rs` (domain), `uploads.rs` (db), and `routes/upload.rs` (api) were
+implemented incrementally, re-running the touched test module each time
+until each case went green.
+
+### Final verification
+
+```
+$ cargo fmt --check
+(clean, exit 0)
+
+$ cargo clippy --workspace --all-targets -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo] target(s)
+(no warnings, exit 0)
+
+$ cargo test -p keeppix-db -p keeppix-api --jobs 1 -- --test-threads=1
+... (all suites pass, including)
+test result: ok. 14 passed; 0 failed   -- tests/uploads.rs (keeppix-db)
+test result: ok. 9 passed; 0 failed    -- tests/upload.rs (keeppix-api)
 ```
 
-This was the expected failure because the existing enum had no database string
-mapping.
+Also ran the full-crate suites for `keeppix-db` and `keeppix-api` in the
+same invocation (all pre-existing suites: `assets`, `folders`, `libraries`,
+`share`, `trash`, `timeline`, `stacks`, `users`, `sessions`, `visibility`,
+etc. and the full `keeppix-api` integration test binary) — all green, no
+regressions from the new migration or the `known_hashes`/`Problem`
+additions.
 
-GREEN:
-
-```text
-$ cargo test -p keeppix-domain asset::tests::location_source_strings_match_the_database_constraint --jobs 1 -- --exact --nocapture
-running 1 test
-test asset::tests::location_source_strings_match_the_database_constraint ... ok
-test result: ok. 1 passed; 0 failed
-```
-
-### EXIF GPS parsing
-
-The first RED run proved the requested `ExifData` interface was absent
-(`error[E0609]: no field gps on type ExifData`). After adding only that field
-with `gps: None`, the GPS behavior tests were run again before parse logic:
-
-```text
-$ cargo test -p keeppix-media --test exif_gps --jobs 1 -- --test-threads=1 --nocapture
-running 5 tests
-test a_zero_on_only_one_axis_is_a_valid_coordinate ... FAILED
-test jpeg_without_gps_tags_has_no_gps ... ok
-test south_and_west_references_make_coordinates_negative ... FAILED
-test tiff_without_a_standard_gps_ifd_is_not_an_error ... ok
-test zero_zero_without_a_fix_has_no_gps ... ok
-test result: FAILED. 3 passed; 2 failed
-```
-
-Both failures were expected: `data.gps` was still `None`, proving the positive
-fixtures exercised the missing parse behavior rather than passing accidentally.
-
-GREEN:
-
-```text
-$ cargo test -p keeppix-media --test exif_gps --jobs 1 -- --test-threads=1 --nocapture
-running 5 tests
-test a_zero_on_only_one_axis_is_a_valid_coordinate ... ok
-test jpeg_without_gps_tags_has_no_gps ... ok
-test south_and_west_references_make_coordinates_negative ... ok
-test tiff_without_a_standard_gps_ifd_is_not_an_error ... ok
-test zero_zero_without_a_fix_has_no_gps ... ok
-test result: ok. 5 passed; 0 failed
-```
-
-### Database guard and metadata wiring
-
-RED repository API:
-
-```text
-$ cargo test -p keeppix-db --test assets exif_location_does_not_overwrite_user_or_map_pin_locations --jobs 1 -- --exact --test-threads=1 --nocapture
-error[E0599]: no method named `set_exif_location` found for struct `AssetRepo`
-```
-
-RED metadata wiring (the pipeline call was deliberately absent for this run):
-
-```text
-$ cargo test -p keeppix-jobs --test metadata metadata_ingest_persists_standard_exif_gps --jobs 1 -- --exact --test-threads=1 --nocapture
-assertion `left == right` failed
-  left: (None, None, None)
- right: (Some(-34.5), Some(-58.375), Some("exif"))
-test result: FAILED. 0 passed; 1 failed
-```
-
-These were the expected failures: the repository write did not exist, then the
-real metadata path parsed GPS but did not persist it.
-
-GREEN:
-
-```text
-$ cargo test -p keeppix-db --test assets exif_location_does_not_overwrite_user_or_map_pin_locations --jobs 1 -- --exact --test-threads=1
-test exif_location_does_not_overwrite_user_or_map_pin_locations ... ok
-test result: ok. 1 passed; 0 failed
-
-$ cargo test -p keeppix-jobs --test metadata metadata_ --jobs 1 -- --test-threads=1
-running 6 tests
-test metadata_ingest_persists_standard_exif_gps ... ok
-test metadata_rerun_does_not_overwrite_user_or_map_pin_locations ... ok
-test result: ok. 6 passed; 0 failed
-```
+`./scripts/test.sh` and `cargo test --workspace` were deliberately not run,
+per instructions.
 
 ## Files changed
 
-- `crates/keeppix-domain/src/asset.rs`
-- `crates/keeppix-domain/src/exif.rs`
-- `crates/keeppix-domain/src/overrides.rs`
-- `crates/keeppix-media/src/exif.rs`
-- `crates/keeppix-media/tests/exif_gps.rs`
-- `crates/keeppix-db/src/assets.rs`
-- `crates/keeppix-db/tests/assets.rs`
-- `crates/keeppix-db/tests/search.rs`
-- `crates/keeppix-jobs/src/metadata.rs`
-- `crates/keeppix-jobs/tests/metadata.rs`
-- `.superpowers/sdd/task-1-report.md`
+- `crates/keeppix-db/migrations/0026_upload_sessions.sql` (new)
+- `crates/keeppix-domain/src/upload.rs` (new), `ids.rs`, `lib.rs`
+- `crates/keeppix-db/src/uploads.rs` (new), `tests/uploads.rs` (new),
+  `assets.rs` (`known_hashes`), `error.rs` (`InsufficientStorage`, `Gone`),
+  `lib.rs`, `Cargo.toml` (`libc`, dev-dep `blake3`)
+- `crates/keeppix-api/src/routes/upload.rs` (new), `tests/upload.rs` (new),
+  `lib.rs` (route wiring + `DefaultBodyLimit::disable()`), `routes/mod.rs`,
+  `routes/share.rs` (`peek_header` made `pub(crate)`), `problem.rs`,
+  `Cargo.toml` (`blake3`, dropped unused `hex`)
+- `Cargo.lock`
+- `.superpowers/sdd/2026-08-19-keeppix-fase-5/progress.md` (ledger entries)
 
 ## Self-review findings
 
-- Production SQL remains exclusively in `keeppix-db`; jobs only calls the
-  repository API, and media has no database dependency.
-- All SQL values are bound parameters, including the three
-  `LocationSource::as_str()` values.
-- No production `unwrap()` or `expect()` was added.
-- Every existing `ExifData` literal was updated.
-- The metadata integration test proves the feature is wired into the real
-  ingest path, not only reachable through an isolated public function.
-- Both `user` and `map_pin` are tested through an actual metadata rerun, while
-  the repository test independently pins the SQL guard.
-- No new dependency or migration was added.
+- No SQL outside `keeppix-db`; handlers only call repo methods.
+- Every repo method reading session/asset data by id takes `&AuthContext`
+  first and returns `Forbidden` (never `NotFound`) for a caller that isn't
+  the owner or an admin — verified by
+  `probing_someone_elses_session_is_forbidden_never_not_found` and the
+  share-link-without-`allow_upload` test.
+- `sqlx` used only as `sqlx::query`/`sqlx::query_as`, no `query!` macro, no
+  `.sqlx/`.
+- No `unwrap()`/`expect()` in production code (checked by clippy across the
+  whole workspace with `-D warnings`, which includes `clippy::unwrap_used`
+  where configured); test-only helpers keep the existing
+  `#![allow(clippy::unwrap_used, clippy::expect_used)]` pattern already used
+  by sibling test files.
+- Errors are RFC 9457 via `keeppix_api::json::Json`/`Problem`, with new
+  `type` strings prefixed appropriately (`insufficient-storage`,
+  `upload-session-expired`, `upload-offset-mismatch`,
+  `chunk-checksum-mismatch`, `upload-hash-mismatch`, `upload-undecodable`).
+- Temp files live at
+  `{library_root}/.keeppix-tmp/{session_id}_{filename}`; the final rename is
+  same-filesystem and atomic.
+- A wrong-checksum chunk is never written and never advances
+  `received_bytes` (asserted directly in the test via a follow-up `HEAD`).
+- A failed finalization (bad hash or undecodable) never creates an asset row
+  and never leaves a file in the library folder — asserted directly.
+- Collision resolution never silently overwrites: same content is skipped
+  (reported, no second file), different content gets a numeric suffix
+  (`_1`), verified by reading the original file's bytes back unchanged.
 
 ## Issues or concerns
 
-None.
-
-## Fix — spec and quality review
-
-### What changed
-
-- Replaced the empty-TIFF-plus-ASCII stand-in with a valid TIFF containing an
-  EXIF IFD, a real MakerNote tag (`0x927C`), and a 102-byte binary MakerNote IFD
-  whose private fields contain S/W GPS-like DMS rationals. The fixture has no
-  standard GPS IFD pointer or standard GPS latitude/longitude fields.
-- Strengthened the MakerNote test by independently parsing the fixture,
-  asserting that the MakerNote binary field exists, and asserting that no
-  standard GPS fields are exposed before checking that `read_exif` returns
-  `gps: None` without error.
-- Removed the Task 1 GPS rerun test and all of its raw SQL from
-  `keeppix-jobs`. The remaining ingest-wiring test reads effective coordinates
-  through `OverrideRepo`; the write-on-first-index and `user`/`map_pin`
-  no-overwrite cases remain covered together in `keeppix-db/tests/assets.rs`.
-
-### Covering tests, commands, and output
-
-- `crates/keeppix-media/tests/exif_gps.rs`
-  - Command: `cargo test -p keeppix-media --test exif_gps --jobs 1 -- --test-threads=1`
-  - Output: `5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`.
-- `crates/keeppix-db/tests/assets.rs`
-  - Command: `cargo test -p keeppix-db --test assets exif_location --jobs 1 -- --test-threads=1`
-  - Output: `1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out`
-    (`exif_location_does_not_overwrite_user_or_map_pin_locations`).
-- `crates/keeppix-jobs/tests/metadata.rs`
-  - Command: `cargo test -p keeppix-jobs --test metadata --jobs 1 -- --test-threads=1`
-  - Output: `8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`.
-- Formatting
-  - Command: `cargo fmt --check`
-  - Output: exit code 0, no output.
-- Scoped lint
-  - Command: `cargo clippy -p keeppix-media -p keeppix-db -p keeppix-jobs --all-targets -- -D warnings`
-  - Output: exit code 0; all three crates checked with no warnings.
-
-### Commits
-
-- `728f280` — `feat(media): extract GPS coordinates from EXIF at ingest`
-- `e44bde6` — `fix(media): strengthen EXIF GPS regression coverage`
+- None blocking. The `known_hashes` → `unknown_hashes` field rename and the
+  two other rulings above are documented in the ledger in case a later task
+  or reviewer expected the illustrated names verbatim.
+- Disk-space checking uses `libc::statvfs`, which is Unix-only; there's a
+  `#[cfg(not(unix))]` fallback that returns `u64::MAX` available bytes (never
+  blocks). This matches the project's Linux/Docker-distroless deployment
+  target but would not actually enforce the check on a hypothetical non-Unix
+  build.
