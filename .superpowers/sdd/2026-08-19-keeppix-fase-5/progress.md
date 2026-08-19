@@ -510,3 +510,68 @@ verdi: 5/5 in `keeppix-api/tests/webdav_delete_lock.rs`, intera suite
 --all-targets -- -D warnings` puliti). Vedi `task-briefs/task-8-report.md`
 per l'elenco dei file, il dettaglio TDD (incluse le tre mutazioni
 deliberate sui test più importanti) e l'output di verifica.
+
+## Fix round (review Task 8): test mancanti su `DELETE` di cartella e sui
+## percorsi `423`/`412`
+
+Ruling (Task 8, fix round): `DELETE /dav/folder/{id}` cancella la riga
+`assets` dell'asset appena cestinato, non solo la riga `folders` — scoperta
+mentre scrivevo `folder_delete_moves_all_assets_to_trash_and_removes_folder`.
+A differenza di `DELETE /dav/asset/{id}` (dove la riga `assets` resta con
+`status = 'trashed'`, verificato da `delete_asset_moves_it_to_trash_not_
+file_system_removal`), qui `assets.folder_id REFERENCES folders(id) ON
+DELETE CASCADE` (migrazione `0005_assets.sql`) cancella anche la riga
+dell'asset già "trashed" nel momento in cui `folder_repo.delete_subtree`
+rimuove la riga `folders` — l'ordine è corretto (l'asset è già al sicuro nel
+cestino quando questo accade), ma il primo test scritto assumeva `status =
+'trashed'` ancora leggibile da `assets` dopo la `DELETE` di cartella e
+falliva con `RowNotFound`. Corretto asserendo invece `count(*) FROM assets
+WHERE id = $1 = 0`: l'unica traccia persistente è `trash_entries` (che non
+ha una FK verso `assets`, migrazione `0014_trash.sql`), e le asserzioni su
+quella tabella (già eseguite prima nel test) bastano a provare "cestinato,
+non cancellato" — il file fisico e l'audit trail sopravvivono, la riga
+`assets` no. Non è un difetto: è la conseguenza attesa di "la cartella è
+sparita del tutto dal DB", non richiede una modifica al codice di
+produzione, solo al test. Costo se questa lettura fosse sbagliata (cioè se
+si volesse che un asset trashato sopravviva come riga `assets` anche dopo
+che la sua cartella è stata eliminata): andrebbe introdotta una `SET NULL`
+o un passaggio di "orfanizzazione" prima di `delete_subtree`, cambiamento
+non richiesto da nessuna spec letta finora.
+
+Ruling (Task 8, fix round): lo stesso test verifica anche che un `PROPFIND`
+sulla cartella appena cancellata risponda `403`, non `404` — anche se
+l'utente usato nel test (`giovanni`) è l'admin bootstrap. Motivo: il
+dispatcher `WebDAV` (`dav::mod::handler`) costruisce sempre
+`AuthContext::user(user_id, SystemRole::User)`, mai `SystemRole::Admin`
+(Ruling già registrato nel Task 6/8 originale), quindi `ctx.is_admin()` non
+è mai vero per un attore `WebDAV` — `FolderRepo::visible` risponde `NotFound`
+solo per un admin, `Forbidden` per chiunque altro, e su `WebDAV` è sempre il
+secondo caso. Nessuna modifica al codice di produzione: solo l'assert del
+test, scritto prima aspettandosi (erroneamente) `404` e corretto dopo aver
+osservato il fallimento reale (`403`).
+
+Aggiunti 3 test in fondo a `crates/keeppix-api/tests/webdav_delete_lock.rs`
+(nessuna modifica al codice di produzione):
+
+- `folder_delete_moves_all_assets_to_trash_and_removes_folder` — cartella
+  con 2 asset, `DELETE /dav/folder/{id}` → entrambi in `trash_entries` con
+  `disk_action = 'moved_to_trash'` e file fisico sotto `.keeppix-trash/`,
+  riga `folders` sparita, riga `assets` sparita (cascade, vedi sopra),
+  `PROPFIND` successivo → `403`.
+- `locking_an_already_locked_resource_returns_423` — due `LOCK` consecutivi
+  senza `If:` sulla stessa risorsa → il secondo `423`.
+- `lock_with_expired_if_token_returns_412_or_404` — `LOCK`, scadenza manuale
+  del token (`UPDATE dav_locks SET timeout_at = now() - interval '1 hour'`),
+  poi `LOCK` con `If: (<token>)` → osservato `412` (comportamento reale del
+  codice, `dav::lock::lock` → `Problem::precondition_failed()`); l'assert
+  accetta anche `404` perché il brief lascia margine su questo dettaglio non
+  contrattuale.
+
+Verifica: `cargo fmt --check` pulito, `cargo clippy --workspace
+--all-targets -- -D warnings` pulito, `cargo test -p keeppix-api --test
+webdav_delete_lock -- --test-threads=1` 8/8 verdi, `cargo test -p keeppix-api
+-- --test-threads=1` (intera suite del crate) verde. Commit
+`a4a15d24fed4f5e71d0673ae1de8e64775e8b9e7`
+(`test(api): add coverage for WebDAV folder delete and lock conflict
+paths`). Vedi `task-briefs/task-8-report.md` (sezione "Fix round") per
+l'output completo.
