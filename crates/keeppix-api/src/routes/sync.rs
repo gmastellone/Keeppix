@@ -26,6 +26,9 @@ pub struct DeltaView {
 ///
 /// Reuses [`ChangeLogRepo::since`] — the same cursor safety as the WebSocket
 /// channel, exposed for mobile/offline clients.
+///
+/// # Errors
+/// `401` without a valid session; `503` if the database is unavailable.
 #[utoipa::path(
     get,
     path = "/api/v1/sync/delta",
