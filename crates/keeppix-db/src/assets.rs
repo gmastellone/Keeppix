@@ -1,7 +1,9 @@
+use std::path::Path;
+
 use chrono::{DateTime, Utc};
 use keeppix_domain::{
-    Asset, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, ExifData, FolderId, GeoPoint,
-    LibraryId, LocationSource, NewAsset,
+    Asset, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, CollisionOutcome, ExifData,
+    FolderId, GeoPoint, LibraryId, LocationSource, NewAsset,
 };
 
 use crate::visibility::VisibilityScope;
@@ -142,10 +144,131 @@ fn parse_status(raw: &str) -> Result<AssetStatus, DbError> {
     }
 }
 
+/// Esito di un inserimento diretto (`WebDAV PUT`, Task 7 Fase 5): stessa
+/// forma di `crate::uploads::FinalizeOutcome`, senza il concetto di
+/// sessione — il chiamante ha già l'intero file in un temporaneo.
+pub struct DirectPutOutcome {
+    pub asset_id: AssetId,
+    /// Nome finale su disco — può differire dal richiesto per una
+    /// collisione risolta con un suffisso.
+    pub filename: String,
+    pub collision: CollisionOutcome,
+}
+
 impl<'a> AssetRepo<'a> {
     #[must_use]
     pub const fn new(db: &'a Db) -> Self {
         Self { db }
+    }
+
+    /// Crea l'asset spostando `temp_path` nella cartella finale, risolvendo
+    /// un'eventuale collisione di nome esattamente come
+    /// `UploadSessionRepo::finalize` (Task 1): stesso nome e stesso hash è
+    /// un duplicato, saltato; stesso nome e hash diverso prende un
+    /// suffisso — **mai** una sovrascrittura silenziosa.
+    ///
+    /// Il chiamante deve aver già verificato il permesso di editor sulla
+    /// cartella (`FolderRepo::assert_editor`): questo metodo non lo
+    /// ripete, per non pagare due volte la stessa query sullo stesso
+    /// percorso HTTP (`dav::write::put`).
+    ///
+    /// Come in `finalize`, il `rename()` avviene prima del commit: se il
+    /// commit fallisse dopo, il file resta al posto giusto senza una riga
+    /// `assets`, e la prossima scansione della libreria lo scopre come un
+    /// file qualunque — mai il rischio opposto di una riga che punta a un
+    /// file inesistente.
+    ///
+    /// # Errors
+    /// Come `FolderRepo::absolute_path` per la visibilità della cartella.
+    /// `Io` se il `rename()` finale fallisce — il temporaneo resta al suo
+    /// posto, nessuna riga viene toccata.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn ingest_direct(
+        &self,
+        ctx: &AuthContext,
+        folder_id: FolderId,
+        temp_path: &Path,
+        desired_name: &str,
+        content_hash: [u8; 32],
+        size_bytes: i64,
+        mtime: DateTime<Utc>,
+        kind: AssetKind,
+    ) -> Result<DirectPutOutcome, DbError> {
+        let folder_dir = FolderRepo::new(self.db)
+            .absolute_path(ctx, folder_id)
+            .await?;
+
+        let mut tx = self.db.pool().begin().await?;
+        let existing: Option<(uuid::Uuid, Option<Vec<u8>>)> = sqlx::query_as(
+            "SELECT id, content_hash FROM assets WHERE folder_id = $1 AND filename = $2",
+        )
+        .bind(folder_id.as_uuid())
+        .bind(desired_name)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some((existing_id, existing_hash)) = &existing
+            && existing_hash.as_deref() == Some(content_hash.as_slice())
+        {
+            // Stesso nome, stesso hash: duplicato esatto. Non si tocca mai
+            // la cartella target — si rimuove solo il temporaneo, prima del
+            // commit (che qui non ha nulla da confermare, ma resta simmetrico
+            // a `finalize`).
+            crate::uploads::remove_file_tolerant(temp_path)?;
+            tx.commit().await?;
+            return Ok(DirectPutOutcome {
+                asset_id: AssetId::from_uuid(*existing_id),
+                filename: desired_name.to_owned(),
+                collision: CollisionOutcome::SkippedDuplicate {
+                    existing_asset_id: AssetId::from_uuid(*existing_id),
+                },
+            });
+        }
+
+        let (final_name, outcome) = if existing.is_some() {
+            let taken: Vec<String> =
+                sqlx::query_scalar("SELECT filename FROM assets WHERE folder_id = $1")
+                    .bind(folder_id.as_uuid())
+                    .fetch_all(&mut *tx)
+                    .await?;
+            let unique = crate::uploads::unique_suffixed_name(desired_name, &taken);
+            (unique.clone(), CollisionOutcome::RenamedTo(unique))
+        } else {
+            (desired_name.to_owned(), CollisionOutcome::Created)
+        };
+
+        let target_path = folder_dir.join(&final_name);
+        std::fs::rename(temp_path, &target_path).map_err(|e| {
+            DbError::Io(format!(
+                "moving {} to {}: {e}",
+                temp_path.display(),
+                target_path.display()
+            ))
+        })?;
+
+        let asset_id = AssetId::new();
+        sqlx::query(
+            "INSERT INTO assets (id, folder_id, filename, content_hash, size_bytes, mtime, kind) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(asset_id.as_uuid())
+        .bind(folder_id.as_uuid())
+        .bind(&final_name)
+        .bind(content_hash.as_slice())
+        .bind(size_bytes)
+        .bind(mtime)
+        .bind(kind_str(kind))
+        .execute(&mut *tx)
+        .await
+        .map_err(crate::uploads::map_unique_violation)?;
+
+        tx.commit().await?;
+
+        Ok(DirectPutOutcome {
+            asset_id,
+            filename: final_name,
+            collision: outcome,
+        })
     }
 
     /// Inserisce il file trovato dal walker, o aggiorna size/mtime se c'è già.

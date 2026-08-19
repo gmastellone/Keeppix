@@ -33,7 +33,7 @@ pub mod users;
 pub mod visibility;
 
 pub use albums::{Album, AlbumAsset, AlbumPatch, AlbumRepo, NewAlbum};
-pub use assets::AssetRepo;
+pub use assets::{AssetRepo, DirectPutOutcome};
 pub use audit::{AuditEntry, AuditRepo};
 pub use changes::{ChangeLogRepo, ChangePage};
 pub use credentials::AppPasswordRepo;

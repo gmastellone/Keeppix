@@ -231,7 +231,10 @@ pub async fn patch(
 /// `Problem::internal()` se l'enqueue fallisce — un errore qui non deve
 /// far fallire la risposta al client: l'asset esiste già, l'indicizzazione
 /// arriverà comunque dal prossimo rescan del watcher, solo più tardi.
-async fn enqueue_indexing(db: &Db, asset_id: AssetId, collision: &CollisionOutcome) {
+///
+/// `pub(crate)`: riusata anche da `dav::write::put` (Task 7 Fase 5), che
+/// indicizza un `PUT` `WebDAV` esattamente come un chunk tus finalizzato.
+pub(crate) async fn enqueue_indexing(db: &Db, asset_id: AssetId, collision: &CollisionOutcome) {
     if matches!(collision, CollisionOutcome::SkippedDuplicate { .. }) {
         return;
     }

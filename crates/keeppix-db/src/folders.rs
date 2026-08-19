@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
-use keeppix_domain::{AuthContext, Folder, FolderId, FolderPath, Library, LibraryId};
+use keeppix_domain::{AuthContext, Folder, FolderId, FolderPath, Library, LibraryId, ObjectRole};
 use sqlx::PgConnection;
 
 use crate::visibility::VisibilityScope;
@@ -180,6 +180,35 @@ impl<'a> FolderRepo<'a> {
     /// `NotFound` solo a un admin che chiede un id inesistente.
     pub async fn find_by_id(&self, ctx: &AuthContext, id: FolderId) -> Result<Folder, DbError> {
         Ok(self.visible(ctx, id).await?.0)
+    }
+
+    /// Permesso di scrittura sulla cartella: owner della libreria, admin,
+    /// oppure `editor` esplicito via `PermissionRepo::effective_role` — lo
+    /// stesso cancello di `move_subtree` e di `UploadSessionRepo::create`,
+    /// ora riusabile senza duplicarlo una terza volta per `WebDAV`
+    /// `PUT`/`MKCOL`/`MOVE`/`COPY` (Task 7, Fase 5).
+    ///
+    /// # Errors
+    /// `Forbidden` se il chiamante vede la cartella ma non può scriverci (un
+    /// viewer, o nessun permesso) — mai `NotFound`, per non offrire un
+    /// oracolo di esistenza a chi sonda un id che non gli appartiene.
+    /// Altrimenti come `find_by_id`.
+    pub async fn assert_editor(
+        &self,
+        ctx: &AuthContext,
+        folder_id: FolderId,
+    ) -> Result<(Folder, Library), DbError> {
+        let (folder, library) = self.visible(ctx, folder_id).await?;
+        if !ctx.is_admin() && ctx.user_id() != Some(library.owner_id) {
+            match crate::PermissionRepo::new(self.db)
+                .effective_role(ctx, folder_id)
+                .await?
+            {
+                Some(ObjectRole::Editor) => {}
+                _ => return Err(DbError::Forbidden),
+            }
+        }
+        Ok((folder, library))
     }
 
     /// Albero visibile al chiamante, in ordine di `path`.
