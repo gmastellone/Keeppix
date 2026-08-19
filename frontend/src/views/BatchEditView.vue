@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 
 import { applyMetadataBatch, copyLocation, importGpx } from '@/api/metadata'
 import PlacePicker from '@/components/PlacePicker.vue'
+import MapsOfflineView from '@/views/settings/MapsOfflineView.vue'
 import { useMapsStore } from '@/stores/maps'
 
 const { t } = useI18n()
@@ -93,8 +94,13 @@ onMounted(() => {
       <PlacePicker
         :asset-ids="assetIds"
         :available-region-ids="maps.availableRegionIds"
+        :all-regions="maps.regions"
         @applied="done = true"
-      />
+      >
+        <template #region-panel>
+          <MapsOfflineView />
+        </template>
+      </PlacePicker>
     </section>
     <section
       v-if="!done && assetIds.length > 0"
