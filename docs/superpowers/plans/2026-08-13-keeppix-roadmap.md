@@ -264,6 +264,11 @@ cartelle, cestino, modifica in blocco, ricerche salvate, rinnovo sessione.
 - OpenAPI pubblicata, client TypeScript generato, generazione Kotlin/Swift verificata.
 - PWA completa, service worker, stati offline.
 - Documentazione utente.
+- **Prestazioni, da un audit reale del codice**: indice trigram su
+  fotocamera/obiettivo (oggi scansione sequenziale), la cache in-process
+  `moka` che lo spec madre già decideva e non è mai stata costruita
+  (permessi/impostazioni riletti dal DB a ogni richiesta), due indici minori
+  su chiave esterna vicini a percorsi frequentati.
 
 **Rischi**
 - Il cursore di `change_log` con transazioni concorrenti. *Mitigazione: arretramento a `pg_snapshot_xmin`, con test dedicato che apre transazioni sovrapposte.*
