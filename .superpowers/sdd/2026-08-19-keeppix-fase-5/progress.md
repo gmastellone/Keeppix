@@ -575,3 +575,32 @@ webdav_delete_lock -- --test-threads=1` 8/8 verdi, `cargo test -p keeppix-api
 (`test(api): add coverage for WebDAV folder delete and lock conflict
 paths`). Vedi `task-briefs/task-8-report.md` (sezione "Fix round") per
 l'output completo.
+
+## Task 9: wizard di configurazione WebDAV (frontend)
+
+Ruling (Task 9): l'indicatore live di "prima connessione" si basa **solo**
+sul poller (GET ogni 3s dopo la generazione), senza un `GET` immediato
+aggiuntivo dopo la `POST` per aggiornare subito la lista "usate in
+precedenza". La prima versione faceva anche quel `GET` extra, ma introduceva
+un secondo punto di refresh della lista da tenere sincronizzato col poller
+senza beneficio reale (l'unica differenza osservabile è un ritardo di
+massimo 3s nel mostrare la nuova password nella sezione storica, mentre è
+già visibile per intero nella sezione "generata" sopra). Costo se sbagliato:
+minima latenza percepita, nessun impatto funzionale.
+
+Ruling (Task 9): niente generazione di QR code per iPhone/Android — il
+brief lo mostra nello schizzo ma il vincolo esplicito del task è "NO nuove
+dipendenze npm" e non esisteva già una libreria QR nel repo. Mostrato invece
+l'URL WebDAV come testo monospaziato. Costo se sbagliato: task successivo per
+aggiungere una dipendenza QR leggera con approvazione esplicita (la rotta è
+lazy, quindi fuori dal budget dei 150 KB iniziali).
+
+Ruling (Task 9): nessun link di navigazione aggiunto verso
+`/settings/webdav` da altre view — il brief elenca solo router, view, i18n
+e client API, e non esiste ancora un componente "Impostazioni" condiviso nel
+codebase a cui agganciarsi. Un punto d'ingresso visibile è fuori dallo scope
+dichiarato di questo task.
+
+Task 9: complete (commit da annunciare in `task-briefs/task-9-report.md`,
+test verdi: 91/91 Vitest incluso `i18n.spec.ts` per la parità delle chiavi,
+`vue-tsc --noEmit` e `eslint` puliti sui file toccati).

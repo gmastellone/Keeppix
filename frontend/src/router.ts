@@ -17,6 +17,11 @@ export const router = createRouter({
       component: () => import('@/views/settings/MapsOfflineView.vue'),
       meta: { auth: true }
     },
+    {
+      path: '/settings/webdav',
+      component: () => import('@/views/settings/WebdavSetupView.vue'),
+      meta: { auth: true }
+    },
     { path: '/culling', component: () => import('@/views/CullingView.vue'), meta: { auth: true } },
     { path: '/albums', component: () => import('@/views/AlbumsView.vue'), meta: { auth: true } },
     { path: '/shares', component: () => import('@/views/SharesView.vue'), meta: { auth: true } },

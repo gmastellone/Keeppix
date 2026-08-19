@@ -280,6 +280,51 @@
     "newPassword": "Nuova password",
     "savePassword": "Salva password"
   },
+  "webdav": {
+    "title": "Configura WebDAV",
+    "subtitle": "Genera una app-password per collegare i tuoi dispositivi a Keeppix via WebDAV.",
+    "labelField": "Etichetta dispositivo",
+    "defaultLabel": "Il mio dispositivo",
+    "generate": "Genera",
+    "generateTitle": "App-password generata",
+    "copy": "Copia",
+    "copied": "Copiata!",
+    "secretWarning": "Questa password viene mostrata una sola volta. Copiala ora: non potrà essere recuperata in seguito.",
+    "status": {
+      "connected": "Connesso",
+      "waiting": "In attesa della prima connessione…"
+    },
+    "clients": {
+      "macos": {
+        "title": "macOS Finder",
+        "steps": "Premi ⌘K nel Finder e collegati a {url}"
+      },
+      "windows": {
+        "title": "Windows",
+        "hint": "Consigliamo Cyberduck per un'esperienza migliore.",
+        "limitWarning": "Il client WebDAV integrato in Windows limita i file a 50 MB."
+      },
+      "rclone": {
+        "title": "rclone",
+        "hint": "Copia questo blocco di configurazione pronto all'uso:"
+      },
+      "mobile": {
+        "title": "iPhone / Android",
+        "hint": "Inserisci questo indirizzo nella tua app WebDAV preferita:"
+      }
+    },
+    "previous": {
+      "title": "App-password usate in precedenza",
+      "empty": "Nessuna app-password ancora.",
+      "usedOn": "usata il {date}",
+      "neverUsed": "mai usata",
+      "revoke": "Revoca"
+    },
+    "errors": {
+      "generateFailed": "Impossibile generare la app-password.",
+      "revokeFailed": "Impossibile revocare la app-password."
+    }
+  },
   "trash": {
     "entry": "Cestino",
     "title": "Cestino",
