@@ -29,13 +29,16 @@ route /api/openapi.json ci
 fn purge_expired fase-6
 fn ping fase-6
 
-# origine fase-1a
+# origine fase-1a. get_json: il primo lettore vero è la Fase 7, che rilegge
+# le capacità hardware misurate dal probe per decidere se e quanto inferire.
 fn ensure_child fase-6
-fn get_json fase-6
+fn get_json fase-7
 
 # origine fase-1b. count_by_status / set_status: ingest. Probe hardware:
-# keeppix_media::probe ha un chiamante ma non misura (vede R6 nel ledger);
-# la guardia non prende quella classe.
+# keeppix_media::probe ha un chiamante ma non misura (vedi R6 nel ledger);
+# la guardia non prende quella classe. Il saldo si sposta alla Fase 7: è
+# l'inferenza AI ad avere bisogno di una misura vera (quanti thread, quanti
+# ms per foto, se disattivarsi), non il video della Fase 6.
 fn count_by_status fase-6
 fn set_status fase-6
 
