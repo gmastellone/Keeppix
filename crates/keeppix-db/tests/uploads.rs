@@ -3,6 +3,7 @@ mod harness;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use chrono::Utc;
 use harness::TestDb;
 use keeppix_db::{
     AssetRepo, DbError, FolderRepo, LibraryRepo, NewShareLink, NewUploadSession, ShareLinkRepo,
@@ -549,6 +550,125 @@ async fn finalize_skips_a_byte_identical_duplicate_without_a_second_file() {
         .await
         .unwrap();
     assert_eq!(count, 1, "nessun secondo file per un duplicato esatto");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// `delete_expired` deve rimuovere temporaneo e riga insieme per le
+/// sessioni scadute, e non toccare una sessione ancora viva anche se
+/// `received_bytes` è fermo a zero da ore — solo `expires_at` conta (spec
+/// §1.3, Task 2).
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn delete_expired_removes_expired_sessions_but_not_live_ones() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let root = temp_library_root();
+    let library = seed_library(&test, admin, &root).await;
+    let folder = seed_target_folder(&test, library, &root, "2024").await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let repo = UploadSessionRepo::new(test.db());
+    let expired = repo
+        .create(&ctx, new_session(folder, "scaduto.jpg", 3))
+        .await
+        .unwrap();
+    fs::write(&expired.temp_path, b"abc").unwrap();
+    sqlx::query(
+        "UPDATE upload_sessions SET expires_at = now() - interval '1 second' WHERE id = $1",
+    )
+    .bind(expired.id.as_uuid())
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+
+    let live = repo
+        .create(&ctx, new_session(folder, "vivo.jpg", 3))
+        .await
+        .unwrap();
+    fs::write(&live.temp_path, b"abc").unwrap();
+    // received_bytes fermo da ore non è un segnale di abbandono: solo
+    // expires_at lo è.
+    sqlx::query(
+        "UPDATE upload_sessions SET created_at = now() - interval '10 hours' WHERE id = $1",
+    )
+    .bind(live.id.as_uuid())
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+
+    let removed = repo.delete_expired(Utc::now()).await.unwrap();
+    assert_eq!(removed, 1);
+
+    assert!(
+        !expired.temp_path.exists(),
+        "il temporaneo della sessione scaduta va rimosso"
+    );
+    let expired_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
+            .bind(expired.id.as_uuid())
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
+    assert_eq!(expired_rows, 0);
+
+    assert!(
+        live.temp_path.exists(),
+        "il temporaneo di una sessione non scaduta non va toccato"
+    );
+    let live_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
+        .bind(live.id.as_uuid())
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        live_rows, 1,
+        "una sessione non scaduta non va cancellata anche se received_bytes è fermo"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// Un riavvio a metà pulizia (o un crash del server) può aver già rimosso
+/// il temporaneo dal disco senza cancellare la riga: `delete_expired` non
+/// deve fallire su `ENOENT`, e la riga va comunque cancellata.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn delete_expired_tolerates_an_already_missing_temp_file() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let root = temp_library_root();
+    let library = seed_library(&test, admin, &root).await;
+    let folder = seed_target_folder(&test, library, &root, "2024").await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let repo = UploadSessionRepo::new(test.db());
+    let session = repo
+        .create(&ctx, new_session(folder, "sparito.jpg", 3))
+        .await
+        .unwrap();
+    // Nessun `fs::write`: il temporaneo non esiste mai su disco, come dopo
+    // un crash che ha già svuotato la directory.
+    sqlx::query(
+        "UPDATE upload_sessions SET expires_at = now() - interval '1 second' WHERE id = $1",
+    )
+    .bind(session.id.as_uuid())
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+
+    let removed = repo.delete_expired(Utc::now()).await.unwrap();
+    assert_eq!(removed, 1);
+
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
+        .bind(session.id.as_uuid())
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        rows, 0,
+        "la riga va cancellata anche se il file era già sparito"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }

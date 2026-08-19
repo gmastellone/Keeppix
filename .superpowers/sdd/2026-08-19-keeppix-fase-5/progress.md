@@ -96,3 +96,15 @@ nuovi: decodificabilità, `client_mtime`, multi-chunk). `cargo fmt --check`
 e `cargo clippy --workspace --all-targets -- -D warnings` puliti. Nessuna
 regressione nelle suite complete di `keeppix-db` e `keeppix-api`.
 
+
+Task 1: complete (commits ea660f9..68f9a70, review clean after fix round)
+- Critical fix: rename() before DB commit in finalize()
+- Critical fix: decodability-failure test added
+- Important fix: chunk streaming rewrite (write_chunk_checked, MAX_CHUNK_BYTES=64MiB)
+- Minor noted: concurrent-finalize filename collision race (pre-existing, low-probability)
+
+Ruling: la finalizzazione upload accoda `JobKind::ExtractMetadata` con
+`JobPriority::High` e dedup key `meta:{asset_id}`; i duplicati esatti
+(`SkippedDuplicate`) non accodano nulla perché l'asset esistente era già
+indicizzato. Costo se sbagliato: job superflui su duplicati o asset nuovi in
+stato `discovered` fino al prossimo rescan.

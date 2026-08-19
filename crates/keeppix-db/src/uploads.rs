@@ -418,6 +418,32 @@ impl<'a> UploadSessionRepo<'a> {
         })
     }
 
+    /// Ripulisce le sessioni scadute: temporaneo e riga insieme, mai l'uno
+    /// senza l'altro (spec §1.3, Task 2). Solo `expires_at` decide — una
+    /// sessione ancora viva non viene toccata anche se `received_bytes` è
+    /// fermo da ore (una connessione lenta non è un upload abbandonato).
+    /// Tollera un temporaneo già sparito (es. un crash che ha già svuotato
+    /// la directory): la riga va cancellata comunque.
+    ///
+    /// # Errors
+    /// `DbError::Connection` se la query fallisce. `DbError::Io` se un
+    /// temporaneo non si può rimuovere per un motivo diverso da `ENOENT`
+    /// (in tal caso le righe già cancellate nella stessa chiamata resta
+    /// senza il proprio file: la scansione successiva della libreria
+    /// tratterebbe il file come un asset scoperto, non un rischio peggiore
+    /// di una sessione mai scaduta).
+    pub async fn delete_expired(&self, now: DateTime<Utc>) -> Result<u64, DbError> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("DELETE FROM upload_sessions WHERE expires_at < $1 RETURNING temp_path")
+                .bind(now)
+                .fetch_all(self.db.pool())
+                .await?;
+        for (temp_path,) in &rows {
+            remove_file_tolerant(Path::new(temp_path))?;
+        }
+        Ok(u64::try_from(rows.len()).unwrap_or(u64::MAX))
+    }
+
     async fn load_row(
         &self,
         ctx: &AuthContext,

@@ -561,6 +561,104 @@ async fn patch_on_an_expired_session_reports_it_is_gone() {
     assert_eq!(response.status(), 410);
 }
 
+/// Il punto della fase (Task 2): un file caricato non deve aspettare i 15
+/// minuti del watcher. Alla finalizzazione, un job `extract_metadata` a
+/// `JobPriority::High` (valore 1) deve essere in coda con il payload
+/// `asset_id` corretto.
+#[tokio::test]
+async fn finalizing_an_upload_enqueues_a_high_priority_extract_metadata_job() {
+    let server = TestServer::start().await;
+    let (library_id, _root) = library_with_folder(&server, "index-now").await;
+    let folder_id = root_folder_id(&server, &library_id).await;
+    let bytes = fs::read(tiny_fixture_path()).unwrap();
+    let session_id = create_session(
+        &server,
+        &folder_id,
+        "photo.jpg",
+        i64::try_from(bytes.len()).unwrap(),
+        None,
+    )
+    .await;
+
+    let response = patch_chunk(&server, &session_id, 0, &blake3_hex(&bytes), &bytes).await;
+    assert_eq!(response.status(), 201);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let asset_id = body["asset_id"].as_str().unwrap().to_owned();
+
+    let job: (String, i16, serde_json::Value) =
+        sqlx::query_as("SELECT kind, priority, payload FROM jobs WHERE dedup_key = $1")
+            .bind(format!("meta:{asset_id}"))
+            .fetch_one(server.db.pool())
+            .await
+            .expect("un job extract_metadata deve essere in coda dopo la finalizzazione");
+    assert_eq!(job.0, "extract_metadata");
+    assert_eq!(job.1, 1, "JobPriority::High vale 1");
+    assert_eq!(job.2["asset_id"], asset_id);
+}
+
+/// Due upload finalizzati in concomitanza sulla stessa cartella accodano
+/// due job separati: la dedup key è per-asset (non per-libreria come il
+/// rescan), quindi non collidono tra loro.
+#[tokio::test]
+async fn two_concurrent_finalizations_enqueue_two_separate_high_priority_jobs() {
+    let server = TestServer::start().await;
+    let (library_id, _root) = library_with_folder(&server, "concurrent-index").await;
+    let folder_id = root_folder_id(&server, &library_id).await;
+    let bytes_a = fs::read(tiny_fixture_path()).unwrap();
+    let mut bytes_b = bytes_a.clone();
+    bytes_b.push(0);
+
+    let session_a = create_session(
+        &server,
+        &folder_id,
+        "a.jpg",
+        i64::try_from(bytes_a.len()).unwrap(),
+        None,
+    )
+    .await;
+    let session_b = create_session(
+        &server,
+        &folder_id,
+        "b.jpg",
+        i64::try_from(bytes_b.len()).unwrap(),
+        None,
+    )
+    .await;
+
+    let checksum_a = blake3_hex(&bytes_a);
+    let checksum_b = blake3_hex(&bytes_b);
+    let (response_a, response_b) = tokio::join!(
+        patch_chunk(&server, &session_a, 0, &checksum_a, &bytes_a),
+        patch_chunk(&server, &session_b, 0, &checksum_b, &bytes_b),
+    );
+    assert_eq!(response_a.status(), 201);
+    assert_eq!(response_b.status(), 201);
+    let asset_a = response_a.json::<serde_json::Value>().await.unwrap()["asset_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let asset_b = response_b.json::<serde_json::Value>().await.unwrap()["asset_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(asset_a, asset_b);
+
+    let dedup_keys: Vec<String> = sqlx::query_scalar(
+        "SELECT dedup_key FROM jobs WHERE kind = 'extract_metadata' AND priority = 1 \
+         AND dedup_key = ANY($1) ORDER BY dedup_key",
+    )
+    .bind(vec![format!("meta:{asset_a}"), format!("meta:{asset_b}")])
+    .fetch_all(server.db.pool())
+    .await
+    .unwrap();
+    let mut expected = vec![format!("meta:{asset_a}"), format!("meta:{asset_b}")];
+    expected.sort();
+    assert_eq!(
+        dedup_keys, expected,
+        "due finalizzazioni concorrenti devono accodare due job distinti, non collidere"
+    );
+}
+
 /// Spazio su disco insufficiente per `expected_size` → rifiutato **alla
 /// creazione** della sessione, non scoperto a metà upload.
 #[tokio::test]

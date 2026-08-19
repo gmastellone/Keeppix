@@ -14,6 +14,7 @@ pub mod profile;
 pub mod raw;
 pub mod regions;
 pub mod retry_derives;
+pub mod tmp_cleanup;
 pub mod watch;
 pub mod xmp;
 

@@ -169,6 +169,9 @@ async fn spawn_maintenance(db: Db) {
     if let Err(e) = keeppix_jobs::regions::schedule_reap_stale(&db).await {
         tracing::warn!(error = %e, "stale-job reaper could not be scheduled");
     }
+    if let Err(e) = keeppix_jobs::tmp_cleanup::schedule(&db).await {
+        tracing::warn!(error = %e, "upload tmp cleanup could not be scheduled");
+    }
     {
         let db = db.clone();
         tokio::spawn(async move {
@@ -178,6 +181,22 @@ async fn spawn_maintenance(db: Db) {
                 interval.tick().await;
                 if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
                     tracing::warn!(error = %e, "trash cleanup could not be scheduled");
+                }
+            }
+        });
+    }
+    {
+        // Un'ora, non 24h come il cestino: un temporaneo scaduto occupa
+        // spazio reale su disco (fino a `expected_size` per sessione), non
+        // solo una riga di manutenzione da smaltire con calma.
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(e) = keeppix_jobs::tmp_cleanup::schedule(&db).await {
+                    tracing::warn!(error = %e, "upload tmp cleanup could not be scheduled");
                 }
             }
         });
