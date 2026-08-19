@@ -6,6 +6,7 @@ pub mod error;
 pub mod exif;
 pub mod flags;
 pub mod folder;
+pub mod geo;
 pub mod ids;
 pub mod job;
 pub mod library;
@@ -22,6 +23,7 @@ pub use error::DomainError;
 pub use exif::ExifData;
 pub use flags::{AssetFlags, Pick, Rating};
 pub use folder::{Folder, FolderPath};
+pub use geo::Place;
 pub use ids::{
     AlbumId, AssetId, BatchId, FolderId, GroupId, LibraryId, StackId, TrashEntryId, UserId,
 };

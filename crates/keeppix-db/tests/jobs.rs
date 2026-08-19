@@ -213,6 +213,42 @@ async fn reap_stale_returns_a_running_job_to_pending() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn renewing_a_running_job_prevents_stale_reaping() {
+    let test = TestDb::start().await;
+    let repo = JobRepo::new(test.db());
+    let generation = Uuid::now_v7();
+    let dedup_key = format!("map-region:IT:{generation}");
+    let job = repo
+        .enqueue(
+            JobKind::DownloadMapRegion,
+            json!({"region_id": "IT", "download_generation": generation}),
+            JobPriority::High,
+            Some(&dedup_key),
+        )
+        .await
+        .unwrap();
+    let worker = Uuid::now_v7();
+    repo.claim(worker, JobPriority::High)
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE jobs SET locked_at = now() - interval '20 minutes' WHERE id = $1")
+        .bind(job.id)
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    assert!(repo.renew_lock(job.id, worker).await.unwrap());
+    assert_eq!(
+        repo.reap_stale(std::time::Duration::from_secs(600))
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn promote_raises_pending_jobs() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;

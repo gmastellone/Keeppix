@@ -2,9 +2,10 @@ use std::io::Read as _;
 use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone, Utc};
-use keeppix_domain::ExifData;
+use keeppix_domain::{ExifData, GeoPoint};
 
 const HEADER_BYTES: u64 = 128 * 1024;
+const ZERO_COORDINATE_EPSILON: f64 = 1e-12;
 
 /// Apre solo i primi 128 KB. Senza EXIF, `taken_at` è `mtime`.
 ///
@@ -32,6 +33,7 @@ fn parse_header(buf: &[u8], mtime: DateTime<Utc>) -> ExifData {
         f_number: None,
         exposure: None,
         focal_length: None,
+        gps: None,
     };
 
     let Some(exif) = parse_exif_bytes(buf) else {
@@ -54,6 +56,7 @@ fn parse_header(buf: &[u8], mtime: DateTime<Utc>) -> ExifData {
     data.f_number = float_tag(&exif, exif::Tag::FNumber);
     data.focal_length = float_tag(&exif, exif::Tag::FocalLength);
     data.exposure = ascii(&exif, exif::Tag::ExposureTime);
+    data.gps = gps_point(&exif);
     if let Some((w, h)) = pixel_size(&exif) {
         data.width = Some(w);
         data.height = Some(h);
@@ -126,6 +129,69 @@ fn pixel_size(exif: &exif::Exif) -> Option<(i32, i32)> {
     let w = int_tag(exif, exif::Tag::PixelXDimension)?;
     let h = int_tag(exif, exif::Tag::PixelYDimension)?;
     Some((w, h))
+}
+
+fn gps_point(exif: &exif::Exif) -> Option<GeoPoint> {
+    let lat = signed_dms(
+        exif,
+        exif::Tag::GPSLatitude,
+        exif::Tag::GPSLatitudeRef,
+        b'N',
+        b'S',
+    )?;
+    let lon = signed_dms(
+        exif,
+        exif::Tag::GPSLongitude,
+        exif::Tag::GPSLongitudeRef,
+        b'E',
+        b'W',
+    )?;
+    if lat.abs() <= ZERO_COORDINATE_EPSILON && lon.abs() <= ZERO_COORDINATE_EPSILON {
+        return None;
+    }
+    if lat.abs() > 90.0 || lon.abs() > 180.0 {
+        return None;
+    }
+    Some(GeoPoint { lat, lon })
+}
+
+fn signed_dms(
+    exif: &exif::Exif,
+    value_tag: exif::Tag,
+    reference_tag: exif::Tag,
+    positive: u8,
+    negative: u8,
+) -> Option<f64> {
+    let field = exif.fields().find(|field| field.tag == value_tag)?;
+    let exif::Value::Rational(parts) = &field.value else {
+        return None;
+    };
+    let [degrees, minutes, seconds, ..] = parts.as_slice() else {
+        return None;
+    };
+    if degrees.denom == 0 || minutes.denom == 0 || seconds.denom == 0 {
+        return None;
+    }
+    let minutes_value = minutes.to_f64();
+    let seconds_value = seconds.to_f64();
+    if minutes_value >= 60.0 || seconds_value >= 60.0 {
+        return None;
+    }
+    let value = degrees.to_f64() + minutes_value / 60.0 + seconds_value / 3600.0;
+    let reference = gps_reference(exif, reference_tag)?;
+    match reference.to_ascii_uppercase() {
+        reference if reference == positive => Some(value),
+        reference if reference == negative => Some(-value),
+        _ => None,
+    }
+}
+
+fn gps_reference(exif: &exif::Exif, tag: exif::Tag) -> Option<u8> {
+    let field = exif.fields().find(|field| field.tag == tag)?;
+    let exif::Value::Ascii(values) = &field.value else {
+        return None;
+    };
+    values.first()?.first().copied()
 }
 
 fn parse_exif_datetime(raw: &str, offset: Option<&str>) -> Option<(DateTime<Utc>, i32, bool)> {

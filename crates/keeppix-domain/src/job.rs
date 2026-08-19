@@ -15,6 +15,7 @@ pub enum JobKind {
     ReapStale,
     CleanupTrash,
     RetryErrorAssets,
+    DownloadMapRegion,
 }
 
 impl JobKind {
@@ -30,6 +31,7 @@ impl JobKind {
             Self::ReapStale => "reap_stale",
             Self::CleanupTrash => "cleanup_trash",
             Self::RetryErrorAssets => "retry_error_assets",
+            Self::DownloadMapRegion => "download_map_region",
         }
     }
 
@@ -46,6 +48,7 @@ impl JobKind {
             "reap_stale" => Ok(Self::ReapStale),
             "cleanup_trash" => Ok(Self::CleanupTrash),
             "retry_error_assets" => Ok(Self::RetryErrorAssets),
+            "download_map_region" => Ok(Self::DownloadMapRegion),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
     }
@@ -144,6 +147,7 @@ mod tests {
             JobKind::ReapStale,
             JobKind::CleanupTrash,
             JobKind::RetryErrorAssets,
+            JobKind::DownloadMapRegion,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
         }
@@ -152,6 +156,14 @@ mod tests {
     #[test]
     fn unknown_kind_is_rejected() {
         assert!(JobKind::parse("index_file").is_err());
+    }
+
+    #[test]
+    fn map_region_download_kind_round_trips() {
+        assert_eq!(
+            JobKind::parse("download_map_region").expect("known kind"),
+            JobKind::DownloadMapRegion
+        );
     }
 
     #[test]

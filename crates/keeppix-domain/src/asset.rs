@@ -41,6 +41,19 @@ pub enum LocationSource {
     Gpx,
 }
 
+impl LocationSource {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Exif => "exif",
+            Self::User => "user",
+            Self::MapPin => "map_pin",
+            Self::Copied => "copied",
+            Self::Gpx => "gpx",
+        }
+    }
+}
+
 /// Nome di file dentro una cartella. Rifiuta i separatori di percorso, così
 /// un nome non può mai far uscire dalla cartella che lo contiene.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -126,5 +139,14 @@ mod tests {
         assert!(AssetName::parse(".").is_err());
         assert!(AssetName::parse("..").is_err());
         assert!(AssetName::parse("").is_err());
+    }
+
+    #[test]
+    fn location_source_strings_match_the_database_constraint() {
+        assert_eq!(LocationSource::Exif.as_str(), "exif");
+        assert_eq!(LocationSource::User.as_str(), "user");
+        assert_eq!(LocationSource::MapPin.as_str(), "map_pin");
+        assert_eq!(LocationSource::Copied.as_str(), "copied");
+        assert_eq!(LocationSource::Gpx.as_str(), "gpx");
     }
 }

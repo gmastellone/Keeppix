@@ -34,8 +34,11 @@ async fn expected_tables_exist() {
         "users",
         "groups",
         "group_members",
+        "map_regions",
+        "places",
         "sessions",
         "system_settings",
+        "tz_boundaries",
     ] {
         assert!(
             tables.contains(&expected.to_owned()),

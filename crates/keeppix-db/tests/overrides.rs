@@ -304,6 +304,53 @@ async fn undo_batch_restores_a_previous_value_that_was_null() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn undoing_a_title_batch_does_not_restore_location_source() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_indexed_asset(&test, admin, "DSC_0004B.ARW", exif_taken_at()).await;
+    let repo = OverrideRepo::new(test.db());
+
+    let title_batch = repo
+        .apply_batch(
+            &ctx,
+            &[asset],
+            &OverridePatch {
+                title: Some(Some("Titolo temporaneo".to_owned())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    AssetRepo::new(test.db())
+        .set_exif_location(
+            asset,
+            GeoPoint {
+                lat: 45.4642,
+                lon: 9.19,
+            },
+        )
+        .await
+        .unwrap();
+
+    repo.undo_batch(&ctx, title_batch).await.unwrap();
+
+    let source: Option<String> =
+        sqlx::query_scalar("SELECT location_source FROM assets WHERE id = $1")
+            .bind(asset.as_uuid())
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        source.as_deref(),
+        Some("exif"),
+        "undoing a non-location batch must not overwrite a later EXIF source"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn undo_batch_restores_the_exact_previous_row() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
@@ -855,5 +902,42 @@ async fn undo_still_works_when_the_sidecar_was_written_before_this_batch_was_app
         repo.effective(&ctx, asset).await.unwrap().title,
         Some("Titolo sincronizzato".to_owned()),
         "il sidecar non ha mai visto il secondo batch: l'annullamento resta disponibile"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timezone_writer_preserves_a_taken_at_override_present_at_write_time() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_indexed_asset(&test, admin, "concurrent.ARW", exif_taken_at()).await;
+    let repo = OverrideRepo::new(test.db());
+    let manual_time = exif_taken_at() + chrono::Duration::hours(2);
+
+    repo.apply(
+        &ctx,
+        asset,
+        &OverridePatch {
+            taken_at: Some(Some(manual_time)),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let batch = repo
+        .apply_taken_at_batch(
+            &ctx,
+            &[(asset, exif_taken_at() - chrono::Duration::hours(9))],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(batch, None, "a skipped assignment must not create a batch");
+    assert_eq!(
+        repo.effective(&ctx, asset).await.unwrap().taken_at,
+        Some(manual_time),
+        "the timezone writer must not overwrite a user override"
     );
 }

@@ -149,6 +149,22 @@ fn api_routes() -> Router<AppState> {
         .route("/viewport", axum::routing::post(routes::viewport::promote))
         .route("/search", axum::routing::post(routes::search::run))
         .route("/search/suggest", get(routes::search::suggest))
+        .route("/places/reverse", get(routes::places::reverse))
+        .route("/places/suggest", get(routes::places::suggest))
+        .route("/map/clusters", get(routes::map::clusters))
+        .route("/map/tiles/{region}/{z}/{x}/{y}", get(routes::map::tiles))
+        .route(
+            "/map/regions",
+            get(routes::regions::list).post(routes::regions::download),
+        )
+        .route(
+            "/map/regions/{id}",
+            axum::routing::delete(routes::regions::delete),
+        )
+        .route(
+            "/map/regions/{id}/cancel",
+            axum::routing::post(routes::regions::cancel),
+        )
         .route(
             "/saved-searches",
             get(routes::search::list_saved).post(routes::search::create_saved),
@@ -201,6 +217,10 @@ fn api_routes() -> Router<AppState> {
             "/users/me/password",
             axum::routing::post(routes::users::change_password),
         )
+        .route(
+            "/users/me/home",
+            axum::routing::put(routes::users::set_home).delete(routes::users::delete_home),
+        )
         .route("/users/{id}", axum::routing::patch(routes::users::patch))
         .route(
             "/users/{id}/disable",
@@ -210,7 +230,10 @@ fn api_routes() -> Router<AppState> {
             "/users/{id}/enable",
             axum::routing::post(routes::users::enable),
         )
-        .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
+        .route(
+            "/assets/{id}",
+            get(routes::timeline::asset).delete(routes::trash::delete),
+        )
         .route(
             "/assets/{id}/restore",
             axum::routing::post(routes::trash::restore),
@@ -233,6 +256,22 @@ fn api_routes() -> Router<AppState> {
         .route(
             "/metadata/batch/shift-taken-at",
             axum::routing::post(routes::metadata::shift_taken_at),
+        )
+        .route(
+            "/metadata/batch/recalculate-timezones/preview",
+            axum::routing::post(routes::metadata::preview_timezones),
+        )
+        .route(
+            "/metadata/batch/recalculate-timezones",
+            axum::routing::post(routes::metadata::apply_timezones),
+        )
+        .route(
+            "/metadata/batch/copy-location",
+            axum::routing::post(routes::geotag::copy_location),
+        )
+        .route(
+            "/metadata/batch/import-gpx",
+            axum::routing::post(routes::geotag::import_gpx),
         )
         .route(
             "/metadata/batch/{batch_id}/undo",

@@ -8,13 +8,17 @@ pub mod duplicates;
 pub mod error;
 pub mod flags;
 pub mod folders;
+pub mod geo;
 pub mod groups;
 pub mod guest_uploads;
+pub mod home;
 pub mod jobs;
 pub mod libraries;
 pub mod overrides;
 pub mod permissions;
+pub mod places;
 pub mod problems;
+pub mod regions;
 mod row;
 pub mod search;
 pub mod sessions;
@@ -34,15 +38,22 @@ pub use duplicates::{DuplicateGroup, DuplicateRepo};
 pub use error::DbError;
 pub use flags::FlagRepo;
 pub use folders::FolderRepo;
+pub use geo::{
+    GeoRepo, MAX_UNCLUSTERED_POINTS, MapBounds, MapCluster, MapScope, TimezoneChange,
+    TimezoneChangePreview, UNCLUSTERED_ZOOM,
+};
 pub use groups::{GroupMember, GroupRepo, GroupView};
 pub use guest_uploads::{GuestUploadRepo, GuestUploadRow};
+pub use home::{HomeLocation, HomeRepo, PublicAssetLocation};
 pub use jobs::JobRepo;
 pub use libraries::LibraryRepo;
 pub use overrides::{OverrideRepo, SidecarSource};
 pub use permissions::{
     ExplainResult, NewGrant, ObjectType, PermissionGrantView, PermissionRepo, SubjectType,
 };
+pub use places::PlaceRepo;
 pub use problems::{ProblemSet, ProblemsRepo};
+pub use regions::{MapRegion, NewMapRegion, RegionDownloadSource, RegionRepo, RegionStatus};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
@@ -58,7 +69,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0019_guest_uploads.
+// rivede la directory. 0025_user_home_locations.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

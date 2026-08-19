@@ -244,6 +244,43 @@ impl<'a> JobRepo<'a> {
         Ok(())
     }
 
+    /// Ritira definitivamente i job attivi con una chiave di deduplica.
+    ///
+    /// Serve alle cancellazioni esplicite: lasciare un job `running`
+    /// permetterebbe a un enqueue successivo di riusare il vecchio writer.
+    ///
+    /// # Errors
+    /// `DbError::Connection` se la query fallisce.
+    pub async fn retire_active(&self, dedup_key: &str, error: &str) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "UPDATE jobs SET \
+                 status = 'failed', last_error = $2, \
+                 locked_by = NULL, locked_at = NULL \
+              WHERE dedup_key = $1 AND status IN ('pending', 'running')",
+        )
+        .bind(dedup_key)
+        .bind(error)
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Rinnova il lease di un job ancora posseduto dallo stesso worker.
+    ///
+    /// # Errors
+    /// `DbError::Connection` se la query fallisce.
+    pub async fn renew_lock(&self, id: i64, worker_id: Uuid) -> Result<bool, DbError> {
+        let result = sqlx::query(
+            "UPDATE jobs SET locked_at = now() \
+              WHERE id = $1 AND status = 'running' AND locked_by = $2",
+        )
+        .bind(id)
+        .bind(worker_id)
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     /// Rimette in coda i job `running` il cui lock è più vecchio di `older_than`.
     ///
     /// # Errors
@@ -255,6 +292,51 @@ impl<'a> JobRepo<'a> {
               WHERE status = 'running' AND locked_at < now() - make_interval(secs => $1)",
         )
         .bind(secs)
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Rimette subito in coda tutti i job `running` di un tipo.
+    ///
+    /// Va usato solo all'avvio, prima di creare i worker: ogni lock ancora
+    /// presente appartiene necessariamente al processo precedente.
+    ///
+    /// # Errors
+    /// `DbError::Connection` se la query fallisce.
+    pub async fn reset_running(&self, kind: JobKind) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "UPDATE jobs SET status = 'pending', locked_by = NULL, locked_at = NULL \
+              WHERE status = 'running' AND kind = $1",
+        )
+        .bind(kind.as_str())
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Ricrea i job mancanti per regioni rimaste `downloading` dopo un crash.
+    ///
+    /// Non prende `AuthContext`: è una riparazione interna della pipeline.
+    ///
+    /// # Errors
+    /// `DbError::Connection` se la query fallisce.
+    pub async fn enqueue_missing_region_downloads(&self) -> Result<u64, DbError> {
+        let result = sqlx::query(
+            "INSERT INTO jobs (kind, payload, priority, dedup_key) \
+             SELECT 'download_map_region', \
+                    jsonb_build_object( \
+                        'region_id', r.id, \
+                        'download_generation', r.download_generation::text, \
+                        'file_path', r.file_path \
+                    ), 1, \
+                    'map-region:' || r.id || ':' || r.download_generation::text \
+               FROM map_regions r \
+              WHERE r.status = 'downloading' AND NOT r.cancel_requested \
+             ON CONFLICT (dedup_key) \
+             WHERE dedup_key IS NOT NULL AND status IN ('pending', 'running') \
+             DO NOTHING",
+        )
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected())

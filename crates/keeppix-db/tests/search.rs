@@ -131,6 +131,7 @@ async fn camera_and_iso_and_year_and_has_gps() {
                 f_number: None,
                 exposure: None,
                 focal_length: None,
+                gps: None,
             },
         )
         .await
@@ -152,6 +153,7 @@ async fn camera_and_iso_and_year_and_has_gps() {
                 f_number: None,
                 exposure: None,
                 focal_length: None,
+                gps: None,
             },
         )
         .await
@@ -210,6 +212,7 @@ async fn not_camera_includes_assets_without_exif() {
                 f_number: None,
                 exposure: None,
                 focal_length: None,
+                gps: None,
             },
         )
         .await
@@ -231,4 +234,32 @@ async fn not_camera_includes_assets_without_exif() {
     let ids: Vec<_> = found.iter().map(|a| a.id).collect();
     assert!(ids.contains(&bare), "no EXIF is not a Sony");
     assert!(!ids.contains(&sony));
+}
+
+#[tokio::test]
+async fn saved_search_quotes_keep_a_field_shaped_token_as_text() {
+    let test = TestDb::start().await;
+    let (ctx, _) = seed(&test).await;
+    let repo = SearchRepo::new(test.db());
+    let quoted = repo
+        .create_saved(&ctx, "Quoted", r#""camera:Sony""#)
+        .await
+        .unwrap();
+    let unquoted = repo
+        .create_saved(&ctx, "Unquoted", "camera:Sony")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        repo.saved_query(&ctx, quoted.id).await.unwrap(),
+        SearchNode::Text {
+            value: "camera:Sony".to_owned()
+        }
+    );
+    assert_eq!(
+        repo.saved_query(&ctx, unquoted.id).await.unwrap(),
+        SearchNode::Camera {
+            value: "Sony".to_owned()
+        }
+    );
 }

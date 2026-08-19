@@ -1,18 +1,27 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { apiFetch } from '@/api/client'
 import { previewSrc as mediaPreviewSrc } from '@/api/media'
 import type { TimelineAsset } from '@/api/timeline'
+import MapClusterLayer from '@/components/MapClusterLayer.vue'
+import { useMapsStore } from '@/stores/maps'
 
 const props = defineProps<{
   asset: TimelineAsset
   prev?: TimelineAsset
   next?: TimelineAsset
 }>()
-const emit = defineEmits<{ close: []; prev: []; next: [] }>()
+const emit = defineEmits<{ close: []; prev: []; next: []; 'open-asset': [id: string] }>()
 const { t } = useI18n()
+const maps = useMapsStore()
 const info = ref(false)
+const metadata = ref<{
+  location: { lat: number; lon: number } | null
+}>()
+const placeName = ref<string | null>(null)
+let metadataRequestSequence = 0
 
 function previewSrc(asset: TimelineAsset): string {
   return asset.content_hash
@@ -26,13 +35,52 @@ const nextSrc = computed(() => (props.next ? previewSrc(props.next) : undefined)
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') emit('close')
-  if (e.key === 'i') info.value = !info.value
+  if (e.key === 'i') {
+    info.value = !info.value
+    if (info.value) void loadMetadata()
+  }
   if (e.key === 'ArrowLeft') emit('prev')
   if (e.key === 'ArrowRight') emit('next')
 }
 
+async function loadMetadata() {
+  const sequence = ++metadataRequestSequence
+  const assetId = props.asset.id
+  try {
+    const response = await apiFetch<{
+      location: { lat: number; lon: number } | null
+    }>(`/api/v1/assets/${assetId}/metadata`)
+    if (sequence === metadataRequestSequence && assetId === props.asset.id) {
+      metadata.value = response
+      placeName.value = null
+      if (response.location) {
+        maps.reverseGeocode(response.location.lat, response.location.lon)
+          .then((place) => {
+            if (sequence === metadataRequestSequence) {
+              placeName.value = place?.name ?? null
+            }
+          })
+          .catch(() => { /* best-effort */ })
+      }
+    }
+  } catch {
+    if (sequence === metadataRequestSequence && assetId === props.asset.id) {
+      metadata.value = undefined
+    }
+  }
+}
+
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
+watch(
+  () => props.asset.id,
+  () => {
+    metadataRequestSequence += 1
+    metadata.value = undefined
+    placeName.value = null
+    if (info.value) void loadMetadata()
+  }
+)
 </script>
 
 <template>
@@ -76,6 +124,28 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <p v-if="asset.width && asset.height">
         {{ asset.width }} × {{ asset.height }}
       </p>
+      <section
+        v-if="metadata?.location"
+        class="mt-4"
+      >
+        <p
+          v-if="placeName"
+          class="mb-2 text-content-muted"
+        >
+          {{ placeName }}
+        </p>
+        <h2 class="mb-2 font-medium">
+          {{ t('maps.nearbyPhotos') }}
+        </h2>
+        <MapClusterLayer
+          compact
+          :center="metadata.location"
+          scope="folder"
+          :scope-id="asset.folder_id"
+          :region-ids="maps.availableRegionIds"
+          @asset-click="emit('open-asset', $event)"
+        />
+      </section>
     </aside>
   </div>
 </template>

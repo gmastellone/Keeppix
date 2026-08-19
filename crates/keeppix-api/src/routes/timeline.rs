@@ -1,17 +1,20 @@
-use axum::extract::{Query, State};
+use axum::extract::rejection::PathRejection;
+use axum::extract::{Path, Query, State};
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
-use keeppix_db::TimelineRepo;
+use keeppix_db::{AssetRepo, OverrideRepo, TimelineRepo};
 use keeppix_domain::{Asset, AssetId, LibraryId};
 use serde::{Deserialize, Serialize};
 
 use crate::extract::SessionNotShare;
 use crate::json::Json;
 use crate::problem::Problem;
+use crate::routes::metadata::GeoPointView;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
 pub struct BucketsQuery {
     library: Option<LibraryId>,
+    bbox: Option<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -26,6 +29,7 @@ pub struct TimelineQuery {
     bucket: String,
     cursor: Option<String>,
     limit: Option<i64>,
+    bbox: Option<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -44,11 +48,16 @@ pub struct AssetView {
     pub size_bytes: i64,
     pub kind: String,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub taken_at_utc: Option<DateTime<Utc>>,
     pub width: Option<i32>,
     pub height: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbhash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<GeoPointView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place_id: Option<i64>,
 }
 
 impl AssetView {
@@ -65,7 +74,19 @@ impl AssetView {
             width: a.width,
             height: a.height,
             thumbhash: a.thumbhash.as_deref().map(hex_bytes),
+            location: None,
+            place_id: None,
         }
+    }
+
+    pub(crate) fn with_location(
+        mut self,
+        location: Option<GeoPointView>,
+        place_id: Option<i64>,
+    ) -> Self {
+        self.location = location;
+        self.place_id = place_id;
+        self
     }
 }
 
@@ -81,6 +102,42 @@ pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
             let _ = write!(out, "{byte:02x}");
             out
         })
+}
+
+/// # Errors
+/// `401` se non autenticato; `403` se l'asset non è visibile; `404` solo per
+/// un admin che chiede un id inesistente.
+#[utoipa::path(
+    get,
+    path = "/api/v1/assets/{id}",
+    tag = "timeline",
+    operation_id = "assets_get",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id asset")),
+    responses(
+        (status = 200, description = "Vista pubblica dell'asset", body = AssetView),
+        (status = 400, description = "Id non valido", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Asset non visibile", body = Problem),
+        (status = 404, description = "Asset inesistente per un admin", body = Problem)
+    )
+)]
+pub async fn asset(
+    State(state): State<AppState>,
+    SessionNotShare(ctx): SessionNotShare,
+    path: Result<Path<AssetId>, PathRejection>,
+) -> Result<Json<AssetView>, Problem> {
+    let Path(id) = path.map_err(|rejection| {
+        Problem::bad_request("invalid-asset-id", "Invalid asset id")
+            .with_detail(rejection.body_text())
+    })?;
+    let asset = AssetRepo::new(&state.db).find_by_id(&ctx, id).await?;
+    let effective = OverrideRepo::new(&state.db).effective(&ctx, id).await?;
+    let view = AssetView::from_asset(&asset).with_location(
+        effective.location.map(GeoPointView::from),
+        effective.place_id,
+    );
+    Ok(Json(view))
 }
 
 const fn kind_str(kind: keeppix_domain::AssetKind) -> &'static str {
@@ -110,7 +167,10 @@ const fn status_str(status: keeppix_domain::AssetStatus) -> &'static str {
     tag = "timeline",
     operation_id = "timeline_buckets",
     security(("session_cookie" = [])),
-    params(("library" = Option<String>, Query, description = "Filtra su una libreria")),
+    params(
+        ("library" = Option<String>, Query, description = "Filtra su una libreria"),
+        ("bbox" = Option<String>, Query, description = "west,south,east,north WGS84")
+    ),
     responses(
         (status = 200, description = "Conteggi mensili visibili", body = [MonthBucketView]),
         (status = 401, description = "Non autenticato", body = Problem),
@@ -123,9 +183,17 @@ pub async fn buckets(
     SessionNotShare(ctx): SessionNotShare,
     Query(query): Query<BucketsQuery>,
 ) -> Result<Json<Vec<MonthBucketView>>, Problem> {
-    let buckets = TimelineRepo::new(&state.db)
-        .buckets(&ctx, query.library)
-        .await?;
+    let bounds = query
+        .bbox
+        .as_deref()
+        .map(super::map::parse_bounds)
+        .transpose()?;
+    let repo = TimelineRepo::new(&state.db);
+    let buckets = if let Some(bounds) = bounds {
+        repo.buckets_in_bounds(&ctx, query.library, bounds).await?
+    } else {
+        repo.buckets(&ctx, query.library).await?
+    };
     Ok(Json(
         buckets
             .into_iter()
@@ -148,7 +216,8 @@ pub async fn buckets(
     params(
         ("bucket" = String, Query, description = "Mese YYYY-MM"),
         ("cursor" = Option<String>, Query, description = "Keyset taken_at|id"),
-        ("limit" = Option<i64>, Query, description = "1..=200, default 200")
+        ("limit" = Option<i64>, Query, description = "1..=200, default 200"),
+        ("bbox" = Option<String>, Query, description = "west,south,east,north WGS84")
     ),
     responses(
         (status = 200, description = "Pagina di asset del mese", body = TimelinePage),
@@ -168,9 +237,18 @@ pub async fn page(
         Some(raw) => Some(parse_cursor(raw)?),
     };
     let limit = query.limit.unwrap_or(200).clamp(1, 200);
-    let assets = TimelineRepo::new(&state.db)
-        .page(&ctx, bucket, cursor, limit)
-        .await?;
+    let bounds = query
+        .bbox
+        .as_deref()
+        .map(super::map::parse_bounds)
+        .transpose()?;
+    let repo = TimelineRepo::new(&state.db);
+    let assets = if let Some(bounds) = bounds {
+        repo.page_in_bounds(&ctx, bucket, cursor, limit, bounds)
+            .await?
+    } else {
+        repo.page(&ctx, bucket, cursor, limit).await?
+    };
     let filled = i64::try_from(assets.len()).unwrap_or(i64::MAX) >= limit;
     let next_cursor = filled.then(|| assets.last().map(encode_cursor)).flatten();
     Ok(Json(TimelinePage {

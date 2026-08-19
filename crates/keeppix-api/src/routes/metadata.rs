@@ -8,7 +8,9 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use keeppix_db::OverrideRepo;
-use keeppix_domain::{AssetId, BatchId, EffectiveMetadata, GeoPoint, OverridePatch};
+use keeppix_domain::{
+    AssetId, BatchId, EffectiveMetadata, GeoPoint, LibraryId, LocationSource, OverridePatch,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -144,6 +146,40 @@ pub struct BatchView {
     pub batch_id: BatchId,
 }
 
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct RecalculateTimezonesRequest {
+    #[schema(value_type = String)]
+    pub library_id: LibraryId,
+    /// Required on apply; returned by preview. Absent on preview requests.
+    #[serde(default)]
+    pub preview_token: Option<String>,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct TimezoneExampleView {
+    #[schema(value_type = String)]
+    pub asset_id: AssetId,
+    pub filename: String,
+    pub before: DateTime<Utc>,
+    pub after: DateTime<Utc>,
+    pub timezone: String,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct TimezonePreviewView {
+    pub count: usize,
+    pub example: Option<TimezoneExampleView>,
+    /// Opaque token to pass to the apply endpoint within 5 minutes.
+    pub preview_token: String,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct TimezoneApplyView {
+    pub changed_count: usize,
+    #[schema(value_type = Option<String>)]
+    pub batch_id: Option<BatchId>,
+}
+
 /// # Errors
 /// `401` se non autenticato; `403` se l'asset non è visibile.
 #[utoipa::path(
@@ -218,9 +254,24 @@ pub async fn apply_batch(
     Json(body): Json<BatchApplyRequest>,
 ) -> Result<Json<BatchView>, Problem> {
     crate::batch::reject_oversized_batch(&body.asset_ids)?;
-    let batch_id = OverrideRepo::new(&state.db)
-        .apply_batch(&ctx, &body.asset_ids, &body.patch.into_domain())
-        .await?;
+    let mut patch = body.patch.into_domain();
+    let source = match (&patch.location, &patch.place_id) {
+        (Some(Some(_)), Some(Some(_))) => Some(LocationSource::User),
+        (Some(Some(_)), _) => {
+            // Una coordinata libera non è legata a GeoNames: anche se il
+            // client omette `place_id`, un luogo precedente va rimosso.
+            patch.place_id = Some(None);
+            Some(LocationSource::MapPin)
+        }
+        _ => None,
+    };
+    let repo = OverrideRepo::new(&state.db);
+    let batch_id = if let Some(source) = source {
+        repo.apply_location_batch(&ctx, &body.asset_ids, &patch, source)
+            .await?
+    } else {
+        repo.apply_batch(&ctx, &body.asset_ids, &patch).await?
+    };
     Ok(Json(BatchView { batch_id }))
 }
 
@@ -250,6 +301,104 @@ pub async fn shift_taken_at(
         .shift_taken_at(&ctx, &body.asset_ids, body.hours)
         .await?;
     Ok(Json(BatchView { batch_id }))
+}
+
+/// # Errors
+/// `401` se non autenticato; `403` se la libreria non appartiene al chiamante.
+#[utoipa::path(
+    post,
+    path = "/api/v1/metadata/batch/recalculate-timezones/preview",
+    tag = "metadata",
+    operation_id = "metadata_recalculate_timezones_preview",
+    security(("session_cookie" = [])),
+    request_body = RecalculateTimezonesRequest,
+    responses(
+        (status = 200, description = "Conteggio ed esempio senza alcuna scrittura", body = TimezonePreviewView),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Libreria non accessibile", body = Problem)
+    )
+)]
+pub async fn preview_timezones(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Json(body): Json<RecalculateTimezonesRequest>,
+) -> Result<Json<TimezonePreviewView>, Problem> {
+    let user_id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
+    let preview = keeppix_jobs::geotag::RecalculateTimezones::new(&state.db)
+        .preview(&ctx, body.library_id)
+        .await
+        .map_err(geotag_problem)?;
+    let preview_token = state
+        .tz_previews
+        .issue(user_id, body.library_id, preview.count);
+    Ok(Json(TimezonePreviewView {
+        count: preview.count,
+        example: preview.example.map(|example| TimezoneExampleView {
+            asset_id: example.asset_id,
+            filename: example.filename,
+            before: example.before,
+            after: example.after,
+            timezone: example.timezone,
+        }),
+        preview_token,
+    }))
+}
+
+/// # Errors
+/// `401` se non autenticato; `403` se la libreria non appartiene al chiamante.
+#[utoipa::path(
+    post,
+    path = "/api/v1/metadata/batch/recalculate-timezones",
+    tag = "metadata",
+    operation_id = "metadata_recalculate_timezones_apply",
+    security(("session_cookie" = [])),
+    request_body = RecalculateTimezonesRequest,
+    responses(
+        (status = 200, description = "Correzioni applicate in un unico batch annullabile", body = TimezoneApplyView),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Libreria non accessibile", body = Problem)
+    )
+)]
+pub async fn apply_timezones(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Json(body): Json<RecalculateTimezonesRequest>,
+) -> Result<Json<TimezoneApplyView>, Problem> {
+    let user_id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
+    let token = body.preview_token.as_deref().unwrap_or("");
+    // Re-run the preview count to detect data drift between preview and apply.
+    let current = keeppix_jobs::geotag::RecalculateTimezones::new(&state.db)
+        .preview(&ctx, body.library_id)
+        .await
+        .map_err(geotag_problem)?;
+    if !state
+        .tz_previews
+        .consume(token, user_id, body.library_id, current.count)
+    {
+        return Err(Problem::new(
+            StatusCode::CONFLICT,
+            "preview-required",
+            "A valid preview token is required before applying timezone changes",
+        ));
+    }
+    let applied = keeppix_jobs::geotag::RecalculateTimezones::new(&state.db)
+        .apply(&ctx, body.library_id)
+        .await
+        .map_err(geotag_problem)?;
+    Ok(Json(TimezoneApplyView {
+        changed_count: applied.changed_count,
+        batch_id: applied.batch_id,
+    }))
+}
+
+fn geotag_problem(error: keeppix_jobs::geotag::GeotagError) -> Problem {
+    match error {
+        keeppix_jobs::geotag::GeotagError::Db(error) => error.into(),
+        keeppix_jobs::geotag::GeotagError::Gpx(error) => {
+            Problem::bad_request("invalid-gpx", "Invalid GPX document")
+                .with_detail(error.to_string())
+        }
+    }
 }
 
 /// # Errors

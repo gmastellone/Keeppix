@@ -1,5 +1,19 @@
 # syntax=docker/dockerfile:1.9
 
+# ── Offline geographic datasets ──────────────────────────────────────────
+# Il runtime distroless non ha shell né client HTTP. Il dataset viene
+# scaricato e normalizzato qui una volta sola; nell'immagine finale entra
+# soltanto il TSV pronto per l'import in Postgres.
+FROM debian:bookworm-slim AS geonames
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gawk python3 unzip \
+ && rm -rf /var/lib/apt/lists/*
+COPY scripts/build-geonames.sh /usr/local/bin/build-geonames
+COPY scripts/build-tz-boundaries.sh /usr/local/bin/build-tz-boundaries
+COPY scripts/build-tz-boundaries.py /usr/local/bin/build-tz-boundaries.py
+RUN /usr/local/bin/build-geonames /usr/share/keeppix/places.csv \
+ && /usr/local/bin/build-tz-boundaries /usr/share/keeppix/tz_boundaries.csv
+
 # ── Frontend ──────────────────────────────────────────────────────────────
 FROM node:24-bookworm-slim AS frontend
 WORKDIR /app/frontend
@@ -69,6 +83,8 @@ FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
 COPY --from=backend /usr/local/bin/keeppix /usr/local/bin/keeppix
 COPY --from=libraw /staging/bin/dcraw_emu /usr/bin/dcraw_emu
 COPY --from=libraw /staging/lib/ /usr/local/lib/keeppix/
+COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/places.csv /usr/share/keeppix/places.csv
+COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/tz_boundaries.csv /usr/share/keeppix/tz_boundaries.csv
 
 USER nonroot:nonroot
 WORKDIR /data
