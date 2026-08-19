@@ -113,6 +113,8 @@ impl utoipa::Modify for SecurityAddon {
         users::disable,
         users::enable,
         users::change_password,
+        users::set_home,
+        users::delete_home,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -177,6 +179,8 @@ impl utoipa::Modify for SecurityAddon {
         users::CreateUserRequest,
         users::PatchUserRequest,
         users::ChangePasswordRequest,
+        users::SetHomeRequest,
+        users::HomeView,
         crate::problem::Problem,
     )),
     tags(

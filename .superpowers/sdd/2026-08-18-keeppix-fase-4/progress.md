@@ -289,3 +289,10 @@ completano finché quei metadati non vengono sostituiti.
 
 Task 8: complete (commit `9360d9f`; frontend 74/74, API timeline 12/12,
 OpenAPI 6/6, fmt/clippy/build verdi; entry gzip 84.618 byte)
+
+Task 8 review fixes: complete (commits `221545e`, `27475fe`; vitest 80/80,
+entry gzip ~85 KB, Apply+Download banner; evidenza in
+`.superpowers/sdd/task-8-report.md`)
+
+Task 8: complete (commits 28fc6c4..27475fe, review clean)
+
