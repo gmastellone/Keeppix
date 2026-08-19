@@ -127,6 +127,34 @@ describe('TimelineView buckets', () => {
   })
 })
 
+describe('TimelineView bbox filter', () => {
+  it('passes bbox query param to fetchBuckets and fetchPage', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: TimelineView },
+        { path: '/login', component: { template: '<div />' } }
+      ]
+    })
+    setActivePinia(createPinia())
+    const session = useSessionStore()
+    session.user = testUser
+    session.initialised = true
+    session.ready = true
+
+    vi.mocked(fetchBuckets).mockResolvedValue([{ month: '2024-07', count: 1 }])
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('rome')] })
+
+    await router.push('/?bbox=10,40,13,43')
+    await router.isReady()
+    mount(TimelineView, { global: { plugins: [router, i18n] } })
+    await flushPromises()
+
+    expect(fetchBuckets).toHaveBeenCalledWith('10,40,13,43')
+    expect(fetchPage).toHaveBeenCalledWith('2024-07', undefined, '10,40,13,43')
+  })
+})
+
 describe('TimelineView live events', () => {
   it('shows newly upserted photos without a page reload', async () => {
     let onEvent: ((msg: LiveMessage) => void) | undefined

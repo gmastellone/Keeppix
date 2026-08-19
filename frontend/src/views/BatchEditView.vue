@@ -93,7 +93,6 @@ onMounted(() => {
       <PlacePicker
         :asset-ids="assetIds"
         :available-region-ids="maps.availableRegionIds"
-        :all-regions="maps.regions"
         @applied="done = true"
       />
     </section>

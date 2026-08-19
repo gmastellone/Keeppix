@@ -196,25 +196,37 @@ async fn a_foreign_library_returns_forbidden_problem_json() {
         .expect("login");
     assert_eq!(login.status(), 200);
 
-    for path in [
-        "/api/v1/metadata/batch/recalculate-timezones/preview",
-        "/api/v1/metadata/batch/recalculate-timezones",
-    ] {
-        let response = server
-            .client
-            .post(server.url(path))
-            .json(&json!({ "library_id": library.id.to_string() }))
-            .send()
-            .await
-            .expect("request");
-        assert_eq!(response.status(), 403);
-        assert_eq!(
-            response.headers()["content-type"],
-            "application/problem+json"
-        );
-        assert_eq!(
-            response.json::<Value>().await.unwrap()["type"],
-            "keeppix/forbidden"
-        );
-    }
+    // Preview must return 403 for a foreign library.
+    let response = server
+        .client
+        .post(server.url("/api/v1/metadata/batch/recalculate-timezones/preview"))
+        .json(&json!({ "library_id": library.id.to_string() }))
+        .send()
+        .await
+        .expect("preview request");
+    assert_eq!(response.status(), 403);
+    assert_eq!(
+        response.headers()["content-type"],
+        "application/problem+json"
+    );
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["type"],
+        "keeppix/forbidden"
+    );
+
+    // Apply without a token returns 409 (preview-required) before reaching
+    // the ownership check — this is correct: the stranger can't obtain a
+    // valid token for someone else's library.
+    let response = server
+        .client
+        .post(server.url("/api/v1/metadata/batch/recalculate-timezones"))
+        .json(&json!({ "library_id": library.id.to_string() }))
+        .send()
+        .await
+        .expect("apply request");
+    assert_eq!(response.status(), 409);
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["type"],
+        "keeppix/preview-required"
+    );
 }
