@@ -1,13 +1,14 @@
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, Query, State};
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
-use keeppix_db::{AssetRepo, TimelineRepo};
+use keeppix_db::{AssetRepo, OverrideRepo, TimelineRepo};
 use keeppix_domain::{Asset, AssetId, LibraryId};
 use serde::{Deserialize, Serialize};
 
 use crate::extract::SessionNotShare;
 use crate::json::Json;
 use crate::problem::Problem;
+use crate::routes::metadata::GeoPointView;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -47,11 +48,16 @@ pub struct AssetView {
     pub size_bytes: i64,
     pub kind: String,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub taken_at_utc: Option<DateTime<Utc>>,
     pub width: Option<i32>,
     pub height: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbhash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<GeoPointView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place_id: Option<i64>,
 }
 
 impl AssetView {
@@ -68,7 +74,19 @@ impl AssetView {
             width: a.width,
             height: a.height,
             thumbhash: a.thumbhash.as_deref().map(hex_bytes),
+            location: None,
+            place_id: None,
         }
+    }
+
+    pub(crate) fn with_location(
+        mut self,
+        location: Option<GeoPointView>,
+        place_id: Option<i64>,
+    ) -> Self {
+        self.location = location;
+        self.place_id = place_id;
+        self
     }
 }
 
@@ -114,7 +132,12 @@ pub async fn asset(
             .with_detail(rejection.body_text())
     })?;
     let asset = AssetRepo::new(&state.db).find_by_id(&ctx, id).await?;
-    Ok(Json(AssetView::from_asset(&asset)))
+    let effective = OverrideRepo::new(&state.db).effective(&ctx, id).await?;
+    let view = AssetView::from_asset(&asset).with_location(
+        effective.location.map(GeoPointView::from),
+        effective.place_id,
+    );
+    Ok(Json(view))
 }
 
 const fn kind_str(kind: keeppix_domain::AssetKind) -> &'static str {

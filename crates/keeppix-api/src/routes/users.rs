@@ -3,11 +3,12 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::CookieJar;
-use keeppix_db::{SessionRepo, UserRepo};
+use keeppix_db::{HomeRepo, SessionRepo, UserRepo};
 use keeppix_domain::{
-    NewUser, Password, SessionToken, SystemRole, UserId, Username, hash_password, verify_password,
+    GeoPoint, NewUser, Password, SessionToken, SystemRole, UserId, Username, hash_password,
+    verify_password,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::extract::{AdminAuth, Auth, SESSION_COOKIE};
 use crate::json::Json;
@@ -41,6 +42,25 @@ pub struct PatchUserRequest {
 pub struct ChangePasswordRequest {
     pub current_password: String,
     pub new_password: String,
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct SetHomeRequest {
+    pub lat: f64,
+    pub lon: f64,
+    #[serde(default = "default_home_radius")]
+    pub radius_m: i32,
+}
+
+const fn default_home_radius() -> i32 {
+    200
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct HomeView {
+    pub lat: f64,
+    pub lon: f64,
+    pub radius_m: i32,
 }
 
 /// # Errors
@@ -275,6 +295,68 @@ pub async fn change_password(
     }
     state.sessions.clear();
 
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Imposta o aggiorna il punto "casa" usato per il geofence sui link pubblici.
+///
+/// # Errors
+/// `401` se non autenticato; `409` se `radius_m` non è positivo.
+#[utoipa::path(
+    put,
+    path = "/api/v1/users/me/home",
+    tag = "users",
+    operation_id = "users_set_home",
+    security(("session_cookie" = [])),
+    request_body = SetHomeRequest,
+    responses(
+        (status = 200, description = "Casa aggiornata", body = HomeView),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 409, description = "Raggio non valido", body = Problem)
+    )
+)]
+pub async fn set_home(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Json(body): Json<SetHomeRequest>,
+) -> Result<Json<HomeView>, Problem> {
+    let home = HomeRepo::new(&state.db)
+        .set(
+            &ctx,
+            GeoPoint {
+                lat: body.lat,
+                lon: body.lon,
+            },
+            body.radius_m,
+        )
+        .await?;
+    Ok(Json(HomeView {
+        lat: home.point.lat,
+        lon: home.point.lon,
+        radius_m: home.radius_m,
+    }))
+}
+
+/// Rimuove casa: nessun geofence finché non viene reimpostata.
+///
+/// # Errors
+/// `401` se non autenticato.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/users/me/home",
+    tag = "users",
+    operation_id = "users_delete_home",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 204, description = "Casa rimossa"),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn delete_home(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+) -> Result<StatusCode, Problem> {
+    HomeRepo::new(&state.db).delete(&ctx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

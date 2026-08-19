@@ -180,8 +180,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 67,
-        "il documento deve descrivere sessantasette operazioni"
+        checked, 69,
+        "il documento deve descrivere sessantanove operazioni"
     );
 }
 
@@ -281,6 +281,8 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/trash/empty",
             "/api/v1/users",
             "/api/v1/users",
+            "/api/v1/users/me/home",
+            "/api/v1/users/me/home",
             "/api/v1/users/me/password",
             "/api/v1/users/{id}",
             "/api/v1/users/{id}/disable",
@@ -384,10 +386,12 @@ fn operation_ids_are_explicit_and_unique() {
             "trash_list",
             "users_change_password",
             "users_create",
+            "users_delete_home",
             "users_disable",
             "users_enable",
             "users_list",
             "users_patch",
+            "users_set_home",
             "viewport_promote",
             "ws_connect",
             "ws_ticket"

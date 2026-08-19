@@ -3602,6 +3602,91 @@
         ]
       }
     },
+    "/api/v1/users/me/home": {
+      "put": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Imposta o aggiorna il punto \"casa\" usato per il geofence sui link pubblici.",
+        "description": "# Errors\n`401` se non autenticato; `409` se `radius_m` non è positivo.",
+        "operationId": "users_set_home",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetHomeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Casa aggiornata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Raggio non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Rimuove casa: nessun geofence finché non viene reimpostata.",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "users_delete_home",
+        "responses": {
+          "204": {
+            "description": "Casa rimossa"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/users/me/password": {
       "post": {
         "tags": [
@@ -4282,6 +4367,23 @@
           "kind": {
             "type": "string"
           },
+          "location": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GeoPointView"
+              }
+            ]
+          },
+          "place_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
           "size_bytes": {
             "type": "integer",
             "format": "int64"
@@ -4711,6 +4813,28 @@
           "lon": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "HomeView": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon",
+          "radius_m"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "radius_m": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -5360,6 +5484,27 @@
               "null"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "SetHomeRequest": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "radius_m": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
