@@ -57,6 +57,7 @@ e non codice da scrivere.
 | 6 | [`specs/fase-6-consolidamento.md`](specs/fase-6-consolidamento.md) | video, backup/ripristino, TOTP, sync delta, PWA, API pubblica |
 | 7 | [`specs/fase-7-ai-tag-scene.md`](specs/fase-7-ai-tag-scene.md) | un embedding CLIP per foto, pgvector, tag e categorie dell'utente, ricerca semantica, probe hardware reale |
 | 8 | [`specs/fase-8-volti.md`](specs/fase-8-volti.md) | SCRFD + ArcFace, raggruppamento incrementale, unioni/separazioni permanenti, gruppi di persone |
+| 9 | [`specs/fase-9-organizzazione.md`](specs/fase-9-organizzazione.md) | spostamento sicuro dell'identità asset, culling a cartelle fisiche, rinomina con formule |
 
 ## Piani
 
@@ -73,7 +74,7 @@ e non codice da scrivere.
 | [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ✅ completato e mergiato (PR #8) — multiutente, condivisione, link pubblici, **più le 17 interfacce mancanti** che la guardia della 2R3 ha scoperto (Task 12) |
 | [`plans/2026-08-18-keeppix-fase-4.md`](plans/2026-08-18-keeppix-fase-4.md) | ✅ completato e mergiato (PR #9) — GPS all'ingest, GeoNames, cluster mappa, fusi orari, PMTiles offline, geofence «casa» |
 | [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ⬜ **in lavorazione** — upload tus riprendibile, WebDAV, app-password |
-| Fase 6, 7, 8 | spec scritte (6, 7, 8); piani da scrivere, uno alla volta |
+| Fase 6, 7, 8, 9 | spec scritte; piani da scrivere, uno alla volta |
 
 ## Consegne
 
