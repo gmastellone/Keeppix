@@ -187,3 +187,199 @@ per instructions.
   blocks). This matches the project's Linux/Docker-distroless deployment
   target but would not actually enforce the check on a hypothetical non-Unix
   build.
+
+---
+
+# Task 1 fix report — review follow-up (2 Critical + 1 Important + 1 Minor)
+
+Branch `fase-5`. Fixes two Critical issues, one Important issue, and one
+Minor issue found in the Task 1 review.
+
+## Issue 1 (Critical): `finalize()` committed the DB before the `rename()`
+
+**File:** `crates/keeppix-db/src/uploads.rs`, `UploadSessionRepo::finalize`.
+
+**Before:** insert the `assets` row → delete the `upload_sessions` row →
+`tx.commit()` → **then** `std::fs::rename()` the temp file to the target
+folder. If the `rename()` failed after a successful commit, the result was
+an asset row pointing at a file that was never placed in the target folder,
+and the session row — the only reference to the temp file — was already
+gone. No process could recover the file or notice the corruption.
+
+**Fix:** reordered to `rename()` **first**, then insert + delete + commit
+inside the same transaction. If the `rename()` fails, nothing in the
+database is touched — the session stays for a retry and the temp file is
+untouched. If the commit fails *after* a successful `rename()`, the file is
+already sitting in the target folder with no `assets` row; the next library
+scan discovers and indexes it like any other file dropped into the tree —
+exactly the safe asymmetry described in the review.
+
+The same principle was applied to the `SkippedDuplicate` branch (same name,
+same hash as an existing asset): the temp file is now removed *before* the
+session row is deleted and the transaction committed, for the same reason
+(though this branch never touches the target folder, so the only residual
+risk is a session row referencing an already-removed temp path, which every
+code path that touches a temp file already tolerates via
+`remove_file_tolerant`).
+
+**Regression test added:** `finalize_leaves_no_asset_and_keeps_the_session_when_rename_fails`
+in `crates/keeppix-db/tests/uploads.rs`. It forces the `rename()` to fail by
+deleting the target folder from disk (but not from the database) between
+session creation and `finalize()`, then asserts:
+- `finalize()` returns `Err(DbError::Io(_))`.
+- The temp file is still there (untouched).
+- The `upload_sessions` row still exists (count = 1) — never deleted before
+  a successful `rename()`.
+- No `assets` row was created (count = 0).
+
+**TDD verification:** ran this test against the pre-fix code (`git checkout`
+of only `uploads.rs`, keeping the new test) — it failed with
+`assertion left == right failed: la sessione deve restare per un retry ...
+left: 0 right: 1`, i.e. the old code deleted the session row before the
+`rename()` even ran, confirming the bug and that the test actually exercises
+it. Restored the fix and re-ran: passes.
+
+## Issue 2 (Critical): missing decodability-failure test
+
+**File:** `crates/keeppix-api/tests/upload.rs`.
+
+Added `completing_with_undecodable_content_never_enters_the_library`:
+creates a session with `expected_hash` set to the blake3 hash of a garbage
+payload (no recognizable magic number — not JPEG/PNG/GIF/WEBP/AVI/TIFF/
+ISOBMFF/EBML per `keeppix_media::detect_kind`), `PATCH`es exactly those
+bytes (so the chunk checksum *and* the end-to-end hash both match), and
+asserts:
+- `422` with body `"type": "keeppix/upload-undecodable"` (the existing
+  `finalize_upload` handler in `routes/upload.rs` already had this branch —
+  `detect_kind(&header) == AssetKind::Unknown` → `repo.fail()` + `422` — it
+  just had no test exercising it).
+- The temp file was removed.
+- The `upload_sessions` row was deleted.
+- No `assets` row exists for the filename, and the file never landed in the
+  target folder.
+
+## Issue 3 (Important): full chunk buffered in memory
+
+**File:** `crates/keeppix-api/src/routes/upload.rs`, `patch` handler.
+
+**Before:** `axum::body::to_bytes(body, cap)` with `cap` equal to the
+session's *remaining* bytes — for a large file's last chunk, that could be
+gigabytes buffered entirely in RAM before a single byte was written or
+hashed.
+
+**Fix:** new `write_chunk_checked()` helper, modeled on `write_body_capped`
+in `routes/share.rs`: streams `http_body::Body` frames directly into the
+temp file (opened in append mode) while feeding a `blake3::Hasher`
+incrementally — no full-chunk buffer. Added `MAX_CHUNK_BYTES = 64 MiB`
+(server-side cap, independent of how much of the file is left); a chunk
+that would exceed `min(remaining, MAX_CHUNK_BYTES)` is rejected with `413
+Payload Too Large`, truncating back (`set_len`) whatever partial bytes were
+already streamed to the file so no partial/oversized chunk survives.
+
+The per-chunk checksum is still verified before the chunk is considered
+accepted, but since the hash can only be known after the whole chunk has
+streamed through, a checksum mismatch now truncates the file back to its
+length *before* this chunk (`file.set_len(original_len)`) instead of never
+writing at all — same observable contract (`advance()` is only called with
+the new checksum-verified offset, and a mismatched chunk never survives on
+disk or advances `received_bytes`), verified by the existing
+`patch_with_wrong_chunk_checksum_is_rejected_and_does_not_advance` test,
+which still passes unmodified.
+
+**New test:** `a_multi_chunk_upload_completes_across_two_patches` — splits
+the fixture file into two chunks sent via two sequential `PATCH` requests,
+asserting the offset advances correctly after the first (`204`), the second
+completes the session (`201`), and the file on disk matches the original
+bytes exactly (proving the streaming write appends rather than overwrites).
+
+## Minor: `client_mtime` test
+
+Added `client_mtime_is_preserved_on_the_finalized_asset` in
+`crates/keeppix-api/tests/upload.rs`: opens a session with an explicit
+`client_mtime`, completes the upload, and asserts `assets.mtime` for the
+finalized asset equals the declared `client_mtime` exactly.
+
+## Verification
+
+```
+$ cargo fmt --check
+(clean, exit 0)
+
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Checking keeppix-db v0.1.0
+    Checking keeppix-jobs v0.1.0
+    Checking keeppix-api v0.1.0
+    Checking keeppix-server v0.1.0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.91s
+(no warnings, exit 0)
+
+$ cargo test -p keeppix-db --test uploads --jobs 1 -- --test-threads=1
+running 15 tests
+test a_share_link_with_allow_upload_can_open_a_session_on_its_own_folder ... ok
+test a_share_link_without_allow_upload_is_forbidden_before_accepting_any_byte ... ok
+test advance_updates_the_offset_and_is_scoped_to_the_owner ... ok
+test an_expired_session_is_cleaned_up_and_reported_as_gone ... ok
+test creating_a_session_puts_the_temp_path_inside_keeppix_tmp ... ok
+test fail_removes_both_the_session_row_and_its_temp_file ... ok
+test finalize_creates_a_new_asset_when_there_is_no_collision ... ok
+test finalize_leaves_no_asset_and_keeps_the_session_when_rename_fails ... ok
+test finalize_renames_on_same_name_different_hash_never_overwriting ... ok
+test finalize_skips_a_byte_identical_duplicate_without_a_second_file ... ok
+test harness::tests::appends_when_the_url_has_no_database ... ok
+test harness::tests::preserves_the_query_string ... ok
+test harness::tests::replaces_an_existing_database_name ... ok
+test insufficient_disk_space_is_rejected_at_creation_not_mid_upload ... ok
+test probing_someone_elses_session_is_forbidden_never_not_found ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.79s
+
+$ cargo test -p keeppix-api --test upload --jobs 1 -- --test-threads=1
+running 12 tests
+test a_multi_chunk_upload_completes_across_two_patches ... ok
+test client_mtime_is_preserved_on_the_finalized_asset ... ok
+test completing_with_a_wrong_expected_hash_never_enters_the_library ... ok
+test completing_with_undecodable_content_never_enters_the_library ... ok
+test insufficient_disk_space_is_rejected_at_session_creation ... ok
+test opening_a_session_from_a_share_link_without_allow_upload_is_forbidden ... ok
+test patch_on_an_expired_session_reports_it_is_gone ... ok
+test patch_with_wrong_chunk_checksum_is_rejected_and_does_not_advance ... ok
+test patch_with_wrong_offset_is_rejected_with_409 ... ok
+test precheck_returns_only_the_unknown_hashes ... ok
+test same_name_and_hash_is_skipped_as_a_duplicate ... ok
+test same_name_different_hash_is_saved_with_a_numeric_suffix ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.43s
+```
+
+Also ran the full `keeppix-db` and `keeppix-api` integration suites
+(`cargo test -p keeppix-db -p keeppix-api --jobs 1 -- --test-threads=1`,
+split into two invocations to keep each log manageable): every pre-existing
+test file passed, no regressions from the reordering or the streaming
+rewrite (in particular `guest_uploads.rs`, which exercises the sibling
+`write_body_capped` pattern in `share.rs` that `write_chunk_checked` is
+modeled on, is unaffected and still green).
+
+## Files changed
+
+- `crates/keeppix-db/src/uploads.rs` — `finalize()` reordered (`rename()`
+  before commit; temp removal before commit in the duplicate branch),
+  updated doc comment.
+- `crates/keeppix-db/tests/uploads.rs` — new regression test
+  `finalize_leaves_no_asset_and_keeps_the_session_when_rename_fails`.
+- `crates/keeppix-api/src/routes/upload.rs` — `patch` handler streams the
+  chunk via new `write_chunk_checked()` instead of buffering the whole
+  chunk with `axum::body::to_bytes`; new `MAX_CHUNK_BYTES` constant; removed
+  the old `append_chunk()` helper; updated doc comment.
+- `crates/keeppix-api/tests/upload.rs` — new tests:
+  `completing_with_undecodable_content_never_enters_the_library`,
+  `client_mtime_is_preserved_on_the_finalized_asset`,
+  `a_multi_chunk_upload_completes_across_two_patches`.
+- `.superpowers/sdd/2026-08-19-keeppix-fase-5/progress.md` — two new
+  rulings, task log entry for this fix round.
+
+## Status
+
+DONE. All four required commands (`cargo fmt --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, the two
+crate-scoped test commands) are green, plus the full `keeppix-db` and
+`keeppix-api` suites with no regressions.
