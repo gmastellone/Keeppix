@@ -23,6 +23,12 @@ use crate::problem::Problem;
 use crate::routes::share::peek_header;
 use crate::state::AppState;
 
+/// Limite server-side su un singolo chunk (spec §1.2 non lo fissa, ma un
+/// client che dichiara `remaining` a più gigabyte non deve poter far
+/// bufferizzare tutto in RAM in un colpo): un chunk più grande va spezzato
+/// dal client, non accettato qui.
+const MAX_CHUNK_BYTES: u64 = 64 * 1024 * 1024;
+
 #[derive(Deserialize)]
 pub struct CheckRequest {
     /// blake3 esadecimali (64 caratteri) calcolati localmente dal client.
@@ -166,12 +172,14 @@ pub struct UploadCompleteResponse {
 /// # Errors
 /// `403`/`410` come [`head`]. `409` se `Upload-Offset` non combacia con
 /// `received_bytes` reale — mai un'accettazione silenziosa che corrompe il
-/// file. `400` se manca un header richiesto o il corpo è vuoto. `460` se il
-/// checksum del chunk non combacia: il chunk non viene scritto, il client
-/// può rispedirlo senza perdere l'offset precedente. `422` a file completo,
-/// se l'hash end-to-end non combacia con `expected_hash` o il file non è
-/// decodificabile — mai finito in libreria, temporaneo eliminato, sessione
-/// marcata fallita.
+/// file. `400` se manca un header richiesto o il corpo è vuoto. `413` se il
+/// chunk supera `MAX_CHUNK_BYTES` o i byte rimanenti della sessione: il
+/// corpo è letto in streaming, mai bufferizzato per intero in RAM. `460` se
+/// il checksum del chunk non combacia: il chunk non viene scritto, il
+/// client può rispedirlo senza perdere l'offset precedente. `422` a file
+/// completo, se l'hash end-to-end non combacia con `expected_hash` o il
+/// file non è decodificabile — mai finito in libreria, temporaneo
+/// eliminato, sessione marcata fallita.
 pub async fn patch(
     State(state): State<AppState>,
     SessionOrShare(ctx): SessionOrShare,
@@ -195,30 +203,15 @@ pub async fn patch(
             "This upload session has no bytes left to receive",
         ));
     }
-    let cap = usize::try_from(remaining).unwrap_or(usize::MAX);
-
-    let chunk = axum::body::to_bytes(body, cap).await.map_err(|_| {
-        Problem::bad_request(
-            "invalid-body",
-            "Could not read the chunk, or it exceeds the remaining bytes",
-        )
-    })?;
-    if chunk.is_empty() {
-        return Err(Problem::bad_request("empty-chunk", "Chunk body was empty"));
-    }
+    let max_len = u64::try_from(remaining)
+        .unwrap_or(u64::MAX)
+        .min(MAX_CHUNK_BYTES);
 
     let checksum = parse_checksum_header(&headers)?;
-    let computed = blake3::hash(&chunk);
-    if !checksum.matches(computed.as_bytes()) {
-        // Il chunk non va scritto: il client lo rispedisce senza perdere
-        // l'offset che il server ha già accettato.
-        return Err(Problem::chunk_checksum_mismatch());
-    }
+    let written = write_chunk_checked(&session.temp_path, body, checksum, max_len).await?;
 
-    append_chunk(&session.temp_path, &chunk).await?;
-
-    let written = i64::try_from(chunk.len()).unwrap_or(i64::MAX);
-    let new_offset = session.received_bytes.saturating_add(written);
+    let written_i64 = i64::try_from(written).unwrap_or(i64::MAX);
+    let new_offset = session.received_bytes.saturating_add(written_i64);
     repo.advance(&ctx, session_id, new_offset).await?;
 
     if new_offset < session.expected_size {
@@ -289,8 +282,30 @@ async fn finalize_upload(
     })
 }
 
-async fn append_chunk(path: &std::path::Path, bytes: &[u8]) -> Result<(), Problem> {
+/// Scrive un chunk sul temporaneo in streaming — mai bufferizzato per
+/// intero in memoria, a differenza di un `axum::body::to_bytes(body, cap)`
+/// con `cap` fino a `expected_size` — calcolando l'hash blake3
+/// incrementalmente mentre i byte arrivano, sullo stile di
+/// `crate::routes::share::write_body_capped`.
+///
+/// Il checksum si verifica solo a corpo esaurito, ma il chunk **non**
+/// sopravvive a un checksum sbagliato: si tronca il file di append alla sua
+/// lunghezza originale (`set_len`), disfacendo esattamente i byte appena
+/// scritti — il client può rispedirlo senza perdere l'offset già accettato.
+///
+/// # Errors
+/// `400`/`413` se il corpo è vuoto, illeggibile, o supera `max_len` (limite
+/// per-chunk, mai tutto il resto del file in un colpo). `460` se il
+/// checksum non combacia. `500` per un errore di I/O sul temporaneo.
+async fn write_chunk_checked(
+    path: &std::path::Path,
+    body: Body,
+    checksum: ChunkChecksum,
+    max_len: u64,
+) -> Result<u64, Problem> {
+    use http_body::Body as _;
     use tokio::io::AsyncWriteExt as _;
+
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -300,18 +315,77 @@ async fn append_chunk(path: &std::path::Path, bytes: &[u8]) -> Result<(), Proble
             tracing::error!(error = %err, "upload chunk: could not open temp file");
             Problem::internal()
         })?;
-    file.write_all(bytes).await.map_err(|err| {
-        tracing::error!(error = %err, "upload chunk: write failed");
-        Problem::internal()
-    })?;
+    let original_len = file
+        .metadata()
+        .await
+        .map_err(|err| {
+            tracing::error!(error = %err, "upload chunk: could not stat temp file");
+            Problem::internal()
+        })?
+        .len();
+
+    let mut hasher = blake3::Hasher::new();
+    let mut written = 0_u64;
+    let mut body = std::pin::pin!(body);
+    loop {
+        let frame = std::future::poll_fn(|cx| body.as_mut().poll_frame(cx)).await;
+        match frame {
+            None => break,
+            Some(Err(_)) => {
+                let _ = file.set_len(original_len).await;
+                return Err(Problem::bad_request(
+                    "invalid-body",
+                    "Could not read the chunk",
+                ));
+            }
+            Some(Ok(frame)) => {
+                let Ok(data) = frame.into_data() else {
+                    continue;
+                };
+                let len = u64::try_from(data.len()).unwrap_or(u64::MAX);
+                if written.saturating_add(len) > max_len {
+                    // Non si scrive oltre il limite: si disfa quanto già
+                    // accettato per questo chunk e si segnala 413, non un
+                    // avanzamento parziale silenzioso.
+                    let _ = file.set_len(original_len).await;
+                    return Err(Problem::payload_too_large());
+                }
+                hasher.update(&data);
+                if let Err(err) = file.write_all(&data).await {
+                    tracing::error!(error = %err, "upload chunk: write failed");
+                    let _ = file.set_len(original_len).await;
+                    return Err(Problem::internal());
+                }
+                written = written.saturating_add(len);
+            }
+        }
+    }
+
+    if written == 0 {
+        return Err(Problem::bad_request("empty-chunk", "Chunk body was empty"));
+    }
+
+    let computed = hasher.finalize();
+    if !checksum.matches(computed.as_bytes()) {
+        // Il chunk non va lasciato sul temporaneo: il client lo rispedisce
+        // senza perdere l'offset che il server ha già accettato prima di
+        // questo chunk.
+        file.set_len(original_len).await.map_err(|err| {
+            tracing::error!(error = %err, "upload chunk: truncate after checksum mismatch failed");
+            Problem::internal()
+        })?;
+        return Err(Problem::chunk_checksum_mismatch());
+    }
+
     // Un fsync per chunk, non ogni 16 MB come suggerisce la spec §1.3: più
-    // sicuro con chunk adattivi fino a 8 MB, il costo aggiuntivo di un
-    // fsync su un file locale è trascurabile rispetto alla rete.
+    // sicuro con chunk adattivi fino a `MAX_CHUNK_BYTES`, il costo
+    // aggiuntivo di un fsync su un file locale è trascurabile rispetto alla
+    // rete.
     file.sync_all().await.map_err(|err| {
         tracing::error!(error = %err, "upload chunk: fsync failed");
         Problem::internal()
     })?;
-    Ok(())
+    Ok(written)
 }
 
 fn offset_header(offset: i64) -> HeaderMap {
