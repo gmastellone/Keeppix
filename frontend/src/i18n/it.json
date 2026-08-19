@@ -136,7 +136,8 @@
       "applyAnyway": "La posizione verrà salvata comunque su {count} foto.",
       "apply": "Applica",
       "downloadRegionAction": "Scarica regione",
-      "downloadRegion": "Scarica {region}"
+      "downloadRegion": "Scarica {region}",
+      "regionDownloading": "Download della regione in corso…"
     }
   },
   "search": {

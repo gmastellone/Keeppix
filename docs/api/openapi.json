@@ -5282,9 +5282,14 @@
           "size_bytes",
           "version",
           "status",
-          "downloaded_bytes"
+          "downloaded_bytes",
+          "source_url",
+          "checksum_sha256"
         ],
         "properties": {
+          "checksum_sha256": {
+            "type": "string"
+          },
           "downloaded_at": {
             "type": [
               "string",
@@ -5310,6 +5315,9 @@
           "size_bytes": {
             "type": "integer",
             "format": "int64"
+          },
+          "source_url": {
+            "type": "string"
           },
           "status": {
             "type": "string"
