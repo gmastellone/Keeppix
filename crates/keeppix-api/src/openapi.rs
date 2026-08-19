@@ -54,6 +54,7 @@ impl utoipa::Modify for SecurityAddon {
         auth::me,
         timeline::buckets,
         timeline::page,
+        timeline::asset,
         folders::tree,
         folders::children,
         folders::relocate,

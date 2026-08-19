@@ -24,13 +24,15 @@ export interface TimelinePage {
   next_cursor?: string
 }
 
-export function fetchBuckets(): Promise<MonthBucket[]> {
-  return apiFetch('/api/v1/timeline/buckets')
+export function fetchBuckets(bbox?: string): Promise<MonthBucket[]> {
+  const query = bbox ? `?${new URLSearchParams({ bbox })}` : ''
+  return apiFetch(`/api/v1/timeline/buckets${query}`)
 }
 
-export function fetchPage(bucket: string, cursor?: string): Promise<TimelinePage> {
+export function fetchPage(bucket: string, cursor?: string, bbox?: string): Promise<TimelinePage> {
   const q = new URLSearchParams({ bucket })
   if (cursor) q.set('cursor', cursor)
+  if (bbox) q.set('bbox', bbox)
   return apiFetch(`/api/v1/timeline?${q}`)
 }
 

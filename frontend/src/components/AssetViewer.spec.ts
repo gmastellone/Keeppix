@@ -1,11 +1,17 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { TimelineAsset } from '@/api/timeline'
 import { i18n } from '@/i18n'
 
 import AssetViewer from './AssetViewer.vue'
 import { previewSrc } from '@/api/media'
+
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock('@/api/client', () => ({ apiFetch }))
+
+afterEach(() => apiFetch.mockReset())
 
 function photo(id: string): TimelineAsset {
   return {
@@ -29,7 +35,7 @@ describe('AssetViewer', () => {
     const second = photo('bbbb')
     const wrapper = mount(AssetViewer, {
       props: { asset: first, next: second },
-      global: { plugins: [i18n] }
+      global: { plugins: [createPinia(), i18n] }
     })
     expect(wrapper.get('img[alt="aaaa.jpg"]').attributes('src')).toBe(
       previewSrc(first.content_hash!)
@@ -42,5 +48,34 @@ describe('AssetViewer', () => {
     expect(wrapper.get('img[alt="bbbb.jpg"]').attributes('src')).toBe(
       previewSrc(second.content_hash!)
     )
+  })
+
+  it('shows a compact cluster map only when effective metadata has a location', async () => {
+    apiFetch.mockResolvedValue({
+      title: null,
+      description: null,
+      taken_at: null,
+      location: { lat: 41.9, lon: 12.5 },
+      place_id: null,
+      orientation: null
+    })
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('aaaa') },
+      global: {
+        plugins: [createPinia(), i18n],
+        stubs: {
+          MapClusterLayer: {
+            props: ['center'],
+            template: '<div data-testid="mini-map">{{ center }}</div>'
+          }
+        }
+      }
+    })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/assets/aaaa/metadata')
+    expect(wrapper.find('[data-testid="mini-map"]').exists()).toBe(true)
   })
 })

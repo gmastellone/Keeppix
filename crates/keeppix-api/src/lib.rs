@@ -226,7 +226,10 @@ fn api_routes() -> Router<AppState> {
             "/users/{id}/enable",
             axum::routing::post(routes::users::enable),
         )
-        .route("/assets/{id}", axum::routing::delete(routes::trash::delete))
+        .route(
+            "/assets/{id}",
+            get(routes::timeline::asset).delete(routes::trash::delete),
+        )
         .route(
             "/assets/{id}/restore",
             axum::routing::post(routes::trash::restore),

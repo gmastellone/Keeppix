@@ -148,7 +148,7 @@ pub async fn tiles(
     .await
 }
 
-fn parse_bounds(raw: &str) -> Result<MapBounds, Problem> {
+pub(crate) fn parse_bounds(raw: &str) -> Result<MapBounds, Problem> {
     let values = raw
         .split(',')
         .map(str::trim)

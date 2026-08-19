@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import {
   fetchBuckets,
@@ -15,6 +15,7 @@ import { thumbSrc as mediaThumbSrc } from '@/api/media'
 import Button from '@/components/ui/Button.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
 import { useCullingStore } from '@/stores/culling'
+import { useMapsStore } from '@/stores/maps'
 import { useSessionStore } from '@/stores/session'
 import { clampDensity, justify, bucketMinHeight } from '@/timeline/justify'
 import { monthAtOffset, yearLabel } from '@/timeline/scrubber'
@@ -26,9 +27,11 @@ const KIND_KEY = 'keeppix.kindFilter'
 type KindFilter = 'all' | 'photo' | 'video'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const culling = useCullingStore()
+const maps = useMapsStore()
 
 const buckets = ref<MonthBucket[]>([])
 const assetsByBucket = ref<Record<string, TimelineAsset[]>>({})
@@ -40,6 +43,7 @@ const scrubY = ref<string | undefined>()
 const empty = ref(false)
 const query = ref('')
 const viewing = ref<TimelineAsset | null>(null)
+const bbox = computed(() => (typeof route.query.bbox === 'string' ? route.query.bbox : undefined))
 
 const visibleHashes = new Set<string>()
 const placeholders = new Map<string, string>()
@@ -148,6 +152,13 @@ async function goSearch() {
   await router.push({ path: '/search', query: { q: query.value } })
 }
 
+async function clearMapFilter() {
+  const query = { ...route.query }
+  delete query.bbox
+  await router.replace({ path: '/', query })
+  await refreshTimeline()
+}
+
 /**
  * Unico punto d'ingresso al culling (spec §4.2, hard rule del piano): un
  * pulsante, non scorciatoie sparse. In assenza di una vista per cartella o
@@ -175,7 +186,9 @@ async function loadBucket(month: string) {
   const collected: TimelineAsset[] = []
   let cursor: string | undefined
   do {
-    const page = await fetchPage(month, cursor)
+    const page = bbox.value
+      ? await fetchPage(month, cursor, bbox.value)
+      : await fetchPage(month, cursor)
     collected.push(...page.assets)
     cursor = page.next_cursor
   } while (cursor)
@@ -183,7 +196,7 @@ async function loadBucket(month: string) {
 }
 
 async function refreshTimeline() {
-  const list = await fetchBuckets()
+  const list = bbox.value ? await fetchBuckets(bbox.value) : await fetchBuckets()
   buckets.value = list
   empty.value = list.length === 0
   assetsByBucket.value = {}
@@ -197,6 +210,10 @@ function onScrubMove(event: MouseEvent) {
 function stepViewer(delta: number) {
   const next = viewingNeighbour(delta)
   if (next) viewing.value = next
+}
+
+async function openViewerAsset(id: string) {
+  viewing.value = await maps.loadAsset(id)
 }
 
 function onScrub(event: MouseEvent) {
@@ -300,6 +317,12 @@ watch([days, density, gridWidth], () => observe())
       </RouterLink>
       <RouterLink
         class="text-sm underline"
+        to="/map"
+      >
+        {{ t('maps.entry') }}
+      </RouterLink>
+      <RouterLink
+        class="text-sm underline"
         to="/trash"
       >
         {{ t('trash.entry') }}
@@ -382,6 +405,20 @@ watch([days, density, gridWidth], () => observe())
         </div>
       </div>
     </header>
+
+    <div
+      v-if="bbox"
+      class="flex items-center gap-2 border-b border-border px-4 py-2 text-sm"
+    >
+      <span>{{ t('timeline.mapFilter') }}</span>
+      <button
+        type="button"
+        class="rounded border border-border px-2 py-1"
+        @click="clearMapFilter"
+      >
+        {{ t('timeline.clearMapFilter') }}
+      </button>
+    </div>
 
     <p
       v-if="empty"
@@ -480,6 +517,7 @@ watch([days, density, gridWidth], () => observe())
       @close="viewing = null"
       @prev="stepViewer(-1)"
       @next="stepViewer(1)"
+      @open-asset="openViewerAsset"
     />
   </div>
 </template>

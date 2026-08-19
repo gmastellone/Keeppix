@@ -70,7 +70,50 @@
     "kinds": { "all": "Tutti", "photo": "Foto", "video": "Video" },
     "empty": "Nessuna foto in questa libreria.",
     "densityDown": "Meno colonne",
-    "densityUp": "Più colonne"
+    "densityUp": "Più colonne",
+    "mapFilter": "Foto nell'area selezionata sulla mappa.",
+    "clearMapFilter": "Rimuovi area"
+  },
+  "maps": {
+    "entry": "Mappa",
+    "title": "Mappa delle foto",
+    "back": "Foto",
+    "cluster": "{count} foto",
+    "openPhoto": "Apri foto",
+    "drawArea": "Disegna area",
+    "drawCancel": "Annulla disegno",
+    "noLibrary": "Aggiungi una libreria fotografica prima di aprire la mappa.",
+    "regionManager": "Regioni offline",
+    "nearbyPhotos": "Vedi le altre foto scattate qui",
+    "continents": {
+      "europe": "Europa",
+      "asia": "Asia",
+      "americas": "Americhe"
+    },
+    "regions": {
+      "IT": "Italia",
+      "GR": "Grecia",
+      "JP": "Giappone",
+      "US": "Stati Uniti"
+    },
+    "offline": {
+      "title": "Mappe offline",
+      "subtitle": "I dati della mappa restano su questo server e non rivelano a terzi le zone visualizzate.",
+      "downloaded": "Regioni scaricate",
+      "catalog": "Aggiungi una regione",
+      "download": "Scarica",
+      "cancel": "Annulla",
+      "delete": "Elimina"
+    },
+    "places": {
+      "label": "Posizione",
+      "placeholder": "Cerca una località…",
+      "search": "Cerca",
+      "mapUnavailable": "Mappa non disponibile per questa zona",
+      "applyAnyway": "La posizione verrà salvata comunque su {count} foto.",
+      "apply": "Applica",
+      "downloadRegion": "Scarica {region}"
+    }
   },
   "search": {
     "placeholder": "Cerca foto…",
@@ -214,6 +257,7 @@
     "count": "{count} foto selezionate",
     "fieldPlaceholder": "Nome campo",
     "valuePlaceholder": "Nuovo valore",
+    "place": "Posizione",
     "apply": "Applica",
     "done": "Modifiche applicate."
   },
