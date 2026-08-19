@@ -255,3 +255,12 @@ cancellabile.
 Task 7 remaining review fixes: complete (commit `25b65bc`; RED/GREEN, fmt,
 clippy, jobs, DB e API verdi; evidenza in
 `.superpowers/sdd/task-7-report.md`).
+
+Minor (Task 7, whole-branch): further cancel/finalize races were fenced with
+per-generation file names, `may_finalize_download` before rename,
+`mark_error` requiring `NOT cancel_requested`, and
+`dedup_key=map-region:{id}:{generation}` (`03803e0`). Residual TOCTOU around
+HTTP bodies is a known ceiling; upgrade is a single-owner actor per region.
+
+Task 7: complete (commits 1354046..03803e0, review loops on resume/cancel/
+checksum; allowlist and tile 404 in place)
