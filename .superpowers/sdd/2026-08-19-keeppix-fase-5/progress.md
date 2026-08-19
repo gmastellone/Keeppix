@@ -35,10 +35,64 @@ dell'indicizzazione. Il piano assegna esplicitamente l'enqueue con
 resta "discovered" finché non arriva la prossima scansione o il Task 2,
 invece di essere indicizzato subito.
 
+Ruling: nel fix del Task 1 (ordine `rename()`/commit in `finalize`), il ramo
+del duplicato esatto (`SkippedDuplicate`) rimuove il temporaneo **prima**
+del commit della `DELETE FROM upload_sessions`, non dopo come nel resto del
+codice originale. Non tocca mai la cartella target, quindi non ricade
+nell'invariante "mai un asset senza file" — ma se il commit fallisse dopo la
+`remove_file_tolerant`, la sessione (rollback) resterebbe con un
+`temp_path` che non esiste più: tollerato ovunque venga letto di nuovo
+(`remove_file_tolerant` è già NotFound-tollerante), mai un rischio peggiore.
+Costo se sbagliato: nessuno osservabile — è già lo scenario che il codice
+gestisce per un temporaneo scaduto.
+
+Ruling: il chunk massimo accettato da `PATCH /api/v1/upload/{id}` è fissato
+a 64 MiB (`MAX_CHUNK_BYTES` in `routes/upload.rs`), non specificato dalla
+spec §1.2. Un chunk più grande del minimo fra questo limite e i byte
+rimanenti della sessione riceve `413`, non un `400` generico come prima
+della revisione. Costo se sbagliato: un client che manda chunk più grandi di
+64 MiB (adattivi, la spec §1.3 ne ipotizza fino a 16 MB) va aggiornato a
+spezzarli, oppure il limite va reso configurabile.
+
 ## Task Log
 
 Task 1 (Sessioni di upload tus — schema e protocollo): complete
 (commit ea660f9, test verdi: 14 in `keeppix-db`, 9 in `keeppix-api`,
 `cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
 warnings` puliti).
+
+Task 1, fix di review (2 Critical + 1 Important + 1 Minor): complete.
+Critical 1 — `finalize()` faceva il commit (riga `assets` creata, sessione
+cancellata) **prima** del `rename()` del temporaneo alla destinazione:
+un `rename()` fallito a quel punto lasciava un asset senza file e nessuna
+sessione da cui recuperare il temporaneo. Invertito l'ordine: `rename()`
+prima, poi insert + delete + commit nella stessa transazione — l'asimmetria
+sicura è un file al posto giusto senza riga se il commit fallisce dopo
+(la prossima scansione lo indicizza), mai il contrario. Aggiunto un test di
+regressione (`finalize_leaves_no_asset_and_keeps_the_session_when_rename_fails`)
+che fallisce deterministicamente sul codice pre-fix (verificato: FAILED con
+`git checkout` del solo `uploads.rs`, poi ripristinato) forzando il
+fallimento del `rename()` con la cartella target cancellata dal disco.
+Critical 2 — mancava un test per "verifica di decodificabilità fallita
+anche con hash corretto" (spec §1.2, caso limite pinnato). Aggiunto
+`completing_with_undecodable_content_never_enters_the_library` in
+`keeppix-api/tests/upload.rs`: hash blake3 corretto su un payload di
+garbage senza alcun magic number riconosciuto da
+`keeppix_media::detect_kind`, assert `422 keeppix/upload-undecodable`,
+nessun asset, temporaneo e sessione ripuliti.
+Important — il `PATCH` bufferizzava l'intero chunk in RAM con
+`axum::body::to_bytes(body, cap)`, con `cap` fino ai byte rimanenti
+dell'intera sessione (potenzialmente gigabyte). Riscritto `write_chunk_checked`
+sullo stile di `write_body_capped` in `routes/share.rs`: streaming diretto
+sul temporaneo in modalità append, hash blake3 incrementale, e un checksum
+sbagliato tronca (`set_len`) il file alla lunghezza originale invece di non
+scriverlo mai (stesso esito osservabile: il chunk non sopravvive). Nuovo
+limite `MAX_CHUNK_BYTES = 64 MiB` (vedi Ruling sopra), verificato con un
+nuovo test multi-chunk (`a_multi_chunk_upload_completes_across_two_patches`)
+che due `PATCH` in sequenza si accodano correttamente sul disco.
+Minor — aggiunto `client_mtime_is_preserved_on_the_finalized_asset`.
+Test verdi: 15 in `keeppix-db` (14 + 1 nuovo), 12 in `keeppix-api` (9 + 3
+nuovi: decodificabilità, `client_mtime`, multi-chunk). `cargo fmt --check`
+e `cargo clippy --workspace --all-targets -- -D warnings` puliti. Nessuna
+regressione nelle suite complete di `keeppix-db` e `keeppix-api`.
 
