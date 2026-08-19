@@ -331,8 +331,13 @@ perché gli eventi sono già entità serializzate, non messaggi ad hoc.
 | `Password` non azzera il buffer in `Drop`, deriva `Clone` | Va fatto con `zeroize` **su tutta la catena** (corpo JSON, buffer axum, allocazione serde), non solo sull'ultimo anello: azzerare solo quello dà un falso senso di completezza |
 | `index.html` ha `lang="en"` hardcoded | Con le impostazioni utente |
 | `users.locale` e `UserView.locale` arrivano al frontend e non sono usati | La lingua vive in `localStorage`, non nel profilo come dice lo spec §10.10. Da riconciliare |
-| `POST /auth/refresh` non è chiamato da nessun client | Tutta la macchina di rotazione e rilevamento riuso non è collaudata sul campo, benché coperta dai test. Il client mobile la userà davvero |
 | ICU MessageFormat (deroga registrata I4) | **Riaprire solo** alla prima lingua con più di due categorie plurali (russo, polacco, arabo). Allora la scelta giusta è un compilatore ICU a **build time** (`@intlify/unplugin-vue-i18n`), non a runtime |
+
+**Già saldato, verificato ora, non più un debito**: `POST /auth/refresh` **è**
+chiamato — dal watchdog SPA (`frontend/src/stores/session.ts:98`,
+`authApi.refresh()`), pagato in Fase 3 Task 12b. La riga era rimasta nello
+spec dopo che il debito era già stato chiuso altrove: se Cursor legge questo
+documento, non c'è nulla da fare qui su questo punto.
 
 ---
 
