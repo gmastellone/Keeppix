@@ -365,7 +365,8 @@ impl<'a> RegionRepo<'a> {
             "UPDATE map_regions \
                 SET status = 'error', downloaded_bytes = 0, last_error = $3, \
                     cancel_requested = false \
-              WHERE id = $1 AND download_generation = $2 AND status = 'downloading'",
+              WHERE id = $1 AND download_generation = $2 \
+                AND status = 'downloading' AND NOT cancel_requested",
         )
         .bind(id)
         .bind(generation)

@@ -290,6 +290,9 @@ async fn run_download_from_url(
     .await
     {
         Ok(_) => {
+            if !may_finalize_download(&repo, data_dir, region_id, generation, file_path).await? {
+                return Ok(());
+            }
             if let Err(error) = tokio::fs::rename(&partial, &final_path).await {
                 cleanup_paths(data_dir, file_path).await?;
                 repo.mark_error(
@@ -329,6 +332,25 @@ async fn run_download_from_url(
             Ok(())
         }
     }
+}
+
+async fn may_finalize_download(
+    repo: &RegionRepo<'_>,
+    data_dir: &Path,
+    region_id: &str,
+    generation: uuid::Uuid,
+    file_path: &str,
+) -> Result<bool, JobError> {
+    let still_owned = repo
+        .source_for_download(region_id, generation)
+        .await?
+        .is_some_and(|source| !source.cancel_requested && source.file_path == file_path);
+    if still_owned {
+        return Ok(true);
+    }
+    cleanup_paths(data_dir, file_path).await?;
+    repo.finish_cancel(region_id, generation).await?;
+    Ok(false)
 }
 
 #[cfg(test)]

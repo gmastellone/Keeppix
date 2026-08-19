@@ -217,3 +217,20 @@ cargo test -p keeppix-api --jobs 1 -- --test-threads=1
 ```
 
 `./scripts/test.sh` non è stato eseguito, come richiesto.
+
+## Tiny Task 7 — RED
+
+`cargo test -p keeppix-db --test regions mark_error_requires_the_current_uncancelled_download -- --exact --test-threads=1`
+falliva perché `mark_error` restituiva `true` dopo `request_cancel` e portava
+la regione cancellata a `error`.
+
+## Tiny Task 7 — GREEN
+
+- Dopo il download completo il worker rilegge generazione, stato, cancel e
+  `file_path` prima del `rename`; se ha perso ownership ripulisce solo i path
+  della propria generazione e completa il cancel, oppure resta no-op.
+- `mark_error` richiede la stessa ownership di `mark_available`, incluso
+  `NOT cancel_requested`; il test di repository copre cancel e generazione
+  stale.
+- `cargo fmt --check`, clippy su `keeppix-db`/`keeppix-jobs` e le suite complete
+  dei due crate sono verdi. `./scripts/test.sh` non è stato eseguito.
