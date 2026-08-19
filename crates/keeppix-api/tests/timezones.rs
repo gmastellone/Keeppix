@@ -52,7 +52,7 @@ async fn seed_user(server: &TestServer, admin: UserId) {
 }
 
 #[tokio::test]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::too_many_lines)]
 async fn preview_and_apply_are_separate_authenticated_operations() {
     let server = TestServer::start().await;
     let admin = setup_admin(&server).await;
@@ -125,11 +125,25 @@ async fn preview_and_apply_are_separate_authenticated_operations() {
     assert_eq!(preview["example"]["filename"], "DSC_4412.ARW");
     assert_eq!(preview["example"]["before"], "2026-08-18T14:00:00Z");
     assert_eq!(preview["example"]["after"], "2026-08-18T05:00:00Z");
+    let preview_token = preview["preview_token"].as_str().expect("preview_token");
+
+    // Apply without token must fail.
+    let no_token = server
+        .client
+        .post(server.url("/api/v1/metadata/batch/recalculate-timezones"))
+        .json(&json!({ "library_id": library.id.to_string() }))
+        .send()
+        .await
+        .expect("apply without token");
+    assert_eq!(no_token.status(), 409);
 
     let apply = server
         .client
         .post(server.url("/api/v1/metadata/batch/recalculate-timezones"))
-        .json(&json!({ "library_id": library.id.to_string() }))
+        .json(&json!({
+            "library_id": library.id.to_string(),
+            "preview_token": preview_token
+        }))
         .send()
         .await
         .expect("apply");
@@ -137,6 +151,19 @@ async fn preview_and_apply_are_separate_authenticated_operations() {
     let apply: Value = apply.json().await.expect("apply JSON");
     assert_eq!(apply["changed_count"], 1);
     assert!(apply["batch_id"].is_string());
+
+    // Token is single-use: second apply fails.
+    let reuse = server
+        .client
+        .post(server.url("/api/v1/metadata/batch/recalculate-timezones"))
+        .json(&json!({
+            "library_id": library.id.to_string(),
+            "preview_token": preview_token
+        }))
+        .send()
+        .await
+        .expect("reuse");
+    assert_eq!(reuse.status(), 409);
 }
 
 #[tokio::test]

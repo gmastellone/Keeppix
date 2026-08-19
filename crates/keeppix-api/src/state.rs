@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keeppix_db::Db;
-use keeppix_domain::{AuthContext, SessionToken, ShareToken};
+use keeppix_domain::{AuthContext, LibraryId, SessionToken, ShareToken, UserId};
 
 use crate::ratelimit::RateLimiter;
 
@@ -143,6 +143,43 @@ impl ShareUnlockStore {
     }
 }
 
+const TZ_PREVIEW_TTL: Duration = Duration::from_secs(5 * 60);
+
+/// Short-lived tokens linking a timezone preview to its apply call.
+/// Prevents calling apply without having seen the preview first.
+type TzPreviewEntry = (UserId, LibraryId, Instant);
+
+#[derive(Clone, Default)]
+pub struct TimezonePreviewStore {
+    inner: Arc<Mutex<HashMap<String, TzPreviewEntry>>>,
+}
+
+impl TimezonePreviewStore {
+    #[must_use]
+    pub fn issue(&self, user_id: UserId, library_id: LibraryId) -> String {
+        let token = uuid::Uuid::now_v7().simple().to_string();
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.retain(|_, (_, _, exp)| *exp > Instant::now());
+            guard.insert(
+                token.clone(),
+                (user_id, library_id, Instant::now() + TZ_PREVIEW_TTL),
+            );
+        }
+        token
+    }
+
+    #[must_use]
+    pub fn consume(&self, token: &str, user_id: UserId, library_id: LibraryId) -> bool {
+        let Ok(mut guard) = self.inner.lock() else {
+            return false;
+        };
+        let Some((stored_user, stored_lib, expires)) = guard.remove(token) else {
+            return false;
+        };
+        Instant::now() <= expires && stored_user == user_id && stored_lib == library_id
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
@@ -168,6 +205,7 @@ pub struct AppState {
     pub login_limiter: RateLimiter,
     /// In-process unlock proofs for password-protected share links.
     pub share_unlocks: ShareUnlockStore,
+    pub tz_previews: TimezonePreviewStore,
 }
 
 impl AppState {
@@ -188,6 +226,7 @@ impl AppState {
             share_limiter: RateLimiter::new(Duration::from_secs(60), 60),
             login_limiter: RateLimiter::new(Duration::from_secs(300), 10),
             share_unlocks: ShareUnlockStore::default(),
+            tz_previews: TimezonePreviewStore::default(),
         }
     }
 

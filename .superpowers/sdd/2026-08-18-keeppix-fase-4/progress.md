@@ -296,3 +296,13 @@ entry gzip ~85 KB, Apply+Download banner; evidenza in
 
 Task 8: complete (commits 28fc6c4..27475fe, review clean)
 
+Ruling: `AssetView` espone `location` e `place_id` con `skip_serializing_if`;
+il geofence sui link pubblici usa la casa del proprietario della libreria via
+`ST_DWithin` inclusivo; `hide_metadata` omette date e coordinate, non le zera
+con `null`. `GET /api/v1/assets/{id}` autenticato mostra la posizione effettiva
+senza geofence. Costo se sbagliato: un payload pubblico vicino a casa rivela
+coordinate finché l'owner non configura `/users/me/home`.
+
+Task 9: complete (commit `766312c`, share_geofence 6/6, openapi 6/6, db tests
+verdi, fmt/clippy/build verdi)
+
