@@ -194,6 +194,7 @@ fn derived_preview_is_under_one_third_of_lossless() {
 }
 
 #[test]
+#[serial_test::serial]
 fn webp_quality_changes_the_preview_size() {
     let rgb = noisy_rgb(1920, 1080);
     unsafe { std::env::set_var("KEEPPIX_WEBP_QUALITY", "40") };
@@ -219,6 +220,7 @@ fn webp_quality_changes_the_preview_size() {
 }
 
 #[test]
+#[serial_test::serial]
 fn webp_method_changes_the_encoded_size() {
     let jpeg = extract_embedded_preview(&fixture("sample.arw"))
         .unwrap()
@@ -248,6 +250,7 @@ fn webp_method_changes_the_encoded_size() {
 /// Curva `method` su fixture reale: i numeri vanno nel ledger, qui si
 /// verifica solo che resti VP8 con perdita a 0/2/4.
 #[test]
+#[serial_test::serial]
 fn webp_method_curve_stays_lossy_vp8() {
     let jpeg = extract_embedded_preview(&fixture("sample.arw"))
         .unwrap()
