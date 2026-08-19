@@ -82,12 +82,19 @@ jobs:
       # Serializzare la compilazione su un runner a 4 core costava ~10 minuti
       # per una ragione che in CI non esiste.
       #
-      # `--test-threads=1` invece resta, e qui è ancora più necessario che in
-      # locale: i test condividono un solo database, quindi devono restare in
-      # fila. (Serve anche a `keeppix-server/tests/config.rs`, che manipola
-      # l'ambiente del processo.)
+      # Niente `--test-threads=1` qui: ogni `TestDb::start()` fa il suo
+      # `CREATE DATABASE` (vedi `crates/*/tests/harness/mod.rs`), isolato
+      # anche contro il Postgres condiviso di `services:` — i test non si
+      # calpestano a vicenda, girare in parallelo è sicuro per costruzione.
+      # L'unica eccezione era `keeppix-server/tests/config.rs`, che muta
+      # variabili d'ambiente di processo: quei test (e i tre equivalenti in
+      # `keeppix-media/tests/derive.rs`) sono marcati `#[serial]`
+      # (`serial_test`), non serve più serializzare l'intero workspace per
+      # loro. Misurato: 34s di lint contro 23m08s di test sul run
+      # 32236974676 — il collo di bottiglia era la serializzazione globale,
+      # non la compilazione né i test in sé.
       - name: Test
-        run: cargo test --workspace -- --test-threads=1
+        run: cargo test --workspace
 
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json
