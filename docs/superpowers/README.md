@@ -74,7 +74,8 @@ e non codice da scrivere.
 | [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ✅ completato e mergiato (PR #8) — multiutente, condivisione, link pubblici, **più le 17 interfacce mancanti** che la guardia della 2R3 ha scoperto (Task 12) |
 | [`plans/2026-08-18-keeppix-fase-4.md`](plans/2026-08-18-keeppix-fase-4.md) | ✅ completato e mergiato (PR #9) — GPS all'ingest, GeoNames, cluster mappa, fusi orari, PMTiles offline, geofence «casa» |
 | [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ⬜ **in lavorazione** — upload tus riprendibile, WebDAV, app-password |
-| Fase 6, 7, 8, 9 | spec scritte; piani da scrivere, uno alla volta |
+| [`plans/2026-08-19-keeppix-fase-6.md`](plans/2026-08-19-keeppix-fase-6.md) | ⬜ scritto, in attesa che la Fase 5 chiuda |
+| Fase 7, 8, 9 | spec scritte; piani da scrivere, uno alla volta |
 
 ## Consegne
 
