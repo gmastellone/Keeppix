@@ -279,3 +279,188 @@ nessuna build Vite necessaria per questo task.
   sul disco, aggiunto nel handler.
 - `MKCOL` idempotente (niente `405` su un nome già esistente).
 - Dotfile: sovrascrittura ammessa, mai indicizzato.
+
+## Fix round (2 Important dalla review)
+
+**Esito**: DONE. Commit: `e78c9eac30ffc7bf84266784487c1d2a26e906fb`
+(`fix(api): WebDAV PUT disk-space guard and MKCOL directory-before-db
+ordering`), su `fase-5`, pushato.
+
+### Important #1 — `PUT` senza guardia su spazio disco e dimensione body
+
+Problema segnalato: `write_body_to_file` leggeva il corpo fino a EOF senza
+alcun limite, e `ensure_disk_space` (`crates/keeppix-db/src/uploads.rs`,
+già usata da `UploadSessionRepo::create` per la sessione `tus`) non veniva
+mai chiamata dal `PUT` `WebDAV`.
+
+Fix:
+
+- `ensure_disk_space` è passata da `fn` privata a **`pub`** (non
+  `pub(crate)`: il chiamante, `keeppix_api::dav::write`, è in un altro
+  crate del workspace — `pub(crate)` non sarebbe stato visibile lì. Non
+  contiene SQL, quindi esportarla non viola "nessun SQL fuori da
+  `keeppix-db`" né il divieto di dipendenza `keeppix-media` ↔ `keeppix-db`)
+  e ri-esportata da `keeppix_db::lib` insieme al resto del modulo
+  `uploads`. Nessuna duplicazione della logica di `statvfs`.
+- `dav::write::put` estrae ora `content_length: Option<u64>` (il
+  dispatcher in `dav::mod.rs` legge l'header `Content-Length` prima di
+  consumare il corpo) e, se presente, chiama `ensure_disk_space(&library
+  .root_path, content_length)` **prima** di creare il file temporaneo —
+  stesso principio della sessione `tus`: rifiutato alla porta, non scoperto
+  a metà scrittura. Un `DbError::InsufficientStorage` diventa `507` via
+  `From<DbError> for Problem` già esistente.
+- Nuova costante `MAX_BODY_BYTES = 10 GiB` in `write.rs` e helper puro
+  `check_declared_size(content_length) -> Result<u64, Problem>`: `413` se
+  `Content-Length` supera il tetto, altrimenti restituisce il tetto da
+  imporre allo streaming (la dimensione dichiarata se presente e nel
+  limite, altrimenti `MAX_BODY_BYTES` per un corpo senza `Content-Length`,
+  tipicamente `Transfer-Encoding: chunked`).
+- `write_body_to_file` prende ora un parametro `max_len: u64` e lo impone
+  byte per byte durante lo streaming (non solo una volta sull'header
+  dichiarato) — un client che dichiara un corpo piccolo ma ne manda uno
+  più grande, o che non dichiara affatto una dimensione, viene troncato
+  con `413` comunque, sullo stile di `write_body_capped` in
+  `routes/share.rs`.
+
+Ruling (ledger): senza un tetto che valga anche in assenza di
+`Content-Length`, un client `chunked` avrebbe bypassato sia il controllo
+sulla dimensione dichiarata sia `ensure_disk_space` (che ha bisogno di un
+numero per girare), riempiendo il disco in streaming senza che nessun
+controllo lo intercettasse. 10 GiB è ben oltre qualunque file
+fotografico/video reale indicizzato da Keeppix oggi; costo se sbagliato:
+un client che carica legittimamente un file più grande riceve `413`
+invece di un upload riuscito — da rivedere se un giorno servirà per
+RAW/video enormi.
+
+### Important #2 — `MKCOL` commit DB prima della directory su disco
+
+Problema segnalato: `mkcol` chiamava `FolderRepo::ensure_child` (INSERT +
+commit immediato) e solo dopo creava la directory con
+`tokio::fs::create_dir_all`; un fallimento su disco lasciava una riga
+`folders` fantasma senza directory corrispondente.
+
+Fix: ordine invertito.
+
+1. `folder_repo.absolute_path(ctx, parent_id)` per il path del genitore
+   (già esistente, nessuna riga nuova serve per risolverlo), poi
+   `.join(new_name)` per il path target — **senza** aver ancora creato
+   nulla nel database.
+2. `tokio::fs::metadata(&target_dir).await.is_ok()` registra se la
+   directory esisteva già (per non cancellarla poi per errore, vedi punto
+   4).
+3. `tokio::fs::create_dir_all(&target_dir)`: se fallisce, `500` **senza
+   aver toccato il database per niente**.
+4. Solo se il passo 3 riesce, `folder_repo.ensure_child(&parent,
+   new_name)` (INSERT, idempotente per costruzione). Se l'`INSERT`
+   fallisce e la directory **non** esisteva già prima di questa chiamata,
+   `tokio::fs::remove_dir(&target_dir)` best-effort (silenzioso se non
+   vuota o già sparita) — se invece esisteva già (secondo `MKCOL`
+   idempotente, o una directory lasciata da uno scanner), non viene
+   toccata: non è nostra da cancellare.
+
+Ruling (ledger): la pulizia `remove_dir` è condizionata a "l'abbiamo
+creata noi in questa chiamata", non incondizionata — altrimenti un
+secondo `MKCOL` idempotente su una cartella già esistente, seguito da un
+fallimento imprevisto dell'`INSERT` (es. connessione al database persa a
+metà), avrebbe cancellato una directory legittima con contenuto reale.
+Costo se la ruling fosse sbagliata: nessuna directory fantasma da
+cancellare in più, solo un residuo su disco senza riga DB nel caso raro di
+un `INSERT` fallito su una directory appena creata da noi che poi
+`remove_dir` non riesce a togliere perché non vuota — scenario già
+impossibile perché la directory è appena creata e quindi vuota per
+costruzione.
+
+### File toccati
+
+- `crates/keeppix-api/src/dav/write.rs` — `MAX_BODY_BYTES`,
+  `check_declared_size`, `put` (guardia + `content_length`),
+  `write_body_to_file` (parametro `max_len`), `mkcol` (ordine invertito).
+- `crates/keeppix-api/src/dav/mod.rs` — il dispatcher `PUT` estrae
+  `Content-Length` dagli header e lo passa a `write::put`.
+- `crates/keeppix-db/src/uploads.rs` — `ensure_disk_space` da `fn`
+  privata a `pub fn`, con doc `# Errors` (richiesta da
+  `clippy::missing_errors_doc` su una funzione ora pubblica).
+- `crates/keeppix-db/src/lib.rs` — `ensure_disk_space` aggiunta alla
+  ri-esportazione del modulo `uploads`.
+- `crates/keeppix-api/tests/webdav_write.rs` — 2 test nuovi (vedi sotto).
+
+### TDD / test nuovi
+
+- 4 unit test in `dav::write::tests` (nessun database, puri su
+  `check_declared_size`): dimensione dichiarata nel limite, sopra il
+  limite (`413`), esattamente al limite (accettata), assente (tetto =
+  `MAX_BODY_BYTES`). Eseguiti *prima* dell'implementazione (compilazione
+  falliva, `check_declared_size` non esisteva) e poi verdi dopo aver
+  scritto la funzione minima.
+- `put_with_a_declared_content_length_over_the_limit_returns_413`
+  (`webdav_write.rs`): un `PUT` con corpo reale minuscolo (`tiny.jpg`) ma
+  header `Content-Length: 100 TiB` dichiarato a mano — confermato con un
+  esperimento isolato (`reqwest` + un server TCP che stampa la richiesta
+  grezza) che `reqwest`/`hyper` inviano per davvero l'header impostato a
+  mano sul filo, senza ricalcolarlo sulla dimensione reale del corpo
+  passato a `.body(...)` — quindi il test esercita davvero il percorso
+  "il client dichiara più di quanto manda". Verificato che il file non
+  viene scritto su disco e che non viene creata alcuna riga `assets`.
+  Osservato fallire prima del fix (il vecchio `put` non aveva il
+  parametro `content_length` — errore di compilazione, poi con una firma
+  placeholder: `200`/`201` invece di `413`).
+- `mkcol_disk_failure_leaves_no_phantom_folder_row` (`webdav_write.rs`):
+  crea un **file** omonimo sul disco al posto della cartella target prima
+  di chiamare `MKCOL`, così `create_dir_all` fallisce con un errore di I/O
+  reale (`AlreadyExists` su un percorso che non è una directory) —
+  deterministico e indipendente dai permessi Unix (i test possono girare
+  come root, che li bypassa). Verifica `500` e **zero righe** in
+  `folders` per quel nome. Osservato fallire prima del fix: con
+  `ensure_child` chiamato per primo, la riga in `folders` compariva
+  comunque (l'`INSERT` riesce, solo la `create_dir_all` fallisce dopo).
+
+### Output di verifica
+
+```
+$ cargo fmt --check
+(nessun output, exit 0)
+
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.55s
+(nessun warning/errore)
+
+$ cargo test -p keeppix-api --test webdav_write -- --test-threads=1
+running 9 tests
+test mkcol_by_a_viewer_returns_403 ... ok
+test mkcol_creates_a_subfolder_and_returns_201 ... ok
+test mkcol_disk_failure_leaves_no_phantom_folder_row ... ok
+test move_folder_changes_its_parent ... ok
+test put_creates_an_asset_and_enqueues_high_priority_indexing ... ok
+test put_of_dotfile_saves_on_disk_but_does_not_index ... ok
+test put_of_same_content_skips_without_creating_a_second_file ... ok
+test put_of_same_name_different_content_saves_with_suffix ... ok
+test put_with_a_declared_content_length_over_the_limit_returns_413 ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+$ cargo test -p keeppix-api --lib -- --test-threads=1
+running 26 tests
+...
+test dav::write::tests::a_declared_size_exactly_at_the_limit_is_accepted ... ok
+test dav::write::tests::a_declared_size_over_the_limit_is_rejected_with_413 ... ok
+test dav::write::tests::a_declared_size_within_the_limit_becomes_the_streaming_cap ... ok
+test dav::write::tests::no_content_length_caps_streaming_at_max_body_bytes ... ok
+...
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+$ cargo test -p keeppix-api -- --test-threads=1
+(tutti i binari tests/*.rs + unit test di src/lib.rs + doc-test)
+... [ogni binario: test result: ok, 0 failed] ...
+test result: ok. 26 passed; 0 failed ...   <- unittests src/lib.rs
+Doc-tests keeppix_api: 0 test, ok
+
+$ cargo test -p keeppix-db -- --test-threads=1
+(tutti i binari tests/*.rs, inclusi uploads.rs con
+insufficient_disk_space_is_rejected_at_creation_not_mid_upload)
+... [ogni binario: test result: ok, 0 failed] ...
+```
+
+Nessuna regressione: tutti i test preesistenti di `keeppix-api` e
+`keeppix-db` restano verdi. `cargo check -p keeppix-server -p keeppix-dav
+--all-targets` verificato pulito (la nuova firma di `ensure_disk_space` e
+i cambi in `dav/write.rs`/`dav/mod.rs` non toccano superfici usate da
+`keeppix-server`).
