@@ -11,6 +11,81 @@
   },
   "paths": {
     "/api/v1/assets/{id}": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile; `404` solo per\nun admin che chiede un id inesistente.",
+        "operationId": "assets_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vista pubblica dell'asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Id non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Asset inesistente per un admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
       "delete": {
         "tags": [
           "trash"
@@ -3132,6 +3207,15 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "description": "west,south,east,north WGS84",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -3195,6 +3279,15 @@
             "name": "library",
             "in": "query",
             "description": "Filtra su una libreria",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "description": "west,south,east,north WGS84",
             "required": false,
             "schema": {
               "type": "string"

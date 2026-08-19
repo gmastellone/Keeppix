@@ -264,3 +264,25 @@ HTTP bodies is a known ceiling; upgrade is a single-owner actor per region.
 
 Task 7: complete (commits 1354046..03803e0, review loops on resume/cancel/
 checksum; allowlist and tile 404 in place)
+
+Ruling: il click su un punto mappa richiede la vista completa già consumata da
+`AssetViewer`, ma `/api/v1/assets/{id}` aveva solo `DELETE`. Task 8 aggiunge
+`GET` sullo stesso path, restituisce l'`AssetView` pubblico esistente e pinna
+l'assenza di `location`/`lat`/`lon`; le coordinate restano nel solo endpoint
+metadata fino al Task 9. Costo se sbagliato: un'operazione additiva in più nel
+contratto v1 e nello snapshot OpenAPI.
+
+Ruling: il riquadro disegnato filtra sia bucket sia pagine timeline, non solo
+l'URL. I due endpoint accettano `bbox` opzionale tramite lo stesso parser WGS84
+dei cluster; senza bbox conservano le query materializzate preesistenti, con
+bbox contano gli asset effettivi e applicano override posizione prima
+dell'EXIF. Costo se sbagliato: la variante filtrata interroga `assets` invece
+di `folder_month_counts`, limitatamente all'interazione esplicita della mappa.
+
+Deferred (Task 8): il catalogo frontend minimo usa gli host
+`build.protomaps.com` imposti dal brief, ma il servizio pubblica archivi planet
+datati e non espone gli URL paese/manifest SHA-256 hardcoded dal contratto
+attuale; gli URL paese campione restituiscono 404. UI, allowlist e protocollo
+sono completi e testati con mock, ma prima del field test servono estratti
+PMTiles reali e il relativo manifest. Costo: i download dal catalogo non
+completano finché quei metadati non vengono sostituiti.

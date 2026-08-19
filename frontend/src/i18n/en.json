@@ -70,7 +70,50 @@
     "kinds": { "all": "All", "photo": "Photos", "video": "Videos" },
     "empty": "No photos in this library.",
     "densityDown": "Fewer columns",
-    "densityUp": "More columns"
+    "densityUp": "More columns",
+    "mapFilter": "Showing photos inside the selected map area.",
+    "clearMapFilter": "Clear area"
+  },
+  "maps": {
+    "entry": "Map",
+    "title": "Photo map",
+    "back": "Photos",
+    "cluster": "{count} photos",
+    "openPhoto": "Open photo",
+    "drawArea": "Draw area",
+    "drawCancel": "Cancel drawing",
+    "noLibrary": "Add a photo library before opening the map.",
+    "regionManager": "Offline regions",
+    "nearbyPhotos": "See other photos taken here",
+    "continents": {
+      "europe": "Europe",
+      "asia": "Asia",
+      "americas": "Americas"
+    },
+    "regions": {
+      "IT": "Italy",
+      "GR": "Greece",
+      "JP": "Japan",
+      "US": "United States"
+    },
+    "offline": {
+      "title": "Offline maps",
+      "subtitle": "Map data stays on this server and never reveals viewed areas to third parties.",
+      "downloaded": "Downloaded regions",
+      "catalog": "Add a region",
+      "download": "Download",
+      "cancel": "Cancel",
+      "delete": "Delete"
+    },
+    "places": {
+      "label": "Place",
+      "placeholder": "Search for a place…",
+      "search": "Search",
+      "mapUnavailable": "Map unavailable for this area",
+      "applyAnyway": "The location will still be saved to {count} photos.",
+      "apply": "Apply",
+      "downloadRegion": "Download {region}"
+    }
   },
   "search": {
     "placeholder": "Search photos…",
@@ -214,6 +257,7 @@
     "count": "{count} photos selected",
     "fieldPlaceholder": "Field name",
     "valuePlaceholder": "New value",
+    "place": "Location",
     "apply": "Apply",
     "done": "Changes applied."
   },

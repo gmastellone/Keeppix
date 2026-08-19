@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import { applyMetadataBatch } from '@/api/metadata'
+import PlacePicker from '@/components/PlacePicker.vue'
+import { useMapsStore } from '@/stores/maps'
+import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
 const route = useRoute()
+const maps = useMapsStore()
+const session = useSessionStore()
 
 const assetIds = ref<string[]>(
   typeof route.query.ids === 'string' ? route.query.ids.split(',') : []
@@ -20,6 +25,10 @@ async function submit() {
   await applyMetadataBatch(assetIds.value, { [field.value.trim()]: value.value || null })
   done.value = true
 }
+
+onMounted(() => {
+  void maps.loadRegions().catch(() => undefined)
+})
 </script>
 
 <template>
@@ -60,6 +69,20 @@ async function submit() {
         {{ t('batchEdit.apply') }}
       </button>
     </form>
+    <section
+      v-if="!done && assetIds.length > 0"
+      class="mt-8 border-t border-border pt-6"
+    >
+      <h2 class="mb-3 text-lg font-medium">
+        {{ t('batchEdit.place') }}
+      </h2>
+      <PlacePicker
+        :asset-ids="assetIds"
+        :available-region-ids="maps.availableRegionIds"
+        :can-download="session.user?.role === 'admin'"
+        @applied="done = true"
+      />
+    </section>
     <p
       v-else
       class="mt-6 text-content-muted"
