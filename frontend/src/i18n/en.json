@@ -85,6 +85,14 @@
     "noLibrary": "Add a photo library before opening the map.",
     "regionManager": "Offline regions",
     "nearbyPhotos": "See other photos taken here",
+    "errors": {
+      "unauthenticated": "Your session expired. Sign in again to continue.",
+      "forbidden": "You are not allowed to manage offline maps.",
+      "regionSourceNotAllowed": "This region download source is not allowed.",
+      "invalidRegion": "The region metadata is invalid.",
+      "downloadAlreadyActive": "This region is already downloading.",
+      "regionUnavailable": "Region no longer available"
+    },
     "continents": {
       "europe": "Europe",
       "asia": "Asia",
@@ -103,7 +111,22 @@
       "catalog": "Add a region",
       "download": "Download",
       "cancel": "Cancel",
-      "delete": "Delete"
+      "delete": "Delete",
+      "empty": "No offline regions have been added.",
+      "downloadFailed": "Download failed",
+      "status": {
+        "available": "Available",
+        "downloading": "Downloading",
+        "error": "Error"
+      },
+      "fields": {
+        "id": "Region ID",
+        "label": "Label",
+        "size": "Size in bytes",
+        "version": "Version",
+        "url": "HTTPS download URL",
+        "sha256": "SHA-256 checksum"
+      }
     },
     "places": {
       "label": "Place",

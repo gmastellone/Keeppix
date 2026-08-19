@@ -9,7 +9,10 @@ import AssetViewer from './AssetViewer.vue'
 import { previewSrc } from '@/api/media'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock('@/api/client', () => ({ apiFetch }))
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
+  apiFetch
+}))
 
 afterEach(() => apiFetch.mockReset())
 
@@ -27,6 +30,14 @@ function photo(id: string): TimelineAsset {
     height: 100,
     thumbhash: null
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
 }
 
 describe('AssetViewer', () => {
@@ -77,5 +88,37 @@ describe('AssetViewer', () => {
 
     expect(apiFetch).toHaveBeenCalledWith('/api/v1/assets/aaaa/metadata')
     expect(wrapper.find('[data-testid="mini-map"]').exists()).toBe(true)
+  })
+
+  it('ignores stale metadata when the viewed asset changes', async () => {
+    const firstMetadata = deferred<{ location: { lat: number; lon: number } }>()
+    const secondMetadata = deferred<{ location: { lat: number; lon: number } }>()
+    apiFetch.mockImplementation((path: string) =>
+      path.includes('/aaaa/')
+        ? firstMetadata.promise
+        : secondMetadata.promise
+    )
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('aaaa') },
+      global: {
+        plugins: [createPinia(), i18n],
+        stubs: {
+          MapClusterLayer: {
+            props: ['center'],
+            template: '<div data-testid="mini-map">{{ center.lat }},{{ center.lon }}</div>'
+          }
+        }
+      }
+    })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await wrapper.setProps({ asset: photo('bbbb') })
+    secondMetadata.resolve({ location: { lat: 45, lon: 9 } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="mini-map"]').text()).toBe('45,9')
+
+    firstMetadata.resolve({ location: { lat: 41.9, lon: 12.5 } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="mini-map"]').text()).toBe('45,9')
   })
 })

@@ -6,15 +6,17 @@ import type {
   Marker as LibreMarker,
   StyleSpecification
 } from 'maplibre-gl'
+import type { RangeResponse, Source } from 'pmtiles'
 
-import type { MapBounds, MapScope } from '@/stores/maps'
-import { useMapsStore } from '@/stores/maps'
+import { ApiProblem } from '@/api/client'
 import { thumbSrc } from '@/api/media'
+import type { MapBounds, MapCluster, MapScope } from '@/stores/maps'
+import { mapErrorKey, useMapsStore } from '@/stores/maps'
 
 const props = withDefaults(
   defineProps<{
     scope: MapScope
-    scopeId: string
+    scopeId: string | string[]
     regionIds: string[]
     center?: { lat: number; lon: number }
     compact?: boolean
@@ -36,6 +38,7 @@ const { t } = useI18n()
 const maps = useMapsStore()
 const container = ref<HTMLElement>()
 const drawing = ref(false)
+const errorKey = ref('')
 
 let map: LibreMap | undefined
 let markers: LibreMarker[] = []
@@ -43,8 +46,47 @@ let themeQuery: MediaQueryList | undefined
 let drawStart: { lat: number; lon: number } | undefined
 let requestSequence = 0
 let maplibreModule: typeof import('maplibre-gl') | undefined
-let protocolRegistered = false
+let pmtilesModule: typeof import('pmtiles') | undefined
+let pmtilesProtocol: import('pmtiles').Protocol | undefined
 const coverHashes = new Map<string, string>()
+
+class ProblemRangeSource implements Source {
+  readonly url: string
+
+  constructor(url: string) {
+    this.url = url
+  }
+
+  getKey(): string {
+    return this.url
+  }
+
+  async getBytes(
+    offset: number,
+    length: number,
+    signal?: AbortSignal
+  ): Promise<RangeResponse> {
+    const response = await fetch(this.url, {
+      credentials: 'same-origin',
+      headers: { range: `bytes=${offset}-${offset + length - 1}` },
+      signal
+    })
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type') ?? ''
+      if (contentType.includes('application/problem+json')) {
+        const body = await response.json()
+        throw new ApiProblem(body.type, body.title, body.status, body.detail)
+      }
+      throw new ApiProblem('keeppix/unexpected', response.statusText, response.status)
+    }
+    return {
+      data: await response.arrayBuffer(),
+      etag: response.headers.get('etag') ?? undefined,
+      cacheControl: response.headers.get('cache-control') ?? undefined,
+      expires: response.headers.get('expires') ?? undefined
+    }
+  }
+}
 
 function colors(dark: boolean) {
   return dark
@@ -64,6 +106,19 @@ function colors(dark: boolean) {
       }
 }
 
+function archiveUrl(regionId: string): string {
+  return `${window.location.origin}/api/v1/map/tiles/${encodeURIComponent(regionId)}/0/0/0`
+}
+
+function registerRegionSources() {
+  if (!pmtilesModule || !pmtilesProtocol) return
+  for (const regionId of props.regionIds) {
+    pmtilesProtocol.add(
+      new pmtilesModule.PMTiles(new ProblemRangeSource(archiveUrl(regionId)))
+    )
+  }
+}
+
 function mapStyle(dark: boolean): StyleSpecification {
   const palette = colors(dark)
   const sources: StyleSpecification['sources'] = {}
@@ -77,8 +132,7 @@ function mapStyle(dark: boolean): StyleSpecification {
 
   for (const regionId of props.regionIds) {
     const source = `region-${regionId}`
-    const archive = `${window.location.origin}/api/v1/map/tiles/${encodeURIComponent(regionId)}/0/0/0`
-    sources[source] = { type: 'vector', url: `pmtiles://${archive}` }
+    sources[source] = { type: 'vector', url: `pmtiles://${archiveUrl(regionId)}` }
     layers.push(
       {
         id: `${source}-earth`,
@@ -141,17 +195,28 @@ async function refreshClusters() {
   if (!map || !maplibreModule) return
   const bounds = map.getBounds()
   const sequence = ++requestSequence
-  const clusters = await maps.fetchClusters(
-    {
-      west: bounds.getWest(),
-      south: bounds.getSouth(),
-      east: bounds.getEast(),
-      north: bounds.getNorth()
-    },
-    Math.round(map.getZoom()),
-    props.scope,
-    props.scopeId
-  )
+  const scopeIds = Array.isArray(props.scopeId) ? props.scopeId : [props.scopeId]
+  let clusters: MapCluster[]
+  try {
+    const requests = scopeIds.map((scopeId) =>
+      maps.fetchClusters(
+        {
+          west: bounds.getWest(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          north: bounds.getNorth()
+        },
+        Math.round(map!.getZoom()),
+        props.scope,
+        scopeId
+      )
+    )
+    clusters = (await Promise.all(requests)).flat()
+    if (sequence === requestSequence) errorKey.value = ''
+  } catch (cause) {
+    if (sequence === requestSequence) errorKey.value = mapErrorKey(cause)
+    return
+  }
   if (sequence !== requestSequence || !map) return
   const covers = await Promise.all(
     clusters.map((cluster) => coverHash(cluster.cover_asset_id))
@@ -199,6 +264,14 @@ async function refreshClusters() {
   })
 }
 
+function mapFailure(event: unknown) {
+  const cause =
+    typeof event === 'object' && event !== null && 'error' in event
+      ? (event as { error: unknown }).error
+      : event
+  errorKey.value = mapErrorKey(cause, 'tile')
+}
+
 function switchTheme(event: MediaQueryListEvent) {
   map?.setStyle(mapStyle(event.matches))
 }
@@ -240,18 +313,19 @@ function finishDrawing(event: PointerEvent) {
 }
 
 onMounted(async () => {
-  const [maplibre, { Protocol }] = await Promise.all([
+  const [maplibre, pmtiles] = await Promise.all([
     import('maplibre-gl'),
     import('pmtiles'),
     import('maplibre-gl/dist/maplibre-gl.css')
   ])
   if (!container.value) return
   maplibreModule = maplibre
-  if (!protocolRegistered) {
-    const protocol = new Protocol()
-    maplibre.addProtocol('pmtiles', protocol.tile)
-    protocolRegistered = true
+  pmtilesModule = pmtiles
+  if (!pmtilesProtocol) {
+    pmtilesProtocol = new pmtiles.Protocol()
+    maplibre.addProtocol('pmtiles', pmtilesProtocol.tile)
   }
+  registerRegionSources()
 
   themeQuery = window.matchMedia('(prefers-color-scheme: dark)')
   themeQuery.addEventListener('change', switchTheme)
@@ -264,6 +338,7 @@ onMounted(async () => {
   })
   map.on('moveend', refreshClusters)
   map.on('load', refreshClusters)
+  map.on('error', mapFailure)
   await refreshClusters()
 })
 
@@ -272,6 +347,7 @@ onBeforeUnmount(() => {
   themeQuery?.removeEventListener('change', switchTheme)
   map?.off('moveend', refreshClusters)
   map?.off('load', refreshClusters)
+  map?.off('error', mapFailure)
   clearMarkers()
   map?.remove()
 })
@@ -279,6 +355,7 @@ onBeforeUnmount(() => {
 watch(
   () => props.regionIds,
   () => {
+    registerRegionSources()
     if (map && themeQuery) map.setStyle(mapStyle(themeQuery.matches))
   }
 )
@@ -305,5 +382,12 @@ watch(
     >
       {{ drawing ? t('maps.drawCancel') : t('maps.drawArea') }}
     </button>
+    <p
+      v-if="errorKey"
+      class="absolute bottom-3 left-3 right-3 z-10 rounded-lg bg-surface-elevated p-3 text-sm text-danger shadow"
+      role="alert"
+    >
+      {{ t(errorKey) }}
+    </p>
   </div>
 </template>

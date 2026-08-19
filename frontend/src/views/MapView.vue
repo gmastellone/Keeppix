@@ -7,8 +7,7 @@ import { fetchLibraries, type Library } from '@/api/libraries'
 import type { TimelineAsset } from '@/api/timeline'
 import AssetViewer from '@/components/AssetViewer.vue'
 import MapClusterLayer from '@/components/MapClusterLayer.vue'
-import type { MapBounds } from '@/stores/maps'
-import { useMapsStore } from '@/stores/maps'
+import { mapErrorKey, type MapBounds, useMapsStore } from '@/stores/maps'
 import MapsOfflineView from '@/views/settings/MapsOfflineView.vue'
 
 const { t } = useI18n()
@@ -17,21 +16,22 @@ const maps = useMapsStore()
 const libraries = ref<Library[]>([])
 const viewing = ref<TimelineAsset>()
 const loading = ref(true)
-const failed = ref(false)
+const error = ref<unknown>()
 const managingRegions = ref(false)
 
-const library = computed(() => libraries.value[0])
+const libraryIds = computed(() => libraries.value.map((library) => library.id))
 const availableRegions = computed(() =>
   maps.regions.filter((region) => region.status === 'available')
 )
+const errorMessage = computed(() => error.value ? t(mapErrorKey(error.value)) : '')
 
 async function load() {
   loading.value = true
-  failed.value = false
+  error.value = undefined
   try {
     await Promise.all([maps.loadRegions(), fetchLibraries().then((items) => (libraries.value = items))])
-  } catch {
-    failed.value = true
+  } catch (cause) {
+    error.value = cause
   } finally {
     loading.value = false
   }
@@ -40,8 +40,8 @@ async function load() {
 async function openAsset(id: string) {
   try {
     viewing.value = await maps.loadAsset(id)
-  } catch {
-    failed.value = true
+  } catch (cause) {
+    error.value = cause
   }
 }
 
@@ -86,11 +86,11 @@ onMounted(load)
       {{ t('common.loading') }}
     </p>
     <div
-      v-else-if="failed"
+      v-else-if="errorMessage"
       class="p-6"
     >
       <p class="text-danger">
-        {{ t('common.unexpectedError') }}
+        {{ errorMessage }}
       </p>
       <button
         type="button"
@@ -107,7 +107,7 @@ onMounted(load)
       <MapsOfflineView />
     </div>
     <p
-      v-else-if="!library"
+      v-else-if="libraryIds.length === 0"
       class="p-6 text-content-muted"
     >
       {{ t('maps.noLibrary') }}
@@ -117,7 +117,7 @@ onMounted(load)
       class="relative min-h-0 flex-1 p-3"
     >
       <MapClusterLayer
-        :scope-id="library.id"
+        :scope-id="libraryIds"
         scope="library"
         :region-ids="availableRegions.map((region) => region.id)"
         allow-draw

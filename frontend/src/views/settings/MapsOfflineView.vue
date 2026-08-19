@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { REGION_CATALOG, type RegionCatalogEntry, useMapsStore } from '@/stores/maps'
+import { mapErrorKey, type RegionDownloadRequest, useMapsStore } from '@/stores/maps'
 import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
@@ -10,18 +10,19 @@ const maps = useMapsStore()
 const session = useSessionStore()
 let pollTimer: ReturnType<typeof setInterval> | undefined
 
-const continents = computed(() => {
-  const grouped = new Map<string, RegionCatalogEntry[]>()
-  for (const region of REGION_CATALOG) {
-    const entries = grouped.get(region.continent) ?? []
-    entries.push(region)
-    grouped.set(region.continent, entries)
-  }
-  return [...grouped.entries()].map(([id, entries]) => ({
-    id,
-    entries,
-    size: entries.reduce((total, entry) => total + entry.size_bytes, 0)
-  }))
+const operationError = ref<unknown>()
+const form = ref<RegionDownloadRequest>({
+  id: '',
+  label: '',
+  size_bytes: 0,
+  version: '',
+  source_url: '',
+  checksum_sha256: ''
+})
+
+const errorMessage = computed(() => {
+  const error = operationError.value ?? maps.error
+  return error ? t(mapErrorKey(error)) : ''
 })
 
 function formatBytes(bytes: number): string {
@@ -41,26 +42,60 @@ function progress(downloaded: number, total: number): number {
 }
 
 async function cancel(id: string) {
-  await maps.cancelRegion(id)
+  operationError.value = undefined
+  try {
+    await maps.cancelRegion(id)
+  } catch (error) {
+    operationError.value = error
+  }
 }
 
 async function remove(id: string) {
-  await maps.deleteRegion(id)
+  operationError.value = undefined
+  try {
+    await maps.deleteRegion(id)
+  } catch (error) {
+    operationError.value = error
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = undefined
+}
+
+async function pollRegions() {
+  try {
+    await maps.loadRegions()
+  } catch {
+    // `maps.error` is rendered by the view; keep polling transient failures.
+  }
+  if (!maps.regions.some((region) => region.status === 'downloading')) {
+    stopPolling()
+  }
+}
+
+function ensurePolling() {
+  if (pollTimer || !maps.regions.some((region) => region.status === 'downloading')) return
+  pollTimer = setInterval(() => void pollRegions(), 2000)
+}
+
+async function download() {
+  operationError.value = undefined
+  try {
+    await maps.downloadRegion({ ...form.value })
+    ensurePolling()
+  } catch (error) {
+    operationError.value = error
+  }
 }
 
 onMounted(async () => {
-  try {
-    await maps.loadRegions()
-  } finally {
-    if (maps.regions.some((region) => region.status === 'downloading')) {
-      pollTimer = setInterval(() => void maps.loadRegions(), 2000)
-    }
-  }
+  await pollRegions()
+  ensurePolling()
 })
 
-onBeforeUnmount(() => {
-  if (pollTimer) clearInterval(pollTimer)
-})
+onBeforeUnmount(stopPolling)
 </script>
 
 <template>
@@ -75,11 +110,11 @@ onBeforeUnmount(() => {
     </header>
 
     <p
-      v-if="maps.error"
+      v-if="errorMessage"
       class="text-sm text-danger"
       role="alert"
     >
-      {{ t('common.unexpectedError') }}
+      {{ errorMessage }}
     </p>
 
     <section v-if="maps.regions.length > 0">
@@ -93,9 +128,12 @@ onBeforeUnmount(() => {
           class="rounded-lg border border-border bg-surface-elevated p-3"
         >
           <div class="flex flex-wrap items-center gap-2">
-            <strong>{{ t(`maps.regions.${region.id}`, region.label) }}</strong>
+            <strong>{{ region.label }}</strong>
             <span class="text-sm text-content-muted">{{ formatBytes(region.size_bytes) }}</span>
             <span class="text-xs text-content-muted">{{ region.version }}</span>
+            <span class="text-xs text-content-muted">
+              {{ t(`maps.offline.status.${region.status}`) }}
+            </span>
             <div
               v-if="session.user?.role === 'admin'"
               class="ml-auto flex gap-2"
@@ -137,48 +175,97 @@ onBeforeUnmount(() => {
             v-if="region.last_error"
             class="mt-2 text-sm text-danger"
           >
-            {{ region.last_error }}
+            <strong>{{ t('maps.offline.downloadFailed') }}</strong>
+            <span class="ml-1">{{ region.last_error }}</span>
           </p>
         </li>
       </ul>
     </section>
+    <p
+      v-else
+      class="text-sm text-content-muted"
+    >
+      {{ t('maps.offline.empty') }}
+    </p>
 
-    <section>
+    <section v-if="session.user?.role === 'admin'">
       <h3 class="mb-2 font-medium">
         {{ t('maps.offline.catalog') }}
       </h3>
-      <details
-        v-for="continent in continents"
-        :key="continent.id"
-        class="mb-2 rounded-lg border border-border bg-surface-elevated"
-        open
+      <form
+        class="grid gap-3 rounded-lg border border-border bg-surface-elevated p-3 sm:grid-cols-2"
+        data-action="download-region"
+        @submit.prevent="download"
       >
-        <summary class="cursor-pointer px-3 py-2 font-medium">
-          {{ t(`maps.continents.${continent.id}`) }}
-          <span class="ml-2 text-sm font-normal text-content-muted">
-            {{ formatBytes(continent.size) }}
-          </span>
-        </summary>
-        <ul class="divide-y divide-border">
-          <li
-            v-for="region in continent.entries"
-            :key="region.id"
-            class="flex items-center gap-3 px-3 py-2 text-sm"
+        <label class="text-sm">
+          <span class="mb-1 block">{{ t('maps.offline.fields.id') }}</span>
+          <input
+            v-model.trim="form.id"
+            name="region-id"
+            required
+            class="w-full rounded border border-border bg-surface px-2 py-1.5"
           >
-            <span>{{ t(`maps.regions.${region.id}`) }}</span>
-            <span class="text-content-muted">{{ formatBytes(region.size_bytes) }}</span>
-            <button
-              v-if="session.user?.role === 'admin' && !maps.regions.some((item) => item.id === region.id)"
-              type="button"
-              class="ml-auto rounded border border-border px-2 py-1"
-              :disabled="maps.loading"
-              @click="maps.downloadRegion(region)"
-            >
-              {{ t('maps.offline.download') }}
-            </button>
-          </li>
-        </ul>
-      </details>
+        </label>
+        <label class="text-sm">
+          <span class="mb-1 block">{{ t('maps.offline.fields.label') }}</span>
+          <input
+            v-model.trim="form.label"
+            name="region-label"
+            required
+            class="w-full rounded border border-border bg-surface px-2 py-1.5"
+          >
+        </label>
+        <label class="text-sm">
+          <span class="mb-1 block">{{ t('maps.offline.fields.size') }}</span>
+          <input
+            v-model.number="form.size_bytes"
+            name="region-size"
+            type="number"
+            min="1"
+            required
+            class="w-full rounded border border-border bg-surface px-2 py-1.5"
+          >
+        </label>
+        <label class="text-sm">
+          <span class="mb-1 block">{{ t('maps.offline.fields.version') }}</span>
+          <input
+            v-model.trim="form.version"
+            name="region-version"
+            required
+            class="w-full rounded border border-border bg-surface px-2 py-1.5"
+          >
+        </label>
+        <label class="text-sm sm:col-span-2">
+          <span class="mb-1 block">{{ t('maps.offline.fields.url') }}</span>
+          <input
+            v-model.trim="form.source_url"
+            name="region-url"
+            type="url"
+            pattern="https://.*"
+            required
+            class="w-full rounded border border-border bg-surface px-2 py-1.5"
+          >
+        </label>
+        <label class="text-sm sm:col-span-2">
+          <span class="mb-1 block">{{ t('maps.offline.fields.sha256') }}</span>
+          <input
+            v-model.trim="form.checksum_sha256"
+            name="region-sha256"
+            minlength="64"
+            maxlength="64"
+            pattern="[0-9a-fA-F]{64}"
+            required
+            class="w-full rounded border border-border bg-surface px-2 py-1.5 font-mono"
+          >
+        </label>
+        <button
+          type="submit"
+          class="rounded border border-border px-3 py-2 text-sm sm:col-span-2"
+          :disabled="maps.loading"
+        >
+          {{ t('maps.offline.download') }}
+        </button>
+      </form>
     </section>
   </section>
 </template>
