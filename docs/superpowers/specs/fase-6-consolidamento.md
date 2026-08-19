@@ -211,7 +211,88 @@ Completa i profili energetici della Fase 1b. Nella finestra notturna:
 
 ---
 
-## 6. API pubblica e client generati
+## 6. Prestazioni — indici mancanti e la cache mai costruita
+
+Verificato sul codice attuale, non nello spec: tre lacune concrete, trovate
+mentre si rispondeva alla domanda "tutte le query sono ottimizzate?" con
+un'analisi reale invece che a sensazione.
+
+### 6.1 Ricerca per fotocamera/obiettivo: sequenziale, non indicizzata
+
+`asset_exif.camera_model` e `.lens` si cercano con `ILIKE '%...%'` (jolly
+davanti), ma li copre solo un indice btree parziale (`asset_exif_camera_idx`)
+— che **non può** servire un `ILIKE` con jolly davanti, a differenza di un
+indice trigram. Il nome file ha già la soluzione corretta
+(`assets_filename_trgm`, GIN trigram): va estesa a camera e obiettivo.
+
+```sql
+CREATE INDEX asset_exif_camera_trgm ON asset_exif USING gin (camera_model gin_trgm_ops);
+CREATE INDEX asset_exif_lens_trgm ON asset_exif USING gin (lens gin_trgm_ops);
+```
+
+Oggi, su una libreria da 200.000 foto, cercare per fotocamera è una scansione
+sequenziale — esattamente il tipo di query che il test di scala (§ sotto)
+dovrebbe misurare e non fa ancora.
+
+### 6.2 La cache in-process decisa e mai costruita
+
+Lo spec madre del progetto dice esplicitamente: *"Cache in-process (`moka`),
+niente Redis"* (`specs/2026-08-13-keeppix-design.md`). Non è mai stata
+implementata: nessuna dipendenza `moka` in nessun `Cargo.toml`. Oggi
+`VisibilityScope::resolve` e le impostazioni si rileggono dal database **a
+ogni richiesta**, senza eccezioni.
+
+Non è un difetto nato per distrazione: è una decisione già presa e mai
+portata a termine. Con la sincronizzazione incrementale del mobile (§4) che
+interroga spesso, il costo smette di essere teorico.
+
+Da costruire qui: `moka` per permessi effettivi e impostazioni, con
+**invalidazione esplicita** quando un permesso o un'impostazione cambia — mai
+una cache che può restare indietro su chi può vedere cosa. Una cache di
+permessi scaduta è un difetto di sicurezza, non solo di prestazioni: va
+trattata con lo stesso rigore.
+
+### 6.3 Indici mancanti su chiavi esterne
+
+Postgres non indicizza automaticamente le colonne di chiave esterna. La
+maggior parte delle mancanti sono tabelle di audit/admin a basso traffico —
+accettabile così. Due sono più vicine a percorsi frequentati e vale la pena
+chiuderle qui:
+
+```sql
+CREATE INDEX stacks_primary_asset_idx ON stacks (primary_asset_id);
+CREATE INDEX album_assets_added_by_idx ON album_assets (added_by);
+```
+
+Va anche rivisto il filtro `status <> 'trashed'` in `AssetRepo` — oggi
+scavalca l'indice parziale su `status`, che copre solo `discovered`/`error`.
+
+### 6.4 N+1 nella creazione dei percorsi cartella
+
+`FolderRepo::ensure_path` scorre i segmenti del percorso e per ciascuno fa
+un `ensure_child_on` — due andate e ritorno (un upsert più una rilettura)
+per segmento, non un'unica query. Confinato in una singola transazione e al
+percorso di scrittura dell'ingest/scansione — non tocca timeline o ricerca,
+che restano i percorsi di lettura frequentati. Da valutare qui se vale la
+riscrittura a una sola query (es. `INSERT ... ON CONFLICT` su tutti i
+segmenti insieme) o se il costo reale, misurato, non lo giustifica: un
+import è un'operazione rara rispetto a una richiesta di timeline, e non è
+detto che l'ottimizzazione paghi il rischio di riscrivere una funzione che
+oggi è corretta.
+
+### 6.5 Cosa invece è già corretto, verificato non assunto
+
+- **Un solo pool di connessioni, un solo processo** (`sqlx::PgPool`, 10
+  connessioni di default, configurabile) — niente PgBouncer: risolverebbe un
+  problema di più processi indipendenti che qui non esiste.
+- Timeline, ricerca, modifica in blocco: budget **misurati** su 200.000 righe
+  sintetiche con `EXPLAIN ANALYZE` reale (`scale_200k.rs`), non assunti.
+- Cache dei derivati e della risoluzione piena, con limite ed espulsione LRU:
+  reale e già funzionante.
+
+---
+
+## 7. API pubblica e client generati
 
 - **OpenAPI 3.1 generato dal codice** con `utoipa`: gli handler *sono* la
   specifica.
@@ -229,7 +310,7 @@ versione del crate invece che dell'API, i rustdoc `# Errors` usati come
 
 ---
 
-## 7. PWA
+## 8. PWA
 
 - Installabile, con **Share Target** (Fase 5).
 - **Service worker**: shell dell'app e miniature già viste navigabili offline.
@@ -243,21 +324,30 @@ perché gli eventi sono già entità serializzate, non messaggi ad hoc.
 
 ---
 
-## 8. Debiti della Fase 0 assegnati a questa fase
+## 9. Debiti della Fase 0 assegnati a questa fase
 
 | Voce | Cosa fare |
 |---|---|
 | `Password` non azzera il buffer in `Drop`, deriva `Clone` | Va fatto con `zeroize` **su tutta la catena** (corpo JSON, buffer axum, allocazione serde), non solo sull'ultimo anello: azzerare solo quello dà un falso senso di completezza |
 | `index.html` ha `lang="en"` hardcoded | Con le impostazioni utente |
 | `users.locale` e `UserView.locale` arrivano al frontend e non sono usati | La lingua vive in `localStorage`, non nel profilo come dice lo spec §10.10. Da riconciliare |
-| `POST /auth/refresh` non è chiamato da nessun client | Tutta la macchina di rotazione e rilevamento riuso non è collaudata sul campo, benché coperta dai test. Il client mobile la userà davvero |
 | ICU MessageFormat (deroga registrata I4) | **Riaprire solo** alla prima lingua con più di due categorie plurali (russo, polacco, arabo). Allora la scelta giusta è un compilatore ICU a **build time** (`@intlify/unplugin-vue-i18n`), non a runtime |
+
+**Già saldato, verificato ora, non più un debito**: `POST /auth/refresh` **è**
+chiamato — dal watchdog SPA (`frontend/src/stores/session.ts:98`,
+`authApi.refresh()`), pagato in Fase 3 Task 12b. La riga era rimasta nello
+spec dopo che il debito era già stato chiuso altrove: se Cursor legge questo
+documento, non c'è nulla da fare qui su questo punto.
 
 ---
 
-## 9. Predisposto ma fuori dalla v1
+## 10. Riconoscimento volti e ricerca semantica: non più fuori scope
 
-Le tabelle `faces`, `people`, `asset_embeddings` esistono dalle migrazioni
-iniziali **e restano vuote**. Riconoscimento volti e ricerca semantica CLIP sono
-fuori dagli obiettivi dichiarati: lo schema li prevede perché aggiungerli dopo
-su 200.000 righe sarebbe una migrazione dolorosa, non perché siano pianificati.
+Questa sezione diceva, alla prima stesura, che `faces`/`people`/`asset_embeddings`
+erano schema predisposto ma "fuori dagli obiettivi dichiarati". Non è più
+vero: sono ora la **Fase 7** (scene, tag, ricerca semantica CLIP + pgvector)
+e la **Fase 8** (volti), entrambe con spec proprie, pianificate dopo la 6 nel
+grafo delle dipendenze — non dentro la 6, e non più "forse mai". Le tabelle
+che questa sezione menzionava vanno verificate contro lo schema reale delle
+Fasi 7/8 quando si scrive il piano di questa fase: potrebbero non
+corrispondere più esattamente a quanto deciso lì.
