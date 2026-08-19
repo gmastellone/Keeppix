@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { mapErrorKey, type MapRegion, type Place, useMapsStore } from '@/stores/maps'
+import { useSessionStore } from '@/stores/session'
 
 const props = defineProps<{
   assetIds: string[]
@@ -13,12 +14,16 @@ const props = defineProps<{
 const emit = defineEmits<{ applied: [place: Place] }>()
 const { t } = useI18n()
 const maps = useMapsStore()
+const session = useSessionStore()
 const query = ref('')
 const results = ref<Place[]>([])
 const selected = ref<Place>()
 const searching = ref(false)
 const applying = ref(false)
+const downloading = ref(false)
 const error = ref<unknown>()
+
+const isAdmin = computed(() => session.user?.role === 'admin')
 
 const mapUnavailable = computed(
   () =>
@@ -26,13 +31,16 @@ const mapUnavailable = computed(
     !props.availableRegionIds.includes(selected.value.country_code)
 )
 const errorMessage = computed(() => error.value ? t(mapErrorKey(error.value)) : '')
-const showRegionPanel = ref(false)
 
 const matchingRegion = computed(() => {
   const code = selected.value?.country_code
   if (!code || !props.allRegions) return undefined
   return props.allRegions.find((r) => r.id === code)
 })
+
+const canRetryDownload = computed(
+  () => isAdmin.value && matchingRegion.value?.status === 'error'
+)
 
 function placeContext(place: Place): string {
   return [place.admin1, place.country_code].filter(Boolean).join(', ')
@@ -69,6 +77,27 @@ async function apply() {
     error.value = cause
   } finally {
     applying.value = false
+  }
+}
+
+async function retryDownload() {
+  const region = matchingRegion.value
+  if (!region) return
+  downloading.value = true
+  error.value = undefined
+  try {
+    await maps.downloadRegion({
+      id: region.id,
+      label: region.label,
+      size_bytes: region.size_bytes,
+      version: region.version,
+      source_url: region.source_url,
+      checksum_sha256: region.checksum_sha256
+    })
+  } catch (cause) {
+    error.value = cause
+  } finally {
+    downloading.value = false
   }
 }
 </script>
@@ -134,6 +163,7 @@ async function apply() {
       <p
         v-if="matchingRegion?.status === 'downloading'"
         class="mt-1 text-content-muted"
+        data-testid="region-downloading"
       >
         {{ t('maps.places.regionDownloading') }}
       </p>
@@ -148,20 +178,23 @@ async function apply() {
           {{ t('maps.places.apply') }}
         </button>
         <button
+          v-if="canRetryDownload"
           type="button"
           class="rounded-lg border border-current px-3 py-2"
           data-action="download-region"
-          @click="showRegionPanel = !showRegionPanel"
+          :disabled="downloading"
+          @click="retryDownload"
+        >
+          {{ t('maps.places.downloadRegion', { region: matchingRegion!.label }) }}
+        </button>
+        <a
+          v-else-if="isAdmin"
+          href="/settings/maps/offline"
+          class="rounded-lg border border-current px-3 py-2"
+          data-action="download-region"
         >
           {{ t('maps.places.downloadRegionAction') }}
-        </button>
-      </div>
-      <div
-        v-if="showRegionPanel"
-        class="mt-3 rounded-lg border border-border p-3"
-        data-testid="inline-region-panel"
-      >
-        <slot name="region-panel" />
+        </a>
       </div>
     </div>
 
