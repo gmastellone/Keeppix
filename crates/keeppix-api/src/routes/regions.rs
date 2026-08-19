@@ -138,7 +138,7 @@ pub async fn cancel(
     let region = repo.find(&ctx, &id).await?;
     repo.request_cancel(&ctx, &id).await?;
     remove_region_files(&state.data_dir, &region.file_path).await?;
-    retire_region_job(&state, &id).await?;
+    retire_region_job(&state, &id, region.download_generation).await?;
     repo.finish_cancel(&id, region.download_generation).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -173,7 +173,7 @@ pub async fn delete(
     }
     remove_region_files(&state.data_dir, &region.file_path).await?;
     if region.status == RegionStatus::Downloading {
-        retire_region_job(&state, &id).await?;
+        retire_region_job(&state, &id, region.download_generation).await?;
     }
     repo.delete(&ctx, &id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -219,8 +219,12 @@ async fn remove_region_files(data_dir: &Path, file_path: &str) -> Result<(), Pro
     remove_if_present(final_path(data_dir, file_path)).await
 }
 
-async fn retire_region_job(state: &AppState, id: &str) -> Result<(), Problem> {
-    let dedup_key = format!("map-region:{id}");
+async fn retire_region_job(
+    state: &AppState,
+    id: &str,
+    generation: uuid::Uuid,
+) -> Result<(), Problem> {
+    let dedup_key = format!("map-region:{id}:{generation}");
     JobRepo::new(&state.db)
         .retire_active(&dedup_key, "Download cancelled")
         .await?;

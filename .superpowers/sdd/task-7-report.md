@@ -234,3 +234,17 @@ la regione cancellata a `error`.
   stale.
 - `cargo fmt --check`, clippy su `keeppix-db`/`keeppix-jobs` e le suite complete
   dei due crate sono verdi. `./scripts/test.sh` non è stato eseguito.
+
+## One-line-class Task 7 — RED
+
+`cancelled_region_with_running_old_job_enqueues_the_new_generation` falliva:
+dopo `finish_cancel`, `enqueue_download` restituiva ancora il vecchio job
+`running` (id 1) perché la dedup key conteneva soltanto l'id regione.
+
+## One-line-class Task 7 — GREEN
+
+La dedup key include ora `download_generation`; la riparazione e il cancel
+costruiscono la stessa chiave. `cargo fmt --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` e
+`cargo test -p keeppix-jobs --jobs 1 -- --test-threads=1` sono verdi.
+`./scripts/test.sh` non è stato eseguito, come richiesto.
