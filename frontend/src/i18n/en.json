@@ -280,6 +280,51 @@
     "newPassword": "New password",
     "savePassword": "Save password"
   },
+  "webdav": {
+    "title": "Configure WebDAV",
+    "subtitle": "Generate an app password to connect your devices to Keeppix over WebDAV.",
+    "labelField": "Device label",
+    "defaultLabel": "My device",
+    "generate": "Generate",
+    "generateTitle": "App password generated",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "secretWarning": "This password is shown only once. Copy it now — it cannot be retrieved later.",
+    "status": {
+      "connected": "Connected",
+      "waiting": "Waiting for the first connection…"
+    },
+    "clients": {
+      "macos": {
+        "title": "macOS Finder",
+        "steps": "Press ⌘K in Finder and connect to {url}"
+      },
+      "windows": {
+        "title": "Windows",
+        "hint": "We recommend Cyberduck for the best experience.",
+        "limitWarning": "The built-in Windows WebDAV client limits files to 50 MB."
+      },
+      "rclone": {
+        "title": "rclone",
+        "hint": "Copy this ready-to-use configuration block:"
+      },
+      "mobile": {
+        "title": "iPhone / Android",
+        "hint": "Enter this address in your WebDAV app of choice:"
+      }
+    },
+    "previous": {
+      "title": "Previously used app passwords",
+      "empty": "No app passwords yet.",
+      "usedOn": "used on {date}",
+      "neverUsed": "never used",
+      "revoke": "Revoke"
+    },
+    "errors": {
+      "generateFailed": "Could not generate the app password.",
+      "revokeFailed": "Could not revoke the app password."
+    }
+  },
   "trash": {
     "entry": "Trash",
     "title": "Trash",
