@@ -7,7 +7,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum_extra::extract::CookieJar;
 use keeppix_db::{
-    AlbumRepo, AssetRepo, AuditRepo, FolderRepo, GuestUploadRepo, JobRepo, NewShareLink,
+    AlbumRepo, AssetRepo, AuditRepo, FolderRepo, GuestUploadRepo, HomeRepo, JobRepo, NewShareLink,
     ShareLinkRepo,
 };
 use keeppix_domain::{
@@ -21,6 +21,7 @@ use crate::cookie::{share_link_cookie, share_unlock_cookie};
 use crate::extract::{Auth, ShareAuth};
 use crate::json::Json;
 use crate::problem::Problem;
+use crate::routes::metadata::GeoPointView;
 use crate::routes::timeline::AssetView;
 use crate::state::AppState;
 
@@ -39,10 +40,8 @@ pub struct CreateLinkRequest {
     pub allow_upload: bool,
     #[serde(default)]
     pub allow_cdn_cache: bool,
-    /// When true, the public asset list omits capture dates (`taken_at_utc`).
-    /// It does not strip GPS: `AssetView` has no lat/lon, and the spec §6.2
-    /// home-radius geofence is deferred (Fase 4). The field name is kept
-    /// because `/api/v1` is frozen.
+    /// When true, the public asset list omits capture dates and coordinates.
+    /// The field name is kept because `/api/v1` is frozen.
     #[serde(default = "default_true")]
     pub hide_metadata: bool,
     pub upload_quota_bytes: Option<i64>,
@@ -331,37 +330,57 @@ pub async fn public_assets(
         return Err(Problem::forbidden());
     };
 
-    let assets = match object_type.as_str() {
+    let domain_assets: Vec<keeppix_domain::Asset> = match object_type.as_str() {
         "album" => AlbumRepo::new(&state.db)
             .list_assets(&ctx, AlbumId::from_uuid(*object_id))
             .await?
             .into_iter()
-            .map(|row| AssetView::from_asset(&row.asset))
+            .map(|row| row.asset)
             .collect(),
         "asset" => {
             let asset = AssetRepo::new(&state.db)
                 .find_by_id(&ctx, AssetId::from_uuid(*object_id))
                 .await?;
-            vec![AssetView::from_asset(&asset)]
+            vec![asset]
         }
         "folder" => AssetRepo::new(&state.db)
             .find_by_folder(&ctx, FolderId::from_uuid(*object_id))
             .await?
             .into_iter()
             .filter(|a| a.status == AssetStatus::Indexed)
-            .map(|a| AssetView::from_asset(&a))
             .collect(),
         _ => return Err(Problem::forbidden()),
     };
 
-    let mut views = assets;
-    // Capture dates only. Coordinates are not on AssetView; spec §6.2
-    // (radius around "home") is deferred — see the Fase 3 ledger.
-    if *hide_metadata {
-        for asset in &mut views {
-            asset.taken_at_utc = None;
-        }
-    }
+    let asset_ids: Vec<AssetId> = domain_assets.iter().map(|a| a.id).collect();
+    let location_rows = if *hide_metadata {
+        Vec::new()
+    } else {
+        HomeRepo::new(&state.db)
+            .public_locations_for_assets(&asset_ids)
+            .await?
+    };
+    let locations: std::collections::HashMap<AssetId, _> = location_rows
+        .into_iter()
+        .map(|row| (row.asset_id, row))
+        .collect();
+
+    let views = domain_assets
+        .into_iter()
+        .map(|asset| {
+            let mut view = AssetView::from_asset(&asset);
+            if *hide_metadata {
+                view.taken_at_utc = None;
+                return view;
+            }
+            if let Some(row) = locations.get(&asset.id)
+                && !row.redact
+            {
+                view = view.with_location(row.location.map(GeoPointView::from), row.place_id);
+            }
+            view
+        })
+        .collect();
 
     Ok((
         share_headers(),

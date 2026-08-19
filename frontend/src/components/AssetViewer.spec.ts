@@ -1,11 +1,20 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { TimelineAsset } from '@/api/timeline'
 import { i18n } from '@/i18n'
 
 import AssetViewer from './AssetViewer.vue'
 import { previewSrc } from '@/api/media'
+
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
+  apiFetch
+}))
+
+afterEach(() => apiFetch.mockReset())
 
 function photo(id: string): TimelineAsset {
   return {
@@ -23,13 +32,21 @@ function photo(id: string): TimelineAsset {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
 describe('AssetViewer', () => {
   it('emits prev and next on arrow keys and keeps src reactive', async () => {
     const first = photo('aaaa')
     const second = photo('bbbb')
     const wrapper = mount(AssetViewer, {
       props: { asset: first, next: second },
-      global: { plugins: [i18n] }
+      global: { plugins: [createPinia(), i18n] }
     })
     expect(wrapper.get('img[alt="aaaa.jpg"]').attributes('src')).toBe(
       previewSrc(first.content_hash!)
@@ -42,5 +59,66 @@ describe('AssetViewer', () => {
     expect(wrapper.get('img[alt="bbbb.jpg"]').attributes('src')).toBe(
       previewSrc(second.content_hash!)
     )
+  })
+
+  it('shows a compact cluster map only when effective metadata has a location', async () => {
+    apiFetch.mockResolvedValue({
+      title: null,
+      description: null,
+      taken_at: null,
+      location: { lat: 41.9, lon: 12.5 },
+      place_id: null,
+      orientation: null
+    })
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('aaaa') },
+      global: {
+        plugins: [createPinia(), i18n],
+        stubs: {
+          MapClusterLayer: {
+            props: ['center'],
+            template: '<div data-testid="mini-map">{{ center }}</div>'
+          }
+        }
+      }
+    })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/assets/aaaa/metadata')
+    expect(wrapper.find('[data-testid="mini-map"]').exists()).toBe(true)
+  })
+
+  it('ignores stale metadata when the viewed asset changes', async () => {
+    const firstMetadata = deferred<{ location: { lat: number; lon: number } }>()
+    const secondMetadata = deferred<{ location: { lat: number; lon: number } }>()
+    apiFetch.mockImplementation((path: string) =>
+      path.includes('/aaaa/')
+        ? firstMetadata.promise
+        : secondMetadata.promise
+    )
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('aaaa') },
+      global: {
+        plugins: [createPinia(), i18n],
+        stubs: {
+          MapClusterLayer: {
+            props: ['center'],
+            template: '<div data-testid="mini-map">{{ center.lat }},{{ center.lon }}</div>'
+          }
+        }
+      }
+    })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await wrapper.setProps({ asset: photo('bbbb') })
+    secondMetadata.resolve({ location: { lat: 45, lon: 9 } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="mini-map"]').text()).toBe('45,9')
+
+    firstMetadata.resolve({ location: { lat: 41.9, lon: 12.5 } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="mini-map"]').text()).toBe('45,9')
   })
 })

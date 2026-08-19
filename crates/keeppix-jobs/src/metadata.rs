@@ -27,6 +27,9 @@ pub async fn run(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
     }
     let exif = read_exif(&path, asset.mtime).map_err(|e| JobError::Worker(e.to_string()))?;
     assets.insert_exif(asset_id, &exif).await?;
+    if let Some(gps) = exif.gps {
+        assets.set_exif_location(asset_id, gps).await?;
+    }
     assets
         .set_indexed(
             asset_id,

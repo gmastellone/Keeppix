@@ -11,6 +11,81 @@
   },
   "paths": {
     "/api/v1/assets/{id}": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile; `404` solo per\nun admin che chiede un id inesistente.",
+        "operationId": "assets_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vista pubblica dell'asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Id non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Asset inesistente per un admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
       "delete": {
         "tags": [
           "trash"
@@ -1681,6 +1756,484 @@
         ]
       }
     },
+    "/api/v1/map/clusters": {
+      "get": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`400` per bbox, zoom o scope malformati; `401` senza sessione; `403` per\nuno scope sconosciuto o non visibile.",
+        "operationId": "map_clusters",
+        "parameters": [
+          {
+            "name": "bbox",
+            "in": "query",
+            "description": "west,south,east,north in gradi WGS84",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "zoom",
+            "in": "query",
+            "description": "Livello di zoom, 0..=30",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "library, album, folder o search",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope_id",
+            "in": "query",
+            "description": "UUID dello scope",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Celle aggregate o punti singoli",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MapClusterView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Parametri non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Scope non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database non disponibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/map/regions": {
+      "get": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`401` senza sessione.",
+        "operationId": "map_regions_list",
+        "responses": {
+          "200": {
+            "description": "Stato regioni PMTiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RegionView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`403` per non-admin, `409` se già in download, `422` per metadati o URL\nfuori allowlist.",
+        "operationId": "map_regions_download",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadRegionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Download accodato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Download già attivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Sorgente o metadati non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/map/regions/{id}": {
+      "delete": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`403` per non-admin, `404` se assente, `500` se i file non sono rimovibili.",
+        "operationId": "map_regions_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id regione",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Regione eliminata"
+          },
+          "400": {
+            "description": "Percorso regione non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Regione assente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/map/regions/{id}/cancel": {
+      "post": {
+        "tags": [
+          "map"
+        ],
+        "summary": "# Errors\n`403` per non-admin, `404` se assente, `409` se non in download.",
+        "operationId": "map_regions_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id regione",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Download annullato"
+          },
+          "400": {
+            "description": "Percorso regione non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Regione assente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Regione non in download",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/map/tiles/{region}/{z}/{x}/{y}": {
+      "get": {
+        "tags": [
+          "map"
+        ],
+        "summary": "Serve il file PMTiles locale tramite byte range. Le coordinate restano nel\npercorso per il protocollo della mappa, ma il payload è letto direttamente\ndall'archivio senza decompressione o rendering server-side.",
+        "description": "# Errors\n`401` senza sessione; `404` se la regione è assente o è stata cancellata;\n`416` per un range non valido.",
+        "operationId": "map_tile_archive",
+        "parameters": [
+          {
+            "name": "region",
+            "in": "path",
+            "description": "Id della regione locale",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "z",
+            "in": "path",
+            "description": "Zoom",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "x",
+            "in": "path",
+            "description": "Coordinata tile X",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "y",
+            "in": "path",
+            "description": "Coordinata tile Y",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archivio PMTiles"
+          },
+          "206": {
+            "description": "Byte range PMTiles"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Regione non disponibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Range non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/metadata/batch": {
       "post": {
         "tags": [
@@ -1731,6 +2284,250 @@
           },
           "403": {
             "description": "Un asset non è visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/copy-location": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`400` se la sorgente non ha coordinate; `403` se sorgente o target non\nsono visibili/modificabili.",
+        "operationId": "metadata_copy_location",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyLocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Posizione effettiva copiata sui target, annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sorgente senza posizione o batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sorgente o target non visibile/modificabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/import-gpx": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`400` per GPX malformato o batch troppo grande; `403` se un asset non è\nvisibile/modificabile.",
+        "operationId": "metadata_import_gpx",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportGpxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Coordinate GPX abbinate e applicate in un batch annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "GPX non valido o batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non è visibile/modificabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/recalculate-timezones": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se la libreria non appartiene al chiamante.",
+        "operationId": "metadata_recalculate_timezones_apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecalculateTimezonesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Correzioni applicate in un unico batch annullabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimezoneApplyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Libreria non accessibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/metadata/batch/recalculate-timezones/preview": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "# Errors\n`401` se non autenticato; `403` se la libreria non appartiene al chiamante.",
+        "operationId": "metadata_recalculate_timezones_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecalculateTimezonesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Conteggio ed esempio senza alcuna scrittura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimezonePreviewView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Libreria non accessibile",
             "content": {
               "application/json": {
                 "schema": {
@@ -1857,6 +2654,173 @@
           },
           "409": {
             "description": "Sidecar già scritto con i valori di questo batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/places/reverse": {
+      "get": {
+        "tags": [
+          "places"
+        ],
+        "summary": "# Errors\n`400` se le coordinate non sono WGS84; `401` se non autenticato; `404` se\nnessuna località o riga amministrativa cade entro la propria soglia.",
+        "operationId": "places_reverse",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "description": "Latitudine WGS84, -90..=90",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "description": "Longitudine WGS84, -180..=180",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Località o area amministrativa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Coordinate non valide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nessuna località entro soglia",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/places/suggest": {
+      "get": {
+        "tags": [
+          "places"
+        ],
+        "summary": "# Errors\n`400` se `q` ha meno di due caratteri; `401` se non autenticato.",
+        "operationId": "places_suggest",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Nome, almeno due caratteri",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "near_user",
+            "in": "query",
+            "description": "Favorisce i luoghi vicini alle ultime 50 assegnazioni",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fino a dieci località",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlaceView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Query troppo corta o non valida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
             "content": {
               "application/json": {
                 "schema": {
@@ -2243,6 +3207,15 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "description": "west,south,east,north WGS84",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2306,6 +3279,15 @@
             "name": "library",
             "in": "query",
             "description": "Filtra su una libreria",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "description": "west,south,east,north WGS84",
             "required": false,
             "schema": {
               "type": "string"
@@ -2604,6 +3586,91 @@
           },
           "422": {
             "description": "Dati non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/me/home": {
+      "put": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Imposta o aggiorna il punto \"casa\" usato per il geofence sui link pubblici.",
+        "description": "# Errors\n`401` se non autenticato; `409` se `radius_m` non è positivo.",
+        "operationId": "users_set_home",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetHomeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Casa aggiornata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Raggio non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Rimuove casa: nessun geofence finché non viene reimpostata.",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "users_delete_home",
+        "responses": {
+          "204": {
+            "description": "Casa rimossa"
+          },
+          "401": {
+            "description": "Non autenticato",
             "content": {
               "application/json": {
                 "schema": {
@@ -3300,6 +4367,23 @@
           "kind": {
             "type": "string"
           },
+          "location": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GeoPointView"
+              }
+            ]
+          },
+          "place_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
           "size_bytes": {
             "type": "integer",
             "format": "int64"
@@ -3416,6 +4500,24 @@
           }
         }
       },
+      "CopyLocationRequest": {
+        "type": "object",
+        "required": [
+          "source_asset_id",
+          "target_asset_ids"
+        ],
+        "properties": {
+          "source_asset_id": {
+            "type": "string"
+          },
+          "target_asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "CreateLibraryRequest": {
         "type": "object",
         "required": [
@@ -3487,6 +4589,38 @@
           "files_untouched": {
             "type": "boolean",
             "description": "Sempre `true`: la cancellazione è solo sul database."
+          }
+        }
+      },
+      "DownloadRegionRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "size_bytes",
+          "version",
+          "source_url",
+          "checksum_sha256"
+        ],
+        "properties": {
+          "checksum_sha256": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -3682,6 +4816,57 @@
           }
         }
       },
+      "HomeView": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon",
+          "radius_m"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "radius_m": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ImportGpxRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "gpx"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "gpx": {
+            "type": "string",
+            "description": "Documento GPX UTF-8 completo."
+          },
+          "tolerance_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Se assente vale cinque minuti. Fuori dal range coperto si usa\nl'estremo solo entro questa tolleranza.",
+            "example": 5,
+            "minimum": 0
+          }
+        }
+      },
       "LibraryView": {
         "type": "object",
         "required": [
@@ -3753,6 +4938,36 @@
         "properties": {
           "user": {
             "$ref": "#/components/schemas/UserView"
+          }
+        }
+      },
+      "MapClusterView": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon",
+          "count",
+          "cover_asset_id",
+          "clustered"
+        ],
+        "properties": {
+          "clustered": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cover_asset_id": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -3906,6 +5121,59 @@
           }
         }
       },
+      "PlaceView": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "ascii_name",
+          "lat",
+          "lon",
+          "population"
+        ],
+        "properties": {
+          "admin1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "admin2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ascii_name": {
+            "type": "string"
+          },
+          "country_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "population": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "PreviewResponse": {
         "type": "object",
         "required": [
@@ -3985,6 +5253,77 @@
             "items": {
               "$ref": "#/components/schemas/OfflineLibraryView"
             }
+          }
+        }
+      },
+      "RecalculateTimezonesRequest": {
+        "type": "object",
+        "required": [
+          "library_id"
+        ],
+        "properties": {
+          "library_id": {
+            "type": "string"
+          },
+          "preview_token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required on apply; returned by preview. Absent on preview requests."
+          }
+        }
+      },
+      "RegionView": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "size_bytes",
+          "version",
+          "status",
+          "downloaded_bytes",
+          "source_url",
+          "checksum_sha256"
+        ],
+        "properties": {
+          "checksum_sha256": {
+            "type": "string"
+          },
+          "downloaded_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "downloaded_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -4163,6 +5502,27 @@
           }
         }
       },
+      "SetHomeRequest": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "radius_m": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "SetupRequest": {
         "type": "object",
         "required": [
@@ -4302,6 +5662,80 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "TimezoneApplyView": {
+        "type": "object",
+        "required": [
+          "changed_count"
+        ],
+        "properties": {
+          "batch_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "TimezoneExampleView": {
+        "type": "object",
+        "required": [
+          "asset_id",
+          "filename",
+          "before",
+          "after",
+          "timezone"
+        ],
+        "properties": {
+          "after": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "asset_id": {
+            "type": "string"
+          },
+          "before": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        }
+      },
+      "TimezonePreviewView": {
+        "type": "object",
+        "required": [
+          "count",
+          "preview_token"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "example": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TimezoneExampleView"
+              }
+            ]
+          },
+          "preview_token": {
+            "type": "string",
+            "description": "Opaque token to pass to the apply endpoint within 5 minutes."
           }
         }
       },
@@ -4459,6 +5893,14 @@
     {
       "name": "search",
       "description": "Ricerca da AST e ricerche salvate"
+    },
+    {
+      "name": "places",
+      "description": "Geocoding locale GeoNames"
+    },
+    {
+      "name": "map",
+      "description": "Cluster geografici con visibilità applicata"
     },
     {
       "name": "events",

@@ -70,7 +70,75 @@
     "kinds": { "all": "All", "photo": "Photos", "video": "Videos" },
     "empty": "No photos in this library.",
     "densityDown": "Fewer columns",
-    "densityUp": "More columns"
+    "densityUp": "More columns",
+    "mapFilter": "Showing photos inside the selected map area.",
+    "clearMapFilter": "Clear area"
+  },
+  "maps": {
+    "entry": "Map",
+    "title": "Photo map",
+    "back": "Photos",
+    "cluster": "{count} photos",
+    "openPhoto": "Open photo",
+    "drawArea": "Draw area",
+    "drawCancel": "Cancel drawing",
+    "noLibrary": "Add a photo library before opening the map.",
+    "regionManager": "Offline regions",
+    "nearbyPhotos": "See other photos taken here",
+    "errors": {
+      "unauthenticated": "Your session expired. Sign in again to continue.",
+      "forbidden": "You are not allowed to manage offline maps.",
+      "regionSourceNotAllowed": "This region download source is not allowed.",
+      "invalidRegion": "The region metadata is invalid.",
+      "downloadAlreadyActive": "This region is already downloading.",
+      "regionUnavailable": "Region no longer available"
+    },
+    "continents": {
+      "europe": "Europe",
+      "asia": "Asia",
+      "americas": "Americas"
+    },
+    "regions": {
+      "IT": "Italy",
+      "GR": "Greece",
+      "JP": "Japan",
+      "US": "United States"
+    },
+    "offline": {
+      "title": "Offline maps",
+      "subtitle": "Map data stays on this server and never reveals viewed areas to third parties.",
+      "downloaded": "Downloaded regions",
+      "catalog": "Add a region",
+      "download": "Download",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "empty": "No offline regions have been added.",
+      "downloadFailed": "Download failed",
+      "status": {
+        "available": "Available",
+        "downloading": "Downloading",
+        "error": "Error"
+      },
+      "fields": {
+        "id": "Region ID",
+        "label": "Label",
+        "size": "Size in bytes",
+        "version": "Version",
+        "url": "HTTPS download URL",
+        "sha256": "SHA-256 checksum"
+      }
+    },
+    "places": {
+      "label": "Place",
+      "placeholder": "Search for a place…",
+      "search": "Search",
+      "mapUnavailable": "Map unavailable for this area",
+      "applyAnyway": "The location will still be saved to {count} photos.",
+      "apply": "Apply",
+      "downloadRegionAction": "Download Region",
+      "downloadRegion": "Download {region}",
+      "regionDownloading": "Region download in progress…"
+    }
   },
   "search": {
     "placeholder": "Search photos…",
@@ -131,7 +199,13 @@
     "errorAssets": "Unreadable files",
     "duplicates": "Duplicates",
     "none": "Nothing to report.",
-    "reclaimable": "{count} copies, {bytes} bytes reclaimable"
+    "reclaimable": "{count} copies, {bytes} bytes reclaimable",
+    "timezones": "Timezone recalculation",
+    "tzLibrary": "Library",
+    "tzPreview": "Preview",
+    "tzCount": "{count} photos to fix",
+    "tzApply": "Apply corrections",
+    "tzDone": "{count} photos corrected."
   },
   "groups": {
     "entry": "Groups",
@@ -195,6 +269,12 @@
     "disable": "Disable",
     "enable": "Enable",
     "disabled": "Disabled",
+    "homeTitle": "Home location",
+    "homeLat": "Latitude",
+    "homeLon": "Longitude",
+    "homeRadius": "Radius (m)",
+    "homeSave": "Save",
+    "homeDelete": "Remove",
     "passwordTitle": "Change my password",
     "currentPassword": "Current password",
     "newPassword": "New password",
@@ -214,7 +294,13 @@
     "count": "{count} photos selected",
     "fieldPlaceholder": "Field name",
     "valuePlaceholder": "New value",
+    "place": "Location",
     "apply": "Apply",
+    "copyLocation": "Copy location from another photo",
+    "copySourcePlaceholder": "Source photo ID",
+    "importGpx": "Import GPX track",
+    "gpxPlaceholder": "Paste GPX content…",
+    "gpxTolerance": "Tolerance (min)",
     "done": "Changes applied."
   },
   "shared": {

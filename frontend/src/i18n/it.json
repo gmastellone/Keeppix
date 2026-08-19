@@ -70,7 +70,75 @@
     "kinds": { "all": "Tutti", "photo": "Foto", "video": "Video" },
     "empty": "Nessuna foto in questa libreria.",
     "densityDown": "Meno colonne",
-    "densityUp": "Più colonne"
+    "densityUp": "Più colonne",
+    "mapFilter": "Foto nell'area selezionata sulla mappa.",
+    "clearMapFilter": "Rimuovi area"
+  },
+  "maps": {
+    "entry": "Mappa",
+    "title": "Mappa delle foto",
+    "back": "Foto",
+    "cluster": "{count} foto",
+    "openPhoto": "Apri foto",
+    "drawArea": "Disegna area",
+    "drawCancel": "Annulla disegno",
+    "noLibrary": "Aggiungi una libreria fotografica prima di aprire la mappa.",
+    "regionManager": "Regioni offline",
+    "nearbyPhotos": "Vedi le altre foto scattate qui",
+    "errors": {
+      "unauthenticated": "Sessione scaduta. Accedi di nuovo per continuare.",
+      "forbidden": "Non hai il permesso di gestire le mappe offline.",
+      "regionSourceNotAllowed": "Questa sorgente di download non è consentita.",
+      "invalidRegion": "I metadati della regione non sono validi.",
+      "downloadAlreadyActive": "Questa regione è già in scaricamento.",
+      "regionUnavailable": "Regione non più disponibile"
+    },
+    "continents": {
+      "europe": "Europa",
+      "asia": "Asia",
+      "americas": "Americhe"
+    },
+    "regions": {
+      "IT": "Italia",
+      "GR": "Grecia",
+      "JP": "Giappone",
+      "US": "Stati Uniti"
+    },
+    "offline": {
+      "title": "Mappe offline",
+      "subtitle": "I dati della mappa restano su questo server e non rivelano a terzi le zone visualizzate.",
+      "downloaded": "Regioni scaricate",
+      "catalog": "Aggiungi una regione",
+      "download": "Scarica",
+      "cancel": "Annulla",
+      "delete": "Elimina",
+      "empty": "Non è stata aggiunta alcuna regione offline.",
+      "downloadFailed": "Download non riuscito",
+      "status": {
+        "available": "Disponibile",
+        "downloading": "Scaricamento",
+        "error": "Errore"
+      },
+      "fields": {
+        "id": "ID regione",
+        "label": "Etichetta",
+        "size": "Dimensione in byte",
+        "version": "Versione",
+        "url": "URL HTTPS del download",
+        "sha256": "Checksum SHA-256"
+      }
+    },
+    "places": {
+      "label": "Posizione",
+      "placeholder": "Cerca una località…",
+      "search": "Cerca",
+      "mapUnavailable": "Mappa non disponibile per questa zona",
+      "applyAnyway": "La posizione verrà salvata comunque su {count} foto.",
+      "apply": "Applica",
+      "downloadRegionAction": "Scarica regione",
+      "downloadRegion": "Scarica {region}",
+      "regionDownloading": "Download della regione in corso…"
+    }
   },
   "search": {
     "placeholder": "Cerca foto…",
@@ -131,7 +199,13 @@
     "errorAssets": "File illeggibili",
     "duplicates": "Duplicati",
     "none": "Niente da segnalare.",
-    "reclaimable": "{count} copie, {bytes} byte recuperabili"
+    "reclaimable": "{count} copie, {bytes} byte recuperabili",
+    "timezones": "Ricalcolo fusi orari",
+    "tzLibrary": "Libreria",
+    "tzPreview": "Anteprima",
+    "tzCount": "{count} foto da correggere",
+    "tzApply": "Applica correzioni",
+    "tzDone": "{count} foto corrette."
   },
   "groups": {
     "entry": "Gruppi",
@@ -195,6 +269,12 @@
     "disable": "Disabilita",
     "enable": "Riabilita",
     "disabled": "Disabilitato",
+    "homeTitle": "Posizione di casa",
+    "homeLat": "Latitudine",
+    "homeLon": "Longitudine",
+    "homeRadius": "Raggio (m)",
+    "homeSave": "Salva",
+    "homeDelete": "Rimuovi",
     "passwordTitle": "Cambia la mia password",
     "currentPassword": "Password attuale",
     "newPassword": "Nuova password",
@@ -214,7 +294,13 @@
     "count": "{count} foto selezionate",
     "fieldPlaceholder": "Nome campo",
     "valuePlaceholder": "Nuovo valore",
+    "place": "Posizione",
     "apply": "Applica",
+    "copyLocation": "Copia posizione da un'altra foto",
+    "copySourcePlaceholder": "ID della foto sorgente",
+    "importGpx": "Importa traccia GPX",
+    "gpxPlaceholder": "Incolla il contenuto GPX…",
+    "gpxTolerance": "Tolleranza (min)",
     "done": "Modifiche applicate."
   },
   "shared": {

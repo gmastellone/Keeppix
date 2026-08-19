@@ -4,7 +4,7 @@ use chrono::{TimeZone, Timelike, Utc};
 use harness::{TestServer, client_headers};
 use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, UserRepo};
 use keeppix_domain::{
-    AssetKind, AssetName, AuthContext, FolderId, NewAsset, NewLibrary, NewUser, Password,
+    AssetKind, AssetName, AuthContext, FolderId, GeoPoint, NewAsset, NewLibrary, NewUser, Password,
     SystemRole, Username, hash_password,
 };
 use serde_json::json;
@@ -82,6 +82,97 @@ async fn timeline_page_uses_keyset_cursor() {
     assert_eq!(rest.len(), 1);
     assert_ne!(rest[0]["id"], items[0]["id"]);
     assert_ne!(rest[0]["id"], items[1]["id"]);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn asset_detail_returns_the_existing_public_view_without_coordinates() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "map-point.jpg", 2024, 7, 10).await;
+    let asset = AssetRepo::new(&server.db)
+        .find_by_folder(&admin_ctx(&server).await, folder)
+        .await
+        .unwrap()
+        .remove(0);
+
+    let response = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{}", asset.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["id"], asset.id.to_string());
+    assert_eq!(body["filename"], "map-point.jpg");
+    assert!(body.get("location").is_none());
+    assert!(body.get("lat").is_none());
+    assert!(body.get("lon").is_none());
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_bbox_filters_pages_and_bucket_counts() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "rome.jpg", 2024, 7, 10).await;
+    index_photo(&server, folder, "kyoto.jpg", 2024, 7, 9).await;
+    let assets = AssetRepo::new(&server.db)
+        .find_by_folder(&admin_ctx(&server).await, folder)
+        .await
+        .unwrap();
+    let rome = assets
+        .iter()
+        .find(|asset| asset.filename.as_str() == "rome.jpg")
+        .unwrap();
+    let kyoto = assets
+        .iter()
+        .find(|asset| asset.filename.as_str() == "kyoto.jpg")
+        .unwrap();
+    AssetRepo::new(&server.db)
+        .set_exif_location(
+            rome.id,
+            GeoPoint {
+                lat: 41.9028,
+                lon: 12.4964,
+            },
+        )
+        .await
+        .unwrap();
+    AssetRepo::new(&server.db)
+        .set_exif_location(
+            kyoto.id,
+            GeoPoint {
+                lat: 35.0116,
+                lon: 135.7681,
+            },
+        )
+        .await
+        .unwrap();
+
+    let buckets = server
+        .client
+        .get(server.url("/api/v1/timeline/buckets?bbox=10,40,13,43"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(buckets[0]["count"], 1);
+
+    let page = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-07&bbox=10,40,13,43"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(page["assets"].as_array().unwrap().len(), 1);
+    assert_eq!(page["assets"][0]["filename"], "rome.jpg");
 }
 
 #[tokio::test]

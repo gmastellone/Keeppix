@@ -34,6 +34,10 @@ export interface ScanStatus {
   last_scan_at: string | null
 }
 
+export function fetchLibraries(): Promise<Library[]> {
+  return apiFetch('/api/v1/libraries')
+}
+
 export function previewLibraryPath(path: string): Promise<LibraryPreview> {
   const query = new URLSearchParams({ path })
   return apiFetch(`/api/v1/libraries/preview?${query}`)

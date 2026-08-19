@@ -4,9 +4,11 @@ use chrono::{TimeZone, Utc};
 use harness::TestDb;
 use keeppix_db::{AssetRepo, DbError, FolderRepo, LibraryRepo};
 use keeppix_domain::{
-    AssetId, AssetKind, AssetName, AssetStatus, AuthContext, FolderId, LibraryId, NewAsset,
-    NewLibrary, SystemRole, UserId,
+    AssetId, AssetKind, AssetName, AssetStatus, AuthContext, FolderId, GeoPoint, LibraryId,
+    NewAsset, NewLibrary, SystemRole, UserId,
 };
+
+type LocationRow = (String, Option<f64>, Option<f64>, Option<String>);
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_library(test: &TestDb, owner: UserId, name: &str, path: &str) -> LibraryId {
@@ -396,4 +398,115 @@ async fn set_kind_persists_and_unchanged_upsert_does_not_reset_it() {
     );
     let again = repo.get_for_scan(asset.id).await.unwrap();
     assert_eq!(again.kind, AssetKind::RawImage);
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines, clippy::unwrap_used)]
+async fn exif_location_does_not_overwrite_any_assigned_location() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let repo = AssetRepo::new(test.db());
+    let unset = repo
+        .upsert_discovered(discovered(folder.id, "unset.jpg", 100))
+        .await
+        .unwrap()
+        .unwrap();
+    let user = repo
+        .upsert_discovered(discovered(folder.id, "user.jpg", 100))
+        .await
+        .unwrap()
+        .unwrap();
+    let map_pin = repo
+        .upsert_discovered(discovered(folder.id, "map-pin.jpg", 100))
+        .await
+        .unwrap()
+        .unwrap();
+    let copied = repo
+        .upsert_discovered(discovered(folder.id, "copied.jpg", 100))
+        .await
+        .unwrap()
+        .unwrap();
+    let gpx = repo
+        .upsert_discovered(discovered(folder.id, "gpx.jpg", 100))
+        .await
+        .unwrap()
+        .unwrap();
+
+    for (asset, source, lon, lat) in [
+        (user.id, "user", 9.0_f64, 45.0_f64),
+        (map_pin.id, "map_pin", 12.5_f64, 41.9_f64),
+        (copied.id, "copied", 151.2_f64, -33.8_f64),
+        (gpx.id, "gpx", 18.0_f64, 50.0_f64),
+    ] {
+        sqlx::query(
+            "UPDATE assets \
+             SET location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, \
+                 location_source = $4 \
+             WHERE id = $1",
+        )
+        .bind(asset.as_uuid())
+        .bind(lon)
+        .bind(lat)
+        .bind(source)
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+    }
+
+    let exif = GeoPoint {
+        lat: -34.5,
+        lon: -58.375,
+    };
+    for asset in [unset.id, user.id, map_pin.id, copied.id, gpx.id] {
+        repo.set_exif_location(asset, exif).await.unwrap();
+    }
+
+    let rows: Vec<LocationRow> = sqlx::query_as(
+        "SELECT filename, ST_Y(location::geometry), ST_X(location::geometry), location_source \
+         FROM assets ORDER BY filename",
+    )
+    .fetch_all(test.db().pool())
+    .await
+    .unwrap();
+
+    assert_eq!(
+        rows,
+        vec![
+            (
+                "copied.jpg".to_owned(),
+                Some(-33.8),
+                Some(151.2),
+                Some("copied".to_owned()),
+            ),
+            (
+                "gpx.jpg".to_owned(),
+                Some(50.0),
+                Some(18.0),
+                Some("gpx".to_owned()),
+            ),
+            (
+                "map-pin.jpg".to_owned(),
+                Some(41.9),
+                Some(12.5),
+                Some("map_pin".to_owned()),
+            ),
+            (
+                "unset.jpg".to_owned(),
+                Some(-34.5),
+                Some(-58.375),
+                Some("exif".to_owned()),
+            ),
+            (
+                "user.jpg".to_owned(),
+                Some(45.0),
+                Some(9.0),
+                Some("user".to_owned()),
+            ),
+        ]
+    );
 }
