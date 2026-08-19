@@ -267,7 +267,20 @@ CREATE INDEX album_assets_added_by_idx ON album_assets (added_by);
 Va anche rivisto il filtro `status <> 'trashed'` in `AssetRepo` — oggi
 scavalca l'indice parziale su `status`, che copre solo `discovered`/`error`.
 
-### 6.4 Cosa invece è già corretto, verificato non assunto
+### 6.4 N+1 nella creazione dei percorsi cartella
+
+`FolderRepo::ensure_path` scorre i segmenti del percorso e per ciascuno fa
+un `ensure_child_on` — due andate e ritorno (un upsert più una rilettura)
+per segmento, non un'unica query. Confinato in una singola transazione e al
+percorso di scrittura dell'ingest/scansione — non tocca timeline o ricerca,
+che restano i percorsi di lettura frequentati. Da valutare qui se vale la
+riscrittura a una sola query (es. `INSERT ... ON CONFLICT` su tutti i
+segmenti insieme) o se il costo reale, misurato, non lo giustifica: un
+import è un'operazione rara rispetto a una richiesta di timeline, e non è
+detto che l'ottimizzazione paghi il rischio di riscrivere una funzione che
+oggi è corretta.
+
+### 6.5 Cosa invece è già corretto, verificato non assunto
 
 - **Un solo pool di connessioni, un solo processo** (`sqlx::PgPool`, 10
   connessioni di default, configurabile) — niente PgBouncer: risolverebbe un

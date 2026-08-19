@@ -163,6 +163,12 @@ CREATE TABLE tags (
     UNIQUE (name, kind)
 );
 
+-- `parent_id` (categoria → tag figli) senza indice sarebbe una scansione di
+-- `tags` per ogni categoria aperta. Tabella piccola (governata da un
+-- umano, non dalla scala delle foto) — la differenza si sente solo con
+-- centinaia di tag, ma costa nulla averlo da subito.
+CREATE INDEX tags_parent_idx ON tags (parent_id) WHERE parent_id IS NOT NULL;
+
 -- Assegnazioni materializzate. Sono una *cache* di un confronto vettoriale,
 -- non una seconda verità: si possono ricostruire, e servono a rendere il
 -- browsing istantaneo invece di ricalcolare a ogni click.
