@@ -2,7 +2,6 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import * as uploadApi from '@/api/upload'
-import { ApiProblem } from '@/api/client'
 
 export type UploadStatus = 'queued' | 'uploading' | 'paused' | 'done' | 'error' | 'skipped'
 export type CollisionOutcome = 'created' | 'skipped_duplicate' | 'renamed'
@@ -76,6 +75,9 @@ export const useUploadStore = defineStore('upload', () => {
   /** File in memoria per id di sessione — mai persistiti, mai in `sessions`. */
   const files = new Map<string, File>()
   const chunkSizes = new Map<string, number>()
+  /** Hash blake3 già calcolato dal pre-check, per id di sessione locale —
+   * evita di richiedere di nuovo il file al browser per `expected_hash`. */
+  const expectedHashes = new Map<string, string>()
   let activeCount = 0
 
   function persist(): void {
@@ -156,6 +158,7 @@ export const useUploadStore = defineStore('upload', () => {
 
       const localId = nextPlaceholderId()
       files.set(localId, file)
+      expectedHashes.set(localId, hash)
       sessions.value.push({
         id: localId,
         filename: file.name,
@@ -205,11 +208,13 @@ export const useUploadStore = defineStore('upload', () => {
         const created = await uploadApi.createSession({
           target_folder_id: session.targetFolderId,
           filename: session.filename,
-          expected_size: session.expectedSize
+          expected_size: session.expectedSize,
+          expected_hash: expectedHashes.get(id)
         })
         remoteId = created.id
         files.delete(id)
         files.set(remoteId, file)
+        expectedHashes.delete(id)
         session.id = remoteId
         persist()
       }
@@ -250,9 +255,13 @@ export const useUploadStore = defineStore('upload', () => {
           throw err
         }
       }
-    } catch (err) {
+    } catch {
+      // `session.error` è sempre una chiave i18n, mai testo grezzo dal
+      // backend (`ApiProblem.type`, es. `keeppix/some-error`): la vista
+      // traduce `session.error` con `t()` e una stringa senza corrispondenza
+      // in `en.json`/`it.json` andrebbe in rendering rotto silenzioso.
       session.status = 'error'
-      session.error = err instanceof ApiProblem ? err.type : 'upload.errors.unknown'
+      session.error = 'upload.errors.unknown'
       persist()
     }
   }
@@ -271,7 +280,13 @@ export const useUploadStore = defineStore('upload', () => {
     if (!session) return
     if (session.status !== 'paused' && session.status !== 'error') return
     if (!files.has(session.id)) {
+      // Una sessione ripresa da `localStorage` non ha mai il `File` (non
+      // sopravvive a un refresh): resta visibile come "error", non "paused"
+      // silenzioso, così `UploadPanel` mostra il messaggio all'utente invece
+      // di un pannello fermo senza spiegazione (vedi ledger di Fase 5).
+      session.status = 'error'
       session.error = 'upload.errors.missingFile'
+      persist()
       return
     }
     session.status = 'queued'
