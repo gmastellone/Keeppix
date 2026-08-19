@@ -49,7 +49,13 @@ describe('PlacePicker', () => {
     await flushPromises()
     await wrapper.get('[data-place-id="1857910"]').trigger('click')
 
-    expect(wrapper.text()).toContain('Map unavailable for this area')
+    const banner = wrapper.get('[role="status"]')
+    expect(banner.text()).toContain('Map unavailable for this area')
+    expect(banner.get('[data-action="apply"]').text()).toBe('Apply')
+    expect(banner.get('[data-action="download-region"]').text()).toBe('Download Region')
+    expect(banner.get('[data-action="download-region"]').attributes('href')).toBe(
+      '/settings/maps/offline'
+    )
     await wrapper.get('[data-action="apply"]').trigger('click')
     await flushPromises()
 

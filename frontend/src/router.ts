@@ -12,6 +12,11 @@ export const router = createRouter({
     // Chunk lazy come mappa e impostazioni (§10.9): il budget dei 150 KB
     // iniziali riguarda solo ciò che `index.html` carica subito.
     { path: '/map', component: () => import('@/views/MapView.vue'), meta: { auth: true } },
+    {
+      path: '/settings/maps/offline',
+      component: () => import('@/views/settings/MapsOfflineView.vue'),
+      meta: { auth: true }
+    },
     { path: '/culling', component: () => import('@/views/CullingView.vue'), meta: { auth: true } },
     { path: '/albums', component: () => import('@/views/AlbumsView.vue'), meta: { auth: true } },
     { path: '/shares', component: () => import('@/views/SharesView.vue'), meta: { auth: true } },
