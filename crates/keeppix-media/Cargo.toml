@@ -28,6 +28,7 @@ tempfile = "3"
 # Confronto nel test di budget: il lossless "odierno" (VP8L) contro cui
 # il lossy deve stare sotto 1/3. Non è nel binario di produzione.
 image-webp = "0.2"
+serial_test = "3"
 
 [lints]
 workspace = true
