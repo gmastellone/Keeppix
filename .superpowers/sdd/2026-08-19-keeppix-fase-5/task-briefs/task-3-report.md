@@ -117,3 +117,62 @@ fatto:
    library: nessuna era già presente nelle dipendenze e non ne ho aggiunta
    una per questo. Sono decorative (`aria-hidden="true"`); il testo di
    stato accessibile viene sempre da `t('upload.status.*')`.
+
+## Fix round
+
+Commit: `98c60bf` (`fix(frontend): show session error in upload panel and
+normalize error keys`, branch `fase-5`).
+
+### Problemi corretti
+
+**Important #1 e #2 — `session.error` mai mostrato + convenzione
+inconsistente.**
+
+- `stores/upload.ts`, catch di `runUpload`: prima salvava `err.type` grezzo
+  (es. `keeppix/some-error`) quando l'errore era un `ApiProblem`, invece
+  della convenzione "chiave i18n" usata ovunque altrove
+  (`upload.errors.expired`, `upload.errors.missingFile`). Ora salva sempre
+  `upload.errors.unknown` — chiave già presente in `en.json`/`it.json`,
+  nessuna aggiunta necessaria. Rimosso anche l'import di `ApiProblem`, non
+  più usato in questo file.
+- `components/UploadPanel.vue`, `statusLabel()`: leggeva solo
+  `session.status`. Ora, se `session.status === 'error'` oppure
+  (`session.status === 'paused' && session.error`), restituisce
+  `t(session.error)` invece della label generica.
+- `stores/upload.ts`, `resume()`: quando il `File` non è più in memoria
+  (sessione ripresa da `localStorage` dopo un refresh), ora imposta anche
+  `session.status = 'error'` (non solo `session.error`), così una sessione
+  "bloccata" è visibilmente in errore invece di restare "paused" senza
+  spiegazione. Ho scelto di fare **entrambe** le opzioni proposte dalla
+  review (fix in `resume()` *e* branch difensivo in `statusLabel()` per lo
+  stato `paused`+`error`) — ruling e motivazione nel ledger di fase.
+
+**Important #3 — test gap.**
+
+Aggiunto un test in `UploadPanel.spec.ts` (nuovo `describe` "UploadPanel.vue"
+che monta il componente con `@vue/test-utils` e il plugin `i18n` reale,
+non solo lo store): una sessione con `status: 'error'` e
+`error: 'upload.errors.missingFile'` produce nel DOM il testo tradotto
+specifico (`t('upload.errors.missingFile')`), non la label generica
+`t('upload.status.error')` ("Failed"/"Non riuscito").
+
+**Minor — `expected_hash` sul pre-check.**
+
+L'hash blake3 calcolato da `addFiles` per il pre-check (`hashFile`) viene
+ora conservato in una mappa `expectedHashes` (per id di sessione locale) e
+passato come `expected_hash` a `createSession` in `runUpload`, invece di
+essere scartato dopo il pre-check.
+
+### Output di verifica
+
+`npm run test`:
+
+```
+Test Files  23 passed (23)
+     Tests  89 passed (89)
+```
+
+`npx vue-tsc --noEmit`: nessun output, exit 0 — pulito.
+
+`npm run lint`: 0 errori, 9 warning pre-esistenti in `SharesView.vue`
+(`vue/html-indent`), non toccato da questo fix round.
