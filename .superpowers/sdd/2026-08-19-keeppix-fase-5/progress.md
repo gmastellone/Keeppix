@@ -604,3 +604,84 @@ dichiarato di questo task.
 Task 9: complete (commit da annunciare in `task-briefs/task-9-report.md`,
 test verdi: 91/91 Vitest incluso `i18n.spec.ts` per la parità delle chiavi,
 `vue-tsc --noEmit` e `eslint` puliti sui file toccati).
+
+## Task 10: PWA Share Target (frontend, ultimo task di Fase 5)
+
+Ruling (Task 10): **la verifica manuale su un device Android/iOS reale è
+differita** — il brief lo dice esplicitamente ("non è un task pinnabile solo
+da test automatici") e questo ambiente CI/agente non ha un dispositivo reale
+né un browser con supporto Web Share Target da guidare. Implementata solo la
+parte tecnica (manifest, service worker, rotta, store); nessuna verifica
+end-to-end "Condividi -> Keeppix" dalla galleria è stata eseguita. Costo se
+il comportamento reale su Android Chrome divergesse dall'implementazione:
+va rifatta la verifica (e eventualmente il service worker) al primo test su
+device vero, prima di considerare la feature davvero pronta per gli utenti.
+
+Ruling (Task 10): **`targetFolderId` diventa `string | null`** in
+`UploadSessionState`/`PersistedSession`/`addFiles`, e `pump()` ora salta le
+sessioni "queued" con `targetFolderId === null`. Il brief per
+`addSharedFiles` mostra letteralmente `addFiles(files, null)` con il
+commento "null = richiede scelta all'utente, come gli upload normali" — ma
+**quel meccanismo non esiste**: il Task 3 non ha mai costruito un'interfaccia
+di scelta della cartella di destinazione (il mockup §4.1 della spec la
+mostra, ma è un mockup, non codice; `addFiles` richiede da sempre un
+`folderId: string` non opzionale, e in produzione nessuna vista lo chiama
+ancora — solo i test lo fanno con un id fisso). Costruire quell'interfaccia
+ora avrebbe significato implementare, dentro il Task 10, una feature del
+Task 3 mai completata: fuori scope. Ho scelto la decisione più piccola che
+rispetta la lettera del brief: il tipo accetta `null`, la sessione condivisa
+viene accodata come "queued" (visibile nel pannello, soddisfa il test
+richiesto), ma `pump()` non la avvia mai finché non ha una cartella —
+**quindi, con questo commit, i file condivisi dalla galleria restano in coda
+per sempre senza un modo per l'utente di assegnargli una destinazione e
+farli partire**. È un gap reale, non solo teorico. Costo se sbagliato: la
+feature "condividi -> Keeppix" è visibile ma non porta a un upload
+completato finché un task futuro non aggiunge un selettore di cartella al
+pannello di upload (per gli upload normali *e* per quelli condivisi, dato
+che il problema è lo stesso). Raccomando di aprire quel task esplicitamente
+prima di comunicare la feature come utilizzabile.
+
+Ruling (Task 10): **file per la Share Target: Cache Storage, non
+IndexedDB.** Il service worker (`public/sw.js`) intercetta il POST a
+`/share-target`, legge `event.request.formData()`, salva ogni file come
+`Response` in una cache dedicata (`keeppix-share-target-v1`) più un indice
+JSON con nome/tipo, poi fa `Response.redirect('/share-target', 303)`. La SPA
+(`src/pwa/shareTarget.ts`, letta da `ShareTargetView.vue`) rilegge l'indice,
+ricostruisce i `File` dai blob e cancella le entry lette. Scelto Cache
+Storage invece di IndexedDB perché è l'API più semplice per spostare byte
+grezzi (un `Blob`) dal service worker alla pagina senza serializzazione
+custom, ed è quella usata nell'esempio Chrome/web.dev per Share Target di
+file. Costo se sbagliato: nessuna dipendenza nuova in entrambi i casi, solo
+un possibile refactor interno a questi due file se IndexedDB si rivelasse
+necessaria per altri motivi (es. persistenza oltre la sessione del
+service worker).
+
+Ruling (Task 10): **nome della cache e chiavi duplicati** in
+`public/sw.js` e `src/pwa/shareTarget.ts` invece di una costante condivisa —
+`public/sw.js` è servito com'è dalla cartella `public/`, non passa dal
+bundler Vite, quindi non può importare da `src/`. Un commento in entrambi i
+file marca la dipendenza reciproca. Costo se sbagliato: se uno dei due file
+cambia la chiave senza aggiornare l'altro, la Share Target si rompe
+silenziosamente (nessun file letto, nessun errore) — rischio reale ma bordo
+piccolo (due costanti, un solo punto di lettura/scrittura ciascuna).
+
+Ruling (Task 10): rotta `/share-target` con `meta: { auth: true }`, come
+tutte le altre rotte autenticate. Se l'utente non ha una sessione attiva
+quando l'OS apre `/share-target`, la guardia del router lo manda a
+`/login` e i file restano nella cache del service worker non letti (la
+`ShareTargetView` non viene mai montata). Non gestito un rientro automatico
+a `/share-target` dopo il login riuscito: è un edge case reale (condividere
+da disconnesso) ma il flusso di login non porta oggi a nessun "redirect di
+ritorno" per nessun'altra rotta protetta, quindi non è un'incoerenza
+introdotta da questo task — segnalato qui come voce differita, non
+risolto.
+
+Task 10: complete (commit `60c9a3b`, `feat(frontend): PWA Share Target for
+photo upload from the phone gallery`). Verifica: `npm run test` 92/92 verdi
+(nuovo test `shared_files_are_queued_for_upload` osservato fallire per il
+motivo giusto — `store.addSharedFiles is not a function` — prima
+dell'implementazione, poi verde), `npx vue-tsc --noEmit` pulito, `npm run
+build` verde con `manifest.webmanifest` e `sw.js` raggiungibili in
+`dist/`, `npm run lint` 0 errori (9 warning pre-esistenti in
+`SharesView.vue`, non toccato). **Verifica su device Android/iOS reale non
+eseguita** — vedi primo ruling sopra e `task-briefs/task-10-report.md`.
