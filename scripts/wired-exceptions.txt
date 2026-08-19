@@ -21,6 +21,7 @@ fn get_or_create_secret fase-6
 fn extract_poster fase-6
 route /health ops
 route /api/openapi.json ci
+route /sync/delta fase-6
 
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore
