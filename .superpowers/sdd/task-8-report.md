@@ -80,3 +80,22 @@ Budget: 153,600 bytes. Headroom: 68,982 bytes.
 Neither `maplibre-gl-DBpNYYPa.js` (253.76 KB gzip) nor
 `maplibre-gl-CKRTiAqP.css` is referenced by `dist/index.html`; both remain
 behind the dynamic map import.
+
+## Review fix round
+
+RED:
+
+- Review regression run: 9 tests failed as expected. The failures reproduced
+  the fabricated region catalog, absent post-download polling, generic/silent
+  API errors, first-library-only clustering, and stale mini-map metadata.
+
+GREEN:
+
+- Focused review suites: 14/14 passed.
+- Full Vitest suite: 80/80 passed across 22 files.
+- `npx vue-tsc --noEmit`, production build, and scoped ESLint passed.
+- Entry assets referenced by `dist/index.html`: 19,473 + 60,650 + 4,877 =
+  **85,000 gzip bytes**, below 153,600. MapLibre remains lazy and is not
+  referenced by `dist/index.html`.
+- Rust was unchanged; `./scripts/test.sh` and Cargo checks were intentionally
+  not run.

@@ -20,6 +20,7 @@ const info = ref(false)
 const metadata = ref<{
   location: { lat: number; lon: number } | null
 }>()
+let metadataRequestSequence = 0
 
 function previewSrc(asset: TimelineAsset): string {
   return asset.content_hash
@@ -42,10 +43,19 @@ function onKey(e: KeyboardEvent) {
 }
 
 async function loadMetadata() {
+  const sequence = ++metadataRequestSequence
+  const assetId = props.asset.id
   try {
-    metadata.value = await apiFetch(`/api/v1/assets/${props.asset.id}/metadata`)
+    const response = await apiFetch<{
+      location: { lat: number; lon: number } | null
+    }>(`/api/v1/assets/${assetId}/metadata`)
+    if (sequence === metadataRequestSequence && assetId === props.asset.id) {
+      metadata.value = response
+    }
   } catch {
-    metadata.value = undefined
+    if (sequence === metadataRequestSequence && assetId === props.asset.id) {
+      metadata.value = undefined
+    }
   }
 }
 
@@ -54,6 +64,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 watch(
   () => props.asset.id,
   () => {
+    metadataRequestSequence += 1
     metadata.value = undefined
     if (info.value) void loadMetadata()
   }

@@ -6,12 +6,10 @@ import { useRoute } from 'vue-router'
 import { applyMetadataBatch } from '@/api/metadata'
 import PlacePicker from '@/components/PlacePicker.vue'
 import { useMapsStore } from '@/stores/maps'
-import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
 const route = useRoute()
 const maps = useMapsStore()
-const session = useSessionStore()
 
 const assetIds = ref<string[]>(
   typeof route.query.ids === 'string' ? route.query.ids.split(',') : []
@@ -79,7 +77,6 @@ onMounted(() => {
       <PlacePicker
         :asset-ids="assetIds"
         :available-region-ids="maps.availableRegionIds"
-        :can-download="session.user?.role === 'admin'"
         @applied="done = true"
       />
     </section>

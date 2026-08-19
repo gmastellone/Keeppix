@@ -2,20 +2,12 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import {
-  REGION_CATALOG,
-  type Place,
-  useMapsStore
-} from '@/stores/maps'
+import { mapErrorKey, type Place, useMapsStore } from '@/stores/maps'
 
-const props = withDefaults(
-  defineProps<{
-    assetIds: string[]
-    availableRegionIds: string[]
-    canDownload?: boolean
-  }>(),
-  { canDownload: false }
-)
+const props = defineProps<{
+  assetIds: string[]
+  availableRegionIds: string[]
+}>()
 
 const emit = defineEmits<{ applied: [place: Place] }>()
 const { t } = useI18n()
@@ -25,17 +17,14 @@ const results = ref<Place[]>([])
 const selected = ref<Place>()
 const searching = ref(false)
 const applying = ref(false)
-const downloading = ref(false)
-const error = ref(false)
+const error = ref<unknown>()
 
-const selectedRegion = computed(() =>
-  REGION_CATALOG.find((region) => region.id === selected.value?.country_code)
-)
 const mapUnavailable = computed(
   () =>
     selected.value?.country_code != null &&
     !props.availableRegionIds.includes(selected.value.country_code)
 )
+const errorMessage = computed(() => error.value ? t(mapErrorKey(error.value)) : '')
 
 function placeContext(place: Place): string {
   return [place.admin1, place.country_code].filter(Boolean).join(', ')
@@ -45,11 +34,11 @@ async function search() {
   const normalized = query.value.trim()
   if (normalized.length < 2) return
   searching.value = true
-  error.value = false
+  error.value = undefined
   try {
     results.value = await maps.suggestPlaces(normalized)
-  } catch {
-    error.value = true
+  } catch (cause) {
+    error.value = cause
   } finally {
     searching.value = false
   }
@@ -64,27 +53,14 @@ function choose(place: Place) {
 async function apply() {
   if (!selected.value || props.assetIds.length === 0) return
   applying.value = true
-  error.value = false
+  error.value = undefined
   try {
     await maps.applyPlace(props.assetIds, selected.value)
     emit('applied', selected.value)
-  } catch {
-    error.value = true
+  } catch (cause) {
+    error.value = cause
   } finally {
     applying.value = false
-  }
-}
-
-async function download() {
-  if (!selectedRegion.value) return
-  downloading.value = true
-  error.value = false
-  try {
-    await maps.downloadRegion(selectedRegion.value)
-  } catch {
-    error.value = true
-  } finally {
-    downloading.value = false
   }
 }
 </script>
@@ -157,16 +133,6 @@ async function download() {
         >
           {{ t('maps.places.apply') }}
         </button>
-        <button
-          v-if="canDownload && selectedRegion"
-          type="button"
-          class="rounded-lg border border-current px-3 py-2"
-          data-action="download"
-          :disabled="downloading"
-          @click="download"
-        >
-          {{ t('maps.places.downloadRegion', { region: t(`maps.regions.${selectedRegion.id}`) }) }}
-        </button>
       </div>
     </div>
 
@@ -182,11 +148,11 @@ async function download() {
     </button>
 
     <p
-      v-if="error"
+      v-if="errorMessage"
       class="text-sm text-danger"
       role="alert"
     >
-      {{ t('common.unexpectedError') }}
+      {{ errorMessage }}
     </p>
   </section>
 </template>

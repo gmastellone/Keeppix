@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { i18n } from '@/i18n'
+import { ApiProblem } from '@/api/client'
 
 import MapClusterLayer from './MapClusterLayer.vue'
 
@@ -49,7 +50,10 @@ const {
     addProtocol: vi.fn()
   }
 })
-vi.mock('@/api/client', () => ({ apiFetch }))
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
+  apiFetch
+}))
 
 vi.mock('maplibre-gl', () => {
   class Marker {
@@ -74,7 +78,9 @@ vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}))
 vi.mock('pmtiles', () => ({
   Protocol: class {
     tile = vi.fn()
-  }
+    add = vi.fn()
+  },
+  PMTiles: class {}
 }))
 
 afterEach(() => {
@@ -113,22 +119,23 @@ describe('MapClusterLayer', () => {
     installMatchMedia()
     apiFetch.mockImplementation((path: string) => {
       if (path.startsWith('/api/v1/map/clusters')) {
-        return Promise.resolve([
-          {
-            lat: 41,
-            lon: 11,
-            count: 8,
-            cover_asset_id: 'cluster-cover',
-            clustered: true
-          },
-          {
-            lat: 41.5,
-            lon: 11.5,
-            count: 1,
-            cover_asset_id: 'asset-1',
-            clustered: false
-          }
-        ])
+        return Promise.resolve(
+          path.includes('scope_id=library-1')
+            ? [{
+                lat: 41,
+                lon: 11,
+                count: 8,
+                cover_asset_id: 'cluster-cover',
+                clustered: true
+              }]
+            : [{
+                lat: 41.5,
+                lon: 11.5,
+                count: 1,
+                cover_asset_id: 'asset-1',
+                clustered: false
+              }]
+        )
       }
       return Promise.resolve({ content_hash: 'a'.repeat(64) })
     })
@@ -136,18 +143,15 @@ describe('MapClusterLayer', () => {
     const wrapper = mount(MapClusterLayer, {
       props: {
         scope: 'library',
-        scopeId: '018f0000-0000-7000-8000-000000000001',
+        scopeId: ['library-1', 'library-2'],
         regionIds: ['IT']
       },
       global: { plugins: [createPinia(), i18n] }
     })
     await flushPromises()
 
-    expect(apiFetch).toHaveBeenCalledWith(
-      expect.stringContaining(
-        '/api/v1/map/clusters?bbox=10%2C40%2C12%2C42&zoom=7&scope=library&scope_id='
-      )
-    )
+    expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('scope_id=library-1'))
+    expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('scope_id=library-2'))
     expect(markerElements).toHaveLength(2)
     expect(markerElements[0]!.querySelector('img')?.getAttribute('src')).toContain('/media/thumb/')
 
@@ -175,5 +179,48 @@ describe('MapClusterLayer', () => {
     expect(map.setStyle).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Keeppix dark' })
     )
+  })
+
+  it('shows translated cluster failures instead of failing silently', async () => {
+    installMatchMedia()
+    apiFetch.mockRejectedValue(
+      new ApiProblem('keeppix/service-unavailable', 'Service temporarily unavailable', 503)
+    )
+    const wrapper = mount(MapClusterLayer, {
+      props: {
+        scope: 'library',
+        scopeId: 'library-1',
+        regionIds: ['IT']
+      },
+      global: { plugins: [createPinia(), i18n] }
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('The server is unreachable')
+    expect(wrapper.text()).not.toContain('Service temporarily unavailable')
+  })
+
+  it('turns a tile RFC 9457 not-found error into a region-unavailable message', async () => {
+    installMatchMedia()
+    apiFetch.mockResolvedValue([])
+    const wrapper = mount(MapClusterLayer, {
+      props: {
+        scope: 'library',
+        scopeId: 'library-1',
+        regionIds: ['IT']
+      },
+      global: { plugins: [createPinia(), i18n] }
+    })
+    await flushPromises()
+
+    for (const handler of mapHandlers.get('error') ?? []) {
+      handler({
+        error: new ApiProblem('keeppix/not-found', 'Resource not found', 404)
+      })
+    }
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Region no longer available')
+    expect(wrapper.text()).not.toContain('Resource not found')
   })
 })

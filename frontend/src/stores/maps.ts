@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-import { apiFetch } from '@/api/client'
+import { ApiProblem, apiFetch } from '@/api/client'
 import type { TimelineAsset } from '@/api/timeline'
 
 export type MapScope = 'library' | 'album' | 'folder' | 'search'
@@ -32,9 +32,8 @@ export interface MapRegion {
   last_error: string | null
 }
 
-export interface RegionCatalogEntry {
+export interface RegionDownloadRequest {
   id: string
-  continent: 'europe' | 'asia' | 'americas'
   label: string
   size_bytes: number
   version: string
@@ -54,52 +53,21 @@ export interface Place {
   population: number
 }
 
-const CATALOG_VERSION = '2026-08'
-const CATALOG_CHECKSUM = 'ab'.repeat(32)
-
-/**
- * Catalogo volutamente piccolo: il server applica comunque allowlist e
- * checksum. Una futura API manifest può sostituire questi metadati senza
- * cambiare i componenti che consumano `REGION_CATALOG`.
- */
-export const REGION_CATALOG: readonly RegionCatalogEntry[] = [
-  {
-    id: 'IT',
-    continent: 'europe',
-    label: 'Italy',
-    size_bytes: 712_000_000,
-    version: CATALOG_VERSION,
-    source_url: 'https://build.protomaps.com/IT.pmtiles',
-    checksum_sha256: CATALOG_CHECKSUM
-  },
-  {
-    id: 'GR',
-    continent: 'europe',
-    label: 'Greece',
-    size_bytes: 398_000_000,
-    version: CATALOG_VERSION,
-    source_url: 'https://build.protomaps.com/GR.pmtiles',
-    checksum_sha256: CATALOG_CHECKSUM
-  },
-  {
-    id: 'JP',
-    continent: 'asia',
-    label: 'Japan',
-    size_bytes: 1_100_000_000,
-    version: CATALOG_VERSION,
-    source_url: 'https://build.protomaps.com/JP.pmtiles',
-    checksum_sha256: CATALOG_CHECKSUM
-  },
-  {
-    id: 'US',
-    continent: 'americas',
-    label: 'United States',
-    size_bytes: 8_600_000_000,
-    version: CATALOG_VERSION,
-    source_url: 'https://build.protomaps.com/US.pmtiles',
-    checksum_sha256: CATALOG_CHECKSUM
+export function mapErrorKey(error: unknown, context?: 'tile'): string {
+  if (!(error instanceof ApiProblem)) return 'common.unexpectedError'
+  if (context === 'tile' && error.status === 404 && error.type.startsWith('keeppix/')) {
+    return 'maps.errors.regionUnavailable'
   }
-] as const
+  const keys: Record<string, string> = {
+    'keeppix/service-unavailable': 'common.unavailable',
+    'keeppix/unauthenticated': 'maps.errors.unauthenticated',
+    'keeppix/forbidden': 'maps.errors.forbidden',
+    'keeppix/region-source-not-allowed': 'maps.errors.regionSourceNotAllowed',
+    'keeppix/invalid-region': 'maps.errors.invalidRegion',
+    'keeppix/conflict': 'maps.errors.downloadAlreadyActive'
+  }
+  return keys[error.type] ?? 'common.unexpectedError'
+}
 
 function replaceRegion(regions: MapRegion[], region: MapRegion): MapRegion[] {
   return [...regions.filter((item) => item.id !== region.id), region]
@@ -129,7 +97,7 @@ export const useMapsStore = defineStore('maps', () => {
     }
   }
 
-  async function downloadRegion(entry: RegionCatalogEntry): Promise<void> {
+  async function downloadRegion(entry: RegionDownloadRequest): Promise<void> {
     const region = await apiFetch<MapRegion>('/api/v1/map/regions', {
       method: 'POST',
       body: JSON.stringify({
