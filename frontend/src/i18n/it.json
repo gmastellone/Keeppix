@@ -385,6 +385,7 @@
     "errors": {
       "expired": "Questo caricamento è scaduto e non può essere ripreso.",
       "missingFile": "Seleziona di nuovo il file per riprendere questo caricamento.",
+      "missingFolder": "Non è stata scelta una cartella di destinazione per questo file.",
       "unknown": "Il caricamento non è riuscito."
     }
   },
