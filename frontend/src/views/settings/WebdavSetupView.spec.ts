@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { i18n } from '@/i18n'
@@ -17,7 +18,7 @@ afterEach(() => {
 })
 
 function mountView() {
-  return mount(WebdavSetupView, { global: { plugins: [i18n] } })
+  return mount(WebdavSetupView, { global: { plugins: [i18n, createPinia()] } })
 }
 
 describe('WebdavSetupView', () => {

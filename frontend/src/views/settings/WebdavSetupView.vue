@@ -9,8 +9,10 @@ import {
   type AppPassword,
   type AppPasswordCreated
 } from '@/api/appPasswords'
+import { useSessionStore } from '@/stores/session'
 
 const { t, locale } = useI18n()
+const session = useSessionStore()
 
 /** Spec §3: polling leggero su `last_used_at`, non un nuovo protocollo. */
 const POLL_INTERVAL_MS = 3000
@@ -39,7 +41,7 @@ const rcloneConfig = computed(() => {
     'type = webdav',
     `url = ${davUrl.value}`,
     'vendor = other',
-    `user = ${created.value.label}`,
+    `user = ${session.user?.username ?? created.value.label}`,
     'pass = ***'
   ].join('\n')
 })
