@@ -150,6 +150,9 @@ pub struct BatchView {
 pub struct RecalculateTimezonesRequest {
     #[schema(value_type = String)]
     pub library_id: LibraryId,
+    /// Required on apply; returned by preview. Absent on preview requests.
+    #[serde(default)]
+    pub preview_token: Option<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -166,6 +169,8 @@ pub struct TimezoneExampleView {
 pub struct TimezonePreviewView {
     pub count: usize,
     pub example: Option<TimezoneExampleView>,
+    /// Opaque token to pass to the apply endpoint within 5 minutes.
+    pub preview_token: String,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -318,10 +323,12 @@ pub async fn preview_timezones(
     Auth(ctx): Auth,
     Json(body): Json<RecalculateTimezonesRequest>,
 ) -> Result<Json<TimezonePreviewView>, Problem> {
+    let user_id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
     let preview = keeppix_jobs::geotag::RecalculateTimezones::new(&state.db)
         .preview(&ctx, body.library_id)
         .await
         .map_err(geotag_problem)?;
+    let preview_token = state.tz_previews.issue(user_id, body.library_id);
     Ok(Json(TimezonePreviewView {
         count: preview.count,
         example: preview.example.map(|example| TimezoneExampleView {
@@ -331,6 +338,7 @@ pub async fn preview_timezones(
             after: example.after,
             timezone: example.timezone,
         }),
+        preview_token,
     }))
 }
 
@@ -354,6 +362,15 @@ pub async fn apply_timezones(
     Auth(ctx): Auth,
     Json(body): Json<RecalculateTimezonesRequest>,
 ) -> Result<Json<TimezoneApplyView>, Problem> {
+    let user_id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
+    let token = body.preview_token.as_deref().unwrap_or("");
+    if !state.tz_previews.consume(token, user_id, body.library_id) {
+        return Err(Problem::new(
+            StatusCode::CONFLICT,
+            "preview-required",
+            "A valid preview token is required before applying timezone changes",
+        ));
+    }
     let applied = keeppix_jobs::geotag::RecalculateTimezones::new(&state.db)
         .apply(&ctx, body.library_id)
         .await

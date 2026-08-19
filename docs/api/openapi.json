@@ -5264,6 +5264,13 @@
         "properties": {
           "library_id": {
             "type": "string"
+          },
+          "preview_token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required on apply; returned by preview. Absent on preview requests."
           }
         }
       },
@@ -5700,7 +5707,8 @@
       "TimezonePreviewView": {
         "type": "object",
         "required": [
-          "count"
+          "count",
+          "preview_token"
         ],
         "properties": {
           "count": {
@@ -5716,6 +5724,10 @@
                 "$ref": "#/components/schemas/TimezoneExampleView"
               }
             ]
+          },
+          "preview_token": {
+            "type": "string",
+            "description": "Opaque token to pass to the apply endpoint within 5 minutes."
           }
         }
       },
