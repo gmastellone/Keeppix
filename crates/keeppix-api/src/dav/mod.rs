@@ -196,7 +196,11 @@ pub async fn handler(State(state): State<AppState>, req: Request<Body>) -> Respo
             respond(get_asset(&state, &ctx, id, range).await)
         }
         ("PUT", Resource::FolderChild(folder_id, name)) => {
-            respond(write::put(&state, &ctx, folder_id, &name, body).await)
+            let content_length = headers
+                .get(header::CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok());
+            respond(write::put(&state, &ctx, folder_id, &name, content_length, body).await)
         }
         ("MKCOL", Resource::FolderChild(parent_id, name)) => {
             respond(write::mkcol(&state, &ctx, parent_id, &name).await)
