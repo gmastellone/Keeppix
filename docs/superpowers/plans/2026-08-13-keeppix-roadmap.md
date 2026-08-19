@@ -46,11 +46,16 @@ Decisi nello spec, validi da subito, **non rinegoziabili per fase**. Ogni fase l
          │                  │              │
       ┌──▼──────────────────▼──────────────▼──┐
       │              Fase 3                    │  multiutente e condivisione
-      └───────────────────┬────────────────────┘
-                          │
-                     ┌────▼────┐
-                     │ Fase 6  │  consolidamento
-                     └─────────┘
+      └──────┬─────────────────────────┬───────┘
+             │                         │
+        ┌────▼────┐               ┌────▼────┐
+        │ Fase 7  │  scene, tag,  │ Fase 6  │  consolidamento
+        │   AI    │  ricerca sem. └─────────┘
+        └────┬────┘
+             │
+        ┌────▼────┐
+        │ Fase 8  │  volti: cluster, correzioni, gruppi
+        └─────────┘
 ```
 
 **Vincoli reali di ordine**, non preferenze:
@@ -59,7 +64,9 @@ Decisi nello spec, validi da subito, **non rinegoziabili per fase**. Ogni fase l
 - **2, 4, 5 dipendono da 1**: tutte lavorano su asset già indicizzati.
 - **2, 4, 5 sono indipendenti fra loro**: l'ordine fra queste tre è una tua scelta, guidata da cosa ti serve prima.
 - **3 può iniziare dopo la 1**, ma conviene dopo che almeno una delle 2/4/5 è chiusa: la condivisione ha più senso quando c'è più materiale da condividere.
-- **6 chiude tutto.**
+- **7 dipende da 3**: un tag non deve rivelare foto che l'utente non può vedere. Il filtro di visibilità dev'essere già lì.
+- **8 dipende da 7**, e non per l'argomento: la 7 porta il motore di inferenza, pgvector, il probe hardware esteso e il backfill a priorità energetica. La 8 li **riusa** — da sola dovrebbe costruirseli.
+- **6 è indipendente da 7/8**: può stare prima, in mezzo o dopo. È l'unica che chiude comunque.
 
 **Variante consigliata se vuoi caricare il TB presto:** `0 → 1 → 5 → 2 → 3 → 4 → 6`. Sposta il WebDAV subito dopo l'ingestione, così inizi a versare i file mentre si sviluppa il resto.
 
@@ -266,6 +273,58 @@ cartelle, cestino, modifica in blocco, ricerche salvate, rinnovo sessione.
 
 ---
 
+## Fase 7 — Scene, tag e ricerca semantica
+
+**Spec:** [`../specs/fase-7-ai-tag-scene.md`](../specs/fase-7-ai-tag-scene.md)
+
+**Obiettivo.** Trovare una foto descrivendola («tramonto con casa»), e vedere le categorie popolarsi da sole — con i tag decisi dall'utente, mai inventati dalla macchina.
+
+**Consuma dalla 1:** coda job, `EnergyProfile`, watcher. **Dalla 3:** `VisibilityScope` — obbligatoria, non opzionale.
+
+**Produce**
+- Un solo embedding CLIP per foto (MobileCLIP2-S2 via ONNX Runtime, crate `ort`), che serve **contemporaneamente** ricerca semantica, abbinamento tag e «foto simili».
+- pgvector nello stesso Postgres, con immagine DB custom (PostGIS **e** `vector`) e degradazione pulita se manca.
+- `tags`/`asset_tags` con soglie per-tag, suggerimenti separati dalle assegnazioni, e decisioni umane immuni ai ricalcoli.
+- Probe hardware **esteso e reale**: misura ms/inferenza sulla macchina vera, salda il debito che oggi restituisce `"unprobed"`.
+- Backfill che si ferma da solo quando qualcuno usa la galleria (eredita `JobPriority::Background`).
+- Due varianti nuove dell'AST di ricerca: `Tag`, `Semantic`.
+
+**Rischi**
+- *I benchmark del modello non sono misurati su Pi.* Mitigazione: il primo task misura sull'hardware vero; se i numeri sono peggiori cambia la stima del backfill, non l'architettura.
+- *`tract` (Rust puro, più leggero) potrebbe non supportare tutti gli operatori.* Mitigazione: si prova per prima; `ort` è il ripiego, deciso da una misura non da una preferenza.
+- *L'immagine DB custom è infrastruttura nuova.* Mitigazione: chi usa Postgres esterno resta supportato, con le funzioni AI spente e un messaggio che spiega come attivarle.
+
+**Dimensione:** ~1,5 settimane.
+
+**Chiusa quando:** su Pi 5, «tramonto con casa» risponde in meno di un secondo su libreria reale, e creare un tag nuovo lo popola **senza rianalizzare le foto**.
+
+---
+
+## Fase 8 — Volti
+
+**Spec:** [`../specs/fase-8-volti.md`](../specs/fase-8-volti.md)
+
+**Obiettivo.** Raggruppare le persone, lasciando all'utente l'ultima parola: unire, separare, scartare i falsi positivi — e non doverlo rifare mai più.
+
+**Consuma dalla 7:** motore di inferenza, pgvector, probe, backfill. Non ne duplica nessuno.
+
+**Produce**
+- SCRFD (rilevamento) + allineamento Umeyama + ArcFace (identità), via il crate `face_id`, stesso stack `ort` della 7.
+- Raggruppamento **incrementale**: un volto alla volta, nessuna riaggregazione globale che cancellerebbe le correzioni.
+- `person_separations` — la tabella che rende permanente una separazione fatta a mano.
+- Persone, gruppi di persone (distinti dai `groups` di utenti della Fase 3), copertine, «nascondi».
+- Varianti di ricerca `Person`, `PersonGroup`, `PersonCount`.
+
+**Rischi**
+- *Le correzioni manuali cancellate dal ricalcolo successivo.* È il difetto tipico di questa funzione. Mitigazione: `person_separations` e `faces.assigned_by` — la decisione umana batte sempre la misura.
+- *Dati biometrici.* Mitigazione: tutto locale, disattivabile per intero, cancellabile davvero, e **mai** esposto sui link pubblici.
+
+**Dimensione:** ~1,5 settimane.
+
+**Chiusa quando:** le foto di una persona stanno sotto un nome, e unioni/separazioni/rifiuti sopravvivono a una rianalisi completa.
+
+---
+
 ## Stima complessiva
 
 | Fase | Dimensione | Cumulato |
@@ -277,8 +336,12 @@ cartelle, cestino, modifica in blocco, ricerche salvate, rinnovo sessione.
 | 4 Mappe | 1 settimana | ~8,5 sett. |
 | 5 WebDAV | 1,5 settimane | ~10 sett. |
 | 6 Consolidamento | 2 settimane | ~12 sett. |
+| 7 AI scene e tag | 1,5 settimane | ~13,5 sett. |
+| 8 Volti | 1,5 settimane | ~15 sett. |
 
 Stime a sviluppo continuativo. Vanno lette come rapporti fra le fasi, non come promesse sul calendario: la Fase 1 vale da sola un quarto del totale, ed è lì che va messa l'attenzione.
+
+Le stime di 7 e 8 sono **le più fragili delle otto**: dipendono da quanto costa davvero un'inferenza sull'hardware di destinazione, che nessuno ha ancora misurato. Il primo task della Fase 7 esiste apposta per sostituire questo numero con una misura.
 
 ## Momenti in cui questa roadmap va rivista
 

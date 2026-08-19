@@ -55,6 +55,8 @@ e non codice da scrivere.
 | 4 | [`specs/fase-4-mappe.md`](specs/fase-4-mappe.md) | PMTiles, gestore regioni, clustering, GeoNames, fusi orari |
 | 5 | [`specs/fase-5-webdav-upload.md`](specs/fase-5-webdav-upload.md) | upload tus, WebDAV, wizard di configurazione |
 | 6 | [`specs/fase-6-consolidamento.md`](specs/fase-6-consolidamento.md) | video, backup/ripristino, TOTP, sync delta, PWA, API pubblica |
+| 7 | [`specs/fase-7-ai-tag-scene.md`](specs/fase-7-ai-tag-scene.md) | un embedding CLIP per foto, pgvector, tag e categorie dell'utente, ricerca semantica, probe hardware reale |
+| 8 | [`specs/fase-8-volti.md`](specs/fase-8-volti.md) | SCRFD + ArcFace, raggruppamento incrementale, unioni/separazioni permanenti, gruppi di persone |
 
 ## Piani
 
@@ -68,8 +70,10 @@ e non codice da scrivere.
 | [`plans/2026-08-17-keeppix-fase-2r.md`](plans/2026-08-17-keeppix-fase-2r.md) | ✅ completato e mergiato (PR #6) — usabilità da browser, buchi di processo |
 | [`plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md`](plans/2026-08-17-keeppix-fase-2r2-difetti-di-campo.md) | ✅ completato e mergiato (PR #6) — la pipeline RAW non girava mai in produzione |
 | [`plans/2026-08-17-keeppix-fase-2r3.md`](plans/2026-08-17-keeppix-fase-2r3.md) | ✅ completato e mergiato (PR #7) — derivati con perdita (3,3% → **0,4%**, ~308 GB → ~36 GB su 200.000 foto), zoom sui RAW, guardia in CI, prova di scala |
-| [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ⬜ **il prossimo** — multiutente, condivisione, link pubblici, **più le 17 interfacce mancanti** che la guardia della 2R3 ha scoperto (Task 12) |
-| Fase 4, 5, 6 | da scrivere, una alla volta |
+| [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ✅ completato e mergiato (PR #8) — multiutente, condivisione, link pubblici, **più le 17 interfacce mancanti** che la guardia della 2R3 ha scoperto (Task 12) |
+| [`plans/2026-08-18-keeppix-fase-4.md`](plans/2026-08-18-keeppix-fase-4.md) | ✅ completato e mergiato (PR #9) — GPS all'ingest, GeoNames, cluster mappa, fusi orari, PMTiles offline, geofence «casa» |
+| [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ⬜ **in lavorazione** — upload tus riprendibile, WebDAV, app-password |
+| Fase 6, 7, 8 | spec scritte (6, 7, 8); piani da scrivere, uno alla volta |
 
 ## Consegne
 

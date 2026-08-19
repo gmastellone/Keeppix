@@ -13,21 +13,24 @@ vince la spec, e annoti il ruling nel ledger.
 
 Non fare push, PR o merge se l'utente non lo chiede.
 
-## Snapshot (2026-08-17)
+## Snapshot (2026-08-19)
 
-- **`main`** contiene le Fasi 0, 1a-1c, 2, e le tre fasi di rimedio 2R, 2R2,
-  2R3. Tutte verificate sull'archivio reale, non solo dai test.
-- **Prossima fase: la 3** — multiutente, condivisione, link pubblici, più le
-  17 interfacce mancanti scoperte dalla guardia della 2R3.
-- **Fasi 4, 5, 6:** non iniziate, e i piani non sono ancora scritti. Vietato
-  anticiparle.
+- **`main`** contiene le Fasi 0, 1a-1c, 2 (più i rimedi 2R, 2R2, 2R3), 3 e 4.
+  Tutte verificate sull'archivio reale, non solo dai test.
+- **Fase in corso: la 5** — WebDAV e upload tus riprendibile. Piano scritto
+  (`plans/2026-08-19-keeppix-fase-5.md`).
+- **Fasi 6, 7, 8:** spec scritte, **piani no**. Vietato anticiparle: un piano
+  di dettaglio scritto prima del codice su cui poggia inventa firme contro API
+  che non esistono. È il modo in cui questo progetto ha già perso tempo.
+- La **Fase 7** (AI: scene, tag, ricerca semantica) salda il debito del probe
+  hardware, che oggi restituisce `"unprobed"` e non misura niente.
 
 ## Cosa leggere, in quest'ordine
 
 1. `AGENTS.md`
-2. `docs/superpowers/plans/2026-08-17-keeppix-fase-2r3.md` — l'ultima fase
-   chiusa. La sezione finale «Rilievi del field test» racconta come è stata
-   verificata e cosa ne è uscito.
+2. `docs/superpowers/plans/2026-08-18-keeppix-fase-4.md` — l'ultima fase chiusa
+   (PR #9). Utile soprattutto per la sezione iniziale «Cosa esiste già»: è il
+   modello di come si fonda un piano sul codice reale invece che sulla spec.
 3. `docs/superpowers/plans/2026-08-13-keeppix-roadmap.md` — le fasi e i
    contratti congelati.
 4. `docs/superpowers/specs/2026-08-13-keeppix-design.md` — architettura.
