@@ -5,6 +5,7 @@ pub mod assets;
 pub mod audit;
 pub mod changes;
 pub mod credentials;
+pub mod dav_locks;
 pub mod duplicates;
 pub mod error;
 pub mod flags;
@@ -37,6 +38,7 @@ pub use assets::{AssetRepo, DirectPutOutcome};
 pub use audit::{AuditEntry, AuditRepo};
 pub use changes::{ChangeLogRepo, ChangePage};
 pub use credentials::AppPasswordRepo;
+pub use dav_locks::DavLockRepo;
 pub use duplicates::{DuplicateGroup, DuplicateRepo};
 pub use error::DbError;
 pub use flags::FlagRepo;
@@ -75,7 +77,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0027_app_passwords.
+// rivede la directory. 0028_dav_locks.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

@@ -177,6 +177,30 @@ impl Problem {
         .with_detail(format!("expected {expected}"))
     }
 
+    /// `WebDAV LOCK` con `If:` su un token scaduto o inesistente (Task 8,
+    /// Fase 5): il client ha chiesto di rinnovare un lock che non è (più)
+    /// suo — un `200` silenzioso lo farebbe credere ancora titolare del
+    /// lock.
+    #[must_use]
+    pub fn precondition_failed() -> Self {
+        Self::new(
+            StatusCode::PRECONDITION_FAILED,
+            "dav-lock-precondition-failed",
+            "The lock token in the If header is missing or expired",
+        )
+    }
+
+    /// `WebDAV LOCK` senza `If:` su una risorsa già bloccata da un altro
+    /// token attivo (Task 8, Fase 5).
+    #[must_use]
+    pub fn locked() -> Self {
+        Self::new(
+            StatusCode::LOCKED,
+            "dav-resource-locked",
+            "The resource already has an active lock",
+        )
+    }
+
     /// `460`, custom (spec §1.2): il checksum del chunk non combacia. Non è
     /// un codice IANA — Nginx lo usa per un client closed request, ma nel
     /// nostro protocollo tus-style è libero — il chunk **non** viene

@@ -1,8 +1,8 @@
 //! `WebDAV` — dispatcher e autenticazione. Autentica con app-password via
 //! Basic Auth (`401` senza redirect per credenziali assenti o sbagliate),
-//! poi dispatcha `PROPFIND`/`GET` (Task 6) e `PUT`/`MKCOL`/`MOVE` (Task 7);
-//! `COPY`, `DELETE`, `LOCK`, `UNLOCK` restano `501` — vedi il ledger del
-//! Task 7 sul perché `COPY` non è implementata.
+//! poi dispatcha `PROPFIND`/`GET` (Task 6), `PUT`/`MKCOL`/`MOVE` (Task 7) e
+//! `DELETE`/`LOCK`/`UNLOCK` (Task 8); `COPY` resta `501` — vedi il ledger
+//! del Task 7 sul perché non è implementata.
 //!
 //! Mai cookie di sessione qui: i client `WebDAV` (Finder, rclone, …) parlano
 //! solo Basic Auth, e le uniche credenziali accettate sono le app-password
@@ -17,6 +17,8 @@
 //! figlio non ancora creato (`PUT`/`MKCOL`) — e con lo stesso schema nella
 //! `Destination` di `MOVE`.
 
+pub mod delete;
+pub mod lock;
 pub mod propfind;
 pub mod write;
 
@@ -57,7 +59,7 @@ fn parse_basic_auth(req: &Request<Body>) -> Option<(String, String)> {
 /// filename) e da `MKCOL` (il nome è la nuova sotto-cartella), e dalla
 /// `Destination` di `MOVE`.
 #[derive(Debug, Clone)]
-enum Resource {
+pub(crate) enum Resource {
     Folder(FolderId),
     Asset(AssetId),
     FolderChild(FolderId, String),
@@ -146,8 +148,7 @@ fn strip_origin(value: &str) -> &str {
 }
 
 /// Handler `WebDAV` principale. Autentica prima, poi dispatcha per metodo
-/// e risorsa. Metodi/risorse non ancora supportati (`COPY`, `DELETE`,
-/// `LOCK`, `UNLOCK`) restano `501`.
+/// e risorsa. `COPY` non è implementata e resta `501`.
 pub async fn handler(State(state): State<AppState>, req: Request<Body>) -> Response {
     let Some((username, secret)) = parse_basic_auth(&req) else {
         return unauthorized();
@@ -219,6 +220,22 @@ pub async fn handler(State(state): State<AppState>, req: Request<Body>) -> Respo
                 .into_response();
             };
             respond(write::move_folder(&state, &ctx, src_id, dst_parent_id).await)
+        }
+        ("DELETE", Resource::Asset(id)) => respond(delete::asset(&state, &ctx, id).await),
+        ("DELETE", Resource::Folder(id)) => respond(delete::folder(&state, &ctx, id).await),
+        ("LOCK", resource) => {
+            let depth_header = headers.get("depth").and_then(|v| v.to_str().ok());
+            let if_header = headers.get("if").and_then(|v| v.to_str().ok());
+            respond(lock::lock(&state, &ctx, &resource, depth_header, if_header).await)
+        }
+        // `UNLOCK` non guarda quale risorsa: il token nell'header
+        // `Lock-Token` è l'unica identità che conta (RFC 4918 §9.11) — un
+        // `Resource` non parsabile per questo path non blocca `UNLOCK`
+        // perché il dispatch non arriva nemmeno qui in quel caso (vedi
+        // `parse_resource` sopra, che risponde `501` prima del `match`).
+        ("UNLOCK", _) => {
+            let lock_token = headers.get("lock-token").and_then(|v| v.to_str().ok());
+            respond(lock::unlock(&state, lock_token).await)
         }
         _ => not_implemented(),
     }
