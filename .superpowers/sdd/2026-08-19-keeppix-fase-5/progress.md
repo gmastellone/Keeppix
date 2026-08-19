@@ -445,3 +445,68 @@ completo (incluso l'esperimento isolato che verifica che `reqwest`/`hyper`
 inviino sul filo un `Content-Length` impostato a mano anche quando
 diverso dalla dimensione reale del corpo, usato per rendere il test del
 413 deterministico senza spedire davvero terabyte di dati).
+
+Ruling (Task 8): il brief affermava che `TrashRepo::choose` da sola basta
+a far ricevere `403` a un editor su `DELETE` `WebDAV`, "stessa regola di
+`may_purge`" — **falso**, verificato leggendo `trash.rs` per intero e il
+test già esistente `permissions_roles.rs::a_folder_editor_can_edit_metadata_and_trash`
+(Task 14b): per `DiskAction::MovedToTrash`, `TrashRepo::choose` **accetta
+volutamente** un editor (`PermissionRepo::assert_can_edit_assets`), non
+solo owner/admin — `may_purge` (owner/admin) si applica solo a
+`DiskAction::Purged`. Il compito, però, richiede esplicitamente e senza
+margine di interpretazione (istruzioni utente, non solo il brief) che un
+editor riceva `403` su `DELETE` `WebDAV`. Interpretazione adottata: il
+protocollo `WebDAV` non ha un dialogo di conferma né la possibilità di
+scegliere `disk_action` come la REST API, quindi `DELETE` via `WebDAV` è
+**deliberatamente più restrittivo** della REST API — solo owner/admin,
+anche se l'azione fisica eseguita resta sempre `MovedToTrash` (mai
+`Purged`, invarianza non toccata). Aggiunto un gate esplicito
+(`only_owner_or_admin`, stesso predicato di `may_purge`) in
+`dav::delete::asset`/`folder`, **prima** di chiamare `TrashRepo::choose`.
+Costo se l'interpretazione fosse sbagliata (cioè se il brief avesse
+davvero voluto un editor abilitato anche su `WebDAV`, come sulla REST
+API): rimuovere il gate e lasciare che sia `TrashRepo::choose` a decidere
+da sola — un cambiamento di una guardia, non un redesign.
+
+Ruling (Task 8): `DavLockRepo` non espone un quinto metodo "unlock
+condizionato" oltre ai quattro richiesti dal brief (`create`, `refresh`,
+`delete`, `is_locked`). `dav::lock::unlock` riusa `refresh` come
+test-and-set: se il token esiste ed è ancora attivo, `refresh` lo rinnova
+(effetto collaterale innocuo, la riga viene cancellata immediatamente
+dopo con `delete`) e restituisce `true`; altrimenti (token scaduto o mai
+esistito, indistinguibili da qui) restituisce `false` → `404`. Costo se
+sbagliato: un token appena scaduto per una manciata di query concorrenti
+potrebbe vedere il proprio `timeout_at` esteso per una frazione di
+secondo prima di essere cancellato — nessun effetto osservabile dal
+client, la riga viene comunque rimossa nella stessa richiesta.
+
+Ruling (Task 8): `LOCK` senza `If:` su una risorsa già bloccata da un
+lock attivo (non scaduto) risponde `423 Locked`, non richiesto
+esplicitamente dai 4 test del brief ma reso possibile dal quarto metodo
+di `DavLockRepo` (`is_locked`) che il brief stesso elenca nell'API — senza
+usarlo da qualche parte sarebbe stato codice morto. Un `LOCK` con `If:
+(<token>)` su un token scaduto o inesistente risponde `412 Precondition
+Failed` (casi limite del brief). Nessuno dei due percorsi è esercitato da
+un test dedicato in questo task: differito come nota, non un'omissione
+silenziosa (`Problem::locked()`/`Problem::precondition_failed()` sono
+comunque unit-testabili in isolamento se servirà in un task futuro).
+
+Ruling (Task 8): `DELETE /dav/folder/{id}` (cancellazione di un'intera
+cartella, non solo di un singolo asset) non è esercitata da nessuno dei 4
+test richiesti dal brief — solo `DELETE /dav/asset/{id}` lo è. Implementata
+comunque per completezza dello spec (`FolderRepo::subtree` per raccogliere
+ogni cartella discendente, `TrashRepo::choose` per ciascun asset di
+ciascuna, poi `FolderRepo::delete_subtree` — nuovo metodo, singola
+`DELETE ... WHERE path <@ ...` — e infine `remove_dir_all` sulla directory
+fisica, mai prima che ogni asset sia già al sicuro nel cestino). Nessun
+test dedicato: differito come lacuna di copertura nota, non come
+funzionalità mancante.
+
+Task 8 (`DELETE`, `LOCK`, `UNLOCK`): complete (commit cb217dd, test
+verdi: 5/5 in `keeppix-api/tests/webdav_delete_lock.rs`, intera suite
+`keeppix-api` verde — 37 blocchi `test result: ok`, zero `FAILED`/
+`panicked`/`error[` —, intera suite `keeppix-db` verde — 34 blocchi
+`test result: ok` —, `cargo fmt --check` e `cargo clippy --workspace
+--all-targets -- -D warnings` puliti). Vedi `task-briefs/task-8-report.md`
+per l'elenco dei file, il dettaglio TDD (incluse le tre mutazioni
+deliberate sui test più importanti) e l'output di verifica.
