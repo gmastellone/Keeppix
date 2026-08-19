@@ -46,16 +46,17 @@ Decisi nello spec, validi da subito, **non rinegoziabili per fase**. Ogni fase l
          │                  │              │
       ┌──▼──────────────────▼──────────────▼──┐
       │              Fase 3                    │  multiutente e condivisione
-      └──────┬─────────────────────────┬───────┘
-             │                         │
-        ┌────▼────┐               ┌────▼────┐
-        │ Fase 7  │  scene, tag,  │ Fase 6  │  consolidamento
-        │   AI    │  ricerca sem. └─────────┘
-        └────┬────┘
-             │
-        ┌────▼────┐
-        │ Fase 8  │  volti: cluster, correzioni, gruppi
-        └─────────┘
+      └────┬────────────────┬─────────────┬────┘
+           │                │             │
+      ┌────▼────┐      ┌────▼────┐   ┌────▼────┐
+      │ Fase 6  │      │ Fase 7  │   │ Fase 9  │  organizzazione:
+      │consolid.│      │AI: tag, │   │culling, │
+      └─────────┘      │scene    │   │rinomina │
+                        └────┬────┘   └─────────┘
+                             │
+                        ┌────▼────┐
+                        │ Fase 8  │  volti: cluster, correzioni, gruppi
+                        └─────────┘
 ```
 
 **Vincoli reali di ordine**, non preferenze:
@@ -66,7 +67,8 @@ Decisi nello spec, validi da subito, **non rinegoziabili per fase**. Ogni fase l
 - **3 può iniziare dopo la 1**, ma conviene dopo che almeno una delle 2/4/5 è chiusa: la condivisione ha più senso quando c'è più materiale da condividere.
 - **7 dipende da 3**: un tag non deve rivelare foto che l'utente non può vedere. Il filtro di visibilità dev'essere già lì.
 - **8 dipende da 7**, e non per l'argomento: la 7 porta il motore di inferenza, pgvector, il probe hardware esteso e il backfill a priorità energetica. La 8 li **riusa** — da sola dovrebbe costruirseli.
-- **6 è indipendente da 7/8**: può stare prima, in mezzo o dopo. È l'unica che chiude comunque.
+- **9 dipende da 1, 2, 3**: corregge un buco nell'identità dell'asset (1), riusa flag e sidecar del culling (2), riusa i permessi (3). **Non** dipende dalla 5: il modello a cartelle fisiche rende gli scelti visibili da WebDAV senza che WebDAV debba saperne nulla — ma ne beneficia, se la 5 è già chiusa, dal giorno stesso in cui la 9 chiude.
+- **6 è indipendente da 7/8/9**: può stare prima, in mezzo o dopo. È l'unica che chiude comunque.
 
 **Variante consigliata se vuoi caricare il TB presto:** `0 → 1 → 5 → 2 → 3 → 4 → 6`. Sposta il WebDAV subito dopo l'ingestione, così inizi a versare i file mentre si sviluppa il resto.
 
@@ -325,6 +327,60 @@ cartelle, cestino, modifica in blocco, ricerche salvate, rinnovo sessione.
 
 ---
 
+## Fase 9 — Organizzazione: culling a cartelle, spostamento sicuro, rinomina
+
+**Spec:** [`../specs/fase-9-organizzazione.md`](../specs/fase-9-organizzazione.md)
+
+**Riscrive parte del comportamento della Fase 2** (già chiusa e mergiata):
+Culling oggi non ha ambito e scegliere/scartare è solo un flag. Questa fase
+non è un difetto della 2 da correggere in silenzio — è un requisito reale
+scoperto dopo, con una spec propria, come da metodo del progetto.
+
+**Obiettivo.** Chiudere il flusso reale: importare RAW in viaggio, sceglierli,
+tornare a casa e prendere dal proprio PC **solo quelli scelti** via WebDAV,
+svilupparli, cancellare il RAW da Keeppix a lavoro finito — senza mai
+intervenire a mano sul filesystem.
+
+**Consuma dalla 1:** identità dell'asset (**e ne corregge un buco reale**: oggi
+rinominare o spostare un file fuori da Keeppix perde rating/scelta/titolo,
+copiando solo l'EXIF sulla riga nuova). **Dalla 2:** `asset_flags`, sidecar
+XMP, `asset_overrides.title`. **Dalla 3:** permessi editor su spostamento e
+rinomina.
+
+**Produce**
+- `AssetRepo::move_asset` — spostamento sicuro che aggiorna la riga esistente
+  (stesso `asset_id`) invece di crearne una nuova: il meccanismo che
+  Culling e la rinomina condividono, e che in futuro userà anche MOVE di
+  WebDAV (non implementato qui).
+- Culling a cartelle fisiche: una radice designata per libreria, sottocartelle
+  `_taken`/`_skipped` create automaticamente, click su scelto/scartato che
+  sposta il file **solo** se l'asset è già dentro un lotto di culling — altrove
+  nella libreria resta il comportamento a solo flag di oggi.
+- Rinomina con formule (`{data}`, `{fotocamera}`, `{luogo}`, `{titolo}`,
+  `{prog}` + testo libero), con anteprima e collisioni bloccanti, annullabile
+  con lo stesso meccanismo `metadata_batches` della Fase 2. Tre punti
+  d'ingresso: foto singola, selezione multipla, cartella intera.
+- Nuovo filtro `Pick` nell'AST di ricerca, per "cartella X, stato scartato"
+  prima di cestinare in blocco.
+- Percorso della cartella visibile e navigabile nel pannello dettaglio —
+  serve ora che una foto può spostarsi da sola in conseguenza di una scelta.
+
+**Rischi**
+- *Lo spostamento fisico rompe l'ordine scrittura-file / scrittura-riga a
+  metà operazione.* Mitigazione: il file si sposta sempre prima della riga;
+  un file orfano lo ritrova il watcher al giro successivo, una riga orfana no.
+- *Le due modalità (cartelle vs. solo flag) si confondono in testa
+  all'utente.* Mitigazione: la decide la posizione dell'asset nell'albero,
+  non un interruttore da ricordarsi di girare.
+
+**Dimensione:** ~1 settimana.
+
+**Chiusa quando:** un viaggio reale — import su più giorni, culling,
+rinomina, prelievo da WebDAV, sviluppo esterno, cancellazione dei RAW —
+si completa senza toccare il filesystem a mano.
+
+---
+
 ## Stima complessiva
 
 | Fase | Dimensione | Cumulato |
@@ -338,10 +394,11 @@ cartelle, cestino, modifica in blocco, ricerche salvate, rinnovo sessione.
 | 6 Consolidamento | 2 settimane | ~12 sett. |
 | 7 AI scene e tag | 1,5 settimane | ~13,5 sett. |
 | 8 Volti | 1,5 settimane | ~15 sett. |
+| 9 Organizzazione | 1 settimana | ~16 sett. |
 
 Stime a sviluppo continuativo. Vanno lette come rapporti fra le fasi, non come promesse sul calendario: la Fase 1 vale da sola un quarto del totale, ed è lì che va messa l'attenzione.
 
-Le stime di 7 e 8 sono **le più fragili delle otto**: dipendono da quanto costa davvero un'inferenza sull'hardware di destinazione, che nessuno ha ancora misurato. Il primo task della Fase 7 esiste apposta per sostituire questo numero con una misura.
+Le stime di 7 e 8 sono **le più fragili delle nove**: dipendono da quanto costa davvero un'inferenza sull'hardware di destinazione, che nessuno ha ancora misurato. Il primo task della Fase 7 esiste apposta per sostituire questo numero con una misura.
 
 ## Momenti in cui questa roadmap va rivista
 
