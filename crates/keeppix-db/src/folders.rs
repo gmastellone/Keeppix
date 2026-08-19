@@ -414,6 +414,30 @@ impl<'a> FolderRepo<'a> {
         Ok(())
     }
 
+    /// Rimuove la cartella e tutto il suo sottoalbero **solo dal
+    /// database** (`WebDAV DELETE`, Task 8 Fase 5): il chiamante deve aver
+    /// già cestinato ogni asset del sottoalbero (`TrashRepo::choose` con
+    /// `DiskAction::MovedToTrash` — mai un `rm -rf`) prima di chiamare
+    /// questo metodo, e rimuove la directory fisica separatamente dopo,
+    /// come `dav::delete::folder`.
+    ///
+    /// # Errors
+    /// `403` se il chiamante non è editor sulla cartella. Altrimenti come
+    /// `assert_editor`.
+    pub async fn delete_subtree(
+        &self,
+        ctx: &AuthContext,
+        folder_id: FolderId,
+    ) -> Result<(), DbError> {
+        let (folder, _library) = self.assert_editor(ctx, folder_id).await?;
+        sqlx::query("DELETE FROM folders WHERE library_id = $1 AND path <@ $2::text::ltree")
+            .bind(folder.library_id.as_uuid())
+            .bind(folder.path.as_str())
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
+    }
+
     /// Percorso su disco della cartella, ricostruito risalendo l'albero.
     ///
     /// I nomi vengono dal database, mai dal client.
