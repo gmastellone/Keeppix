@@ -44,6 +44,51 @@ async fn region_lifecycle_persists_progress_and_errors() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn mark_error_requires_the_current_uncancelled_download() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let repo = RegionRepo::new(test.db());
+    let region = || NewMapRegion {
+        id: "IT".to_owned(),
+        label: "Italia".to_owned(),
+        size_bytes: 712_000_000,
+        version: "2026-08".to_owned(),
+        source_url: "https://build.protomaps.com/it.pmtiles".to_owned(),
+        checksum_sha256: "ab".repeat(32),
+    };
+    let old = repo.begin_download(&ctx, region()).await.unwrap();
+    repo.request_cancel(&ctx, "IT").await.unwrap();
+
+    assert!(
+        !repo
+            .mark_error("IT", old.download_generation, "cancel race")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        repo.find(&ctx, "IT").await.unwrap().status,
+        RegionStatus::Downloading
+    );
+
+    repo.finish_cancel("IT", old.download_generation)
+        .await
+        .unwrap();
+    let current = repo.begin_download(&ctx, region()).await.unwrap();
+    assert!(
+        !repo
+            .mark_error("IT", old.download_generation, "stale worker")
+            .await
+            .unwrap()
+    );
+    let unchanged = repo.find(&ctx, "IT").await.unwrap();
+    assert_eq!(unchanged.status, RegionStatus::Downloading);
+    assert_eq!(unchanged.download_generation, current.download_generation);
+    assert!(unchanged.last_error.is_none());
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn non_admin_cannot_mutate_global_regions() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
