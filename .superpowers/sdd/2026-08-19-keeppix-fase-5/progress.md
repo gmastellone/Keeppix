@@ -249,3 +249,68 @@ verdi: 4/4 in `keeppix-api/tests/webdav_auth.rs`, 6/6 unit test in
 `dav::tests`, intera suite `keeppix-api` verde, `cargo fmt --check` e
 `cargo clippy --workspace --all-targets -- -D warnings` puliti). Vedi
 `task-briefs/task-5-report.md` per l'elenco dei file e il dettaglio TDD.
+
+Ruling (Task 6): risoluzione del path `WebDAV` **per id, non per nome** —
+`/dav/folder/{folder_id}` e `/dav/asset/{asset_id}`, esattamente come
+suggerito dal brief. Evita di risolvere una gerarchia di nomi contro
+`ltree` (query più complessa, mai scritta). Costo: Finder (che naviga per
+nome umano) non funziona con questo schema; rclone e Cyberduck sì, perché
+sincronizzano confrontando l'`ETag`, non il path. Differito a un task
+successivo se servirà mai la risoluzione per nome.
+
+Ruling (Task 6): il ruolo reale dell'attore `WebDAV` non viene interrogato
+con una query separata su `users` — `AuthContext::user(user_id,
+SystemRole::User)` sempre, anche per un amministratore. `FolderRepo`/
+`AssetRepo` filtrano comunque per `user_id` (proprietà della libreria,
+grant espliciti), non per ruolo di sistema, quindi un admin vede le
+proprie librerie come qualunque proprietario. Costo se sbagliato: un vero
+amministratore perde solo la visibilità "onnisciente" su tutte le librerie
+via WebDAV che ha invece nella web app — nessun rischio di sicurezza
+(mai un privilegio in più, solo uno in meno), nessuna via per un utente
+normale di ottenere `is_admin() == true`.
+
+Ruling (Task 6): l'intero corpo `multistatus` viene costruito in un
+`Vec<u8>` in memoria (via `quick_xml::Writer`) e inviato in un solo colpo,
+non in streaming a blocchi su un `Body` di axum. Per una cartella con
+meno di 10.000 file (il caso descritto dal brief) sono pochi MB — accettabile
+per questo task. La vera streaming a blocchi (per librerie enormi) è
+un'ottimizzazione differita: costo se sbagliato, un picco di RAM
+temporaneo proporzionale al numero di figli di una singola cartella (non
+dell'intera libreria, perché `Depth: infinity` è comunque rifiutato).
+
+Ruling (Task 6): `Depth` assente sull'header `PROPFIND` è trattato come
+`Depth: 1`, non come `infinity` (il default RFC 4918). Rifiutare
+`infinity` ma non offrire un comportamento utile quando l'header manca del
+tutto avrebbe reso `PROPFIND` senza header praticamente inutilizzabile per
+client che lo omettono. Un valore diverso da `0`/`1`/`infinity`
+(case-insensitive su "infinity") è trattato con la stessa tolleranza di
+`1`, mai un errore. Costo se sbagliato: un client che si aspetta
+`infinity` di default riceve un solo livello — mai un problema di
+sicurezza, solo una lista più corta di quanto sperato.
+
+Ruling (Task 6): `getlastmodified` per una cartella usa `Utc::now()` al
+momento della risposta, non un timestamp persistito — il modello di
+dominio `Folder` non porta un mtime (la colonna `created_at` esiste in
+tabella ma non è caricata da `FolderRepo`). La sincronizzazione reale la
+fa l'`ETag` sugli asset (`content_hash`), non `getlastmodified` sulle
+cartelle: nessun client ne dipende per decidere se una cartella "è
+cambiata". Costo se sbagliato: nessuno osservabile — differito, non
+un'omissione silenziosa.
+
+Ruling (Task 6): implementato anche `PROPFIND` su un singolo asset
+(`/dav/asset/{id}`, un solo `D:response`, indipendente da `Depth`) oltre a
+quanto richiesto esplicitamente dai 5 test del brief — un client `WebDAV`
+reale (rclone, Cyberduck) tipicamente sonda un file con `PROPFIND` prima
+di un `GET`. Riusa la stessa macchina XML del caso cartella, nessun codice
+nuovo di rilievo. Costo se sbagliato: superficie in più non coperta da un
+test dedicato — mitigato riusando `asset_entry`, già esercitato dal test
+di listing della cartella.
+
+Task 6 (`PROPFIND` e `GET`): complete (commit ffa2b14, test verdi: 5/5 in
+`keeppix-api/tests/webdav_propfind.rs`, 22/22 unit test in `keeppix-api`
+lib — inclusi i 6 nuovi di `dav::propfind::tests` —, intera suite
+`keeppix-api` (32 file di test + lib) verde, `cargo fmt --check` e
+`cargo clippy --workspace --all-targets -- -D warnings` puliti). Vedi
+`task-briefs/task-6-report.md` per l'elenco dei file, il dettaglio TDD
+(inclusa la mutazione deliberata sui due test più importanti) e l'output
+di verifica.
