@@ -93,7 +93,7 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         }
     };
 
-    keeppix_jobs::regions::repair_interrupted_downloads(&db)
+    keeppix_jobs::regions::recover_interrupted_downloads(&db)
         .await
         .context("interrupted region download repair")?;
     let handler = keeppix_jobs::IngestHandler {
@@ -166,6 +166,9 @@ async fn spawn_maintenance(db: Db) {
     if let Err(e) = keeppix_jobs::retry_derives::schedule(&db).await {
         tracing::warn!(error = %e, "error-asset retry could not be scheduled");
     }
+    if let Err(e) = keeppix_jobs::regions::schedule_reap_stale(&db).await {
+        tracing::warn!(error = %e, "stale-job reaper could not be scheduled");
+    }
     {
         let db = db.clone();
         tokio::spawn(async move {
@@ -175,6 +178,19 @@ async fn spawn_maintenance(db: Db) {
                 interval.tick().await;
                 if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
                     tracing::warn!(error = %e, "trash cleanup could not be scheduled");
+                }
+            }
+        });
+    }
+    {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5 * 60));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(e) = keeppix_jobs::regions::schedule_reap_stale(&db).await {
+                    tracing::warn!(error = %e, "stale-job reaper could not be scheduled");
                 }
             }
         });

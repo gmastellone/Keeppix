@@ -29,6 +29,8 @@ pub enum RegionError {
 enum DownloadError {
     #[error("download cancelled")]
     Cancelled,
+    #[error("download job lease was lost")]
+    LeaseLost,
     #[error("transient HTTP error: {0}")]
     Transient(String),
     #[error("invalid download response: {0}")]
@@ -59,16 +61,14 @@ struct Progress<'repo, 'db> {
 
 impl Progress<'_, '_> {
     async fn checkpoint(&self, bytes: u64) -> Result<(), DownloadError> {
-        let bytes = i64::try_from(bytes).unwrap_or(i64::MAX);
-        if !self.repo.record_progress(self.region_id, bytes).await? {
-            return Err(DownloadError::Cancelled);
-        }
         if let Some(worker_id) = self.worker_id
             && !self.jobs.renew_lock(self.job_id, worker_id).await?
         {
-            return Err(DownloadError::Transient(
-                "download job lease was lost".to_owned(),
-            ));
+            return Err(DownloadError::LeaseLost);
+        }
+        let bytes = i64::try_from(bytes).unwrap_or(i64::MAX);
+        if !self.repo.record_progress(self.region_id, bytes).await? {
+            return Err(DownloadError::Cancelled);
         }
         Ok(())
     }
@@ -106,6 +106,34 @@ pub async fn repair_interrupted_downloads(db: &Db) -> Result<RepairResult, keepp
     let reaped = jobs.reap_stale(STALE_JOB_THRESHOLD).await?;
     let reenqueued = jobs.enqueue_missing_region_downloads().await?;
     Ok(RepairResult { reaped, reenqueued })
+}
+
+/// Recupera i download al boot, quando ogni job ancora `running` appartiene
+/// necessariamente al processo morto.
+///
+/// # Errors
+/// `DbError` se il reset o la ricostruzione della coda falliscono.
+pub async fn recover_interrupted_downloads(db: &Db) -> Result<RepairResult, keeppix_db::DbError> {
+    let jobs = JobRepo::new(db);
+    let reaped = jobs.reset_running(JobKind::DownloadMapRegion).await?;
+    let reenqueued = jobs.enqueue_missing_region_downloads().await?;
+    Ok(RepairResult { reaped, reenqueued })
+}
+
+/// Accoda il giro periodico che recupera i lease realmente stale.
+///
+/// # Errors
+/// Database.
+pub async fn schedule_reap_stale(db: &Db) -> Result<(), JobError> {
+    JobRepo::new(db)
+        .enqueue(
+            JobKind::ReapStale,
+            serde_json::json!({}),
+            JobPriority::Background,
+            Some("reap_stale"),
+        )
+        .await?;
+    Ok(())
 }
 
 /// Registra la regione e accoda un solo writer tramite la `dedup_key`.
@@ -260,17 +288,13 @@ async fn run_download_from_url(
             repo.finish_cancel(region_id).await?;
             Ok(())
         }
+        Err(DownloadError::LeaseLost) => {
+            Err(JobError::Worker(DownloadError::LeaseLost.to_string()))
+        }
         Err(error) if error.is_transient() => {
             if job.attempts >= job.max_attempts {
-                let cleanup_error = cleanup_paths(data_dir, region_id).await.err();
-                let message = cleanup_error.as_ref().map_or_else(
-                    || error.to_string(),
-                    |cleanup| format!("{error}; cleanup failed: {cleanup}"),
-                );
-                repo.mark_error(region_id, &message).await?;
-                if let Some(cleanup_error) = cleanup_error {
-                    return Err(cleanup_error);
-                }
+                cleanup_paths(data_dir, region_id).await?;
+                repo.mark_error(region_id, &error.to_string()).await?;
             }
             Err(JobError::Worker(error.to_string()))
         }
@@ -731,6 +755,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancel_retires_running_job_before_a_distinct_download_can_start() {
+        let (db, _container) = test_db().await;
+        let admin = seed_admin(&db).await;
+        let ctx = keeppix_domain::AuthContext::user(admin, keeppix_domain::SystemRole::Admin);
+        let old_contents = b"hello world";
+        let old_checksum = hex(&Sha256::digest(old_contents));
+        let old_job = super::enqueue_download(
+            &db,
+            &ctx,
+            keeppix_db::NewMapRegion {
+                checksum_sha256: old_checksum,
+                ..region_fixture("IT", i64::try_from(old_contents.len()).unwrap())
+            },
+        )
+        .await
+        .unwrap();
+        let jobs = keeppix_db::JobRepo::new(&db);
+        sqlx::query("UPDATE jobs SET max_attempts = 1 WHERE id = $1")
+            .bind(old_job.id)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        let claimed = jobs
+            .claim(uuid::Uuid::now_v7(), keeppix_domain::JobPriority::High)
+            .await
+            .unwrap()
+            .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let (url, first_chunk, release) = serve_paused(b"hello", b" world").await;
+        let run_db = db.clone();
+        let data_dir = temp.path().to_owned();
+        let task = tokio::spawn(async move {
+            run_download_from_url(
+                &run_db,
+                &data_dir,
+                &claimed,
+                &url.parse().unwrap(),
+                &test_client(),
+            )
+            .await
+        });
+        first_chunk.await.unwrap();
+
+        let regions = keeppix_db::RegionRepo::new(&db);
+        regions.request_cancel(&ctx, "IT").await.unwrap();
+        super::cleanup_paths(temp.path(), "IT").await.unwrap();
+        jobs.retire_active("map-region:IT", "Download cancelled")
+            .await
+            .unwrap();
+        regions.finish_cancel("IT").await.unwrap();
+        let new_contents = b"new contents!";
+        let new_job = super::enqueue_download(
+            &db,
+            &ctx,
+            keeppix_db::NewMapRegion {
+                id: "IT".to_owned(),
+                label: "Italia nuova".to_owned(),
+                size_bytes: i64::try_from(new_contents.len()).unwrap(),
+                version: "2026-09".to_owned(),
+                source_url: "https://build.protomaps.com/IT-new.pmtiles".to_owned(),
+                checksum_sha256: hex(&Sha256::digest(new_contents)),
+            },
+        )
+        .await
+        .unwrap();
+        assert_ne!(new_job.id, old_job.id);
+
+        release.send(()).unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(3), task)
+                .await
+                .expect("old worker did not stop")
+                .unwrap()
+                .is_err()
+        );
+        let region = regions.find(&ctx, "IT").await.unwrap();
+        assert_eq!(region.status, keeppix_db::RegionStatus::Downloading);
+        assert_eq!(
+            region.source_url,
+            "https://build.protomaps.com/IT-new.pmtiles"
+        );
+        assert!(!temp.path().join("maps/IT.pmtiles").exists());
+    }
+
+    #[tokio::test]
     async fn exhausted_download_marks_error_cleans_files_and_can_be_started_again() {
         let (db, _container) = test_db().await;
         let admin = seed_admin(&db).await;
@@ -783,6 +892,54 @@ mod tests {
             .await
             .unwrap();
         assert_ne!(restarted.id, queued.id);
+    }
+
+    #[tokio::test]
+    async fn failed_exhausted_cleanup_keeps_region_downloading_for_cancel_retry() {
+        let (db, _container) = test_db().await;
+        let admin = seed_admin(&db).await;
+        let ctx = keeppix_domain::AuthContext::user(admin, keeppix_domain::SystemRole::Admin);
+        let queued = super::enqueue_download(&db, &ctx, region_fixture("IT", 11))
+            .await
+            .unwrap();
+        sqlx::query("UPDATE jobs SET max_attempts = 1 WHERE id = $1")
+            .bind(queued.id)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        let job = keeppix_db::JobRepo::new(&db)
+            .claim(uuid::Uuid::now_v7(), keeppix_domain::JobPriority::High)
+            .await
+            .unwrap()
+            .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let final_path = temp.path().join("maps/IT.pmtiles");
+        tokio::fs::create_dir_all(&final_path).await.unwrap();
+        let url = serve_once(b"", "HTTP/1.1 500 Internal Server Error", None, None).await;
+
+        let error = run_download_from_url(
+            &db,
+            temp.path(),
+            &job,
+            &url.parse().unwrap(),
+            &test_client(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.to_string().contains("cannot clean region file"));
+        assert_eq!(
+            keeppix_db::RegionRepo::new(&db)
+                .find(&ctx, "IT")
+                .await
+                .unwrap()
+                .status,
+            keeppix_db::RegionStatus::Downloading
+        );
+        keeppix_db::RegionRepo::new(&db)
+            .request_cancel(&ctx, "IT")
+            .await
+            .unwrap();
     }
 
     fn test_client() -> reqwest::Client {
@@ -848,6 +1005,37 @@ mod tests {
             std::future::pending::<()>().await;
         });
         (format!("http://{address}/region.pmtiles"), received)
+    }
+
+    async fn serve_paused(
+        first_chunk: &'static [u8],
+        remainder: &'static [u8],
+    ) -> (
+        String,
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, first_received) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = vec![0_u8; 4096];
+            let _read = stream.read(&mut request).await.unwrap();
+            let content_length = first_chunk.len() + remainder.len();
+            let headers = format!("HTTP/1.1 200 OK\r\nContent-Length: {content_length}\r\n\r\n");
+            stream.write_all(headers.as_bytes()).await.unwrap();
+            stream.write_all(first_chunk).await.unwrap();
+            sent.send(()).unwrap();
+            released.await.unwrap();
+            stream.write_all(remainder).await.unwrap();
+        });
+        (
+            format!("http://{address}/region.pmtiles"),
+            first_received,
+            release,
+        )
     }
 
     fn region_fixture(id: &str, size_bytes: i64) -> keeppix_db::NewMapRegion {

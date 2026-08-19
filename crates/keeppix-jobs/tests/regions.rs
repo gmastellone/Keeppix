@@ -127,3 +127,45 @@ async fn repair_reaps_a_claimed_region_job_without_duplicating_it() {
         5
     );
 }
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn startup_recovery_resets_a_running_region_job_immediately() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let queued = keeppix_jobs::regions::enqueue_download(
+        test.db(),
+        &ctx,
+        NewMapRegion {
+            id: "IT".to_owned(),
+            label: "Italia".to_owned(),
+            size_bytes: 11,
+            version: "2026-08".to_owned(),
+            source_url: "https://build.protomaps.com/20260818.pmtiles".to_owned(),
+            checksum_sha256: "ab".repeat(32),
+        },
+    )
+    .await
+    .unwrap();
+    let jobs = JobRepo::new(test.db());
+    let running = jobs
+        .claim(uuid::Uuid::now_v7(), JobPriority::High)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(running.id, queued.id);
+
+    let recovered = keeppix_jobs::regions::recover_interrupted_downloads(test.db())
+        .await
+        .unwrap();
+
+    assert_eq!(recovered.reaped, 1);
+    assert_eq!(recovered.reenqueued, 0);
+    let runnable = jobs
+        .claim(uuid::Uuid::now_v7(), JobPriority::High)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(runnable.id, queued.id);
+}

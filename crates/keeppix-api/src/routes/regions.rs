@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
-use keeppix_db::{MapRegion, NewMapRegion, RegionRepo, RegionStatus};
+use keeppix_db::{JobRepo, MapRegion, NewMapRegion, RegionRepo, RegionStatus};
 use serde::{Deserialize, Serialize};
 
 use crate::{AdminAuth, AppState, Auth, Json, Problem};
@@ -134,6 +134,7 @@ pub async fn cancel(
     let repo = RegionRepo::new(&state.db);
     repo.request_cancel(&ctx, &id).await?;
     remove_region_files(&state.data_dir, &id).await?;
+    retire_region_job(&state, &id).await?;
     repo.finish_cancel(&id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -165,6 +166,9 @@ pub async fn delete(
         repo.request_cancel(&ctx, &id).await?;
     }
     remove_region_files(&state.data_dir, &id).await?;
+    if region.status == RegionStatus::Downloading {
+        retire_region_job(&state, &id).await?;
+    }
     repo.delete(&ctx, &id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -199,6 +203,14 @@ async fn remove_if_present(path: PathBuf) -> Result<(), Problem> {
 async fn remove_region_files(data_dir: &Path, id: &str) -> Result<(), Problem> {
     remove_if_present(partial_path(data_dir, id)).await?;
     remove_if_present(final_path(data_dir, id)).await
+}
+
+async fn retire_region_job(state: &AppState, id: &str) -> Result<(), Problem> {
+    let dedup_key = format!("map-region:{id}");
+    JobRepo::new(&state.db)
+        .retire_active(&dedup_key, "Download cancelled")
+        .await?;
+    Ok(())
 }
 
 fn final_path(data_dir: &Path, id: &str) -> PathBuf {
