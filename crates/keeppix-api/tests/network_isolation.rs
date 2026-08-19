@@ -1,8 +1,8 @@
 //! Verifies that ingest → geocode → assign-location makes zero outbound
 //! network connections. The flow is purely local by construction: geocoding
-//! uses the GeoNames table seeded from a local CSV, and metadata assignment
-//! writes only to PostgreSQL. The only crate that imports `reqwest` is
-//! `keeppix-jobs::regions` (PMTiles download), which is not involved here.
+//! uses the `GeoNames` table seeded from a local CSV, and metadata assignment
+//! writes only to `PostgreSQL`. The only crate that imports `reqwest` is
+//! `keeppix-jobs::regions` (`PMTiles` download), which is not involved here.
 //!
 //! This test exercises the full flow end-to-end and asserts that every step
 //! succeeds without any external service.
