@@ -16,6 +16,7 @@ pub enum JobKind {
     CleanupTrash,
     RetryErrorAssets,
     DownloadMapRegion,
+    TmpCleanup,
 }
 
 impl JobKind {
@@ -32,6 +33,7 @@ impl JobKind {
             Self::CleanupTrash => "cleanup_trash",
             Self::RetryErrorAssets => "retry_error_assets",
             Self::DownloadMapRegion => "download_map_region",
+            Self::TmpCleanup => "tmp_cleanup",
         }
     }
 
@@ -49,6 +51,7 @@ impl JobKind {
             "cleanup_trash" => Ok(Self::CleanupTrash),
             "retry_error_assets" => Ok(Self::RetryErrorAssets),
             "download_map_region" => Ok(Self::DownloadMapRegion),
+            "tmp_cleanup" => Ok(Self::TmpCleanup),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
     }
@@ -148,6 +151,7 @@ mod tests {
             JobKind::CleanupTrash,
             JobKind::RetryErrorAssets,
             JobKind::DownloadMapRegion,
+            JobKind::TmpCleanup,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
         }

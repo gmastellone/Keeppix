@@ -10,10 +10,10 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
-use keeppix_db::{AssetRepo, NewUploadSession, UploadSessionRepo};
+use keeppix_db::{AssetRepo, Db, JobRepo, NewUploadSession, UploadSessionRepo};
 use keeppix_domain::{
-    AssetKind, AssetName, AuthContext, ChunkChecksum, CollisionOutcome, FolderId, UploadSession,
-    UploadSessionId,
+    AssetId, AssetKind, AssetName, AuthContext, ChunkChecksum, CollisionOutcome, FolderId, JobKind,
+    JobPriority, UploadSession, UploadSessionId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -218,11 +218,42 @@ pub async fn patch(
         return Ok((StatusCode::NO_CONTENT, offset_header(new_offset)).into_response());
     }
 
-    let response = finalize_upload(&repo, &ctx, session_id, &session).await?;
+    let response = finalize_upload(&state.db, &repo, &ctx, session_id, &session).await?;
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
+/// Indicizza subito il file appena finalizzato, senza aspettare i 15
+/// minuti del watcher (spec §1.2 punto ⑤, Task 2 di Fase 5). Un duplicato
+/// esatto (`SkippedDuplicate`) non lo tocca: l'asset esistente è già stato
+/// indicizzato la prima volta, un secondo job sarebbe solo lavoro sprecato.
+///
+/// # Errors
+/// `Problem::internal()` se l'enqueue fallisce — un errore qui non deve
+/// far fallire la risposta al client: l'asset esiste già, l'indicizzazione
+/// arriverà comunque dal prossimo rescan del watcher, solo più tardi.
+async fn enqueue_indexing(db: &Db, asset_id: AssetId, collision: &CollisionOutcome) {
+    if matches!(collision, CollisionOutcome::SkippedDuplicate { .. }) {
+        return;
+    }
+    if let Err(err) = JobRepo::new(db)
+        .enqueue(
+            JobKind::ExtractMetadata,
+            serde_json::json!({ "asset_id": asset_id.to_string() }),
+            JobPriority::High,
+            Some(&format!("meta:{asset_id}")),
+        )
+        .await
+    {
+        tracing::warn!(
+            error = %err,
+            asset_id = %asset_id,
+            "upload finalize: could not enqueue high-priority indexing, the next rescan will catch it"
+        );
+    }
+}
+
 async fn finalize_upload(
+    db: &Db,
     repo: &UploadSessionRepo<'_>,
     ctx: &AuthContext,
     id: UploadSessionId,
@@ -260,6 +291,7 @@ async fn finalize_upload(
     }
 
     let outcome = repo.finalize(ctx, id, kind, computed).await?;
+    enqueue_indexing(db, outcome.asset_id, &outcome.collision).await;
     Ok(match outcome.collision {
         CollisionOutcome::Created => UploadCompleteResponse {
             asset_id: outcome.asset_id.to_string(),

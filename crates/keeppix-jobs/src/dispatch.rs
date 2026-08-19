@@ -64,6 +64,7 @@ impl crate::JobHandler for IngestHandler {
                 crate::cleanup_trash::run(&self.db, self.trash_retention_days).await
             }
             JobKind::RetryErrorAssets => crate::retry_derives::run(&self.db).await,
+            JobKind::TmpCleanup => crate::tmp_cleanup::run(&self.db).await,
             JobKind::DownloadMapRegion => crate::regions::run(&self.db, &self.data_dir, job).await,
             JobKind::ReapStale => {
                 crate::regions::repair_interrupted_downloads(&self.db).await?;
