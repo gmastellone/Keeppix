@@ -3,6 +3,7 @@
 
 pub mod cookie;
 pub mod csrf;
+pub mod dav;
 pub mod extract;
 pub mod json;
 pub mod openapi;
@@ -367,6 +368,12 @@ fn all_routes() -> Router<AppState> {
         .route("/media/preview/{hash}", get(routes::media::preview))
         .route("/media/full/{hash}", get(routes::media::full))
         .route("/media/original/{id}", get(routes::media::original))
+        // WebDAV (Fase 5): fuori da `/api/v1` di proposito — non è un'API
+        // REST e non va nel contratto congelato. Autenticazione via
+        // app-password Basic Auth, mai cookie di sessione (`dav::handler`).
+        // `axum::routing::any` cattura anche i metodi non standard che i
+        // client WebDAV usano (PROPFIND, MKCOL, MOVE, COPY, LOCK, UNLOCK).
+        .route("/dav/{*path}", axum::routing::any(dav::handler))
         .nest("/api/v1", api_routes())
         // Va chiamata **dopo** aver registrato le rotte: imposta il fallback
         // di ogni `MethodRouter` già presente, e un `route(...)` aggiunto in
