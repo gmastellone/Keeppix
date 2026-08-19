@@ -130,6 +130,12 @@ CREATE TABLE person_group_members (
     PRIMARY KEY (group_id, person_id)
 );
 
+-- La chiave primaria copre "chi è nel gruppo X" (group_id in testa), non
+-- "in quali gruppi sta la persona Y" — query altrettanto naturale (il
+-- dettaglio di una persona che mostra i suoi gruppi) e senza questo indice
+-- farebbe una scansione della tabella.
+CREATE INDEX person_group_members_person_idx ON person_group_members (person_id);
+
 -- LA TABELLA CHE FA LA DIFFERENZA (§4.3): due persone che l'utente ha
 -- separato non devono mai essere riunite dall'automatismo.
 CREATE TABLE person_separations (
