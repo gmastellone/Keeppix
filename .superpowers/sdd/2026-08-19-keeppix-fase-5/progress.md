@@ -224,3 +224,28 @@ Costo se sbagliato: semantica leggermente diversa da un DELETE idempotente puro.
 
 Task 4: complete (commits 1cf9d49..618bce9, review clean — Important: ledger entry
 era mancante dal commit dell'implementer, aggiunta ora in questo commit)
+
+Ruling: la deroga CSRF per `/dav/*` in `require_client_header` (`csrf.rs`) è
+per prefisso di path, non condizionata all'assenza di cookie di sessione.
+Verificato che oggi è ridondante — il layer è applicato solo dentro
+`api_routes()` via `.layer(...)`, e `/dav/*` è montato come rotta sorella
+fuori da quel router, quindi non lo attraverserebbe comunque — ma il brief
+la richiede esplicitamente come "opzione preferita" ed è difesa in
+profondità a costo nullo se in futuro il layer venisse spostato a un livello
+più alto del router. Costo se sbagliato: nessuno osservabile oggi.
+
+Ruling (non differita, solo segnalata): `AppPasswordRepo::verify` non
+controlla `disabled_at` dell'utente (già annotato sopra al Task 4). Il Task
+5 la cabla nel Basic Auth di `/dav/handler` senza aggiungere quel controllo:
+il brief non lo richiede, e aggiungerlo qui avrebbe significato toccare
+`keeppix-db` fuori dal perimetro scritto del task ("scaffolding: router,
+auth, deroga CSRF — nessun PROPFIND/GET/PUT"). Resta un difetto noto e
+differito: un utente disabilitato con un'app-password ancora non revocata
+può autenticarsi su WebDAV. Da correggere prima che i Task 6-8 esponga
+operazioni reali (PROPFIND/GET/PUT), non necessariamente in questo task.
+
+Task 5 (scaffolding WebDAV — router, auth, deroga CSRF): complete (test
+verdi: 4/4 in `keeppix-api/tests/webdav_auth.rs`, 6/6 unit test in
+`dav::tests`, intera suite `keeppix-api` verde, `cargo fmt --check` e
+`cargo clippy --workspace --all-targets -- -D warnings` puliti). Vedi
+`task-briefs/task-5-report.md` per l'elenco dei file e il dettaglio TDD.
