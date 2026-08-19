@@ -503,7 +503,11 @@ const fn kind_str(kind: AssetKind) -> &'static str {
 /// sottotrattino, non il trattino di `unique_filename` in `share.rs`, che
 /// serve a un flusso diverso (upload ospite senza concetto di collisione di
 /// contenuto).
-fn unique_suffixed_name(desired: &str, taken: &[String]) -> String {
+///
+/// `pub(crate)`: riusata anche da `AssetRepo::ingest_direct` (`WebDAV PUT`,
+/// Task 7 Fase 5), che risolve la stessa collisione senza passare da una
+/// sessione di upload.
+pub(crate) fn unique_suffixed_name(desired: &str, taken: &[String]) -> String {
     if !taken.iter().any(|name| name == desired) {
         return desired.to_owned();
     }
@@ -520,7 +524,8 @@ fn unique_suffixed_name(desired: &str, taken: &[String]) -> String {
     format!("{stem}_{}{ext}", Uuid::now_v7())
 }
 
-fn remove_file_tolerant(path: &Path) -> Result<(), DbError> {
+/// `pub(crate)`: riusata anche da `AssetRepo::ingest_direct` (Task 7).
+pub(crate) fn remove_file_tolerant(path: &Path) -> Result<(), DbError> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -528,7 +533,9 @@ fn remove_file_tolerant(path: &Path) -> Result<(), DbError> {
     }
 }
 
-fn map_unique_violation(err: sqlx::Error) -> DbError {
+/// `pub(crate)`: riusata anche da `AssetRepo::ingest_direct` (Task 7), stessa
+/// collisione `(folder_id, filename)`.
+pub(crate) fn map_unique_violation(err: sqlx::Error) -> DbError {
     if let sqlx::Error::Database(ref db_err) = err
         && db_err.code().as_deref() == Some("23505")
     {
