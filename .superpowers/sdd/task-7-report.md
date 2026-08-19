@@ -79,3 +79,51 @@ rieseguiti invariati fino a exit 0.
   localhost non compare e non comparirà nell'allowlist di produzione.
 - Nessun download reale Protomaps viene eseguito in CI; rete, resume e checksum
   usano fixture di pochi byte.
+
+## Review fix — RED
+
+I test di regressione sono stati scritti prima delle correzioni. Il comando
+
+```text
+cargo test -p keeppix-jobs --jobs 1 --test regions repair_reenqueues_a_downloading_region_without_a_live_job -- --exact --test-threads=1
+```
+
+è fallito con `E0425`: `repair_interrupted_downloads` non esisteva. La nuova
+copertura pinna inoltre:
+
+- regione `downloading` senza job e job `running` stale → riparazione senza
+  perdere l'offset né duplicare la `dedup_key`;
+- body HTTP fermo dopo il primo chunk → cancel entro il polling, `.part`
+  assente e lease del job rinnovato;
+- cleanup del cancel fallito → stato ancora cancellabile e secondo cancel
+  riuscito;
+- ultimo tentativo HTTP fallito → regione `error`, file finale assente e nuovo
+  download accodabile.
+
+## Review fix — GREEN
+
+Tutti con exit code 0:
+
+```text
+cargo fmt --check
+cargo clippy -p keeppix-domain -p keeppix-db -p keeppix-jobs -p keeppix-api --all-targets -- -D warnings
+cargo test -p keeppix-jobs --jobs 1 -- --test-threads=1
+cargo test -p keeppix-db --jobs 1 -- --test-threads=1
+cargo test -p keeppix-api --jobs 1 -- --test-threads=1
+```
+
+Il primo rerun completo di clippy ha esaurito il filesystem sugli artefatti
+Cargo; dopo `cargo clean` lo stesso comando è stato rieseguito invariato ed è
+verde. `./scripts/test.sh` non è stato eseguito.
+
+## Review fix — ruling
+
+- `cancel_requested` è una colonna aggiunta dalla migrazione `0023`: lo stato
+  resta `downloading` finché la rimozione dei file non riesce, quindi un errore
+  di cleanup non rende il cancel irripetibile.
+- La stessa riparazione gira all'avvio e dal job `ReapStale`: prima rimette
+  `pending` i lease oltre 600 s, poi accoda solo regioni senza job vivo.
+- Il lease viene rinnovato nello stesso checkpoint che controlla il cancel,
+  anche mentre il body HTTP non produce chunk e durante il checksum.
+
+Task 7 review fix: complete (commit `12c97dd`, verifiche prescritte verdi).
