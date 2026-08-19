@@ -264,6 +264,158 @@ async fn completing_with_a_wrong_expected_hash_never_enters_the_library() {
     assert!(!root.join("photo.jpg").exists());
 }
 
+/// Due `PATCH` in sequenza completano l'upload: verifica che
+/// `write_chunk_checked` scriva davvero in append (streaming, mai
+/// bufferizzato per intero in RAM) e non sovrascriva quanto già ricevuto —
+/// l'hash end-to-end che finalizza la sessione è quello del file intero,
+/// non del solo ultimo chunk.
+#[tokio::test]
+async fn a_multi_chunk_upload_completes_across_two_patches() {
+    let server = TestServer::start().await;
+    let (library_id, root) = library_with_folder(&server, "multichunk").await;
+    let folder_id = root_folder_id(&server, &library_id).await;
+    let bytes = fs::read(tiny_fixture_path()).unwrap();
+    assert!(
+        bytes.len() > 4,
+        "il fixture deve poter essere spezzato in due chunk"
+    );
+    let (first, second) = bytes.split_at(bytes.len() / 2);
+
+    let session_id = create_session(
+        &server,
+        &folder_id,
+        "multi.jpg",
+        i64::try_from(bytes.len()).unwrap(),
+        Some(&blake3_hex(&bytes)),
+    )
+    .await;
+
+    let response = patch_chunk(&server, &session_id, 0, &blake3_hex(first), first).await;
+    assert_eq!(response.status(), 204);
+    assert_eq!(
+        upload_offset(&server, &session_id).await,
+        first.len().to_string()
+    );
+
+    let response = patch_chunk(
+        &server,
+        &session_id,
+        i64::try_from(first.len()).unwrap(),
+        &blake3_hex(second),
+        second,
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+
+    assert_eq!(fs::read(root.join("multi.jpg")).unwrap(), bytes);
+}
+
+/// Caso 5: verifica di decodificabilità fallita (header corrotto) anche con
+/// hash corretto → stesso esito del caso 4: mai in libreria, segnalato,
+/// temporaneo e sessione ripuliti.
+#[tokio::test]
+async fn completing_with_undecodable_content_never_enters_the_library() {
+    let server = TestServer::start().await;
+    let (library_id, root) = library_with_folder(&server, "undecodable").await;
+    let folder_id = root_folder_id(&server, &library_id).await;
+    // Nessun magic number riconosciuto da `keeppix_media::detect_kind`: non
+    // JPEG, PNG, GIF, WEBP/AVI (RIFF), TIFF, ISOBMFF (`ftyp`) né EBML/MKV.
+    let garbage =
+        b"garbage payload, not a real image or video, long enough to fill the sniffed header"
+            .to_vec();
+    let hash = blake3_hex(&garbage);
+    let session_id = create_session(
+        &server,
+        &folder_id,
+        "garbage.jpg",
+        i64::try_from(garbage.len()).unwrap(),
+        Some(&hash),
+    )
+    .await;
+
+    let temp_path: String =
+        sqlx::query_scalar("SELECT temp_path FROM upload_sessions WHERE id = $1")
+            .bind(uuid::Uuid::parse_str(&session_id).unwrap())
+            .fetch_one(server.db.pool())
+            .await
+            .unwrap();
+
+    // L'hash del chunk (per-chunk) e l'`expected_hash` (end-to-end)
+    // coincidono qui perché il chunk è l'intero file: l'hash è corretto,
+    // solo il contenuto non è decodificabile.
+    let response = patch_chunk(&server, &session_id, 0, &hash, &garbage).await;
+    assert_eq!(response.status(), 422);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/upload-undecodable");
+
+    assert!(
+        !Path::new(&temp_path).exists(),
+        "il temporaneo di un file non decodificabile va ripulito"
+    );
+    let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
+        .bind(uuid::Uuid::parse_str(&session_id).unwrap())
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+    assert_eq!(sessions, 0, "la sessione fallita va cancellata");
+    let assets: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM assets WHERE filename = 'garbage.jpg'")
+            .fetch_one(server.db.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        assets, 0,
+        "un file non decodificabile non deve mai creare un asset"
+    );
+    assert!(!root.join("garbage.jpg").exists());
+}
+
+/// `client_mtime` dichiarato dal client all'apertura della sessione finisce
+/// su `assets.mtime` dell'asset finalizzato (spec §1.3: fallback di
+/// `taken_at` quando l'EXIF non ce l'ha).
+#[tokio::test]
+async fn client_mtime_is_preserved_on_the_finalized_asset() {
+    let server = TestServer::start().await;
+    let (library_id, _root) = library_with_folder(&server, "mtime").await;
+    let folder_id = root_folder_id(&server, &library_id).await;
+    let bytes = fs::read(tiny_fixture_path()).unwrap();
+    let client_mtime = "2019-05-01T12:30:00Z";
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/upload"))
+        .json(&json!({
+            "target_folder_id": folder_id,
+            "filename": "photo.jpg",
+            "expected_size": i64::try_from(bytes.len()).unwrap(),
+            "client_mtime": client_mtime,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let session_id = body["id"].as_str().unwrap().to_owned();
+
+    let response = patch_chunk(&server, &session_id, 0, &blake3_hex(&bytes), &bytes).await;
+    assert_eq!(response.status(), 201);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let asset_id = body["asset_id"].as_str().unwrap().to_owned();
+
+    let mtime: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT mtime FROM assets WHERE id = $1")
+            .bind(uuid::Uuid::parse_str(&asset_id).unwrap())
+            .fetch_one(server.db.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        mtime,
+        client_mtime
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap()
+    );
+}
+
 /// Caso 6: stesso nome e stesso hash di un asset già presente → si salta, si
 /// segnala, nessun secondo file.
 #[tokio::test]
