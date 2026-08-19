@@ -336,6 +336,14 @@ fn api_routes() -> Router<AppState> {
             "/share/{token}/uploads",
             axum::routing::post(routes::share::public_upload).layer(DefaultBodyLimit::disable()),
         )
+        .route("/upload/check", axum::routing::post(routes::upload::check))
+        .route("/upload", axum::routing::post(routes::upload::create))
+        .route(
+            "/upload/{id}",
+            axum::routing::head(routes::upload::head)
+                .patch(routes::upload::patch)
+                .layer(DefaultBodyLimit::disable()),
+        )
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe

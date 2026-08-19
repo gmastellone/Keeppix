@@ -140,6 +140,55 @@ impl Problem {
             "Upload exceeds the share link quota",
         )
     }
+
+    /// Non c'è abbastanza spazio libero sul filesystem della libreria per
+    /// `expected_size` (spec §1.3): rifiutato alla creazione della sessione,
+    /// non scoperto a metà upload.
+    #[must_use]
+    pub fn insufficient_storage() -> Self {
+        Self::new(
+            StatusCode::INSUFFICIENT_STORAGE,
+            "insufficient-storage",
+            "Not enough free space on the library filesystem",
+        )
+    }
+
+    /// La sessione di upload è scaduta ed è già stata ripulita: distinto da
+    /// `404`, perché il chiamante non ha sbagliato id, l'aveva vista.
+    #[must_use]
+    pub fn gone() -> Self {
+        Self::new(
+            StatusCode::GONE,
+            "upload-session-expired",
+            "The upload session has expired",
+        )
+    }
+
+    /// `HEAD`/`PATCH` con `Upload-Offset` diverso da `received_bytes` reale
+    /// (spec §1.3, «la verità sta sempre sul server»): mai un'accettazione
+    /// silenziosa che corrompe il file.
+    #[must_use]
+    pub fn offset_mismatch(expected: i64) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "upload-offset-mismatch",
+            "Upload-Offset does not match the session's received bytes",
+        )
+        .with_detail(format!("expected {expected}"))
+    }
+
+    /// `460`, custom (spec §1.2): il checksum del chunk non combacia. Non è
+    /// un codice IANA — Nginx lo usa per un client closed request, ma nel
+    /// nostro protocollo tus-style è libero — il chunk **non** viene
+    /// scritto, il client può rispedirlo senza perdere l'offset precedente.
+    #[must_use]
+    pub fn chunk_checksum_mismatch() -> Self {
+        Self::new(
+            StatusCode::from_u16(460).unwrap_or(StatusCode::CONFLICT),
+            "chunk-checksum-mismatch",
+            "Upload-Checksum does not match the chunk body",
+        )
+    }
 }
 
 /// Attesa suggerita su `503`: abbastanza per un riavvio breve di Postgres,
@@ -206,6 +255,8 @@ impl From<DbError> for Problem {
                 tracing::error!(error = %e, "database unavailable");
                 Self::service_unavailable()
             }
+            DbError::InsufficientStorage => Self::insufficient_storage(),
+            DbError::Gone => Self::gone(),
             // I dettagli interni restano nei log, non nella risposta.
             other => {
                 tracing::error!(error = %other, "database error");

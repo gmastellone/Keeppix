@@ -17,6 +17,7 @@ uuid.workspace = true
 serde_json.workspace = true
 base64 = "0.23.1"
 rand = { version = "0.10.2", features = ["std", "std_rng"] }
+libc = "0.2.189"
 
 [lints]
 workspace = true
@@ -25,3 +26,4 @@ workspace = true
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 uuid.workspace = true
+blake3 = "1"

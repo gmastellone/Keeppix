@@ -57,6 +57,7 @@ id_type!(AssetId);
 id_type!(BatchId);
 id_type!(StackId);
 id_type!(TrashEntryId);
+id_type!(UploadSessionId);
 
 #[cfg(test)]
 mod tests {
