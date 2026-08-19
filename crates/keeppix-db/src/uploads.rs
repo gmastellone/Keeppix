@@ -544,7 +544,19 @@ pub(crate) fn map_unique_violation(err: sqlx::Error) -> DbError {
     DbError::Connection(err)
 }
 
-fn ensure_disk_space(root: &Path, expected_size: i64) -> Result<(), DbError> {
+/// `pub`: riusata da `keeppix_api::dav::write::put` (`WebDAV PUT`, Task 7
+/// Fase 5, fix round) per lo stesso controllo prima di scrivere il body su
+/// disco — a differenza della sessione `tus` qui non c'è una riga da
+/// rifiutare "alla creazione", quindi il controllo va ripetuto punto per
+/// punto nel modulo `WebDAV`. `pub(crate)` non basterebbe: il chiamante è in
+/// un altro crate del workspace, e questa funzione non contiene SQL, quindi
+/// esportarla non viola l'invariante "nessun SQL fuori da `keeppix-db`" né
+/// il divieto di dipendenza `keeppix-media` ↔ `keeppix-db` (ledger Task 7).
+///
+/// # Errors
+/// `InsufficientStorage` se lo spazio libero su `root` è sotto
+/// `expected_size`. `Io` se `statvfs` fallisce.
+pub fn ensure_disk_space(root: &Path, expected_size: i64) -> Result<(), DbError> {
     let needed = u64::try_from(expected_size).unwrap_or(u64::MAX);
     let available = available_bytes(root)?;
     if available < needed {

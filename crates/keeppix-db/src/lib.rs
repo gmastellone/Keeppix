@@ -64,7 +64,9 @@ pub use share_links::{NewShareLink, ShareLinkRepo, ShareLinkRow};
 pub use stacks::{StackDetails, StackMember, StackRepo};
 pub use timeline::{MonthBucket, TimelineRepo};
 pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
-pub use uploads::{FinalizeOutcome, NewUploadSession, UPLOAD_TMP_DIR_NAME, UploadSessionRepo};
+pub use uploads::{
+    FinalizeOutcome, NewUploadSession, UPLOAD_TMP_DIR_NAME, UploadSessionRepo, ensure_disk_space,
+};
 pub use users::UserRepo;
 pub use visibility::VisibilityScope;
 

@@ -87,6 +87,29 @@ async fn put(server: &TestServer, path: &str, auth: &str, bytes: &[u8]) -> reqwe
         .unwrap()
 }
 
+/// Come [`put`], ma con un `Content-Length` dichiarato a mano — diverso dal
+/// corpo effettivo che `reqwest` manda per davvero (`bytes`). Serve a
+/// esercitare la guardia sulla dimensione dichiarata (fix round Task 7,
+/// Important #1) senza dover davvero spedire terabyte di corpo: il server
+/// deve rispondere guardando solo l'header, prima di leggere un solo byte.
+async fn put_with_declared_length(
+    server: &TestServer,
+    path: &str,
+    auth: &str,
+    bytes: &[u8],
+    declared_length: u64,
+) -> reqwest::Response {
+    server
+        .client
+        .put(server.url(path))
+        .header("authorization", auth)
+        .header("content-length", declared_length.to_string())
+        .body(bytes.to_vec())
+        .send()
+        .await
+        .unwrap()
+}
+
 async fn move_folder(
     server: &TestServer,
     path: &str,
@@ -197,6 +220,42 @@ async fn mkcol_by_a_viewer_returns_403() {
             .join("album-a")
             .join("should-not-exist")
             .exists()
+    );
+}
+
+#[tokio::test]
+async fn mkcol_disk_failure_leaves_no_phantom_folder_row() {
+    let server = TestServer::start().await;
+    let fixture = setup_fixture(&server).await;
+    let auth = basic_auth_header("giovanni", &fixture.secret);
+
+    // Un file omonimo già sul disco impedisce a `create_dir_all` di
+    // riuscire (errore di I/O reale, non un `NotFound`/permessi che root
+    // potrebbe bypassare in CI) — ordine invertito (fix round Task 7,
+    // Important #2): il DB non deve mai vedere una riga per una cartella
+    // che non esiste sul disco.
+    let colliding_path = fixture.root.join("album-a").join("blocked");
+    std::fs::write(&colliding_path, b"not a directory").unwrap();
+
+    let response = mkcol(
+        &server,
+        &format!("/dav/folder/{}/blocked", fixture.album_a),
+        &auth,
+    )
+    .await;
+
+    assert_eq!(response.status(), 500);
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM folders WHERE parent_id = $1 AND name = 'blocked'",
+    )
+    .bind(uuid::Uuid::parse_str(&fixture.album_a).unwrap())
+    .fetch_one(server.db.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        count, 0,
+        "a disk failure on MKCOL must never leave a phantom folders row"
     );
 }
 
@@ -317,6 +376,37 @@ async fn put_of_same_name_different_content_saves_with_suffix() {
         different
     );
     assert_eq!(asset_count_in_folder(&server, &fixture.album_a).await, 4);
+}
+
+#[tokio::test]
+async fn put_with_a_declared_content_length_over_the_limit_returns_413() {
+    let server = TestServer::start().await;
+    let fixture = setup_fixture(&server).await;
+    let auth = basic_auth_header("giovanni", &fixture.secret);
+    let bytes = std::fs::read(tiny_fixture_path()).unwrap();
+
+    // Il corpo vero è minuscolo (`tiny.jpg`); l'header dichiara 100 TiB,
+    // ben oltre `MAX_BODY_BYTES` (10 GiB) — il server deve respingerlo
+    // guardando solo `Content-Length`, senza mai scrivere un file.
+    let response = put_with_declared_length(
+        &server,
+        &format!("/dav/folder/{}/too-big.jpg", fixture.album_a),
+        &auth,
+        &bytes,
+        100 * 1024 * 1024 * 1024 * 1024,
+    )
+    .await;
+
+    assert_eq!(response.status(), 413);
+    assert!(
+        !fixture.root.join("album-a").join("too-big.jpg").exists(),
+        "a PUT rejected for its declared size must never write a file to disk"
+    );
+    assert_eq!(
+        asset_count_in_folder(&server, &fixture.album_a).await,
+        3,
+        "a rejected PUT must never create an asset row"
+    );
 }
 
 #[tokio::test]

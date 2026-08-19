@@ -25,13 +25,41 @@ use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
-use keeppix_db::{AssetRepo, FolderRepo, UPLOAD_TMP_DIR_NAME};
+use keeppix_db::{AssetRepo, FolderRepo, UPLOAD_TMP_DIR_NAME, ensure_disk_space};
 use keeppix_domain::{AssetId, AuthContext, CollisionOutcome, FolderId};
 
 use crate::problem::Problem;
 use crate::routes::share::peek_header;
 use crate::routes::upload::enqueue_indexing;
 use crate::state::AppState;
+
+/// Tetto assoluto per un corpo `PUT` `WebDAV`, indipendentemente da quanto
+/// dichiara `Content-Length` (o dalla sua assenza, con `Transfer-Encoding:
+/// chunked`) — Ruling (fix round Task 7): senza questo, un client che non
+/// manda affatto `Content-Length` bypasserebbe sia questo controllo sia
+/// `ensure_disk_space` (che ha bisogno di una dimensione dichiarata per
+/// girare), e potrebbe riempire il disco in streaming senza che nessun
+/// controllo lo intercetti. 10 GiB è ben oltre qualunque file fotografico o
+/// video reale che Keeppix indicizza; costo se sbagliato: un client che
+/// carica legittimamente un file più grande riceve un `413` invece che un
+/// upload riuscito — va rivisto se un giorno servirà per RAW/video enormi.
+const MAX_BODY_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+
+/// Convalida la dimensione dichiarata dal client contro [`MAX_BODY_BYTES`]
+/// e restituisce il tetto da imporre effettivamente allo streaming: la
+/// dimensione dichiarata se presente e nel limite, altrimenti
+/// `MAX_BODY_BYTES` (corpo senza `Content-Length`, tipicamente
+/// `Transfer-Encoding: chunked`).
+///
+/// # Errors
+/// `413` se `Content-Length` supera `MAX_BODY_BYTES`.
+fn check_declared_size(content_length: Option<u64>) -> Result<u64, Problem> {
+    match content_length {
+        Some(len) if len > MAX_BODY_BYTES => Err(Problem::payload_too_large()),
+        Some(len) => Ok(len),
+        None => Ok(MAX_BODY_BYTES),
+    }
+}
 
 /// `PUT /dav/folder/{folder_id}/{filename}` — stesso percorso del `tus`
 /// upload (Task 1), senza sessione: il corpo arriva già intero in streaming,
@@ -46,18 +74,33 @@ use crate::state::AppState;
 ///
 /// # Errors
 /// `400` se il nome non è un componente di percorso valido, o se il corpo
-/// è vuoto. `403` se il chiamante non è editor sulla cartella. `500` per un
-/// errore di I/O.
+/// è vuoto. `403` se il chiamante non è editor sulla cartella. `413` se
+/// `Content-Length` (o il corpo effettivo, per un client senza
+/// `Content-Length`) supera [`MAX_BODY_BYTES`]. `507` se lo spazio libero
+/// sulla libreria è sotto la dimensione dichiarata. `500` per un errore di
+/// I/O.
 pub async fn put(
     state: &AppState,
     ctx: &AuthContext,
     folder_id: FolderId,
     filename: &str,
+    content_length: Option<u64>,
     body: Body,
 ) -> Result<Response, Problem> {
     let (_, library) = FolderRepo::new(&state.db)
         .assert_editor(ctx, folder_id)
         .await?;
+
+    // Guardia (fix round Task 7, Important #1): prima di toccare il disco,
+    // non dopo — un `Content-Length` dichiarato più grande dello spazio
+    // libero viene respinto senza scrivere un solo byte del temporaneo,
+    // sullo stesso principio di `UploadSessionRepo::create` per la sessione
+    // `tus` (`crates/keeppix-db/src/uploads.rs`).
+    let cap = check_declared_size(content_length)?;
+    if let Some(len) = content_length {
+        let expected = i64::try_from(len).unwrap_or(i64::MAX);
+        ensure_disk_space(&library.root_path, expected)?;
+    }
 
     let tmp_dir = library.root_path.join(UPLOAD_TMP_DIR_NAME);
     tokio::fs::create_dir_all(&tmp_dir).await.map_err(|err| {
@@ -66,7 +109,7 @@ pub async fn put(
     })?;
     let temp_path = tmp_dir.join(format!("{}_{filename}", uuid::Uuid::now_v7()));
 
-    let written = write_body_to_file(&temp_path, body).await?;
+    let written = write_body_to_file(&temp_path, body, cap).await?;
     if written == 0 {
         let _ = tokio::fs::remove_file(&temp_path).await;
         return Err(Problem::bad_request("empty-body", "PUT body was empty"));
@@ -138,9 +181,22 @@ fn put_response(asset_id: AssetId, collision: &CollisionOutcome) -> Response {
     }
 }
 
-/// `MKCOL /dav/folder/{parent_id}/{new_name}` — crea la sotto-cartella nel
-/// database (`FolderRepo::ensure_child`, idempotente per costruzione) e la
-/// directory sul disco.
+/// `MKCOL /dav/folder/{parent_id}/{new_name}` — crea prima la directory sul
+/// disco, poi la riga nel database (`FolderRepo::ensure_child`, idempotente
+/// per costruzione).
+///
+/// Ordine invertito rispetto alla prima versione (ledger Task 7, fix round,
+/// Important #2): scrivere prima su disco e poi nel database, mai il
+/// contrario — se l'`INSERT` andasse prima e la `create_dir_all` fallisse
+/// dopo (permessi, disco pieno, mount caduto), resterebbe una riga
+/// `folders` senza la directory corrispondente, una cartella fantasma che
+/// nessun client vedrebbe mai sparire da solo. Con l'ordine giusto, un
+/// fallimento su disco non tocca il database per niente; un fallimento
+/// dell'`INSERT` **dopo** che la directory è stata creata da questa stessa
+/// chiamata la rimuove best-effort (`remove_dir`, silenzioso se non vuota o
+/// già sparita) — non se la directory esisteva già prima (`MKCOL`
+/// idempotente su un secondo tentativo, o una directory lasciata da uno
+/// scanner): non è nostra da cancellare.
 ///
 /// Semplificazione (ledger Task 7): un `MKCOL` ripetuto sullo stesso nome
 /// non fallisce con `405` (RFC 4918 §9.3) — restituisce di nuovo `201`
@@ -150,7 +206,8 @@ fn put_response(asset_id: AssetId, collision: &CollisionOutcome) -> Response {
 ///
 /// # Errors
 /// `403` se il chiamante non è editor sulla cartella genitore. `500` per un
-/// errore di I/O nella creazione della directory.
+/// errore di I/O nella creazione della directory o per un errore del
+/// database dopo che la directory è già stata creata.
 pub async fn mkcol(
     state: &AppState,
     ctx: &AuthContext,
@@ -159,13 +216,27 @@ pub async fn mkcol(
 ) -> Result<Response, Problem> {
     let folder_repo = FolderRepo::new(&state.db);
     let (parent, _library) = folder_repo.assert_editor(ctx, parent_id).await?;
-    let child = folder_repo.ensure_child(&parent, new_name).await?;
 
-    let path = folder_repo.absolute_path(ctx, child.id).await?;
-    tokio::fs::create_dir_all(&path).await.map_err(|err| {
-        tracing::error!(error = %err, "webdav MKCOL: could not create the directory on disk");
-        Problem::internal()
-    })?;
+    let parent_path = folder_repo.absolute_path(ctx, parent_id).await?;
+    let target_dir = parent_path.join(new_name);
+    let already_on_disk = tokio::fs::metadata(&target_dir).await.is_ok();
+
+    tokio::fs::create_dir_all(&target_dir)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = %err, "webdav MKCOL: could not create the directory on disk");
+            Problem::internal()
+        })?;
+
+    let child = match folder_repo.ensure_child(&parent, new_name).await {
+        Ok(child) => child,
+        Err(err) => {
+            if !already_on_disk {
+                let _ = tokio::fs::remove_dir(&target_dir).await;
+            }
+            return Err(err.into());
+        }
+    };
 
     let mut headers = HeaderMap::new();
     if let Ok(value) = HeaderValue::from_str(&format!("/dav/folder/{}", child.id)) {
@@ -236,10 +307,17 @@ pub async fn move_folder(
 /// completo (vedi [`hash_temp_file`]), esattamente come
 /// `crate::routes::upload::finalize_upload`.
 ///
+/// `max_len` (fix round Task 7, Important #1) è imposto byte per byte
+/// durante lo streaming, non solo controllato una volta su
+/// `Content-Length`: un client che dichiara un corpo piccolo ma poi ne manda
+/// uno più grande (o che non dichiara affatto una dimensione, `chunked`)
+/// viene troncato allo stesso modo, sullo stile di
+/// `crate::routes::share::write_body_capped`.
+///
 /// # Errors
-/// `400` se il corpo non si può leggere. `500` per un errore di I/O sul
-/// temporaneo.
-async fn write_body_to_file(path: &Path, body: Body) -> Result<u64, Problem> {
+/// `400` se il corpo non si può leggere. `413` se il corpo scritto supera
+/// `max_len`. `500` per un errore di I/O sul temporaneo.
+async fn write_body_to_file(path: &Path, body: Body, max_len: u64) -> Result<u64, Problem> {
     use http_body::Body as _;
     use tokio::io::AsyncWriteExt as _;
 
@@ -265,12 +343,17 @@ async fn write_body_to_file(path: &Path, body: Body) -> Result<u64, Problem> {
                 let Ok(data) = frame.into_data() else {
                     continue;
                 };
+                let len = u64::try_from(data.len()).unwrap_or(u64::MAX);
+                if written.saturating_add(len) > max_len {
+                    let _ = tokio::fs::remove_file(path).await;
+                    return Err(Problem::payload_too_large());
+                }
                 if let Err(err) = file.write_all(&data).await {
                     tracing::error!(error = %err, "webdav PUT: write failed");
                     let _ = tokio::fs::remove_file(path).await;
                     return Err(Problem::internal());
                 }
-                written = written.saturating_add(u64::try_from(data.len()).unwrap_or(u64::MAX));
+                written = written.saturating_add(len);
             }
         }
     }
@@ -292,4 +375,34 @@ async fn hash_temp_file(path: &Path) -> Result<[u8; 32], Problem> {
             tracing::error!(error = %err, "webdav PUT: could not hash the temp file");
             Problem::internal()
         })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_declared_size_within_the_limit_becomes_the_streaming_cap() {
+        assert_eq!(check_declared_size(Some(1024)).unwrap(), 1024);
+    }
+
+    #[test]
+    fn a_declared_size_over_the_limit_is_rejected_with_413() {
+        let err = check_declared_size(Some(MAX_BODY_BYTES + 1)).unwrap_err();
+        assert_eq!(err.status, StatusCode::PAYLOAD_TOO_LARGE.as_u16());
+    }
+
+    #[test]
+    fn a_declared_size_exactly_at_the_limit_is_accepted() {
+        assert_eq!(
+            check_declared_size(Some(MAX_BODY_BYTES)).unwrap(),
+            MAX_BODY_BYTES
+        );
+    }
+
+    #[test]
+    fn no_content_length_caps_streaming_at_max_body_bytes() {
+        assert_eq!(check_declared_size(None).unwrap(), MAX_BODY_BYTES);
+    }
 }
