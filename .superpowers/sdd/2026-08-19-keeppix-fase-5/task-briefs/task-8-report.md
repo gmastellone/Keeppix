@@ -274,3 +274,109 @@ un `cargo clean` finale imposto dallo script. Non ho toccato `frontend/`.
   da un test dedicato (casi limite del brief, non dei 4 test richiesti).
 - `DELETE /dav/folder/{id}` implementata per completezza ma senza un test
   dedicato.
+
+## Fix round — test mancanti segnalati dalla review
+
+**Esito: DONE.** Commit `a4a15d24fed4f5e71d0673ae1de8e64775e8b9e7`
+(`test(api): add coverage for WebDAV folder delete and lock conflict
+paths`), su `fase-5`. Nessuna modifica al codice di produzione: solo
+`crates/keeppix-api/tests/webdav_delete_lock.rs`.
+
+La review aveva segnalato due difetti "Important":
+
+1. Nessun test per `DELETE /dav/folder/{id}` (il percorso ricorsivo che
+   cestina ogni asset prima di rimuovere la cartella dal DB).
+2. Nessun test per `423 Locked` (secondo `LOCK` su una risorsa già
+   bloccata) e per `412 Precondition Failed` (`If:` con un token scaduto).
+
+### Test aggiunti (3, in fondo al file esistente)
+
+- `folder_delete_moves_all_assets_to_trash_and_removes_folder` — nuova
+  fixture dedicata (`setup_two_asset_folder_fixture`: una sola cartella,
+  `only-album`, con 2 `tiny.jpg`, invece delle due cartelle da 3 asset di
+  `setup_fixture`, per poter verificare ogni asset uno per uno senza
+  rumore). `DELETE /dav/folder/{id}` → per ciascuno dei 2 asset: una riga
+  `trash_entries` con `disk_action = 'moved_to_trash'`, un `trash_path`
+  che contiene `.keeppix-trash` ed esiste davvero su disco (`Path::exists`);
+  poi la riga `folders` è sparita (`count(*) = 0`) e un `PROPFIND`
+  successivo sulla stessa cartella risponde `403`.
+- `locking_an_already_locked_resource_returns_423` — due `LOCK`
+  consecutivi (`Depth: 0`, senza `If:`) sulla stessa cartella: il primo
+  `200`, il secondo `423`.
+- `lock_with_expired_if_token_returns_412_or_404` — `LOCK` per ottenere un
+  token, `UPDATE dav_locks SET timeout_at = now() - interval '1 hour'` per
+  scaderlo manualmente, poi un nuovo `LOCK` con l'header `If: (<token>)`
+  (nuovo helper `dav_lock_with_if_token`, non esisteva prima): l'assert
+  accetta `412` o `404`, perché il brief dichiara esplicitamente che la
+  scelta esatta dipende dall'implementazione. Osservato **`412`** (il
+  codice reale: `dav::lock::lock` prende il ramo `if_header.and_then
+  (parse_if_token)`, chiama `DavLockRepo::refresh` che restituisce `false`
+  su un token scaduto, quindi `Err(Problem::precondition_failed())`).
+
+### Scoperta durante la scrittura del primo test (da riportare nel ledger,
+### già fatto in `progress.md`)
+
+Il primo tentativo di `folder_delete_moves_all_assets_to_trash_and_removes_
+folder` assumeva (per analogia con `delete_asset_moves_it_to_trash_not_
+file_system_removal`) che dopo la `DELETE` la riga `assets` restasse con
+`status = 'trashed'`. **Eseguito e osservato il fallimento**: `RowNotFound`
+sulla query `SELECT status FROM assets WHERE id = $1`. Causa: `assets.
+folder_id REFERENCES folders(id) ON DELETE CASCADE` (migrazione
+`0005_assets.sql`) — quando `folder_repo.delete_subtree` cancella la riga
+`folders`, il cascade cancella anche la riga `assets` già trashata,
+indipendentemente da `TrashRepo::choose` (che l'aveva solo marcata
+`trashed`, non cancellata). Non un difetto del codice di produzione: la
+riga `trash_entries` (senza FK verso `assets`, migrazione `0014_trash.sql`)
+resta l'unica testimonianza necessaria, ed è quella che il test verifica
+per "cestinato, non cancellato" (file fisico + `trash_path` + `disk_action`).
+Corretto l'assert per aspettarsi `count(*) FROM assets WHERE id = $1 = 0`
+invece di leggere uno `status`.
+
+Secondo fallimento osservato sullo stesso test, dopo la prima correzione:
+l'assert sul `PROPFIND` successivo si aspettava `404` (ragionando "giovanni
+è admin, `FolderRepo::visible` risponde `NotFound` per un admin"), ma il
+comportamento reale è `403`. Causa: `dav::mod::handler` costruisce sempre
+`AuthContext::user(user_id, SystemRole::User)` per ogni richiesta `WebDAV`
+(già documentato nel Ruling del Task 6/8 originale — un dettaglio che avevo
+letto ma non applicato subito al nuovo test), quindi `ctx.is_admin()` è
+sempre falso su questo protocollo, e `FolderRepo::visible` prende sempre il
+ramo `Forbidden`. Corretto l'assert per aspettarsi `403`.
+
+Entrambe le correzioni sono solo nel test, mai nel codice applicativo.
+
+### Verifica — output osservato
+
+```
+$ cargo fmt --check
+(nessun output, exit 0)
+
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.03s
+(nessun warning/errore)
+
+$ cargo test -p keeppix-api --test webdav_delete_lock -- --test-threads=1
+running 8 tests
+test class_2_lock_token_response_has_correct_headers ... ok
+test delete_asset_moves_it_to_trash_not_file_system_removal ... ok
+test delete_by_editor_returns_403 ... ok
+test folder_delete_moves_all_assets_to_trash_and_removes_folder ... ok
+test lock_and_unlock_work_and_unlock_rejects_expired_token ... ok
+test lock_with_expired_if_token_returns_412_or_404 ... ok
+test locking_an_already_locked_resource_returns_423 ... ok
+test unlock_without_a_lock_token_header_returns_400 ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+$ cargo test -p keeppix-api -- --test-threads=1
+(tutti i binari tests/*.rs + doc-test)
+... ogni binario: test result: ok, 0 failed ...
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+(doc-tests keeppix_api, 0 test — nessun doc-test nel crate)
+exit 0, zero FAILED/panicked in tutto l'output
+```
+
+Non ho eseguito `./scripts/test.sh` per lo stesso motivo del giro
+originale del task: la modifica tocca solo un file di test di
+`keeppix-api`, e `cargo clippy --workspace --all-targets` (che compila
+l'intero workspace) più la suite completa di `keeppix-api` coprono lo
+stesso perimetro senza il costo di un `cargo clean` finale. Non ho toccato
+`frontend/`.
