@@ -51,6 +51,7 @@ pub struct RegionDownloadSource {
     pub source_url: String,
     pub size_bytes: i64,
     pub checksum_sha256: String,
+    pub cancel_requested: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -116,14 +117,16 @@ impl<'a> RegionRepo<'a> {
         let row: Option<RegionRow> = sqlx::query_as(&format!(
             "INSERT INTO map_regions \
                  (id, label, file_path, size_bytes, version, status, source_url, \
-                  checksum_sha256, downloaded_bytes, last_error, downloaded_at) \
-             VALUES ($1, $2, $3, $4, $5, 'downloading', $6, $7, 0, NULL, NULL) \
+                  checksum_sha256, downloaded_bytes, last_error, downloaded_at, \
+                  cancel_requested) \
+             VALUES ($1, $2, $3, $4, $5, 'downloading', $6, $7, 0, NULL, NULL, false) \
              ON CONFLICT (id) DO UPDATE SET \
                  label = EXCLUDED.label, file_path = EXCLUDED.file_path, \
                  size_bytes = EXCLUDED.size_bytes, version = EXCLUDED.version, \
                  status = 'downloading', source_url = EXCLUDED.source_url, \
                  checksum_sha256 = EXCLUDED.checksum_sha256, \
-                 downloaded_bytes = 0, last_error = NULL, downloaded_at = NULL \
+                 downloaded_bytes = 0, last_error = NULL, downloaded_at = NULL, \
+                 cancel_requested = false \
              WHERE map_regions.status <> 'downloading' \
              RETURNING {COLUMNS}"
         ))
@@ -186,18 +189,19 @@ impl<'a> RegionRepo<'a> {
         }
     }
 
-    /// Interrompe un download; il job osserva lo stato e rimuove il parziale.
+    /// Richiede l'interruzione lasciando la regione ritentabile finché i file
+    /// non sono stati rimossi.
     ///
     /// # Errors
     /// `Forbidden` per non-admin, `NotFound` se assente, `Conflict` se non è
     /// in download.
-    pub async fn cancel(&self, ctx: &AuthContext, id: &str) -> Result<(), DbError> {
+    pub async fn request_cancel(&self, ctx: &AuthContext, id: &str) -> Result<(), DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
         }
         let result = sqlx::query(
             "UPDATE map_regions \
-                SET status = 'error', downloaded_bytes = 0, last_error = 'Download cancelled' \
+                SET cancel_requested = true \
               WHERE id = $1 AND status = 'downloading'",
         )
         .bind(id)
@@ -216,6 +220,25 @@ impl<'a> RegionRepo<'a> {
         } else {
             Err(DbError::NotFound)
         }
+    }
+
+    /// Completa una cancellazione solo dopo il cleanup dei file.
+    ///
+    /// Non prende `AuthContext`: metodo interno della pipeline.
+    ///
+    /// # Errors
+    /// `Connection` su errore DB.
+    pub async fn finish_cancel(&self, id: &str) -> Result<bool, DbError> {
+        let result = sqlx::query(
+            "UPDATE map_regions \
+                SET status = 'error', downloaded_bytes = 0, \
+                    last_error = 'Download cancelled', cancel_requested = false \
+              WHERE id = $1 AND status = 'downloading' AND cancel_requested",
+        )
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected() == 1)
     }
 
     /// Elimina la riga globale. I file vengono rimossi dal livello API, che
@@ -246,18 +269,19 @@ impl<'a> RegionRepo<'a> {
         &self,
         id: &str,
     ) -> Result<Option<RegionDownloadSource>, DbError> {
-        let row: Option<(String, i64, String)> = sqlx::query_as(
-            "SELECT source_url, size_bytes, checksum_sha256 \
+        let row: Option<(String, i64, String, bool)> = sqlx::query_as(
+            "SELECT source_url, size_bytes, checksum_sha256, cancel_requested \
                FROM map_regions WHERE id = $1 AND status = 'downloading'",
         )
         .bind(id)
         .fetch_optional(self.db.pool())
         .await?;
         Ok(row.map(
-            |(source_url, size_bytes, checksum_sha256)| RegionDownloadSource {
+            |(source_url, size_bytes, checksum_sha256, cancel_requested)| RegionDownloadSource {
                 source_url,
                 size_bytes,
                 checksum_sha256,
+                cancel_requested,
             },
         ))
     }
@@ -271,7 +295,7 @@ impl<'a> RegionRepo<'a> {
     pub async fn record_progress(&self, id: &str, bytes: i64) -> Result<bool, DbError> {
         let result = sqlx::query(
             "UPDATE map_regions SET downloaded_bytes = $2 \
-              WHERE id = $1 AND status = 'downloading'",
+              WHERE id = $1 AND status = 'downloading' AND NOT cancel_requested",
         )
         .bind(id)
         .bind(bytes)
@@ -290,8 +314,8 @@ impl<'a> RegionRepo<'a> {
         let result = sqlx::query(
             "UPDATE map_regions \
                 SET status = 'available', downloaded_bytes = size_bytes, \
-                    downloaded_at = now(), last_error = NULL \
-              WHERE id = $1 AND status = 'downloading'",
+                    downloaded_at = now(), last_error = NULL, cancel_requested = false \
+              WHERE id = $1 AND status = 'downloading' AND NOT cancel_requested",
         )
         .bind(id)
         .execute(self.db.pool())
@@ -309,7 +333,8 @@ impl<'a> RegionRepo<'a> {
     pub async fn mark_error(&self, id: &str, error: &str) -> Result<bool, DbError> {
         let result = sqlx::query(
             "UPDATE map_regions \
-                SET status = 'error', downloaded_bytes = 0, last_error = $2 \
+                SET status = 'error', downloaded_bytes = 0, last_error = $2, \
+                    cancel_requested = false \
               WHERE id = $1 AND status = 'downloading'",
         )
         .bind(id)

@@ -254,6 +254,53 @@ async fn cancelling_a_region_removes_its_partial_file() {
     assert_eq!(region.last_error.as_deref(), Some("Download cancelled"));
 }
 
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn failed_cancel_cleanup_can_be_retried() {
+    let server = TestServer::start().await;
+    let user = setup(&server).await;
+    let ctx = AuthContext::user(user, SystemRole::Admin);
+    RegionRepo::new(&server.db)
+        .begin_download(
+            &ctx,
+            NewMapRegion {
+                id: "IT".to_owned(),
+                label: "Italia".to_owned(),
+                size_bytes: 10,
+                version: "2026-08".to_owned(),
+                source_url: "https://build.protomaps.com/IT.pmtiles".to_owned(),
+                checksum_sha256: "ab".repeat(32),
+            },
+        )
+        .await
+        .unwrap();
+    let partial = server.data_dir.join("maps/IT.pmtiles.part");
+    tokio::fs::create_dir_all(&partial).await.unwrap();
+
+    let failed = server
+        .client
+        .post(server.url("/api/v1/map/regions/IT/cancel"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(failed.status(), 500);
+    let region = RegionRepo::new(&server.db).find(&ctx, "IT").await.unwrap();
+    assert_eq!(region.status, keeppix_db::RegionStatus::Downloading);
+
+    tokio::fs::remove_dir(&partial).await.unwrap();
+    let retried = server
+        .client
+        .post(server.url("/api/v1/map/regions/IT/cancel"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(retried.status(), 204);
+    let region = RegionRepo::new(&server.db).find(&ctx, "IT").await.unwrap();
+    assert_eq!(region.status, keeppix_db::RegionStatus::Error);
+}
+
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn setup(server: &TestServer) -> UserId {
     server

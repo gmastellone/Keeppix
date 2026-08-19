@@ -12,6 +12,8 @@ use crate::JobError;
 const ALLOWED_REGION_HOSTS: &[&str] = &["build.protomaps.com"];
 const PROGRESS_STEP_BYTES: u64 = 1024 * 1024;
 const CANCELLATION_POLL: Duration = Duration::from_secs(1);
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(30);
+const STALE_JOB_THRESHOLD: Duration = Duration::from_secs(600);
 
 #[derive(Debug, thiserror::Error)]
 pub enum RegionError {
@@ -49,7 +51,33 @@ impl DownloadError {
 
 struct Progress<'repo, 'db> {
     repo: &'repo RegionRepo<'db>,
+    jobs: JobRepo<'db>,
     region_id: &'repo str,
+    job_id: i64,
+    worker_id: Option<uuid::Uuid>,
+}
+
+impl Progress<'_, '_> {
+    async fn checkpoint(&self, bytes: u64) -> Result<(), DownloadError> {
+        let bytes = i64::try_from(bytes).unwrap_or(i64::MAX);
+        if !self.repo.record_progress(self.region_id, bytes).await? {
+            return Err(DownloadError::Cancelled);
+        }
+        if let Some(worker_id) = self.worker_id
+            && !self.jobs.renew_lock(self.job_id, worker_id).await?
+        {
+            return Err(DownloadError::Transient(
+                "download job lease was lost".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RepairResult {
+    pub reaped: u64,
+    pub reenqueued: u64,
 }
 
 /// Verifica l'URL contro la lista compilata nel binario. Redirect HTTP
@@ -66,6 +94,18 @@ pub fn host_allowed(raw: &str) -> bool {
         && url
             .host_str()
             .is_some_and(|host| ALLOWED_REGION_HOSTS.contains(&host))
+}
+
+/// Ripara i download interrotti: prima libera i lease scaduti, poi ricrea i
+/// job mancanti per le regioni ancora in download.
+///
+/// # Errors
+/// `DbError` se una delle due operazioni di coda fallisce.
+pub async fn repair_interrupted_downloads(db: &Db) -> Result<RepairResult, keeppix_db::DbError> {
+    let jobs = JobRepo::new(db);
+    let reaped = jobs.reap_stale(STALE_JOB_THRESHOLD).await?;
+    let reenqueued = jobs.enqueue_missing_region_downloads().await?;
+    Ok(RepairResult { reaped, reenqueued })
 }
 
 /// Registra la regione e accoda un solo writer tramite la `dedup_key`.
@@ -124,10 +164,16 @@ pub async fn run(db: &Db, data_dir: &Path, job: &Job) -> Result<(), JobError> {
     }
     let repo = RegionRepo::new(db);
     let Some(source) = repo.source_for_download(region_id).await? else {
+        cleanup_partial(data_dir, region_id).await?;
         return Ok(());
     };
+    if source.cancel_requested {
+        cleanup_paths(data_dir, region_id).await?;
+        repo.finish_cancel(region_id).await?;
+        return Ok(());
+    }
     if !host_allowed(&source.source_url) {
-        cleanup_paths(data_dir, region_id).await;
+        cleanup_paths(data_dir, region_id).await?;
         repo.mark_error(region_id, "Region source URL is not allowed")
             .await?;
         return Ok(());
@@ -137,29 +183,42 @@ pub async fn run(db: &Db, data_dir: &Path, job: &Job) -> Result<(), JobError> {
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
+        .read_timeout(HTTP_READ_TIMEOUT)
         .build()
         .map_err(|error| JobError::Worker(format!("HTTP client: {error}")))?;
-    run_download_from_url(db, data_dir, region_id, &url, &client).await
+    run_download_from_url(db, data_dir, job, &url, &client).await
 }
 
 async fn run_download_from_url(
     db: &Db,
     data_dir: &Path,
-    region_id: &str,
+    job: &Job,
     url: &Url,
     client: &Client,
 ) -> Result<(), JobError> {
+    let region_id = job
+        .payload
+        .get("region_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| JobError::Worker("missing region_id payload".to_owned()))?;
     let repo = RegionRepo::new(db);
     let Some(source) = repo.source_for_download(region_id).await? else {
-        cleanup_paths(data_dir, region_id).await;
+        cleanup_partial(data_dir, region_id).await?;
         return Ok(());
     };
+    if source.cancel_requested {
+        cleanup_paths(data_dir, region_id).await?;
+        repo.finish_cancel(region_id).await?;
+        return Ok(());
+    }
     let Ok(expected_size) = u64::try_from(source.size_bytes) else {
+        cleanup_paths(data_dir, region_id).await?;
         repo.mark_error(region_id, "Invalid region size").await?;
         return Ok(());
     };
     let maps = data_dir.join("maps");
     if let Err(error) = tokio::fs::create_dir_all(&maps).await {
+        cleanup_paths(data_dir, region_id).await?;
         repo.mark_error(region_id, &format!("Cannot create maps directory: {error}"))
             .await?;
         return Ok(());
@@ -168,7 +227,10 @@ async fn run_download_from_url(
     let final_path = final_path(data_dir, region_id);
     let progress = Progress {
         repo: &repo,
+        jobs: JobRepo::new(db),
         region_id,
+        job_id: job.id,
+        worker_id: job.locked_by,
     };
     match download_to_partial_with_progress(
         client,
@@ -182,23 +244,38 @@ async fn run_download_from_url(
     {
         Ok(_) => {
             if let Err(error) = tokio::fs::rename(&partial, &final_path).await {
-                cleanup_paths(data_dir, region_id).await;
+                cleanup_paths(data_dir, region_id).await?;
                 repo.mark_error(region_id, &format!("Cannot finalize region file: {error}"))
                     .await?;
                 return Ok(());
             }
             if !repo.mark_available(region_id).await? {
-                let _ = tokio::fs::remove_file(&final_path).await;
+                cleanup_paths(data_dir, region_id).await?;
+                repo.finish_cancel(region_id).await?;
             }
             Ok(())
         }
         Err(DownloadError::Cancelled) => {
-            cleanup_paths(data_dir, region_id).await;
+            cleanup_paths(data_dir, region_id).await?;
+            repo.finish_cancel(region_id).await?;
             Ok(())
         }
-        Err(error) if error.is_transient() => Err(JobError::Worker(error.to_string())),
+        Err(error) if error.is_transient() => {
+            if job.attempts >= job.max_attempts {
+                let cleanup_error = cleanup_paths(data_dir, region_id).await.err();
+                let message = cleanup_error.as_ref().map_or_else(
+                    || error.to_string(),
+                    |cleanup| format!("{error}; cleanup failed: {cleanup}"),
+                );
+                repo.mark_error(region_id, &message).await?;
+                if let Some(cleanup_error) = cleanup_error {
+                    return Err(cleanup_error);
+                }
+            }
+            Err(JobError::Worker(error.to_string()))
+        }
         Err(error) => {
-            cleanup_paths(data_dir, region_id).await;
+            cleanup_paths(data_dir, region_id).await?;
             repo.mark_error(region_id, &error.to_string()).await?;
             Ok(())
         }
@@ -275,11 +352,27 @@ async fn download_to_partial_with_progress(
         let mut response = response;
         let mut last_recorded = offset;
         let mut last_poll = Instant::now();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|error| DownloadError::Transient(error.to_string()))?
-        {
+        loop {
+            let chunk = if let Some(progress) = progress.as_ref() {
+                tokio::select! {
+                    result = response.chunk() => Some(result),
+                    () = tokio::time::sleep(CANCELLATION_POLL) => {
+                        progress.checkpoint(offset).await?;
+                        last_recorded = offset;
+                        last_poll = Instant::now();
+                        None
+                    }
+                }
+            } else {
+                Some(response.chunk().await)
+            };
+            let Some(chunk) = chunk else {
+                continue;
+            };
+            let Some(chunk) = chunk.map_err(|error| DownloadError::Transient(error.to_string()))?
+            else {
+                break;
+            };
             let chunk_len = u64::try_from(chunk.len()).map_err(|_| DownloadError::SizeMismatch)?;
             offset = offset
                 .checked_add(chunk_len)
@@ -292,14 +385,7 @@ async fn download_to_partial_with_progress(
                 && (offset.saturating_sub(last_recorded) >= PROGRESS_STEP_BYTES
                     || last_poll.elapsed() >= CANCELLATION_POLL)
             {
-                let bytes = i64::try_from(offset).unwrap_or(i64::MAX);
-                if !progress
-                    .repo
-                    .record_progress(progress.region_id, bytes)
-                    .await?
-                {
-                    return Err(DownloadError::Cancelled);
-                }
+                progress.checkpoint(offset).await?;
                 last_recorded = offset;
                 last_poll = Instant::now();
             }
@@ -311,16 +397,9 @@ async fn download_to_partial_with_progress(
         return Err(DownloadError::SizeMismatch);
     }
     if let Some(progress) = progress.as_ref() {
-        let bytes = i64::try_from(offset).unwrap_or(i64::MAX);
-        if !progress
-            .repo
-            .record_progress(progress.region_id, bytes)
-            .await?
-        {
-            return Err(DownloadError::Cancelled);
-        }
+        progress.checkpoint(offset).await?;
     }
-    verify_checksum(partial, expected_checksum).await?;
+    verify_checksum(partial, expected_checksum, progress.as_ref(), offset).await?;
     Ok(offset)
 }
 
@@ -343,19 +422,31 @@ fn validate_content_range(
     }
 }
 
-async fn verify_checksum(path: &Path, expected: &str) -> Result<(), DownloadError> {
+async fn verify_checksum(
+    path: &Path,
+    expected: &str,
+    progress: Option<&Progress<'_, '_>>,
+    downloaded_bytes: u64,
+) -> Result<(), DownloadError> {
     if !valid_checksum(expected) {
         return Err(DownloadError::ChecksumMismatch);
     }
     let mut file = tokio::fs::File::open(path).await?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; 1024 * 1024];
+    let mut last_poll = Instant::now();
     loop {
         let read = file.read(&mut buffer).await?;
         if read == 0 {
             break;
         }
         hasher.update(&buffer[..read]);
+        if let Some(progress) = progress
+            && last_poll.elapsed() >= CANCELLATION_POLL
+        {
+            progress.checkpoint(downloaded_bytes).await?;
+            last_poll = Instant::now();
+        }
     }
     let actual = hex(&hasher.finalize());
     if actual.eq_ignore_ascii_case(expected) {
@@ -388,16 +479,28 @@ fn partial_path(data_dir: &Path, region_id: &str) -> PathBuf {
         .join(format!("{region_id}.pmtiles.part"))
 }
 
-async fn cleanup_paths(data_dir: &Path, region_id: &str) {
+async fn cleanup_paths(data_dir: &Path, region_id: &str) -> Result<(), JobError> {
     for path in [
         partial_path(data_dir, region_id),
         final_path(data_dir, region_id),
     ] {
-        match tokio::fs::remove_file(path).await {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => tracing::warn!(%error, region_id, "cannot clean region file"),
-        }
+        remove_path(&path).await?;
+    }
+    Ok(())
+}
+
+async fn cleanup_partial(data_dir: &Path, region_id: &str) -> Result<(), JobError> {
+    remove_path(&partial_path(data_dir, region_id)).await
+}
+
+async fn remove_path(path: &Path) -> Result<(), JobError> {
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(JobError::Worker(format!(
+            "cannot clean region file {}: {error}",
+            path.display()
+        ))),
     }
 }
 
@@ -491,7 +594,7 @@ mod tests {
         run_download_from_url(
             &db,
             temp.path(),
-            "IT",
+            &test_job("IT"),
             &url.parse().unwrap(),
             &test_client(),
         )
@@ -555,6 +658,133 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn stalled_body_observes_cancel_and_renews_the_job_lease() {
+        let (db, _container) = test_db().await;
+        let admin = seed_admin(&db).await;
+        let ctx = keeppix_domain::AuthContext::user(admin, keeppix_domain::SystemRole::Admin);
+        super::enqueue_download(&db, &ctx, region_fixture("IT", 11))
+            .await
+            .unwrap();
+        let worker = uuid::Uuid::now_v7();
+        let job = keeppix_db::JobRepo::new(&db)
+            .claim(worker, keeppix_domain::JobPriority::High)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(job.attempts, 1);
+        sqlx::query("UPDATE jobs SET locked_at = now() - interval '20 minutes' WHERE id = $1")
+            .bind(job.id)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        let job_id = job.id;
+        let temp = tempfile::tempdir().unwrap();
+        let (url, first_chunk) = serve_stalled(b"hello", 11).await;
+        let run_db = db.clone();
+        let data_dir = temp.path().to_owned();
+        let task = tokio::spawn(async move {
+            run_download_from_url(
+                &run_db,
+                &data_dir,
+                &job,
+                &url.parse().unwrap(),
+                &test_client(),
+            )
+            .await
+        });
+        first_chunk.await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+
+        assert_eq!(
+            keeppix_db::JobRepo::new(&db)
+                .reap_stale(std::time::Duration::from_secs(600))
+                .await
+                .unwrap(),
+            0
+        );
+        keeppix_db::RegionRepo::new(&db)
+            .request_cancel(&ctx, "IT")
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(3), task)
+            .await
+            .expect("stalled download ignored cancellation")
+            .unwrap()
+            .unwrap();
+
+        assert!(!temp.path().join("maps/IT.pmtiles.part").exists());
+        assert_eq!(
+            keeppix_db::RegionRepo::new(&db)
+                .find(&ctx, "IT")
+                .await
+                .unwrap()
+                .status,
+            keeppix_db::RegionStatus::Error
+        );
+        let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE id = $1")
+            .bind(job_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(status, "running");
+    }
+
+    #[tokio::test]
+    async fn exhausted_download_marks_error_cleans_files_and_can_be_started_again() {
+        let (db, _container) = test_db().await;
+        let admin = seed_admin(&db).await;
+        let ctx = keeppix_domain::AuthContext::user(admin, keeppix_domain::SystemRole::Admin);
+        let queued = super::enqueue_download(&db, &ctx, region_fixture("IT", 11))
+            .await
+            .unwrap();
+        sqlx::query("UPDATE jobs SET max_attempts = 1 WHERE id = $1")
+            .bind(queued.id)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        let job = keeppix_db::JobRepo::new(&db)
+            .claim(uuid::Uuid::now_v7(), keeppix_domain::JobPriority::High)
+            .await
+            .unwrap()
+            .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        tokio::fs::create_dir_all(temp.path().join("maps"))
+            .await
+            .unwrap();
+        let final_path = temp.path().join("maps/IT.pmtiles");
+        tokio::fs::write(&final_path, b"corrupt").await.unwrap();
+        let url = serve_once(b"", "HTTP/1.1 500 Internal Server Error", None, None).await;
+
+        let error = run_download_from_url(
+            &db,
+            temp.path(),
+            &job,
+            &url.parse().unwrap(),
+            &test_client(),
+        )
+        .await
+        .unwrap_err();
+        keeppix_db::JobRepo::new(&db)
+            .fail(job.id, &error.to_string())
+            .await
+            .unwrap();
+
+        assert!(!final_path.exists());
+        assert_eq!(
+            keeppix_db::RegionRepo::new(&db)
+                .find(&ctx, "IT")
+                .await
+                .unwrap()
+                .status,
+            keeppix_db::RegionStatus::Error
+        );
+        let restarted = super::enqueue_download(&db, &ctx, region_fixture("IT", 11))
+            .await
+            .unwrap();
+        assert_ne!(restarted.id, queued.id);
+    }
+
     fn test_client() -> reqwest::Client {
         reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -598,6 +828,53 @@ mod tests {
             stream.write_all(body).await.unwrap();
         });
         format!("http://{address}/region.pmtiles")
+    }
+
+    async fn serve_stalled(
+        first_chunk: &'static [u8],
+        content_length: usize,
+    ) -> (String, tokio::sync::oneshot::Receiver<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, received) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = vec![0_u8; 4096];
+            let _read = stream.read(&mut request).await.unwrap();
+            let headers = format!("HTTP/1.1 200 OK\r\nContent-Length: {content_length}\r\n\r\n");
+            stream.write_all(headers.as_bytes()).await.unwrap();
+            stream.write_all(first_chunk).await.unwrap();
+            sent.send(()).unwrap();
+            std::future::pending::<()>().await;
+        });
+        (format!("http://{address}/region.pmtiles"), received)
+    }
+
+    fn region_fixture(id: &str, size_bytes: i64) -> keeppix_db::NewMapRegion {
+        keeppix_db::NewMapRegion {
+            id: id.to_owned(),
+            label: "Italia".to_owned(),
+            size_bytes,
+            version: "2026-08".to_owned(),
+            source_url: "https://build.protomaps.com/IT.pmtiles".to_owned(),
+            checksum_sha256: "ab".repeat(32),
+        }
+    }
+
+    fn test_job(region_id: &str) -> keeppix_domain::Job {
+        keeppix_domain::Job {
+            id: 1,
+            kind: keeppix_domain::JobKind::DownloadMapRegion,
+            payload: serde_json::json!({ "region_id": region_id }),
+            priority: keeppix_domain::JobPriority::High,
+            status: keeppix_domain::JobStatus::Running,
+            attempts: 1,
+            max_attempts: 3,
+            last_error: None,
+            run_after: chrono::Utc::now(),
+            locked_by: None,
+            dedup_key: Some(format!("map-region:{region_id}")),
+        }
     }
 
     async fn test_db() -> (
