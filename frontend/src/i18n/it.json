@@ -135,6 +135,7 @@
       "mapUnavailable": "Mappa non disponibile per questa zona",
       "applyAnyway": "La posizione verrà salvata comunque su {count} foto.",
       "apply": "Applica",
+      "downloadRegionAction": "Scarica regione",
       "downloadRegion": "Scarica {region}"
     }
   },

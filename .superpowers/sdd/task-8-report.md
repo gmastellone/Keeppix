@@ -99,3 +99,18 @@ GREEN:
   referenced by `dist/index.html`.
 - Rust was unchanged; `./scripts/test.sh` and Cargo checks were intentionally
   not run.
+
+## Tiny Task 8 — missing offline-map action
+
+RED:
+
+- `npx vitest run src/components/PlacePicker.spec.ts`: 1 failed, 1 passed;
+  the unavailable-map banner had no `[data-action="download-region"]`.
+
+GREEN:
+
+- Added both banner actions: Apply still posts the geotag with zero downloaded
+  regions, while Download Region opens the offline maps manager.
+- `npx vitest run`: 22 files, 80 tests passed.
+- `npx vue-tsc --noEmit`: passed.
+- `./scripts/test.sh` was not run, as requested.
