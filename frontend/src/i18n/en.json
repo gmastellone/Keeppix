@@ -316,6 +316,33 @@
     "close": "Close",
     "createLink": "Create link"
   },
+  "upload": {
+    "title": "Uploads",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "clearCompleted": "Clear completed",
+    "retry": "Retry",
+    "pause": "Pause",
+    "resume": "Resume",
+    "progress": "{received} of {total}",
+    "status": {
+      "queued": "Waiting…",
+      "uploading": "Uploading…",
+      "paused": "Paused",
+      "done": "Done",
+      "error": "Failed",
+      "skipped": "Already in library"
+    },
+    "collision": {
+      "skipped_duplicate": "Already in the library",
+      "renamed": "Saved as {filename}"
+    },
+    "errors": {
+      "expired": "This upload expired and could not be resumed.",
+      "missingFile": "Select the file again to resume this upload.",
+      "unknown": "The upload failed."
+    }
+  },
   "common": {
     "loading": "Loading…",
     "unexpectedError": "An unexpected error occurred.",
