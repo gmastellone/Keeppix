@@ -8,10 +8,13 @@ import { isUnauthenticated } from '@/api/client'
 import {
   changePassword,
   createUser,
+  deleteHome,
   disableUser,
   enableUser,
   fetchUsers,
+  setHome,
   updateUser,
+  type HomeLocation,
   type UserSummary
 } from '@/api/users'
 import { useSessionStore } from '@/stores/session'
@@ -32,6 +35,12 @@ const creating = ref(false)
 const currentPassword = ref('')
 const nextPassword = ref('')
 const savingPassword = ref(false)
+
+const homeLat = ref('')
+const homeLon = ref('')
+const homeRadius = ref('200')
+const homeLoaded = ref<HomeLocation | null>(null)
+const savingHome = ref(false)
 
 onMounted(() => {
   void load()
@@ -99,6 +108,32 @@ async function savePassword() {
     nextPassword.value = ''
   } finally {
     savingPassword.value = false
+  }
+}
+
+async function saveHome() {
+  const lat = parseFloat(homeLat.value)
+  const lon = parseFloat(homeLon.value)
+  const radius = parseInt(homeRadius.value, 10) || 200
+  if (Number.isNaN(lat) || Number.isNaN(lon) || savingHome.value) return
+  savingHome.value = true
+  try {
+    homeLoaded.value = await setHome(lat, lon, radius)
+  } finally {
+    savingHome.value = false
+  }
+}
+
+async function removeHome() {
+  savingHome.value = true
+  try {
+    await deleteHome()
+    homeLoaded.value = null
+    homeLat.value = ''
+    homeLon.value = ''
+    homeRadius.value = '200'
+  } finally {
+    savingHome.value = false
   }
 }
 
@@ -284,6 +319,65 @@ function isSelf(id: string): boolean {
         >
           {{ t('users.savePassword') }}
         </button>
+      </form>
+      <form
+        class="mt-10 grid gap-3 sm:grid-cols-3"
+        @submit.prevent="saveHome"
+      >
+        <h2 class="text-lg font-semibold sm:col-span-3">
+          {{ t('users.homeTitle') }}
+        </h2>
+        <label class="block text-sm">
+          {{ t('users.homeLat') }}
+          <input
+            v-model="homeLat"
+            data-testid="home-lat"
+            class="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2"
+            type="number"
+            step="any"
+          >
+        </label>
+        <label class="block text-sm">
+          {{ t('users.homeLon') }}
+          <input
+            v-model="homeLon"
+            data-testid="home-lon"
+            class="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2"
+            type="number"
+            step="any"
+          >
+        </label>
+        <label class="block text-sm">
+          {{ t('users.homeRadius') }}
+          <input
+            v-model="homeRadius"
+            data-testid="home-radius"
+            class="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2"
+            type="number"
+            min="1"
+          >
+        </label>
+        <div class="flex gap-2 sm:col-span-3">
+          <button
+            class="rounded-lg bg-accent px-4 py-2 text-sm text-white"
+            data-testid="home-save"
+            type="button"
+            :disabled="savingHome"
+            @click="saveHome"
+          >
+            {{ t('users.homeSave') }}
+          </button>
+          <button
+            v-if="homeLoaded"
+            class="rounded-lg border border-danger px-4 py-2 text-sm text-danger"
+            data-testid="home-delete"
+            type="button"
+            :disabled="savingHome"
+            @click="removeHome"
+          >
+            {{ t('users.homeDelete') }}
+          </button>
+        </div>
       </form>
     </template>
   </main>

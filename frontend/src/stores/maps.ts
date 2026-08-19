@@ -163,6 +163,12 @@ export const useMapsStore = defineStore('maps', () => {
     return apiFetch(`/api/v1/assets/${encodeURIComponent(id)}`)
   }
 
+  async function reverseGeocode(lat: number, lon: number): Promise<Place | null> {
+    const params = new URLSearchParams({ lat: String(lat), lon: String(lon) })
+    const result = await apiFetch<Place | null>(`/api/v1/places/reverse?${params}`)
+    return result
+  }
+
   return {
     regions,
     loading,
@@ -176,6 +182,7 @@ export const useMapsStore = defineStore('maps', () => {
     fetchClusters,
     suggestPlaces,
     applyPlace,
-    loadAsset
+    loadAsset,
+    reverseGeocode
   }
 })

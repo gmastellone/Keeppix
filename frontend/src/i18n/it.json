@@ -198,7 +198,13 @@
     "errorAssets": "File illeggibili",
     "duplicates": "Duplicati",
     "none": "Niente da segnalare.",
-    "reclaimable": "{count} copie, {bytes} byte recuperabili"
+    "reclaimable": "{count} copie, {bytes} byte recuperabili",
+    "timezones": "Ricalcolo fusi orari",
+    "tzLibrary": "Libreria",
+    "tzPreview": "Anteprima",
+    "tzCount": "{count} foto da correggere",
+    "tzApply": "Applica correzioni",
+    "tzDone": "{count} foto corrette."
   },
   "groups": {
     "entry": "Gruppi",
@@ -262,6 +268,12 @@
     "disable": "Disabilita",
     "enable": "Riabilita",
     "disabled": "Disabilitato",
+    "homeTitle": "Posizione di casa",
+    "homeLat": "Latitudine",
+    "homeLon": "Longitudine",
+    "homeRadius": "Raggio (m)",
+    "homeSave": "Salva",
+    "homeDelete": "Rimuovi",
     "passwordTitle": "Cambia la mia password",
     "currentPassword": "Password attuale",
     "newPassword": "Nuova password",
@@ -283,6 +295,11 @@
     "valuePlaceholder": "Nuovo valore",
     "place": "Posizione",
     "apply": "Applica",
+    "copyLocation": "Copia posizione da un'altra foto",
+    "copySourcePlaceholder": "ID della foto sorgente",
+    "importGpx": "Importa traccia GPX",
+    "gpxPlaceholder": "Incolla il contenuto GPX…",
+    "gpxTolerance": "Tolleranza (min)",
     "done": "Modifiche applicate."
   },
   "shared": {

@@ -38,3 +38,9 @@ fn get_json fase-6
 # la guardia non prende quella classe.
 fn count_by_status fase-6
 fn set_status fase-6
+
+# origine fase-4 (mappe/geotag). Funzioni DB usate solo in test o per admin tooling.
+fn get_for_user fase-6
+fn timezone_for fase-6
+fn timezone_changes fase-6
+fn apply_taken_at_batch fase-6

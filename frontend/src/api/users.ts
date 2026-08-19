@@ -49,3 +49,20 @@ export function changePassword(current_password: string, new_password: string): 
     body: JSON.stringify({ current_password, new_password })
   })
 }
+
+export interface HomeLocation {
+  lat: number
+  lon: number
+  radius_m: number
+}
+
+export function setHome(lat: number, lon: number, radius_m: number = 200): Promise<HomeLocation> {
+  return apiFetch('/api/v1/users/me/home', {
+    method: 'PUT',
+    body: JSON.stringify({ lat, lon, radius_m })
+  })
+}
+
+export function deleteHome(): Promise<null> {
+  return apiFetch('/api/v1/users/me/home', { method: 'DELETE' })
+}
