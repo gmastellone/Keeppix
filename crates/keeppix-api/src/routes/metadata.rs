@@ -328,7 +328,9 @@ pub async fn preview_timezones(
         .preview(&ctx, body.library_id)
         .await
         .map_err(geotag_problem)?;
-    let preview_token = state.tz_previews.issue(user_id, body.library_id);
+    let preview_token = state
+        .tz_previews
+        .issue(user_id, body.library_id, preview.count);
     Ok(Json(TimezonePreviewView {
         count: preview.count,
         example: preview.example.map(|example| TimezoneExampleView {
@@ -364,7 +366,15 @@ pub async fn apply_timezones(
 ) -> Result<Json<TimezoneApplyView>, Problem> {
     let user_id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
     let token = body.preview_token.as_deref().unwrap_or("");
-    if !state.tz_previews.consume(token, user_id, body.library_id) {
+    // Re-run the preview count to detect data drift between preview and apply.
+    let current = keeppix_jobs::geotag::RecalculateTimezones::new(&state.db)
+        .preview(&ctx, body.library_id)
+        .await
+        .map_err(geotag_problem)?;
+    if !state
+        .tz_previews
+        .consume(token, user_id, body.library_id, current.count)
+    {
         return Err(Problem::new(
             StatusCode::CONFLICT,
             "preview-required",

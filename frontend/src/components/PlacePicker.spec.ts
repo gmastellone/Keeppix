@@ -53,9 +53,6 @@ describe('PlacePicker', () => {
     expect(banner.text()).toContain('Map unavailable for this area')
     expect(banner.get('[data-action="apply"]').text()).toBe('Apply')
     expect(banner.get('[data-action="download-region"]').text()).toBe('Download Region')
-    expect(banner.get('[data-action="download-region"]').attributes('href')).toBe(
-      '/settings/maps/offline'
-    )
     await wrapper.get('[data-action="apply"]').trigger('click')
     await flushPromises()
 

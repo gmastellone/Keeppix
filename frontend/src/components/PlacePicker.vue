@@ -2,11 +2,12 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { mapErrorKey, type Place, useMapsStore } from '@/stores/maps'
+import { mapErrorKey, type MapRegion, type Place, useMapsStore } from '@/stores/maps'
 
 const props = defineProps<{
   assetIds: string[]
   availableRegionIds: string[]
+  allRegions?: MapRegion[]
 }>()
 
 const emit = defineEmits<{ applied: [place: Place] }>()
@@ -25,6 +26,13 @@ const mapUnavailable = computed(
     !props.availableRegionIds.includes(selected.value.country_code)
 )
 const errorMessage = computed(() => error.value ? t(mapErrorKey(error.value)) : '')
+const showRegionPanel = ref(false)
+
+const matchingRegion = computed(() => {
+  const code = selected.value?.country_code
+  if (!code || !props.allRegions) return undefined
+  return props.allRegions.find((r) => r.id === code)
+})
 
 function placeContext(place: Place): string {
   return [place.admin1, place.country_code].filter(Boolean).join(', ')
@@ -123,6 +131,12 @@ async function apply() {
       <p class="mt-1">
         {{ t('maps.places.applyAnyway', { count: assetIds.length }) }}
       </p>
+      <p
+        v-if="matchingRegion?.status === 'downloading'"
+        class="mt-1 text-content-muted"
+      >
+        {{ t('maps.places.regionDownloading') }}
+      </p>
       <div class="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
@@ -133,13 +147,21 @@ async function apply() {
         >
           {{ t('maps.places.apply') }}
         </button>
-        <a
-          href="/settings/maps/offline"
+        <button
+          type="button"
           class="rounded-lg border border-current px-3 py-2"
           data-action="download-region"
+          @click="showRegionPanel = !showRegionPanel"
         >
           {{ t('maps.places.downloadRegionAction') }}
-        </a>
+        </button>
+      </div>
+      <div
+        v-if="showRegionPanel"
+        class="mt-3 rounded-lg border border-border p-3"
+        data-testid="inline-region-panel"
+      >
+        <slot name="region-panel" />
       </div>
     </div>
 

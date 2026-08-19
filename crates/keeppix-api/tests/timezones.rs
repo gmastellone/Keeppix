@@ -214,9 +214,8 @@ async fn a_foreign_library_returns_forbidden_problem_json() {
         "keeppix/forbidden"
     );
 
-    // Apply without a token returns 409 (preview-required) before reaching
-    // the ownership check — this is correct: the stranger can't obtain a
-    // valid token for someone else's library.
+    // Apply also returns 403: the re-preview check hits the ownership guard
+    // before the token is even examined.
     let response = server
         .client
         .post(server.url("/api/v1/metadata/batch/recalculate-timezones"))
@@ -224,9 +223,9 @@ async fn a_foreign_library_returns_forbidden_problem_json() {
         .send()
         .await
         .expect("apply request");
-    assert_eq!(response.status(), 409);
+    assert_eq!(response.status(), 403);
     assert_eq!(
         response.json::<Value>().await.unwrap()["type"],
-        "keeppix/preview-required"
+        "keeppix/forbidden"
     );
 }

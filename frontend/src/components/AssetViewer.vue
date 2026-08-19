@@ -20,6 +20,7 @@ const info = ref(false)
 const metadata = ref<{
   location: { lat: number; lon: number } | null
 }>()
+const placeName = ref<string | null>(null)
 let metadataRequestSequence = 0
 
 function previewSrc(asset: TimelineAsset): string {
@@ -51,6 +52,16 @@ async function loadMetadata() {
     }>(`/api/v1/assets/${assetId}/metadata`)
     if (sequence === metadataRequestSequence && assetId === props.asset.id) {
       metadata.value = response
+      placeName.value = null
+      if (response.location) {
+        maps.reverseGeocode(response.location.lat, response.location.lon)
+          .then((place) => {
+            if (sequence === metadataRequestSequence) {
+              placeName.value = place?.name ?? null
+            }
+          })
+          .catch(() => { /* best-effort */ })
+      }
     }
   } catch {
     if (sequence === metadataRequestSequence && assetId === props.asset.id) {
@@ -66,6 +77,7 @@ watch(
   () => {
     metadataRequestSequence += 1
     metadata.value = undefined
+    placeName.value = null
     if (info.value) void loadMetadata()
   }
 )
@@ -116,6 +128,12 @@ watch(
         v-if="metadata?.location"
         class="mt-4"
       >
+        <p
+          v-if="placeName"
+          class="mb-2 text-content-muted"
+        >
+          {{ placeName }}
+        </p>
         <h2 class="mb-2 font-medium">
           {{ t('maps.nearbyPhotos') }}
         </h2>
