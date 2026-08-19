@@ -292,16 +292,28 @@ impl<'a> UploadSessionRepo<'a> {
     }
 
     /// Finalizza una sessione completa: risolve un'eventuale collisione di
-    /// nome nella cartella target, crea la riga `assets` (o salta se è un
-    /// duplicato esatto), cancella la sessione, e solo dopo il commit muove
-    /// il file dal temporaneo alla destinazione — stesso ordine di
-    /// `TrashRepo::choose`, così un crash a metà lascia al peggio un
-    /// temporaneo orfano (ripulito dal job di scadenza), mai un asset senza
-    /// file.
+    /// nome nella cartella target, poi muove il file dal temporaneo alla
+    /// destinazione con `rename()` — un'operazione sul filesystem, che non
+    /// può stare dentro la transazione SQL — e **solo dopo** crea la riga
+    /// `assets` (o la salta se è un duplicato esatto) e cancella la
+    /// sessione, nella stessa transazione.
+    ///
+    /// L'asimmetria è intenzionale: se il commit fallisce dopo un `rename()`
+    /// riuscito, il file resta al posto giusto senza una riga `assets` — la
+    /// prossima scansione della libreria lo scopre e lo indicizza come un
+    /// file qualunque, esattamente come un asset che il walker ha appena
+    /// trovato. L'ordine opposto (commit prima del `rename()`) lascerebbe
+    /// invece un asset che punta a un file inesistente se il `rename()`
+    /// fallisse dopo, con la sessione già cancellata e quindi senza più
+    /// alcun riferimento al temporaneo da cui recuperare — un file deve
+    /// **mai** toccare la cartella target prima di essere verificato
+    /// end-to-end, ma una volta lì non deve mai restare orfano di verità nel
+    /// database.
     ///
     /// # Errors
     /// Come [`Self::load_owned`] per il possesso della sessione. `Io` se il
-    /// `rename()` finale fallisce.
+    /// `rename()` finale fallisce — in tal caso il temporaneo resta al suo
+    /// posto, nessuna riga viene toccata.
     pub async fn finalize(
         &self,
         ctx: &AuthContext,
@@ -327,16 +339,18 @@ impl<'a> UploadSessionRepo<'a> {
         if let Some((existing_id, existing_hash)) = &existing
             && existing_hash.as_deref() == Some(content_hash.as_slice())
         {
-            // Stesso nome, stesso hash: duplicato esatto. Si salta la
-            // creazione dell'asset, si cancella solo la sessione, e il
-            // temporaneo va rimosso — mai un secondo file (caso limite
-            // pinnato).
+            // Stesso nome, stesso hash: duplicato esatto. Non si tocca mai
+            // la cartella target — si rimuove solo il temporaneo, prima del
+            // commit: se il commit fallisse dopo, la sessione resterebbe con
+            // un `temp_path` non più esistente, tollerato ovunque venga
+            // ripulito di nuovo (`remove_file_tolerant`), mai il rischio
+            // opposto di un asset fantasma.
+            remove_file_tolerant(&session.temp_path)?;
             sqlx::query("DELETE FROM upload_sessions WHERE id = $1")
                 .bind(id.as_uuid())
                 .execute(&mut *tx)
                 .await?;
             tx.commit().await?;
-            remove_file_tolerant(&session.temp_path)?;
             return Ok(FinalizeOutcome {
                 asset_id: AssetId::from_uuid(*existing_id),
                 filename: session.filename.clone(),
@@ -360,6 +374,20 @@ impl<'a> UploadSessionRepo<'a> {
             (session.filename.clone(), CollisionOutcome::Created)
         };
 
+        // Il `rename()` viene prima del commit, non dopo: è l'operazione sul
+        // filesystem che rende vero ciò che la riga `assets` sta per
+        // affermare. Se fallisce, si abbandona senza aver toccato il
+        // database — il temporaneo resta al suo posto, la sessione è ancora
+        // lì per un retry.
+        let target_path = folder_dir.join(&final_name);
+        std::fs::rename(&session.temp_path, &target_path).map_err(|e| {
+            DbError::Io(format!(
+                "moving {} to {}: {e}",
+                session.temp_path.display(),
+                target_path.display()
+            ))
+        })?;
+
         let asset_id = AssetId::new();
         sqlx::query(
             "INSERT INTO assets (id, folder_id, filename, content_hash, size_bytes, mtime, kind) \
@@ -382,15 +410,6 @@ impl<'a> UploadSessionRepo<'a> {
             .await?;
 
         tx.commit().await?;
-
-        let target_path = folder_dir.join(&final_name);
-        std::fs::rename(&session.temp_path, &target_path).map_err(|e| {
-            DbError::Io(format!(
-                "moving {} to {}: {e}",
-                session.temp_path.display(),
-                target_path.display()
-            ))
-        })?;
 
         Ok(FinalizeOutcome {
             asset_id,

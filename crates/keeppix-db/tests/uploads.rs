@@ -452,6 +452,63 @@ async fn finalize_creates_a_new_asset_when_there_is_no_collision() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// Regressione per il difetto trovato in review: prima, il commit (riga
+/// `assets` creata, sessione cancellata) avveniva **prima** del `rename()`.
+/// Se il `rename()` falliva a quel punto, restava un asset che punta a un
+/// file mai arrivato a destinazione, e nessuna sessione da cui recuperare il
+/// temporaneo. Qui si forza il fallimento del `rename()` cancellando la
+/// cartella target dal disco (ma non dal database) e si verifica che né la
+/// riga `assets` né la cancellazione della sessione siano avvenute.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn finalize_leaves_no_asset_and_keeps_the_session_when_rename_fails() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let root = temp_library_root();
+    let library = seed_library(&test, admin, &root).await;
+    let folder = seed_target_folder(&test, library, &root, "2024").await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let repo = UploadSessionRepo::new(test.db());
+    let session = repo
+        .create(&ctx, new_session(folder, "foto.jpg", 3))
+        .await
+        .unwrap();
+    fs::write(&session.temp_path, b"abc").unwrap();
+    let hash = hash_file(&session.temp_path);
+
+    fs::remove_dir_all(root.join("2024")).unwrap();
+
+    let result = repo
+        .finalize(&ctx, session.id, AssetKind::Image, hash)
+        .await;
+    assert!(matches!(result, Err(DbError::Io(_))));
+
+    assert!(
+        session.temp_path.exists(),
+        "un rename fallito non deve far sparire il temporaneo"
+    );
+    let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
+        .bind(session.id.as_uuid())
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        sessions, 1,
+        "la sessione deve restare per un retry, mai cancellata prima di un rename riuscito"
+    );
+    let assets: i64 = sqlx::query_scalar("SELECT count(*) FROM assets WHERE filename = 'foto.jpg'")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        assets, 0,
+        "mai un asset senza il file corrispondente a destinazione"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn finalize_skips_a_byte_identical_duplicate_without_a_second_file() {
