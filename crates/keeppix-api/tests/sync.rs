@@ -183,7 +183,14 @@ async fn delta_pagination_splits_cleanly_at_page_boundary() {
                 seen.push(id);
             }
         }
-        cursor = page["cursor"].as_i64().expect("cursor");
+        let next = page["cursor"].as_i64().expect("cursor");
+        if page["has_more"] == true {
+            assert!(
+                next > cursor,
+                "has_more requires a strictly advancing cursor (was {cursor}, got {next})"
+            );
+        }
+        cursor = next;
         if page["has_more"] != true {
             break;
         }
