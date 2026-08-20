@@ -3,7 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum_extra::extract::CookieJar;
 use chrono::{DateTime, Utc};
-use keeppix_db::{SessionRepo, UserRepo};
+use keeppix_db::{SessionRepo, TotpRepo, UserRepo};
 use keeppix_domain::{Password, SessionToken, SystemRole, User, Username, verify_password};
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +51,9 @@ impl From<&User> for UserView {
 pub struct LoginRequest {
     username: String,
     password: String,
+    /// Optional TOTP or recovery code. Required once the account has 2FA enabled.
+    #[serde(default)]
+    totp_code: Option<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -112,6 +115,25 @@ pub async fn login(
 
     if !verify_password(&password, &hash) || !user.is_active() {
         return Err(invalid());
+    }
+
+    let totp = TotpRepo::new(&state.db);
+    if totp.is_enabled_for_user(user.id).await? {
+        let Some(code) = req
+            .totp_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        else {
+            return Err(Problem::new(
+                StatusCode::UNAUTHORIZED,
+                "totp-required",
+                "Two-factor authentication code required",
+            ));
+        };
+        if !totp.verify_login(user.id, code).await? {
+            return Err(invalid());
+        }
     }
 
     let token = SessionRepo::new(&state.db)

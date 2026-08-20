@@ -29,6 +29,7 @@ pub mod settings;
 pub mod share_links;
 pub mod stacks;
 pub mod timeline;
+pub mod totp;
 pub mod trash;
 pub mod uploads;
 pub mod users;
@@ -70,6 +71,7 @@ pub use settings::SettingsRepo;
 pub use share_links::{NewShareLink, ShareLinkRepo, ShareLinkRow};
 pub use stacks::{StackDetails, StackMember, StackRepo};
 pub use timeline::{MonthBucket, TimelineRepo};
+pub use totp::{TotpConfirmed, TotpRepo, TotpSetup, TotpStatus};
 pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
 pub use uploads::{
     FinalizeOutcome, NewUploadSession, UPLOAD_TMP_DIR_NAME, UploadSessionRepo, ensure_disk_space,
@@ -83,7 +85,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0030_performance_indexes.
+// rivede la directory. 0031_totp.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

@@ -140,6 +140,19 @@ fn api_routes(state: AppState) -> Router<AppState> {
         .route("/auth/refresh", axum::routing::post(routes::auth::refresh))
         .route("/auth/logout", axum::routing::post(routes::auth::logout))
         .route("/auth/me", get(routes::auth::me))
+        .route(
+            "/auth/totp",
+            get(routes::totp::status).delete(routes::totp::disable),
+        )
+        .route("/auth/totp/setup", axum::routing::post(routes::totp::setup))
+        .route(
+            "/auth/totp/confirm",
+            axum::routing::post(routes::totp::confirm),
+        )
+        .route(
+            "/auth/totp/recovery-codes",
+            axum::routing::post(routes::totp::regenerate_recovery),
+        )
         .route("/timeline/buckets", get(routes::timeline::buckets))
         .route("/timeline", get(routes::timeline::page))
         .route("/folders/tree", get(routes::folders::tree))

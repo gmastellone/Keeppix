@@ -118,4 +118,26 @@ exists; `localStorage` is a first-paint/logged-out cache kept in sync by
 until settings persist via `PATCH /users/{id}`. Cost if wrong: anonymous
 language choice is not stored server-side until settings.
 
-Task 11: complete (commit 3855a6a, targeted tests verdi)
+Task 11: complete (commit 2dacd25, targeted tests verdi)
+
+Ruling: TOTP tables use migration `0031_totp.sql` (next free on this branch);
+plan's `0029` was taken by Task 7 idempotency. `last_used_step` is added beyond
+the plan's SQL sketch because reuse protection requires it. Cost if wrong:
+another migration to add the column later.
+
+Ruling: `users.totp_secret_enc` from 0001 stays unused; `totp_secrets` is the
+source of truth. Altering 0001 is forbidden. Cost if wrong: a later cleanup
+migration drops the dead column.
+
+Ruling: login takes optional `totp_code` on the existing `POST /auth/login`
+instead of a second challenge endpoint — smallest surface that is still real
+2FA. Missing code with TOTP enabled → `401 keeppix/totp-required`. Cost if
+wrong: clients must learn one new problem type; password correctness is
+revealed when 2FA is on (intentional UX).
+
+Ruling: recovery codes are hashed with blake3 keyed by `totp_key` (same key as
+AES-GCM), not Argon2 — codes are high-entropy so slow hashing buys little and
+would make regenerate/login heavier. Cost if wrong: a weaker KDF if the keyed
+hash key leaks with the DB.
+
+Task 5: complete (commit f716aab, db totp 8/8, api totp 3/3, openapi 6/6, frontend build + i18n + check-wired verdi)

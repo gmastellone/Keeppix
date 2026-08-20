@@ -62,8 +62,8 @@ export const useSessionStore = defineStore('session', () => {
     await bootstrap()
   }
 
-  async function login(username: string, password: string): Promise<void> {
-    const result = await authApi.login(username, password)
+  async function login(username: string, password: string, totpCode?: string): Promise<void> {
+    const result = await authApi.login(username, password, totpCode)
     user.value = result.user
     applyProfileLocale(result.user.locale)
     startWatchdog()

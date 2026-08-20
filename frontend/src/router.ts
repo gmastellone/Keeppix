@@ -23,6 +23,11 @@ export const router = createRouter({
       meta: { auth: true }
     },
     {
+      path: '/settings/security/totp',
+      component: () => import('@/views/settings/TotpSetupView.vue'),
+      meta: { auth: true }
+    },
+    {
       path: '/player/:id',
       component: () => import('@/views/PlayerView.vue'),
       meta: { auth: true }

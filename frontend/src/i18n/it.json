@@ -51,8 +51,13 @@
     "title": "Accedi",
     "username": "Nome utente",
     "password": "Password",
+    "totpCode": "Codice autenticatore o di recupero",
     "submit": "Accedi",
-    "errors": { "invalidCredentials": "Nome utente o password non corretti." },
+    "submitTotp": "Verifica e accedi",
+    "errors": {
+      "invalidCredentials": "Nome utente o password non corretti.",
+      "invalidTotp": "Codice autenticatore o di recupero non corretto."
+    },
     "notices": {
       "signedOutOffline": "Sei uscito localmente; non siamo riusciti a confermarlo con il server (probabile problema di rete)."
     }
@@ -330,6 +335,37 @@
     "errors": {
       "generateFailed": "Impossibile generare la app-password.",
       "revokeFailed": "Impossibile revocare la app-password."
+    }
+  },
+  "totp": {
+    "title": "Autenticazione a due fattori",
+    "subtitle": "Proteggi l'account con un'app autenticatore (TOTP) e i codici di recupero.",
+    "intro": "Inquadra un QR con Google Authenticator, Aegis, Bitwarden o qualsiasi app RFC 6238.",
+    "start": "Configura autenticatore",
+    "scanTitle": "Inquadra questo QR",
+    "manualHint": "Oppure inserisci il segreto a mano nell'app autenticatore.",
+    "codeLabel": "Inserisci il codice a 6 cifre per confermare",
+    "confirm": "Attiva il 2FA",
+    "recoveryTitle": "Codici di recupero",
+    "recoveryWarning": "Conserva questi codici in un posto sicuro. Ognuno vale una sola volta e vengono mostrati solo ora.",
+    "copy": "Copia i codici",
+    "copied": "Copiati!",
+    "manageTitle": "Gestisci il 2FA",
+    "actionCodeLabel": "Codice autenticatore o di recupero",
+    "regenerate": "Rigenera i codici di recupero",
+    "disable": "Disattiva il 2FA",
+    "status": {
+      "off": "L'autenticazione a due fattori è disattivata.",
+      "pending": "Configurazione avviata — conferma un codice dall'app per completarla.",
+      "enabled": "L'autenticazione a due fattori è attiva.",
+      "recoveryLeft": "{count} codici di recupero ancora validi"
+    },
+    "errors": {
+      "alreadyEnabled": "Il 2FA è già attivo. Disattivalo prima di ricominciare.",
+      "setupFailed": "Impossibile avviare la configurazione del 2FA.",
+      "confirmFailed": "Codice non accettato. Prova il successivo dall'app.",
+      "regenerateFailed": "Impossibile rigenerare i codici di recupero.",
+      "disableFailed": "Impossibile disattivare il 2FA."
     }
   },
   "trash": {
