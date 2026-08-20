@@ -1,7 +1,7 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use keeppix_db::{SearchNode, SearchRepo};
+use keeppix_db::{FlagRepo, SearchNode, SearchRepo};
 use keeppix_domain::AssetId;
 use serde::{Deserialize, Serialize};
 
@@ -82,10 +82,12 @@ pub async fn run(
     let next_cursor = filled
         .then(|| assets.last().map(|a| encode_cursor(a)))
         .flatten();
+    let ids: Vec<AssetId> = assets.iter().map(|a| a.id).collect();
+    let favorites = FlagRepo::new(&state.db).favorites_among(&ctx, &ids).await?;
     Ok(Json(SearchPage {
         assets: assets
             .iter()
-            .map(AssetView::from_asset_with_stack)
+            .map(|a| AssetView::from_asset_with_stack(a).with_favorite(favorites.contains(&a.id)))
             .collect(),
         next_cursor,
     }))

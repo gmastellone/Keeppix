@@ -108,11 +108,12 @@ async fn setting_and_reading_back_the_callers_flags_round_trips() {
         .unwrap();
     assert_eq!(unvoted["rating"], serde_json::Value::Null);
     assert_eq!(unvoted["pick"], "none");
+    assert_eq!(unvoted["favorite"], false);
 
     let response = server
         .client
         .put(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
-        .json(&json!({ "rating": 4, "pick": "pick", "color_label": "rosso" }))
+        .json(&json!({ "rating": 4, "pick": "pick", "color_label": "rosso", "favorite": true }))
         .send()
         .await
         .unwrap();
@@ -130,6 +131,54 @@ async fn setting_and_reading_back_the_callers_flags_round_trips() {
     assert_eq!(after["rating"], 4);
     assert_eq!(after["pick"], "pick");
     assert_eq!(after["color_label"], "rosso");
+    assert_eq!(after["favorite"], true);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// `favorite` non è un riuso di `pick` (spec fase-10 §7bis.1): scartare uno
+/// scatto nel culling non deve azzerare il preferito.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn discarding_in_culling_does_not_clear_favorite() {
+    let server = TestServer::start().await;
+    let admin = setup_admin(&server).await;
+    let root = temp_root();
+    let folder = ensure_folder(&server, admin, &root).await;
+    let asset_id = seed_asset(&server, folder, &root, "foto.jpg").await;
+
+    server
+        .client
+        .put(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
+        .json(&json!({ "rating": null, "pick": "none", "color_label": null, "favorite": true }))
+        .send()
+        .await
+        .unwrap();
+
+    // Scarta nello scoring del culling: pick passa a reject, favorite resta
+    // esplicitamente true nel corpo (rimpiazzo completo del voto).
+    server
+        .client
+        .put(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
+        .json(&json!({ "rating": null, "pick": "reject", "color_label": null, "favorite": true }))
+        .send()
+        .await
+        .unwrap();
+
+    let after: serde_json::Value = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(after["pick"], "reject");
+    assert_eq!(
+        after["favorite"], true,
+        "scartare nel culling non deve azzerare il preferito"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -247,7 +296,8 @@ async fn batch_set_applies_the_same_flags_to_every_asset() {
             "asset_ids": [a.to_string(), b.to_string()],
             "rating": 3,
             "pick": "reject",
-            "color_label": null
+            "color_label": null,
+            "favorite": true
         }))
         .send()
         .await
@@ -270,6 +320,7 @@ async fn batch_set_applies_the_same_flags_to_every_asset() {
             .unwrap();
         assert_eq!(flags["rating"], 3);
         assert_eq!(flags["pick"], "reject");
+        assert_eq!(flags["favorite"], true);
     }
 
     let _ = fs::remove_dir_all(&root);

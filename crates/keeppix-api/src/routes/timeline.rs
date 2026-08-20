@@ -4,7 +4,8 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, Utc};
 use keeppix_db::{
-    AssetRepo, AssetWithStack, Geometry, GeometryRecord, GeometryStamp, OverrideRepo, TimelineRepo,
+    AssetRepo, AssetWithStack, FlagRepo, Geometry, GeometryRecord, GeometryStamp, OverrideRepo,
+    TimelineRepo,
 };
 use keeppix_domain::{Asset, AssetId, AssetKind, LibraryId};
 use serde::{Deserialize, Serialize};
@@ -69,6 +70,13 @@ pub struct AssetView {
     /// che non è né l'uno né l'altro (video, unknown). Campo additivo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_kind: Option<String>,
+    /// «Preferito» del **chiamante** (Task 10 fase-10). `AssetView` è
+    /// condiviso fra molte viste, ma questo campo è per utente: due
+    /// chiamanti sullo stesso `Asset` possono leggere valori diversi.
+    /// `false` di default finché non viene risolto con
+    /// [`Self::with_favorite`] usando il set del chiamante
+    /// (`FlagRepo::get`/`favorites_among`). Campo additivo.
+    pub favorite: bool,
 }
 
 impl AssetView {
@@ -89,6 +97,7 @@ impl AssetView {
             place_id: None,
             stack_size: 1,
             raw_kind: default_raw_kind(a.kind).map(str::to_owned),
+            favorite: false,
         }
     }
 
@@ -109,6 +118,11 @@ impl AssetView {
     ) -> Self {
         self.location = location;
         self.place_id = place_id;
+        self
+    }
+
+    pub(crate) fn with_favorite(mut self, favorite: bool) -> Self {
+        self.favorite = favorite;
         self
     }
 }
@@ -168,10 +182,13 @@ pub async fn asset(
     })?;
     let asset = AssetRepo::new(&state.db).find_by_id(&ctx, id).await?;
     let effective = OverrideRepo::new(&state.db).effective(&ctx, id).await?;
-    let view = AssetView::from_asset(&asset).with_location(
-        effective.location.map(GeoPointView::from),
-        effective.place_id,
-    );
+    let flags = FlagRepo::new(&state.db).get(&ctx, id).await?;
+    let view = AssetView::from_asset(&asset)
+        .with_location(
+            effective.location.map(GeoPointView::from),
+            effective.place_id,
+        )
+        .with_favorite(flags.favorite);
     Ok(Json(view))
 }
 
@@ -439,10 +456,12 @@ pub async fn page(
     let next_cursor = filled
         .then(|| assets.last().map(|a| encode_cursor(a)))
         .flatten();
+    let ids: Vec<AssetId> = assets.iter().map(|a| a.id).collect();
+    let favorites = FlagRepo::new(&state.db).favorites_among(&ctx, &ids).await?;
     Ok(Json(TimelinePage {
         assets: assets
             .iter()
-            .map(AssetView::from_asset_with_stack)
+            .map(|a| AssetView::from_asset_with_stack(a).with_favorite(favorites.contains(&a.id)))
             .collect(),
         next_cursor,
     }))

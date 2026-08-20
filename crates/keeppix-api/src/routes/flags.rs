@@ -25,6 +25,11 @@ pub struct AssetFlagsBody {
     #[schema(value_type = String, example = "pick")]
     pub pick: Pick,
     pub color_label: Option<String>,
+    /// «Preferito» (spec fase-10 §7bis.1): asse indipendente da `pick`, non
+    /// un suo alias. `false` se assente in scrittura, come gli altri campi
+    /// di questo corpo — è un rimpiazzo completo del voto, non una patch.
+    #[serde(default)]
+    pub favorite: bool,
 }
 
 impl AssetFlagsBody {
@@ -37,6 +42,7 @@ impl AssetFlagsBody {
             rating,
             pick: self.pick,
             color_label: self.color_label,
+            favorite: self.favorite,
         })
     }
 
@@ -45,6 +51,7 @@ impl AssetFlagsBody {
             rating: flags.rating.map(Rating::value),
             pick: flags.pick,
             color_label: flags.color_label,
+            favorite: flags.favorite,
         }
     }
 }
