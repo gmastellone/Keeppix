@@ -14,6 +14,7 @@ pub mod routes;
 pub mod state;
 
 pub mod batch;
+pub mod bulk;
 
 pub use extract::{AdminAuth, Auth, SESSION_COOKIE, SessionNotShare, SessionOrShare, ShareAuth};
 pub use json::Json;
