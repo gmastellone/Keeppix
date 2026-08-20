@@ -161,6 +161,30 @@ impl<'a> LibraryRepo<'a> {
         Ok(usage)
     }
 
+    /// Verifica di raggiungibilità su richiesta (§47 «Riprova connessione»):
+    /// un semplice `is_dir` sul `root_path`, che porta lo stesso costo dello
+    /// `stat` già fatto da `discover::run` ad ogni scansione — nessuna nuova
+    /// primitiva di I/O. Aggiorna lo stato solo se cambia, così una libreria
+    /// già `active` sondata di nuovo non genera un `UPDATE` a vuoto.
+    ///
+    /// # Errors
+    /// `Forbidden` se la libreria non è visibile (anche se l'id non esiste).
+    /// `NotFound` solo a un admin su id assente.
+    pub async fn probe(&self, ctx: &AuthContext, id: LibraryId) -> Result<Library, DbError> {
+        let library = self.find_by_id(ctx, id).await?;
+        let reachable = library.root_path.is_dir();
+        let status = if reachable {
+            LibraryStatus::Active
+        } else {
+            LibraryStatus::Offline
+        };
+        if status == library.status {
+            return Ok(library);
+        }
+        self.set_status(ctx, id, status).await?;
+        self.find_by_id(ctx, id).await
+    }
+
     /// # Errors
     /// `Forbidden` se il chiamante non può vedere la libreria.
     pub async fn set_status(
