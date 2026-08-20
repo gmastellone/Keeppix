@@ -77,17 +77,20 @@ pub use uploads::{
 pub use users::UserRepo;
 pub use visibility::VisibilityScope;
 
+use moka::future::Cache;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0029_idempotency_keys.
+// rivede la directory. 0030_performance_indexes.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
 pub struct Db {
     pool: PgPool,
+    permission_cache: Cache<uuid::Uuid, VisibilityScope>,
+    settings_cache: Cache<String, Option<serde_json::Value>>,
 }
 
 impl Db {
@@ -99,7 +102,11 @@ impl Db {
             .acquire_timeout(std::time::Duration::from_secs(10))
             .connect(url)
             .await?;
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            permission_cache: Cache::builder().max_capacity(10_000).build(),
+            settings_cache: Cache::builder().max_capacity(1_000).build(),
+        })
     }
 
     /// Applica tutte le migrazioni non ancora eseguite.
@@ -115,6 +122,24 @@ impl Db {
     #[must_use]
     pub const fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    #[must_use]
+    pub fn permission_cache(&self) -> &Cache<uuid::Uuid, VisibilityScope> {
+        &self.permission_cache
+    }
+
+    #[must_use]
+    pub fn settings_cache(&self) -> &Cache<String, Option<serde_json::Value>> {
+        &self.settings_cache
+    }
+
+    pub async fn invalidate_permission_cache_for_user(&self, user_id: keeppix_domain::UserId) {
+        self.permission_cache.invalidate(&user_id.as_uuid()).await;
+    }
+
+    pub async fn invalidate_setting_cache(&self, key: &str) {
+        self.settings_cache.invalidate(key).await;
     }
 
     /// # Errors

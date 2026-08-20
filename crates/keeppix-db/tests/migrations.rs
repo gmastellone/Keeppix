@@ -74,6 +74,31 @@ async fn required_extensions_are_enabled() {
 
 #[tokio::test]
 #[allow(clippy::expect_used)]
+async fn performance_indexes_exist() {
+    let test = TestDb::start().await;
+
+    let indexes: Vec<String> = sqlx::query_scalar(
+        "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname",
+    )
+    .fetch_all(test.db().pool())
+    .await
+    .expect("elenco indici");
+
+    for expected in [
+        "album_assets_added_by_idx",
+        "asset_exif_camera_trgm",
+        "asset_exif_lens_trgm",
+        "stacks_primary_asset_idx",
+    ] {
+        assert!(
+            indexes.contains(&expected.to_owned()),
+            "manca l'indice {expected}"
+        );
+    }
+}
+
+#[tokio::test]
+#[allow(clippy::expect_used)]
 async fn usernames_are_unique_case_insensitively() {
     let test = TestDb::start().await;
     let pool = test.db().pool();

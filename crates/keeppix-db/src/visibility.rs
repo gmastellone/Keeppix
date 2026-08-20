@@ -2,7 +2,7 @@ use keeppix_domain::{Actor, AuthContext, FolderPath, LibraryId};
 
 use crate::{Db, DbError};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct FolderGrant {
     id: uuid::Uuid,
     library_id: uuid::Uuid,
@@ -10,6 +10,7 @@ struct FolderGrant {
 }
 
 /// Filtro di visibilità risolto per un chiamante.
+#[derive(Clone, Debug)]
 pub struct VisibilityScope {
     unrestricted: bool,
     grants: Vec<FolderGrant>,
@@ -80,6 +81,10 @@ impl VisibilityScope {
             });
         };
 
+        if let Some(cached) = db.permission_cache().get(&owner.as_uuid()).await {
+            return Ok(cached);
+        }
+
         let rows: Vec<(uuid::Uuid, uuid::Uuid, String, bool)> = sqlx::query_as(
             "SELECT f.id, f.library_id, f.path::text, true \
                FROM folders f \
@@ -140,12 +145,16 @@ impl VisibilityScope {
         .fetch_all(db.pool())
         .await?;
 
-        Ok(Self {
+        let scope = Self {
             unrestricted: false,
             grants,
             holes,
             asset_ids,
-        })
+        };
+        db.permission_cache()
+            .insert(owner.as_uuid(), scope.clone())
+            .await;
+        Ok(scope)
     }
 
     async fn resolve_share_link(

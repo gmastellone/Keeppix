@@ -97,6 +97,8 @@ impl<'a> PermissionRepo<'a> {
 
         let role = ObjectRole::parse(&row.1)
             .ok_or_else(|| crate::row::corrupted("permission role", &row.1))?;
+        self.invalidate_subject_scope(grant.subject, grant.subject_id)
+            .await?;
         Ok(Permission {
             id: row.0,
             role,
@@ -221,12 +223,13 @@ impl<'a> PermissionRepo<'a> {
     /// # Errors
     /// `Forbidden` se non autorizzato; `NotFound` se il permesso non esiste.
     pub async fn revoke(&self, ctx: &AuthContext, permission_id: Uuid) -> Result<(), DbError> {
-        let row: Option<(String, Uuid)> =
-            sqlx::query_as("SELECT object_type, object_id FROM permissions WHERE id = $1")
-                .bind(permission_id)
-                .fetch_optional(self.db.pool())
-                .await?;
-        let Some((object_type, object_id)) = row else {
+        let row: Option<(String, Uuid, String, Uuid)> = sqlx::query_as(
+            "SELECT object_type, object_id, subject_type, subject_id FROM permissions WHERE id = $1",
+        )
+        .bind(permission_id)
+        .fetch_optional(self.db.pool())
+        .await?;
+        let Some((object_type, object_id, subject_type, subject_id)) = row else {
             return Err(DbError::NotFound);
         };
         let object = parse_object_type(&object_type)?;
@@ -238,6 +241,35 @@ impl<'a> PermissionRepo<'a> {
             .rows_affected();
         if n == 0 {
             return Err(DbError::NotFound);
+        }
+        self.invalidate_subject_scope(parse_subject_type(&subject_type)?, subject_id)
+            .await?;
+        Ok(())
+    }
+
+    async fn invalidate_subject_scope(
+        &self,
+        subject: SubjectType,
+        subject_id: Uuid,
+    ) -> Result<(), DbError> {
+        match subject {
+            SubjectType::User => {
+                self.db
+                    .invalidate_permission_cache_for_user(UserId::from_uuid(subject_id))
+                    .await;
+            }
+            SubjectType::Group => {
+                let members: Vec<Uuid> =
+                    sqlx::query_scalar("SELECT user_id FROM group_members WHERE group_id = $1")
+                        .bind(subject_id)
+                        .fetch_all(self.db.pool())
+                        .await?;
+                for member in members {
+                    self.db
+                        .invalidate_permission_cache_for_user(UserId::from_uuid(member))
+                        .await;
+                }
+            }
         }
         Ok(())
     }
@@ -254,13 +286,16 @@ impl<'a> PermissionRepo<'a> {
         role: Option<ObjectRole>,
         inherit: Option<bool>,
     ) -> Result<Permission, DbError> {
-        let row: Option<(String, Uuid, String, bool)> = sqlx::query_as(
-            "SELECT object_type, object_id, role, inherit FROM permissions WHERE id = $1",
+        let row: Option<(String, Uuid, String, Uuid, String, bool)> = sqlx::query_as(
+            "SELECT object_type, object_id, subject_type, subject_id, role, inherit \
+               FROM permissions WHERE id = $1",
         )
         .bind(permission_id)
         .fetch_optional(self.db.pool())
         .await?;
-        let Some((object_type, object_id, current_role, current_inherit)) = row else {
+        let Some((object_type, object_id, subject_type, subject_id, current_role, current_inherit)) =
+            row
+        else {
             return Err(DbError::NotFound);
         };
         let object = parse_object_type(&object_type)?;
@@ -278,6 +313,8 @@ impl<'a> PermissionRepo<'a> {
         .await?;
         let role = ObjectRole::parse(&out.1)
             .ok_or_else(|| crate::row::corrupted("permission role", &out.1))?;
+        self.invalidate_subject_scope(parse_subject_type(&subject_type)?, subject_id)
+            .await?;
         Ok(Permission {
             id: out.0,
             role,
@@ -462,6 +499,14 @@ fn parse_object_type(raw: &str) -> Result<ObjectType, DbError> {
         "album" => Ok(ObjectType::Album),
         "asset" => Ok(ObjectType::Asset),
         other => Err(crate::row::corrupted("object_type", other)),
+    }
+}
+
+fn parse_subject_type(raw: &str) -> Result<SubjectType, DbError> {
+    match raw {
+        "user" => Ok(SubjectType::User),
+        "group" => Ok(SubjectType::Group),
+        other => Err(crate::row::corrupted("subject_type", other)),
     }
 }
 

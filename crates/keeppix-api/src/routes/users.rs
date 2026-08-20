@@ -181,6 +181,7 @@ pub async fn patch(
             parse_optional_role(body.role.as_deref())?,
         )
         .await?;
+    state.sessions.clear();
     Ok(Json(UserView::from(&user)))
 }
 
