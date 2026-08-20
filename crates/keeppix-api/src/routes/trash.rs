@@ -9,6 +9,7 @@ use keeppix_db::{TRASH_RETENTION_DAYS, TrashRepo};
 use keeppix_domain::{AssetId, DiskAction, TrashEntry, TrashEntryId};
 use serde::{Deserialize, Serialize};
 
+use crate::bulk::BulkOutcome;
 use crate::extract::Auth;
 use crate::json::Json;
 use crate::problem::Problem;
@@ -66,6 +67,74 @@ pub async fn delete(
     let action = parse_action(&body.disk_action)?;
     TrashRepo::new(&state.db).choose(&ctx, id, action).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct BatchDeleteRequest {
+    #[schema(value_type = Vec<String>)]
+    pub asset_ids: Vec<AssetId>,
+    /// `kept`, `moved_to_trash`, o `purged` — obbligatorio, stesso
+    /// vocabolario di `DELETE /api/v1/assets/{id}` (spec §6). Nessun
+    /// default: il client scelga sempre.
+    #[schema(example = "moved_to_trash")]
+    pub disk_action: String,
+}
+
+/// Cancellazione a tre opzioni sull'intero lotto: ogni asset è una
+/// transazione a sé ([`TrashRepo::choose`] riusato senza modifiche), tranne
+/// per `purged`, dove l'autorizzazione è **all-or-nothing** — un solo id non
+/// purgabile rifiuta l'intero lotto prima che qualunque file venga toccato
+/// (spec Fase 10 §Task 4: «il buco più rilevante per il backend», l'unico
+/// dialog dell'app che distrugge dati e ha più modi di fallire).
+///
+/// # Errors
+/// `400` `keeppix/invalid-disk-action` se `disk_action` non è una delle tre
+/// opzioni, o `keeppix/batch-too-large` se il lotto supera
+/// [`crate::batch::MAX_BATCH_ASSETS`]; `401` se non autenticato; `403` se
+/// `purged` è richiesto e il chiamante non può eliminare dal disco anche un
+/// solo asset del lotto (owner/admin richiesti) — per `kept`/`moved_to_trash`
+/// un id non visibile o non modificabile finisce invece in `failed` con
+/// riuscita parziale.
+#[utoipa::path(
+    post,
+    path = "/api/v1/assets/batch/delete",
+    tag = "trash",
+    operation_id = "assets_batch_delete",
+    summary = "Delete multiple assets",
+    security(("session_cookie" = [])),
+    request_body = BatchDeleteRequest,
+    responses(
+        (status = 200, description = "Esito per asset (riuscita parziale ammessa, tranne per purged non autorizzato)", body = BulkOutcome),
+        (status = 400, description = "disk_action non riconosciuto, o lotto troppo grande", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "purged richiesto da chi non è owner/admin di almeno un asset del lotto", body = Problem)
+    )
+)]
+pub async fn batch_delete(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Json(body): Json<BatchDeleteRequest>,
+) -> Result<Json<BulkOutcome>, Problem> {
+    crate::batch::reject_oversized_batch(&body.asset_ids)?;
+    let action = parse_action(&body.disk_action)?;
+    let trash = TrashRepo::new(&state.db);
+
+    if matches!(action, DiskAction::Purged) {
+        trash
+            .assert_batch_purge_authorized(&ctx, &body.asset_ids)
+            .await?;
+    }
+
+    let mut succeeded = Vec::new();
+    let mut failed = Vec::new();
+    for id in body.asset_ids {
+        match trash.choose(&ctx, id, action).await {
+            Ok(_) => succeeded.push(id),
+            Err(e) => failed.push((id, e)),
+        }
+    }
+
+    Ok(Json(BulkOutcome::from_partition(succeeded, &failed, None)))
 }
 
 /// # Errors
