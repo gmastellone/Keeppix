@@ -40,3 +40,37 @@ Gone e IO non classificabile — meglio un quinto caso onesto che fingere
 servirebbe; preferibile al contrario.
 
 Task 1: complete (commit 14af320, tests green)
+
+Ruling: `autovacuum_vacuum_scale_factor = 0.05` su `assets` — 5% dead tuples
+invece del default 0.2; su librerie grandi la VM map resta fresca senza
+aspettare un quinto della tabella. — *Costo se sbagliato:* più cicli
+autovacuum su una tabella calda; accettabile per index-only scan affidabile.
+
+Ruling: compose default = profilo SSD/NVMe (`random_page_cost=1.1`, …);
+microSD override via `.env`. Valori misurati all'installazione (Fase 7),
+non cablati come universali. — *Costo se sbagliato:* profilo sbagliato per
+metà degli utenti finché non ricalibrano.
+
+### EXPLAIN Task 1bis (15k righe `indexed`, testcontainer Postgres 17)
+
+`random_page_cost=4.0` — timeline page (mese 2015-06, LIMIT 200):
+
+```
+Limit → Sort → Nested Loop → Bitmap Heap Scan on assets
+  → Bitmap Index Scan on assets_timeline_idx
+  → Index Only Scan folders_pkey
+```
+
+`random_page_cost=1.1` — timeline page: **stesso piano** (indice già preferito
+con 720 righe nel mese su 15k totali).
+
+`random_page_cost=4.0` — geometry stand-in (`folder_id, taken_at_utc DESC, id DESC`):
+
+```
+Limit → Sort → Seq Scan on assets (Filter: status = 'indexed')
+```
+
+`random_page_cost=1.1` — geometry stand-in: **stesso piano** (Seq Scan — indice
+covering non esiste ancora, Task 2).
+
+Task 1bis: complete (commit 376f030, tests green)
