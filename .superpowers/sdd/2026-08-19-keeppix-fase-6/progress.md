@@ -256,3 +256,7 @@ Ruling: CI installs `age` + `zstd` alongside ffmpeg — kpxb external CLI
 round-trip test requires them; spawn-`age -d -p` was a false check that
 panicked on NotFound before asserting magic.
 
+Ruling: sandboxed HLS ffmpeg uses `-threads 1` / `-filter_threads 1`, 2 GiB
+RLIMIT_AS, optional audio map, and one EAGAIN retry — CI parallel load was
+failing scale with "Resource temporarily unavailable".
+

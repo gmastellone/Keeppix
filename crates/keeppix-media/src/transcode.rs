@@ -6,7 +6,10 @@ use crate::sandbox;
 use crate::video;
 
 /// Virtual address ceiling for sandboxed ffmpeg during HLS transcodes.
-const TRANSCODE_MEM: u64 = 1024 * 1024 * 1024;
+/// 1 GiB was enough on quiet hosts; GitHub runners under parallel `cargo test`
+/// hit `Error while filtering: Resource temporarily unavailable` (EAGAIN on
+/// thread create) — 2 GiB + single-thread encode below fixes that.
+const TRANSCODE_MEM: u64 = 2 * 1024 * 1024 * 1024;
 /// Longer budget than poster extract: a short clip can take tens of seconds
 /// on software ARM.
 const TRANSCODE_CPU: u64 = 600;
@@ -314,6 +317,12 @@ pub fn transcode_to_hls(
     let mut args: Vec<String> = vec![
         "-hide_banner".into(),
         "-y".into(),
+        // Cap threads: under parallel CI, default auto-threading races the
+        // sandbox RLIMIT_AS and fails the scale filter with EAGAIN.
+        "-threads".into(),
+        "1".into(),
+        "-filter_threads".into(),
+        "1".into(),
         "-i".into(),
         src_s.into(),
     ];
@@ -322,6 +331,11 @@ pub fn transcode_to_hls(
     args.extend(["-vf".into(), vf]);
     args.extend(encode_codec_args(backend));
     args.extend([
+        "-map".into(),
+        "0:v:0".into(),
+        // Optional audio — video-only fixtures must not force an AAC encoder.
+        "-map".into(),
+        "0:a?".into(),
         "-c:a".into(),
         "aac".into(),
         "-b:a".into(),
@@ -339,7 +353,14 @@ pub fn transcode_to_hls(
         playlist_s.into(),
     ]);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let out = sandbox::run("ffmpeg", &arg_refs, TRANSCODE_MEM, TRANSCODE_CPU)?;
+    let mut out = sandbox::run("ffmpeg", &arg_refs, TRANSCODE_MEM, TRANSCODE_CPU)?;
+    // One retry: EAGAIN during filter setup is transient on busy runners.
+    if !out.status.success() {
+        let detail = String::from_utf8_lossy(&out.stderr);
+        if detail.contains("Resource temporarily unavailable") {
+            out = sandbox::run("ffmpeg", &arg_refs, TRANSCODE_MEM, TRANSCODE_CPU)?;
+        }
+    }
     if !out.status.success() {
         let detail = String::from_utf8_lossy(&out.stderr);
         return Err(std::io::Error::other(format!(
