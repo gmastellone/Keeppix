@@ -61,6 +61,7 @@ pub struct DownloadRegionRequest {
     path = "/api/v1/map/regions",
     tag = "map",
     operation_id = "map_regions_list",
+    summary = "List map regions",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Stato regioni PMTiles", body = [RegionView]),
@@ -83,6 +84,7 @@ pub async fn list(
     path = "/api/v1/map/regions",
     tag = "map",
     operation_id = "map_regions_download",
+    summary = "Download a map region",
     security(("session_cookie" = [])),
     request_body = DownloadRegionRequest,
     responses(
@@ -121,6 +123,7 @@ pub async fn download(
     path = "/api/v1/map/regions/{id}/cancel",
     tag = "map",
     operation_id = "map_regions_cancel",
+    summary = "Cancel a map region download",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id regione")),
     responses(
@@ -154,6 +157,7 @@ pub async fn cancel(
     path = "/api/v1/map/regions/{id}",
     tag = "map",
     operation_id = "map_regions_delete",
+    summary = "Delete a map region",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id regione")),
     responses(

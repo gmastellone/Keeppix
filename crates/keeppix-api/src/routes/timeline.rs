@@ -112,6 +112,7 @@ pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
     path = "/api/v1/assets/{id}",
     tag = "timeline",
     operation_id = "assets_get",
+    summary = "Get an asset",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id asset")),
     responses(
@@ -166,6 +167,7 @@ const fn status_str(status: keeppix_domain::AssetStatus) -> &'static str {
     path = "/api/v1/timeline/buckets",
     tag = "timeline",
     operation_id = "timeline_buckets",
+    summary = "List timeline buckets",
     security(("session_cookie" = [])),
     params(
         ("library" = Option<String>, Query, description = "Filtra su una libreria"),
@@ -212,6 +214,7 @@ pub async fn buckets(
     path = "/api/v1/timeline",
     tag = "timeline",
     operation_id = "timeline_page",
+    summary = "List timeline assets",
     security(("session_cookie" = [])),
     params(
         ("bucket" = String, Query, description = "Mese YYYY-MM"),

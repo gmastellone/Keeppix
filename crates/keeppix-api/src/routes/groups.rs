@@ -56,6 +56,7 @@ pub struct DeleteGroupQuery {
     path = "/api/v1/groups",
     tag = "groups",
     operation_id = "groups_list",
+    summary = "List groups",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Elenco gruppi", body = [GroupView]),
@@ -76,6 +77,7 @@ pub async fn list(
     path = "/api/v1/groups",
     tag = "groups",
     operation_id = "groups_create",
+    summary = "Create a group",
     security(("session_cookie" = [])),
     request_body = CreateGroupRequest,
     responses(
@@ -108,6 +110,7 @@ pub async fn create(
     path = "/api/v1/groups/{id}",
     tag = "groups",
     operation_id = "groups_patch",
+    summary = "Update a group",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id gruppo")),
     request_body = PatchGroupRequest,
@@ -142,6 +145,7 @@ pub async fn patch(
     path = "/api/v1/groups/{id}",
     tag = "groups",
     operation_id = "groups_delete",
+    summary = "Delete a group",
     security(("session_cookie" = [])),
     params(
         ("id" = String, Path, description = "Id gruppo"),
@@ -170,6 +174,7 @@ pub async fn delete(
     path = "/api/v1/groups/{id}/members",
     tag = "groups",
     operation_id = "groups_list_members",
+    summary = "List group members",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id gruppo")),
     responses(
@@ -201,6 +206,7 @@ pub async fn list_members(
     path = "/api/v1/groups/{group_id}/members/{user_id}",
     tag = "groups",
     operation_id = "groups_add_member",
+    summary = "Add a group member",
     security(("session_cookie" = [])),
     params(
         ("group_id" = String, Path, description = "Id gruppo"),
@@ -229,6 +235,7 @@ pub async fn add_member(
     path = "/api/v1/groups/{group_id}/members/{user_id}",
     tag = "groups",
     operation_id = "groups_remove_member",
+    summary = "Remove a group member",
     security(("session_cookie" = [])),
     params(
         ("group_id" = String, Path, description = "Id gruppo"),

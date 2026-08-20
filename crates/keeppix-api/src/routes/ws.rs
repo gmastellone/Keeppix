@@ -67,6 +67,7 @@ pub struct TicketResponse {
     path = "/api/v1/ws/ticket",
     tag = "events",
     operation_id = "ws_ticket",
+    summary = "Issue a WebSocket ticket",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Ticket monouso da 30 s", body = TicketResponse),
@@ -87,6 +88,7 @@ pub async fn ticket(State(state): State<AppState>, Auth(ctx): Auth) -> Json<Tick
     path = "/api/v1/ws",
     tag = "events",
     operation_id = "ws_connect",
+    summary = "Open a WebSocket connection",
     security(("session_cookie" = [])),
     responses(
         (status = 101, description = "WebSocket keeppix.v1"),

@@ -70,6 +70,7 @@ pub struct HomeView {
     path = "/api/v1/users",
     tag = "users",
     operation_id = "users_list",
+    summary = "List users",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Elenco utenti", body = [UserView]),
@@ -92,6 +93,7 @@ pub async fn list(
     path = "/api/v1/users",
     tag = "users",
     operation_id = "users_create",
+    summary = "Create a user",
     security(("session_cookie" = [])),
     request_body = CreateUserRequest,
     responses(
@@ -157,6 +159,7 @@ pub async fn create(
     path = "/api/v1/users/{id}",
     tag = "users",
     operation_id = "users_patch",
+    summary = "Update a user",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id utente")),
     request_body = PatchUserRequest,
@@ -192,6 +195,7 @@ pub async fn patch(
     path = "/api/v1/users/{id}/disable",
     tag = "users",
     operation_id = "users_disable",
+    summary = "Disable a user",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id utente")),
     responses(
@@ -219,6 +223,7 @@ pub async fn disable(
     path = "/api/v1/users/{id}/enable",
     tag = "users",
     operation_id = "users_enable",
+    summary = "Enable a user",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id utente")),
     responses(
@@ -246,6 +251,7 @@ pub async fn enable(
     path = "/api/v1/users/me/password",
     tag = "users",
     operation_id = "users_change_password",
+    summary = "Change the current user's password",
     security(("session_cookie" = [])),
     request_body = ChangePasswordRequest,
     responses(
@@ -308,6 +314,7 @@ pub async fn change_password(
     path = "/api/v1/users/me/home",
     tag = "users",
     operation_id = "users_set_home",
+    summary = "Set the current user's home location",
     security(("session_cookie" = [])),
     request_body = SetHomeRequest,
     responses(
@@ -347,6 +354,7 @@ pub async fn set_home(
     path = "/api/v1/users/me/home",
     tag = "users",
     operation_id = "users_delete_home",
+    summary = "Clear the current user's home location",
     security(("session_cookie" = [])),
     responses(
         (status = 204, description = "Casa rimossa"),

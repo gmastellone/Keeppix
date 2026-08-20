@@ -23,6 +23,7 @@ pub struct ViewportRequest {
     path = "/api/v1/viewport",
     tag = "timeline",
     operation_id = "viewport_promote",
+    summary = "Promote viewport-visible derive jobs",
     security(("session_cookie" = [])),
     request_body = ViewportRequest,
     responses(

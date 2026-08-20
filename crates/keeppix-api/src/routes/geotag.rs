@@ -41,6 +41,7 @@ pub struct ImportGpxRequest {
     path = "/api/v1/metadata/batch/copy-location",
     tag = "metadata",
     operation_id = "metadata_copy_location",
+    summary = "Copy location metadata between assets",
     security(("session_cookie" = [])),
     request_body = CopyLocationRequest,
     responses(
@@ -83,6 +84,7 @@ pub async fn copy_location(
     path = "/api/v1/metadata/batch/import-gpx",
     tag = "metadata",
     operation_id = "metadata_import_gpx",
+    summary = "Import GPX location data",
     security(("session_cookie" = [])),
     request_body = ImportGpxRequest,
     responses(
