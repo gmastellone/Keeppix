@@ -223,8 +223,7 @@ sbagliato:* nessuno; un campo in più nel corpo.
 `album_assets(album_id, asset_id, position, added_by, added_at)`. Le schermate §41, §42 e §43
 chiedono in più:
 
-- **album dinamici**: condizioni di filtro + operatore (*tutte* / *almeno una*), i cui membri
-  sono **calcolati**, mai materializzati;
+- la possibilità di **ricreare la selezione dal filtro** con cui l'album è nato (vedi Ruling);
 - **flag `condiviso`** (badge nella griglia);
 - **tinta della copertina** e flag monocromatico;
 - **intervallo di date testuale** ("Gen 2026 – Lug 2026") e conteggio membri, come aggregati.
@@ -233,36 +232,30 @@ chiedono in più:
 
 ```sql
 ALTER TABLE albums
-    ADD COLUMN kind        text NOT NULL DEFAULT 'manual'
-                           CHECK (kind IN ('manual','dynamic')),
-    ADD COLUMN rule        jsonb,          -- SearchNode serializzato, solo se kind='dynamic'
+    ADD COLUMN rule        jsonb,          -- SearchNode: il filtro con cui è stato creato
+    ADD COLUMN rule_run_at timestamptz,    -- quando è stato applicato l'ultima volta
     ADD COLUMN is_shared   boolean NOT NULL DEFAULT false,
-    ADD COLUMN cover_tint  text,           -- es. '#7A8B6F'
+    ADD COLUMN cover_tint  text,
     ADD COLUMN monochrome  boolean NOT NULL DEFAULT false;
-
-ALTER TABLE albums
-    ADD CONSTRAINT albums_rule_matches_kind
-    CHECK ((kind = 'dynamic') = (rule IS NOT NULL));
 ```
 
-**Ruling: `rule` è un `SearchNode` serializzato, non un linguaggio nuovo.** — Un album dinamico
-*è* una ricerca salvata con un nome e una copertina. Riusare `SearchNode` significa che ogni
-asse aggiunto alla ricerca (§6) diventa automaticamente disponibile agli album dinamici, e che
-il compilatore SQL è uno solo. — *Costo se sbagliato:* le condizioni della UI (cartella, data,
-fotocamera, obiettivo, tipo file, preferito, valutazione, pick) devono esistere come
-`SearchNode`, il che è esattamente ciò che la §6 fa.
+**Ruling: gli album dinamici non esistono. Esiste «Aggiorna album».** — Un album dinamico
+ricalcola i propri membri a **ogni** apertura della griglia: con otto album sono otto scansioni
+del catalogo, ed è la query più cara che l'interfaccia sappia innescare. Un album normale che
+**ricorda il filtro** e ha un pulsante `"Aggiorna album"` sposta quel costo da «sempre» a «quando
+l'utente lo chiede», che è la differenza fra un costo continuo e uno occasionale.
 
-**Ruling: i membri di un album dinamico non sono mai scritti in `album_assets`.** — Il documento
-li descrive come raccolte *"vive": si aggiornano da sole quando arrivano nuove foto che
-corrispondono*. Materializzarli significherebbe doverli ricalcolare a ogni import, a ogni
-modifica di metadato e a ogni cestinamento. — *Costo se sbagliato:* il conteggio dei membri
-costa una `COUNT` a ogni apertura della griglia; si mitiga con la cache in-process già
-introdotta in Fase 6.
+Ne guadagna anche l'utente, non solo il server: un album che cambia da solo può **perdere** una
+foto che avevi voluto tenere. Qui l'aggiornamento è un'azione, e se ne vede l'esito.
 
-`GET /albums` restituisce per ciascun album `member_count` e `date_range` (min/max `taken_at`)
-come aggregati calcolati, per entrambi i tipi.
+E ne guadagna il resto dello schema: i membri stanno **sempre** in `album_assets`, quindi il
+conteggio torna a essere una lettura banale — nessuna cache, nessuna invalidazione, nessun
+`409` da inventare per gli album che non accettano membri espliciti.
+— *Costo se sbagliato:* chi vuole una raccolta davvero viva usa un **tag** o una **ricerca
+salvata**, che fanno la stessa cosa e costano una frazione.
 
----
+`POST /api/v1/albums/{id}/refresh` riapplica `rule`, restituisce l'**involucro di riuscita
+parziale** (§3) con le foto aggiunte e rimosse, e aggiorna `rule_run_at`.
 
 ## 6. Assi di ricerca mancanti
 
@@ -273,18 +266,18 @@ Servono, e **nessuno dipende da IA, volti o culling**:
 
 | Variante nuova | Serve a |
 |---|---|
-| `Rating { cmp, value }` | album dinamici (§43), filtri |
-| `Favorite` | chip "Preferiti" in Cerca (§23), album dinamici |
-| `DateRange { from, to }` | il placeholder della topbar dice *"Cerca per data…"*; §43 |
+| `Rating { cmp, value }` | filtro dell'album (§43), filtri rapidi |
+| `Favorite` | chip "Preferiti" in Cerca (§23), filtro dell'album |
+| `DateRange { from, to }` | il placeholder della topbar dice *"Cerca per data…"*; filtro dell'album |
 | `Day { value }` / `Month { value }` | raggruppamenti e filtri di §43 |
 | `Country { value }` | pillola "Paese" di §24, oggi si crea ma non filtra |
-| `Aperture { cmp, value }` / `Shutter { cmp, value }` | condizioni di §43 |
+| `Aperture { cmp, value }` / `Shutter { cmp, value }` | filtro dell'album (§43) |
 
 Restano fuori, perché arrivano con le rispettive fasi:
 `Tag`/`Category` (Fase 7), `Person` (Fase 8), `Pick` (Fase 9), `Semantic` (Fase 7).
 
 **Ruling: le varianti nuove si aggiungono a `SearchNode`, non a un secondo modello di filtro.** —
-Il filtro rapido a chip (SP-3), le pillole di Cerca (§24) e le condizioni degli album dinamici
+Il filtro rapido a chip (SP-3), le pillole di Cerca (§24) e il filtro con cui si crea un album
 (§43) sono tre interfacce diverse sopra la **stessa** domanda. Tenere un solo AST significa un
 solo compilatore SQL, un solo punto dove aggiungere un indice, un solo posto da testare. —
 *Costo se sbagliato:* l'AST cresce; è già progettato per farlo (è ricorsivo con `And`/`Or`/`Not`).
@@ -362,19 +355,19 @@ sotto-pagina mobile "Cartelle" mostra `"556 foto"` su ogni scheda (§6).
 È il primo di una famiglia: gli aggregati che l'interfaccia mostra **per riga di un elenco**, e
 che diventano N+1 se non si progettano come una sola query.
 
-| Aggregato | Dove | Fase |
-|---|---|---|
-| foto per cartella | sidebar, a ogni render | **10** |
-| membri per album | griglia album | **10** (§5) |
-| elementi per link pubblico | Condivisioni (§29) | **10** |
-| foto per tag | Tag e categorie (§52) | 7 |
-| foto per persona | Persone (§31) | 8 |
-| da valutare per lotto | badge sidebar, selettore lotto (§14, §16) | 9 |
+**Ruling: i conteggi per riga di elenco si tolgono, tranne uno.** — L'interfaccia ne mostrava
+sei: foto per cartella, membri per album, elementi per link, foto per tag, foto per persona, da
+valutare per lotto. Nessuna decisione dell'utente cambia fra «556» e «circa 550»: quel numero
+comunica **peso relativo**, non precisione. Sparisce da cinque punti su sei.
 
-**Ruling: un `GROUP BY` solo per elenco, mai un `COUNT` per riga; risultato in cache `moka` con
-invalidazione esplicita.** — La cache di Fase 6 è senza TTL apposta: qui un conteggio scaduto non
-è un rallentamento, è un numero sbagliato mostrato all'utente. Le invalidazioni vanno agganciate a
-import, cestinamento e spostamento. — *Costo se sbagliato:* la sidebar fa N query a ogni render.
+**Resta solo il conteggio del culling** — badge di navigazione e selettore di lotto — perché lì
+*«quante me ne restano da vedere»* è letteralmente la domanda che l'utente si sta facendo, e la
+precisione conta. Ed è anche il più economico: è per lotto, non per libreria.
+— *Costo se sbagliato:* si perde un'informazione di orientamento nella sidebar; in cambio
+spariscono cinque aggregati con le loro cache e le loro invalidazioni.
+
+Il conteggio dei membri di un album **non è più un aggregato**: con «Aggiorna album» (§5) i
+membri stanno sempre in `album_assets`, quindi è una lettura banale.
 
 ---
 

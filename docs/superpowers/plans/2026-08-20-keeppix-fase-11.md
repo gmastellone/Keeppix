@@ -288,6 +288,12 @@ impostazioni (SP-23) più un avanzamento (Fase 10 Task 16). Nessuno di questi ri
 componente nuovo. — *Costo se sbagliato:* si aggiungono schermate non validate dal disegno; vanno
 mostrate prima di darle per buone.
 
+**Il video resta, ma minimo.** Deciso il 20 agosto 2026: la transcodifica gira solo quando il
+sistema non è usato o di notte, produce **una sola** resa, e **non tocca** i video già piccoli o
+già riproducibili dal browser. Lato interfaccia questo significa: tessera con badge di durata,
+player già esistente, e uno stato *«in preparazione»* per il video non ancora transcodificato —
+`PlaybackResponse` ha già il campo `ready`. Nient'altro.
+
 ---
 
 ## Chiusura della fase

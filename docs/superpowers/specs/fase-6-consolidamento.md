@@ -351,3 +351,36 @@ grafo delle dipendenze — non dentro la 6, e non più "forse mai". Le tabelle
 che questa sezione menzionava vanno verificate contro lo schema reale delle
 Fasi 7/8 quando si scrive il piano di questa fase: potrebbero non
 corrispondere più esattamente a quanto deciso lì.
+
+
+---
+
+## Emendamento — 20 agosto 2026: la transcodifica video si semplifica
+
+Deciso dopo l'analisi costo/beneficio (`docs/ui/costo-beneficio-funzioni.md`). La
+transcodifica **resta**, con tre vincoli che tolgono il costo senza togliere la funzione.
+
+**1. Solo quando il sistema non è usato, o di notte.**
+La transcodifica scende a `JobPriority::Background`, quindi `EnergyProfile::Interactive` non la
+reclama mai: se qualcuno sta navigando, non parte. La finestra notturna la fa girare a piena
+velocità su tutti i core.
+
+**2. Un solo formato.**
+Niente scala di rendition multiple: **una** resa e basta. La complessità di HLS multi-bitrate
+serve a chi trasmette a migliaia di client con banda variabile; su un server di casa con un
+utente non si ripaga.
+
+**3. Solo se il video lo richiede davvero.**
+Un video già piccolo, o già in un formato che il browser sa riprodurre, **non si tocca**: si
+serve l'originale. Si transcodifica solo sopra una soglia di peso, o per i formati che il
+browser non apre.
+
+**Ruling: è la stessa regola già applicata alle foto.** — `SKIP_PREVIEW_PX` e
+`SKIP_PREVIEW_BYTES` (`keeppix-media/src/derive.rs`) evitano di generare una preview quando il
+sorgente è già adatto a fare da preview. Qui la regola è identica, applicata al video: **non
+trasformare ciò che è già utilizzabile**. — *Costo se sbagliato:* qualche video resta più pesante
+del necessario da scaricare, contro ore di CPU risparmiate su un Pi.
+
+**Resta aperto:** il video non ha interfaccia. Il documento funzionale dichiara che *«l'intero
+disegno assume fotografie»*, quindi va disegnata in Fase 11, minima: una tessera con badge di
+durata al posto del badge RAW, e il player già esistente.
