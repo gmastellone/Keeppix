@@ -861,3 +861,77 @@ precedenti — ogni crate girato singolarmente con `--jobs 1
 --test-threads=1`): `keeppix-db` 100% verde, `keeppix-jobs` 100% verde,
 `keeppix-api` 45 file di test 100% verde, `keeppix-server` 100% verde.
 
+## Task 14 — Suggerimenti tipizzati e cluster con destinazione
+
+Ruling: **il cambio di forma di `/search/suggest` è intenzionale, non
+un'eccezione al contratto congelato.** — L'endpoint passa da
+`{suggestions: string[]}` a `{suggestions: {kind, value, label, color?}[]}`:
+è un cambio di tipo dell'elemento dell'array, non un'aggiunta. Il brief lo
+chiede esplicitamente («la barra di ricerca deve sapere *di che tipo* è ogni
+suggerimento»), e l'endpoint non ha ancora un consumatore frontend (Fase 11):
+nessun client su `/api/v1` dipende dalla forma vecchia. Diverso dagli altri
+task della fase, che tengono tutto additivo perché toccano endpoint già
+consumati. — *Costo se sbagliato:* nessuno oggi; se un client esterno avesse
+già integrato la forma stringa, romperebbe — non è il caso qui.
+
+Ruling: **`tag` resta nell'enum senza fonte.** — Il brief lo dice
+esplicitamente: la tabella dei tag non esiste (Fase 7). Le altre quattro
+fonti nuove (`folder`, `iso`, `year`, `country`) usano dati che esistono già
+da questo stesso branch (Task 6): cartelle, `asset_exif.iso`,
+`taken_at_utc`, `assets.place_id → places.country_code`. — *Costo se
+sbagliato:* nessuno, è la lettura letterale del brief.
+
+Ruling: **`country` in `suggest` legge `assets.place_id` bare**, senza
+`COALESCE` con `asset_overrides.place_id` — stessa scelta già presa da
+`SearchNode::Country` nel Task 6 (quella colonna di override non viene
+scritta da nessun percorso oggi). Stessa scelta ripetuta per `place_label`
+di `MapClusterView`, per lo stesso motivo e per restare coerente con il
+filtro `Country` che userebbe la stessa foto per lo stesso risultato. —
+*Costo se sbagliato:* se in futuro un percorso scrive
+`asset_overrides.place_id`, tre punti (search axis, suggest, cluster label)
+vanno aggiornati insieme, non solo uno.
+
+Ruling: **`value` di un suggerimento `folder` è l'id (stringa), `label` è il
+nome.** — Serve a costruire `SearchNode::Folder{id}` se l'utente scegie la
+pillola; `camera`/`filename`/`iso`/`year`/`country` hanno `value == label`
+perché il testo stesso è già il valore del filtro (`SearchNode::Camera`,
+`Iso`, `Year`, `Country` prendono direttamente quella stringa/numero). —
+*Costo se sbagliato:* nessuno, è la lettura naturale di ogni asse.
+
+Ruling: **`MapCluster.folder_id`/`place_label` derivano dallo stesso
+`cover_asset_id`, non da un membro qualunque del cluster.** — Per il
+percorso non aggregato (punti singoli) è un join diretto sulla stessa riga;
+per il percorso a griglia, `folder_id` e `place_id` sono aggregati con lo
+stesso `array_agg(... ORDER BY rating DESC, taken_at_utc DESC, id DESC)[1]`
+già usato per `cover_asset_id` — tre `array_agg` paralleli con lo stesso
+ordinamento, non un secondo criterio. Un `LEFT JOIN places` non può leggere
+`place_id` calcolato da un `array_agg` allo stesso livello di query, quindi
+il calcolo della copertina vive in un livello e la risoluzione del nome
+del luogo nel livello sopra. Verificato con un test dedicato
+(`grid_cluster_carries_the_cover_assets_folder_and_place_not_a_sibling`,
+due asset in due cartelle/luoghi diversi nella stessa cella, rating diverso
+per decidere la copertina) — osservato **rosso** mutando di proposito
+l'`ORDER BY` di uno dei due `array_agg` (rotto, poi ripristinato) prima di
+fissare il test definitivo, per confermare che l'asserzione prova davvero
+l'allineamento e non passa per caso. — *Costo se sbagliato:* il popover di
+un cluster misto mostrerebbe la cartella/luogo di un asset diverso da quello
+la cui foto di copertina si vede — un bug visibile solo con cluster di
+asset eterogenei, quindi facile da non notare in test superficiali.
+
+Task 14: complete (commits da47ddf feat(search) + 3ce4c88 fix(api) clippy +
+f37879b feat(map), tests green: `keeppix-db` search.rs 21/21 [+2 nuovi:
+un tipo per fonte, `tag` mai senza fonte], geo.rs 15/15 [+1 nuovo:
+allineamento cover/folder/place nel percorso a griglia], migrations.rs
+11/11; `keeppix-api` search.rs 5/5 [+1 nuovo: pillole tipizzate via HTTP],
+map.rs 10/10 [+1 nuovo: popover con dati sufficienti a navigare],
+openapi.rs 7/7 [snapshot rigenerato: `SuggestionView`/`SuggestionKindView`
+nuovi, `MapClusterView` +2 campi]). `cargo fmt --check` e `cargo clippy
+--workspace --all-targets -- -D warnings` verdi su tutto il workspace.
+`./scripts/test.sh` completo **non eseguito** (stesso motivo dei task
+precedenti: costerebbe l'intera suite); eseguiti invece tutti i test
+toccati dal task (`keeppix-db` search.rs/geo.rs/migrations.rs; `keeppix-api`
+search.rs/map.rs/openapi.rs/places.rs) più due mutazioni manuali
+osservate rosse (kind letterale rotto in `suggest`, `ORDER BY` disallineato
+in `fetch_grid`) e ripristinate, per confermare che i nuovi test provano
+davvero ciò che dichiarano.
+
