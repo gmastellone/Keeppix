@@ -372,3 +372,20 @@ una foto (GPS del telefono sbagliato, foto scannerizzata con exif fantasma)
 la rivede comunque geolocalizzata finché non arriva un fix dedicato; nessun
 rischio di sicurezza (nessuna esposizione di dati a chi non dovrebbe vederli,
 solo un valore mostrato che l'utente aveva chiesto di azzerare).
+
+## Task 5 — Album refresh
+
+Ruling: `succeeded` del BulkOutcome di refresh elenca sia gli asset **aggiunti**
+sia quelli **rimossi** in questa esecuzione — due facce della stessa mutazione
+riuscita; `failed` resta vuoto (diff server-side su asset già visibili, non
+per-id). — *Costo se sbagliato:* la UI non distingue entrati/usciti senza un
+campo additivo futuro; accettabile per Task 5.
+
+Ruling: album senza `rule` → `400 keeppix/album-has-no-rule` (non Forbidden):
+non è un problema di permesso, è che non c'è nulla da rilanciare. —
+*Costo se sbagliato:* un client che confonde 400 con 403; il `type` stabile
+lo distingue.
+
+Task 5: complete (commit 564ebbb db + a24971f api, tests green:
+keeppix-db albums 11/11; keeppix-api albums 2/2)
+
