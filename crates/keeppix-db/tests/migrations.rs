@@ -90,6 +90,9 @@ async fn performance_indexes_exist() {
         "asset_exif_lens_trgm",
         "stacks_primary_asset_idx",
         "assets_geometry_idx",
+        "assets_rating_idx",
+        "asset_flags_favorite_idx",
+        "assets_taken_day_idx",
     ] {
         assert!(
             indexes.contains(&expected.to_owned()),
