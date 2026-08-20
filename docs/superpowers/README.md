@@ -70,6 +70,8 @@ Tre file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 
 | [`../ui/keeppix-mockup.html`](../ui/keeppix-mockup.html) | **prototipo interattivo** — si apre con un doppio click, senza server. È la fonte di verità del *comportamento*: dove diverge da qualunque testo, ha ragione lui |
 | [`../ui/documento-funzionale-ui.md`](../ui/documento-funzionale-ui.md) | 70 schermate, ogni controllo con etichetta esatta, ogni scorciatoia, ogni stato disabilitato con la ragione, ogni durata di transizione. Ogni sezione si chiude con *"Dati necessari"*, scritto in termini di cose e non di endpoint |
 | [`../ui/brand-sheet.png`](../ui/brand-sheet.png) | il marchio |
+| [`../ui/analisi-gap-backend.md`](../ui/analisi-gap-backend.md) | il confronto punto per punto fra ciò che l'interfaccia chiede e ciò che il backend fa — matrice schermata per schermata, audit di query e indici, costo per schermata |
+| [`../ui/costo-beneficio-funzioni.md`](../ui/costo-beneficio-funzioni.md) | **quali funzioni non valgono il loro prezzo**, viste da architetto, analista e utente. Documento di decisione: cosa tagliare, cosa degradare, cosa tenere |
 
 ## Piani
 
