@@ -39,16 +39,6 @@ It's for the family that wants to hand their parents a URL instead of a Google P
 for the photographer who needs the RAWs to stay put, get culled fast, and be handed to a client
 without leaving the building.
 
-## What it looks like today
-
-The full interface redesign — 70 screens, real keyboard shortcuts, a timeline that scales to
-hundreds of thousands of shots without choking a Pi — is designed and specified, not built yet.
-Rather than pass off mockups as screenshots of a running app, here's the honest state: an
-[interactive, clickable prototype](docs/ui/keeppix-mockup.html) you can open in a browser with no
-server, and a [70-screen functional specification](docs/ui/documento-funzionale-ui.md) documenting
-every control, shortcut, and state down to the millisecond. Real screenshots land here once the
-build ships (tracked as Phase 11 below).
-
 ## What makes it different
 
 - **A photo is a stack, not a file.** A RAW and its matching JPEG are the same shot. Keeppix
@@ -93,7 +83,7 @@ rewriting the UI three times.
 | Semantic search, AI tag matching (CLIP embeddings, pgvector) | 🚧 planned — spec + plan written |
 | Face recognition & clustering (opt-in, never on public links) | 🚧 planned — spec + plan written |
 | Physical folder-based culling, safe rename-by-formula | 🚧 planned — spec + plan written |
-| Redesigned interface (70 screens, full keyboard support) | 🚧 planned — spec + plan written |
+| Redesigned interface | 🚧 planned — spec + plan written |
 | Native mobile app (Capacitor) | 🗺️ roadmap |
 | Native desktop app (Tauri) | 🗺️ roadmap |
 
@@ -168,7 +158,7 @@ PostGIS instance per crate and will eat your RAM and disk.
 | 7 | AI scenes & tags, semantic search | plan written |
 | 8 | Face recognition, clustering | plan written |
 | 9 | Physical culling folders, safe move, rename-by-formula | plan written |
-| 11 | The redesigned interface — all 70 screens | plan written |
+| 11 | The redesigned interface | plan written |
 
 Full roadmap with frozen contracts and phase dependencies:
 [`docs/superpowers/plans/2026-08-13-keeppix-roadmap.md`](docs/superpowers/plans/2026-08-13-keeppix-roadmap.md).
@@ -180,7 +170,6 @@ Full roadmap with frozen contracts and phase dependencies:
 | [`AGENTS.md`](AGENTS.md) | AI coding agents: invariants and method. Read before touching code. |
 | [`docs/superpowers/PROSEGUI.md`](docs/superpowers/PROSEGUI.md) | Continuation prompt: phase order, decisions already made, where to stop and ask. |
 | [`docs/superpowers/README.md`](docs/superpowers/README.md) | Index of specs, plans, ledgers. |
-| [`docs/ui/`](docs/ui/) | The interface redesign: interactive prototype, 70-screen spec, backend gap analysis. |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Installation and operations. |
 | [`docs/api/openapi.json`](docs/api/openapi.json) | The `/api/v1` HTTP contract (additive-only). |
 
