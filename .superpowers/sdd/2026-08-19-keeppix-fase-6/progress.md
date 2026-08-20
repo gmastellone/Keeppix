@@ -141,3 +141,43 @@ would make regenerate/login heavier. Cost if wrong: a weaker KDF if the keyed
 hash key leaks with the DB.
 
 Task 5: complete (commit 58386d7, db totp 8/8, api totp 3/3, openapi 6/6, frontend build + i18n + check-wired verdi)
+
+Ruling: backup migration is `0032_backup_config.sql` (next free on this
+branch); plan's `0030` was taken by Task 12 indexes. Extra columns
+`backup_runs.path` and `keeppix_version` are added beyond the plan sketch so
+restore/proof can find the file and enforce the version gate without a second
+table. Cost if wrong: a later migration to rename/split those columns.
+
+Ruling: destination credentials are AES-GCM encrypted in `config` jsonb via
+`backup_key` from SettingsRepo (same pattern as TOTP). Preferences including
+the age passphrase live in `system_settings` key `backup_preferences`. Cost if
+wrong: passphrase rotation needs a dedicated endpoint later.
+
+Ruling: S3 upload is a minimal HTTP PUT with optional custom headers, not full
+AWS SigV4 — enough for gateway/MinIO setups that terminate auth, recorded as a
+known limit. SFTP upload shells out to `scp` in BatchMode; connection test is
+TCP-only. Cost if wrong: operators needing native SigV4/SSH need a follow-up.
+
+Ruling: integrity scrub and VACUUM/backup dump are scheduled only inside the
+default night window from `main.rs`, while lighter cleanups (sessions, done
+jobs, idempotency, transcode cache) run on the 24h timer. All use
+`JobPriority::Background` so `EnergyProfile::Interactive` never claims them.
+Cost if wrong: night-only heavy work may wait up to ~1h after window open.
+
+Ruling: `pg_restore` for full database restore is not transactional across the
+whole dump — documented in the restore handler, not pretended solved. Safety
+dump is written first. Hot maps-only restore skips the dump path entirely.
+
+Ruling: `RegionRepo::list_all_for_jobs` and `BackupRepo::list_enabled_for_jobs`
+are documented AuthContext exceptions (system inventory / pipeline), same class
+as `purge_expired`. Cost if wrong: a future permission model for map regions
+would need to revisit the job path.
+
+Task 3: complete (commit a78f602 + 6be23b3 + eb3d8d0; db backup 8/8, kpxb
+format + CLI age/zstd/tar round-trip, BackupView with originals warning)
+
+Task 4: complete (same commits; restore rejects newer backup, maps-only hot
+path, monthly restore-proof job + destinations test path)
+
+Task 8: complete (same commits; maintenance scheduler wired; purge_expired
+removed from wired-exceptions; EnergyProfile Background respect tested)
