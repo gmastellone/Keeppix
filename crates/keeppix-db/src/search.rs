@@ -1,10 +1,14 @@
 //! Ricerca da AST JSON. La stringa utente non entra mai nell'SQL: solo bind.
 
 use chrono::{DateTime, NaiveDate, Utc};
-use keeppix_domain::{Asset, AuthContext};
+use keeppix_domain::AuthContext;
 use serde::{Deserialize, Serialize};
 
-use crate::assets::{A_COLUMNS, AssetRow};
+use crate::assets::A_COLUMNS;
+use crate::stacks::{
+    AssetStackRow, AssetWithStack, STACK_BADGE_COLUMNS_SQL, STACK_BADGE_JOIN_SQL,
+    STACK_PRIMARY_ONLY_SQL,
+};
 use crate::visibility::VisibilityScope;
 use crate::{Db, DbError};
 
@@ -51,6 +55,9 @@ impl<'a> SearchRepo<'a> {
         Self { db }
     }
 
+    /// Restituisce solo il primario di ogni pila (Task 3, come la
+    /// timeline): un RAW+JPEG impilato è un risultato, non due.
+    ///
     /// # Errors
     /// `Conflict` se l'AST è troppo profondo; `Connection` se la query fallisce.
     pub async fn run(
@@ -59,7 +66,7 @@ impl<'a> SearchRepo<'a> {
         ast: &SearchNode,
         cursor: Option<(DateTime<Utc>, keeppix_domain::AssetId)>,
         limit: i64,
-    ) -> Result<Vec<Asset>, DbError> {
+    ) -> Result<Vec<AssetWithStack>, DbError> {
         let limit = limit.clamp(1, 200);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
@@ -73,31 +80,33 @@ impl<'a> SearchRepo<'a> {
             None => (None, None),
         };
         let sql = format!(
-            "SELECT {A_COLUMNS} FROM assets a \
+            "SELECT {A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL} FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
              LEFT JOIN asset_exif e ON e.asset_id = a.id \
+             {STACK_BADGE_JOIN_SQL} \
              WHERE {} AND a.status = 'indexed' AND ({clause}) \
                AND (${time_p}::timestamptz IS NULL \
                     OR a.taken_at_utc < ${time_p} \
                     OR (a.taken_at_utc = ${time_p} AND a.id < ${id_p})) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
              ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
              LIMIT ${limit_p}",
             filter.sql()
         );
-        let mut q = sqlx::query_as::<_, AssetRow>(&sql)
+        let mut q = sqlx::query_as::<_, AssetStackRow>(&sql)
             .bind(filter.bind())
             .bind(filter.holes())
             .bind(filter.assets());
         for b in &binds {
             q = bind_one(q, b);
         }
-        let rows: Vec<AssetRow> = q
+        let rows: Vec<AssetStackRow> = q
             .bind(cursor_time)
             .bind(cursor_id)
             .bind(limit)
             .fetch_all(self.db.pool())
             .await?;
-        rows.into_iter().map(AssetRow::into_domain).collect()
+        rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
     /// Prefissi su `camera_model` e filename visibili.
@@ -454,9 +463,9 @@ fn invalid_saved_search() -> DbError {
 }
 
 fn bind_one<'q>(
-    q: sqlx::query::QueryAs<'q, sqlx::Postgres, AssetRow, sqlx::postgres::PgArguments>,
+    q: sqlx::query::QueryAs<'q, sqlx::Postgres, AssetStackRow, sqlx::postgres::PgArguments>,
     b: &'q SearchBind,
-) -> sqlx::query::QueryAs<'q, sqlx::Postgres, AssetRow, sqlx::postgres::PgArguments> {
+) -> sqlx::query::QueryAs<'q, sqlx::Postgres, AssetStackRow, sqlx::postgres::PgArguments> {
     match b {
         SearchBind::Text(s) => q.bind(s),
         SearchBind::I32(n) => q.bind(n),
