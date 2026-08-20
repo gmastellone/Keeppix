@@ -59,6 +59,7 @@ impl utoipa::Modify for SecurityAddon {
         totp::regenerate_recovery,
         totp::disable,
         timeline::buckets,
+        timeline::geometry,
         timeline::page,
         timeline::asset,
         folders::tree,
