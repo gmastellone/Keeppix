@@ -4,7 +4,9 @@ mod harness;
 
 use chrono::{TimeZone, Utc};
 use harness::TestDb;
-use keeppix_db::{AssetRepo, FolderRepo, JobRepo, LibraryRepo, ProblemsRepo};
+use keeppix_db::{
+    AssetRepo, FolderRepo, JobRepo, LibraryRepo, ProblemLanguage, ProblemSeverity, ProblemsRepo,
+};
 use keeppix_domain::{
     AssetKind, AssetName, AuthContext, JobKind, JobPriority, LibraryStatus, NewAsset, NewLibrary,
     SystemRole, UserId,
@@ -99,4 +101,176 @@ async fn failed_jobs_are_admin_only() {
         .await
         .unwrap();
     assert!(as_user.failed_jobs.is_empty());
+}
+
+/// Task 13 (Fase 10): l'elenco piatto composto lato server, non i tre secchi
+/// grezzi di `list`.
+#[tokio::test]
+async fn composed_flat_list_has_an_offline_library_problem_with_a_retry_action() {
+    let test = TestDb::start().await;
+    let (admin, library, _folder) = seed(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    LibraryRepo::new(test.db())
+        .set_status(&ctx, library, LibraryStatus::Offline)
+        .await
+        .unwrap();
+
+    let problems = ProblemsRepo::new(test.db())
+        .composed(&ctx, ProblemLanguage::It)
+        .await
+        .unwrap();
+
+    let problem = problems
+        .iter()
+        .find(|p| p.library_id == Some(library))
+        .expect("la libreria offline deve comparire come problema");
+    assert_eq!(problem.severity, ProblemSeverity::Error);
+    assert!(problem.title.contains("Foto"), "{}", problem.title);
+    assert!(problem.title.to_lowercase().contains("offline"));
+    assert!(
+        problem
+            .actions
+            .iter()
+            .any(|a| a.action == "retry-connection"),
+        "{:?}",
+        problem.actions
+    );
+}
+
+#[tokio::test]
+async fn composed_flat_list_translates_the_offline_library_problem_in_english() {
+    let test = TestDb::start().await;
+    let (admin, library, _folder) = seed(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    LibraryRepo::new(test.db())
+        .set_status(&ctx, library, LibraryStatus::Offline)
+        .await
+        .unwrap();
+
+    let problems = ProblemsRepo::new(test.db())
+        .composed(&ctx, ProblemLanguage::En)
+        .await
+        .unwrap();
+
+    let problem = problems
+        .iter()
+        .find(|p| p.library_id == Some(library))
+        .expect("must be present");
+    assert!(problem.title.to_lowercase().contains("library offline"));
+    assert!(
+        problem
+            .actions
+            .iter()
+            .any(|a| a.action == "retry-connection" && a.label == "Retry connection"),
+        "{:?}",
+        problem.actions
+    );
+}
+
+/// Riproduce il messaggio reale che arriva su `jobs.last_error`: il job
+/// `write_sidecar` avvolge ogni fallimento per-asset in un
+/// `JobError::Worker`, poi l'intero batch in un altro `JobError::Worker` —
+/// due prefissi "worker: " annidati (vedi `keeppix-jobs::xmp`). Il
+/// marcatore `permission-denied:` deve restare riconoscibile anche dentro
+/// questo annidamento.
+fn realistic_permission_denied_last_error(asset_id: keeppix_domain::AssetId) -> String {
+    format!(
+        "worker: {asset_id}: worker: permission-denied: io: Permission denied (os error 13)"
+    )
+}
+
+#[tokio::test]
+async fn composed_flat_list_recognizes_the_unwritable_sidecar_nature() {
+    let test = TestDb::start().await;
+    let (admin, library, _root) = seed(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["Chioggia"])
+        .await
+        .unwrap();
+    let asset = AssetRepo::new(test.db())
+        .upsert_discovered(photo(folder.id, "chioggia.jpg", 10))
+        .await
+        .unwrap()
+        .unwrap();
+
+    let job = JobRepo::new(test.db())
+        .enqueue(
+            JobKind::WriteSidecar,
+            serde_json::json!({}),
+            JobPriority::Background,
+            None,
+        )
+        .await
+        .unwrap();
+    sqlx::query("UPDATE jobs SET status = 'failed', last_error = $2 WHERE id = $1")
+        .bind(job.id)
+        .bind(realistic_permission_denied_last_error(asset.id))
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    let problems = ProblemsRepo::new(test.db())
+        .composed(&ctx, ProblemLanguage::It)
+        .await
+        .unwrap();
+
+    let problem = problems
+        .iter()
+        .find(|p| p.folder_id == Some(folder.id))
+        .expect("il fallimento di permesso deve diventare un problema composto");
+    assert_eq!(problem.severity, ProblemSeverity::Warning);
+    assert!(
+        problem.title.to_lowercase().contains("sidecar"),
+        "{}",
+        problem.title
+    );
+    assert!(
+        problem.description.contains("Chioggia"),
+        "{}",
+        problem.description
+    );
+    assert!(
+        problem
+            .description
+            .to_lowercase()
+            .contains("permessi di scrittura"),
+        "{}",
+        problem.description
+    );
+    assert!(
+        !problem.actions.is_empty(),
+        "deve proporre almeno un'azione"
+    );
+}
+
+#[tokio::test]
+async fn composed_flat_list_keeps_a_generic_job_failure_that_is_not_a_permission_problem() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let job = JobRepo::new(test.db())
+        .enqueue(
+            JobKind::HashAsset,
+            serde_json::json!({}),
+            JobPriority::Background,
+            None,
+        )
+        .await
+        .unwrap();
+    sqlx::query("UPDATE jobs SET status = 'failed', last_error = 'boom' WHERE id = $1")
+        .bind(job.id)
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    let problems = ProblemsRepo::new(test.db())
+        .composed(&ctx, ProblemLanguage::It)
+        .await
+        .unwrap();
+
+    assert!(
+        problems.iter().any(|p| p.id == format!("job-failed:{}", job.id)),
+        "{problems:?}"
+    );
 }
