@@ -3,6 +3,7 @@
 pub mod albums;
 pub mod assets;
 pub mod audit;
+pub mod backup;
 pub mod changes;
 pub mod credentials;
 pub mod dav_locks;
@@ -38,6 +39,10 @@ pub mod visibility;
 pub use albums::{Album, AlbumAsset, AlbumPatch, AlbumRepo, NewAlbum};
 pub use assets::{AssetRepo, DirectPutOutcome};
 pub use audit::{AuditEntry, AuditRepo};
+pub use backup::{
+    BackupDestination, BackupKind, BackupPreferences, BackupRepo, BackupRetention, BackupRun,
+    BackupRunStatus, BackupSchedule, NewBackupDestination,
+};
 pub use changes::{ChangeLogRepo, ChangePage};
 pub use credentials::AppPasswordRepo;
 pub use dav_locks::DavLockRepo;
@@ -85,7 +90,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0031_totp.
+// rivede la directory. 0032_backup_config.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

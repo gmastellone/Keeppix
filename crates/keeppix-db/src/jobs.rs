@@ -431,4 +431,18 @@ impl<'a> JobRepo<'a> {
             .await?;
         Ok(n)
     }
+
+    /// Deletes `done` jobs older than `before`. Pipeline maintenance —
+    /// no `AuthContext` (same class as `SessionRepo::purge_expired`).
+    /// Uses `created_at` because the jobs table has no `completed_at`.
+    ///
+    /// # Errors
+    /// `Connection` if the delete fails.
+    pub async fn delete_done_older_than(&self, before: DateTime<Utc>) -> Result<u64, DbError> {
+        let result = sqlx::query("DELETE FROM jobs WHERE status = 'done' AND created_at < $1")
+            .bind(before)
+            .execute(self.db.pool())
+            .await?;
+        Ok(result.rows_affected())
+    }
 }
