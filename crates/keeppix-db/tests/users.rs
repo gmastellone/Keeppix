@@ -211,13 +211,9 @@ async fn changing_the_password_hash_bumps_password_changed_at() {
 
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     let password = Password::parse("a different password entirely").unwrap();
-    repo.set_password_hash(
-        &ctx,
-        admin.id,
-        hash_password(&password).unwrap().as_str(),
-    )
-    .await
-    .unwrap();
+    repo.set_password_hash(&ctx, admin.id, hash_password(&password).unwrap().as_str())
+        .await
+        .unwrap();
 
     let reloaded = repo.find_by_id(&ctx, admin.id).await.unwrap();
     assert!(
