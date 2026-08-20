@@ -609,3 +609,55 @@ nessuno dei due aggiunto a `wired-exceptions.txt`). Seguito lo stesso
 precedente: non aggiunto alle eccezioni, lasciato alla chiusura di fase
 insieme agli altri.
 
+## Task 8 — Spazio su disco per libreria
+
+Ruling: libreria non visibile → **`Forbidden`, non `NotFound`** — il
+piano Task 8 dice «404», ma vince l'invariante AGENTS.md (niente oracolo
+di esistenza). Stesso comportamento di `GET /libraries/{id}`; documentato
+nei test HTTP e nel report. — *Costo se sbagliato:* nessuno, è la regola
+già applicata ovunque sulle librerie.
+
+Ruling: cache **60 s in `Db`** (`library_storage_cache` moka, chiave =
+`library_id`) — sidebar chiede a ogni load, `statvfs` su NFS non è gratis;
+stesso crate/livello di `permission_cache`. — *Costo se sbagliato:* dato
+fino a 60 s stale dopo un cambio di volume; accettabile per indicatore UI.
+
+Ruling: `uploads::disk_usage` restituisce `(free_bytes, total_bytes)` —
+refactor del `statvfs` già usato da `ensure_disk_space`
+(`f_bavail * f_frsize`, `f_blocks * f_frsize`). — *Costo se sbagliato:*
+`total` è capacità del volume, non spazio usato dalla libreria; è ciò che
+la sidebar prototipo mostra («1,4 TB su 2 TB»).
+
+Task 8: complete (commit 91e2f1d test + 2f3b471 db + 4803b0a api, tests
+green: `keeppix-db` libraries 13/13 [+2 nuovi: byte coerenti, Forbidden
+non-NotFound], `keeppix-api` libraries 11/11 [+2 nuovi: 200 coerente,
+403 su libreria altrui], openapi 7/7 [snapshot 86→87,
+`libraries_storage`]). `cargo fmt --check` e `cargo clippy --workspace
+--all-targets -- -D warnings` verdi. `./scripts/test.sh` completo **non
+eseguito** (stesso motivo dei task precedenti).
+
+## Task 9 — Preferenze utente
+
+Ruling: colonna `users.preferences jsonb NOT NULL DEFAULT '{}'` — un solo
+documento per utente (spec §8.3), non una colonna per preferenza. — *Costo
+se sbagliato:* nessuna query SQL per singola preferenza; una migrazione per
+ogni campo nuovo resta possibile solo estendendo il merge, non lo schema.
+
+Ruling: default allineati al mockup UI — `theme=chiaro`, `grid_density
+{desktop:4,mobile:3}`, tre notifiche `true`, `language=it`; chiavi
+notifiche `digest`/`condivisioni`/`problemi` come nel prototipo. — *Costo se
+sbagliato:* un client che si aspettava nomi inglesi deve mappare; coerente
+con Fase 11 Impostazioni.
+
+Ruling: validazione unknown-field in `UserPreferences::apply_patch` (db) con
+400 `keeppix/unknown-field` in API — top-level e nested (`grid_density.*`,
+`notifications.*`); valori fuori range → `invalid-preference`. — *Costo se
+sbagliato:* nessuno, è il contratto Task 9.
+
+Task 9: complete (commit 938f469 db + 52fa867 api, tests green:
+`keeppix-db` preferences 2/2, migrations 11/11; `keeppix-api` preferences
+4/4, openapi 7/7 [snapshot 87→89]). `cargo fmt --check` e `cargo clippy
+-p keeppix-db -p keeppix-api --all-targets -- -D warnings` verdi.
+`./scripts/test.sh` completo **non eseguito** (stesso motivo dei task
+precedenti).
+
