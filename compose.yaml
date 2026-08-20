@@ -35,6 +35,18 @@ services:
     profiles: ["bundled"]
     image: postgis/postgis:17-3.5
     restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - random_page_cost=${POSTGRES_RANDOM_PAGE_COST:-1.1}
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-2GB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-6GB}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-64MB}
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-20}
     environment:
       POSTGRES_USER: keeppix
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}

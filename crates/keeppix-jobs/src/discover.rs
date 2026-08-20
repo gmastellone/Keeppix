@@ -8,7 +8,7 @@ use keeppix_domain::{
 use keeppix_media::{Freshness, WalkedFile, freshness, iter_entries};
 use uuid::Uuid;
 
-use crate::{JobError, PRODUCTION_BATCH_SIZE, PRODUCTION_STABILITY_WAIT};
+use crate::{JobError, PRODUCTION_BATCH_SIZE, PRODUCTION_STABILITY_WAIT, maintenance};
 
 /// Scansiona l'albero. Non apre i file: solo `stat` e insert a lotti.
 ///
@@ -96,6 +96,7 @@ pub async fn run(db: &Db, library_id: LibraryId, settled_after: Duration) -> Res
     }
 
     libraries.mark_scanned(library_id).await?;
+    maintenance::schedule_vacuum_analyze(db).await?;
     Ok(())
 }
 
