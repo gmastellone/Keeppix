@@ -91,7 +91,8 @@ pub use visibility::VisibilityScope;
 
 use moka::future::Cache;
 use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use std::str::FromStr;
 use std::time::Duration;
 
 const LIBRARY_STORAGE_CACHE_TTL: Duration = Duration::from_secs(60);
@@ -113,10 +114,25 @@ impl Db {
     /// # Errors
     /// `DbError::Connection` se il pool non riesce a raggiungere il database.
     pub async fn connect(url: &str, max_connections: u32) -> Result<Self, DbError> {
+        let options = PgConnectOptions::from_str(url)
+            .map_err(|err| DbError::Connection(sqlx::Error::Configuration(err.into())))?;
+        Self::connect_with(options, max_connections).await
+    }
+
+    /// Pool con opzioni esplicite — usato dai test che devono tracciare le query
+    /// (`log_statements`) senza toccare la connessione di produzione.
+    ///
+    /// # Errors
+    /// Come [`Self::connect`].
+    #[doc(hidden)]
+    pub async fn connect_with(
+        options: PgConnectOptions,
+        max_connections: u32,
+    ) -> Result<Self, DbError> {
         let pool = PgPoolOptions::new()
             .max_connections(max_connections)
             .acquire_timeout(std::time::Duration::from_secs(10))
-            .connect(url)
+            .connect_with(options)
             .await?;
         Ok(Self {
             pool,
