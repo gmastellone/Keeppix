@@ -74,6 +74,11 @@ jobs:
             /usr/local/share/chromium /usr/local/lib/node_modules || true
           df -h /
 
+      # Video playback/transcode tests probe with ffprobe and seed clips with
+      # ffmpeg. Without these the suite writes a fake file and probe → 404.
+      - name: Installa ffmpeg (ffprobe per i test video)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
       # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
       # in locale i test usano testcontainers e senza quel limite parte un
       # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres,
