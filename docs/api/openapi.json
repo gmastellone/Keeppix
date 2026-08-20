@@ -5405,6 +5405,10 @@
               "null"
             ]
           },
+          "favorite": {
+            "type": "boolean",
+            "description": "«Preferito» (spec fase-10 §7bis.1): asse indipendente da `pick`, non\nun suo alias. `false` se assente in scrittura, come gli altri campi\ndi questo corpo — è un rimpiazzo completo del voto, non una patch."
+          },
           "pick": {
             "type": "string",
             "example": "pick"
@@ -5431,7 +5435,8 @@
           "size_bytes",
           "kind",
           "status",
-          "stack_size"
+          "stack_size",
+          "favorite"
         ],
         "properties": {
           "content_hash": {
@@ -5439,6 +5444,10 @@
               "string",
               "null"
             ]
+          },
+          "favorite": {
+            "type": "boolean",
+            "description": "«Preferito» del **chiamante** (Task 10 fase-10). `AssetView` è\ncondiviso fra molte viste, ma questo campo è per utente: due\nchiamanti sullo stesso `Asset` possono leggere valori diversi.\n`false` di default finché non viene risolto con\n[`Self::with_favorite`] usando il set del chiamante\n(`FlagRepo::get`/`favorites_among`). Campo additivo."
           },
           "filename": {
             "type": "string"

@@ -41,6 +41,103 @@ async fn search_from_ast_does_not_run_user_sql() {
     assert!(empty["assets"].as_array().unwrap().is_empty());
 }
 
+/// `AssetView` è condiviso, ma `favorite` è per chiamante (Task 10
+/// fase-10): la pagina di ricerca deve risolverlo con il set del chiamante,
+/// come la timeline.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn search_page_resolves_the_callers_favorite_on_each_tile() {
+    let server = TestServer::start().await;
+    seed_photo(&server, "grecia.jpg").await;
+
+    let before: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/search"))
+        .json(&json!({ "ast": { "op": "text", "value": "grecia" } }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let items = before["assets"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["favorite"], false);
+    let asset_id = items[0]["id"].as_str().unwrap().to_owned();
+
+    server
+        .client
+        .put(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
+        .json(&json!({ "rating": null, "pick": "none", "color_label": null, "favorite": true }))
+        .send()
+        .await
+        .unwrap();
+
+    let after: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/search"))
+        .json(&json!({ "ast": { "op": "text", "value": "grecia" } }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(after["assets"][0]["favorite"], true);
+}
+
+/// Il chip "Preferiti" di Cerca (spec fase-10 §7bis.1) — stesso
+/// `SearchNode::Favorite` già coperto dal Task 6, riverificato qui a
+/// livello HTTP con l'endpoint di scrittura di questo task.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn the_favorite_search_chip_finds_only_the_callers_favorites() {
+    let server = TestServer::start().await;
+    seed_two_photos_in_the_same_library(&server, "loved.jpg", "plain.jpg").await;
+
+    let all: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/search"))
+        .json(&json!({ "ast": { "op": "text", "value": "" } }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let loved_id = all["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["filename"] == "loved.jpg")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    server
+        .client
+        .put(server.url(&format!("/api/v1/assets/{loved_id}/flags")))
+        .json(&json!({ "rating": null, "pick": "none", "color_label": null, "favorite": true }))
+        .send()
+        .await
+        .unwrap();
+
+    let favorites: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/search"))
+        .json(&json!({ "ast": { "op": "favorite" } }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let found = favorites["assets"].as_array().unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0]["id"], loved_id);
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn saved_searches_round_trip() {
@@ -128,4 +225,59 @@ async fn seed_photo(server: &TestServer, name: &str) {
         )
         .await
         .unwrap();
+}
+
+/// Come [`seed_photo`], ma per due file nella **stessa** libreria —
+/// `libraries_root_path_key` è unico, quindi due chiamate a `seed_photo`
+/// (che crea una libreria a ogni volta) non possono condividere una
+/// cartella.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn seed_two_photos_in_the_same_library(server: &TestServer, first: &str, second: &str) {
+    setup(server).await;
+    let username = Username::parse("giovanni").unwrap();
+    let (user, _) = UserRepo::new(&server.db)
+        .find_by_username(&username)
+        .await
+        .unwrap()
+        .expect("admin");
+    let ctx = AuthContext::user(user.id, SystemRole::Admin);
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Foto".to_owned(),
+                owner_id: user.id,
+                root_path: std::path::PathBuf::from("/mnt/foto-due"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(&server.db)
+        .ensure_path(library.id, &[])
+        .await
+        .unwrap();
+    for name in [first, second] {
+        let a = AssetRepo::new(&server.db)
+            .upsert_discovered(NewAsset {
+                folder_id: folder.id,
+                filename: AssetName::parse(name).unwrap(),
+                size_bytes: 10,
+                mtime: Utc.with_ymd_and_hms(2024, 7, 1, 0, 0, 0).unwrap(),
+                inode: Some(1),
+                kind: AssetKind::Image,
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        AssetRepo::new(&server.db)
+            .set_indexed(
+                a.id,
+                Utc.with_ymd_and_hms(2024, 7, 1, 12, 0, 0).unwrap(),
+                1,
+                1,
+            )
+            .await
+            .unwrap();
+    }
 }

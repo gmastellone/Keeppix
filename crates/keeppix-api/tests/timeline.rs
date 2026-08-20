@@ -706,6 +706,115 @@ async fn timeline_reports_stack_size_one_for_an_unstacked_asset() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["stack_size"], 1);
     assert_eq!(items[0]["raw_kind"], "jpeg");
+    assert_eq!(
+        items[0]["favorite"], false,
+        "un asset mai votato non è preferito"
+    );
+}
+
+/// `AssetView` è condiviso, ma `favorite` è per chiamante (Task 10 fase-10):
+/// la timeline deve risolverlo dal set del chiamante, non lasciarlo sempre
+/// `false`.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_page_resolves_the_callers_favorite_on_each_tile() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "loved.jpg", 2024, 6, 1).await;
+    index_photo(&server, folder, "plain.jpg", 2024, 6, 2).await;
+
+    let before = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let items = before["assets"].as_array().unwrap();
+    let loved_id = items.iter().find(|a| a["filename"] == "loved.jpg").unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(items.iter().all(|a| a["favorite"] == false));
+
+    server
+        .client
+        .put(server.url(&format!("/api/v1/assets/{loved_id}/flags")))
+        .json(&json!({ "rating": null, "pick": "none", "color_label": null, "favorite": true }))
+        .send()
+        .await
+        .unwrap();
+
+    let after = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let after_items = after["assets"].as_array().unwrap();
+    for item in after_items {
+        let expected = item["id"] == loved_id;
+        assert_eq!(
+            item["favorite"], expected,
+            "solo l'asset marcato preferito deve tornare favorite=true"
+        );
+    }
+}
+
+/// `GET /assets/{id}` (pannello informazioni del lightbox, spec fase-10
+/// §7bis.1) deve anch'esso risolvere `favorite` del chiamante, non solo la
+/// pagina della timeline.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn get_single_asset_resolves_the_callers_favorite() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "solo.jpg", 2024, 6, 1).await;
+    let page = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let asset_id = page["assets"][0]["id"].as_str().unwrap().to_owned();
+
+    let before = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset_id}")))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(before["favorite"], false);
+
+    server
+        .client
+        .put(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
+        .json(&json!({ "rating": null, "pick": "none", "color_label": null, "favorite": true }))
+        .send()
+        .await
+        .unwrap();
+
+    let after = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset_id}")))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(after["favorite"], true);
 }
 
 #[tokio::test]
