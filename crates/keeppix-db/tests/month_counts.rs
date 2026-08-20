@@ -117,6 +117,13 @@ async fn month_counts_match_indexed_assets_after_index_move_and_delete() {
     assert_eq!(live, 0);
 }
 
+// La pila collassata (fase-10 Task 3) NON tocca `folder_month_counts`: quel
+// trigger resta a conteggio di file, perché altri usi (contatori di
+// cartella, cestino) ne dipendono così com'è — vedi il Ruling nel doc
+// comment di `TimelineRepo::buckets`. Il conteggio "una pila = una tessera"
+// è verificato lì (`buckets_count_stacks_not_files` in
+// `keeppix-db/tests/timeline.rs`), non su questa tabella.
+
 #[tokio::test]
 async fn month_bucket_uses_utc_when_the_session_timezone_is_not() {
     let test = TestDb::start().await;

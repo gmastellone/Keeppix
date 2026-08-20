@@ -2,7 +2,7 @@ mod harness;
 
 use chrono::{TimeZone, Timelike, Utc};
 use harness::{TestServer, client_headers};
-use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, UserRepo};
+use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, StackRepo, UserRepo};
 use keeppix_domain::{
     AssetKind, AssetName, AuthContext, FolderId, GeoPoint, NewAsset, NewLibrary, NewUser, Password,
     SystemRole, Username, hash_password,
@@ -605,6 +605,107 @@ async fn timeline_geometry_count_matches_bucket_counts() {
     let body = geometry_response.bytes().await.unwrap();
     let records = decode_geometry(&body);
     assert_eq!(records.len(), usize::try_from(bucket_total).unwrap());
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_collapses_a_raw_jpeg_stack_into_one_tile_with_a_badge() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    let taken = Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap();
+    let assets = AssetRepo::new(&server.db);
+    let raw = assets
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("DSC_0042.ARW").unwrap(),
+            size_bytes: 1000,
+            mtime: taken,
+            inode: Some(1),
+            kind: AssetKind::RawImage,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assets.set_indexed(raw.id, taken, 6000, 4000).await.unwrap();
+    let jpeg = assets
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("DSC_0042.JPG").unwrap(),
+            size_bytes: 500,
+            mtime: taken,
+            inode: Some(2),
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assets
+        .set_indexed(jpeg.id, taken, 6000, 4000)
+        .await
+        .unwrap();
+    StackRepo::new(&server.db)
+        .regroup_folder(folder)
+        .await
+        .unwrap();
+
+    let page = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    let body: serde_json::Value = page.json().await.unwrap();
+    let items = body["assets"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "raw+jpeg stack must collapse to one tile");
+    assert_eq!(items[0]["id"], raw.id.to_string(), "raw is the primary");
+    assert_eq!(items[0]["stack_size"], 2);
+    assert_eq!(items[0]["raw_kind"], "raw+jpeg");
+
+    let buckets: serde_json::Value = server
+        .client
+        .get(server.url("/api/v1/timeline/buckets"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        buckets[0]["count"], 1,
+        "buckets must count stacks, not files"
+    );
+
+    let geometry_response = server
+        .client
+        .get(server.url("/api/v1/timeline/geometry"))
+        .send()
+        .await
+        .unwrap();
+    let geo_body = geometry_response.bytes().await.unwrap();
+    let records = decode_geometry(&geo_body);
+    assert_eq!(records.len(), 1, "geometry must also collapse the stack");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_reports_stack_size_one_for_an_unstacked_asset() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "lone.jpg", 2024, 6, 1).await;
+
+    let page = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    let body: serde_json::Value = page.json().await.unwrap();
+    let items = body["assets"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["stack_size"], 1);
+    assert_eq!(items[0]["raw_kind"], "jpeg");
 }
 
 #[tokio::test]

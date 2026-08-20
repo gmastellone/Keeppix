@@ -4,7 +4,7 @@ mod harness;
 
 use chrono::{TimeZone, Utc};
 use harness::TestDb;
-use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, SearchNode, SearchRepo};
+use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, SearchNode, SearchRepo, StackRepo};
 use keeppix_domain::{
     AssetKind, AssetName, AuthContext, ExifData, NewAsset, NewLibrary, SystemRole,
 };
@@ -234,6 +234,42 @@ async fn not_camera_includes_assets_without_exif() {
     let ids: Vec<_> = found.iter().map(|a| a.id).collect();
     assert!(ids.contains(&bare), "no EXIF is not a Sony");
     assert!(!ids.contains(&sony));
+}
+
+#[tokio::test]
+async fn search_collapses_a_raw_jpeg_stack_into_its_primary() {
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let taken = Utc.with_ymd_and_hms(2024, 7, 4, 12, 0, 0).unwrap();
+    let assets = AssetRepo::new(test.db());
+    let raw = assets
+        .upsert_discovered(photo(folder, "DSC_0100.ARW", AssetKind::RawImage))
+        .await
+        .unwrap()
+        .unwrap();
+    assets.set_indexed(raw.id, taken, 6000, 4000).await.unwrap();
+    let jpeg = assets
+        .upsert_discovered(photo(folder, "DSC_0100.JPG", AssetKind::Image))
+        .await
+        .unwrap()
+        .unwrap();
+    assets
+        .set_indexed(jpeg.id, taken, 6000, 4000)
+        .await
+        .unwrap();
+    StackRepo::new(test.db())
+        .regroup_folder(folder)
+        .await
+        .unwrap();
+
+    let found = SearchRepo::new(test.db())
+        .run(&ctx, &SearchNode::And { args: vec![] }, None, 50)
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1, "the stack must collapse to its primary");
+    assert_eq!(found[0].id, raw.id);
+    assert_eq!(found[0].stack.stack_size, 2);
+    assert_eq!(found[0].stack.raw_kind.as_deref(), Some("raw+jpeg"));
 }
 
 #[tokio::test]
