@@ -217,6 +217,77 @@ che i dati ci siano.**
 
 ---
 
+### Task 5bis — Le ottimizzazioni di client, tutte in un posto
+
+Non sono rifiniture da fare alla fine: alcune cambiano la struttura del codice, quindi vanno
+decise ora. Sono raggruppate qui perché **valgono per tutte le schermate**.
+
+#### Immagini — è il grosso del peso
+
+| Tecnica | Dove | Perché |
+|---|---|---|
+| **`thumbhash` come primo fotogramma** | ogni tessera | 60 richieste tolte dal percorso critico, non rimandate (vedi Task 4.7) |
+| `loading="lazy"` + `decoding="async"` | ogni `<img>` fuori dalla prima schermata | il browser non blocca il rendering per decodificare |
+| `fetchpriority="high"` | solo le tessere della **prima** schermata | dice al browser cosa serve *adesso* |
+| `IntersectionObserver` | righe visibili + una schermata di margine | carica in anticipo quanto basta, non tutto |
+| `POST /viewport` | mentre si scorre | **esiste già**: dice al server quali miniature generare per prime |
+| `width`/`height` espliciti | ogni immagine | li conosciamo dalla geometria: **zero spostamenti di layout** |
+| `content-visibility: auto` | contenitori fuori schermo | il browser salta layout e disegno di ciò che non si vede |
+
+**Le miniature sono già cacheabili per sempre**: `/media/thumb/{hash}` risponde con
+`immutable, max-age=31536000` e la chiave è il content hash. **Non aggiungere cache-busting**:
+lo romperebbe.
+
+#### Scorrimento e layout
+
+- **Virtualizzazione con `transform: translateY`**, mai `top`: `transform` sta sul compositor e
+  non innesca layout.
+- **Il layout non si ricalcola durante lo scroll**: dipende solo da larghezza del contenitore e
+  geometria. Si ricalcola su `ResizeObserver` e al cambio di densità, **dentro un `rAF`**.
+- **Ascoltatori passivi** (`{passive: true}`) su `scroll` e `touchmove`: senza, il browser deve
+  aspettare di sapere se chiamerai `preventDefault()`.
+- **Niente letture e scritture del DOM alternate** nello stesso ciclo: prima si legge tutto, poi
+  si scrive. È il classico *layout thrashing*, e su una griglia virtualizzata si sente.
+- **`will-change` con parsimonia**: su troppi elementi consuma memoria video invece di
+  risparmiarla.
+
+**Il calcolo del layout giustificato su 200.000 scatti resta sul thread principale.** È
+aritmetica lineare — dell'ordine delle decine di millisecondi — e un Web Worker aggiungerebbe
+una copia dei dati e un salto asincrono per risolvere un problema che probabilmente non c'è.
+**Da misurare in Task 4**: se supera i 50 ms, allora sì.
+
+#### Rete
+
+- **`AbortController` su ogni richiesta**, annullata quando si cambia vista: senza, una
+  navigazione veloce lascia in volo richieste di schermate che nessuno guarda più.
+- **Deduplicare le richieste identiche in volo**: due componenti che chiedono lo stesso mese non
+  devono produrre due richieste.
+- **Ritardo di digitazione di 150 ms** su Cerca: `/search/suggest` gira a ogni battuta e fa una
+  `UNION` di due `ILIKE` su 200.000 righe.
+- **La geometria in `IndexedDB`**, con il suo `ETag`: 0,44 MB che sopravvivono a un ricaricamento
+  di pagina, e al rientro basta un `304`.
+- **Il service worker esiste già** (Fase 5/6, `sw.js`, che si autodichiara *«non fa caching
+  offline ancora»*): va **esteso**, non riscritto.
+
+#### Bundle
+
+- **Ogni rotta in `import()` pigro** — è già la convenzione in `src/router.ts`.
+- **`maplibre-gl` e `hls.js` non entrano mai nel bundle iniziale**: da soli sfonderebbero tre
+  volte il budget di 150 KB gzip che la CI già impone.
+- **Nessuna libreria nuova.** Se ne serve una, è un segnale che va discusso, non aggiunto.
+
+#### Memoria
+
+- **LRU sulle pagine caricate** (Task 4.8). La geometria **non si sfratta mai**: 1,2 MB in tutto.
+- **Nessun ascoltatore che sopravvive alla vista**: il prototipo aveva già una perdita su questo
+  (i listener dello scrubber, risolta assegnandoli per proprietà diretta invece che con
+  `addEventListener`). In Vue si risolve con `onUnmounted`, ma va fatto.
+
+**Verifica:** il budget di bundle è già un test in CI; aggiungere un test che durante uno scroll
+simulato le tessere montate restano sotto soglia; e una misura del tempo di layout nel ledger.
+
+---
+
 ## Tranche B — Il grosso delle schermate
 
 Un task per blocco del documento, ognuno chiuso confrontando la schermata col prototipo aperto
