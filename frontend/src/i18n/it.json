@@ -358,6 +358,25 @@
     "destinationDefault": "Backup locali",
     "label": "Etichetta",
     "path": "Percorso / URL",
+    "username": "Nome utente",
+    "password": "Password",
+    "s3": {
+      "endpoint": "URL endpoint",
+      "bucket": "Bucket",
+      "prefix": "Prefisso (opzionale)",
+      "region": "Regione",
+      "accessKey": "Access key",
+      "secretKey": "Secret key"
+    },
+    "webdav": {
+      "url": "URL WebDAV"
+    },
+    "sftp": {
+      "host": "Host",
+      "port": "Porta",
+      "path": "Directory remota",
+      "privateKey": "Chiave privata PEM (opzionale; preferita alla password)"
+    },
     "addDestination": "Aggiungi destinazione",
     "runNow": "Esegui adesso",
     "history": "Cronologia",

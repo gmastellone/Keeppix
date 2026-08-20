@@ -359,7 +359,7 @@ fn parse_kind(raw: &str) -> Result<BackupKind, Problem> {
 
 fn redact_secrets(mut config: serde_json::Value) -> serde_json::Value {
     if let Some(obj) = config.as_object_mut() {
-        for key in ["password", "secret_key", "secret", "passphrase"] {
+        for key in ["password", "secret_key", "secret", "passphrase", "private_key", "private_key_passphrase"] {
             if obj.contains_key(key) {
                 obj.insert(key.to_owned(), serde_json::json!("***"));
             }
