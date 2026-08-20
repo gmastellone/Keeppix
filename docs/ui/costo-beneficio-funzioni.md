@@ -200,3 +200,63 @@ ritrovare. È il criterio con cui sono stati scelti.
 Volti e ricerca semantica **non vanno decise da me**: dipendono da cosa contiene il tuo archivio.
 La proposta è che l'applicazione **te lo chieda al primo avvio, con i numeri misurati sulla tua
 macchina** — non come preferenza astratta in una pagina di impostazioni che nessuno apre.
+
+---
+
+# Decisioni prese — 20 agosto 2026
+
+Quattro decise, due rinviate a dopo una spiegazione migliore.
+
+## 1. Video e transcodifica — **si tiene, ma resa semplice**
+
+Non si congela. Si tiene con tre vincoli, che tolgono la parte cara senza togliere la funzione:
+
+- **Solo quando il sistema non è usato, o di notte.** La transcodifica scende a
+  `JobPriority::Background`, quindi `EnergyProfile::Interactive` non la reclama mai: se stai
+  navigando, non parte. La finestra notturna la fa girare a piena velocità.
+- **Un solo formato.** Niente scala di rendition multiple: **una** resa, e basta. La complessità
+  di HLS multi-bitrate non si paga su un server di casa con un utente.
+- **Solo se serve davvero.** Un video già piccolo o già in un formato riproducibile dal browser
+  **non si tocca**: si serve l'originale. Si transcodifica solo sopra una soglia di peso o per
+  formati che il browser non sa aprire.
+
+È lo stesso principio già applicato ai derivati fotografici: `SKIP_PREVIEW_PX` e
+`SKIP_PREVIEW_BYTES` evitano di generare una preview quando il sorgente è già adatto. Qui la
+regola è la stessa, applicata al video.
+
+**Resta aperto:** l'interfaccia del video non è disegnata. Va fatta in Fase 11, minima —
+il documento non la prevede perché *«l'intero disegno assume fotografie»*.
+
+## 2. Album dinamici — **tolti, sostituiti da «Aggiorna album»**
+
+Gli album dinamici spariscono. Al loro posto: un album **normale, materializzato**, che però
+**ricorda il filtro con cui è stato creato** e ha un pulsante **`"Aggiorna album"`**.
+
+È una soluzione migliore di entrambe le alternative che avevo proposto:
+
+- il costo della scansione si paga **quando lo chiedi tu**, non a ogni apertura della griglia —
+  che era l'obiezione principale;
+- il conteggio dei membri torna a essere una lettura banale di `album_assets`, quindi **sparisce
+  anche il problema dei conteggi cari** per gli album;
+- niente `rule` da valutare in lettura, niente cache da invalidare, niente `409` sugli album
+  dinamici;
+- e si guadagna una cosa che gli album dinamici **non** avevano: **il controllo**. Un album che
+  cambia da solo può perdere una foto che avevi voluto tenere; qui aggiorni quando vuoi, e vedi
+  cosa cambia.
+
+Lo schema si semplifica: resta `rule jsonb` (per poter rilanciare il filtro) ma **sparisce**
+`kind`, sparisce il vincolo che lega `rule` a `kind='dynamic'`, e i membri stanno sempre in
+`album_assets`.
+
+## 3. Conteggi esatti — **tolti ovunque tranne il culling**
+
+Spariscono da: sidebar (cartelle), griglia album, link pubblici, tag, persone.
+**Restano solo nel culling** — badge di navigazione e selettore di lotto — perché lì *«quante me
+ne restano da vedere»* è esattamente la domanda che l'utente si fa, e la precisione conta.
+
+Conseguenza tecnica: **cinque dei sei aggregati per-riga spariscono**, con le loro cache e le
+loro invalidazioni. Resta il solo conteggio del culling, che è per lotto e quindi piccolo.
+
+## 4. Registro di controllo — **spento di default**
+
+Si accende quando esiste un secondo utente. Il codice resta, la scrittura no.

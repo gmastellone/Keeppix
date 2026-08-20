@@ -202,24 +202,32 @@ cartella invece di confonderlo con "non impostata".
 
 ---
 
-## Task 5 — Album dinamici, condivisi, con copertina
+## Task 5 — Album: «Aggiorna album» al posto dei dinamici
 
 **Dove:** nuova migrazione, `crates/keeppix-db/src/albums.rs`, `routes/albums.rs`.
 
-1. Migrazione con `kind`, `rule jsonb`, `is_shared`, `cover_tint`, `monochrome` e il
-   `CHECK` che lega `rule` a `kind='dynamic'` (spec §5.2).
-2. `rule` è un `SearchNode` serializzato. La lettura passa dallo **stesso**
-   `compile_for_sql`: nessun secondo compilatore.
-3. `GET /albums` restituisce `member_count` e `date_range` (min/max `taken_at`) per
-   entrambi i tipi. Per i dinamici entrambi sono calcolati; vanno in cache `moka`
-   con invalidazione esplicita su: creazione/modifica di album, import, cestinamento,
-   modifica di metadati che l'AST possa toccare.
-4. Gli album dinamici **rifiutano** `POST /albums/{id}/assets` con `409`: non hanno
-   membri espliciti.
+Gli album dinamici **non si fanno**. Al loro posto un album normale che ricorda il
+filtro con cui è nato e lo rilancia **quando l'utente lo chiede**.
 
-**Verifica:** test che un album dinamico "preferiti del 2026" cambia membri quando
-una foto viene marcata preferita, **senza** che nulla venga scritto in
-`album_assets`; test che la cache viene invalidata su quella marcatura.
+1. Migrazione: `rule jsonb` (il `SearchNode` con cui l'album è stato creato),
+   `rule_run_at`, `is_shared`, `cover_tint`, `monochrome`. **Niente `kind`**, niente
+   vincolo `rule`↔`kind`.
+2. `POST /api/v1/albums/{id}/refresh` riapplica `rule` usando lo **stesso**
+   `compile_for_sql`, e restituisce l'**involucro di riuscita parziale** (Task 1) con
+   le foto aggiunte e quelle rimosse. Aggiorna `rule_run_at`.
+3. I membri stanno **sempre** in `album_assets`: il conteggio è una lettura banale,
+   senza cache e senza invalidazioni.
+
+**Ruling: il costo si paga quando l'utente lo chiede, non a ogni apertura.** — Un
+album dinamico ricalcola i membri a ogni apertura della griglia: otto album sono
+otto scansioni del catalogo, la query più cara dell'interfaccia. Spostare quel costo
+su un'azione esplicita lo rende occasionale invece che continuo. Ne guadagna anche
+l'utente: un album che cambia da solo può **perdere** una foto che voleva tenere.
+— *Costo se sbagliato:* chi vuole una raccolta davvero viva usa un tag o una ricerca
+salvata, che fanno la stessa cosa e costano una frazione.
+
+**Verifica:** test che `refresh` elenca aggiunte e rimozioni; test che l'apertura
+della griglia Album **non** esegue nessuna scansione del catalogo.
 
 ---
 
@@ -318,26 +326,29 @@ parziale.
 
 ---
 
-## Task 11 — Gli aggregati per riga di elenco
+## Task 11 — Togliere i conteggi per riga, tranne quello del culling
 
-**Dove:** `crates/keeppix-db/src/folders.rs`, `albums.rs`, `share.rs`, cache in
-`crates/keeppix-db/src/lib.rs`.
+**Dove:** `routes/folders.rs`, `routes/albums.rs`, `routes/share.rs`.
 
-Tre conteggi che l'interfaccia mostra accanto a **ogni riga** di un elenco, e che
-diventano N+1 se scritti nel modo ovvio:
+L'interfaccia mostrava sei conteggi accanto alle righe degli elenchi. **Ne resta uno.**
 
-1. **foto per cartella** → `asset_count` in `FolderView`, per `/folders/tree`.
-2. **membri per album** → già previsto dal Task 5, stessa tecnica.
-3. **elementi per link pubblico** → in `/share/links`.
+- **Tolti:** foto per cartella (sidebar), membri per album, elementi per link
+  pubblico — e, quando arriveranno, foto per tag (Fase 7) e per persona (Fase 8).
+- **Resta:** il conteggio del culling — badge di navigazione e selettore di lotto.
 
-Regola unica: **un solo `GROUP BY` per elenco**, mai un `COUNT` per riga. Risultato
-in cache `moka` con **invalidazione esplicita** agganciata a import, cestinamento e
-spostamento — la cache di Fase 6 è senza TTL apposta, e qui un conteggio scaduto è
-un numero sbagliato mostrato all'utente, non un rallentamento.
+**Ruling: si toglie ciò che comunica peso, si tiene ciò su cui si decide.** —
+«Urbino 556» contro «Urbino ~550» non cambia nessuna decisione: quel numero dà un
+ordine di grandezza. «184 da vedere» invece è letteralmente la domanda che l'utente
+si sta facendo mentre culla, e lì la precisione conta. In più il conteggio del
+culling è per **lotto**, non per libreria: è anche il più economico dei sei.
+— *Costo se sbagliato:* si perde un appiglio di orientamento nella sidebar; in
+cambio spariscono cinque aggregati con le loro cache e le loro invalidazioni.
 
-**Verifica:** un test che conta le query emesse (`sqlx` logging o un contatore) e
-asserisce che una sidebar con 3 cartelle ne emette **una**, non tre; un test che
-l'import di una foto invalida il conteggio della sua cartella.
+Con il Task 5 il conteggio dei membri di un album **non è più un aggregato**: i
+membri stanno in `album_assets`, quindi è una lettura banale.
+
+**Verifica:** un test che conta le query emesse dal caricamento della sidebar e
+asserisce che **non** ne emette nessuna di aggregazione.
 
 ---
 
