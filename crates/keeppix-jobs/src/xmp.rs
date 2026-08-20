@@ -91,7 +91,7 @@ async fn write_one(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
         label: pick_label(source.owner_pick),
     };
 
-    keeppix_media::write_sidecar(&sidecar_path, &data).map_err(map_sidecar_error)?;
+    keeppix_media::write_sidecar(&sidecar_path, &data).map_err(|e| map_sidecar_error(&e))?;
     overrides.mark_sidecar_written(asset_id).await?;
     Ok(())
 }
@@ -101,8 +101,8 @@ async fn write_one(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
 /// natura "sidecar XMP non scrivibile" in `jobs.last_error` senza dover
 /// interpretare il messaggio di un `io::Error` che potrebbe cambiare
 /// formulazione a seconda della piattaforma.
-fn map_sidecar_error(e: keeppix_media::XmpError) -> JobError {
-    if let keeppix_media::XmpError::Io(io_err) = &e
+fn map_sidecar_error(e: &keeppix_media::XmpError) -> JobError {
+    if let keeppix_media::XmpError::Io(io_err) = e
         && io_err.kind() == std::io::ErrorKind::PermissionDenied
     {
         return JobError::Worker(format!("permission-denied: {e}"));
