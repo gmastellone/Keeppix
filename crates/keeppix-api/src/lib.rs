@@ -335,6 +335,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::patch(routes::albums::reorder_asset),
         )
         .route(
+            "/albums/{id}/refresh",
+            axum::routing::post(routes::albums::refresh),
+        )
+        .route(
             "/permissions",
             get(routes::permissions::list).post(routes::permissions::grant),
         )
