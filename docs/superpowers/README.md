@@ -91,16 +91,16 @@ Tre file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 
 | [`plans/2026-08-17-keeppix-fase-2r3.md`](plans/2026-08-17-keeppix-fase-2r3.md) | ✅ completato e mergiato (PR #7) — derivati con perdita (3,3% → **0,4%**, ~308 GB → ~36 GB su 200.000 foto), zoom sui RAW, guardia in CI, prova di scala |
 | [`plans/2026-08-17-keeppix-fase-3.md`](plans/2026-08-17-keeppix-fase-3.md) | ✅ completato e mergiato (PR #8) — multiutente, condivisione, link pubblici, **più le 17 interfacce mancanti** che la guardia della 2R3 ha scoperto (Task 12) |
 | [`plans/2026-08-18-keeppix-fase-4.md`](plans/2026-08-18-keeppix-fase-4.md) | ✅ completato e mergiato (PR #9) — GPS all'ingest, GeoNames, cluster mappa, fusi orari, PMTiles offline, geofence «casa» |
-| [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ⬜ **in lavorazione** — upload tus riprendibile, WebDAV, app-password |
-| [`plans/2026-08-19-keeppix-fase-6.md`](plans/2026-08-19-keeppix-fase-6.md) | ⬜ scritto, in attesa che la Fase 5 chiuda |
-| [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ⬜ scritto — 23 task, va **prima** di 7/8/9 perché ne fissa le convenzioni |
+| [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ✅ completato e mergiato (PR #10) — upload tus riprendibile, WebDAV, app-password |
+| [`plans/2026-08-19-keeppix-fase-6.md`](plans/2026-08-19-keeppix-fase-6.md) | ✅ completato e mergiato (PR #11) — video, backup, TOTP, PWA, sync/delta, client API generati |
+| [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ⬜ scritto — 23 task, va **prima** di 7/8/9 perché ne fissa le convenzioni — **prossima fase** |
 | [`plans/2026-08-20-keeppix-fase-7.md`](plans/2026-08-20-keeppix-fase-7.md) | ⬜ scritto — 13 task; comincia **misurando** l'inferenza sull'hardware vero |
 | [`plans/2026-08-20-keeppix-fase-8.md`](plans/2026-08-20-keeppix-fase-8.md) | ⬜ scritto — 11 task; il **primo** è il test che garantisce che i volti non escano dai link pubblici |
 | [`plans/2026-08-20-keeppix-fase-9.md`](plans/2026-08-20-keeppix-fase-9.md) | ⬜ scritto — 11 task; è la fase che tocca **file veri sul disco** |
 | [`plans/2026-08-20-keeppix-fase-11.md`](plans/2026-08-20-keeppix-fase-11.md) | ⬜ scritto — 18 task in quattro tranche che seguono le fasi da cui dipendono |
 
-**Tutti i piani sono scritti.** L'ordine di esecuzione è
-`fix 5/6 → 10 → 7 → 8 → 9 → 11 (A→B→C→D)`; il perché sta nel grafo delle dipendenze del roadmap.
+**Tutti i piani sono scritti.** Fasi 0-6 chiuse. L'ordine di esecuzione da qui è
+`10 → 7 → 8 → 9 → 11 (A→B→C→D)`; il perché sta nel grafo delle dipendenze del roadmap.
 
 ## Consegne
 

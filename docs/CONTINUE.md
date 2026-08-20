@@ -13,23 +13,25 @@ vince la spec, e annoti il ruling nel ledger.
 
 Non fare push, PR o merge se l'utente non lo chiede.
 
-## Snapshot (2026-08-20)
+## Snapshot (2026-08-20, sera)
 
-- **`main`** contiene le Fasi 0, 1a-1c, 2 (più i rimedi 2R, 2R2, 2R3), 3 e 4.
-  Tutte verificate sull'archivio reale, non solo dai test.
-- **Fasi 5 e 6:** implementate su branch, **con una lista di fix aperta** — fra
-  cui un errore di compilazione vero in `crates/keeppix-db/src/uploads.rs:588`
-  (mismatch `u32`/`u64` fra piattaforme). Vanno chiuse e mergiate per prime.
+- **`main`** contiene le Fasi **0-6**, tutte mergiate (PR #3-#11, ultimo commit
+  `b174452`). Fase 6 è passata da un giro completo di fix (compile error in
+  `uploads.rs` risolto, S3/SFTP reali, idempotency di `/auth/refresh` corretta,
+  OpenAPI completa, sandbox HLS irrobustito) e CI reale verde su tutti e 5 i job
+  prima del merge — verificato riga per riga sul codice, non sul self-report.
 - **Il disegno dell'interfaccia è concluso** e sta in `docs/ui/`: prototipo
   interattivo, documento funzionale a 70 schermate, brand sheet, più l'analisi
   del divario col backend e le decisioni di costo/beneficio.
 - **Da quel confronto sono nate due fasi nuove**, entrambe con spec e piano:
   la **10** (superficie API per l'interfaccia) e la **11** (l'interfaccia).
-- **Tutti i piani sono ora scritti**: 7, 8, 9, 10, 11. Quelli di 7, 8 e 9 sono
+- **Tutti i piani sono scritti**: 7, 8, 9, 10, 11. Quelli di 7, 8 e 9 sono
   volutamente a livello di task e decisioni, non di firme, perché redatti prima
   che la 10 esista — vanno ripassati col codice vero davanti quando la 10 chiude.
+- **Prossimo lavoro: la Fase 10**, branch nuovo da `main`. Prompt completo in
+  [`../superpowers/PROSEGUI.md`](../superpowers/PROSEGUI.md).
 
-**Ordine di esecuzione:** `fix 5/6 → 10 → 7 → 8 → 9 → 11 (in quattro tranche)`.
+**Ordine di esecuzione da qui:** `10 → 7 → 8 → 9 → 11 (in quattro tranche)`.
 
 La **10 precede la 7, la 8 e la 9** e non è un'opinione: fissa l'involucro di
 riuscita parziale, la tassonomia chiusa degli errori, `SearchNode` come unico

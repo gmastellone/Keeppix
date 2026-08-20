@@ -8,10 +8,9 @@ Un solo processo Rust con il frontend incorporato, più PostgreSQL 17 e
 PostGIS. Gli originali restano sul disco, in sola lettura; Keeppix non li
 riscrive. Hardware minimo dichiarato: Raspberry Pi 5 da 8 GB.
 
-Stato attuale: **Fasi 0–4 su `main`** (ingestione, RAW e culling, multiutente
-e condivisione, mappe e geocoding). Le **Fasi 5 e 6** (WebDAV e upload
-riprendibili; video, backup, TOTP, PWA) sono implementate su branch, con una
-lista di fix aperta prima del merge.
+Stato attuale: **Fasi 0–6 su `main`** (ingestione, RAW e culling, multiutente
+e condivisione, mappe e geocoding, WebDAV e upload riprendibile, video,
+backup, TOTP, PWA).
 
 Il **disegno dell'interfaccia è concluso** e vive in [`docs/ui/`](docs/ui/):
 prototipo interattivo, documento funzionale a 70 schermate, brand sheet, più
@@ -19,8 +18,9 @@ l'analisi del divario col backend e le decisioni di costo/beneficio. Ne sono
 nate due fasi nuove — la **10** (superficie API per l'interfaccia) e la **11**
 (l'interfaccia) — e tutti i piani da qui alla fine sono scritti.
 
-Ordine di esecuzione: `fix 5/6 → 10 → 7 → 8 → 9 → 11`. Il perché la 10 venga
-prima della 7 sta nel [roadmap](docs/superpowers/plans/2026-08-13-keeppix-roadmap.md).
+**Prossima fase: la 10.** Ordine di esecuzione:
+`10 → 7 → 8 → 9 → 11`. Il perché la 10 venga prima della 7 sta nel
+[roadmap](docs/superpowers/plans/2026-08-13-keeppix-roadmap.md).
 
 ## Avvio
 
@@ -93,10 +93,13 @@ le funzioni AI restano spente e il pannello spiega come attivarle.
 | 2 + 2R/2R2/2R3 | RAW, sidecar XMP, culling, derivati con perdita | su `main` (PR #4, #6, #7) |
 | 3 | Multiutente, album, link pubblici, audit | su `main` (PR #8) |
 | 4 | Mappe, geocoding, fusi orari, PMTiles offline | su `main` (PR #9) |
-| 5 | WebDAV, upload tus riprendibile | in lavorazione |
-| 6 | Consolidamento: video, backup, TOTP, PWA | piano da scrivere |
-| 7 | Scene e tag AI, ricerca semantica | spec scritta |
-| 8 | Volti: cluster, correzioni, gruppi | spec scritta |
+| 5 | WebDAV, upload tus riprendibile | su `main` (PR #10) |
+| 6 | Consolidamento: video, backup, TOTP, PWA | su `main` (PR #11) |
+| 10 | Superficie API per l'interfaccia (geometria, riuscita parziale, «Aggiorna album»…) | piano scritto — **prossima** |
+| 7 | Scene e tag AI, ricerca semantica | piano scritto |
+| 8 | Volti: cluster, correzioni, gruppi | piano scritto |
+| 9 | Organizzazione: culling a cartelle, spostamento sicuro, rinomina | piano scritto |
+| 11 | Interfaccia: le 70 schermate del documento funzionale | piano scritto |
 
 Roadmap e contratti congelati:
 [`docs/superpowers/plans/2026-08-13-keeppix-roadmap.md`](docs/superpowers/plans/2026-08-13-keeppix-roadmap.md).
@@ -107,6 +110,7 @@ Roadmap e contratti congelati:
 |---|---|
 | [`AGENTS.md`](AGENTS.md) | Agenti: invarianti e metodo. Leggerlo **prima** di scrivere codice. |
 | [`docs/CONTINUE.md`](docs/CONTINUE.md) | Prompt da incollare in una sessione nuova per riprendere il lavoro. |
+| [`docs/superpowers/PROSEGUI.md`](docs/superpowers/PROSEGUI.md) | Prompt per mandare avanti il lavoro fino alla fine: ordine delle fasi, decisioni prese, dove fermarsi. |
 | [`docs/superpowers/README.md`](docs/superpowers/README.md) | Indice spec, piani, STATO. |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Installazione e esercizio. |
 | [`docs/api/openapi.json`](docs/api/openapi.json) | Contratto HTTP `/api/v1` (solo aggiunte). |
@@ -126,6 +130,12 @@ restituisce `"unprobed"` e non misura nulla. Nato in Fase 1b, il saldo si
 è spostato dalla Fase 6 alla **Fase 7**: è l'inferenza AI ad avere bisogno
 di una misura vera (quanti thread, quanti ms per foto, se disattivarsi su
 hardware debole), più del video.
+
+Quattro funzioni (`get_for_user`, `timezone_for`, `timezone_changes`,
+`apply_taken_at_batch`, origine Fase 4) sono marcate **`non-rivendicata`**:
+nessuna fase del roadmap le rivendica, perché l'amministrazione del server
+è dichiarata fuori dal disegno dell'interfaccia. Vanno decise — wired per
+davvero o rimosse se ridondanti — non lasciate scorrere in silenzio.
 
 La guardia non prende questa classe di difetto: cerca chiamanti, non
 verifica che una funzione faccia ciò che dichiara. Il probe un chiamante
