@@ -522,7 +522,66 @@ presa **in base a quel numero**, non a un'intuizione.
 
 ---
 
-## Task 20 — Chiudere l'OpenAPI e i client generati
+## Task 20 — Il protocollo WebSocket: da due eventi a nove
+
+`routes/ws.rs` emette **solo** `assets.upserted` e `assets.deleted`. Il canale è
+versionato (`v`) e ben fatto, ma è uno stub rispetto a ciò che l'interfaccia mostra
+come **dato che cambia da solo**:
+
+| Evento nuovo | Serve a |
+|---|---|
+| `analysis.progress` | §57 Analisi libreria — è una schermata di avanzamento **dal vivo** |
+| `suggestions.changed` | badge Revisione (tag + volti) |
+| `culling.changed` | badge Culling |
+| `scan.progress` | import iniziale, Problemi |
+| `operation.progress` | operazioni lunghe (Task 16) |
+| `problems.changed` | §47 Problemi — un job che fallisce fa comparire una riga |
+| `asset.derivative.ready` | transcodifica video completata (Fase 6) |
+| `backup.finished` | esito backup (Fase 6) |
+
+**Ruling: gli eventi sono magri — un segnale, non uno stato.** — Il contratto
+congelato dice che *«il WebSocket è canale di notifica, non fonte di verità»*.
+Quindi `suggestions.changed` dice "ricarica il contatore", non *quanto* vale: se
+portasse il numero, un client che perde un messaggio resterebbe con un valore
+sbagliato e nessun modo di accorgersene. Portare il numero resta ammesso **come
+comodità**, mai come garanzia. — *Costo se sbagliato:* un giro in più di richiesta
+per aggiornare un badge, che è esattamente il prezzo della correttezza.
+
+**`analysis.progress` è il caso che giustifica il task**: senza push, §57 si
+ridurrebbe a un'interrogazione a intervalli — cioè aggiungere carico a un Pi
+proprio mentre l'analisi lo sta già usando.
+
+**Verifica:** test che un client che si riconnette non perde lo stato (il primo
+messaggio dopo la connessione è uno stato completo, non un delta); test che ogni
+evento nuovo ha un consumatore reale nel frontend, altrimenti `check-wired.py` lo
+segnala.
+
+---
+
+## Task 21 — La pausa automatica dell'analisi è un comportamento del server
+
+Il documento fissa la soglia: **4000 ms — quattro secondi dall'ultimo cambio di
+vista** — dopo i quali l'analisi riprende da sola. E dichiara la differenza di
+velocità fra i livelli: **42 ms per foto in "Piena", 260 ms in "Ridotta"** — sei
+volte più lenta, con l'interfaccia che dichiara all'utente la coda residua
+ricalcolata.
+
+Non è cosmesi dell'interfaccia: è **il server** che deve mettere in pausa e
+riprendere, perché è il server a fare il lavoro. L'interfaccia si limita a dire
+quando l'utente è attivo.
+
+**Ruling: la soglia è configurabile, non cablata.** — Il documento la elenca fra le
+decisioni aperte (*«i numeri esatti sono da tarare sul sistema vero»*): 4 secondi
+vengono da un prototipo senza carico reale. — *Costo se sbagliato:* su hardware
+lento l'analisi riparte troppo presto e rallenta la navigazione, che è il difetto
+che la pausa esiste per evitare.
+
+**Verifica:** test che l'analisi si ferma entro un tick dall'attività e riprende
+dopo la soglia; test che i due livelli producono throughput misurabilmente diversi.
+
+---
+
+## Task 22 — Chiudere l'OpenAPI e i client generati
 
 1. Annotare con `utoipa` gli otto gruppi oggi assenti dallo spec generato: `albums`,
    `share`, `groups`, `permissions`, `audit`, `backup`, `restore`, `upload`,

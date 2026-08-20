@@ -551,3 +551,89 @@ id, `thumbhash`, `content_hash` (è la chiave dell'URL della miniatura), `raw_ki
 Su 200 elementi per pagina è una differenza modesta (~60 KB contro ~35 KB), ma è gratis: basta
 un parametro `fields=grid`. Da fare **solo se la misura lo giustifica** — è esattamente il tipo
 di ottimizzazione che non vale la complessità se il numero non la chiede.
+
+---
+
+## 15. Il WebSocket emette due eventi, l'interfaccia ne chiede nove
+
+`crates/keeppix-api/src/routes/ws.rs` emette **solo**:
+
+- `assets.upserted` — `{ids, count}`
+- `assets.deleted` — `{ids}`
+
+Il canale è versionato (`v`) e ben fatto, ma è uno stub rispetto a ciò che l'interfaccia
+mostra come **dato che cambia da solo**, senza che l'utente faccia nulla:
+
+| Cosa cambia da solo | Dove | Evento necessario |
+|---|---|---|
+| **Avanzamento dell'analisi IA** — *"128.450 di 214.000 (60%)"*, stato in pausa/in corso, velocità stimata | §57 Analisi libreria | `analysis.progress` |
+| **Badge Revisione** — tag e volti in attesa | sidebar, pagina "Altro" | `suggestions.changed` |
+| **Badge Culling** — foto ancora da valutare | sidebar, header mobile | `culling.changed` |
+| **Avanzamento di scansione/import** | import iniziale, Problemi | `scan.progress` |
+| **Avanzamento delle operazioni lunghe** (rinomina di massa, spostamenti) | §Fase 10 Task 16 | `operation.progress` |
+| **Nuovo problema rilevato** (job fallito, libreria offline) | §47 Problemi | `problems.changed` |
+| **Spazio su disco** | sidebar | dentro `bootstrap`, oppure `storage.changed` |
+| **Transcodifica video completata** | player (Fase 6) | `asset.derivative.ready` |
+| **Esito di un backup** | Impostazioni (Fase 6) | `backup.finished` |
+
+**§57 «Analisi libreria» è una schermata di avanzamento dal vivo**: senza push si ridurrebbe a
+un'interrogazione a intervalli, che su un Pi è esattamente il carico che non si vuole aggiungere
+mentre l'analisi gira.
+
+Il contratto congelato aiuta: *«il WebSocket è canale di notifica, non fonte di verità»*. Quindi
+questi eventi possono essere **magri** — un segnale che dice "ricarica questo contatore" — senza
+dover trasportare stato consistente. È la forma giusta e va rispettata: un evento che porta il
+numero è una comodità, non una garanzia.
+
+## 16. Ritardi e soglie dichiarati, con il loro significato
+
+La palette dei tempi del prototipo è piccola e coerente. **La prima estrazione che avevo fatto
+era sbagliata** (uno script leggeva `.12s` come "12s"): questa è quella corretta.
+
+| Valore | Occorrenze | Cos'è |
+|---|---|---|
+| `.12s` | 54 | tooltip, comparsa dei comandi sulla tessera |
+| `.2s` | 53 | toast, transizioni generiche |
+| `.15s` | 14 | rotazione della freccia dei gruppi di navigazione |
+| `.25s` | 2 | cambio di tema su `#app` |
+| `.1s`, `.18s`, `.3s` | 5 | casi isolati |
+
+Curva: `ease` in 108 casi su 111. **Tre valori soltanto** coprono il 92% delle animazioni.
+
+Soglie e ritardi che **non** sono animazioni, e che hanno conseguenze fuori dal CSS:
+
+| Valore | Significato |
+|---|---|
+| **10 ms** | ritardo prima di mostrare il toast (per far scattare la transizione) |
+| **2400 ms** | durata del toast di successo; **4,2 s** per errore e riuscita parziale; **6,5 s** se ha un'azione, con il timer **fermo mentre il puntatore è sopra** |
+| **250 ms** | rimozione del toast dal DOM dopo la dissolvenza |
+| **500 ms** | tocco prolungato su mobile per entrare in selezione, con **vibrazione di 15 ms** |
+| **700 ms** | ritardo **simulato** del prototipo fra avvio ed esito di un'azione. È scaffolding — ma il documento nota che *«durante i 700 ms si può premere di nuovo, e il codice non lo impedisce»*: nel prodotto vero è esattamente il caso che **SP-30 (pulsante occupato)** deve coprire |
+| **1,4 s** | pulsazione dell'indicatore mentre l'analisi gira |
+| **4000 ms** | **la soglia della pausa automatica dell'analisi**: riprende 4 secondi dopo l'ultimo cambio di vista. È un comportamento del server, non dell'interfaccia |
+| **42 ms / 260 ms** | inferenza per foto, livello **Piena** contro **Ridotta**: la modalità ridotta è **6 volte più lenta**, e il documento lo dichiara all'utente (*"la stessa coda residua viene dichiarata ~6 volte più lunga"*) |
+
+## 17. Inventario completo di dialog, menu, popover e selettori
+
+Sono **24**, e nel documento hanno ciascuno una sezione propria. Vanno costruiti sopra i due
+componenti condivisi (SP-5 dialog modale, SP-14 menu a comparsa), non uno per uno:
+
+**Menu a comparsa (SP-14):** menu account (desktop e mobile) · menu "altre azioni" ⋯ del lightbox ·
+selettore rapido di lotto · menu sul riquadro del volto · popover della mappa · picklist della
+creazione album.
+
+**Dialog modali (SP-5):** cartella radice di culling (×2 contesti) · imposta posizione · ricerca
+di regione · condividi selezione · scegli copertina · assegna a gruppo · unisci persone · separa
+persona · selettore di persona · selettore di tag · aggiungi ad album · file con problemi ·
+**eliminazione a 3 opzioni (SP-18)** · informazione · conferma · modifica tag · modifica
+categoria · rinomina con formula · inserimento testo generico.
+
+Regole che valgono per tutti e che il prototipo **non** rispetta uniformemente:
+il focus va al primo elemento all'apertura e **torna al trigger** alla chiusura (questo il
+prototipo lo fa quasi ovunque, ed è il dettaglio da non perdere); **Esc chiude**; il focus è
+**confinato** nella scheda (il prototipo non lo fa in nessun dialog); il click sul velo — da
+decidere: probabilmente sì per i selettori, no per i distruttivi.
+
+Due eccezioni deliberate da preservare: nel **dialog di eliminazione** il focus va sulla **prima
+opzione, la meno distruttiva**; nel **dialog di conferma** va su **"Annulla"**. Chi preme Invio
+d'istinto compie l'azione innocua.
