@@ -350,6 +350,29 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::share::approve_guest_upload),
         )
         .route("/audit", get(routes::audit::list))
+        .route(
+            "/backup/preferences",
+            get(routes::backup::get_preferences).put(routes::backup::put_preferences),
+        )
+        .route(
+            "/backup/destinations",
+            get(routes::backup::list_destinations).post(routes::backup::create_destination),
+        )
+        .route(
+            "/backup/destinations/{id}",
+            axum::routing::delete(routes::backup::delete_destination),
+        )
+        .route(
+            "/backup/destinations/{id}/test",
+            axum::routing::post(routes::backup::test_destination),
+        )
+        .route("/backup/runs", get(routes::backup::list_runs))
+        .route("/backup/run", axum::routing::post(routes::backup::run_now))
+        .route(
+            "/restore/inspect",
+            axum::routing::post(routes::restore::inspect),
+        )
+        .route("/restore", axum::routing::post(routes::restore::restore))
         .route("/share/{token}", get(routes::share::public_info))
         .route("/share/{token}/assets", get(routes::share::public_assets))
         .route(

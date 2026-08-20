@@ -1,6 +1,7 @@
 pub mod albums;
 pub mod audit;
 pub mod auth;
+pub mod backup;
 pub mod credentials;
 pub mod duplicates;
 pub mod flags;
@@ -16,6 +17,7 @@ pub mod permissions;
 pub mod places;
 pub mod problems;
 pub mod regions;
+pub mod restore;
 pub mod search;
 pub mod setup;
 pub mod share;

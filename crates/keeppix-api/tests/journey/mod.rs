@@ -119,6 +119,8 @@ fn ingest_pool(server: &TestServer) -> WorkerPool<IngestHandler> {
         data_dir: server.data_dir.clone(),
         stability_wait: Duration::ZERO,
         trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
+        database_url: server.database_url.clone(),
+        config_path: None,
     };
     WorkerPool::new(
         server.db.clone(),

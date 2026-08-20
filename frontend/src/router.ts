@@ -28,6 +28,16 @@ export const router = createRouter({
       meta: { auth: true }
     },
     {
+      path: '/settings/backup',
+      component: () => import('@/views/settings/BackupView.vue'),
+      meta: { auth: true }
+    },
+    {
+      path: '/settings/restore',
+      component: () => import('@/views/settings/RestoreView.vue'),
+      meta: { auth: true }
+    },
+    {
       path: '/player/:id',
       component: () => import('@/views/PlayerView.vue'),
       meta: { auth: true }
