@@ -43,7 +43,7 @@ pub use backup::{
     BackupDestination, BackupKind, BackupPreferences, BackupRepo, BackupRetention, BackupRun,
     BackupRunStatus, BackupSchedule, NewBackupDestination,
 };
-pub use changes::{ChangeLogRepo, ChangePage};
+pub use changes::{CHANGE_LOG_PAGE, ChangeLogRepo, ChangePage};
 pub use credentials::AppPasswordRepo;
 pub use dav_locks::DavLockRepo;
 pub use duplicates::{DuplicateGroup, DuplicateRepo};
