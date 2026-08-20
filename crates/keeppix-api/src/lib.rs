@@ -3,7 +3,9 @@
 
 pub mod cookie;
 pub mod csrf;
+pub mod dav;
 pub mod extract;
+pub mod idempotency;
 pub mod json;
 pub mod openapi;
 pub mod problem;
@@ -60,7 +62,7 @@ const HSTS: &str = "max-age=31536000; includeSubDomains";
 /// fallback SPA (quest'ultimo lo aggiunge solo il binario, vedi
 /// `keeppix_server::embed::mount`).
 pub fn router(state: AppState) -> Router {
-    with_common_layers(all_routes().fallback(not_found)).with_state(state)
+    with_common_layers(all_routes(state).fallback(not_found))
 }
 
 /// Router senza stato, per i test che non toccano il database.
@@ -78,8 +80,8 @@ pub fn router_without_state() -> Router {
 /// fallback (404 JSON qui sopra, SPA nel binario) sia il momento in cui
 /// applicare `with_common_layers` — che deve essere *dopo* aver impostato il
 /// fallback, per il motivo spiegato lì.
-pub fn router_parts() -> Router<AppState> {
-    all_routes()
+pub fn router_parts(state: AppState) -> Router {
+    all_routes(state)
 }
 
 /// Applica gli strati comuni a tutte le risposte del server: header di
@@ -130,7 +132,7 @@ pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -
 }
 
 #[allow(clippy::too_many_lines)]
-fn api_routes() -> Router<AppState> {
+fn api_routes(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/setup/status", get(routes::setup::status))
         .route("/setup", axum::routing::post(routes::setup::create))
@@ -138,6 +140,19 @@ fn api_routes() -> Router<AppState> {
         .route("/auth/refresh", axum::routing::post(routes::auth::refresh))
         .route("/auth/logout", axum::routing::post(routes::auth::logout))
         .route("/auth/me", get(routes::auth::me))
+        .route(
+            "/auth/totp",
+            get(routes::totp::status).delete(routes::totp::disable),
+        )
+        .route("/auth/totp/setup", axum::routing::post(routes::totp::setup))
+        .route(
+            "/auth/totp/confirm",
+            axum::routing::post(routes::totp::confirm),
+        )
+        .route(
+            "/auth/totp/recovery-codes",
+            axum::routing::post(routes::totp::regenerate_recovery),
+        )
         .route("/timeline/buckets", get(routes::timeline::buckets))
         .route("/timeline", get(routes::timeline::page))
         .route("/folders/tree", get(routes::folders::tree))
@@ -171,6 +186,7 @@ fn api_routes() -> Router<AppState> {
         )
         .route("/ws/ticket", axum::routing::post(routes::ws::ticket))
         .route("/ws", get(routes::ws::connect))
+        .route("/sync/delta", get(routes::sync::delta))
         .route("/problems", get(routes::problems::list))
         .route("/duplicates", get(routes::duplicates::list))
         .route(
@@ -220,6 +236,14 @@ fn api_routes() -> Router<AppState> {
         .route(
             "/users/me/home",
             axum::routing::put(routes::users::set_home).delete(routes::users::delete_home),
+        )
+        .route(
+            "/users/me/app-passwords",
+            axum::routing::post(routes::credentials::create).get(routes::credentials::list),
+        )
+        .route(
+            "/users/me/app-passwords/{id}",
+            axum::routing::delete(routes::credentials::revoke),
         )
         .route("/users/{id}", axum::routing::patch(routes::users::patch))
         .route(
@@ -326,6 +350,29 @@ fn api_routes() -> Router<AppState> {
             axum::routing::post(routes::share::approve_guest_upload),
         )
         .route("/audit", get(routes::audit::list))
+        .route(
+            "/backup/preferences",
+            get(routes::backup::get_preferences).put(routes::backup::put_preferences),
+        )
+        .route(
+            "/backup/destinations",
+            get(routes::backup::list_destinations).post(routes::backup::create_destination),
+        )
+        .route(
+            "/backup/destinations/{id}",
+            axum::routing::delete(routes::backup::delete_destination),
+        )
+        .route(
+            "/backup/destinations/{id}/test",
+            axum::routing::post(routes::backup::test_destination),
+        )
+        .route("/backup/runs", get(routes::backup::list_runs))
+        .route("/backup/run", axum::routing::post(routes::backup::run_now))
+        .route(
+            "/restore/inspect",
+            axum::routing::post(routes::restore::inspect),
+        )
+        .route("/restore", axum::routing::post(routes::restore::restore))
         .route("/share/{token}", get(routes::share::public_info))
         .route("/share/{token}/assets", get(routes::share::public_assets))
         .route(
@@ -336,14 +383,26 @@ fn api_routes() -> Router<AppState> {
             "/share/{token}/uploads",
             axum::routing::post(routes::share::public_upload).layer(DefaultBodyLimit::disable()),
         )
+        .route("/upload/check", axum::routing::post(routes::upload::check))
+        .route("/upload", axum::routing::post(routes::upload::create))
+        .route(
+            "/upload/{id}",
+            axum::routing::head(routes::upload::head)
+                .patch(routes::upload::patch)
+                .layer(DefaultBodyLimit::disable()),
+        )
         // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe
         // già previste (WebDAV, tus).
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            idempotency::apply,
+        ))
         .layer(axum::middleware::from_fn(csrf::require_client_header))
 }
 
-fn all_routes() -> Router<AppState> {
+fn all_routes(state: AppState) -> Router {
     Router::new()
         .route("/health", get(routes::health::get))
         .route("/api/openapi.json", get(openapi::serve))
@@ -351,12 +410,22 @@ fn all_routes() -> Router<AppState> {
         .route("/media/preview/{hash}", get(routes::media::preview))
         .route("/media/full/{hash}", get(routes::media::full))
         .route("/media/original/{id}", get(routes::media::original))
-        .nest("/api/v1", api_routes())
+        .route("/media/video/{id}/playback", get(routes::video::playback))
+        .route("/media/video/{id}/poster", get(routes::video::poster))
+        .route("/media/video/{id}/hls/{file}", get(routes::video::hls))
+        // WebDAV (Fase 5): fuori da `/api/v1` di proposito — non è un'API
+        // REST e non va nel contratto congelato. Autenticazione via
+        // app-password Basic Auth, mai cookie di sessione (`dav::handler`).
+        // `axum::routing::any` cattura anche i metodi non standard che i
+        // client WebDAV usano (PROPFIND, MKCOL, MOVE, COPY, LOCK, UNLOCK).
+        .route("/dav/{*path}", axum::routing::any(dav::handler))
+        .nest("/api/v1", api_routes(state.clone()))
         // Va chiamata **dopo** aver registrato le rotte: imposta il fallback
         // di ogni `MethodRouter` già presente, e un `route(...)` aggiunto in
         // seguito tornerebbe al `405` a corpo vuoto di axum. Stessa classe di
         // trappola dell'ordine di `.fallback(...)` documentato sotto.
         .method_not_allowed_fallback(method_not_allowed)
+        .with_state(state)
 }
 
 async fn not_found() -> Problem {

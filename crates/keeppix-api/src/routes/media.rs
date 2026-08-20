@@ -26,6 +26,7 @@ const IMMUTABLE: &str = "private, max-age=31536000, immutable";
     path = "/media/thumb/{hash}",
     tag = "media",
     operation_id = "media_thumb",
+    summary = "Serve a thumbnail",
     security(("session_cookie" = [])),
     params(("hash" = String, Path, description = "blake3 hex da 64 caratteri")),
     responses(
@@ -50,6 +51,7 @@ pub async fn thumb(
     path = "/media/preview/{hash}",
     tag = "media",
     operation_id = "media_preview",
+    summary = "Serve a preview derivative",
     security(("session_cookie" = [])),
     params(("hash" = String, Path, description = "blake3 hex da 64 caratteri")),
     responses(
@@ -74,6 +76,7 @@ pub async fn preview(
     path = "/media/full/{hash}",
     tag = "media",
     operation_id = "media_full",
+    summary = "Serve a full-size derivative",
     security(("session_cookie" = [])),
     params(("hash" = String, Path, description = "blake3 hex da 64 caratteri")),
     responses(
@@ -169,6 +172,7 @@ fn build_full(
     path = "/media/original/{id}",
     tag = "media",
     operation_id = "media_original",
+    summary = "Serve an original media file",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'asset")),
     responses(
@@ -316,7 +320,7 @@ fn parse_hash(hex: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
-fn mime_for_name(name: &str) -> &'static str {
+pub(crate) fn mime_for_name(name: &str) -> &'static str {
     match Path::new(name)
         .extension()
         .and_then(|e| e.to_str())

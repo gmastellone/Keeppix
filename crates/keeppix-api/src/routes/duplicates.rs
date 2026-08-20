@@ -68,6 +68,7 @@ fn parse_hash(hex: &str) -> Result<[u8; 32], Problem> {
     path = "/api/v1/duplicates",
     tag = "library",
     operation_id = "duplicates_list",
+    summary = "List duplicate groups",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Gruppi con lo stesso content_hash, esclusi i trashed", body = [DuplicateGroupView]),
@@ -100,6 +101,7 @@ pub async fn list(
     path = "/api/v1/duplicates/{content_hash}",
     tag = "library",
     operation_id = "duplicates_members",
+    summary = "List members of a duplicate group",
     security(("session_cookie" = [])),
     params(("content_hash" = String, Path, description = "blake3 hex da 64 caratteri")),
     responses(
@@ -127,6 +129,7 @@ pub async fn members(
     path = "/api/v1/duplicates/{content_hash}/resolve",
     tag = "library",
     operation_id = "duplicates_resolve",
+    summary = "Resolve a duplicate group",
     security(("session_cookie" = [])),
     params(("content_hash" = String, Path, description = "blake3 hex da 64 caratteri")),
     request_body = ResolveDuplicateRequest,

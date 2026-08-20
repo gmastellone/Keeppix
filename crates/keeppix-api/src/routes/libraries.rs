@@ -109,6 +109,7 @@ fn path_not_allowed() -> Problem {
     path = "/api/v1/libraries",
     tag = "libraries",
     operation_id = "libraries_list",
+    summary = "List libraries",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Librerie visibili", body = [LibraryView]),
@@ -131,6 +132,7 @@ pub async fn list(
     path = "/api/v1/libraries",
     tag = "libraries",
     operation_id = "libraries_create",
+    summary = "Create a library",
     security(("session_cookie" = [])),
     request_body = CreateLibraryRequest,
     responses(
@@ -176,6 +178,7 @@ pub async fn create(
     path = "/api/v1/libraries/{id}",
     tag = "libraries",
     operation_id = "libraries_get",
+    summary = "Get a library",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id della libreria")),
     responses(
@@ -201,6 +204,7 @@ pub async fn get(
     path = "/api/v1/libraries/{id}",
     tag = "libraries",
     operation_id = "libraries_patch",
+    summary = "Update a library",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id della libreria")),
     request_body = PatchLibraryRequest,
@@ -237,6 +241,7 @@ pub async fn patch(
     path = "/api/v1/libraries/{id}",
     tag = "libraries",
     operation_id = "libraries_delete",
+    summary = "Delete a library",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id della libreria")),
     responses(
@@ -266,6 +271,7 @@ pub async fn delete(
     path = "/api/v1/libraries/preview",
     tag = "libraries",
     operation_id = "libraries_preview",
+    summary = "Preview a library path",
     security(("session_cookie" = [])),
     params(PreviewQuery),
     responses(
@@ -323,6 +329,7 @@ pub struct ScanStatusView {
     path = "/api/v1/libraries/{id}/scan",
     tag = "libraries",
     operation_id = "libraries_scan_start",
+    summary = "Start a library scan",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id della libreria")),
     responses(
@@ -361,6 +368,7 @@ pub async fn start_scan(
     path = "/api/v1/libraries/{id}/scan",
     tag = "libraries",
     operation_id = "libraries_scan_status",
+    summary = "Get library scan status",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id della libreria")),
     responses(

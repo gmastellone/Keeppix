@@ -74,6 +74,12 @@ jobs:
             /usr/local/share/chromium /usr/local/lib/node_modules || true
           df -h /
 
+      # Video playback/transcode tests probe with ffprobe and seed clips with
+      # ffmpeg. Without these the suite writes a fake file and probe → 404.
+      # `age` + `zstd` are required by the kpxb external-CLI round-trip test.
+      - name: Installa ffmpeg, age, zstd (test video e backup)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg age zstd
+
       # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
       # in locale i test usano testcontainers e senza quel limite parte un
       # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres,
@@ -116,6 +122,24 @@ jobs:
       - name: Spazio disco su main (la cache viene salvata dopo)
         if: always() && github.ref == 'refs/heads/main'
         run: df -h /
+
+  api-clients:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Genera i client OpenAPI
+        run: ./scripts/generate-api-clients.sh
+      - uses: actions/setup-node@v5
+        with: { node-version: "24" }
+      - name: Il client TypeScript generato compila
+        working-directory: docs/api/clients/typescript-fetch
+        run: |
+          npm install --ignore-scripts
+          npx tsc --noEmit -p tsconfig.json
+      - name: Il package Swift generato è valido
+        run: |
+          test -f docs/api/clients/swift5/Package.swift
+          grep -q 'name: "KeeppixApiClient"' docs/api/clients/swift5/Package.swift
 
   frontend:
     runs-on: ubuntu-latest

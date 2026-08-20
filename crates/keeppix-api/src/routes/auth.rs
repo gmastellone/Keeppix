@@ -3,7 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum_extra::extract::CookieJar;
 use chrono::{DateTime, Utc};
-use keeppix_db::{SessionRepo, UserRepo};
+use keeppix_db::{SessionRepo, TotpRepo, UserRepo};
 use keeppix_domain::{Password, SessionToken, SystemRole, User, Username, verify_password};
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +51,9 @@ impl From<&User> for UserView {
 pub struct LoginRequest {
     username: String,
     password: String,
+    /// Optional TOTP or recovery code. Required once the account has 2FA enabled.
+    #[serde(default)]
+    totp_code: Option<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -66,6 +69,7 @@ pub struct LoginResponse {
     path = "/api/v1/auth/login",
     tag = "auth",
     operation_id = "auth_login",
+    summary = "Open a session with username and password",
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Sessione aperta", body = LoginResponse),
@@ -96,7 +100,9 @@ pub async fn login(
     };
 
     let username = Username::parse(&req.username).map_err(|_| invalid())?;
-    let password = Password::parse(&req.password).map_err(|_| invalid())?;
+    // Move the serde allocation into `Password` so Drop zeroizes the only
+    // heap copy we control (the HTTP body `Bytes` remain — see ledger).
+    let password = Password::parse_owned(req.password).map_err(|_| invalid())?;
 
     let found = UserRepo::new(&state.db).find_by_username(&username).await?;
     let Some((user, hash)) = found else {
@@ -109,6 +115,25 @@ pub async fn login(
 
     if !verify_password(&password, &hash) || !user.is_active() {
         return Err(invalid());
+    }
+
+    let totp = TotpRepo::new(&state.db);
+    if totp.is_enabled_for_user(user.id).await? {
+        let Some(code) = req
+            .totp_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        else {
+            return Err(Problem::new(
+                StatusCode::UNAUTHORIZED,
+                "totp-required",
+                "Two-factor authentication code required",
+            ));
+        };
+        if !totp.verify_login(user.id, code).await? {
+            return Err(invalid());
+        }
     }
 
     let token = SessionRepo::new(&state.db)
@@ -156,6 +181,7 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
     path = "/api/v1/auth/refresh",
     tag = "auth",
     operation_id = "auth_refresh",
+    summary = "Rotate the current session cookie",
     security(("session_cookie" = [])),
     responses(
         (status = 204, description = "Sessione ruotata, nuovo cookie emesso"),
@@ -193,6 +219,7 @@ pub async fn refresh(
     path = "/api/v1/auth/logout",
     tag = "auth",
     operation_id = "auth_logout",
+    summary = "Revoke the current session and clear the cookie",
     responses((status = 204, description = "Sessione chiusa e cookie ripulito"))
 )]
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
@@ -228,6 +255,7 @@ pub struct MeResponse {
     path = "/api/v1/auth/me",
     tag = "auth",
     operation_id = "auth_me",
+    summary = "Return the current authenticated user",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Utente della sessione corrente", body = MeResponse),

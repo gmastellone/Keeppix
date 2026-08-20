@@ -55,6 +55,7 @@ pub struct FolderChildren {
     path = "/api/v1/folders/tree",
     tag = "folders",
     operation_id = "folders_tree",
+    summary = "Get the folder tree",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Albero delle cartelle visibili", body = [FolderView]),
@@ -84,6 +85,7 @@ pub async fn tree(
     path = "/api/v1/folders/{id}/children",
     tag = "folders",
     operation_id = "folders_children",
+    summary = "List child folders",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id della cartella")),
     responses(
@@ -118,6 +120,7 @@ pub async fn children(
     path = "/api/v1/folders/{id}",
     tag = "folders",
     operation_id = "folders_move",
+    summary = "Move a folder",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id della cartella da spostare")),
     request_body = MoveFolderRequest,

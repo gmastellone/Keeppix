@@ -41,6 +41,15 @@ pub const CLIENT_HEADER: &str = "x-keeppix-client";
 /// sempre: non cambiano stato, e richiedere l'header su di essi romperebbe
 /// l'apertura diretta di un URL.
 pub async fn require_client_header(req: Request, next: Next) -> Response {
+    // Deroga per `/dav/*` (Fase 5): i client WebDAV (Finder, rclone, …) non
+    // mandano mai `x-keeppix-client`, e non c'è cookie di sessione da
+    // proteggere lì — l'autenticazione è Basic Auth con app-password. La
+    // deroga è per prefisso di path, non per assenza di cookie: non
+    // restringe `/api/v1`, che resta coperto per intero.
+    if req.uri().path().starts_with("/dav/") {
+        return next.run(req).await;
+    }
+
     let mutating = matches!(
         *req.method(),
         Method::POST | Method::PUT | Method::PATCH | Method::DELETE

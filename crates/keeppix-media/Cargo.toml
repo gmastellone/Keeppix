@@ -21,7 +21,8 @@ fast_image_resize = "5"
 # ~1,54 MB/foto. Si fissa 0.3.1, non `*`: è una dipendenza C.
 webp = { version = "0.3.1", default-features = false }
 thumbhash = "0.1"
-quick-xml = "0.41"
+quick-xml = { workspace = true }
+filetime = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

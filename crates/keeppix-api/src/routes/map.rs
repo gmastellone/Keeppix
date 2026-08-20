@@ -47,6 +47,7 @@ impl From<MapCluster> for MapClusterView {
     path = "/api/v1/map/clusters",
     tag = "map",
     operation_id = "map_clusters",
+    summary = "Get map clusters",
     security(("session_cookie" = [])),
     params(
         ("bbox" = String, Query, description = "west,south,east,north in gradi WGS84"),
@@ -108,6 +109,7 @@ pub async fn clusters(
     path = "/api/v1/map/tiles/{region}/{z}/{x}/{y}",
     tag = "map",
     operation_id = "map_tile_archive",
+    summary = "Serve a map tile from the archive",
     security(("session_cookie" = [])),
     params(
         ("region" = String, Path, description = "Id della regione locale"),

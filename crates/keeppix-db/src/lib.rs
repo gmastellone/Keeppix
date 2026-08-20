@@ -3,7 +3,10 @@
 pub mod albums;
 pub mod assets;
 pub mod audit;
+pub mod backup;
 pub mod changes;
+pub mod credentials;
+pub mod dav_locks;
 pub mod duplicates;
 pub mod error;
 pub mod flags;
@@ -12,6 +15,7 @@ pub mod geo;
 pub mod groups;
 pub mod guest_uploads;
 pub mod home;
+pub mod idempotency;
 pub mod jobs;
 pub mod libraries;
 pub mod overrides;
@@ -26,14 +30,22 @@ pub mod settings;
 pub mod share_links;
 pub mod stacks;
 pub mod timeline;
+pub mod totp;
 pub mod trash;
+pub mod uploads;
 pub mod users;
 pub mod visibility;
 
 pub use albums::{Album, AlbumAsset, AlbumPatch, AlbumRepo, NewAlbum};
-pub use assets::AssetRepo;
+pub use assets::{AssetRepo, DirectPutOutcome};
 pub use audit::{AuditEntry, AuditRepo};
-pub use changes::{ChangeLogRepo, ChangePage};
+pub use backup::{
+    BackupDestination, BackupKind, BackupPreferences, BackupRepo, BackupRetention, BackupRun,
+    BackupRunStatus, BackupSchedule, NewBackupDestination,
+};
+pub use changes::{CHANGE_LOG_PAGE, ChangeLogRepo, ChangePage};
+pub use credentials::AppPasswordRepo;
+pub use dav_locks::DavLockRepo;
 pub use duplicates::{DuplicateGroup, DuplicateRepo};
 pub use error::DbError;
 pub use flags::FlagRepo;
@@ -45,6 +57,10 @@ pub use geo::{
 pub use groups::{GroupMember, GroupRepo, GroupView};
 pub use guest_uploads::{GuestUploadRepo, GuestUploadRow};
 pub use home::{HomeLocation, HomeRepo, PublicAssetLocation};
+pub use idempotency::{
+    CachedResponse as CachedIdempotencyResponse, IdempotencyRepo,
+    LookupResult as IdempotencyLookupResult, RequestFingerprint as IdempotencyRequestFingerprint,
+};
 pub use jobs::JobRepo;
 pub use libraries::LibraryRepo;
 pub use overrides::{OverrideRepo, SidecarSource};
@@ -60,21 +76,28 @@ pub use settings::SettingsRepo;
 pub use share_links::{NewShareLink, ShareLinkRepo, ShareLinkRow};
 pub use stacks::{StackDetails, StackMember, StackRepo};
 pub use timeline::{MonthBucket, TimelineRepo};
+pub use totp::{TotpConfirmed, TotpRepo, TotpSetup, TotpStatus};
 pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
+pub use uploads::{
+    FinalizeOutcome, NewUploadSession, UPLOAD_TMP_DIR_NAME, UploadSessionRepo, ensure_disk_space,
+};
 pub use users::UserRepo;
 pub use visibility::VisibilityScope;
 
+use moka::future::Cache;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0025_user_home_locations.
+// rivede la directory. 0032_backup_config.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
 pub struct Db {
     pool: PgPool,
+    permission_cache: Cache<uuid::Uuid, VisibilityScope>,
+    settings_cache: Cache<String, Option<serde_json::Value>>,
 }
 
 impl Db {
@@ -86,7 +109,11 @@ impl Db {
             .acquire_timeout(std::time::Duration::from_secs(10))
             .connect(url)
             .await?;
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            permission_cache: Cache::builder().max_capacity(10_000).build(),
+            settings_cache: Cache::builder().max_capacity(1_000).build(),
+        })
     }
 
     /// Applica tutte le migrazioni non ancora eseguite.
@@ -102,6 +129,24 @@ impl Db {
     #[must_use]
     pub const fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    #[must_use]
+    pub fn permission_cache(&self) -> &Cache<uuid::Uuid, VisibilityScope> {
+        &self.permission_cache
+    }
+
+    #[must_use]
+    pub fn settings_cache(&self) -> &Cache<String, Option<serde_json::Value>> {
+        &self.settings_cache
+    }
+
+    pub async fn invalidate_permission_cache_for_user(&self, user_id: keeppix_domain::UserId) {
+        self.permission_cache.invalidate(&user_id.as_uuid()).await;
+    }
+
+    pub async fn invalidate_setting_cache(&self, key: &str) {
+        self.settings_cache.invalidate(key).await;
     }
 
     /// # Errors

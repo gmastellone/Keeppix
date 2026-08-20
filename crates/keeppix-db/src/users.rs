@@ -232,6 +232,7 @@ impl<'a> UserRepo<'a> {
         .bind(role.map(role_str))
         .fetch_one(self.db.pool())
         .await?;
+        self.db.invalidate_permission_cache_for_user(id).await;
         row.into_domain()
     }
 
@@ -263,6 +264,7 @@ impl<'a> UserRepo<'a> {
             }
             return Err(DbError::NotFound);
         }
+        self.db.invalidate_permission_cache_for_user(id).await;
         Ok(())
     }
 
@@ -292,6 +294,7 @@ impl<'a> UserRepo<'a> {
             }
             return Err(DbError::NotFound);
         }
+        self.db.invalidate_permission_cache_for_user(id).await;
         Ok(())
     }
 

@@ -62,8 +62,8 @@ pub async fn create_link(
     Auth(ctx): Auth,
     Json(req): Json<CreateLinkRequest>,
 ) -> Result<impl IntoResponse, Problem> {
-    let password_hash = if let Some(pw) = &req.password {
-        let parsed = Password::parse(pw).map_err(|_| {
+    let password_hash = if let Some(pw) = req.password {
+        let parsed = Password::parse_owned(pw).map_err(|_| {
             Problem::new(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "invalid-password",
@@ -290,7 +290,7 @@ pub async fn public_auth(
 
     if let Some(pw_hash) = &row.password_hash {
         let provided = req.password.unwrap_or_default();
-        let parsed = Password::parse(&provided).map_err(|_| Problem::forbidden())?;
+        let parsed = Password::parse_owned(provided).map_err(|_| Problem::forbidden())?;
         let stored = PasswordHash::from_stored(pw_hash.clone());
         if !verify_password(&parsed, &stored) {
             return Err(Problem::forbidden());
@@ -579,7 +579,9 @@ async fn write_body_capped(
     Ok(written)
 }
 
-async fn peek_header(path: &std::path::Path) -> Result<Vec<u8>, Problem> {
+/// Riusata da [`crate::routes::upload`] per la stessa verifica di
+/// decodificabilità a fine sessione tus.
+pub(crate) async fn peek_header(path: &std::path::Path) -> Result<Vec<u8>, Problem> {
     use tokio::io::AsyncReadExt as _;
     let mut file = tokio::fs::File::open(path)
         .await

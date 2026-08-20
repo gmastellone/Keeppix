@@ -9,8 +9,9 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
-    auth, duplicates, flags, folders, geotag, libraries, map, media, metadata, places, problems,
-    regions, search, setup, stacks, timeline, trash, users, viewport, ws,
+    auth, credentials, duplicates, flags, folders, geotag, libraries, map, media, metadata, places,
+    problems, regions, search, setup, stacks, sync, timeline, totp, trash, users, video, viewport,
+    ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -41,7 +42,7 @@ impl utoipa::Modify for SecurityAddon {
 #[openapi(
     info(
         title = "Keeppix API",
-        version = env!("CARGO_PKG_VERSION"),
+        version = "1.0.0",
         description = "API di Keeppix. Contratto congelato: solo aggiunte entro /api/v1."
     ),
     modifiers(&SecurityAddon),
@@ -52,6 +53,11 @@ impl utoipa::Modify for SecurityAddon {
         auth::refresh,
         auth::logout,
         auth::me,
+        totp::status,
+        totp::setup,
+        totp::confirm,
+        totp::regenerate_recovery,
+        totp::disable,
         timeline::buckets,
         timeline::page,
         timeline::asset,
@@ -62,6 +68,9 @@ impl utoipa::Modify for SecurityAddon {
         media::preview,
         media::full,
         media::original,
+        video::playback,
+        video::hls,
+        video::poster,
         viewport::promote,
         search::run,
         search::suggest,
@@ -77,6 +86,7 @@ impl utoipa::Modify for SecurityAddon {
         search::create_saved,
         ws::ticket,
         ws::connect,
+        sync::delta,
         problems::list,
         duplicates::list,
         duplicates::members,
@@ -115,6 +125,9 @@ impl utoipa::Modify for SecurityAddon {
         users::change_password,
         users::set_home,
         users::delete_home,
+        credentials::create,
+        credentials::list,
+        credentials::revoke,
     ),
     // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
     // operazioni (verificato — togliendo una voce il documento non cambia di un
@@ -126,6 +139,10 @@ impl utoipa::Modify for SecurityAddon {
         auth::LoginRequest,
         auth::LoginResponse,
         auth::MeResponse,
+        totp::TotpStatusView,
+        totp::TotpSetupView,
+        totp::TotpCodeRequest,
+        totp::TotpRecoveryCodesView,
         setup::SetupStatus,
         setup::SetupRequest,
         setup::SetupResponse,
@@ -145,10 +162,12 @@ impl utoipa::Modify for SecurityAddon {
         search::SavedSearchRequest,
         search::SavedSearchView,
         ws::TicketResponse,
+        sync::DeltaView,
         problems::ProblemsView,
         duplicates::DuplicateGroupView,
         duplicates::ResolveDuplicateRequest,
         duplicates::ResolveDuplicateResponse,
+        video::PlaybackResponse,
         trash::DeleteAssetRequest,
         trash::TrashListPage,
         trash::TrashItemView,
@@ -181,6 +200,9 @@ impl utoipa::Modify for SecurityAddon {
         users::ChangePasswordRequest,
         users::SetHomeRequest,
         users::HomeView,
+        credentials::CreateAppPasswordRequest,
+        credentials::AppPasswordView,
+        credentials::AppPasswordCreatedView,
         crate::problem::Problem,
     )),
     tags(

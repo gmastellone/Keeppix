@@ -7,16 +7,24 @@ import { ApiProblem } from '@/api/client'
 import Alert from '@/components/ui/Alert.vue'
 import Button from '@/components/ui/Button.vue'
 import TextField from '@/components/ui/TextField.vue'
+import { setLocale, type Locale } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 const session = useSessionStore()
 
 const username = ref('')
 const password = ref('')
+const totpCode = ref('')
+const needsTotp = ref(false)
 const error = ref('')
 const loading = ref(false)
+
+function onLanguageChange(event: Event) {
+  const next = (event.target as HTMLSelectElement).value as Locale
+  setLocale(next)
+}
 
 // Un logout azzerato solo localmente (revoca server-side non confermata)
 // atterra qui: lo si segnala una volta, poi si consuma il segnale.
@@ -31,12 +39,24 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    await session.login(username.value, password.value)
+    await session.login(
+      username.value,
+      password.value,
+      needsTotp.value ? totpCode.value.trim() : undefined
+    )
     await router.push('/')
   } catch (e) {
+    if (e instanceof ApiProblem && e.type === 'keeppix/totp-required') {
+      needsTotp.value = true
+      totpCode.value = ''
+      error.value = ''
+      return
+    }
     error.value =
       e instanceof ApiProblem && e.type === 'keeppix/invalid-credentials'
-        ? t('login.errors.invalidCredentials')
+        ? needsTotp.value
+          ? t('login.errors.invalidTotp')
+          : t('login.errors.invalidCredentials')
         : t('common.unexpectedError')
   } finally {
     loading.value = false
@@ -66,6 +86,13 @@ async function submit() {
         autocomplete="current-password"
         required
       />
+      <TextField
+        v-if="needsTotp"
+        v-model="totpCode"
+        :label="t('login.totpCode')"
+        autocomplete="one-time-code"
+        required
+      />
       <Alert
         v-if="error"
         :message="error"
@@ -74,8 +101,19 @@ async function submit() {
         type="submit"
         :loading="loading"
       >
-        {{ t('login.submit') }}
+        {{ needsTotp ? t('login.submitTotp') : t('login.submit') }}
       </Button>
+      <label class="flex flex-col gap-1 text-sm">
+        <span class="text-content-muted">{{ t('common.language') }}</span>
+        <select
+          class="rounded border border-edge bg-surface px-2 py-1.5"
+          :value="locale"
+          @change="onLanguageChange"
+        >
+          <option value="it">{{ t('common.languageIt') }}</option>
+          <option value="en">{{ t('common.languageEn') }}</option>
+        </select>
+      </label>
     </form>
   </main>
 </template>

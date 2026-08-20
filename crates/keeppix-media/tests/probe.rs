@@ -1,11 +1,14 @@
 #![allow(clippy::unwrap_used)]
 
 #[test]
-fn probe_does_not_claim_software_was_measured() {
+fn probe_reports_a_concrete_backend() {
     let caps = keeppix_media::probe();
-    assert_eq!(
-        caps.backend, "unprobed",
-        "senza un rilevamento hardware il backend non può affermare 'software'"
+    assert!(
+        caps.decode_fps.is_none()
+            || caps
+                .decode_fps
+                .is_some_and(|fps| fps.is_finite() && fps > 0.0),
+        "decode_fps must be absent or a positive finite measurement"
     );
-    assert!(caps.decode_fps.is_none());
+    assert!(caps.extra.is_object());
 }

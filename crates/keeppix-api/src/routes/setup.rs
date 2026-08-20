@@ -24,6 +24,7 @@ pub struct SetupStatus {
     path = "/api/v1/setup/status",
     tag = "setup",
     operation_id = "setup_status",
+    summary = "Tell whether the instance already has a bootstrap admin",
     responses(
         (status = 200, description = "Stato di inizializzazione dell'istanza", body = SetupStatus),
         (status = 500, description = "Il conteggio degli utenti è fallito", body = Problem)
@@ -59,6 +60,7 @@ pub struct SetupResponse {
     path = "/api/v1/setup",
     tag = "setup",
     operation_id = "setup_create",
+    summary = "Create the bootstrap admin account and open a session",
     request_body = SetupRequest,
     responses(
         (status = 201, description = "Amministratore creato e sessione aperta", body = SetupResponse),
@@ -83,7 +85,7 @@ pub async fn create(
         )
         .with_detail(e.to_string())
     })?;
-    let password = Password::parse(&req.password).map_err(|e| {
+    let password = Password::parse_owned(req.password).map_err(|e| {
         Problem::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "invalid-password",

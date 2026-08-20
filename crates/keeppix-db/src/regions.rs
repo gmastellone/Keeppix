@@ -167,6 +167,21 @@ impl<'a> RegionRepo<'a> {
         rows.into_iter().map(RegionRow::into_domain).collect()
     }
 
+    /// Inventory for backup `maps.json`. Pipeline-only — no `AuthContext`
+    /// (same class as `SessionRepo::purge_expired`: system maintenance, not
+    /// per-user data). Map regions are instance-global.
+    ///
+    /// # Errors
+    /// `Connection` on database failure.
+    pub async fn list_all_for_jobs(&self) -> Result<Vec<MapRegion>, DbError> {
+        let rows: Vec<RegionRow> = sqlx::query_as(&format!(
+            "SELECT {COLUMNS} FROM map_regions ORDER BY label, id"
+        ))
+        .fetch_all(self.db.pool())
+        .await?;
+        rows.into_iter().map(RegionRow::into_domain).collect()
+    }
+
     /// Legge una regione globale per id.
     ///
     /// # Errors

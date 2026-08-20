@@ -24,6 +24,9 @@ pub struct TestServer {
     // condiviso vive nello `OnceCell` e non si ferma.
     container: Option<ContainerAsync<Postgres>>,
     pub db: Db,
+    pub database_url: String,
+    admin_url: String,
+    db_name: String,
     pub data_dir: std::path::PathBuf,
     /// Radice allowlist per `KEEPPIX_LIBRARY_ROOTS` nei test (sotto `data_dir`).
     pub photos_root: std::path::PathBuf,
@@ -54,8 +57,8 @@ impl TestServer {
     /// altri test dello stesso binario.
     #[allow(clippy::expect_used)]
     pub async fn start_stoppable() -> Self {
-        let (container, url) = provision_dedicated().await;
-        boot(container, url, |state| state).await
+        let (container, provisioned) = provision_dedicated().await;
+        boot(container, provisioned, |state| state).await
     }
 
     pub fn url(&self, path: &str) -> String {
@@ -85,12 +88,20 @@ impl TestServer {
     }
 }
 
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        drop_test_database(&self.admin_url, &self.db_name);
+        let _ = std::fs::remove_dir_all(&self.data_dir);
+    }
+}
+
 #[allow(clippy::expect_used)]
 async fn boot(
     container: Option<ContainerAsync<Postgres>>,
-    url: String,
+    provisioned: ProvisionedDb,
     configure: impl FnOnce(keeppix_api::AppState) -> keeppix_api::AppState,
 ) -> TestServer {
+    let url = provisioned.url.clone();
     let db = Db::connect(&url, 5).await.expect("connessione");
     db.migrate().await.expect("migrazioni");
 
@@ -104,6 +115,7 @@ async fn boot(
         keeppix_jobs::watch::LibraryWatchers::new(db.clone(), std::time::Duration::from_millis(80));
     let state = configure(
         keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone())
+            .with_database_url(url.clone())
             .with_library_roots(vec![photos_root.clone()])
             .with_library_watchers(watchers)
             .with_on_authenticated(std::sync::Arc::new(move || {
@@ -128,6 +140,9 @@ async fn boot(
     TestServer {
         container,
         db,
+        database_url: url,
+        admin_url: provisioned.admin_url,
+        db_name: provisioned.name,
         data_dir,
         photos_root,
         auth_pings,
@@ -171,7 +186,7 @@ pub use keeppix_test_support::assert_security_headers;
 /// Procura un database vergine. Un container per processo, un `CREATE
 /// DATABASE` per test — allineato a `crates/keeppix-db/tests/harness/mod.rs`.
 #[allow(clippy::expect_used)]
-async fn provision() -> String {
+async fn provision() -> ProvisionedDb {
     if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL") {
         return named_database(&server_url).await;
     }
@@ -192,7 +207,7 @@ async fn provision() -> String {
 }
 
 #[allow(clippy::expect_used)]
-async fn provision_dedicated() -> (Option<ContainerAsync<Postgres>>, String) {
+async fn provision_dedicated() -> (Option<ContainerAsync<Postgres>>, ProvisionedDb) {
     if std::env::var("KEEPPIX_TEST_DATABASE_URL").is_ok() {
         return (None, provision().await);
     }
@@ -203,8 +218,11 @@ async fn provision_dedicated() -> (Option<ContainerAsync<Postgres>>, String) {
         .await
         .expect("container Postgres");
     let port = mapped_port(&container).await;
-    let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
-    (Some(container), url)
+    let admin_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+    // Dedicated container: use a named DB so Drop can clean it; stopping the
+    // container later still tears the whole cluster down for the 503 test.
+    let provisioned = named_database(&admin_url).await;
+    (Some(container), provisioned)
 }
 
 /// Docker Desktop a volte espone la porta un attimo dopo `start()`. Senza
@@ -225,8 +243,14 @@ async fn mapped_port(container: &ContainerAsync<Postgres>) -> u16 {
     unreachable!("il ciclo sopra termina sempre")
 }
 
+struct ProvisionedDb {
+    url: String,
+    admin_url: String,
+    name: String,
+}
+
 #[allow(clippy::expect_used)]
-async fn named_database(server_url: &str) -> String {
+async fn named_database(server_url: &str) -> ProvisionedDb {
     let name = format!("keeppix_test_{}", uuid::Uuid::now_v7().simple());
     let mut admin = PgConnection::connect(server_url)
         .await
@@ -236,7 +260,39 @@ async fn named_database(server_url: &str) -> String {
         .await
         .expect("creazione del database di test");
     admin.close().await.ok();
-    with_database(server_url, &name)
+    ProvisionedDb {
+        url: with_database(server_url, &name),
+        admin_url: server_url.to_owned(),
+        name,
+    }
+}
+
+fn drop_test_database(admin_url: &str, name: &str) {
+    if !name.starts_with("keeppix_test_")
+        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return;
+    }
+    let admin_url = admin_url.to_owned();
+    let name = name.to_owned();
+    let _ = std::thread::spawn(move || {
+        let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return;
+        };
+        rt.block_on(async move {
+            let Ok(mut admin) = PgConnection::connect(&admin_url).await else {
+                return;
+            };
+            let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)"))
+                .execute(&mut admin)
+                .await;
+            admin.close().await.ok();
+        });
+    })
+    .join();
 }
 
 /// Sostituisce il nome del database in un URL di connessione, conservando

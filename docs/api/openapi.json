@@ -7,7 +7,7 @@
       "name": "AGPL-3.0-or-later",
       "identifier": "AGPL-3.0-or-later"
     },
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "paths": {
     "/api/v1/assets/{id}": {
@@ -15,7 +15,7 @@
         "tags": [
           "timeline"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile; `404` solo per\nun admin che chiede un id inesistente.",
+        "summary": "Get an asset",
         "operationId": "assets_get",
         "parameters": [
           {
@@ -90,7 +90,7 @@
         "tags": [
           "trash"
         ],
-        "summary": "# Errors\n`400` se `disk_action` non è una delle tre opzioni; `401` se non\nautenticato; `403` se l'asset non è visibile al chiamante (anche\ninesistente), o se `purged` è richiesto da chi non è owner/admin della\nlibreria; `500` se l'operazione sul filesystem che accompagna la\nscrittura fallisce.",
+        "summary": "Delete an asset",
         "operationId": "assets_delete",
         "parameters": [
           {
@@ -170,7 +170,7 @@
         "tags": [
           "flags"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile.",
+        "summary": "Get asset flags",
         "operationId": "flags_get",
         "parameters": [
           {
@@ -225,7 +225,7 @@
         "tags": [
           "flags"
         ],
-        "summary": "# Errors\n`400` se `rating` supera 5; `401` se non autenticato; `403` se l'asset non\nè visibile.",
+        "summary": "Set asset flags",
         "operationId": "flags_set",
         "parameters": [
           {
@@ -295,7 +295,7 @@
         "tags": [
           "metadata"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile.",
+        "summary": "Get effective asset metadata",
         "operationId": "metadata_effective",
         "parameters": [
           {
@@ -350,7 +350,7 @@
         "tags": [
           "metadata"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile.",
+        "summary": "Apply metadata overrides to an asset",
         "operationId": "metadata_apply",
         "parameters": [
           {
@@ -410,7 +410,7 @@
         "tags": [
           "trash"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile al chiamante;\n`409` se l'asset non ha un cestinamento pendente, o se il percorso\noriginale è di nuovo occupato — il ripristino non sovrascrive mai.",
+        "summary": "Restore an asset from trash",
         "operationId": "assets_restore",
         "parameters": [
           {
@@ -480,7 +480,7 @@
         "tags": [
           "trash"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile al chiamante.",
+        "summary": "Get an asset stack",
         "operationId": "assets_stack_get",
         "parameters": [
           {
@@ -547,7 +547,7 @@
         "tags": [
           "trash"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile; `409` se\nl'asset non è in uno stack.",
+        "summary": "Set the primary asset in a stack",
         "operationId": "assets_stack_set_primary",
         "parameters": [
           {
@@ -617,7 +617,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "# Errors\n`401 invalid-credentials` per utente inesistente, password errata o account\ndisabilitato: le tre situazioni sono indistinguibili dall'esterno.",
+        "summary": "Open a session with username and password",
         "operationId": "auth_login",
         "requestBody": {
           "content": {
@@ -698,7 +698,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "Sempre `204`, anche senza cookie: uscire deve funzionare comunque.",
+        "summary": "Revoke the current session and clear the cookie",
         "operationId": "auth_logout",
         "responses": {
           "204": {
@@ -712,7 +712,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "# Errors\n`401` se non autenticato, `404` se l'utente è stato nel frattempo rimosso.",
+        "summary": "Return the current authenticated user",
         "operationId": "auth_me",
         "responses": {
           "200": {
@@ -778,7 +778,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "# Errors\n`401 unauthenticated` se il cookie manca, è scaduto o è stato riusato dopo\nil consumo — in quest'ultimo caso l'intera famiglia è già stata revocata;\n`503 service-unavailable` se il database non risponde.",
+        "summary": "Rotate the current session cookie",
         "operationId": "auth_refresh",
         "responses": {
           "204": {
@@ -822,12 +822,257 @@
         ]
       }
     },
+    "/api/v1/auth/totp": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get TOTP status",
+        "operationId": "totp_status",
+        "responses": {
+          "200": {
+            "description": "Current TOTP enrolment state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpStatusView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Disable TOTP",
+        "description": "# Errors\n`401` if not authenticated; `409` if not enabled or the code is wrong.",
+        "operationId": "totp_disable",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "TOTP disabled"
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "TOTP not enabled or invalid code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/totp/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Confirm and enable TOTP",
+        "description": "# Errors\n`401` if not authenticated; `409` if nothing is pending or the code is wrong.",
+        "operationId": "totp_confirm",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "TOTP enabled; recovery codes shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpRecoveryCodesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No pending setup or invalid code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/totp/recovery-codes": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Regenerate TOTP recovery codes",
+        "description": "# Errors\n`401` if not authenticated; `409` if TOTP is off or the code is wrong.",
+        "operationId": "totp_regenerate_recovery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "New recovery codes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpRecoveryCodesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "TOTP not enabled or invalid code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/totp/setup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Start TOTP setup",
+        "description": "# Errors\n`401` if not authenticated; `409` if TOTP is already enabled.",
+        "operationId": "totp_setup",
+        "responses": {
+          "200": {
+            "description": "otpauth URI and QR for the authenticator app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpSetupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "TOTP already enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/duplicates": {
       "get": {
         "tags": [
           "library"
         ],
-        "summary": "# Errors\n`401` se non autenticato.",
+        "summary": "List duplicate groups",
         "operationId": "duplicates_list",
         "responses": {
           "200": {
@@ -866,7 +1111,7 @@
         "tags": [
           "library"
         ],
-        "summary": "# Errors\n`400` se `content_hash` non è 64 caratteri esadecimali; `401` se non\nautenticato.",
+        "summary": "List members of a duplicate group",
         "operationId": "duplicates_members",
         "parameters": [
           {
@@ -926,7 +1171,7 @@
         "tags": [
           "library"
         ],
-        "summary": "# Errors\n`400` se `content_hash` o `disk_action` non sono validi; `401` se non\nautenticato; `403` se `keep` non è visibile o non appartiene al gruppo, o\nse `purged` è richiesto da chi non è owner/admin della libreria.",
+        "summary": "Resolve a duplicate group",
         "operationId": "duplicates_resolve",
         "parameters": [
           {
@@ -1003,7 +1248,7 @@
         "tags": [
           "flags"
         ],
-        "summary": "# Errors\n`400` se `rating` supera 5; `401` se non autenticato; `403` se anche un\nsolo asset non è visibile.",
+        "summary": "Set flags on multiple assets",
         "operationId": "flags_batch_set",
         "requestBody": {
           "content": {
@@ -1062,7 +1307,7 @@
         "tags": [
           "folders"
         ],
-        "summary": "# Errors\n`401` se non autenticato.",
+        "summary": "Get the folder tree",
         "operationId": "folders_tree",
         "responses": {
           "200": {
@@ -1111,7 +1356,7 @@
         "tags": [
           "folders"
         ],
-        "summary": "Sposta il sottoalbero. Gli asset restano sulla stessa riga: si riscrive\nsolo `folders.path`.",
+        "summary": "Move a folder",
         "description": "# Errors\n`401`; `403` se non visibile o se il chiamante è solo viewer; `409` su\nciclo o collisione di nome.",
         "operationId": "folders_move",
         "parameters": [
@@ -1192,7 +1437,7 @@
         "tags": [
           "folders"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se la cartella non è visibile (anche\ninesistente, per chi non è admin); `404` solo a un admin su id assente.",
+        "summary": "List child folders",
         "operationId": "folders_children",
         "parameters": [
           {
@@ -1269,7 +1514,7 @@
         "tags": [
           "libraries"
         ],
-        "summary": "# Errors\n`401` se non autenticato.",
+        "summary": "List libraries",
         "operationId": "libraries_list",
         "responses": {
           "200": {
@@ -1306,7 +1551,7 @@
         "tags": [
           "libraries"
         ],
-        "summary": "# Errors\n`403` se non admin; `409` se `root_path` già indicizzato; `422` se fuori\ndall'allowlist.",
+        "summary": "Create a library",
         "operationId": "libraries_create",
         "requestBody": {
           "content": {
@@ -1382,7 +1627,7 @@
         "tags": [
           "libraries"
         ],
-        "summary": "Conteggio per estensione sotto `path`, senza creare nulla.",
+        "summary": "Preview a library path",
         "description": "# Errors\n`403` se non admin; `422` se il percorso è fuori dall'allowlist.",
         "operationId": "libraries_preview",
         "parameters": [
@@ -1449,7 +1694,7 @@
         "tags": [
           "libraries"
         ],
-        "summary": "# Errors\n`403` su id altrui o inesistente (non-admin); `404` solo admin su id\nassente.",
+        "summary": "Get a library",
         "operationId": "libraries_get",
         "parameters": [
           {
@@ -1514,7 +1759,7 @@
         "tags": [
           "libraries"
         ],
-        "summary": "Cancella la riga nel database. **Non tocca i file sul disco.**",
+        "summary": "Delete a library",
         "description": "# Errors\n`403` se non admin; `404` se l'id non esiste.",
         "operationId": "libraries_delete",
         "parameters": [
@@ -1580,7 +1825,7 @@
         "tags": [
           "libraries"
         ],
-        "summary": "# Errors\nCome `get`; campi assenti restano invariati.",
+        "summary": "Update a library",
         "operationId": "libraries_patch",
         "parameters": [
           {
@@ -1647,7 +1892,7 @@
         "tags": [
           "libraries"
         ],
-        "summary": "Stato corrente della scansione / indicizzazione della libreria.",
+        "summary": "Get library scan status",
         "description": "# Errors\nVisibilità come `get`.",
         "operationId": "libraries_scan_status",
         "parameters": [
@@ -1703,7 +1948,7 @@
         "tags": [
           "libraries"
         ],
-        "summary": "Accoda `DiscoverLibrary` (idempotente via `dedup_key`).",
+        "summary": "Start a library scan",
         "description": "# Errors\nVisibilità come `get`; errori di coda → 503.",
         "operationId": "libraries_scan_start",
         "parameters": [
@@ -1761,7 +2006,7 @@
         "tags": [
           "map"
         ],
-        "summary": "# Errors\n`400` per bbox, zoom o scope malformati; `401` senza sessione; `403` per\nuno scope sconosciuto o non visibile.",
+        "summary": "Get map clusters",
         "operationId": "map_clusters",
         "parameters": [
           {
@@ -1879,7 +2124,7 @@
         "tags": [
           "map"
         ],
-        "summary": "# Errors\n`401` senza sessione.",
+        "summary": "List map regions",
         "operationId": "map_regions_list",
         "responses": {
           "200": {
@@ -1916,7 +2161,7 @@
         "tags": [
           "map"
         ],
-        "summary": "# Errors\n`403` per non-admin, `409` se già in download, `422` per metadati o URL\nfuori allowlist.",
+        "summary": "Download a map region",
         "operationId": "map_regions_download",
         "requestBody": {
           "content": {
@@ -1992,7 +2237,7 @@
         "tags": [
           "map"
         ],
-        "summary": "# Errors\n`403` per non-admin, `404` se assente, `500` se i file non sono rimovibili.",
+        "summary": "Delete a map region",
         "operationId": "map_regions_delete",
         "parameters": [
           {
@@ -2062,7 +2307,7 @@
         "tags": [
           "map"
         ],
-        "summary": "# Errors\n`403` per non-admin, `404` se assente, `409` se non in download.",
+        "summary": "Cancel a map region download",
         "operationId": "map_regions_cancel",
         "parameters": [
           {
@@ -2142,7 +2387,7 @@
         "tags": [
           "map"
         ],
-        "summary": "Serve il file PMTiles locale tramite byte range. Le coordinate restano nel\npercorso per il protocollo della mappa, ma il payload è letto direttamente\ndall'archivio senza decompressione o rendering server-side.",
+        "summary": "Serve a map tile from the archive",
         "description": "# Errors\n`401` senza sessione; `404` se la regione è assente o è stata cancellata;\n`416` per un range non valido.",
         "operationId": "map_tile_archive",
         "parameters": [
@@ -2239,7 +2484,7 @@
         "tags": [
           "metadata"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se anche un solo asset non è visibile.",
+        "summary": "Apply metadata overrides in batch",
         "operationId": "metadata_apply_batch",
         "requestBody": {
           "content": {
@@ -2305,7 +2550,7 @@
         "tags": [
           "metadata"
         ],
-        "summary": "# Errors\n`400` se la sorgente non ha coordinate; `403` se sorgente o target non\nsono visibili/modificabili.",
+        "summary": "Copy location metadata between assets",
         "operationId": "metadata_copy_location",
         "requestBody": {
           "content": {
@@ -2371,7 +2616,7 @@
         "tags": [
           "metadata"
         ],
-        "summary": "# Errors\n`400` per GPX malformato o batch troppo grande; `403` se un asset non è\nvisibile/modificabile.",
+        "summary": "Import GPX location data",
         "operationId": "metadata_import_gpx",
         "requestBody": {
           "content": {
@@ -2437,7 +2682,7 @@
         "tags": [
           "metadata"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se la libreria non appartiene al chiamante.",
+        "summary": "Apply timezone recalculation",
         "operationId": "metadata_recalculate_timezones_apply",
         "requestBody": {
           "content": {
@@ -2493,7 +2738,7 @@
         "tags": [
           "metadata"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se la libreria non appartiene al chiamante.",
+        "summary": "Preview timezone recalculation",
         "operationId": "metadata_recalculate_timezones_preview",
         "requestBody": {
           "content": {
@@ -2549,7 +2794,7 @@
         "tags": [
           "metadata"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se anche un solo asset non è visibile.",
+        "summary": "Shift taken-at timestamps in batch",
         "operationId": "metadata_shift_taken_at",
         "requestBody": {
           "content": {
@@ -2615,7 +2860,7 @@
         "tags": [
           "metadata"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se il batch non è del chiamante; `409` se\nil sidecar di un asset del batch è già stato scritto con questi valori.",
+        "summary": "Undo a metadata batch",
         "operationId": "metadata_undo_batch",
         "parameters": [
           {
@@ -2675,7 +2920,7 @@
         "tags": [
           "places"
         ],
-        "summary": "# Errors\n`400` se le coordinate non sono WGS84; `401` se non autenticato; `404` se\nnessuna località o riga amministrativa cade entro la propria soglia.",
+        "summary": "Reverse-geocode a place",
         "operationId": "places_reverse",
         "parameters": [
           {
@@ -2763,7 +3008,7 @@
         "tags": [
           "places"
         ],
-        "summary": "# Errors\n`400` se `q` ha meno di due caratteri; `401` se non autenticato.",
+        "summary": "Suggest places",
         "operationId": "places_suggest",
         "parameters": [
           {
@@ -2842,7 +3087,7 @@
         "tags": [
           "library"
         ],
-        "summary": "# Errors\n`401` se non autenticato.",
+        "summary": "List media problems",
         "operationId": "problems_list",
         "responses": {
           "200": {
@@ -2878,7 +3123,7 @@
         "tags": [
           "search"
         ],
-        "summary": "# Errors\n`401` se non autenticato.",
+        "summary": "List saved searches",
         "operationId": "saved_searches_list",
         "responses": {
           "200": {
@@ -2915,7 +3160,7 @@
         "tags": [
           "search"
         ],
-        "summary": "# Errors\n`401` se non autenticato.",
+        "summary": "Create a saved search",
         "operationId": "saved_searches_create",
         "requestBody": {
           "content": {
@@ -2961,7 +3206,7 @@
         "tags": [
           "search"
         ],
-        "summary": "# Errors\n`400` se il cursore è illeggibile; `401` se non autenticato.",
+        "summary": "Run a search",
         "operationId": "search_run",
         "requestBody": {
           "content": {
@@ -3017,7 +3262,7 @@
         "tags": [
           "search"
         ],
-        "summary": "# Errors\n`401` se non autenticato.",
+        "summary": "Suggest search terms",
         "operationId": "search_suggest",
         "parameters": [
           {
@@ -3064,7 +3309,7 @@
         "tags": [
           "setup"
         ],
-        "summary": "Crea il primo amministratore e apre subito una sessione.",
+        "summary": "Create the bootstrap admin account and open a session",
         "description": "# Errors\n`409 already-initialised` se l'istanza è già configurata;\n`422 invalid-username` / `422 invalid-password` sui dati non validi.",
         "operationId": "setup_create",
         "requestBody": {
@@ -3146,7 +3391,7 @@
         "tags": [
           "setup"
         ],
-        "summary": "# Errors\n`Problem` se il conteggio degli utenti fallisce.",
+        "summary": "Tell whether the instance already has a bootstrap admin",
         "operationId": "setup_status",
         "responses": {
           "200": {
@@ -3172,12 +3417,64 @@
         }
       }
     },
+    "/api/v1/sync/delta": {
+      "get": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "List incremental asset changes",
+        "description": "Reuses [`ChangeLogRepo::since`] — the same cursor safety as the WebSocket\nchannel, exposed for mobile/offline clients.\n\n# Errors\n`401` without a valid session; `503` if the database is unavailable.",
+        "operationId": "delta",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Last `seq` delivered to the client. Omit or `0` for the first page.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Change page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeltaView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/timeline": {
       "get": {
         "tags": [
           "timeline"
         ],
-        "summary": "# Errors\n`400` se `bucket` o `cursor` non sono leggibili; `401` se non autenticato.",
+        "summary": "List timeline assets",
         "operationId": "timeline_page",
         "parameters": [
           {
@@ -3272,7 +3569,7 @@
         "tags": [
           "timeline"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se `library` non è del chiamante.",
+        "summary": "List timeline buckets",
         "operationId": "timeline_buckets",
         "parameters": [
           {
@@ -3351,7 +3648,7 @@
         "tags": [
           "trash"
         ],
-        "summary": "# Errors\n`400` se il cursore non è leggibile; `401` se non autenticato.",
+        "summary": "List trash assets",
         "operationId": "trash_list",
         "parameters": [
           {
@@ -3428,7 +3725,7 @@
         "tags": [
           "trash"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se il chiamante non è owner di alcuna\nlibreria né admin.",
+        "summary": "Empty the trash",
         "operationId": "trash_empty",
         "responses": {
           "200": {
@@ -3484,7 +3781,7 @@
         "tags": [
           "users"
         ],
-        "summary": "# Errors\n`403` se non admin.",
+        "summary": "List users",
         "operationId": "users_list",
         "responses": {
           "200": {
@@ -3531,7 +3828,7 @@
         "tags": [
           "users"
         ],
-        "summary": "# Errors\n`403` se non admin; `409` username/email già in uso; `422` dati non validi.",
+        "summary": "Create a user",
         "operationId": "users_create",
         "requestBody": {
           "content": {
@@ -3602,12 +3899,148 @@
         ]
       }
     },
+    "/api/v1/users/me/app-passwords": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "List app passwords",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "app_passwords_list",
+        "responses": {
+          "200": {
+            "description": "Elenco delle app-password non revocate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AppPasswordView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Create an app password",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "app_passwords_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAppPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "App-password creata; `secret` appare qui una sola volta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppPasswordCreatedView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/me/app-passwords/{id}": {
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Revoke an app password",
+        "description": "# Errors\n`403` se l'id appartiene a un altro utente (o non esiste, per un\nnon-admin).",
+        "operationId": "app_passwords_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'app-password",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "App-password revocata"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non consentito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/users/me/home": {
       "put": {
         "tags": [
           "users"
         ],
-        "summary": "Imposta o aggiorna il punto \"casa\" usato per il geofence sui link pubblici.",
+        "summary": "Set the current user's home location",
         "description": "# Errors\n`401` se non autenticato; `409` se `radius_m` non è positivo.",
         "operationId": "users_set_home",
         "requestBody": {
@@ -3662,7 +4095,7 @@
         "tags": [
           "users"
         ],
-        "summary": "Rimuove casa: nessun geofence finché non viene reimpostata.",
+        "summary": "Clear the current user's home location",
         "description": "# Errors\n`401` se non autenticato.",
         "operationId": "users_delete_home",
         "responses": {
@@ -3692,7 +4125,7 @@
         "tags": [
           "users"
         ],
-        "summary": "Cambio password: richiede la password attuale; revoca le altre sessioni.",
+        "summary": "Change the current user's password",
         "description": "# Errors\n`403` se la password attuale è sbagliata.",
         "operationId": "users_change_password",
         "requestBody": {
@@ -3752,7 +4185,7 @@
         "tags": [
           "users"
         ],
-        "summary": "# Errors\nAdmin o sé stessi; altrimenti `403`.",
+        "summary": "Update a user",
         "operationId": "users_patch",
         "parameters": [
           {
@@ -3819,7 +4252,7 @@
         "tags": [
           "users"
         ],
-        "summary": "# Errors\n`403` se non admin.",
+        "summary": "Disable a user",
         "operationId": "users_disable",
         "parameters": [
           {
@@ -3879,7 +4312,7 @@
         "tags": [
           "users"
         ],
-        "summary": "# Errors\n`403` se non admin.",
+        "summary": "Enable a user",
         "operationId": "users_enable",
         "parameters": [
           {
@@ -3939,7 +4372,7 @@
         "tags": [
           "timeline"
         ],
-        "summary": "Promuove i job `derive:{hash}` dei bucket visibili a priorità Visible.",
+        "summary": "Promote viewport-visible derive jobs",
         "description": "# Errors\n`401` se non autenticato.",
         "operationId": "viewport_promote",
         "requestBody": {
@@ -3989,7 +4422,7 @@
         "tags": [
           "events"
         ],
-        "summary": "# Errors\n`403` se Origin non è ammesso o il ticket manca, è scaduto o è già stato usato.",
+        "summary": "Open a WebSocket connection",
         "operationId": "ws_connect",
         "responses": {
           "101": {
@@ -4018,7 +4451,7 @@
         "tags": [
           "events"
         ],
-        "summary": "# Errors\n`401` se non autenticato.",
+        "summary": "Issue a WebSocket ticket",
         "operationId": "ws_ticket",
         "responses": {
           "200": {
@@ -4054,7 +4487,7 @@
         "tags": [
           "media"
         ],
-        "summary": "# Errors\nCome `thumb`. Genera il livello `full` alla prima richiesta.",
+        "summary": "Serve a full-size derivative",
         "operationId": "media_full",
         "parameters": [
           {
@@ -4124,7 +4557,7 @@
         "tags": [
           "media"
         ],
-        "summary": "# Errors\n`401` / `403` come gli altri asset; `404` se il file non è sul disco.",
+        "summary": "Serve an original media file",
         "operationId": "media_original",
         "parameters": [
           {
@@ -4187,7 +4620,7 @@
         "tags": [
           "media"
         ],
-        "summary": "# Errors\nCome `thumb`.",
+        "summary": "Serve a preview derivative",
         "operationId": "media_preview",
         "parameters": [
           {
@@ -4247,7 +4680,7 @@
         "tags": [
           "media"
         ],
-        "summary": "# Errors\n`401` se non autenticato; `403` se l'hash non è visibile o non esiste.",
+        "summary": "Serve a thumbnail",
         "operationId": "media_thumb",
         "parameters": [
           {
@@ -4301,10 +4734,271 @@
           }
         ]
       }
+    },
+    "/media/video/{id}/hls/{file}": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Serve an HLS playlist or segment",
+        "description": "# Errors\n`404` for missing segments (including beyond the end of the video).",
+        "operationId": "media_video_hls",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Asset id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "description": "Playlist or segment file name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HLS payload"
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset not visible",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Segment or playlist missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/media/video/{id}/playback": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Negotiate video playback",
+        "description": "# Errors\n`401` / `403` / `404` like other media routes.",
+        "operationId": "media_video_playback",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Asset id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "save_bandwidth",
+            "in": "query",
+            "description": "Serve 720p on mobile",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Playback plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset not visible",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not a video or missing on disk",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/media/video/{id}/poster": {
+      "get": {
+        "tags": [
+          "media"
+        ],
+        "summary": "Serve a video poster frame",
+        "description": "# Errors\nLike other media routes.",
+        "operationId": "media_video_poster",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Asset id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JPEG poster"
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset not visible",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Poster missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "AppPasswordCreatedView": {
+        "type": "object",
+        "description": "Risposta alla creazione: **l'unica** in cui `secret` compare. Nessun'altra\nrotta lo restituisce di nuovo — dopo questa risposta, solo l'hash resta.",
+        "required": [
+          "id",
+          "label",
+          "secret",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          }
+        }
+      },
+      "AppPasswordView": {
+        "type": "object",
+        "description": "Riepilogo pubblico: mai `secret`, mai l'hash.",
+        "required": [
+          "id",
+          "label",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "AssetFlagsBody": {
         "type": "object",
         "properties": {
@@ -4518,6 +5212,17 @@
           }
         }
       },
+      "CreateAppPasswordRequest": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        }
+      },
       "CreateLibraryRequest": {
         "type": "object",
         "required": [
@@ -4589,6 +5294,36 @@
           "files_untouched": {
             "type": "boolean",
             "description": "Sempre `true`: la cancellazione è solo sul database."
+          }
+        }
+      },
+      "DeltaView": {
+        "type": "object",
+        "required": [
+          "cursor",
+          "upserted",
+          "deleted",
+          "has_more"
+        ],
+        "properties": {
+          "cursor": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deleted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "upserted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -4925,6 +5660,13 @@
           "password": {
             "type": "string"
           },
+          "totp_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional TOTP or recovery code. Required once the account has 2FA enabled."
+          },
           "username": {
             "type": "string"
           }
@@ -5171,6 +5913,29 @@
           "population": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "PlaybackResponse": {
+        "type": "object",
+        "required": [
+          "mode",
+          "url",
+          "poster_url",
+          "ready"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "poster_url": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
           }
         }
       },
@@ -5736,6 +6501,71 @@
           "preview_token": {
             "type": "string",
             "description": "Opaque token to pass to the apply endpoint within 5 minutes."
+          }
+        }
+      },
+      "TotpCodeRequest": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "TotpRecoveryCodesView": {
+        "type": "object",
+        "required": [
+          "recovery_codes"
+        ],
+        "properties": {
+          "recovery_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TotpSetupView": {
+        "type": "object",
+        "required": [
+          "otpauth_uri",
+          "secret_base32",
+          "qr_svg"
+        ],
+        "properties": {
+          "otpauth_uri": {
+            "type": "string"
+          },
+          "qr_svg": {
+            "type": "string",
+            "description": "Inline SVG QR of `otpauth_uri` — the SPA renders it without a QR dependency."
+          },
+          "secret_base32": {
+            "type": "string"
+          }
+        }
+      },
+      "TotpStatusView": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "pending",
+          "unused_recovery_codes"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "pending": {
+            "type": "boolean"
+          },
+          "unused_recovery_codes": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

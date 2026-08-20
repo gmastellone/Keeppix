@@ -56,6 +56,7 @@ impl From<Place> for PlaceView {
     path = "/api/v1/places/reverse",
     tag = "places",
     operation_id = "places_reverse",
+    summary = "Reverse-geocode a place",
     security(("session_cookie" = [])),
     params(
         ("lat" = f64, Query, description = "Latitudine WGS84, -90..=90"),
@@ -109,6 +110,7 @@ pub async fn reverse(
     path = "/api/v1/places/suggest",
     tag = "places",
     operation_id = "places_suggest",
+    summary = "Suggest places",
     security(("session_cookie" = [])),
     params(
         ("q" = String, Query, description = "Nome, almeno due caratteri"),

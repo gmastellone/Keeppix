@@ -45,6 +45,7 @@ pub(crate) fn parse_action(raw: &str) -> Result<DiskAction, Problem> {
     path = "/api/v1/assets/{id}",
     tag = "trash",
     operation_id = "assets_delete",
+    summary = "Delete an asset",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'asset")),
     request_body = DeleteAssetRequest,
@@ -76,6 +77,7 @@ pub async fn delete(
     path = "/api/v1/assets/{id}/restore",
     tag = "trash",
     operation_id = "assets_restore",
+    summary = "Restore an asset from trash",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'asset")),
     responses(
@@ -171,6 +173,7 @@ fn encode_trash_cursor(entry: &TrashEntry) -> String {
     path = "/api/v1/trash",
     tag = "trash",
     operation_id = "trash_list",
+    summary = "List trash assets",
     security(("session_cookie" = [])),
     params(
         ("cursor" = Option<String>, Query, description = "Keyset deleted_at|id"),
@@ -214,6 +217,7 @@ pub async fn list(
     path = "/api/v1/trash/empty",
     tag = "trash",
     operation_id = "trash_empty",
+    summary = "Empty the trash",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Cestino svuotato", body = EmptyTrashResponse),

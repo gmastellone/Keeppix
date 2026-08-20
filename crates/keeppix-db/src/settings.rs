@@ -71,17 +71,26 @@ impl<'a> SettingsRepo<'a> {
         .bind(value)
         .execute(self.db.pool())
         .await?;
+        self.db.invalidate_setting_cache(key).await;
         Ok(())
     }
 
     /// # Errors
     /// `Connection` se la query fallisce.
     pub async fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>, DbError> {
+        if let Some(cached) = self.db.settings_cache().get(key).await {
+            return Ok(cached);
+        }
+
         let v: Option<serde_json::Value> =
             sqlx::query_scalar("SELECT value FROM system_settings WHERE key = $1")
                 .bind(key)
                 .fetch_optional(self.db.pool())
                 .await?;
+        self.db
+            .settings_cache()
+            .insert(key.to_owned(), v.clone())
+            .await;
         Ok(v)
     }
 }
