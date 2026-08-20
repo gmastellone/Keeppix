@@ -25,6 +25,13 @@ pub struct MapClusterView {
     pub count: i64,
     pub cover_asset_id: String,
     pub clustered: bool,
+    /// Id della cartella di `cover_asset_id`: apre "Apri cartella" dal
+    /// popover (spec fase-10 §27) senza una seconda richiesta.
+    pub folder_id: String,
+    /// Etichetta leggibile del luogo, dalla geocodifica inversa di Fase 4.
+    /// `None` finché l'asset di copertina non ha un luogo assegnato.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place_label: Option<String>,
 }
 
 impl From<MapCluster> for MapClusterView {
@@ -35,6 +42,8 @@ impl From<MapCluster> for MapClusterView {
             count: cluster.count,
             cover_asset_id: cluster.cover_asset_id.to_string(),
             clustered: cluster.clustered,
+            folder_id: cluster.folder_id.to_string(),
+            place_label: cluster.place_label,
         }
     }
 }

@@ -6287,7 +6287,8 @@
           "lon",
           "count",
           "cover_asset_id",
-          "clustered"
+          "clustered",
+          "folder_id"
         ],
         "properties": {
           "clustered": {
@@ -6300,6 +6301,10 @@
           "cover_asset_id": {
             "type": "string"
           },
+          "folder_id": {
+            "type": "string",
+            "description": "Id della cartella di `cover_asset_id`: apre \"Apri cartella\" dal\npopover (spec fase-10 §27) senza una seconda richiesta."
+          },
           "lat": {
             "type": "number",
             "format": "double"
@@ -6307,6 +6312,13 @@
           "lon": {
             "type": "number",
             "format": "double"
+          },
+          "place_label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Etichetta leggibile del luogo, dalla geocodifica inversa di Fase 4.\n`None` finché l'asset di copertina non ha un luogo assegnato."
           }
         }
       },
