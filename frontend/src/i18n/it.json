@@ -401,6 +401,9 @@
     "unexpectedError": "Si è verificato un errore imprevisto.",
     "unavailable": "Il server non è raggiungibile",
     "unavailableHint": "Riprova tra poco: non è un problema di accesso.",
-    "retry": "Riprova"
+    "retry": "Riprova",
+    "language": "Lingua",
+    "languageIt": "Italiano",
+    "languageEn": "English"
   }
 }

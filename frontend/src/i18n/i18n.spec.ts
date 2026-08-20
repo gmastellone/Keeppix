@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 // Alias obbligati: `it` collide con la funzione di test `it` importata da
 // vitest sopra (stesso identificatore nello stesso scope di modulo — errore
 // di parse, non di risoluzione moduli). Il piano usava `it`/`en` diretti.
 import enMessages from './en.json'
+import { applyProfileLocale, i18n, setLocale } from './index'
 import itMessages from './it.json'
 
 /// Appiattisce un oggetto annidato in un elenco di chiavi puntate.
@@ -32,5 +33,32 @@ describe('traduzioni', () => {
         expect(value, `${locale}.${key}`).not.toBe('')
       }
     }
+  })
+})
+
+describe('users.locale come fonte di verità', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setLocale('en')
+  })
+
+  afterEach(() => {
+    localStorage.clear()
+    setLocale('en')
+  })
+
+  it('applyProfileLocale sincronizza i18n e localStorage dal profilo', () => {
+    applyProfileLocale('it')
+    expect(i18n.global.locale.value).toBe('it')
+    expect(localStorage.getItem('keeppix.locale')).toBe('it')
+    expect(document.documentElement.lang).toBe('it')
+  })
+
+  it('applyProfileLocale ignora locale assente o non supportato', () => {
+    setLocale('en')
+    applyProfileLocale(null)
+    expect(i18n.global.locale.value).toBe('en')
+    applyProfileLocale('fr')
+    expect(i18n.global.locale.value).toBe('en')
   })
 })

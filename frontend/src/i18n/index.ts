@@ -31,6 +31,16 @@ export function setLocale(locale: Locale): void {
 }
 
 /**
+ * Spec §10.10: the user profile is the source of truth once a session exists.
+ * `localStorage` remains a first-paint / logged-out cache, synced from here.
+ */
+export function applyProfileLocale(locale: string | null | undefined): void {
+  if (locale && SUPPORTED.includes(locale as Locale)) {
+    setLocale(locale as Locale)
+  }
+}
+
+/**
  * Plurali: si usa la **sintassi nativa di vue-i18n** (`'una foto | {n} foto'`),
  * non ICU MessageFormat.
  *

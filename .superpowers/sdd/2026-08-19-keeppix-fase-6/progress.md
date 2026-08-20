@@ -105,3 +105,17 @@ the session cache. Cost if wrong: unrelated profile patches also flush sessions
 cache (cheap; re-auth from DB).
 
 Task 12: complete (commits 82881b9, c2e35e3, test verdi)
+
+Ruling: Password zeroize covers the owned serde→String→Password path via
+`parse_owned` + `ZeroizeOnDrop`; axum/hyper request `Bytes` and internal
+serde_json buffers remain outside our control without custom body middleware —
+HTTP handlers use `parse_owned` on moved JSON fields. Cost if wrong: plaintext
+may linger in the HTTP stack until pool reuse; the domain-owned copy is cleared.
+
+Ruling: `users.locale` is the source of truth per spec §10.10 once a session
+exists; `localStorage` is a first-paint/logged-out cache kept in sync by
+`applyProfileLocale` and `setLocale`. Login-page language changes UI/cache only
+until settings persist via `PATCH /users/{id}`. Cost if wrong: anonymous
+language choice is not stored server-side until settings.
+
+Task 11: complete (commit 3855a6a, targeted tests verdi)

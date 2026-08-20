@@ -18,8 +18,9 @@ import {
   type UserSummary
 } from '@/api/users'
 import { useSessionStore } from '@/stores/session'
+import type { Locale } from '@/i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 const session = useSessionStore()
 
@@ -109,6 +110,11 @@ async function savePassword() {
   } finally {
     savingPassword.value = false
   }
+}
+
+async function onLanguageChange(event: Event) {
+  const next = (event.target as HTMLSelectElement).value as Locale
+  await session.changeLocale(next)
 }
 
 async function saveHome() {
@@ -283,6 +289,23 @@ function isSelf(id: string): boolean {
           </div>
         </li>
       </ul>
+
+      <form class="mt-10 grid gap-3 sm:grid-cols-2">
+        <h2 class="text-lg font-semibold sm:col-span-2">
+          {{ t('common.language') }}
+        </h2>
+        <label class="block text-sm sm:col-span-2">
+          <select
+            data-testid="users-locale"
+            class="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2"
+            :value="locale"
+            @change="onLanguageChange"
+          >
+            <option value="it">{{ t('common.languageIt') }}</option>
+            <option value="en">{{ t('common.languageEn') }}</option>
+          </select>
+        </label>
+      </form>
 
       <form
         class="mt-10 grid gap-3 sm:grid-cols-2"

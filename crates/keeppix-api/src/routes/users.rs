@@ -115,7 +115,7 @@ pub async fn create(
         )
         .with_detail(e.to_string())
     })?;
-    let password = Password::parse(&body.password).map_err(|e| {
+    let password = Password::parse_owned(body.password).map_err(|e| {
         Problem::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "invalid-password",
@@ -262,8 +262,8 @@ pub async fn change_password(
     Json(body): Json<ChangePasswordRequest>,
 ) -> Result<StatusCode, Problem> {
     let user_id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
-    let current = Password::parse(&body.current_password).map_err(|_| Problem::forbidden())?;
-    let new_password = Password::parse(&body.new_password).map_err(|e| {
+    let current = Password::parse_owned(body.current_password).map_err(|_| Problem::forbidden())?;
+    let new_password = Password::parse_owned(body.new_password).map_err(|e| {
         Problem::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "invalid-password",
