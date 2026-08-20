@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use keeppix_db::Db;
 use keeppix_domain::{AuthContext, LibraryId, SessionToken, ShareToken, UserId};
 
+use crate::idempotency::IdempotencyLockStore;
 use crate::ratelimit::RateLimiter;
 
 #[derive(Clone, Default)]
@@ -215,6 +216,7 @@ pub struct AppState {
     /// In-process unlock proofs for password-protected share links.
     pub share_unlocks: ShareUnlockStore,
     pub tz_previews: TimezonePreviewStore,
+    pub idempotency_locks: IdempotencyLockStore,
 }
 
 impl AppState {
@@ -236,6 +238,7 @@ impl AppState {
             login_limiter: RateLimiter::new(Duration::from_secs(300), 10),
             share_unlocks: ShareUnlockStore::default(),
             tz_previews: TimezonePreviewStore::default(),
+            idempotency_locks: IdempotencyLockStore::default(),
         }
     }
 

@@ -31,6 +31,7 @@ async fn expected_tables_exist() {
     .expect("elenco tabelle");
 
     for expected in [
+        "idempotency_keys",
         "users",
         "groups",
         "group_members",
