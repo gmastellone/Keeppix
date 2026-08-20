@@ -661,3 +661,81 @@ Task 9: complete (commit 938f469 db + 52fa867 api, tests green:
 `./scripts/test.sh` completo **non eseguito** (stesso motivo dei task
 precedenti).
 
+## Task 10 — «Preferito»
+
+Ruling: schema già presente — il Task 6 ha aggiunto `asset_flags.favorite
+boolean NOT NULL DEFAULT false` e `asset_flags_favorite_idx ON asset_flags
+(user_id, asset_id) WHERE favorite` nella migrazione 0037, nome e forma già
+identici a quanto la spec del Task 10 dichiara. **Nessuna nuova
+migrazione**: verificato leggendo `0037_search_axes.sql` e
+`migrations.rs`, non assunto. Il lavoro di questo task è solo il resto del
+concetto (dominio, scrittura, `AssetView`) più la riverifica del già fatto.
+— *Costo se sbagliato:* nessuno, è una lettura, non una scrittura.
+
+Ruling: `favorite` in `AssetFlags`/`AssetFlagsBody` segue lo **stesso
+contratto di rimpiazzo completo** già in vigore per `rating`/`pick`/
+`color_label` — un `PUT`/batch senza `favorite` nel corpo lo riporta a
+`false` (default di scrittura), esattamente come oggi un `PUT` senza
+`rating` azzera il voto. Non ho introdotto un `Option<bool>` "tri-stato"
+(lascia invariato/imposta) solo per questo campo: sarebbe stato un fix
+asimmetrico rispetto a `rating`/`color_label`, che restano soggetti allo
+stesso limite e non sono nello scope di questo task. **Indipendenza**
+verificata è quella richiesta dalla spec §7bis.1 — `favorite` non è un
+alias di `Pick`, sono due colonne senza alcuna logica che le accoppi:
+scartare uno scatto nel culling (`pick = Reject`) passando esplicitamente
+`favorite = true` nello stesso corpo non lo azzera (test
+`favorite_and_pick_are_independent_axes` in `keeppix-db`, e
+`discarding_in_culling_does_not_clear_favorite` a livello HTTP). — *Costo
+se sbagliato:* una scrittura di massa "solo pick" che omette `favorite` nel
+corpo azzera il preferito per tutti gli asset del lotto — stesso difetto di
+forma già presente per `rating`/`color_label`, non nuovo di questo task;
+se un client reale lo colpisce, il fix naturale è un merge parziale per
+tutti e quattro i campi insieme, non solo per `favorite`.
+
+Ruling: `AssetView.favorite` è risolto per **timeline** (`GET
+/assets/{id}`, `GET /timeline`) e per **ricerca** (`POST /search`) — le due
+superfici di browse che il brief chiede esplicitamente di documentare, e
+che coprono di fatto tutti i "sette punti" della spec §7bis.1 (il cuoricino
+sulla tessera e la vista "Preferiti" passano dalla stessa pagina di
+ricerca/timeline; il chip di Cerca e la condizione degli album dinamici
+usano `SearchNode::Favorite`, non `AssetView`; il pannello del lightbox usa
+`GET /assets/{id}`; la modifica in blocco usa `PUT`/batch flags). Per la
+pagina (`page`/`page_in_bounds`, `SearchRepo::run`) ho aggiunto
+`FlagRepo::favorites_among(ctx, ids) -> HashSet<AssetId>` — **una** query
+per pagina invece di N, senza riverificare la visibilità (già garantita da
+chi ha costruito la pagina) e filtrata su `user_id = ctx.user_id()`, quindi
+nessuna fuga del preferito di un altro utente. Gli altri consumatori di
+`AssetView` (`folders::children`, `duplicates::members`,
+`albums::list_assets`, `stacks::get`, `share::public_assets`) restano a
+`favorite: false` di default: non sono fra i sette punti della spec, e
+`share::public_assets` in particolare non ha nemmeno un utente autenticato
+per cui "preferito" abbia senso (link pubblico). — *Costo se sbagliato:* un
+utente che apre lo stack modal, una cartella o un album fisso non vede il
+cuoricino corretto sulle tessere; se emerge come bisogno reale, si applica
+lo stesso pattern (`favorites_among` + `with_favorite`) a quei quattro
+handler senza toccare `FlagRepo`.
+
+Task 10: complete (commit successivo a questa voce, tests green:
+`keeppix-domain` flags 5/5 [+1: `favorite` di default `false`];
+`keeppix-db` flags.rs 11/11 [+2 nuovi: indipendenza favorite/pick,
+`favorites_among` isola per utente], search.rs 19/19 [invariato — riverifica
+Task 6: `favorite_filter_is_per_user_not_per_asset`,
+`favorite_search_uses_the_partial_index` restano verdi senza modifiche],
+migrations.rs 11/11, fase2_culling_1k.rs 4/4 [struct literal aggiornato];
+`keeppix-jobs` xmp.rs 5/5 [struct literal aggiornato]; `keeppix-api`
+flags.rs 6/6 [+1 nuovo: discard in culling non azzera favorite], timeline.rs
+22/22 [+3 nuovi: GET singolo, pagina, default `false` per un asset mai
+votato], search.rs 4/4 [+2 nuovi: risoluzione per pagina, chip Preferiti su
+`SearchNode::Favorite`], albums.rs 3/3, duplicates.rs 4/4, stacks.rs 2/2,
+share_geofence.rs 6/6, share_link_channels.rs 3/3 [tutti invariati — nessuna
+regressione sui consumatori di `AssetView` che restano a `favorite: false`],
+openapi.rs 7/7 [snapshot rigenerato con `UPDATE_OPENAPI=1`: due campi
+additivi, `AssetFlagsBody.favorite` e `AssetView.favorite`, entrambi
+`boolean`]). `cargo fmt --check` e `cargo clippy --workspace --all-targets
+-- -D warnings` verdi su tutto il workspace. `./scripts/test.sh` completo
+**non eseguito** (stesso motivo dei task precedenti: costerebbe l'intera
+suite); eseguiti invece tutti i moduli toccati dal task più i consumatori
+di `AssetView` non toccati (per la controprova di non-regressione) e la
+riverifica dei due test EXPLAIN/per-utente di `search.rs` ereditati dal
+Task 6.
+
