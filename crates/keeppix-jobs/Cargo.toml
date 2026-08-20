@@ -28,7 +28,7 @@ aws-sigv4 = { version = "1.3", default-features = true }
 aws-credential-types = "1.2"
 http = "1"
 hex = "0.4"
-russh = { version = "0.55", default-features = false, features = ["aws-lc-rs"] }
+russh = { version = "0.60.3", default-features = false, features = ["aws-lc-rs"] }
 russh-sftp = "2.1"
 
 [lints]

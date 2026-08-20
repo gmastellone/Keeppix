@@ -215,3 +215,21 @@ path, monthly restore-proof job + destinations test path)
 
 Task 8: complete (same commits; maintenance scheduler wired; purge_expired
 removed from wired-exceptions; EnergyProfile Background respect tested)
+
+Ruling (CI unblock / public repo fix pass): cast `statvfs` `f_bavail`/`f_frsize`
+to `u64` before multiply — native field widths differ (macOS vs Linux).
+
+Ruling: hoist `quick-xml` 0.41 to workspace deps (align api with media;
+RUSTSEC-2026-0195).
+
+Ruling: bump `russh` 0.55 → 0.60.3 for advisory-clean SSH/SFTP path.
+
+Ruling: stay on `age` 0.11 and ignore RUSTSEC-2026-0173 (proc-macro-error2
+unmaintained via age→i18n-embed-fl). age 0.12 removes that crate but fails to
+compile today (ml-kem vs dual crypto-common). Cost if wrong: we keep an
+unmaintained *build-time* transitive until age/ml-kem ships a fix.
+
+Ruling: remote backup destinations skip pre-write free-space checks by design
+(no portable quota API); failures surface on upload. Documented in
+`ensure_destination_space`.
+
