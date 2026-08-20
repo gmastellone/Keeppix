@@ -17,6 +17,7 @@ use keeppix_db::{
 use keeppix_domain::{AuthContext, JobKind, JobPriority};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tokio::io::AsyncWriteExt as _;
 
 use crate::JobError;
 
@@ -471,7 +472,7 @@ async fn upload_to_destination(
     }
 }
 
-/// Upload `local` to the S3-compatible destination with AWS SigV4.
+/// Upload `local` to the S3-compatible destination with AWS `SigV4`.
 ///
 /// # Errors
 /// Missing config, signing failure, or non-success HTTP status.
@@ -487,7 +488,10 @@ pub async fn upload_s3(
     Ok(format!("s3://{}/{}", cfg.bucket, key))
 }
 
-/// Test-only alias kept for readability in integration tests.
+/// Same as [`upload_s3`] — named for readability in integration tests.
+///
+/// # Errors
+/// Propagates [`upload_s3`] failures.
 pub async fn upload_s3_for_test(
     dest: &BackupDestination,
     local: &Path,
@@ -593,7 +597,8 @@ async fn s3_signed_request(
     )
     .into();
     let mut signing_settings = SigningSettings::default();
-    signing_settings.payload_checksum_kind = aws_sigv4::http_request::PayloadChecksumKind::XAmzSha256;
+    signing_settings.payload_checksum_kind =
+        aws_sigv4::http_request::PayloadChecksumKind::XAmzSha256;
 
     let signing_params = v4::SigningParams::builder()
         .identity(&identity)
@@ -643,9 +648,7 @@ async fn s3_signed_request(
         "HEAD" => client.head(&url),
         "GET" => client.get(&url),
         other => {
-            return Err(JobError::Worker(format!(
-                "unsupported s3 method {other}"
-            )));
+            return Err(JobError::Worker(format!("unsupported s3 method {other}")));
         }
     };
     for (name, value) in http_req.headers() {
@@ -671,10 +674,7 @@ async fn s3_signed_request(
 }
 
 fn url_host(url: &str) -> Result<&str, JobError> {
-    let without_scheme = url
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(url);
+    let without_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
     without_scheme
         .split('/')
         .next()
@@ -735,11 +735,7 @@ async fn upload_sftp_async(
 ) -> Result<String, JobError> {
     let cfg = SftpConfig::from_dest(dest)?;
     let body = fs::read(local).map_err(io_err)?;
-    let remote = format!(
-        "{}/{}",
-        cfg.remote_dir.trim_end_matches('/'),
-        filename
-    );
+    let remote = format!("{}/{}", cfg.remote_dir.trim_end_matches('/'), filename);
     sftp_with_session(&cfg, |sftp| {
         let remote = remote.clone();
         let body = body.clone();
@@ -748,7 +744,6 @@ async fn upload_sftp_async(
                 .create(&remote)
                 .await
                 .map_err(|e| JobError::Worker(format!("sftp create {remote}: {e}")))?;
-            use tokio::io::AsyncWriteExt as _;
             file.write_all(&body)
                 .await
                 .map_err(|e| JobError::Worker(format!("sftp write: {e}")))?;
@@ -842,6 +837,7 @@ struct SshClientHandler;
 impl russh::client::Handler for SshClientHandler {
     type Error = russh::Error;
 
+    #[allow(clippy::manual_async_fn)]
     fn check_server_key(
         &mut self,
         _server_public_key: &russh::keys::ssh_key::PublicKey,
@@ -907,6 +903,7 @@ where
 ///
 /// # Errors
 /// Connection/auth failure with a worker message.
+#[allow(clippy::too_many_lines)]
 pub async fn test_destination(dest: &BackupDestination) -> Result<(), JobError> {
     match dest.kind {
         BackupKind::Local => {
@@ -924,14 +921,7 @@ pub async fn test_destination(dest: &BackupDestination) -> Result<(), JobError> 
         BackupKind::S3 => {
             let cfg = S3Config::from_dest(dest)?;
             let key = cfg.object_key(".keeppix-write-test");
-            s3_signed_request(
-                &cfg,
-                "PUT",
-                &key,
-                b"ok".to_vec(),
-                Duration::from_secs(30),
-            )
-            .await?;
+            s3_signed_request(&cfg, "PUT", &key, b"ok".to_vec(), Duration::from_secs(30)).await?;
             s3_signed_request(&cfg, "DELETE", &key, Vec::new(), Duration::from_secs(30)).await?;
             Ok(())
         }
@@ -990,7 +980,6 @@ pub async fn test_destination(dest: &BackupDestination) -> Result<(), JobError> 
                             .create(&probe)
                             .await
                             .map_err(|e| JobError::Worker(format!("sftp probe create: {e}")))?;
-                        use tokio::io::AsyncWriteExt as _;
                         file.write_all(b"ok")
                             .await
                             .map_err(|e| JobError::Worker(format!("sftp probe write: {e}")))?;
