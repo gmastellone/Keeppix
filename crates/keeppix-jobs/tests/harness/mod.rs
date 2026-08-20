@@ -14,6 +14,8 @@ use tokio::sync::OnceCell;
 
 pub struct TestDb {
     db: Db,
+    #[allow(dead_code)]
+    database_url: String,
 }
 
 static SHARED: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
@@ -29,12 +31,22 @@ impl TestDb {
         let db = Db::connect(&url, 5).await.expect("connessione");
         db.migrate().await.expect("migrazioni");
 
-        Self { db }
+        Self {
+            db,
+            database_url: url,
+        }
     }
 
     #[must_use]
     pub const fn db(&self) -> &Db {
         &self.db
+    }
+
+    /// Connection string for tools that cannot use the pool (`pg_dump`/`pg_restore`).
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn database_url(&self) -> &str {
+        &self.database_url
     }
 }
 

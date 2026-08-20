@@ -19,6 +19,8 @@ pub struct IngestHandler {
     pub data_dir: PathBuf,
     pub stability_wait: Duration,
     pub trash_retention_days: i64,
+    pub database_url: String,
+    pub config_path: Option<PathBuf>,
 }
 
 impl crate::JobHandler for IngestHandler {
@@ -30,6 +32,9 @@ impl crate::JobHandler for IngestHandler {
             // parallelo sulla stessa macchina.
             JobKind::DeriveRaw => 512 * 1024 * 1024,
             JobKind::TranscodeVideo => 1024 * 1024 * 1024,
+            JobKind::BackupDump | JobKind::RestoreProof | JobKind::VacuumAnalyze => {
+                256 * 1024 * 1024
+            }
             // WriteSidecar scrive un piccolo file di testo per asset:
             // leggero come gli altri job di manutenzione, copre il default.
             _ => 8 * 1024 * 1024,
@@ -76,6 +81,25 @@ impl crate::JobHandler for IngestHandler {
                 crate::regions::repair_interrupted_downloads(&self.db).await?;
                 Ok(())
             }
+            JobKind::BackupDump => {
+                let ctx = crate::backup::BackupContext {
+                    database_url: self.database_url.clone(),
+                    data_dir: self.data_dir.clone(),
+                    config_path: self.config_path.clone(),
+                };
+                crate::backup::run(&self.db, &ctx).await
+            }
+            JobKind::RestoreProof => {
+                crate::backup::run_restore_proof(&self.db, &self.database_url).await
+            }
+            JobKind::PurgeSessions => crate::maintenance::purge_sessions(&self.db).await,
+            JobKind::CleanupDoneJobs => crate::maintenance::cleanup_done_jobs(&self.db).await,
+            JobKind::CleanupTranscodeCache => {
+                crate::maintenance::cleanup_transcode_cache(&self.data_dir)
+            }
+            JobKind::CleanupIdempotency => crate::maintenance::cleanup_idempotency(&self.db).await,
+            JobKind::VacuumAnalyze => crate::maintenance::vacuum_analyze(&self.db).await,
+            JobKind::IntegrityScrub => crate::maintenance::integrity_scrub(&self.db).await,
         }
     }
 }
