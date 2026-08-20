@@ -4357,6 +4357,96 @@
         ]
       }
     },
+    "/api/v1/users/me/preferences": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Get the current user's preferences",
+        "operationId": "users_preferences_get",
+        "responses": {
+          "200": {
+            "description": "Preferences document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPreferencesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Update the current user's preferences",
+        "description": "# Errors\n`401` if not authenticated; `400` for unknown fields or invalid values.",
+        "operationId": "users_preferences_patch",
+        "requestBody": {
+          "description": "Partial preferences patch",
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated preferences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPreferencesView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown field or invalid value",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/users/me/sessions": {
       "get": {
         "tags": [
@@ -5942,6 +6032,25 @@
           }
         }
       },
+      "GridDensityView": {
+        "type": "object",
+        "required": [
+          "desktop",
+          "mobile"
+        ],
+        "properties": {
+          "desktop": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mobile": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "HomeView": {
         "type": "object",
         "required": [
@@ -6206,6 +6315,25 @@
         "properties": {
           "parent_id": {
             "type": "string"
+          }
+        }
+      },
+      "NotificationPreferencesView": {
+        "type": "object",
+        "required": [
+          "digest",
+          "condivisioni",
+          "problemi"
+        ],
+        "properties": {
+          "condivisioni": {
+            "type": "boolean"
+          },
+          "digest": {
+            "type": "boolean"
+          },
+          "problemi": {
+            "type": "boolean"
           }
         }
       },
@@ -7076,6 +7204,29 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "UserPreferencesView": {
+        "type": "object",
+        "required": [
+          "theme",
+          "grid_density",
+          "notifications",
+          "language"
+        ],
+        "properties": {
+          "grid_density": {
+            "$ref": "#/components/schemas/GridDensityView"
+          },
+          "language": {
+            "type": "string"
+          },
+          "notifications": {
+            "$ref": "#/components/schemas/NotificationPreferencesView"
+          },
+          "theme": {
+            "type": "string"
           }
         }
       },
