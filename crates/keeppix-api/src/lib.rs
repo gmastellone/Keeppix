@@ -5,6 +5,7 @@ pub mod cookie;
 pub mod csrf;
 pub mod dav;
 pub mod extract;
+pub mod idempotency;
 pub mod json;
 pub mod openapi;
 pub mod problem;
@@ -61,7 +62,7 @@ const HSTS: &str = "max-age=31536000; includeSubDomains";
 /// fallback SPA (quest'ultimo lo aggiunge solo il binario, vedi
 /// `keeppix_server::embed::mount`).
 pub fn router(state: AppState) -> Router {
-    with_common_layers(all_routes().fallback(not_found)).with_state(state)
+    with_common_layers(all_routes(state).fallback(not_found))
 }
 
 /// Router senza stato, per i test che non toccano il database.
@@ -79,8 +80,8 @@ pub fn router_without_state() -> Router {
 /// fallback (404 JSON qui sopra, SPA nel binario) sia il momento in cui
 /// applicare `with_common_layers` — che deve essere *dopo* aver impostato il
 /// fallback, per il motivo spiegato lì.
-pub fn router_parts() -> Router<AppState> {
-    all_routes()
+pub fn router_parts(state: AppState) -> Router {
+    all_routes(state)
 }
 
 /// Applica gli strati comuni a tutte le risposte del server: header di
@@ -131,7 +132,7 @@ pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -
 }
 
 #[allow(clippy::too_many_lines)]
-fn api_routes() -> Router<AppState> {
+fn api_routes(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/setup/status", get(routes::setup::status))
         .route("/setup", axum::routing::post(routes::setup::create))
@@ -358,10 +359,14 @@ fn api_routes() -> Router<AppState> {
         // controllo per handler, così le rotte della Fase 1 sono coperte per
         // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe
         // già previste (WebDAV, tus).
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            idempotency::apply,
+        ))
         .layer(axum::middleware::from_fn(csrf::require_client_header))
 }
 
-fn all_routes() -> Router<AppState> {
+fn all_routes(state: AppState) -> Router {
     Router::new()
         .route("/health", get(routes::health::get))
         .route("/api/openapi.json", get(openapi::serve))
@@ -378,12 +383,13 @@ fn all_routes() -> Router<AppState> {
         // `axum::routing::any` cattura anche i metodi non standard che i
         // client WebDAV usano (PROPFIND, MKCOL, MOVE, COPY, LOCK, UNLOCK).
         .route("/dav/{*path}", axum::routing::any(dav::handler))
-        .nest("/api/v1", api_routes())
+        .nest("/api/v1", api_routes(state.clone()))
         // Va chiamata **dopo** aver registrato le rotte: imposta il fallback
         // di ogni `MethodRouter` già presente, e un `route(...)` aggiunto in
         // seguito tornerebbe al `405` a corpo vuoto di axum. Stessa classe di
         // trappola dell'ordine di `.fallback(...)` documentato sotto.
         .method_not_allowed_fallback(method_not_allowed)
+        .with_state(state)
 }
 
 async fn not_found() -> Problem {

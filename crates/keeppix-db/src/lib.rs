@@ -14,6 +14,7 @@ pub mod geo;
 pub mod groups;
 pub mod guest_uploads;
 pub mod home;
+pub mod idempotency;
 pub mod jobs;
 pub mod libraries;
 pub mod overrides;
@@ -50,6 +51,10 @@ pub use geo::{
 pub use groups::{GroupMember, GroupRepo, GroupView};
 pub use guest_uploads::{GuestUploadRepo, GuestUploadRow};
 pub use home::{HomeLocation, HomeRepo, PublicAssetLocation};
+pub use idempotency::{
+    CachedResponse as CachedIdempotencyResponse, IdempotencyRepo,
+    LookupResult as IdempotencyLookupResult, RequestFingerprint as IdempotencyRequestFingerprint,
+};
 pub use jobs::JobRepo;
 pub use libraries::LibraryRepo;
 pub use overrides::{OverrideRepo, SidecarSource};
@@ -77,7 +82,7 @@ use sqlx::postgres::PgPoolOptions;
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0028_dav_locks.
+// rivede la directory. 0029_idempotency_keys.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

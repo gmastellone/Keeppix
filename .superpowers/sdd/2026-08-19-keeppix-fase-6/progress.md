@@ -34,6 +34,25 @@ solo lo snapshot `docs/api/openapi.json` e lo script di generazione. Costo se
 sbagliato: lock-in su un tool locale/non portabile o un diff enorme di codice
 generato senza valore di review.
 
+Ruling: Task 7 prende la migrazione libera `0029_idempotency_keys.sql`; le
+migrazioni numerate in anticipo nel piano per task futuri slittano in base
+all'ordine reale di esecuzione sul branch, perché Postgres/sqlx richiedono un
+ordine monotono effettivo e non è possibile inserire dopo una `0029` mancante.
+Costo se sbagliato: i task futuri devono rinumerare le proprie migrazioni
+rispetto al piano statico.
+
+Ruling: `Idempotency-Key` è supportato da subito ma non ancora obbligatorio:
+senza header la richiesta continua a comportarsi come prima, così i client
+esistenti non si rompono mentre il mobile può adottarlo subito. Costo se
+sbagliato: una finestra di compatibilità in cui i vecchi caller restano non
+idempotenti finché non vengono aggiornati.
+
+Ruling: la tabella congelata usa `response_body jsonb` come envelope
+`{request,response}` — fingerprint della richiesta, body JSON e `Set-Cookie`
+eventuale — invece di aggiungere una colonna per il request hash; il piano
+congela le colonne, non la forma interna del JSON. Costo se sbagliato: una
+futura migrazione dovrà separare metadata e payload in colonne dedicate.
+
 ## Task Log
 
 Task 1: complete (commit 8305d90, probe hardware video misurato con test verdi)
@@ -60,3 +79,6 @@ l'utente vede l'update al riavvio della PWA invece che immediatamente.
 
 Task 10: complete (offline shell + cached thumbs + installable PNG icons;
 frontend build verde, `node --check public/sw.js`, manifest JSON valido)
+
+Task 7: complete (Idempotency-Key middleware + repo + migration; targeted tests
+verdi)
