@@ -3610,6 +3610,91 @@
         ]
       }
     },
+    "/api/v1/timeline/geometry": {
+      "get": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Get the compact width/height/month geometry of a whole timeline view",
+        "description": "Un record binario da 6 byte per scatto (w:u16, h:u16, month:u16 = anno*12+mese), senza identificativo: descrive solo altezze, non identifica asset. Nessuna paginazione: è la geometria di tutta la vista, con gli stessi filtri e la stessa visibilità di /timeline. Supporta 304 via If-None-Match.",
+        "operationId": "timeline_geometry",
+        "parameters": [
+          {
+            "name": "library",
+            "in": "query",
+            "description": "Filtra su una libreria",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "description": "west,south,east,north WGS84",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "8 byte di intestazione (versione, conteggio) + N record da 6 byte (w, h, month), little-endian",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Non modificato rispetto a If-None-Match"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Libreria non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/trash": {
       "get": {
         "tags": [

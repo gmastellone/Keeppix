@@ -1,7 +1,9 @@
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, Query, State};
-use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
-use keeppix_db::{AssetRepo, OverrideRepo, TimelineRepo};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, Utc};
+use keeppix_db::{AssetRepo, Geometry, GeometryRecord, OverrideRepo, TimelineRepo};
 use keeppix_domain::{Asset, AssetId, LibraryId};
 use serde::{Deserialize, Serialize};
 
@@ -205,6 +207,137 @@ pub async fn buckets(
             })
             .collect(),
     ))
+}
+
+/// Versione del formato binario di `/timeline/geometry`. Cambia solo se la
+/// forma del record cambia (larghezza record, ordine dei campi) — un client
+/// vecchio deve poter rifiutare un formato che non capisce invece di leggere
+/// byte a caso.
+const GEOMETRY_FORMAT_VERSION: u32 = 1;
+
+/// # Errors
+/// `401` se non autenticato; `403` se `library` non è del chiamante.
+#[utoipa::path(
+    get,
+    path = "/api/v1/timeline/geometry",
+    tag = "timeline",
+    operation_id = "timeline_geometry",
+    summary = "Get the compact width/height/month geometry of a whole timeline view",
+    description = "Un record binario da 6 byte per scatto (w:u16, h:u16, month:u16 = \
+                    anno*12+mese), senza identificativo: descrive solo altezze, non \
+                    identifica asset. Nessuna paginazione: è la geometria di tutta la \
+                    vista, con gli stessi filtri e la stessa visibilità di /timeline. \
+                    Supporta 304 via If-None-Match.",
+    security(("session_cookie" = [])),
+    params(
+        ("library" = Option<String>, Query, description = "Filtra su una libreria"),
+        ("bbox" = Option<String>, Query, description = "west,south,east,north WGS84")
+    ),
+    responses(
+        (status = 200, description = "8 byte di intestazione (versione, conteggio) + \
+                                       N record da 6 byte (w, h, month), little-endian",
+         body = [u8]),
+        (status = 304, description = "Non modificato rispetto a If-None-Match"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Libreria non visibile", body = Problem),
+        (status = 500, description = "Errore del database", body = Problem)
+    )
+)]
+pub async fn geometry(
+    State(state): State<AppState>,
+    SessionNotShare(ctx): SessionNotShare,
+    Query(query): Query<BucketsQuery>,
+    headers: HeaderMap,
+) -> Result<Response, Problem> {
+    let bounds = query
+        .bbox
+        .as_deref()
+        .map(super::map::parse_bounds)
+        .transpose()?;
+    let repo = TimelineRepo::new(&state.db);
+    let geometry = if let Some(bounds) = bounds {
+        repo.geometry_in_bounds(&ctx, query.library, bounds).await?
+    } else {
+        repo.geometry(&ctx, query.library).await?
+    };
+    let etag = geometry_etag(&geometry);
+    if if_none_match_matches(&headers, &etag) {
+        let mut response = StatusCode::NOT_MODIFIED.into_response();
+        set_etag(&mut response, &etag);
+        return Ok(response);
+    }
+    let mut response = encode_geometry(&geometry.records).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    set_etag(&mut response, &etag);
+    Ok(response)
+}
+
+/// Intestazione da 8 byte (versione `u32`, conteggio `u32`) seguita da un
+/// record da 6 byte per scatto (`w:u16`, `h:u16`, `month:u16`), tutto
+/// little-endian. Niente uuid: la geometria non identifica nulla, descrive
+/// solo altezze (Ruling, spec fase-10 §2.3) — le tessere vere arrivano dalle
+/// pagine, nello stesso ordine.
+fn encode_geometry(records: &[GeometryRecord]) -> Vec<u8> {
+    let count = u32::try_from(records.len()).unwrap_or(u32::MAX);
+    let mut out = Vec::with_capacity(8 + records.len() * 6);
+    out.extend_from_slice(&GEOMETRY_FORMAT_VERSION.to_le_bytes());
+    out.extend_from_slice(&count.to_le_bytes());
+    for record in records {
+        let w = saturating_u16(record.width);
+        let h = saturating_u16(record.height);
+        let m = month_index(record.taken_at_utc);
+        out.extend_from_slice(&w.to_le_bytes());
+        out.extend_from_slice(&h.to_le_bytes());
+        out.extend_from_slice(&m.to_le_bytes());
+    }
+    out
+}
+
+/// Un asset non ancora dimensionato (sizing non passato) entra con `0`,
+/// invece di essere escluso: altrimenti il layout "salta" quando il sizing
+/// arriva (spec fase-10 §2.3, punto 5).
+fn saturating_u16(value: Option<i32>) -> u16 {
+    value.map_or(0, |v| u16::try_from(v).unwrap_or(u16::MAX))
+}
+
+/// `month = anno*12 + mese_di_calendario (1..=12)`. Satura ai margini di
+/// `u16` invece di traboccare: una data EXIF corrotta (anno 1 o anno 9999)
+/// resta cosmetica, non un panic — la geometria non identifica nulla.
+fn month_index(taken_at_utc: DateTime<Utc>) -> u16 {
+    let year = i64::from(taken_at_utc.year());
+    let month = i64::from(taken_at_utc.month());
+    let index = year.saturating_mul(12).saturating_add(month);
+    u16::try_from(index.clamp(0, i64::from(u16::MAX))).unwrap_or(u16::MAX)
+}
+
+/// `ETag` derivato dal conteggio e dal massimo `updated_at` della vista:
+/// rientrare sulla stessa vista senza modifiche rende `304` (spec fase-10
+/// §2.3). Non è pensato per essere confrontato fra viste diverse.
+fn geometry_etag(geometry: &Geometry) -> String {
+    let stamp = geometry.last_modified.map_or(0, |t| t.timestamp_micros());
+    format!("\"{:x}-{stamp:x}\"", geometry.records.len())
+}
+
+fn set_etag(response: &mut Response, etag: &str) {
+    if let Ok(value) = HeaderValue::from_str(etag) {
+        response.headers_mut().insert(header::ETAG, value);
+    }
+}
+
+fn if_none_match_matches(headers: &HeaderMap, etag: &str) -> bool {
+    let Some(value) = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return false;
+    };
+    value
+        .split(',')
+        .map(str::trim)
+        .any(|candidate| candidate == "*" || candidate == etag)
 }
 
 /// # Errors

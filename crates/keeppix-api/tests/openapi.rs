@@ -55,6 +55,7 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/auth/totp/confirm",
         "/api/v1/auth/totp/recovery-codes",
         "/api/v1/timeline/buckets",
+        "/api/v1/timeline/geometry",
         "/api/v1/timeline",
         "/api/v1/folders/tree",
         "/api/v1/folders/{id}",
@@ -206,8 +207,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 81,
-        "il documento deve descrivere ottantuno operazioni"
+        checked, 82,
+        "il documento deve descrivere ottantadue operazioni"
     );
 }
 
@@ -309,6 +310,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/sync/delta",
             "/api/v1/timeline",
             "/api/v1/timeline/buckets",
+            "/api/v1/timeline/geometry",
             "/api/v1/trash",
             "/api/v1/trash/empty",
             "/api/v1/users",
@@ -426,6 +428,7 @@ fn operation_ids_are_explicit_and_unique() {
             "setup_create",
             "setup_status",
             "timeline_buckets",
+            "timeline_geometry",
             "timeline_page",
             "totp_confirm",
             "totp_disable",
@@ -490,8 +493,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 81,
-        "il documento deve descrivere ottantuno operazioni"
+        checked, 82,
+        "il documento deve descrivere ottantadue operazioni"
     );
 }
 

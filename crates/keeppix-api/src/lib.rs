@@ -155,6 +155,7 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::totp::regenerate_recovery),
         )
         .route("/timeline/buckets", get(routes::timeline::buckets))
+        .route("/timeline/geometry", get(routes::timeline::geometry))
         .route("/timeline", get(routes::timeline::page))
         .route("/folders/tree", get(routes::folders::tree))
         .route("/folders/{id}/children", get(routes::folders::children))
