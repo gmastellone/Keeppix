@@ -117,6 +117,24 @@ jobs:
         if: always() && github.ref == 'refs/heads/main'
         run: df -h /
 
+  api-clients:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Genera i client OpenAPI
+        run: ./scripts/generate-api-clients.sh
+      - uses: actions/setup-node@v5
+        with: { node-version: "24" }
+      - name: Il client TypeScript generato compila
+        working-directory: docs/api/clients/typescript-fetch
+        run: |
+          npm install --ignore-scripts
+          npx tsc --noEmit -p tsconfig.json
+      - name: Il package Swift generato è valido
+        run: |
+          test -f docs/api/clients/swift5/Package.swift
+          grep -q 'name: "KeeppixApiClient"' docs/api/clients/swift5/Package.swift
+
   frontend:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: frontend } }
