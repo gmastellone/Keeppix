@@ -413,7 +413,78 @@ le elenca; test che il progresso arriva anche se il client si riconnette a metà
 
 ---
 
-## Task 17 — Chiudere l'OpenAPI e i client generati
+## Task 17 — `GET /bootstrap`: nove richieste diventano tre
+
+Aprire la Timeline a freddo costa **nove richieste** prima del primo disegno utile
+(utente, preferenze, cartelle+conteggi, spazio, buckets, geometria, prima pagina,
+due badge), con tre catene di dipendenza vere. In LAN si nota poco; da fuori casa,
+con 100 ms di andata e ritorno, è quasi un secondo di attesa.
+
+`GET /api/v1/bootstrap` restituisce in un colpo: utente, preferenze, albero
+cartelle con conteggi, spazio su disco, badge. Tutti dati piccoli, tutti richiesti
+sempre, tutti già in cache lato server dopo i Task 9 e 11.
+
+**Ruling: additivo, non sostitutivo.** — Le viste che cambiano un solo pezzo (le
+preferenze da Impostazioni, i conteggi dopo un import) devono poterlo rileggere
+senza riscaricare tutto, e i client non-web usano già i singoli endpoint.
+`bootstrap` **compone gli stessi repository e non ha SQL proprio**, così non può
+divergere. — *Costo se sbagliato:* due strade per lo stesso dato da tenere
+coerenti.
+
+**Verifica:** test che `bootstrap` e la somma dei singoli endpoint restituiscono
+gli stessi valori; test che conta le query emesse e le confronta con la somma dei
+singoli (deve essere ≤).
+
+---
+
+## Task 18 — Il tetto ai conteggi degli album dinamici
+
+Un album dinamico non ha membri materializzati — ed è giusto così. Ma la griglia
+Album mostra *"81 foto"* accanto a ognuno: con otto album dinamici, aprirla
+significa **otto interrogazioni sull'intero catalogo**. Su 200.000 asset su un Pi è
+la query più cara che l'interfaccia sappia innescare, e si innesca navigando.
+
+1. Cache `moka` con invalidazione esplicita (già la convenzione della Fase 6),
+   agganciata a import, cestinamento e alle modifiche di metadati che l'AST tocca.
+2. **Conteggio con tetto**: `LIMIT 1000`, e oltre si restituisce un indicatore che
+   l'interfaccia rende come *"più di 999"*.
+
+**Ruling: cache e tetto insieme, non calcolo differito.** — Un numero che arriva in
+ritardo fa "saltare" la scheda, cioè esattamente l'effetto che gli scheletri di
+caricamento servono a evitare. Cache più tetto danno un numero immediato e stabile.
+— *Costo se sbagliato:* per gli album enormi il numero è approssimato; è una
+perdita accettabile contro una griglia che si muove sotto il dito.
+
+**Verifica:** `EXPLAIN ANALYZE` con e senza tetto su 200k; test che il tetto
+scatta e che l'indicatore arriva al client.
+
+---
+
+## Task 19 — Misurare la geometria prima di complicarla
+
+La geometria intera pesa **4,7 MB** su 214.000 scatti (≈1,5 MB gzip). Su LAN è
+nulla; su rete mobile è una pausa visibile a ogni avvio a freddo.
+
+**Non ottimizzare in anticipo.** Questo task è una **misura**, con una soglia
+dichiarata: se il primo disegno su rete mobile simulata supera i **2 secondi**, si
+passa alla geometria **per mese** — solo i mesi vicini a quello guardato, con
+l'altezza dei mesi non ancora scaricati **stimata** da `conteggio × rapporto
+d'aspetto medio` (un numero che `/timeline/buckets` può restituire a costo zero) e
+corretta quando arrivano i dati veri.
+
+**Ruling: si parte dalla versione intera.** — È più semplice e rende lo scrubber
+**esatto** invece che approssimato, e il documento chiede esplicitamente di
+conoscere l'altezza dell'intera libreria in anticipo. Frammentare subito
+significherebbe pagare complessità per un problema che sul caso d'uso primario —
+un server di casa in LAN — non esiste. — *Costo se sbagliato:* si riscrive il
+caricatore della geometria; layout e virtualizzatore restano identici.
+
+**Verifica:** misura con throttling di rete, numero nel ledger, e la decisione
+presa **in base a quel numero**, non a un'intuizione.
+
+---
+
+## Task 20 — Chiudere l'OpenAPI e i client generati
 
 1. Annotare con `utoipa` gli otto gruppi oggi assenti dallo spec generato: `albums`,
    `share`, `groups`, `permissions`, `audit`, `backup`, `restore`, `upload`,
