@@ -27,12 +27,22 @@ genera/integra un client mobile consumatore; è un endpoint per sync
 incrementale, non per la SPA web. Costo se sbagliato: CI `check-wired` rossa o
 un fake caller solo per soddisfare la guardia.
 
+Ruling (review follow-up): `/sync/delta` is now consumed by
+`SyncProbeView` at `/settings/sync` — removed from `wired-exceptions.txt`.
+The SPA probe is intentional until a real mobile client ships; it is not a
+fake string match. Cost if wrong: a throwaway settings page to delete later.
+
 Ruling: la generazione client OpenAPI usa Docker (`openapitools/openapi-generator-cli`)
 anziché una nuova dipendenza npm del workspace. I client sono artefatti
-rigenerabili sotto `docs/api/clients/` e restano ignorati dal VCS; si committano
-solo lo snapshot `docs/api/openapi.json` e lo script di generazione. Costo se
-sbagliato: lock-in su un tool locale/non portabile o un diff enorme di codice
-generato senza valore di review.
+rigenerabili sotto `docs/api/clients/` e restano ignorati dal VCS; si
+committano solo lo snapshot `docs/api/openapi.json` e lo script di
+generazione. Cost if wrong: lock-in su un tool locale/non portabile.
+
+Ruling (review follow-up): CI job `api-clients` runs
+`scripts/generate-api-clients.sh` and `tsc --noEmit` on the generated
+TypeScript client every PR; Swift is shape-checked via Package.swift. The
+earlier “verified” claim without CI was false — this closes it. Cost if
+wrong: slower CI / Docker pull on every PR.
 
 Ruling: Task 7 prende la migrazione libera `0029_idempotency_keys.sql`; le
 migrazioni numerate in anticipo nel piano per task futuri slittano in base
@@ -157,6 +167,30 @@ Ruling: S3 upload is a minimal HTTP PUT with optional custom headers, not full
 AWS SigV4 — enough for gateway/MinIO setups that terminate auth, recorded as a
 known limit. SFTP upload shells out to `scp` in BatchMode; connection test is
 TCP-only. Cost if wrong: operators needing native SigV4/SSH need a follow-up.
+
+Ruling (review follow-up): S3 uses `aws-sigv4` path-style PUT/DELETE; SFTP
+uses `russh` + `russh-sftp` with password or PEM private_key; `test_destination`
+performs an authenticated write+delete probe. Cost if wrong: aws-lc / russh
+build weight in the jobs crate.
+
+Ruling: destination free-space is estimated (`pg_database_size` + maps +
+overhead) and checked **before** staging; a post-pack re-check uses the real
+size. Test hook: destination path ending in `keeppix-nospace` reports 0 bytes.
+Cost if wrong: estimate under-shoots and the post-pack check still aborts late.
+
+Ruling (review follow-up): Idempotency middleware looks up by key when session
+auth fails, so `POST /auth/refresh` retries with a consumed cookie replay the
+cached Set-Cookie instead of 401.
+
+Ruling (review follow-up): every OpenAPI operation has an explicit English
+`summary=`; CI test fails if any summary contains `# Errors`.
+
+Ruling (review follow-up, Task 12): EXPLAIN ANALYZE on 20k assets showed
+`status <> 'trashed'` and `status IN (discovered,indexed,error)` both use
+`assets_folder_filename_key` with a residual filter (~4ms). Keep `<>` — the
+partial status indexes are irrelevant once `folder_id` prunes; rewriting the
+predicate is churn without a plan win. Cost if wrong: a future status value
+outside the IN-list would need a migration either way.
 
 Ruling: integrity scrub and VACUUM/backup dump are scheduled only inside the
 default night window from `main.rs`, while lighter cleanups (sessions, done
