@@ -58,6 +58,18 @@ e non codice da scrivere.
 | 7 | [`specs/fase-7-ai-tag-scene.md`](specs/fase-7-ai-tag-scene.md) | un embedding CLIP per foto, pgvector, tag e categorie dell'utente, ricerca semantica, probe hardware reale |
 | 8 | [`specs/fase-8-volti.md`](specs/fase-8-volti.md) | SCRFD + ArcFace, raggruppamento incrementale, unioni/separazioni permanenti, gruppi di persone |
 | 9 | [`specs/fase-9-organizzazione.md`](specs/fase-9-organizzazione.md) | spostamento sicuro dell'identità asset, culling a cartelle fisiche, rinomina con formule |
+| 10 | [`specs/fase-10-api-interfaccia.md`](specs/fase-10-api-interfaccia.md) | geometria della timeline, involucro di riuscita parziale, tassonomia degli errori, pile collassate, album dinamici, nuovi assi di ricerca, sessioni, preferenze |
+| 11 | [`specs/fase-11-interfaccia.md`](specs/fase-11-interfaccia.md) | le 70 schermate del documento funzionale, i 30 pattern condivisi, virtualizzazione giustificata senza librerie in più |
+
+## Il documento funzionale dell'interfaccia
+
+Tre file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 11:
+
+| File | Cos'è |
+|---|---|
+| [`../ui/keeppix-mockup.html`](../ui/keeppix-mockup.html) | **prototipo interattivo** — si apre con un doppio click, senza server. È la fonte di verità del *comportamento*: dove diverge da qualunque testo, ha ragione lui |
+| [`../ui/documento-funzionale-ui.md`](../ui/documento-funzionale-ui.md) | 70 schermate, ogni controllo con etichetta esatta, ogni scorciatoia, ogni stato disabilitato con la ragione, ogni durata di transizione. Ogni sezione si chiude con *"Dati necessari"*, scritto in termini di cose e non di endpoint |
+| [`../ui/brand-sheet.png`](../ui/brand-sheet.png) | il marchio |
 
 ## Piani
 
@@ -75,7 +87,8 @@ e non codice da scrivere.
 | [`plans/2026-08-18-keeppix-fase-4.md`](plans/2026-08-18-keeppix-fase-4.md) | ✅ completato e mergiato (PR #9) — GPS all'ingest, GeoNames, cluster mappa, fusi orari, PMTiles offline, geofence «casa» |
 | [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ⬜ **in lavorazione** — upload tus riprendibile, WebDAV, app-password |
 | [`plans/2026-08-19-keeppix-fase-6.md`](plans/2026-08-19-keeppix-fase-6.md) | ⬜ scritto, in attesa che la Fase 5 chiuda |
-| Fase 7, 8, 9 | spec scritte; piani da scrivere, uno alla volta |
+| [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ⬜ scritto — 10 task, va **prima** di 7/8/9 perché ne fissa le convenzioni |
+| Fase 7, 8, 9, 11 | spec scritte; piani da scrivere, uno alla volta |
 
 ## Consegne
 

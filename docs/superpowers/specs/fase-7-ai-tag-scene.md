@@ -158,6 +158,14 @@ CREATE TABLE tags (
     embedding     vector(512),
     model_version text,
     color         text,
+    -- Soglia **per tag**, non di sistema: la pagina "Tag e categorie"
+    -- dell'interfaccia la mostra per ogni riga (78%, 85%, 80%…) ed è
+    -- modificabile nel dialog "modifica tag". Un tag largo come «Paesaggi»
+    -- e uno stretto come «Fauna selvatica» non possono condividere la
+    -- stessa soglia senza che uno dei due diventi inutile.
+    -- Semantica vincolante: cambiarla governa le analisi *future* e non
+    -- rivaluta mai una foto già decisa (vedi §56 del documento funzionale).
+    threshold     real NOT NULL DEFAULT 0.75,
     created_by    uuid NOT NULL REFERENCES users(id),
     created_at    timestamptz NOT NULL DEFAULT now(),
     UNIQUE (name, kind)
@@ -175,6 +183,13 @@ CREATE INDEX tags_parent_idx ON tags (parent_id) WHERE parent_id IS NOT NULL;
 CREATE TABLE asset_tags (
     asset_id   uuid NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
     tag_id     uuid NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    -- Tre stati, espliciti. Dedurli da `source` + `decided_at` è ambiguo:
+    -- una coppia rifiutata e una mai proposta si assomigliano troppo, e il
+    -- documento funzionale è categorico — «il rifiuto è permanente e
+    -- definitivo, una proposta rifiutata non tornerà mai in coda». Con lo
+    -- stato esplicito la regola diventa una condizione WHERE invece di una
+    -- convenzione da ricordare.
+    state      text NOT NULL CHECK (state IN ('proposed','confirmed','rejected')),
     source     text NOT NULL CHECK (source IN ('ai','user')),
     score      real,
     -- Una conferma o un rifiuto umano non viene mai sovrascritto dall'IA.
@@ -184,6 +199,12 @@ CREATE TABLE asset_tags (
 );
 
 CREATE INDEX asset_tags_tag_idx ON asset_tags (tag_id);
+
+-- La coda di revisione (§56) chiede «tutte le proposte in attesa, raggruppate
+-- per tag». Senza questo indice è una scansione di una tabella che cresce
+-- come foto × tag; le proposte sono una minoranza, quindi indice parziale.
+CREATE INDEX asset_tags_proposed_idx ON asset_tags (tag_id, asset_id)
+    WHERE state = 'proposed';
 ```
 
 ### 2.3 `model_version` non è un dettaglio
@@ -222,13 +243,27 @@ dà numeri privi di significato, non un errore. La colonna esiste perché:
 L'IA **abbina soltanto**. Per ogni foto con embedding e ogni tag con embedding,
 calcola la similarità e:
 
-- sopra la soglia alta → assegna (`source = 'ai'`, con lo `score`);
-- fra soglia bassa e alta → **suggerisce**, non assegna: compare in una coda di
-  revisione, non nella libreria;
-- sotto la soglia bassa → niente.
+- sopra la soglia del tag → assegna (`state = 'proposed'`, `source = 'ai'`, con
+  lo `score`);
+- fra `soglia − banda` e la soglia → **suggerisce comunque**, ma con uno `score`
+  più basso: la coda di revisione è ordinata per score, quindi le proposte più
+  deboli finiscono in fondo;
+- sotto `soglia − banda` → niente.
 
-Le soglie sono per-tag e regolabili, con un default sensato. È l'unico modo
-onesto: «Tramonti» e «Foto di gruppo» non hanno la stessa separabilità.
+**Un solo numero per tag, visibile e modificabile** (`tags.threshold`): è quello
+che la pagina "Tag e categorie" mostra su ogni riga e che il dialog "modifica
+tag" lascia cambiare. La **banda** sotto la soglia è invece una costante di
+sistema, non esposta: serve a evitare che il taglio sia netto al punto da
+perdere proposte che stanno un punto percentuale sotto.
+
+La soglia è per-tag perché è l'unico modo onesto: «Tramonti» e «Foto di gruppo»
+non hanno la stessa separabilità.
+
+**Nulla entra in libreria senza una persona.** Anche sopra soglia lo stato è
+`proposed`, non `confirmed`: l'IA riempie una coda, non la libreria. È la
+traduzione in schema del principio dichiarato dall'interfaccia — *«Tu crei i
+tag, l'IA li abbina soltanto alle foto»* — e di SP-12, che non confonde mai un
+suggerimento con una decisione umana.
 
 **Non può creare tag.** Non è un divieto scritto in un `if`: senza una riga in
 `tags` non esiste un vettore da confrontare.
