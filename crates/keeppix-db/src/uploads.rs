@@ -586,7 +586,13 @@ fn available_bytes(root: &Path) -> Result<u64, DbError> {
         )));
     }
     // `f_bavail` / `f_frsize` widths differ by platform (`u32` vs `u64`).
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // On Linux both are already `u64`, so the casts look redundant to clippy;
+    // keep them so macOS (and other libc layouts) still compile.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::unnecessary_cast
+    )]
     {
         Ok((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
     }
