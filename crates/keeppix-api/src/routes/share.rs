@@ -145,6 +145,7 @@ pub struct LinkView {
     pub has_password: bool,
     pub expires_at: Option<String>,
     pub max_views: Option<i32>,
+    /// Accessi al link, non «elementi condivisi» (Task 11: niente `item_count`).
     pub view_count: i32,
     pub allow_download: bool,
     pub allow_original: bool,

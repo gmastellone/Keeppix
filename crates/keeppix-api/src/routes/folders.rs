@@ -17,6 +17,8 @@ pub struct FolderView {
     pub parent_id: Option<String>,
     pub name: String,
     pub depth: i32,
+    // Task 11 (spec §7bis.2): niente `asset_count` per riga — il prototipo
+    // mostrava «Urbino 556» in sidebar, ma quel aggregato non entra in `/api/v1`.
 }
 
 impl FolderView {
