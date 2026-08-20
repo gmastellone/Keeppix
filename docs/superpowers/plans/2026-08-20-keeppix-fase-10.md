@@ -317,7 +317,7 @@ stato dentro un lotto di culling, un asse indipendente.
 3. Scrittura singola (`PUT /assets/{id}/flags`) e di massa (`POST /flags/batch`, con
    l'involucro del Task 1).
 4. `SearchNode::Favorite` — è la variante del Task 6 che alimenta sia il chip di
-   Cerca sia la vista "Preferiti" sia gli album dinamici: **una sola
+   Cerca sia la vista "Preferiti" sia il filtro dell'album: **una sola
    implementazione per tre schermate.**
 
 **Verifica:** test che `favorite` e `pick` sono indipendenti (scartare nel culling
@@ -493,30 +493,7 @@ singoli (deve essere ≤).
 
 ---
 
-## Task 18 — Il tetto ai conteggi degli album dinamici
-
-Un album dinamico non ha membri materializzati — ed è giusto così. Ma la griglia
-Album mostra *"81 foto"* accanto a ognuno: con otto album dinamici, aprirla
-significa **otto interrogazioni sull'intero catalogo**. Su 200.000 asset su un Pi è
-la query più cara che l'interfaccia sappia innescare, e si innesca navigando.
-
-1. Cache `moka` con invalidazione esplicita (già la convenzione della Fase 6),
-   agganciata a import, cestinamento e alle modifiche di metadati che l'AST tocca.
-2. **Conteggio con tetto**: `LIMIT 1000`, e oltre si restituisce un indicatore che
-   l'interfaccia rende come *"più di 999"*.
-
-**Ruling: cache e tetto insieme, non calcolo differito.** — Un numero che arriva in
-ritardo fa "saltare" la scheda, cioè esattamente l'effetto che gli scheletri di
-caricamento servono a evitare. Cache più tetto danno un numero immediato e stabile.
-— *Costo se sbagliato:* per gli album enormi il numero è approssimato; è una
-perdita accettabile contro una griglia che si muove sotto il dito.
-
-**Verifica:** `EXPLAIN ANALYZE` con e senza tetto su 200k; test che il tetto
-scatta e che l'indicatore arriva al client.
-
----
-
-## Task 19 — Misurare la geometria prima di complicarla
+## Task 18 — Misurare la geometria prima di complicarla
 
 La geometria intera pesa **4,7 MB** su 214.000 scatti (≈1,5 MB gzip). Su LAN è
 nulla; su rete mobile è una pausa visibile a ogni avvio a freddo.
@@ -540,7 +517,7 @@ presa **in base a quel numero**, non a un'intuizione.
 
 ---
 
-## Task 20 — Il protocollo WebSocket: da due eventi a nove
+## Task 19 — Il protocollo WebSocket: da due eventi a nove
 
 `routes/ws.rs` emette **solo** `assets.upserted` e `assets.deleted`. Il canale è
 versionato (`v`) e ben fatto, ma è uno stub rispetto a ciò che l'interfaccia mostra
@@ -576,7 +553,7 @@ segnala.
 
 ---
 
-## Task 21 — La pausa automatica dell'analisi è un comportamento del server
+## Task 20 — La pausa automatica dell'analisi è un comportamento del server
 
 Il documento fissa la soglia: **4000 ms — quattro secondi dall'ultimo cambio di
 vista** — dopo i quali l'analisi riprende da sola. E dichiara la differenza di
@@ -599,7 +576,7 @@ dopo la soglia; test che i due livelli producono throughput misurabilmente diver
 
 ---
 
-## Task 22 — L'import a lotti, e le due discrepanze
+## Task 21 — L'import a lotti, e le due discrepanze
 
 **Il numero che giustifica il task.** La prova sul campo
 (`.superpowers/field-test-20260817-1855.md`) misura **1,65 asset/s** su Mac con NVMe.
@@ -632,13 +609,13 @@ momento in cui un utente decide se tenerlo.
   testo che l'utente legge come una promessa, vince l'interfaccia salvo ragioni.
 - `RegionView` ha già `downloaded_bytes`, `status` e `last_error`: l'avanzamento del
   download delle mappe **esiste come dato** ma non viene mai spinto. Aggiungere
-  `region.progress` agli eventi del Task 20.
+  `region.progress` agli eventi del Task 19.
 
 **Verifica:** import dello stesso archivio prima e dopo, con i due numeri nel ledger.
 
 ---
 
-## Task 23 — Chiudere l'OpenAPI e i client generati
+## Task 22 — Chiudere l'OpenAPI e i client generati
 
 1. Annotare con `utoipa` gli otto gruppi oggi assenti dallo spec generato: `albums`,
    `share`, `groups`, `permissions`, `audit`, `backup`, `restore`, `upload`,

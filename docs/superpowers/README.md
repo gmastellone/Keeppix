@@ -58,7 +58,7 @@ e non codice da scrivere.
 | 7 | [`specs/fase-7-ai-tag-scene.md`](specs/fase-7-ai-tag-scene.md) | un embedding CLIP per foto, pgvector, tag e categorie dell'utente, ricerca semantica, probe hardware reale |
 | 8 | [`specs/fase-8-volti.md`](specs/fase-8-volti.md) | SCRFD + ArcFace, raggruppamento incrementale, unioni/separazioni permanenti, gruppi di persone |
 | 9 | [`specs/fase-9-organizzazione.md`](specs/fase-9-organizzazione.md) | spostamento sicuro dell'identità asset, culling a cartelle fisiche, rinomina con formule |
-| 10 | [`specs/fase-10-api-interfaccia.md`](specs/fase-10-api-interfaccia.md) | geometria della timeline, involucro di riuscita parziale, tassonomia degli errori, pile collassate, album dinamici, nuovi assi di ricerca, sessioni, preferenze |
+| 10 | [`specs/fase-10-api-interfaccia.md`](specs/fase-10-api-interfaccia.md) | geometria della timeline, involucro di riuscita parziale, tassonomia degli errori, pile collassate, «Aggiorna album», nuovi assi di ricerca, sessioni, preferenze |
 | 11 | [`specs/fase-11-interfaccia.md`](specs/fase-11-interfaccia.md) | le 70 schermate del documento funzionale, i 30 pattern condivisi, virtualizzazione giustificata senza librerie in più |
 
 ## Il documento funzionale dell'interfaccia
@@ -89,11 +89,11 @@ Tre file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 
 | [`plans/2026-08-18-keeppix-fase-4.md`](plans/2026-08-18-keeppix-fase-4.md) | ✅ completato e mergiato (PR #9) — GPS all'ingest, GeoNames, cluster mappa, fusi orari, PMTiles offline, geofence «casa» |
 | [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ⬜ **in lavorazione** — upload tus riprendibile, WebDAV, app-password |
 | [`plans/2026-08-19-keeppix-fase-6.md`](plans/2026-08-19-keeppix-fase-6.md) | ⬜ scritto, in attesa che la Fase 5 chiuda |
-| [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ⬜ scritto — 24 task, va **prima** di 7/8/9 perché ne fissa le convenzioni |
+| [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ⬜ scritto — 23 task, va **prima** di 7/8/9 perché ne fissa le convenzioni |
 | [`plans/2026-08-20-keeppix-fase-7.md`](plans/2026-08-20-keeppix-fase-7.md) | ⬜ scritto — 13 task; comincia **misurando** l'inferenza sull'hardware vero |
 | [`plans/2026-08-20-keeppix-fase-8.md`](plans/2026-08-20-keeppix-fase-8.md) | ⬜ scritto — 11 task; il **primo** è il test che garantisce che i volti non escano dai link pubblici |
 | [`plans/2026-08-20-keeppix-fase-9.md`](plans/2026-08-20-keeppix-fase-9.md) | ⬜ scritto — 11 task; è la fase che tocca **file veri sul disco** |
-| [`plans/2026-08-20-keeppix-fase-11.md`](plans/2026-08-20-keeppix-fase-11.md) | ⬜ scritto — 17 task in quattro tranche che seguono le fasi da cui dipendono |
+| [`plans/2026-08-20-keeppix-fase-11.md`](plans/2026-08-20-keeppix-fase-11.md) | ⬜ scritto — 18 task in quattro tranche che seguono le fasi da cui dipendono |
 
 **Tutti i piani sono scritti.** L'ordine di esecuzione è
 `fix 5/6 → 10 → 7 → 8 → 9 → 11 (A→B→C→D)`; il perché sta nel grafo delle dipendenze del roadmap.

@@ -169,12 +169,12 @@ stato esplicito `proposed/confirmed/rejected`).
 
 | Asse mancante | Serve a | Fase |
 |---|---|---|
-| `Favorite` | chip Cerca, Preferiti, album dinamici | **10** |
-| `Rating{cmp,value}` | album dinamici, filtri | **10** |
-| `DateRange`, `Day`, `Month` | il placeholder dice *"Cerca per data…"*; album dinamici | **10** |
+| `Favorite` | chip Cerca, Preferiti, filtro dell'album | **10** |
+| `Rating{cmp,value}` | filtro dell'album, filtri rapidi | **10** |
+| `DateRange`, `Day`, `Month` | il placeholder dice *"Cerca per data…"*; filtro dell'album | **10** |
 | `Country` | pillola Paese (nel prototipo si crea ma non filtra) | **10** |
-| `Aperture`, `Shutter` | condizioni album dinamici | **10** |
-| `Tag`, `Category` | chip SP-3, pillole, album dinamici | 7 |
+| `Aperture`, `Shutter` | filtro dell'album | **10** |
+| `Tag`, `Category` | chip SP-3, pillole, filtro dell'album | 7 |
 | `Person` | chip SP-3 (oggi disabilitato apposta) | 8 |
 | `Pick` | filtro cartella+stato | 9 |
 | `Semantic` | ricerca per descrizione libera | 7 |
@@ -251,7 +251,7 @@ numero sbagliato mostrato all'utente, non un rallentamento.
 
 Lo spec generato copre **68 path / 81 operazioni**, ma il router ne registra di più: mancano
 del tutto `albums`, `share`, `groups`, `permissions`, `audit`, `backup`, `restore`, `upload`,
-`health`. I client generati non li vedono. → Fase 10, Task 10, con un controllo in CI che
+`health`. I client generati non li vedono. → Fase 10, Task 22, con un controllo in CI che
 fallisce se una rotta registrata non compare nello spec.
 
 ---
@@ -446,7 +446,14 @@ primo disegno su rete mobile supera i 2 secondi, si passa alla versione per mese
 sbagliato:* si riscrive il caricatore della geometria, non il layout né il virtualizzatore, che
 restano identici.
 
-### 13.3 Conteggio dei membri degli album dinamici: la cosa più cara di tutte
+### 13.3 ~~Conteggio dei membri degli album dinamici~~ — **risolto togliendo la funzione**
+
+> **Superato dalla decisione del 20 agosto 2026.** Gli album dinamici non esistono più: un album
+> ricorda il filtro e lo rilancia su richiesta, quindi i membri stanno sempre in `album_assets` e
+> il conteggio è una lettura banale. L'analisi resta qui perché **è la ragione per cui la
+> funzione è stata tagliata**.
+
+#### L'analisi originale
 
 Un album dinamico non ha membri materializzati (ed è giusto così: sono raccolte *"vive"*). Ma la
 griglia Album mostra **"81 foto"** accanto a ognuno. Con otto album dinamici, aprire quella
@@ -703,7 +710,7 @@ utente decide se tenerlo.
 Il documento dichiara l'importazione iniziale **fuori dal disegno di questa fase**. Ma è
 l'operazione più lunga che Keeppix esegua, la prima che un utente incontra, e oggi non ha:
 schermata, avanzamento, stima del tempo rimanente, né modo di sapere che sta funzionando.
-→ Va disegnata (Fase 11), e ha bisogno di `scan.progress` sul WebSocket (Fase 10 Task 20).
+→ Va disegnata (Fase 11), e ha bisogno di `scan.progress` sul WebSocket (Fase 10 Task 19).
 
 ## 19. Due discrepanze fra ciò che l'interfaccia dichiara e ciò che il backend fa
 

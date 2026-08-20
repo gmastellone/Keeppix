@@ -80,7 +80,7 @@ indici della specifica — **tranne quello vettoriale**, vedi Task 11.
 
 ### Task 6 — Lo scheduler dell'analisi
 - Priorità `Background`: non parte mentre qualcuno naviga.
-- **Pausa automatica**, soglia **4000 ms** dall'ultima attività (Fase 10 Task 21), configurabile.
+- **Pausa automatica**, soglia **4000 ms** dall'ultima attività (Fase 10 Task 20), configurabile.
 - Finestra notturna a piena velocità. **Attenzione:** `default_night_window()` è 2:00–6:00 ma
   l'interfaccia promette 2:00–7:00 — vanno allineate, e vince l'interfaccia salvo ragioni.
 - I tre livelli **Piena / Ridotta / Spenta**, con i tempi **misurati** dal Task 1 mostrati
@@ -133,7 +133,7 @@ da tenere in RAM, che su un Pi da 8 GB compete con tutto il resto.
 ## Gruppo F — Chiusura
 
 ### Task 12 — WebSocket e interfaccia
-`analysis.progress` e `suggestions.changed` (Fase 10 Task 20). Gli eventi sono **magri**: un
+`analysis.progress` e `suggestions.changed` (Fase 10 Task 19). Gli eventi sono **magri**: un
 segnale, non uno stato.
 
 ### Task 13 — Documenti e debiti
