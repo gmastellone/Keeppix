@@ -17,7 +17,6 @@
 # =============================================================================
 # Rinvii — consumatore in una fase non ancora eseguita
 # =============================================================================
-fn get_or_create_secret fase-6
 fn extract_poster fase-6
 route /health ops
 route /api/openapi.json ci

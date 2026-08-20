@@ -10,7 +10,8 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
     auth, credentials, duplicates, flags, folders, geotag, libraries, map, media, metadata, places,
-    problems, regions, search, setup, stacks, sync, timeline, trash, users, video, viewport, ws,
+    problems, regions, search, setup, stacks, sync, timeline, totp, trash, users, video, viewport,
+    ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -52,6 +53,11 @@ impl utoipa::Modify for SecurityAddon {
         auth::refresh,
         auth::logout,
         auth::me,
+        totp::status,
+        totp::setup,
+        totp::confirm,
+        totp::regenerate_recovery,
+        totp::disable,
         timeline::buckets,
         timeline::page,
         timeline::asset,
@@ -133,6 +139,10 @@ impl utoipa::Modify for SecurityAddon {
         auth::LoginRequest,
         auth::LoginResponse,
         auth::MeResponse,
+        totp::TotpStatusView,
+        totp::TotpSetupView,
+        totp::TotpCodeRequest,
+        totp::TotpRecoveryCodesView,
         setup::SetupStatus,
         setup::SetupRequest,
         setup::SetupResponse,

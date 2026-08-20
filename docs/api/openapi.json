@@ -822,6 +822,251 @@
         ]
       }
     },
+    "/api/v1/auth/totp": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "# Errors\n`401` if not authenticated.",
+        "operationId": "totp_status",
+        "responses": {
+          "200": {
+            "description": "Current TOTP enrolment state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpStatusView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Disables TOTP after a valid authenticator or recovery code.",
+        "description": "# Errors\n`401` if not authenticated; `409` if not enabled or the code is wrong.",
+        "operationId": "totp_disable",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "TOTP disabled"
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "TOTP not enabled or invalid code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/totp/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Confirms the first authenticator code and enables TOTP. Returns the ten\nrecovery codes once. Does not revoke the current session.",
+        "description": "# Errors\n`401` if not authenticated; `409` if nothing is pending or the code is wrong.",
+        "operationId": "totp_confirm",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "TOTP enabled; recovery codes shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpRecoveryCodesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No pending setup or invalid code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/totp/recovery-codes": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Regenerates all recovery codes after a valid authenticator code. Use when\nthe previous set is exhausted (or lost).",
+        "description": "# Errors\n`401` if not authenticated; `409` if TOTP is off or the code is wrong.",
+        "operationId": "totp_regenerate_recovery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "New recovery codes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpRecoveryCodesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "TOTP not enabled or invalid code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/totp/setup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Starts provisioning: stores an encrypted secret with `enabled_at` NULL.\nThe current session is untouched.",
+        "description": "# Errors\n`401` if not authenticated; `409` if TOTP is already enabled.",
+        "operationId": "totp_setup",
+        "responses": {
+          "200": {
+            "description": "otpauth URI and QR for the authenticator app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpSetupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "TOTP already enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/duplicates": {
       "get": {
         "tags": [
@@ -5415,6 +5660,13 @@
           "password": {
             "type": "string"
           },
+          "totp_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional TOTP or recovery code. Required once the account has 2FA enabled."
+          },
           "username": {
             "type": "string"
           }
@@ -6249,6 +6501,71 @@
           "preview_token": {
             "type": "string",
             "description": "Opaque token to pass to the apply endpoint within 5 minutes."
+          }
+        }
+      },
+      "TotpCodeRequest": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "TotpRecoveryCodesView": {
+        "type": "object",
+        "required": [
+          "recovery_codes"
+        ],
+        "properties": {
+          "recovery_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TotpSetupView": {
+        "type": "object",
+        "required": [
+          "otpauth_uri",
+          "secret_base32",
+          "qr_svg"
+        ],
+        "properties": {
+          "otpauth_uri": {
+            "type": "string"
+          },
+          "qr_svg": {
+            "type": "string",
+            "description": "Inline SVG QR of `otpauth_uri` — the SPA renders it without a QR dependency."
+          },
+          "secret_base32": {
+            "type": "string"
+          }
+        }
+      },
+      "TotpStatusView": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "pending",
+          "unused_recovery_codes"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "pending": {
+            "type": "boolean"
+          },
+          "unused_recovery_codes": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

@@ -50,6 +50,10 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/auth/refresh",
         "/api/v1/auth/logout",
         "/api/v1/auth/me",
+        "/api/v1/auth/totp",
+        "/api/v1/auth/totp/setup",
+        "/api/v1/auth/totp/confirm",
+        "/api/v1/auth/totp/recovery-codes",
         "/api/v1/timeline/buckets",
         "/api/v1/timeline",
         "/api/v1/folders/tree",
@@ -202,8 +206,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 76,
-        "il documento deve descrivere settantasei operazioni"
+        checked, 81,
+        "il documento deve descrivere ottantuno operazioni"
     );
 }
 
@@ -262,6 +266,11 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/assets/{id}/stack/primary",
             "/api/v1/auth/me",
             "/api/v1/auth/refresh",
+            "/api/v1/auth/totp",
+            "/api/v1/auth/totp",
+            "/api/v1/auth/totp/confirm",
+            "/api/v1/auth/totp/recovery-codes",
+            "/api/v1/auth/totp/setup",
             "/api/v1/duplicates",
             "/api/v1/duplicates/{content_hash}",
             "/api/v1/duplicates/{content_hash}/resolve",
@@ -333,7 +342,7 @@ fn security_requirements_name_a_declared_scheme() {
 /// `create`. Gli `operation_id` sono quindi espliciti e con prefisso di area;
 /// questo test fallisce se due operazioni tornano a chiamarsi allo stesso modo.
 #[test]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::too_many_lines)]
 fn operation_ids_are_explicit_and_unique() {
     let doc =
         serde_json::to_value(<keeppix_api::openapi::ApiDoc as utoipa::OpenApi>::openapi()).unwrap();
@@ -418,6 +427,11 @@ fn operation_ids_are_explicit_and_unique() {
             "setup_status",
             "timeline_buckets",
             "timeline_page",
+            "totp_confirm",
+            "totp_disable",
+            "totp_regenerate_recovery",
+            "totp_setup",
+            "totp_status",
             "trash_empty",
             "trash_list",
             "users_change_password",

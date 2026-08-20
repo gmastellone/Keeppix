@@ -16,6 +16,8 @@ const session = useSessionStore()
 
 const username = ref('')
 const password = ref('')
+const totpCode = ref('')
+const needsTotp = ref(false)
 const error = ref('')
 const loading = ref(false)
 
@@ -37,12 +39,24 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    await session.login(username.value, password.value)
+    await session.login(
+      username.value,
+      password.value,
+      needsTotp.value ? totpCode.value.trim() : undefined
+    )
     await router.push('/')
   } catch (e) {
+    if (e instanceof ApiProblem && e.type === 'keeppix/totp-required') {
+      needsTotp.value = true
+      totpCode.value = ''
+      error.value = ''
+      return
+    }
     error.value =
       e instanceof ApiProblem && e.type === 'keeppix/invalid-credentials'
-        ? t('login.errors.invalidCredentials')
+        ? needsTotp.value
+          ? t('login.errors.invalidTotp')
+          : t('login.errors.invalidCredentials')
         : t('common.unexpectedError')
   } finally {
     loading.value = false
@@ -72,6 +86,13 @@ async function submit() {
         autocomplete="current-password"
         required
       />
+      <TextField
+        v-if="needsTotp"
+        v-model="totpCode"
+        :label="t('login.totpCode')"
+        autocomplete="one-time-code"
+        required
+      />
       <Alert
         v-if="error"
         :message="error"
@@ -80,7 +101,7 @@ async function submit() {
         type="submit"
         :loading="loading"
       >
-        {{ t('login.submit') }}
+        {{ needsTotp ? t('login.submitTotp') : t('login.submit') }}
       </Button>
       <label class="flex flex-col gap-1 text-sm">
         <span class="text-content-muted">{{ t('common.language') }}</span>
