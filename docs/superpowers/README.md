@@ -21,6 +21,10 @@ dalla cronologia git.
 Per riprendere da una sessione nuova, il prompt da incollare è
 [`../CONTINUE.md`](../CONTINUE.md).
 
+**Per mandare avanti il lavoro dall'inizio alla fine** — ordine delle fasi, decisioni prese,
+precedenza fra le fonti, misure da produrre e i quattro punti in cui fermarsi — il prompt è
+[`PROSEGUI.md`](PROSEGUI.md).
+
 ## I tre tipi di documento, e perché sono separati
 
 | Tipo | Cosa contiene | Invecchia? |
