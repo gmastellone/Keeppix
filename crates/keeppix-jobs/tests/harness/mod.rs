@@ -16,6 +16,8 @@ pub struct TestDb {
     db: Db,
     #[allow(dead_code)]
     database_url: String,
+    admin_url: String,
+    db_name: String,
 }
 
 static SHARED: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
@@ -26,14 +28,18 @@ impl TestDb {
     /// test è il comportamento voluto.
     #[allow(clippy::expect_used)]
     pub async fn start() -> Self {
-        let url = provision().await;
+        let provisioned = provision().await;
 
-        let db = Db::connect(&url, 5).await.expect("connessione");
+        let db = Db::connect(&provisioned.url, 5)
+            .await
+            .expect("connessione");
         db.migrate().await.expect("migrazioni");
 
         Self {
             db,
-            database_url: url,
+            database_url: provisioned.url,
+            admin_url: provisioned.admin_url,
+            db_name: provisioned.name,
         }
     }
 
@@ -47,6 +53,12 @@ impl TestDb {
     #[allow(dead_code)]
     pub fn database_url(&self) -> &str {
         &self.database_url
+    }
+}
+
+impl Drop for TestDb {
+    fn drop(&mut self) {
+        drop_test_database(&self.admin_url, &self.db_name);
     }
 }
 
@@ -112,7 +124,7 @@ pub async fn seed_user(
 /// Percorso alternativo, attivo **solo** se `KEEPPIX_TEST_DATABASE_URL` è
 /// impostata: si usa il server già in ascolto, stesso `CREATE DATABASE`.
 #[allow(clippy::expect_used)]
-async fn provision() -> String {
+async fn provision() -> ProvisionedDb {
     if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL") {
         return named_database(&server_url).await;
     }
@@ -152,8 +164,14 @@ async fn mapped_port(container: &ContainerAsync<Postgres>) -> u16 {
     unreachable!("il ciclo sopra termina sempre")
 }
 
+struct ProvisionedDb {
+    url: String,
+    admin_url: String,
+    name: String,
+}
+
 #[allow(clippy::expect_used)]
-async fn named_database(server_url: &str) -> String {
+async fn named_database(server_url: &str) -> ProvisionedDb {
     let name = format!("keeppix_test_{}", uuid::Uuid::now_v7().simple());
     let mut admin = PgConnection::connect(server_url)
         .await
@@ -163,7 +181,41 @@ async fn named_database(server_url: &str) -> String {
         .await
         .expect("creazione del database di test");
     admin.close().await.ok();
-    with_database(server_url, &name)
+    ProvisionedDb {
+        url: with_database(server_url, &name),
+        admin_url: server_url.to_owned(),
+        name,
+    }
+}
+
+fn drop_test_database(admin_url: &str, name: &str) {
+    if !name.starts_with("keeppix_test_")
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return;
+    }
+    let admin_url = admin_url.to_owned();
+    let name = name.to_owned();
+    let _ = std::thread::spawn(move || {
+        let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return;
+        };
+        rt.block_on(async move {
+            let Ok(mut admin) = PgConnection::connect(&admin_url).await else {
+                return;
+            };
+            let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)"))
+                .execute(&mut admin)
+                .await;
+            admin.close().await.ok();
+        });
+    })
+    .join();
 }
 
 /// Sostituisce il nome del database in un URL di connessione, conservando

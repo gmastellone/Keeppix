@@ -233,3 +233,11 @@ Ruling: remote backup destinations skip pre-write free-space checks by design
 (no portable quota API); failures surface on upload. Documented in
 `ensure_destination_space`.
 
+Ruling (CI): install `ffmpeg` in the backend job — video tests need ffprobe;
+without it the seed falls back to a fake file and `probe_stream` → 404.
+
+Ruling: test harnesses DROP each `keeppix_test_*` DB on Drop with
+`WITH (FORCE)`. Without this, KEEPPIX_TEST_DATABASE_URL left 10k+ DBs /
+~176 GB on the shared Postgres (and CI WAL thrash). Cost if wrong: Drop
+races a still-running pool; FORCE is the escape hatch.
+
