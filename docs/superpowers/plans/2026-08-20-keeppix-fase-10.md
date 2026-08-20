@@ -80,6 +80,44 @@ ragione giusta, e che `undo` sul `batch_id` annulla **solo** i riusciti.
 
 ---
 
+## Task 1bis — Tarare Postgres sull'hardware, **prima** di toccare gli indici
+
+**Va fatto prima del Task 2 e del Task 12**, altrimenti li si misura in condizioni
+che ne nascondono l'effetto.
+
+`compose.yaml` avvia `postgis/postgis:17-3.5` **senza nessun parametro**: restano i
+default di fabbrica. Il più dannoso è `random_page_cost = 4.0`, che dice al
+pianificatore che una lettura casuale costa quattro volte una sequenziale — vero su
+disco rotante, falso su SSD. **È il parametro che decide se Postgres userà gli
+indici che questa fase aggiunge o preferirà una scansione sequenziale.**
+
+| Parametro | Default | Bersaglio (Pi 5 / 8 GB, SSD) |
+|---|---|---|
+| `random_page_cost` | 4.0 | **1.1** |
+| `shared_buffers` | 128 MB | ~2 GB |
+| `effective_cache_size` | 4 GB | ~6 GB |
+| `work_mem` | 4 MB | 32–64 MB |
+| `max_connections` | 100 | 20 |
+
+**Ruling: i valori si misurano all'installazione, non si cablano.** — Su microSD
+`random_page_cost` resta alto e il profilo è opposto a quello su NVMe; un valore
+fisso sarebbe giusto per una metà degli utenti e dannoso per l'altra. Il probe
+hardware previsto dalla Fase 7 è il posto naturale dove misurarlo, ma per questa
+fase basta renderli **configurabili** e documentare i due profili. — *Costo se
+sbagliato:* si costruiscono cinque indici e li si vede ignorare, concludendo che
+"gli indici non servono".
+
+Aggiungere anche `autovacuum_vacuum_scale_factor` più aggressivo su `assets` e un
+`VACUUM ANALYZE` a fine import massiccio (lo scheduler di manutenzione della Fase 6
+è il posto giusto): l'index-only scan della geometria funziona **solo** se la mappa
+di visibilità è aggiornata, altrimenti degrada in heap fetch senza dare errore.
+
+**Verifica:** `EXPLAIN` della query di geometria e di timeline con i default e con i
+valori tarati, entrambi nel ledger. Se il piano non cambia, il task ha comunque
+prodotto il numero che serviva.
+
+---
+
 ## Task 2 — Endpoint di geometria della timeline
 
 **Dove:** `crates/keeppix-api/src/routes/timeline.rs`, `crates/keeppix-db/src/timeline.rs`,
