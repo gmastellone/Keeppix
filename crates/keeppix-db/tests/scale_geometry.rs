@@ -136,8 +136,8 @@ async fn geometry_of_two_hundred_thousand_assets_stays_within_budget_and_index_o
     );
 }
 
-/// Stessa query SQL di `TimelineRepo::geometry` (senza filtro libreria, come
-/// l'admin illimitato del test sopra): duplicata qui di proposito, come
+/// Stessa query SQL di `TimelineRepo::geometry`, con lo stesso filtro
+/// libreria del test sopra: duplicata qui di proposito, come
 /// `explain_page_shared` in `scale_200k.rs`, perché la query vera è privata
 /// del repository e l'`EXPLAIN` deve vedere esattamente ciò che gira in
 /// produzione.
