@@ -102,6 +102,7 @@ async fn applying_an_override_writes_the_owners_rating_and_pick_to_a_new_sidecar
                 rating: Some(Rating::parse(4).unwrap()),
                 pick: Pick::Pick,
                 color_label: None,
+                favorite: false,
             },
         )
         .await
