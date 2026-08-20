@@ -162,6 +162,53 @@ async fn going_offline_never_deletes_anything() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn storage_reports_coherent_free_and_total_bytes() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let repo = LibraryRepo::new(test.db());
+
+    let library = repo
+        .create(&ctx, new_library("Disk", "/tmp", admin))
+        .await
+        .unwrap();
+
+    let usage = repo.storage(&ctx, library.id).await.unwrap();
+    assert!(
+        usage.total_bytes > 0,
+        "total must be positive on a real volume"
+    );
+    assert!(
+        usage.free_bytes <= usage.total_bytes,
+        "free ({}) cannot exceed total ({})",
+        usage.free_bytes,
+        usage.total_bytes
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn storage_for_someone_elses_library_is_forbidden_not_not_found() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
+    let repo = LibraryRepo::new(test.db());
+
+    let mine = repo
+        .create(&admin_ctx, new_library("Admin", "/tmp", admin))
+        .await
+        .unwrap();
+
+    let mario_ctx = AuthContext::user(mario, SystemRole::User);
+    assert!(matches!(
+        repo.storage(&mario_ctx, mine.id).await,
+        Err(DbError::Forbidden)
+    ));
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn mark_scanned_records_the_time() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;

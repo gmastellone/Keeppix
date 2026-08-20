@@ -408,6 +408,106 @@ async fn two_libraries_cannot_share_a_root_path() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn storage_returns_coherent_bytes_for_a_visible_library() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let root = library_dir(&server, "storage-lib");
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "Storage",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status(), 201);
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let response = server
+        .client
+        .get(server.url(&format!("/api/v1/libraries/{id}/storage")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let free = body["free_bytes"].as_u64().unwrap();
+    let total = body["total_bytes"].as_u64().unwrap();
+    assert!(total > 0);
+    assert!(free <= total);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn probing_storage_for_someone_elses_library_is_forbidden() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let admin_id = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap()["user"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+
+    UserRepo::new(&server.db)
+        .create(
+            &AuthContext::user(admin_id, SystemRole::Admin),
+            NewUser {
+                username: Username::parse("mario").unwrap(),
+                email: None,
+                display_name: "Mario".to_owned(),
+                password_hash: hash_password(&Password::parse("mario-password-ok").unwrap())
+                    .unwrap()
+                    .as_str()
+                    .to_owned(),
+                role: SystemRole::User,
+            },
+        )
+        .await
+        .unwrap();
+
+    let root = library_dir(&server, "admin-storage");
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "AdminLib",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let mario = login_as(&server, "mario", "mario-password-ok").await;
+    let response = mario
+        .get(server.url(&format!("/api/v1/libraries/{id}/storage")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+    let problem: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(problem["type"], "keeppix/forbidden");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn deleting_a_library_leaves_the_files_untouched() {
     let server = TestServer::start().await;
     setup_admin(&server).await;
