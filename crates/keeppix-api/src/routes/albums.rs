@@ -38,6 +38,9 @@ pub struct AlbumView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_tint: Option<String>,
     pub monochrome: bool,
+    // Task 11: niente conteggio membri per riga in `GET /albums` — resta una
+    // lettura banale su `album_assets` solo quando serve (es. pagina album),
+    // non un aggregato accanto a ogni voce dell'elenco.
 }
 
 impl AlbumView {
