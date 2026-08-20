@@ -5,7 +5,7 @@ mod harness;
 use chrono::{TimeZone, Utc};
 use harness::TestDb;
 use keeppix_db::{
-    AssetRepo, DbError, FolderRepo, LibraryRepo, ObjectType, PermissionRepo, SearchNode,
+    AssetRepo, DbError, FolderRepo, GroupRepo, LibraryRepo, ObjectType, PermissionRepo, SearchNode,
     SearchRepo, SubjectType, TimelineRepo,
 };
 use keeppix_domain::{
@@ -95,20 +95,16 @@ async fn insert_group(test: &TestDb, name: &str, created_by: UserId) -> GroupId 
     GroupId::from_uuid(id)
 }
 
-async fn add_member(test: &TestDb, group: GroupId, user: UserId) {
-    sqlx::query("INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)")
-        .bind(group.as_uuid())
-        .bind(user.as_uuid())
-        .execute(test.db().pool())
+async fn add_member(test: &TestDb, admin: UserId, group: GroupId, user: UserId) {
+    GroupRepo::new(test.db())
+        .add_member(&AuthContext::user(admin, SystemRole::Admin), group, user)
         .await
         .unwrap();
 }
 
-async fn remove_member(test: &TestDb, group: GroupId, user: UserId) {
-    sqlx::query("DELETE FROM group_members WHERE group_id = $1 AND user_id = $2")
-        .bind(group.as_uuid())
-        .bind(user.as_uuid())
-        .execute(test.db().pool())
+async fn remove_member(test: &TestDb, admin: UserId, group: GroupId, user: UserId) {
+    GroupRepo::new(test.db())
+        .remove_member(&AuthContext::user(admin, SystemRole::Admin), group, user)
         .await
         .unwrap();
 }
@@ -356,8 +352,8 @@ async fn a_group_permission_applies_to_every_member() {
     index_photo(&test, folder.id, "a.jpg").await;
 
     let famiglia = insert_group(&test, "Famiglia", admin).await;
-    add_member(&test, famiglia, anna).await;
-    add_member(&test, famiglia, luca).await;
+    add_member(&test, admin, famiglia, anna).await;
+    add_member(&test, admin, famiglia, luca).await;
     grant_folder(
         &test,
         admin,
@@ -405,7 +401,7 @@ async fn adding_a_member_grants_access_immediately() {
 
     let ctx = AuthContext::user(quarto, SystemRole::User);
     assert_eq!(visible_indexed(&test, &ctx).await, 0);
-    add_member(&test, famiglia, quarto).await;
+    add_member(&test, admin, famiglia, quarto).await;
     assert_eq!(visible_indexed(&test, &ctx).await, 1);
 }
 
@@ -423,7 +419,7 @@ async fn removing_a_member_revokes_access_immediately() {
     index_photo(&test, folder.id, "a.jpg").await;
 
     let famiglia = insert_group(&test, "Famiglia", admin).await;
-    add_member(&test, famiglia, mario).await;
+    add_member(&test, admin, famiglia, mario).await;
     grant_folder(
         &test,
         admin,
@@ -437,7 +433,7 @@ async fn removing_a_member_revokes_access_immediately() {
 
     let ctx = AuthContext::user(mario, SystemRole::User);
     assert_eq!(visible_indexed(&test, &ctx).await, 1);
-    remove_member(&test, famiglia, mario).await;
+    remove_member(&test, admin, famiglia, mario).await;
     assert_eq!(
         visible_indexed(&test, &ctx).await,
         0,
@@ -457,7 +453,7 @@ async fn the_highest_role_wins() {
         .unwrap();
 
     let famiglia = insert_group(&test, "Famiglia", admin).await;
-    add_member(&test, famiglia, mario).await;
+    add_member(&test, admin, famiglia, mario).await;
     grant_folder(
         &test,
         admin,
@@ -659,7 +655,7 @@ async fn explain_uses_names_and_folder_paths_not_uuids() {
         .await
         .unwrap();
     let famiglia = insert_group(&test, "Famiglia", admin).await;
-    add_member(&test, famiglia, mario).await;
+    add_member(&test, admin, famiglia, mario).await;
     grant_folder(
         &test,
         admin,
