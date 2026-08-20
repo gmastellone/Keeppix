@@ -41,6 +41,7 @@ async fn openapi_document_is_served_and_complete() {
 
     assert_eq!(doc["openapi"].as_str().unwrap(), "3.1.0");
     assert_eq!(doc["info"]["title"], "Keeppix API");
+    assert_eq!(doc["info"]["version"], "1.0.0");
 
     for path in [
         "/api/v1/setup/status",
@@ -58,6 +59,9 @@ async fn openapi_document_is_served_and_complete() {
         "/media/preview/{hash}",
         "/media/full/{hash}",
         "/media/original/{id}",
+        "/media/video/{id}/playback",
+        "/media/video/{id}/hls/{file}",
+        "/media/video/{id}/poster",
         "/api/v1/viewport",
         "/api/v1/search",
         "/api/v1/search/suggest",
@@ -67,6 +71,7 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/saved-searches",
         "/api/v1/ws",
         "/api/v1/ws/ticket",
+        "/api/v1/sync/delta",
         "/api/v1/problems",
         "/api/v1/duplicates",
         "/api/v1/duplicates/{content_hash}",
@@ -94,6 +99,18 @@ async fn openapi_document_is_served_and_complete() {
     }
 
     assert!(doc["components"]["schemas"]["UserView"].is_object());
+    assert_eq!(
+        doc["paths"]["/api/v1/auth/login"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/LoginResponse"
+    );
+    assert_eq!(
+        doc["paths"]["/api/v1/auth/me"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/MeResponse"
+    );
+    assert_eq!(
+        doc["paths"]["/api/v1/setup"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/SetupResponse"
+    );
 }
 
 /// Pin sul punto in cui è facile sbagliare: la rotta va montata **dentro**
@@ -182,8 +199,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 72,
-        "il documento deve descrivere settantadue operazioni"
+        checked, 76,
+        "il documento deve descrivere settantasei operazioni"
     );
 }
 
@@ -277,6 +294,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/saved-searches",
             "/api/v1/search",
             "/api/v1/search/suggest",
+            "/api/v1/sync/delta",
             "/api/v1/timeline",
             "/api/v1/timeline/buckets",
             "/api/v1/trash",
@@ -299,6 +317,9 @@ fn security_requirements_name_a_declared_scheme() {
             "/media/original/{id}",
             "/media/preview/{hash}",
             "/media/thumb/{hash}",
+            "/media/video/{id}/hls/{file}",
+            "/media/video/{id}/playback",
+            "/media/video/{id}/poster",
         ]
     );
 }
@@ -343,6 +364,7 @@ fn operation_ids_are_explicit_and_unique() {
             "auth_logout",
             "auth_me",
             "auth_refresh",
+            "delta",
             "duplicates_list",
             "duplicates_members",
             "duplicates_resolve",
@@ -370,6 +392,9 @@ fn operation_ids_are_explicit_and_unique() {
             "media_original",
             "media_preview",
             "media_thumb",
+            "media_video_hls",
+            "media_video_playback",
+            "media_video_poster",
             "metadata_apply",
             "metadata_apply_batch",
             "metadata_copy_location",

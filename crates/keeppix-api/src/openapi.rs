@@ -41,7 +41,7 @@ impl utoipa::Modify for SecurityAddon {
 #[openapi(
     info(
         title = "Keeppix API",
-        version = env!("CARGO_PKG_VERSION"),
+        version = "1.0.0",
         description = "API di Keeppix. Contratto congelato: solo aggiunte entro /api/v1."
     ),
     modifiers(&SecurityAddon),
