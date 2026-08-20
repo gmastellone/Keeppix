@@ -142,7 +142,7 @@ async fn the_favorite_search_chip_finds_only_the_callers_favorites() {
 /// più stringhe piatte: il frontend deve poter distinguere `kind` senza
 /// indovinarlo dal valore.
 #[tokio::test]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn suggest_returns_typed_pills_not_bare_strings() {
     let server = TestServer::start().await;
     seed_photo(&server, "cascata.jpg").await;
