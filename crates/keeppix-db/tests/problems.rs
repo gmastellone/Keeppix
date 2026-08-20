@@ -174,9 +174,7 @@ async fn composed_flat_list_translates_the_offline_library_problem_in_english() 
 /// marcatore `permission-denied:` deve restare riconoscibile anche dentro
 /// questo annidamento.
 fn realistic_permission_denied_last_error(asset_id: keeppix_domain::AssetId) -> String {
-    format!(
-        "worker: {asset_id}: worker: permission-denied: io: Permission denied (os error 13)"
-    )
+    format!("worker: {asset_id}: worker: permission-denied: io: Permission denied (os error 13)")
 }
 
 #[tokio::test]
@@ -270,7 +268,9 @@ async fn composed_flat_list_keeps_a_generic_job_failure_that_is_not_a_permission
         .unwrap();
 
     assert!(
-        problems.iter().any(|p| p.id == format!("job-failed:{}", job.id)),
+        problems
+            .iter()
+            .any(|p| p.id == format!("job-failed:{}", job.id)),
         "{problems:?}"
     );
 }

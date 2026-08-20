@@ -134,6 +134,20 @@ impl<'a> ProblemsRepo<'a> {
         lang: ProblemLanguage,
     ) -> Result<Vec<ComposedProblem>, DbError> {
         let set = self.list(ctx).await?;
+        self.compose(&set, lang).await
+    }
+
+    /// Come [`Self::composed`], ma su un [`ProblemSet`] già ottenuto — utile
+    /// a chi (l'endpoint HTTP) deve comunque restituire anche i secchi grezzi
+    /// e non vuole interrogare il database due volte per la stessa richiesta.
+    ///
+    /// # Errors
+    /// Vedi [`Self::composed`].
+    pub async fn compose(
+        &self,
+        set: &ProblemSet,
+        lang: ProblemLanguage,
+    ) -> Result<Vec<ComposedProblem>, DbError> {
         let mut problems = Vec::with_capacity(
             set.offline_libraries.len() + set.failed_jobs.len() + set.error_assets.len(),
         );
