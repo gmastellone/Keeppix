@@ -386,6 +386,23 @@ non è un problema di permesso, è che non c'è nulla da rilanciare. —
 *Costo se sbagliato:* un client che confonde 400 con 403; il `type` stabile
 lo distingue.
 
+Ruling: `NewAlbum.rule`/`CreateAlbumBody.rule` sono additivi su `POST
+/albums` esistente — nessuna nuova rotta di creazione. `AlbumView` espone
+anche `rule_run_at`/`is_shared`/`cover_tint`/`monochrome` (colonne aggiunte
+dalla stessa migrazione, spec §5.2) con `#[serde(skip_serializing_if =
+"Option::is_none")]` dove nullable, così un client vecchio non vede nulla
+di nuovo se non li usa. — *Costo se sbagliato:* nessuno, il contratto
+`/api/v1` resta solo-aggiunte.
+
 Task 5: complete (commit 564ebbb db + a24971f api, tests green:
-keeppix-db albums 11/11; keeppix-api albums 2/2)
+keeppix-db albums 11/11, migrations 11/11 [+1 nuovo: colonne rule/
+rule_run_at/is_shared/cover_tint/monochrome], geo 14/14 [NewAlbum.rule
+additivo]; keeppix-api albums 3/3). `cargo fmt --check` e `cargo clippy
+--workspace --all-targets -- -D warnings` verdi su tutto il workspace.
+`./scripts/test.sh` completo **non eseguito** (stesso motivo dei task
+precedenti: costerebbe l'intera suite); eseguiti invece tutti i test
+toccati dal task (`keeppix-db` albums.rs, migrations.rs, geo.rs;
+`keeppix-api` albums.rs, openapi.rs per confermare che il nuovo endpoint
+non tocca lo snapshot — `albums` resta fuori dalla superficie OpenAPI
+generata, la chiude il Task 10/23).
 
