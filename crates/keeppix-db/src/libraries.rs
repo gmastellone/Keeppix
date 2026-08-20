@@ -79,6 +79,9 @@ impl<'a> LibraryRepo<'a> {
         .await
         .map_err(map_root_path_conflict)?;
 
+        self.db
+            .invalidate_permission_cache_for_user(new.owner_id)
+            .await;
         row.into_domain()
     }
 
@@ -249,6 +252,15 @@ impl<'a> LibraryRepo<'a> {
             return Err(DbError::Forbidden);
         }
 
+        let owner: Option<uuid::Uuid> =
+            sqlx::query_scalar("SELECT owner_id FROM libraries WHERE id = $1")
+                .bind(id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
+        let Some(owner) = owner else {
+            return Err(DbError::NotFound);
+        };
+
         let result = sqlx::query("DELETE FROM libraries WHERE id = $1")
             .bind(id.as_uuid())
             .execute(self.db.pool())
@@ -256,6 +268,9 @@ impl<'a> LibraryRepo<'a> {
         if result.rows_affected() == 0 {
             return Err(DbError::NotFound);
         }
+        self.db
+            .invalidate_permission_cache_for_user(UserId::from_uuid(owner))
+            .await;
         Ok(())
     }
 }

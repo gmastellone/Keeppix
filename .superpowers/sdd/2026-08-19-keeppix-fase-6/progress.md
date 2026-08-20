@@ -82,3 +82,27 @@ frontend build verde, `node --check public/sw.js`, manifest JSON valido)
 
 Task 7: complete (Idempotency-Key middleware + repo + migration; targeted tests
 verdi)
+
+Ruling: `moka` lives in `keeppix-db` (on `Db`), not in `keeppix-api` as the plan
+sketched — `VisibilityScope::resolve` and `SettingsRepo` are called from jobs
+and many repos, so only a cache owned by `Db` can be invalidated in the same
+write path that mutates permissions/settings. Cost if wrong: an API-only cache
+would leave jobs and deep repo reads stale or force duplicate invalidation logic.
+
+Ruling: migration number is `0030_performance_indexes.sql` (next free on this
+branch), not the plan's placeholder `0032` — same numbering rule as Task 7.
+Cost if wrong: sqlx migrator would skip or collide.
+
+Ruling: `FolderRepo::ensure_path` stays as-is. Measured on PostGIS testcontainer:
+existing depth-20 path ≈ 3.9 ms/call (100×), 50 cold depth-8 trees ≈ 110 ms
+total. Confined to ingest writes; rewrite risk outweighs gain. Cost if wrong:
+very deep first-time imports stay N+1 until revisited.
+
+Ruling: `PATCH /users/{id}` clears the API `SessionCache` on any profile update
+so a role change is reflected on the same browser session without waiting the
+30s TTL — the DB permission cache alone cannot fix `AuthContext.role` baked into
+the session cache. Cost if wrong: unrelated profile patches also flush sessions
+cache (cheap; re-auth from DB).
+
+Task 12: complete (commit pending verification; indexes + moka caches +
+ensure_path ruling; invalidation tests for revoke/role/group/user)
