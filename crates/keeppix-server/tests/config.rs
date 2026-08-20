@@ -83,6 +83,10 @@ fn defaults_are_applied() {
         keeppix_db::TRASH_RETENTION_DAYS,
         "default KEEPPIX_TRASH_RETENTION_DAYS: 30, la finestra dichiarata all'utente"
     );
+    assert_eq!(
+        cfg.server_name, "Keeppix",
+        "default KEEPPIX_SERVER_NAME: il nome di marca, senza personalizzazione"
+    );
 }
 
 #[test]
@@ -146,4 +150,14 @@ fn webp_method_is_overridable() {
     unsafe { std::env::set_var("DATABASE_URL", "postgres://localhost/keeppix") };
     unsafe { std::env::set_var("KEEPPIX_WEBP_METHOD", "2") };
     assert_eq!(Config::load(None).unwrap().webp_method, 2);
+}
+
+#[test]
+#[serial]
+#[allow(clippy::unwrap_used)]
+fn server_name_is_overridable() {
+    clear_env();
+    unsafe { std::env::set_var("DATABASE_URL", "postgres://localhost/keeppix") };
+    unsafe { std::env::set_var("KEEPPIX_SERVER_NAME", "Casa Mastellone") };
+    assert_eq!(Config::load(None).unwrap().server_name, "Casa Mastellone");
 }

@@ -148,7 +148,8 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
             })
             .with_allowed_origins(config.allowed_origins.clone())
             .with_library_roots(config.library_roots.clone())
-            .with_full_cache_bytes(config.full_cache_bytes);
+            .with_full_cache_bytes(config.full_cache_bytes)
+            .with_server_name(config.server_name.clone());
     if let Some(watchers) = library_watchers {
         state = state.with_library_watchers(watchers);
     }

@@ -124,7 +124,7 @@ pub async fn create(
         StatusCode::CREATED,
         jar,
         Json(SetupResponse {
-            user: UserView::from(&user),
+            user: UserView::new(&user, &state.server_name),
         }),
     ))
 }

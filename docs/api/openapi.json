@@ -7443,7 +7443,9 @@
           "id",
           "username",
           "display_name",
-          "role"
+          "role",
+          "server_name",
+          "password_changed_at"
         ],
         "properties": {
           "disabled_at": {
@@ -7471,8 +7473,17 @@
               "null"
             ]
           },
+          "password_changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Quando la password è stata impostata l'ultima volta (§61 «Ultima\nmodifica»). Coincide con la creazione dell'account finché non cambia."
+          },
           "role": {
             "type": "string"
+          },
+          "server_name": {
+            "type": "string",
+            "description": "Nome del server (§61, cosmetico — `AppState::server_name`)."
           },
           "username": {
             "type": "string"
