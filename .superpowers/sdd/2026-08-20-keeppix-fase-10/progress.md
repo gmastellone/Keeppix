@@ -760,3 +760,52 @@ Task 11: complete (commits 60b5097, 8942209, 1beac1b, tests green:
 -- -D warnings` verdi; frontend build verde). `./scripts/test.sh` completo
 **non eseguito** (stesso motivo dei task precedenti).
 
+## Task 12 — L'indice che manca alla timeline
+
+Ruling: `assets_timeline_indexed_idx` convive con `assets_timeline_idx` — non
+droppato (solo-aggiunte). A 200k righe con vincolo di mese il planner resta su
+`assets_taken_day_idx` (Task 6); il nuovo indice serve quando il percorso
+timeline vince (ordinamento keyset senza range stretto, o query assets-only). —
+*Costo se sbagliato:* due indici parziali sovrapposti su `status = 'indexed'`;
+accettabile finché il planner non preferisce sempre il nuovo.
+
+Ruling: touch obbligatorio di `keeppix-db/src/lib.rs` al commento `migrate!`
+quando si aggiunge una migrazione — senza, `sqlx::migrate!` non incorpora il
+file nuovo e l'indice non esiste a runtime (scoperto durante il RED). —
+*Costo se sbagliato:* ogni migrazione futura senza touch sembra applicata ma
+non lo è finché non si ricompila toccando `lib.rs`.
+
+### EXPLAIN Task 12 (`scale_200k.rs`, 200k righe + 5k `unknown`)
+
+**`explain_page`** (mese 2032-10, LIMIT 200) — **prima e dopo identici**:
+
+```
+Index Scan using assets_taken_day_idx
+  Filter: (kind <> 'unknown') AND (status = 'indexed')
+Execution Time: ~0.47 ms
+```
+
+**`explain_timeline_ordering`** (solo `assets`, indici concorrenti nascosti in
+transazione di test):
+
+Prima (`assets_timeline_idx`):
+
+```
+Bitmap Index Scan on assets_timeline_idx
+  Filter: (kind <> 'unknown') AND (status = 'indexed')
+Execution Time: ~101 ms
+```
+
+Dopo (`assets_timeline_indexed_idx`):
+
+```
+Bitmap Index Scan on assets_timeline_indexed_idx
+Execution Time: ~62 ms
+```
+
+Task 12: complete (commit successivo a questa voce, tests green:
+`keeppix-db` scale_200k.rs 3/3, migrations.rs 12/12). `cargo fmt --check` e
+`cargo clippy -p keeppix-db --all-targets -- -D warnings` verdi.
+`./scripts/test.sh` completo **non eseguito** (stesso motivo dei task
+precedenti).
+
