@@ -24,6 +24,7 @@ pub struct TestServer {
     // condiviso vive nello `OnceCell` e non si ferma.
     container: Option<ContainerAsync<Postgres>>,
     pub db: Db,
+    pub database_url: String,
     pub data_dir: std::path::PathBuf,
     /// Radice allowlist per `KEEPPIX_LIBRARY_ROOTS` nei test (sotto `data_dir`).
     pub photos_root: std::path::PathBuf,
@@ -104,6 +105,7 @@ async fn boot(
         keeppix_jobs::watch::LibraryWatchers::new(db.clone(), std::time::Duration::from_millis(80));
     let state = configure(
         keeppix_api::AppState::new(db.clone(), 3600, data_dir.clone())
+            .with_database_url(url.clone())
             .with_library_roots(vec![photos_root.clone()])
             .with_library_watchers(watchers)
             .with_on_authenticated(std::sync::Arc::new(move || {
@@ -128,6 +130,7 @@ async fn boot(
     TestServer {
         container,
         db,
+        database_url: url,
         data_dir,
         photos_root,
         auth_pings,

@@ -38,6 +38,8 @@ async fn drain_workers(server: &TestServer, data_dir: &std::path::Path) {
         data_dir: data_dir.to_path_buf(),
         stability_wait: Duration::ZERO,
         trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
+        database_url: server.database_url.clone(),
+        config_path: None,
     };
     let pool = WorkerPool::new(
         server.db.clone(),

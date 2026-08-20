@@ -337,6 +337,57 @@
       "revokeFailed": "Could not revoke the app password."
     }
   },
+  "backup": {
+    "title": "Backup",
+    "subtitle": "Catalogue backup with age encryption. Originals are optional and usually stay your responsibility.",
+    "content": "Contents",
+    "include": {
+      "database": "Database (irreplaceable)",
+      "config": "Configuration",
+      "maps": "Map region list",
+      "sidecars": "XMP sidecars",
+      "derivatives": "Derivatives (regenerable)",
+      "originals": "Originals"
+    },
+    "originalsWarning": "Without Originals this backup does NOT contain your photos. It contains the catalogue.",
+    "encryption": "Encryption",
+    "passphraseHint": "age passphrase. If you lose it, the backup cannot be recovered.",
+    "passphraseSet": "Set passphrase",
+    "passphraseChange": "Change passphrase",
+    "destination": "Destination",
+    "destinationDefault": "Local backups",
+    "label": "Label",
+    "path": "Path / URL",
+    "addDestination": "Add destination",
+    "runNow": "Run now",
+    "history": "History",
+    "errors": {
+      "loadFailed": "Could not load backup settings.",
+      "saveFailed": "Could not save backup settings.",
+      "destinationFailed": "Could not add destination.",
+      "runFailed": "Backup failed."
+    }
+  },
+  "restore": {
+    "title": "Restore",
+    "subtitle": "Inspect a .kpxb backup, preview changes, then restore. A safety dump is taken before overwriting the database.",
+    "path": "Backup file path on the server",
+    "passphrase": "age passphrase",
+    "inspect": "Inspect",
+    "preview": "Preview (dry run)",
+    "run": "Restore",
+    "done": "Restore finished.",
+    "tooNew": "This backup was created by a newer Keeppix version than the one installed.",
+    "components": {
+      "database": "Database",
+      "config": "Configuration",
+      "maps": "Maps (hot restore)"
+    },
+    "errors": {
+      "inspectFailed": "Could not read the backup.",
+      "restoreFailed": "Restore failed."
+    }
+  },
   "totp": {
     "title": "Two-factor authentication",
     "subtitle": "Protect your account with an authenticator app (TOTP) and recovery codes.",

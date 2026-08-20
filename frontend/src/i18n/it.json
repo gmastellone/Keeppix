@@ -337,6 +337,57 @@
       "revokeFailed": "Impossibile revocare la app-password."
     }
   },
+  "backup": {
+    "title": "Backup",
+    "subtitle": "Backup del catalogo cifrato con age. Gli originali sono opzionali e restano di norma responsabilità tua.",
+    "content": "Contenuto",
+    "include": {
+      "database": "Database (irrecuperabile)",
+      "config": "Configurazione",
+      "maps": "Elenco regioni mappa",
+      "sidecars": "Sidecar XMP",
+      "derivatives": "Derivati (rigenerabili)",
+      "originals": "Originali"
+    },
+    "originalsWarning": "Senza Originali questo backup NON contiene le tue foto. Contiene il catalogo.",
+    "encryption": "Cifratura",
+    "passphraseHint": "Passphrase age. Se la perdi, il backup non è recuperabile.",
+    "passphraseSet": "Imposta passphrase",
+    "passphraseChange": "Cambia passphrase",
+    "destination": "Destinazione",
+    "destinationDefault": "Backup locali",
+    "label": "Etichetta",
+    "path": "Percorso / URL",
+    "addDestination": "Aggiungi destinazione",
+    "runNow": "Esegui adesso",
+    "history": "Cronologia",
+    "errors": {
+      "loadFailed": "Impossibile caricare le impostazioni di backup.",
+      "saveFailed": "Impossibile salvare le impostazioni di backup.",
+      "destinationFailed": "Impossibile aggiungere la destinazione.",
+      "runFailed": "Backup non riuscito."
+    }
+  },
+  "restore": {
+    "title": "Ripristino",
+    "subtitle": "Ispeziona un backup .kpxb, anteprima le modifiche, poi ripristina. Prima di sovrascrivere il database viene creato un dump di sicurezza.",
+    "path": "Percorso del file di backup sul server",
+    "passphrase": "Passphrase age",
+    "inspect": "Ispeziona",
+    "preview": "Anteprima (simulazione)",
+    "run": "Ripristina",
+    "done": "Ripristino completato.",
+    "tooNew": "Questo backup è stato creato da una versione di Keeppix più recente di quella installata.",
+    "components": {
+      "database": "Database",
+      "config": "Configurazione",
+      "maps": "Mappe (a caldo)"
+    },
+    "errors": {
+      "inspectFailed": "Impossibile leggere il backup.",
+      "restoreFailed": "Ripristino non riuscito."
+    }
+  },
   "totp": {
     "title": "Autenticazione a due fattori",
     "subtitle": "Proteggi l'account con un'app autenticatore (TOTP) e i codici di recupero.",
