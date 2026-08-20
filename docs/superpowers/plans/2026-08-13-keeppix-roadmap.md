@@ -472,7 +472,7 @@ gzip che la CI già impone.
 | 4 Mappe | 1 settimana | ~8,5 sett. |
 | 5 WebDAV | 1,5 settimane | ~10 sett. |
 | 6 Consolidamento | 2 settimane | ~12 sett. |
-| **10 API per l’interfaccia** | **2 settimane** | **~14 sett.** |
+| **10 API per l’interfaccia** | **2,5 settimane** | **~14,5 sett.** |
 | 7 AI scene e tag | 1,5 settimane | ~15 sett. |
 | 8 Volti | 1,5 settimane | ~16,5 sett. |
 | 9 Organizzazione | 1 settimana | ~17,5 sett. |
