@@ -15,8 +15,14 @@ tassonomia degli errori, `SearchNode` e gli eventi WebSocket.
 
 ## Cosa esiste già (da verificare al momento, non assumere)
 
-- **Il probe hardware esiste ma non misura.** `keeppix-media/src/probe.rs` ha un chiamante e
-  restituisce `"unprobed"`: è un segnaposto dalla Fase 1b. Il Task 1 lo rende reale.
+- **Il probe hardware video è già reale — verificato il 20 agosto 2026, non dare per buona la
+  versione precedente di questa nota.** `keeppix-media/src/probe.rs` (245 righe, riscritto in
+  Fase 6) rileva davvero la piattaforma — Rockchip, NVIDIA, V4L2, VideoToolbox solo su macOS,
+  VAAPI/QSV/AMF — ed esegue un encode di prova sandboxato per misurare la velocità vera. Ha un
+  chiamante reale (`keeppix-jobs/src/watch.rs:305`). **Non restituisce più `"unprobed"`.**
+  Misura però solo l'**accelerazione video**: il campo `Capabilities.extra` è vuoto ed è il
+  punto di estensione dichiarato apposta per l'inferenza AI (commento in cima al file). **Il
+  Task 1 estende questo probe, non lo costruisce da zero.**
   **Attenzione:** esiste una seconda `probe()` in `video.rs` che è tutt'altro (ffprobe su un
   file). Non confonderle.
 - **`get_json` è in `scripts/wired-exceptions.txt` come rinvio a questa fase**: è il lettore
@@ -32,9 +38,11 @@ tassonomia degli errori, `SearchNode` e gli eventi WebSocket.
 
 ## Gruppo A — Misurare prima di costruire
 
-### Task 1 — Il probe hardware diventa reale
-Sostituire `"unprobed"` con una misura vera: core disponibili, RAM libera, e **il tempo di
-un'inferenza sul modello scelto**, eseguita davvero all'avvio su un'immagine di prova.
+### Task 1 — Estendere il probe con l'inferenza AI
+`probe()` esiste già e misura l'accelerazione video (vedi sopra). Questo task **aggiunge** la
+misura dell'inferenza AI nel campo `extra`, già previsto per questo: RAM libera, e **il tempo
+di un'inferenza sul modello scelto**, eseguita davvero all'avvio su un'immagine di prova. Non
+si tocca la parte video, già corretta.
 
 **Ruling: la fase comincia con una misura, non con una stima.** — I numeri della specifica
 (75 ms per immagine sulla S2) vengono dal crate, non da un Pi. Se sul Pi costano 400 ms, la
@@ -48,6 +56,33 @@ Il risultato va in `system_settings` e lo legge `get_json`, che così smette di 
 Provare **prima `tract`** (Rust puro, nessuna libreria dinamica, avvio più leggero). Se carica
 ed esegue il modello scelto, si usa quella. Altrimenti `ort`. **La decisione va nel ledger con
 il motivo e i due tempi**, non dichiarata a priori.
+
+### Task 2bis — Verifica reale del multilingua italiano/inglese, prima di scegliere il modello
+
+**Nessuna versione precedente di questa spec ha mai verificato la lingua.** I modelli della
+famiglia CLIP/MobileCLIP sono addestrati su coppie immagine-didascalia **prevalentemente in
+inglese**: con l'italiano c'è una capacità residua (radici latine condivise), ma
+**misurabilmente peggiore**. I prompt dei tag nel disegno dell'interfaccia sono scritti in
+italiano (*"cielo al tramonto o all'alba, colori caldi"*) — un modello che capisce male
+l'italiano degrada silenziosamente proprio la funzione che questa fase promette.
+
+1. Costruire un piccolo banco di prova: ~20 coppie foto-descrizione in italiano **e** le stesse
+   in inglese, scelte per essere davvero distinguibili (non "foto di un cane" contro "foto di
+   un gatto" — troppo facile).
+2. Misurare la qualità di recupero con MobileCLIP2-S2 su entrambe le lingue. Se il divario è
+   piccolo, si tiene il modello previsto dalla specifica.
+3. **Se il divario è largo**, provare una variante CLIP genuinamente multilingua (esistono
+   checkpoint OpenCLIP addestrati per il recupero cross-lingua) e misurare la **stessa cosa** —
+   qualità **e** costo (RAM, ms/foto). **Il tetto di RAM (Task 6: sotto 1 GB di RSS reale durante
+   l'inferenza) è un vincolo, non un dato informativo**: una variante multilingua che lo sfora
+   alla dimensione di lotto minima utile non si sceglie come predefinita, punto — indipendentemente
+   da quanto sia migliore in italiano.
+
+Il ciclo di vita della sessione (carico solo per lotto/finestra, mai residente, mai per singola
+foto) è specificato nel **Task 6**, che questo task riusa senza ripeterlo.
+
+**Verifica:** i numeri del banco di prova (qualità per lingua, RAM, ms/foto) vanno nel ledger,
+con la decisione presa in base a quelli — non prima.
 
 ---
 
@@ -72,9 +107,15 @@ indici della specifica — **tranne quello vettoriale**, vedi Task 11.
 
 ### Task 5 — Calcolare le impronte
 1. **Ingresso: la miniatura da 240 px già su disco.** Non si decodifica mai l'originale.
-2. **Il culling è fuori**: si salta tutto ciò che sta sotto una cartella con `culling_role`
-   (Fase 9). Se la Fase 9 non è ancora chiusa, il predicato si scrive comunque e resta inerte.
-3. **Un primario per pila**: RAW+JPEG è un solo scatto.
+2. **Il culling è fuori, per intero — non solo le sottocartelle marcate.** Decisione finale del
+   20 agosto 2026: il Culling non promuove mai automaticamente foto in libreria — chi vuole una
+   foto scelta nella libreria vera la ricarica manualmente. Quindi non è un caso da controllare
+   per-foto: si esclude l'intero sottoalbero radicato in `libraries.culling_root_folder_id`, con
+   lo stesso meccanismo `path <@` già usato dai permessi (`visibility.rs`), solo invertito. Se la
+   Fase 9 non è ancora chiusa, il predicato si scrive comunque e resta inerte.
+3. **Niente regola "un primario per pila".** Dato che i RAW esistono solo dentro il Culling (mai
+   importati altrove) e il Culling è escluso in blocco, una pila RAW+JPEG non raggiunge mai
+   l'analisi: tutto ciò che l'IA vede è già un singolo file non-RAW.
 4. **Inferenza a lotti**, non una foto alla volta.
 5. Mai ricalcolare ciò che ha già un'impronta con lo stesso `model_version`.
 
@@ -89,6 +130,30 @@ indici della specifica — **tranne quello vettoriale**, vedi Task 11.
 **Ruling: i livelli si presentano con i numeri veri, non come «livello di IA».** —
 *«Analisi completa: ~2 ore, poi qualche minuto al giorno»* è una scelta informata; un'etichetta
 astratta no. — *Costo se sbagliato:* l'utente sceglie a caso e poi si lamenta del risultato.
+
+**Ruling: la sessione ONNX vive solo per la durata di un lotto, mai in permanenza.** — Requisito
+esplicito: **il modello non resta mai caricato quando non sta analizzando**. Si carica quando
+parte una finestra di analisi (notte, o backlog quando la macchina è inattiva), gira sul lotto in
+coda, e la sessione si scarica subito dopo — o dopo un breve timeout di inattività se il backlog
+si esaurisce a metà finestra. **Il carico/scarico è per finestra o lotto, mai per singola foto**:
+un modello da 150-300 MB ha un costo di avvio reale (parsing del grafo, allocazione degli
+execution provider), che per foto singola manderebbe in perdita qualunque risparmio di RAM. —
+*Costo se sbagliato:* RAM occupata in permanenza su un Pi da 8 GB per un servizio che lavora a
+raffiche, o un costo di avvio pagato per ogni foto invece che una volta per lotto.
+
+**Ruling: tetto duro, non un obiettivo — sotto 1 GB di RSS reale mentre il modello gira.** — Non
+"circa un giga": è un vincolo che la misura del Task 1/2bis deve rispettare prima di scegliere
+model e dimensione di lotto, non dopo. Se il modello scelto (baseline o variante multilingua)
+supera il tetto alla dimensione di lotto minima utile, **non si spedisce come livello
+predefinito** — resta un'opzione per hardware più grosso, dietro un avviso esplicito nei tre
+livelli del disegno. — *Costo se sbagliato:* su un Pi da 8 GB, dove Postgres tiene già ~2 GB e il
+resto dell'applicazione il suo, un picco sopra il giga durante l'analisi nottura rischia di
+competere con la manutenzione schedulata nella stessa finestra (Fase 6).
+
+**Verifica:** RSS reale misurato durante un lotto vero (non la sola dimensione dei pesi su disco,
+che sottostima sempre il picco effettivo — arena di esecuzione, buffer di attivazione, batch);
+misurato **sia** all'avvio della sessione **sia** al picco durante l'inferenza; nel ledger un
+prima/dopo dello scarico che confermi che la RAM torna libera davvero.
 
 ---
 

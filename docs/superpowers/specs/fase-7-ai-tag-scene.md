@@ -465,31 +465,39 @@ sotto i 240 px; per riconoscere «tramonto», «montagna» o «ritratto» sono i
 Corollario: **l'analisi può girare solo su foto che hanno già la miniatura**, il che la incatena
 naturalmente a valle dell'ingestione invece di competerci.
 
-### B. L'IA non entra nel culling. Punto.
+### B. L'IA non entra nel culling. Punto — e il confine è più netto di quanto sembrasse.
 
-**Ruling: si analizza la libreria; i lotti di culling sono fuori.** — Il culling è un'**area di
-transito**: le foto ci arrivano dalla scheda, si scelgono, e poi escono — quelle tenute entrano
-in libreria, le altre spariscono. Analizzare lì dentro significa lavorare su materiale che per
-definizione non è ancora deciso, e nella maggior parte dei casi buttare il lavoro. Una foto viene
-analizzata **quando entra in libreria**, che è esattamente il momento in cui qualcuno ha deciso
-che vale la pena tenerla. — *Costo se sbagliato:* una foto appena uscita dal culling non è
-cercabile per contenuto finché l'analisi non la raggiunge, cosa che accade comunque in
-sottofondo entro pochi minuti.
+**Decisione finale (20 agosto 2026): il Culling è un'area a sé, permanentemente separata dalla
+libreria — non un'anticamera che si svuota da sola.** Scegliere una foto in un lotto la sposta in
+`_taken/`, e lì resta. **Nessuna promozione automatica verso la libreria.** Se l'utente vuole
+quella foto nella libreria vera — nella Timeline, cercabile, analizzata dall'IA — la ricarica lui
+stesso, manualmente, attraverso l'ingestione normale. È un'azione dell'utente, non una funzione
+di Keeppix.
 
-Il confine è **una condizione sulla cartella, non uno stato per foto**: la Fase 9 marca le
-cartelle di culling (`folders.culling_role`, sotto `libraries.culling_root_folder_id`). L'analisi
-le salta e basta.
+Conseguenza diretta: **i file RAW non esistono strutturalmente nella libreria.** Vengono
+importati *solo* attraverso il Culling (mai altrove), e il Culling non alimenta mai la libreria
+da solo. Quindi non serve nessun filtro "salta i RAW" per l'IA: basta escludere l'intero
+sottoalbero del Culling, ed è automaticamente vero che l'IA non incontra mai un RAW.
 
-Questo cancella tre complicazioni che una versione precedente di questo emendamento si era
-inventata: escludere gli scartati uno per uno, buttare l'analisi quando una foto viene scartata,
-e rianalizzare quando viene ripescata. **Nessuna delle tre serve più.**
+**Ruling: si esclude l'intero sottoalbero radicato in `libraries.culling_root_folder_id`, non le
+sole sottocartelle marcate.** — La versione precedente di questo emendamento escludeva solo le
+cartelle marcate `folders.culling_role` (cioè `_taken`/`_skipped`), il che avrebbe lasciato dentro
+allo scope dell'IA sia le foto non ancora valutate nella radice del lotto, sia — soprattutto — non
+avrebbe riflesso la decisione che *tutto* il Culling è fuori, presi compresi. Il confine giusto è
+lo stesso meccanismo `ltree`/`path <@` già usato dai permessi (`crates/keeppix-db/src/
+visibility.rs`), solo invertito: `WHERE NOT (f.path <@ culling_root.path)`. Un solo controllo,
+niente eccezioni per sottocartella. — *Costo se sbagliato:* una foto ancora in valutazione, o
+scartata, finisce comunque analizzata — esattamente il caso che questo emendamento esiste per
+evitare.
 
-Resta invece valida una sola esclusione, dentro la libreria:
-
-**Una impronta per pila, non per file.** RAW e JPEG affiancati sono **un solo scatto** (richiesta
-#4 del documento funzionale): si analizza il primario. È la stessa definizione di «una foto» che
-l'interfaccia usa per contare, selezionare ed eliminare — usarne una diversa qui farebbe divergere
-i numeri fra due schermate. Su un archivio RAW+JPEG è metà del lavoro in meno.
+Questo cancella anche le complicazioni di una versione ancora precedente: escludere gli scartati
+uno per uno, buttare l'analisi quando una foto viene scartata, rianalizzare quando viene ripescata,
+e persino il caso delle pile RAW+JPEG (§C originale) — **non serve più una regola "un'impronta per
+pila": dato che i RAW vivono solo nel Culling e il Culling è escluso in blocco, una pila con un RAW
+non raggiunge mai l'analisi.** Tutto ciò che l'IA vede nella libreria è già, per costruzione, un
+singolo file non-RAW (JPEG, TIFF, PNG, HEIF, WebP — quali di questi la pipeline di derivati sa
+davvero decodificare è un debito separato, non ancora assegnato a una fase) caricato manualmente
+dall'utente.
 
 ### C. Le altre leve, in ordine di resa
 
