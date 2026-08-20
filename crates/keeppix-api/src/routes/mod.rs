@@ -19,6 +19,7 @@ pub mod problems;
 pub mod regions;
 pub mod restore;
 pub mod search;
+pub mod sessions;
 pub mod setup;
 pub mod share;
 pub mod stacks;

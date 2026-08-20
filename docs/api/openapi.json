@@ -4299,6 +4299,136 @@
         ]
       }
     },
+    "/api/v1/users/me/sessions": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "List the current user's active sessions",
+        "operationId": "sessions_list",
+        "responses": {
+          "200": {
+            "description": "Sessioni attive, la chiamante marcata `current`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/me/sessions/revoke-others": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoke every session except the caller's",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "sessions_revoke_others",
+        "responses": {
+          "204": {
+            "description": "Le altre sessioni sono state revocate"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/me/sessions/{id}": {
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoke one of the current user's other sessions",
+        "description": "# Errors\n`400` se `id` è la sessione corrente; `401` se non autenticato; `403` se\n`id` non appartiene al chiamante.",
+        "operationId": "sessions_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id di sessione (SessionView.id)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Sessione revocata"
+          },
+          "400": {
+            "description": "`id` è la sessione corrente: usare /auth/logout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`id` non appartiene al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/users/{id}": {
       "patch": {
         "tags": [
@@ -6467,6 +6597,32 @@
               "null"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "SessionView": {
+        "type": "object",
+        "required": [
+          "id",
+          "last_seen_at",
+          "current"
+        ],
+        "properties": {
+          "current": {
+            "type": "boolean"
+          },
+          "device_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
