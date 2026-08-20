@@ -41,6 +41,22 @@ deve trovare.
 4. **`docs/ui/analisi-gap-backend.md`** — il confronto punto per punto col backend reale.
 5. `AGENTS.md`, il roadmap, e la spec + il piano della fase su cui lavori.
 
+### Decisioni aggiunte dopo la stesura di questo file — 20 agosto sera
+
+- **I RAW entrano in Keeppix solo attraverso il Culling, mai altrove.** Il Culling è un'area
+  permanentemente separata dalla libreria: scegliere una foto la sposta in `_taken/` e **lì
+  resta** — nessuna promozione automatica. Chi vuole una foto scelta nella libreria vera la
+  ricarica **manualmente**: un'azione dell'utente, non una funzione di Keeppix.
+- **L'IA esclude l'intero sottoalbero del Culling**, non solo `_taken`/`_skipped`: dato che i RAW
+  vivono solo lì, escludere tutto l'albero esclude automaticamente ogni RAW, senza filtro per
+  formato. **Non serve più** la regola "un'impronta per pila" — nella libreria non esistono pile
+  RAW+JPEG, per costruzione.
+- **Il modello IA non resta mai caricato**: si carica solo per lotto/finestra di analisi, si
+  scarica subito dopo. **Tetto duro: sotto 1 GB di RSS reale mentre gira** — un candidato che lo
+  sfora alla dimensione di lotto minima utile non si sceglie come predefinito, punto.
+- **La libreria gestisce anche PNG, TIFF, WebP-sorgente, HEIF 8/10 bit**, non solo JPEG — debito
+  reale su codice già in produzione: `derive.rs` oggi decodifica solo JPEG (Fase 10 Task 22).
+
 ### La precedenza, quando le fonti divergono
 
 **decisioni → prototipo → documento funzionale → analisi gap.**

@@ -133,6 +133,15 @@ marcate da una colonna (§2.7), cosicché un utente che avesse già una cartella
 chiamata così altrove nella libreria non venga confuso con una cartella di
 culling — la marcatura, non il nome, decide il comportamento.
 
+**Decisione finale (20 agosto 2026): `_taken/` non promuove mai automaticamente
+verso la libreria.** Una foto scelta resta in `_taken/` — punto, nessuna
+scadenza, nessun trasferimento implicito. Se l'utente la vuole nella libreria
+vera (Timeline, ricerca, IA), la ricarica lui stesso, manualmente, attraverso
+l'ingestione normale: un'azione esplicita dell'utente, non una funzione di
+Keeppix. Conseguenza diretta per le altre fasi: la Fase 7 esclude l'intero
+sottoalbero di `culling_root_folder_id` dall'analisi IA, senza eccezioni per
+`_taken/` — vedi `fase-7-ai-tag-scene.md` §B.
+
 ### 2.3 L'interazione resta un'etichetta, lo spostamento è un effetto
 
 In Culling, "Scelto"/"Scartato" restano gli stessi due pulsanti di oggi — un
