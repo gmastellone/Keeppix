@@ -2,6 +2,30 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // First paint: mirror detectLocale() before the module graph loads so
+      // `lang` is not stuck on the HTML default while JS boots. After login,
+      // users.locale (profile) is the source of truth and rewrites this.
+      (function () {
+        var supported = { it: 1, en: 1 }
+        var stored = null
+        try {
+          stored = localStorage.getItem('keeppix.locale')
+        } catch (e) {}
+        var lang = stored && supported[stored] ? stored : null
+        if (!lang) {
+          var prefs = navigator.languages || [navigator.language || 'en']
+          for (var i = 0; i < prefs.length; i++) {
+            var base = String(prefs[i]).split('-')[0]
+            if (supported[base]) {
+              lang = base
+              break
+            }
+          }
+        }
+        document.documentElement.lang = lang || 'en'
+      })()
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

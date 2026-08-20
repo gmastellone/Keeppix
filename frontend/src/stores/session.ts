@@ -4,6 +4,8 @@ import { ref } from 'vue'
 import * as authApi from '@/api/auth'
 import type { SetupPayload, User } from '@/api/auth'
 import { ApiProblem } from '@/api/client'
+import { updateUser } from '@/api/users'
+import { applyProfileLocale, setLocale, type Locale } from '@/i18n'
 
 export type { User }
 
@@ -35,6 +37,7 @@ export const useSessionStore = defineStore('session', () => {
         try {
           const result = await authApi.me()
           user.value = result.user
+          applyProfileLocale(result.user.locale)
           startWatchdog()
         } catch (error) {
           // 401 è normale: nessuna sessione attiva.
@@ -62,14 +65,31 @@ export const useSessionStore = defineStore('session', () => {
   async function login(username: string, password: string): Promise<void> {
     const result = await authApi.login(username, password)
     user.value = result.user
+    applyProfileLocale(result.user.locale)
     startWatchdog()
   }
 
   async function setup(payload: SetupPayload): Promise<void> {
     const result = await authApi.setupAccount(payload)
     user.value = result.user
+    applyProfileLocale(result.user.locale)
     initialised.value = true
     startWatchdog()
+  }
+
+  /**
+   * Persist the UI language on the profile (spec §10.10) and keep the
+   * localStorage cache in sync for the next first paint.
+   */
+  async function changeLocale(locale: Locale): Promise<void> {
+    setLocale(locale)
+    const current = user.value
+    if (!current) return
+    const updated = await updateUser(current.id, { locale })
+    user.value = {
+      ...current,
+      locale: updated.locale
+    }
   }
 
   /**
@@ -151,6 +171,7 @@ export const useSessionStore = defineStore('session', () => {
     retryBootstrap,
     login,
     setup,
+    changeLocale,
     logout,
     stopWatchdog
   }

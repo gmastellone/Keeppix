@@ -401,6 +401,9 @@
     "unexpectedError": "An unexpected error occurred.",
     "unavailable": "The server is unreachable",
     "unavailableHint": "Try again shortly: this is not a sign-in problem.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "language": "Language",
+    "languageIt": "Italiano",
+    "languageEn": "English"
   }
 }

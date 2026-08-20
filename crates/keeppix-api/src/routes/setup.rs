@@ -85,7 +85,7 @@ pub async fn create(
         )
         .with_detail(e.to_string())
     })?;
-    let password = Password::parse(&req.password).map_err(|e| {
+    let password = Password::parse_owned(req.password).map_err(|e| {
         Problem::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "invalid-password",
