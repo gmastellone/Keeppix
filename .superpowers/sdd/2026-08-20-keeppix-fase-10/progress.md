@@ -164,3 +164,12 @@ rigenerato). `cargo fmt --check` e `cargo clippy --workspace --all-targets
 altri test di scala non toccati da questo task): eseguiti invece i test
 focalizzati elencati sopra più una verifica di build/clippy sull'intero
 workspace.
+
+Ruling: `geometry_stamp` / `geometry_stamp_in_bounds` (`count(*)` +
+`max(updated_at)`) validano `If-None-Match` **prima** della scansione
+completa — review Task 2: il 304 sul rientro non deve pagare il fetch di
+tutti i `width`/`height`. — *Costo se sbagliato:* stamp e body divergono
+se i filtri differiscono; i test di uguaglianza stamp↔geometry lo
+bloccano.
+
+Task 2 review fix: complete (commit pending, tests green)
