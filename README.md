@@ -9,8 +9,18 @@ PostGIS. Gli originali restano sul disco, in sola lettura; Keeppix non li
 riscrive. Hardware minimo dichiarato: Raspberry Pi 5 da 8 GB.
 
 Stato attuale: **Fasi 0–4 su `main`** (ingestione, RAW e culling, multiutente
-e condivisione, mappe e geocoding). La **Fase 5** (WebDAV e upload
-riprendibili) è in lavorazione.
+e condivisione, mappe e geocoding). Le **Fasi 5 e 6** (WebDAV e upload
+riprendibili; video, backup, TOTP, PWA) sono implementate su branch, con una
+lista di fix aperta prima del merge.
+
+Il **disegno dell'interfaccia è concluso** e vive in [`docs/ui/`](docs/ui/):
+prototipo interattivo, documento funzionale a 70 schermate, brand sheet, più
+l'analisi del divario col backend e le decisioni di costo/beneficio. Ne sono
+nate due fasi nuove — la **10** (superficie API per l'interfaccia) e la **11**
+(l'interfaccia) — e tutti i piani da qui alla fine sono scritti.
+
+Ordine di esecuzione: `fix 5/6 → 10 → 7 → 8 → 9 → 11`. Il perché la 10 venga
+prima della 7 sta nel [roadmap](docs/superpowers/plans/2026-08-13-keeppix-roadmap.md).
 
 ## Avvio
 
