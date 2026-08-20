@@ -1,7 +1,7 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use keeppix_db::{FlagRepo, SearchNode, SearchRepo};
+use keeppix_db::{FlagRepo, SearchNode, SearchRepo, Suggestion, SuggestionKind};
 use keeppix_domain::AssetId;
 use serde::{Deserialize, Serialize};
 
@@ -31,9 +31,57 @@ pub struct SuggestQuery {
     q: String,
 }
 
+/// Insieme chiuso (spec fase-10 §23): `tag` è già nella forma anche se resta
+/// senza fonte fino a Fase 7, così il contratto non cambia due volte.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionKindView {
+    Tag,
+    Camera,
+    Folder,
+    Iso,
+    Year,
+    Country,
+    Filename,
+}
+
+impl From<SuggestionKind> for SuggestionKindView {
+    fn from(kind: SuggestionKind) -> Self {
+        match kind {
+            SuggestionKind::Tag => Self::Tag,
+            SuggestionKind::Camera => Self::Camera,
+            SuggestionKind::Folder => Self::Folder,
+            SuggestionKind::Iso => Self::Iso,
+            SuggestionKind::Year => Self::Year,
+            SuggestionKind::Country => Self::Country,
+            SuggestionKind::Filename => Self::Filename,
+        }
+    }
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct SuggestionView {
+    pub kind: SuggestionKindView,
+    pub value: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+impl From<Suggestion> for SuggestionView {
+    fn from(suggestion: Suggestion) -> Self {
+        Self {
+            kind: suggestion.kind.into(),
+            value: suggestion.value,
+            label: suggestion.label,
+            color: suggestion.color,
+        }
+    }
+}
+
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct SuggestResponse {
-    suggestions: Vec<String>,
+    suggestions: Vec<SuggestionView>,
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -114,7 +162,9 @@ pub async fn suggest(
     Query(query): Query<SuggestQuery>,
 ) -> Result<Json<SuggestResponse>, Problem> {
     let suggestions = SearchRepo::new(&state.db).suggest(&ctx, &query.q).await?;
-    Ok(Json(SuggestResponse { suggestions }))
+    Ok(Json(SuggestResponse {
+        suggestions: suggestions.into_iter().map(SuggestionView::from).collect(),
+    }))
 }
 
 /// # Errors

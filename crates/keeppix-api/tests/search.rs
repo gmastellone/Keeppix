@@ -4,7 +4,7 @@ use chrono::{TimeZone, Utc};
 use harness::TestServer;
 use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, UserRepo};
 use keeppix_domain::{
-    AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, Username,
+    AssetKind, AssetName, AuthContext, ExifData, NewAsset, NewLibrary, SystemRole, Username,
 };
 use serde_json::json;
 
@@ -136,6 +136,98 @@ async fn the_favorite_search_chip_finds_only_the_callers_favorites() {
     let found = favorites["assets"].as_array().unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0]["id"], loved_id);
+}
+
+/// `/search/suggest` restituisce oggetti tipizzati (spec fase-10 §23), non
+/// più stringhe piatte: il frontend deve poter distinguere `kind` senza
+/// indovinarlo dal valore.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn suggest_returns_typed_pills_not_bare_strings() {
+    let server = TestServer::start().await;
+    seed_photo(&server, "cascata.jpg").await;
+    let username = Username::parse("giovanni").unwrap();
+    let (user, _) = UserRepo::new(&server.db)
+        .find_by_username(&username)
+        .await
+        .unwrap()
+        .expect("admin");
+    let ctx = AuthContext::user(user.id, SystemRole::Admin);
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Fotocamera".to_owned(),
+                owner_id: user.id,
+                root_path: std::path::PathBuf::from("/mnt/fotocamera"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(&server.db)
+        .ensure_path(library.id, &[])
+        .await
+        .unwrap();
+    let assets = AssetRepo::new(&server.db);
+    let asset = assets
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("con-exif.jpg").unwrap(),
+            size_bytes: 10,
+            mtime: Utc.with_ymd_and_hms(2024, 7, 1, 0, 0, 0).unwrap(),
+            inode: Some(2),
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assets
+        .set_indexed(
+            asset.id,
+            Utc.with_ymd_and_hms(2024, 7, 1, 12, 0, 0).unwrap(),
+            1,
+            1,
+        )
+        .await
+        .unwrap();
+    assets
+        .insert_exif(
+            asset.id,
+            &ExifData {
+                raw: serde_json::json!({}),
+                taken_at_utc: Utc.with_ymd_and_hms(2024, 7, 1, 12, 0, 0).unwrap(),
+                tz_offset_minutes: 0,
+                tz_assumed: true,
+                width: None,
+                height: None,
+                camera_make: None,
+                camera_model: Some("Fotocamera Suprema".to_owned()),
+                lens: None,
+                iso: None,
+                f_number: None,
+                exposure: None,
+                focal_length: None,
+                gps: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let response = server
+        .client
+        .get(server.url("/api/v1/search/suggest?q=Fotocamera"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let suggestions = body["suggestions"].as_array().unwrap();
+    assert_eq!(suggestions.len(), 1, "{suggestions:?}");
+    assert_eq!(suggestions[0]["kind"], "camera");
+    assert_eq!(suggestions[0]["value"], "Fotocamera Suprema");
+    assert_eq!(suggestions[0]["label"], "Fotocamera Suprema");
+    assert!(suggestions[0].get("color").is_none());
 }
 
 #[tokio::test]

@@ -7108,8 +7108,46 @@
           "suggestions": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/SuggestionView"
             }
+          }
+        }
+      },
+      "SuggestionKindView": {
+        "type": "string",
+        "description": "Insieme chiuso (spec fase-10 §23): `tag` è già nella forma anche se resta\nsenza fonte fino a Fase 7, così il contratto non cambia due volte.",
+        "enum": [
+          "tag",
+          "camera",
+          "folder",
+          "iso",
+          "year",
+          "country",
+          "filename"
+        ]
+      },
+      "SuggestionView": {
+        "type": "object",
+        "required": [
+          "kind",
+          "value",
+          "label"
+        ],
+        "properties": {
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SuggestionKindView"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
           }
         }
       },

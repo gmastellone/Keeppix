@@ -77,7 +77,7 @@ pub use problems::{
     ProblemSet, ProblemSeverity, ProblemsRepo,
 };
 pub use regions::{MapRegion, NewMapRegion, RegionDownloadSource, RegionRepo, RegionStatus};
-pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
+pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo, Suggestion, SuggestionKind};
 pub use sessions::{SessionRepo, SessionSummary};
 pub use settings::SettingsRepo;
 pub use share_links::{NewShareLink, ShareLinkRepo, ShareLinkRow};

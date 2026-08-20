@@ -185,41 +185,90 @@ impl<'a> SearchRepo<'a> {
         rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
-    /// Prefissi su `camera_model` e filename visibili.
+    /// Suggerimenti tipizzati per la barra di ricerca (spec fase-10 §23): il
+    /// frontend deve sapere *di che tipo* è ogni risultato per costruire la
+    /// pillola giusta, e per un tag anche il colore del pallino.
+    ///
+    /// `tag` resta senza fonte in questo task: la tabella dei tag non esiste
+    /// ancora (Fase 7). L'enum è comunque completo — è la forma che va
+    /// fissata ora, non le fonti, altrimenti cambierebbe due volte. Le altre
+    /// sei fonti (`camera`, `filename`, `folder`, `iso`, `year`, `country`)
+    /// leggono dati già presenti: le prime due esistevano già, le ultime
+    /// quattro sfruttano gli assi di ricerca del Task 6.
+    ///
+    /// `country` legge `assets.place_id` direttamente, senza `COALESCE` con
+    /// `asset_overrides.place_id` — stessa scelta di `SearchNode::Country`
+    /// (quella colonna non viene ancora scritta da nessun percorso).
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
-    pub async fn suggest(&self, ctx: &AuthContext, q: &str) -> Result<Vec<String>, DbError> {
+    /// `Connection` se la query fallisce; `Corrupted` se il database
+    /// restituisce un `kind` fuori dall'insieme chiuso previsto (non
+    /// dovrebbe accadere: la lista di `SELECT` è letterale, non dati
+    /// dell'utente).
+    pub async fn suggest(&self, ctx: &AuthContext, q: &str) -> Result<Vec<Suggestion>, DbError> {
         let q = q.trim();
         if q.is_empty() {
             return Ok(Vec::new());
         }
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let asset_filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let folder_filter = scope.filter_for_folder_aggregate("f.path", "f.library_id", "f.id", 1);
         let pattern = like_prefix(q);
         let sql = format!(
-            "(SELECT e.camera_model AS s FROM asset_exif e \
-              JOIN assets a ON a.id = e.asset_id \
-              JOIN folders f ON f.id = a.folder_id \
-              WHERE {} AND e.camera_model ILIKE $4 ESCAPE E'\\\\' \
-              LIMIT 8) \
+            "(SELECT 'camera' AS kind, e.camera_model AS value, e.camera_model AS label, \
+                      NULL::text AS color \
+                FROM asset_exif e \
+                JOIN assets a ON a.id = e.asset_id \
+                JOIN folders f ON f.id = a.folder_id \
+               WHERE {asset_filter} AND e.camera_model ILIKE $4 ESCAPE E'\\\\' \
+               LIMIT 6) \
              UNION \
-             (SELECT a.filename AS s FROM assets a \
-              JOIN folders f ON f.id = a.folder_id \
-              WHERE {} AND a.filename ILIKE $4 ESCAPE E'\\\\' \
-              LIMIT 8) \
-             LIMIT 10",
-            filter.sql(),
-            filter.sql()
+             (SELECT 'filename', a.filename, a.filename, NULL::text \
+                FROM assets a \
+                JOIN folders f ON f.id = a.folder_id \
+               WHERE {asset_filter} AND a.filename ILIKE $4 ESCAPE E'\\\\' \
+               LIMIT 6) \
+             UNION \
+             (SELECT 'folder', f.id::text, f.name, NULL::text \
+                FROM folders f \
+               WHERE {folder_filter} AND f.name ILIKE $4 ESCAPE E'\\\\' \
+               LIMIT 6) \
+             UNION \
+             (SELECT 'year', EXTRACT(YEAR FROM a.taken_at_utc)::int::text, \
+                      EXTRACT(YEAR FROM a.taken_at_utc)::int::text, NULL::text \
+                FROM assets a \
+                JOIN folders f ON f.id = a.folder_id \
+               WHERE {asset_filter} AND a.taken_at_utc IS NOT NULL \
+                 AND EXTRACT(YEAR FROM a.taken_at_utc)::int::text ILIKE $4 ESCAPE E'\\\\' \
+               LIMIT 6) \
+             UNION \
+             (SELECT 'iso', e.iso::text, e.iso::text, NULL::text \
+                FROM asset_exif e \
+                JOIN assets a ON a.id = e.asset_id \
+                JOIN folders f ON f.id = a.folder_id \
+               WHERE {asset_filter} AND e.iso IS NOT NULL \
+                 AND e.iso::text ILIKE $4 ESCAPE E'\\\\' \
+               LIMIT 6) \
+             UNION \
+             (SELECT 'country', p.country_code::text, p.country_code::text, NULL::text \
+                FROM assets a \
+                JOIN folders f ON f.id = a.folder_id \
+                JOIN places p ON p.id = a.place_id \
+               WHERE {asset_filter} AND p.country_code IS NOT NULL \
+                 AND p.country_code::text ILIKE $4 ESCAPE E'\\\\' \
+               LIMIT 6) \
+             LIMIT 12",
+            asset_filter = asset_filter.sql(),
+            folder_filter = folder_filter.sql(),
         );
-        let rows: Vec<(String,)> = sqlx::query_as(&sql)
-            .bind(filter.bind())
-            .bind(filter.holes())
-            .bind(filter.assets())
+        let rows: Vec<SuggestionRow> = sqlx::query_as(&sql)
+            .bind(asset_filter.bind())
+            .bind(asset_filter.holes())
+            .bind(asset_filter.assets())
             .bind(pattern)
             .fetch_all(self.db.pool())
             .await?;
-        Ok(rows.into_iter().map(|(s,)| s).collect())
+        rows.into_iter().map(SuggestionRow::into_domain).collect()
     }
 
     /// # Errors
@@ -279,6 +328,67 @@ impl<'a> SearchRepo<'a> {
         .await?;
         let query_text = query_text.ok_or(DbError::Forbidden)?;
         parse_query_text(&query_text)
+    }
+}
+
+/// Insieme chiuso: il frontend decide la pillola in base a questo, quindi un
+/// ottavo valore non previsto romperebbe il contratto invece di degradare.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuggestionKind {
+    Tag,
+    Camera,
+    Folder,
+    Iso,
+    Year,
+    Country,
+    Filename,
+}
+
+impl SuggestionKind {
+    fn parse(raw: &str) -> Result<Self, DbError> {
+        match raw {
+            "tag" => Ok(Self::Tag),
+            "camera" => Ok(Self::Camera),
+            "folder" => Ok(Self::Folder),
+            "iso" => Ok(Self::Iso),
+            "year" => Ok(Self::Year),
+            "country" => Ok(Self::Country),
+            "filename" => Ok(Self::Filename),
+            other => Err(DbError::Corrupted(format!(
+                "unknown search suggestion kind: {other}"
+            ))),
+        }
+    }
+}
+
+/// Suggerimento tipizzato per la barra di ricerca (spec fase-10 §23).
+/// `value` è ciò che alimenta il `SearchNode` corrispondente se l'utente
+/// sceglie la pillola (l'id di cartella per `Folder`, il testo per gli
+/// altri); `label` è ciò che si mostra.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suggestion {
+    pub kind: SuggestionKind,
+    pub value: String,
+    pub label: String,
+    pub color: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+struct SuggestionRow {
+    kind: String,
+    value: String,
+    label: String,
+    color: Option<String>,
+}
+
+impl SuggestionRow {
+    fn into_domain(self) -> Result<Suggestion, DbError> {
+        Ok(Suggestion {
+            kind: SuggestionKind::parse(&self.kind)?,
+            value: self.value,
+            label: self.label,
+            color: self.color,
+        })
     }
 }
 

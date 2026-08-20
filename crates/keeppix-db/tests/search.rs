@@ -6,6 +6,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use harness::TestDb;
 use keeppix_db::{
     AssetRepo, FolderRepo, LibraryRepo, PlaceRepo, SearchNode, SearchRepo, StackRepo,
+    SuggestionKind,
 };
 use keeppix_domain::{
     AssetKind, AssetName, AuthContext, ExifData, GeoPoint, NewAsset, NewLibrary, Place, Rating,
@@ -802,5 +803,122 @@ async fn favorite_search_uses_the_partial_index() {
     assert!(
         plan.contains("asset_flags_favorite_idx"),
         "il filtro Favorite deve servirsi dall'indice parziale asset_flags_favorite_idx:\n{plan}"
+    );
+}
+
+/// Un suggerimento per ognuna delle sei fonti attive (spec fase-10 §23).
+/// `tag` non ha fonte in questo task (Fase 7): non compare mai, ma resta
+/// nell'enum.
+#[tokio::test]
+async fn suggest_returns_a_typed_result_for_each_supported_kind() {
+    let test = TestDb::start().await;
+    let (ctx, root) = seed(&test).await;
+    let root_folder = FolderRepo::new(test.db())
+        .find_by_id(&ctx, root)
+        .await
+        .unwrap();
+    let child = FolderRepo::new(test.db())
+        .ensure_child(&root_folder, "Cortile")
+        .await
+        .unwrap();
+
+    let assets = AssetRepo::new(test.db());
+    let a = assets
+        .upsert_discovered(photo(child.id, "veranda.jpg", AssetKind::Image))
+        .await
+        .unwrap()
+        .unwrap();
+    assets
+        .set_indexed(
+            a.id,
+            Utc.with_ymd_and_hms(2031, 6, 1, 12, 0, 0).unwrap(),
+            1,
+            1,
+        )
+        .await
+        .unwrap();
+    assets
+        .insert_exif(
+            a.id,
+            &ExifData {
+                camera_model: Some("PrototipoX9000".to_owned()),
+                iso: Some(777),
+                ..blank_exif(Utc.with_ymd_and_hms(2031, 6, 1, 12, 0, 0).unwrap())
+            },
+        )
+        .await
+        .unwrap();
+    let place = Place {
+        id: 9_988_776,
+        name: "Urbino".to_owned(),
+        ascii_name: "Urbino".to_owned(),
+        country_code: Some("IT".to_owned()),
+        admin1: None,
+        admin2: None,
+        location: GeoPoint {
+            lat: 43.726,
+            lon: 12.636,
+        },
+        population: 14_800,
+    };
+    PlaceRepo::new(test.db()).upsert(&place).await.unwrap();
+    set_place(&test, a.id, place.id).await;
+
+    let repo = SearchRepo::new(test.db());
+    // (query, kind, value e label attesi — coincidono per tutte le fonti
+    // tranne `folder`, dove `value` è l'id per la navigazione e `label` il
+    // nome leggibile: gestita a parte più sotto).
+    let cases = [
+        (
+            "veranda",
+            SuggestionKind::Filename,
+            "veranda.jpg",
+            "veranda.jpg",
+        ),
+        (
+            "Prototipo",
+            SuggestionKind::Camera,
+            "PrototipoX9000",
+            "PrototipoX9000",
+        ),
+        ("2031", SuggestionKind::Year, "2031", "2031"),
+        ("777", SuggestionKind::Iso, "777", "777"),
+        ("IT", SuggestionKind::Country, "IT", "IT"),
+    ];
+    for (query, kind, value, label) in cases {
+        let found = repo.suggest(&ctx, query).await.unwrap();
+        let matching = found.iter().find(|s| s.kind == kind).unwrap_or_else(|| {
+            panic!("nessun suggerimento di tipo {kind:?} per {query:?}: {found:?}")
+        });
+        assert_eq!(matching.value, value, "query {query:?}");
+        assert_eq!(matching.label, label, "query {query:?}");
+    }
+
+    let folder_found = repo.suggest(&ctx, "Cort").await.unwrap();
+    let folder_match = folder_found
+        .iter()
+        .find(|s| s.kind == SuggestionKind::Folder)
+        .expect("nessun suggerimento di tipo folder per \"Cort\"");
+    assert_eq!(
+        folder_match.value,
+        child.id.as_uuid().to_string(),
+        "il value di un suggerimento cartella è l'id, per costruire SearchNode::Folder"
+    );
+    assert_eq!(folder_match.label, "Cortile");
+}
+
+#[tokio::test]
+async fn suggest_never_offers_the_tag_kind_without_a_source() {
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    index(&test, folder, "tag.jpg", AssetKind::Image, 2).await;
+
+    let found = SearchRepo::new(test.db())
+        .suggest(&ctx, "tag")
+        .await
+        .unwrap();
+    assert!(
+        !found.iter().any(|s| s.kind == SuggestionKind::Tag),
+        "nessuna fonte di tag esiste ancora (Fase 7): non deve comparire"
     );
 }
