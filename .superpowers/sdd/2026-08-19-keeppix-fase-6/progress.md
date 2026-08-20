@@ -249,3 +249,6 @@ polls. Cost if wrong: under extreme xmin holdback a full page could skip an
 in-flight lower seq — acceptable vs. client spin; dedicated Postgres is the
 real fix for perfect overlap under load.
 
+Ruling: upload finalize rename test sorts filenames in Rust — Postgres
+`ORDER BY filename` under en_US/ICU can put `foto_1.jpg` before `foto.jpg`.
+
