@@ -324,7 +324,75 @@ problema con gravità, testo e azione corretti.
 
 ---
 
-## Task 14 — Chiudere l'OpenAPI e i client generati
+## Task 14 — Suggerimenti tipizzati e cluster con destinazione
+
+**Dove:** `crates/keeppix-db/src/search.rs`, `routes/search.rs`, `routes/map.rs`.
+
+1. **`/search/suggest` restituisce oggi `Vec<String>`** (`db/search.rs:107`): stringhe piatte,
+   pescate solo da `camera_model` e `filename`. La barra di ricerca (§23) deve sapere **di che
+   tipo** è ogni suggerimento per creare la pillola giusta — e per un tag deve avere anche il
+   colore del pallino.
+   ```
+   { kind: "tag"|"camera"|"folder"|"iso"|"year"|"country"|"filename",
+     value: "...", label: "...", color: "#…"? }
+   ```
+   Le fonti nuove (tag, cartelle, ISO, anno, paese) si aggiungono man mano che gli assi della
+   §6 e della Fase 7 esistono: la **forma** però va fissata ora, altrimenti cambia due volte.
+2. **`MapClusterView` è `{lat, lon, count, cover_asset_id, clustered}`.** Il popover (§27)
+   chiede in più l'**etichetta leggibile del luogo** e l'**id di destinazione** con cui aprire
+   la cartella. L'etichetta si ha già dalla geocodifica inversa della Fase 4.
+
+**Verifica:** un test per `kind`; un test che il popover di un cluster ha abbastanza dati per
+navigare senza una seconda richiesta.
+
+---
+
+## Task 15 — «Condivisi con me», e i pezzi mancanti del profilo
+
+**Dove:** `routes/share.rs`, `routes/permissions.rs`, `routes/auth.rs`.
+
+1. **`GET /api/v1/shared-with-me`** — non esiste. `permissions` è interrogabile solo *per
+   oggetto* (`ListQuery{object_type, object_id}`); la scheda "Condivisi con me" (§29) chiede
+   l'inverso: tutti gli oggetti condivisi **con l'utente corrente**, ciascuno con nome, tipo,
+   numero di elementi, **proprietario** e **il mio ruolo**.
+2. **Conteggio elementi** per ogni link pubblico in `GET /share/links` (§29 mostra
+   *"246 elementi"*). Stessa regola del Task 11: un `GROUP BY`, non un `COUNT` per riga.
+3. `UserView` (`auth.rs:20`) copre nome, email e ruolo. Mancano al §61: **nome del server** e
+   **data dell'ultima modifica password** (*"Ultima modifica: 3 mesi fa"*). Il colore avatar
+   arriva dalle preferenze (Task 9).
+
+**Verifica:** test che un oggetto condiviso via **gruppo** compare in `/shared-with-me` con
+l'origine dell'ereditarietà, non solo quelli condivisi direttamente.
+
+---
+
+## Task 16 — Avanzamento e annullamento delle operazioni lunghe
+
+Il documento lo dichiara aperto (Parte XII §2.1): *"restano senza stato di avanzamento le
+operazioni lunghe sul disco: rinomina di massa, spostamenti, scansioni. Lì non basta uno
+scheletro — serve un avanzamento con una percentuale, e probabilmente la possibilità di
+annullare a metà."*
+
+**Il canale esiste già**: `/ws` è nato come canale di notifica, e il contratto congelato dice
+che non è fonte di verità — esattamente il ruolo giusto per un avanzamento.
+
+1. Le operazioni lunghe restituiscono subito un `operation_id` invece di bloccare.
+2. Eventi di avanzamento sul WebSocket: `{operation_id, done, total, phase}`.
+3. `POST /api/v1/operations/{id}/cancel`.
+
+**Ruling: annullare a metà produce una riuscita parziale, non un rollback.** — Le rinomine e
+gli spostamenti già eseguiti sul disco sono fatti; fingere di poterli disfare significherebbe
+un secondo giro di operazioni sul filesystem che può a sua volta fallire. L'operazione annullata
+restituisce lo stesso involucro del Task 1, con l'elenco di ciò che era già passato. — *Costo se
+sbagliato:* l'utente vede "annullata" e trova metà lavoro fatto, quindi l'interfaccia **deve**
+dirglielo con i numeri.
+
+**Verifica:** test che annullare a metà di 100 rinomine lascia esattamente le prime N applicate e
+le elenca; test che il progresso arriva anche se il client si riconnette a metà.
+
+---
+
+## Task 17 — Chiudere l'OpenAPI e i client generati
 
 1. Annotare con `utoipa` gli otto gruppi oggi assenti dallo spec generato: `albums`,
    `share`, `groups`, `permissions`, `audit`, `backup`, `restore`, `upload`,

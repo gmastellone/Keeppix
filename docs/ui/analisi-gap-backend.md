@@ -113,13 +113,13 @@ un aggregato "foto da valutare per lotto" che la spec Fase 9 deve prevedere espl
 |---|---|
 | assi di ricerca | vedi §4 |
 | ricerche salvate | ✅ `/saved-searches` |
-| suggerimenti | ✅ `/search/suggest` 🔷 (forma non ispezionata) |
-| cluster mappa con copertina e conteggio | ✅ `/map/clusters` 🔷 |
+| suggerimenti **tipizzati** (tag col pallino colorato, fotocamera, cartella, ISO, anno, paese) | ⚠️ `/search/suggest` restituisce `Vec<String>` — **stringhe piatte**, e solo da `camera_model` e `filename` (`db/search.rs:107`). La UI deve sapere *di che tipo* è un suggerimento per creare la pillola giusta |
+| cluster mappa con copertina e conteggio | ⚠️ `MapClusterView` è `{lat, lon, count, cover_asset_id, clustered}`. Il popover (§27) chiede in più l'**etichetta leggibile del luogo** e l'**id di destinazione** per aprire la cartella |
 | luoghi noti, geocodifica | ✅ `/places/suggest`, `/places/reverse` |
 | regioni scaricabili con peso e stato | ✅ `/map/regions` |
 | persone con accesso, ruolo, **ereditarietà** (gruppo + cartella) | ✅ `/permissions/explain` — nato esattamente per questo |
 | link pubblici con scadenza/password/download/elementi | ✅ tranne conteggio elementi (§2.3) |
-| condivisi con me | 🔷 da verificare |
+| **condivisi con me** | ❌ non esiste. `permissions` è interrogabile solo **per oggetto** (`ListQuery{object_type, object_id}`); la scheda "Condivisi con me" (§29) chiede l'inverso: tutti gli oggetti condivisi **con l'utente corrente**, con proprietario e ruolo. Serve `GET /shared-with-me` |
 
 ### Parte VI — Persone e volti (§31-40)
 🔵 **interamente Fase 8.**
@@ -146,7 +146,7 @@ stato esplicito `proposed/confirmed/rejected`).
 | cartella radice culling | 🔵 Fase 9 |
 | livello IA, modello, ms/foto misurati | 🔵 Fase 7 |
 | riconoscimento volti on/off + "elimina tutti i dati dei volti" | 🔵 Fase 8 |
-| profilo: nome, email, ruolo, avatar | ⚠️ `/auth/me` 🔷; colore avatar ❌ |
+| profilo: nome, email, ruolo, avatar | ⚠️ `UserView` (`auth.rs:20`) è `{id, username, display_name, email, role, locale, disabled_at}` — copre nome/email/ruolo. Mancano: **colore avatar** (→ preferenze), **nome del server**, **data dell'ultima modifica password** (§61 mostra *"Ultima modifica: 3 mesi fa"*) |
 | 2FA | ✅ TOTP completo (Fase 6) |
 | **sessioni attive** con dispositivo, ultimo accesso, revoca singola e "esci dagli altri" | ❌ tabella `sessions` c'è, endpoint no |
 | cambio password | ✅ `/users/me/password` |
@@ -256,8 +256,95 @@ fallisce se una rotta registrata non compare nello spec.
 
 ---
 
-## 7. Cosa resta dichiaratamente non verificato
+## 7. Copertura di questa analisi
 
-Per onestà, i punti marcati 🔷 sopra: forma di `/search/suggest`, di `/map/clusters`, di
-`/auth/me`, e il percorso "condivisi con me". Non cambiano le conclusioni — riguardano la forma
-di risposte che comunque esistono — ma non li ho ispezionati riga per riga.
+Verificati riga per riga: le 64 sezioni *"Dati necessari"*, la Parte X (scala, caricamento,
+errore, riuscita parziale), la Parte XI (i 30 pattern condivisi) e la Parte XII (assunzioni e
+domande aperte). Lato backend: il router completo, l'OpenAPI generato, e il codice di timeline,
+flags, trash, stacks, search, albums, folders, problems, duplicates, share, permissions, map,
+auth, più l'inventario di tutti i 43 indici sulle 32 migrazioni.
+
+I quattro punti lasciati aperti nella prima stesura — `/search/suggest`, `/map/clusters`,
+`/auth/me`, "condivisi con me" — sono ora **verificati**, e tre dei quattro erano lacune reali
+(suggerimenti non tipizzati, cluster senza etichetta né destinazione, "condivisi con me"
+inesistente).
+
+Resta fuori, deliberatamente, il dettaglio d'interazione dei sottotitoli 3-8 di ogni schermata
+(controlli, mouse, tastiera, animazioni, stati, navigazione): non tocca il contratto col
+backend, ed è il materiale della **Fase 11**, dove va letto per intero.
+
+---
+
+## 8. Il verso opposto: funzioni del backend che l'interfaccia **non ha disegnato**
+
+La Parte XII del documento elenca ciò che il prototipo *"non copre affatto"*, avvertendo che
+l'assenza **non va letta come "non serve"**. Incrociandola con ciò che il backend ha già
+costruito emergono funzioni spedite e senza interfaccia. Vanno disegnate seguendo il documento
+funzionale e il brand, non lasciate scoperte.
+
+| Funzione del backend | Fase | Stato UI | Nota |
+|---|---|---|---|
+| **Video**: probe, transcodifica HLS, player, poster | 6 | ❌ **nessun disegno** | Il documento dichiara: *"l'intero disegno assume fotografie"*. Ma la Fase 6 ha spedito la pipeline video completa. È il buco più grande in questo verso |
+| Importazione iniziale: scelta percorsi, prima scansione, avanzamento | 1 | ❌ | `GET/POST /libraries/{id}/scan`, `/libraries/preview` esistono |
+| Amministrazione: utenti, gruppi, permessi | 3 | ⚠️ parziale | Esistono `UsersView`, `GroupsView` nel frontend reale, ma il documento non le descrive |
+| Backup e ripristino | 6 | ⚠️ parziale | `BackupView` esiste nel frontend; nessuna schermata nel documento |
+| **Vista pubblica di un link condiviso** | 3 | ❌ | Il documento descrive come si *crea* una condivisione, non cosa vede chi riceve il link |
+| Configurazione WebDAV / app-password | 5 | ❌ | `/users/me/app-passwords` esiste |
+| Registro di controllo (audit) | 3 | ❌ | `GET /audit` esiste |
+| Comportamento offline e sincronizzazione | 5-6 | ❌ | `sync/delta` + service worker esistono |
+| Notifiche vere | — | ❌ | Le *preferenze* sono disegnate (§60), il meccanismo non esiste da nessuna delle due parti |
+
+## 9. Avanzamento e annullamento delle operazioni lunghe
+
+Il documento lo dichiara aperto (§2.1 della Parte XII): *"restano senza stato di avanzamento le
+operazioni lunghe sul disco: rinomina di massa, spostamenti, scansioni. Lì non basta uno
+scheletro — serve un avanzamento con una percentuale, e probabilmente la possibilità di annullare
+a metà. Non è disegnato."*
+
+È una richiesta al backend, non solo all'interfaccia, e **il canale c'è già**: il WebSocket
+(`/ws`, `/ws/ticket`) è nato come canale di notifica, e il contratto congelato dice che non è
+fonte di verità — perfetto per un avanzamento. Serve però:
+- un identificativo di operazione lunga restituito all'avvio;
+- eventi di avanzamento su quel canale;
+- un endpoint di annullamento, e la garanzia che annullare a metà lasci uno stato coerente
+  (le rinomine e gli spostamenti già fatti restano fatti, e sono elencabili).
+
+Si innesta naturalmente sull'involucro di riuscita parziale (Fase 10 §3): un'operazione annullata
+a metà **è** una riuscita parziale.
+
+## 10. Le dieci decisioni di prodotto rimaste aperte, e chi le ha già chiuse
+
+Il documento ne elenca dieci. Cinque hanno già una risposta nel backend o nelle spec:
+
+| # | Domanda aperta nel documento | Risposta |
+|---|---|---|
+| 3 | *"La scadenza del cestino a 30 giorni è dichiarata ma non implementata: chi la applica?"* | **Il server.** `purge_expired` è agganciato allo scheduler di manutenzione (Fase 6, Task 8) |
+| 7 | *"Il criterio con cui due foto sono duplicate è mostrato ma non definito"* | **Stesso `content_hash`.** `assets_content_hash_idx`, non-unique per contratto congelato. L'interfaccia lo dice già: *"stesso hash del contenuto"* |
+| 5 | *"Se l'unione di due persone sia reversibile"* | **Separare non ripristina: crea una persona nuova.** La spec Fase 8 ha `person_separations`, che rende la separazione manuale *permanente* contro il riaccorpamento automatico |
+| 2 | *"Se le decisioni umane sopravvivano all'eliminazione di un tag"* | **No, e va detto nel dialog.** La spec Fase 7 elimina le decisioni insieme al tag; il dialog "modifica tag" mostra già il numero di foto coinvolte prima di confermare |
+| 6 | *"Cosa accade ai volti già calcolati quando il riconoscimento viene spento"* | **Spegnere e cancellare restano due cose diverse** — sono due comandi distinti in §60. Spento = non si calcola più, i dati restano; il comando dedicato li elimina |
+
+Restano genuinamente aperte, e **richiedono una decisione tua**, non del backend:
+
+1. **Politica di lungo periodo degli scartati di un lotto** — restano per sempre? scadono? vanno nel cestino? (tocca la Fase 9)
+4. **Se una coppia RAW+JPEG possa essere separata** nei due file, e cosa comporti
+8. **I numeri esatti della pausa automatica dell'analisi** — il principio è giusto, la taratura va fatta sull'hardware vero (Fase 7, Task 1)
+9. **Se il filtro rapido sia per vista o globale** — il documento lo segnala come scelta, non come difetto
+10. **Se serva un annullamento generale** — oggi nessuna azione è annullabile. Per le azioni sul disco è un rischio; `metadata_batches` + `undo` esiste già e potrebbe estendersi
+
+## 11. Difetti del prototipo da **non** replicare
+
+La Parte XII ne elenca una trentina. Quelli con conseguenze sul backend:
+
+- **Le scorciatoie da tastiera si attivano anche digitando in un campo di testo**: nel culling,
+  scrivere `1` cambia la valutazione della foto sottostante. Da risolvere alla radice.
+- **La rinomina non verifica le collisioni contro il disco**, solo dentro il gruppo selezionato;
+  nessuna sanificazione completa dei caratteri, nessun limite di lunghezza, segnaposto vuoti che
+  lasciano separatori orfani. **Da irrobustire prima di toccare file veri** (Fase 9).
+- **`"Rinomina cartella…"` rinomina solo le foto passate dai filtri attivi** mentre il sottotitolo
+  dichiara *"Tutta la cartella"*. L'ambito va reso esplicito nella richiesta.
+- **L'eliminazione in blocco contrassegna ma non rimuove dalla timeline**, pur dichiarando
+  *"N foto eliminate."*
+- **L'anno è fisso a "2026"** nelle intestazioni: va derivato dai dati.
+- **`"1 fota rinominata"`, `"3 fote"`** — la flessione automatica sbaglia: "foto" è invariabile.
+  Riguarda i messaggi che il backend produrrà (Fase 10, Task 13).
