@@ -260,6 +260,14 @@ async fn geometry_matches_bucket_counts() {
         geometry.records.len(),
         usize::try_from(bucket_total).unwrap()
     );
+
+    let stamp = repo.geometry_stamp(&ctx, Some(library)).await.unwrap();
+    assert_eq!(
+        stamp.count,
+        u64::try_from(geometry.records.len()).unwrap(),
+        "stamp count must match geometry so If-None-Match can short-circuit"
+    );
+    assert_eq!(stamp.last_modified, geometry.last_modified);
 }
 
 #[tokio::test]
