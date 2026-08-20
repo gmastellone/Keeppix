@@ -79,9 +79,14 @@ pub async fn run(
         .await?;
     let limit = body.limit.unwrap_or(200).clamp(1, 200);
     let filled = i64::try_from(assets.len()).unwrap_or(i64::MAX) >= limit;
-    let next_cursor = filled.then(|| assets.last().map(encode_cursor)).flatten();
+    let next_cursor = filled
+        .then(|| assets.last().map(|a| encode_cursor(a)))
+        .flatten();
     Ok(Json(SearchPage {
-        assets: assets.iter().map(AssetView::from_asset).collect(),
+        assets: assets
+            .iter()
+            .map(AssetView::from_asset_with_stack)
+            .collect(),
         next_cursor,
     }))
 }

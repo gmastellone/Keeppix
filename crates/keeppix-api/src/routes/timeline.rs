@@ -3,8 +3,10 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, Utc};
-use keeppix_db::{AssetRepo, Geometry, GeometryRecord, GeometryStamp, OverrideRepo, TimelineRepo};
-use keeppix_domain::{Asset, AssetId, LibraryId};
+use keeppix_db::{
+    AssetRepo, AssetWithStack, Geometry, GeometryRecord, GeometryStamp, OverrideRepo, TimelineRepo,
+};
+use keeppix_domain::{Asset, AssetId, AssetKind, LibraryId};
 use serde::{Deserialize, Serialize};
 
 use crate::extract::SessionNotShare;
@@ -60,6 +62,13 @@ pub struct AssetView {
     pub location: Option<GeoPointView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place_id: Option<i64>,
+    /// 1 se non impilato, altrimenti il numero di file della pila (Task 3
+    /// fase-10). Campo additivo.
+    pub stack_size: u16,
+    /// Badge SP-15: `"raw"` / `"jpeg"` / `"raw+jpeg"`. `None` per un kind
+    /// che non è né l'uno né l'altro (video, unknown). Campo additivo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_kind: Option<String>,
 }
 
 impl AssetView {
@@ -78,7 +87,19 @@ impl AssetView {
             thumbhash: a.thumbhash.as_deref().map(hex_bytes),
             location: None,
             place_id: None,
+            stack_size: 1,
+            raw_kind: default_raw_kind(a.kind).map(str::to_owned),
         }
+    }
+
+    /// Come [`Self::from_asset`], ma con il badge di stack vero (Task 3):
+    /// usato dalle viste di browse (timeline, ricerca) che restituiscono
+    /// solo il primario di ogni pila.
+    pub(crate) fn from_asset_with_stack(a: &AssetWithStack) -> Self {
+        let mut view = Self::from_asset(&a.asset);
+        view.stack_size = a.stack.stack_size;
+        view.raw_kind.clone_from(&a.stack.raw_kind);
+        view
     }
 
     pub(crate) fn with_location(
@@ -89,6 +110,17 @@ impl AssetView {
         self.location = location;
         self.place_id = place_id;
         self
+    }
+}
+
+/// Badge di un asset non impilato, derivato dal suo `kind`: nessun aggregato
+/// da leggere, `None` solo per un kind che non è né RAW né JPEG (video,
+/// unknown) — vedi tabella `raw_kind` nel piano fase-10 Task 3.
+const fn default_raw_kind(kind: AssetKind) -> Option<&'static str> {
+    match kind {
+        AssetKind::RawImage => Some("raw"),
+        AssetKind::Image => Some("jpeg"),
+        AssetKind::Video | AssetKind::Unknown => None,
     }
 }
 
@@ -404,9 +436,14 @@ pub async fn page(
         repo.page(&ctx, bucket, cursor, limit).await?
     };
     let filled = i64::try_from(assets.len()).unwrap_or(i64::MAX) >= limit;
-    let next_cursor = filled.then(|| assets.last().map(encode_cursor)).flatten();
+    let next_cursor = filled
+        .then(|| assets.last().map(|a| encode_cursor(a)))
+        .flatten();
     Ok(Json(TimelinePage {
-        assets: assets.iter().map(AssetView::from_asset).collect(),
+        assets: assets
+            .iter()
+            .map(AssetView::from_asset_with_stack)
+            .collect(),
         next_cursor,
     }))
 }

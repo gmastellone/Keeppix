@@ -5085,7 +5085,8 @@
           "filename",
           "size_bytes",
           "kind",
-          "status"
+          "status",
+          "stack_size"
         ],
         "properties": {
           "content_hash": {
@@ -5130,9 +5131,22 @@
             ],
             "format": "int64"
           },
+          "raw_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Badge SP-15: `\"raw\"` / `\"jpeg\"` / `\"raw+jpeg\"`. `None` per un kind\nche non è né l'uno né l'altro (video, unknown). Campo additivo."
+          },
           "size_bytes": {
             "type": "integer",
             "format": "int64"
+          },
+          "stack_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1 se non impilato, altrimenti il numero di file della pila (Task 3\nfase-10). Campo additivo.",
+            "minimum": 0
           },
           "status": {
             "type": "string"
