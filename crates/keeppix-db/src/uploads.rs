@@ -585,7 +585,11 @@ fn available_bytes(root: &Path) -> Result<u64, DbError> {
             std::io::Error::last_os_error()
         )));
     }
-    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
+    // `f_bavail` / `f_frsize` widths differ by platform (`u32` vs `u64`).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    {
+        Ok((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
+    }
 }
 
 #[cfg(not(unix))]

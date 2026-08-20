@@ -441,7 +441,11 @@ fn rustix_statvfs(path: &Path) -> Result<u64, JobError> {
         unsafe {
             let mut buf: libc::statvfs = std::mem::zeroed();
             if libc::statvfs(c.as_ptr(), std::ptr::from_mut(&mut buf)) == 0 {
-                return Ok(buf.f_bavail.saturating_mul(buf.f_frsize));
+                // `f_bavail` / `f_frsize` widths differ by platform (`u32` vs `u64`).
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                {
+                    return Ok((buf.f_bavail as u64).saturating_mul(buf.f_frsize as u64));
+                }
             }
         }
     }
