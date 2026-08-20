@@ -424,7 +424,7 @@ nessuna fase. *Mitigazione: sono i primi due task, e il documento dichiara
 che se non fossero realizzabili cambierebbe il disegno dell'interfaccia,
 non l'implementazione — meglio scoprirlo subito.*
 
-**Dimensione:** ~3 settimane.
+**Dimensione:** ~3,5 settimane (24 task).
 
 **Chiusa quando:** una libreria da 200.000 scatti restituisce la propria
 geometria in una richiesta, e un'operazione di massa su 400 foto con tre
@@ -474,11 +474,11 @@ gzip che la CI già impone.
 | 4 Mappe | 1 settimana | ~8,5 sett. |
 | 5 WebDAV | 1,5 settimane | ~10 sett. |
 | 6 Consolidamento | 2 settimane | ~12 sett. |
-| **10 API per l’interfaccia** | **3 settimane** | **~15 sett.** |
-| 7 AI scene e tag | 1,5 settimane | ~16,5 sett. |
-| 8 Volti | 1,5 settimane | ~18 sett. |
-| 9 Organizzazione | 1 settimana | ~19 sett. |
-| **11 Interfaccia** | **4 settimane** | **~23 sett.** |
+| **10 API per l’interfaccia** | **3,5 settimane** | **~15,5 sett.** |
+| 7 AI scene e tag | 1,5 settimane | ~17 sett. |
+| 8 Volti | 1,5 settimane | ~18,5 sett. |
+| 9 Organizzazione | 1 settimana | ~19,5 sett. |
+| **11 Interfaccia** | **4 settimane** | **~23,5 sett.** |
 
 Stime a sviluppo continuativo. Vanno lette come rapporti fra le fasi, non come promesse sul calendario: la Fase 1 vale da sola un quarto del totale, ed è lì che va messa l'attenzione.
 

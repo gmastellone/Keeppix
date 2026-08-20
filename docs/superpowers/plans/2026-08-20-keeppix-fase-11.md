@@ -184,9 +184,19 @@ un album aperto lo riapre.
    `thumbhash` dà il **colore**. Insieme il primo fotogramma è completo e corretto senza aver
    scaricato una sola immagine.
 
+8. **Una LRU sulle pagine caricate.** Il profilo di memoria a 200.000 scatti è: geometria in
+   `ArrayBuffer` **1,2 MB**, somme prefisse **0,4 MB**, tessere vive nel DOM **~15 MB** — tutti
+   trascurabili o con un tetto. Quella che cresce senza limite è la **cache delle pagine**:
+   scorrendo l'intera libreria si accumulano fino a 200.000 oggetti asset.
+
+   Tetto esplicito (per esempio le ultime 50 pagine, ~10.000 asset); le pagine sfrattate si
+   ricaricano in una richiesta. **La geometria non si sfratta mai**: è ciò che tiene in piedi il
+   layout e costa 1,2 MB in tutto.
+
 **Verifica:** test su una geometria finta da 200.000 record che il numero di tessere montate
 resta sotto una soglia esplicita durante uno scroll simulato; test che l'altezza totale calcolata
-combacia con la somma dei `count` di `/timeline/buckets`.
+combacia con la somma dei `count` di `/timeline/buckets`; test che la cache delle pagine non
+supera il tetto dopo uno scroll completo simulato.
 
 ### Task 5 — Le tre macchine a stati
 

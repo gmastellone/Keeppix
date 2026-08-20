@@ -125,15 +125,22 @@ nuova migrazione.
 
 1. `GET /api/v1/timeline/geometry` con gli stessi parametri di filtro e la stessa
    risoluzione di visibilità di `/timeline` (`VisibilityScope::resolve`).
-2. Corpo binario, `application/octet-stream`, record da 22 byte
-   (`uuid` 16 · `w` u16 · `h` u16 · `month` u16), little-endian. Intestazione di 8
-   byte con versione di formato e numero di record.
+2. Corpo binario, `application/octet-stream`, record da **6 byte**
+   (`w` u16 · `h` u16 · `month` u16), little-endian, **senza identificativo**.
+   Intestazione di 8 byte con versione di formato e numero di record.
+
+   **Niente uuid**: sono 16 byte casuali, quindi incomprimibili. Misurato su 214.000
+   record realistici — con uuid 4,49 MB grezzi che restano **3,88 MB** dopo gzip;
+   senza, 1,22 MB che diventano **0,44 MB**. Nove volte più piccolo sul filo. La
+   riconciliazione non serve: la geometria **non identifica nulla, descrive
+   altezze**, e sta nello stesso ordine delle pagine (`taken_at DESC, id DESC`) —
+   le tessere vere arrivano dalle pagine, che gli uuid li portano già.
 3. `ETag` derivato dal massimo `updated_at` della vista + conteggio: permette
    `304 Not Modified` sul rientro nella stessa vista, che è il caso normale.
 4. Migrazione con l'indice di copertura:
    ```sql
    CREATE INDEX assets_geometry_idx ON assets (folder_id, taken_at_utc DESC, id DESC)
-       INCLUDE (width, height) WHERE status <> 'trashed';
+       INCLUDE (width, height) WHERE status = 'indexed';
    ```
 5. Gli asset senza `width`/`height` noti (non ancora processati) **vanno inclusi**
    con `w=0,h=0`: il frontend li disegna con un rapporto predefinito 3:2 invece di
@@ -581,7 +588,46 @@ dopo la soglia; test che i due livelli producono throughput misurabilmente diver
 
 ---
 
-## Task 22 — Chiudere l'OpenAPI e i client generati
+## Task 22 — L'import a lotti, e le due discrepanze
+
+**Il numero che giustifica il task.** La prova sul campo
+(`.superpowers/field-test-20260817-1855.md`) misura **1,65 asset/s** su Mac con NVMe.
+Estrapolato a 200.000 asset: **~34 ore** su quell'hardware, **4–7 giorni** su un
+Raspberry Pi 5, che è il bersaglio dichiarato.
+
+La scomposizione dice dove attaccare: l'overhead **per file** misurato in Fase 1b è
+~272 ms di coda e database, che a 200.000 asset fanno **~15 ore prima di
+decodificare qualunque cosa**. È la voce più grossa, ed è anche l'unica fatta di
+lavoro raggruppabile.
+
+1. **Inserimento a lotti** invece che a file singolo: una transazione ogni N file,
+   `COPY`/`INSERT` multi-riga, un solo `change_log` per lotto.
+2. Misurare di nuovo, sullo stesso archivio, e mettere il numero nel ledger.
+3. Se il tempo resta dell'ordine dei giorni, valutare l'**import in due tempi**
+   (prima passata: albero + EXIF + thumbhash, libreria navigabile in un'ora;
+   seconda, di notte: hash del contenuto e derivati). Il thumbhash rende le tessere
+   già a colori, e la geometria è già nota: la libreria è *usabile* prima di essere
+   completa.
+
+**Ruling: la decisione sul due-tempi si prende con il numero in mano.** — Fra "34 ore"
+e "7 giorni" cambia la risposta, e la prova disponibile è su 1.558 file su un Mac,
+non su 200.000 su un Pi. — *Costo se sbagliato:* si consegna un prodotto in cui il
+primo avvio chiede una settimana prima di mostrare qualcosa, cioè esattamente il
+momento in cui un utente decide se tenerlo.
+
+**Due discrepanze da chiudere nello stesso task**, entrambe piccole e reali:
+- `default_night_window()` (`keeppix-jobs/src/profile.rs:29`) è **2:00–6:00**, ma
+  l'interfaccia dichiara all'utente **2:00–7:00**. Vanno allineate — e siccome è un
+  testo che l'utente legge come una promessa, vince l'interfaccia salvo ragioni.
+- `RegionView` ha già `downloaded_bytes`, `status` e `last_error`: l'avanzamento del
+  download delle mappe **esiste come dato** ma non viene mai spinto. Aggiungere
+  `region.progress` agli eventi del Task 20.
+
+**Verifica:** import dello stesso archivio prima e dopo, con i due numeri nel ledger.
+
+---
+
+## Task 23 — Chiudere l'OpenAPI e i client generati
 
 1. Annotare con `utoipa` gli otto gruppi oggi assenti dallo spec generato: `albums`,
    `share`, `groups`, `permissions`, `audit`, `backup`, `restore`, `upload`,

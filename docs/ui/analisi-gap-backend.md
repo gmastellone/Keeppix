@@ -637,3 +637,108 @@ decidere: probabilmente sì per i selettori, no per i distruttivi.
 Due eccezioni deliberate da preservare: nel **dialog di eliminazione** il focus va sulla **prima
 opzione, la meno distruttiva**; nel **dialog di conferma** va su **"Annulla"**. Chi preme Invio
 d'istinto compie l'azione innocua.
+
+---
+
+## 18. L'importazione iniziale è il vero collo di bottiglia, e non ha interfaccia
+
+### 18.1 I numeri misurati, non stimati
+
+`.superpowers/field-test-20260817-1855.md` riporta una prova sul campo reale:
+
+| Metrica | Valore |
+|---|---|
+| File sorgente | 1.558 (37 GB) |
+| Asset creati | 779 |
+| Durata totale | **7m52s** → **1,65 asset/s** |
+| Velocità di hash | 89 MB/s |
+| Derivati su disco | 139 MB (**0,4%** degli originali) |
+| RAW con preview | 779/779 |
+
+**Estrapolando a 200.000 asset** — la scala dichiarata dal prototipo:
+
+- su **quell'** hardware (Mac, NVMe): **~34 ore**;
+- su un **Raspberry Pi 5**, che è il bersaglio dichiarato: fra **4 e 7 giorni**, a seconda del
+  fattore reale (3–5× più lento su decodifica RAW ed encode WebP).
+
+### 18.2 La scomposizione dice dove sta il costo
+
+| Componente | Costo a 200.000 asset | Natura |
+|---|---|---|
+| Overhead per file (~272 ms, misurato in Fase 1b: coda + DB) | **~15 ore** | **il dominante** |
+| Hash di 1 TB a 89 MB/s | ~3 ore | I/O |
+| Decodifica RAW + resize + encode WebP | il resto | CPU |
+
+**Le quindici ore di overhead per-file sono il bersaglio giusto**, non la decodifica: sono coda e
+database, cioè lavoro che si può raggruppare. Un import che inserisce a lotti invece che a file
+singolo attacca la voce più grossa senza toccare la pipeline media.
+
+### 18.3 Cosa già mitiga, e va tenuto
+
+- **Le preview incorporate nei RAW vengono usate** (779/779 con preview): non si decodifica il
+  RAW pieno per fare una miniatura. È l'ottimizzazione che conta di più ed è già lì.
+- `SKIP_PREVIEW_PX = 1600` e `SKIP_PREVIEW_BYTES = 400 KB`: se il sorgente è già piccolo, la
+  preview non si genera affatto.
+- **Profili energetici** con tetto di priorità: l'import non compete con chi sta navigando.
+- I derivati pesano lo **0,4%** degli originali (Fase 2R3): ~36 GB su 1 TB invece di ~308 GB.
+
+### 18.4 L'alternativa, se i giorni restano giorni
+
+Il principio «se pesa troppo si cambia strada» qui si applica al **quando**, non al *se*:
+
+**Import in due tempi.** Prima passata: cammina l'albero, legge EXIF e **thumbhash**, scrive gli
+asset. Niente hash del contenuto, niente derivati. La libreria diventa **navigabile in
+un'ora invece che in giorni** — con le tessere già a colori grazie a thumbhash (§14.2) e le
+proporzioni già note. Seconda passata, in background e di notte: hash del contenuto (che serve
+solo per i duplicati) e derivati veri.
+
+**Ruling: da decidere con il numero in mano, non prima.** — La prova sul campo è su 1.558 file su
+un Mac; il bersaglio è 200.000 su un Pi. Il fattore vero fra i due va **misurato**, perché fra
+"34 ore" e "7 giorni" cambia la risposta. — *Costo se sbagliato:* si consegna un prodotto in cui
+il primo avvio richiede una settimana prima di mostrare qualcosa, che è il momento in cui un
+utente decide se tenerlo.
+
+### 18.5 E non ha nessuna interfaccia
+
+Il documento dichiara l'importazione iniziale **fuori dal disegno di questa fase**. Ma è
+l'operazione più lunga che Keeppix esegua, la prima che un utente incontra, e oggi non ha:
+schermata, avanzamento, stima del tempo rimanente, né modo di sapere che sta funzionando.
+→ Va disegnata (Fase 11), e ha bisogno di `scan.progress` sul WebSocket (Fase 10 Task 20).
+
+## 19. Due discrepanze fra ciò che l'interfaccia dichiara e ciò che il backend fa
+
+1. **Finestra notturna**: `default_night_window()` (`keeppix-jobs/src/profile.rs:29`) è
+   **2:00–6:00**; il testo dell'interfaccia (§57) dichiara all'utente
+   *«Di notte (2:00–7:00) l'analisi lavora a piena velocità»*. Un'ora di differenza, in un testo
+   che l'utente legge come una promessa. Il documento stesso annota che quel testo *«è solo
+   copy: nessuno scheduler notturno»* — ma lo scheduler ora **esiste** (Fase 6 Task 8), quindi
+   la discrepanza è diventata reale.
+2. **Regioni mappa**: `RegionView` porta già `downloaded_bytes`, `status` e `last_error` — cioè
+   l'avanzamento del download **esiste come dato** ma non viene mai spinto. Serve
+   `region.progress` sul WebSocket, altrimenti l'unica strada è interrogare a intervalli.
+
+## 20. WebDAV: cosa c'è
+
+Metodi implementati: `PROPFIND`, `GET`, `HEAD`, `PUT`, `DELETE`, `MKCOL`, **`MOVE`**, `LOCK`,
+`UNLOCK`. `MOVE` è rilevante: è ciò che rende praticabile il modello a cartelle fisiche della
+Fase 9 (spostare i «presi» da un altro computer).
+
+Mancano `COPY` (resta `501`, **dichiarato onestamente** nel codice e nel ledger) e `PROPPATCH`.
+Nessuno dei due è richiesto dall'interfaccia.
+
+## 21. Profilo di memoria del frontend
+
+| Struttura | A 200.000 scatti | Verdetto |
+|---|---|---|
+| Geometria in `ArrayBuffer` (6 byte/scatto) | **1,2 MB** | trascurabile |
+| Somme prefisse delle altezze di riga (~50.000 righe × 8 byte) | **0,4 MB** | trascurabile |
+| Tessere vive nel DOM (~100 × miniatura 240px decodificata) | **~15 MB** | accettabile, ed è il tetto |
+| **Cache delle pagine caricate** | **cresce senza limite** | ⚠️ **è il rischio vero** |
+
+La geometria non è il problema di memoria: **lo è la cache delle pagine**. Scorrendo l'intera
+libreria si accumulano fino a 200.000 oggetti asset — decine di megabyte più pressione sul
+garbage collector — se nulla li sfratta.
+
+→ **Fase 11: una LRU sulle pagine caricate**, con un tetto esplicito (per esempio le ultime 50
+pagine, ~10.000 asset). Le pagine sfrattate si ricaricano in una richiesta; la geometria, che è
+ciò che tiene in piedi il layout, **non si sfratta mai** perché costa 1,2 MB in tutto.
