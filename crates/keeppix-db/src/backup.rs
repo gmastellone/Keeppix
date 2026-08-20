@@ -228,6 +228,21 @@ impl<'a> BackupRepo<'a> {
             .await
     }
 
+    /// Size of the current database — used to refuse a local backup before
+    /// `pg_dump` when the destination cannot hold ~2× that payload.
+    ///
+    /// No `AuthContext`: called only from the backup job worker (same pattern
+    /// as [`Self::list_enabled_for_jobs`]).
+    ///
+    /// # Errors
+    /// `DbError::Connection` if `pg_database_size` fails.
+    pub async fn database_size_bytes(&self) -> Result<i64, DbError> {
+        let size: i64 = sqlx::query_scalar("SELECT pg_database_size(current_database())")
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(size)
+    }
+
     /// # Errors
     /// Database or encryption failure.
     pub async fn create_destination(

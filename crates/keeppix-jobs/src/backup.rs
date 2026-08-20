@@ -206,6 +206,10 @@ async fn build_and_upload(
     passphrase: &str,
     dest: &BackupDestination,
 ) -> Result<(String, i64), JobError> {
+    // Spec §2.2: refuse before pg_dump / pack, not after half the work is done.
+    let estimate = estimate_backup_bytes(db, prefs).await?;
+    ensure_destination_space(dest, estimate)?;
+
     let staging = ctx
         .data_dir
         .join(format!("backup-staging-{}", uuid::Uuid::now_v7().simple()));
@@ -227,10 +231,35 @@ async fn build_and_upload(
     let _ = fs::remove_dir_all(&staging);
 
     let size = i64::try_from(fs::metadata(&local_tmp).map_err(io_err)?.len()).unwrap_or(0);
+    // Actual packed size can exceed a cheap estimate — re-check before upload.
     ensure_destination_space(dest, size)?;
     let path = upload_to_destination(dest, &local_tmp, &filename).await?;
     let _ = fs::remove_file(&local_tmp);
     Ok((path, size))
+}
+
+/// Upper-bound estimate of bytes the packed backup will need on the destination.
+async fn estimate_backup_bytes(db: &Db, prefs: &BackupPreferences) -> Result<i64, JobError> {
+    let mut total: i64 = 256 * 1024; // manifest + age/zstd overhead
+    if prefs.include_database {
+        total = total.saturating_add(BackupRepo::new(db).database_size_bytes().await?);
+    }
+    if prefs.include_config {
+        total = total.saturating_add(64 * 1024);
+    }
+    if prefs.include_maps {
+        let maps: i64 = RegionRepo::new(db)
+            .list_all_for_jobs()
+            .await?
+            .into_iter()
+            .filter(|r| r.status == keeppix_db::RegionStatus::Available)
+            .map(|r| r.size_bytes)
+            .sum();
+        total = total.saturating_add(maps);
+    }
+    // Sidecars / derivatives / originals are still marker dirs in this phase —
+    // when real payloads land here, estimate from asset sizes the same way.
+    Ok(total.max(1))
 }
 
 async fn build_staging(
@@ -374,18 +403,27 @@ fn ensure_destination_space(dest: &BackupDestination, size: i64) -> Result<(), J
         .and_then(|v| v.as_str())
         .ok_or_else(|| JobError::Worker("local destination missing path".to_owned()))?;
     fs::create_dir_all(path).map_err(io_err)?;
+    let needed = u64::try_from(size).unwrap_or(u64::MAX).saturating_mul(2);
     let available = available_bytes(Path::new(path))?;
-    if available < u64::try_from(size).unwrap_or(u64::MAX).saturating_mul(2) {
+    if available < needed {
         return Err(JobError::Worker(format!(
-            "insufficient space on {path}: need ~{size} bytes free"
+            "insufficient space on {path}: need ~{needed} bytes free (2× estimated/packed size)"
         )));
     }
     Ok(())
 }
 
 fn available_bytes(path: &Path) -> Result<u64, JobError> {
-    let stat = rustix_statvfs(path)?;
-    Ok(stat)
+    // Test hook: a destination whose final path component is `keeppix-nospace`
+    // reports zero free bytes so integration tests can prove the pre-staging
+    // check without filling a real filesystem.
+    if path
+        .file_name()
+        .is_some_and(|name| name == "keeppix-nospace")
+    {
+        return Ok(0);
+    }
+    rustix_statvfs(path)
 }
 
 fn rustix_statvfs(path: &Path) -> Result<u64, JobError> {
