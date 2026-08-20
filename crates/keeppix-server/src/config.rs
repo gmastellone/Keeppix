@@ -40,6 +40,10 @@ pub struct Config {
     pub full_cache_bytes: u64,
     /// Giorni prima che il cestino si svuoti da solo (`KEEPPIX_TRASH_RETENTION_DAYS`).
     pub trash_retention_days: i64,
+    /// Nome mostrato nel Profilo (§61, `KEEPPIX_SERVER_NAME`): «account su
+    /// questo server Keeppix». Puramente cosmetico, nessun altro comportamento
+    /// dipende da questo valore.
+    pub server_name: String,
 }
 
 /// Valori usati quando né l'ambiente né il file dicono nulla.
@@ -57,6 +61,7 @@ struct Defaults {
     webp_method: u8,
     full_cache_bytes: u64,
     trash_retention_days: i64,
+    server_name: String,
 }
 
 impl Default for Defaults {
@@ -74,6 +79,7 @@ impl Default for Defaults {
             webp_method: keeppix_jobs::DEFAULT_WEBP_METHOD,
             full_cache_bytes: keeppix_jobs::DEFAULT_FULL_CACHE_BYTES,
             trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
+            server_name: "Keeppix".to_owned(),
         }
     }
 }

@@ -220,6 +220,9 @@ pub struct AppState {
     pub share_unlocks: ShareUnlockStore,
     pub tz_previews: TimezonePreviewStore,
     pub idempotency_locks: IdempotencyLockStore,
+    /// Nome del server mostrato nel Profilo (`UserView::server_name`).
+    /// Puramente cosmetico: `"Keeppix"` di default (`KEEPPIX_SERVER_NAME`).
+    pub server_name: String,
 }
 
 impl AppState {
@@ -243,6 +246,7 @@ impl AppState {
             share_unlocks: ShareUnlockStore::default(),
             tz_previews: TimezonePreviewStore::default(),
             idempotency_locks: IdempotencyLockStore::default(),
+            server_name: "Keeppix".to_owned(),
         }
     }
 
@@ -291,6 +295,12 @@ impl AppState {
     #[must_use]
     pub const fn with_session_ttl(mut self, ttl: Duration) -> Self {
         self.session_ttl = ttl;
+        self
+    }
+
+    #[must_use]
+    pub fn with_server_name(mut self, name: String) -> Self {
+        self.server_name = name;
         self
     }
 }
