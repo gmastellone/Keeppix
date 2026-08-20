@@ -739,3 +739,24 @@ di `AssetView` non toccati (per la controprova di non-regressione) e la
 riverifica dei due test EXPLAIN/per-utente di `search.rs` ereditati dal
 Task 6.
 
+## Task 11 — Togliere i conteggi per riga, tranne quello del culling
+
+Ruling: **i conteggi per riga non sono mai entrati in `/api/v1`.** — Il
+prototipo mostrava foto per cartella, membri per album ed elementi per link,
+ma `FolderView`/`AlbumView`/`LinkView` non hanno mai esposto `asset_count`,
+`member_count` o `item_count`; Task 11 **non aggiunge** quei campi (contratto
+congelato) e documenta la scelta nei route handler. `view_count` sui link
+pubblici resta: conta **accessi**, non elementi condivisi. — *Costo se
+sbagliato:* la sidebar Fase 11 non avrà numeri accanto alle cartelle; accettabile
+per eliminare cinque aggregati e le loro invalidazioni.
+
+Ruling: **il conteggio del culling resta fuori da questo task.** — Badge di
+navigazione e selettore di lotto usano la sessione di culling (flags per lotto),
+non `GET /folders/tree` o `GET /albums`.
+
+Task 11: complete (commits 60b5097, 8942209, 1beac1b, tests green:
+`keeppix-db` sidebar_load.rs 1/1, `keeppix-api` sidebar_load.rs 1/1;
+`cargo fmt --check` e `cargo clippy -p keeppix-db -p keeppix-api --all-targets
+-- -D warnings` verdi; frontend build verde). `./scripts/test.sh` completo
+**non eseguito** (stesso motivo dei task precedenti).
+
