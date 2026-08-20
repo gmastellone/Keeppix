@@ -120,6 +120,7 @@ impl utoipa::Modify for SecurityAddon {
         libraries::start_scan,
         libraries::scan_status,
         libraries::storage,
+        libraries::probe,
         users::list,
         users::create,
         users::patch,
