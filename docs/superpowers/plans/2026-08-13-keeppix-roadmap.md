@@ -48,15 +48,26 @@ Decisi nello spec, validi da subito, **non rinegoziabili per fase**. Ogni fase l
       │              Fase 3                    │  multiutente e condivisione
       └────┬────────────────┬─────────────┬────┘
            │                │             │
-      ┌────▼────┐      ┌────▼────┐   ┌────▼────┐
-      │ Fase 6  │      │ Fase 7  │   │ Fase 9  │  organizzazione:
-      │consolid.│      │AI: tag, │   │culling, │
-      └─────────┘      │scene    │   │rinomina │
-                        └────┬────┘   └─────────┘
-                             │
-                        ┌────▼────┐
-                        │ Fase 8  │  volti: cluster, correzioni, gruppi
-                        └─────────┘
+      ┌────▼────┐      ┌────▼─────────────────▼────┐
+      │ Fase 6  │      │        Fase 10            │  convenzioni trasversali:
+      │consolid.│      │  API per l'interfaccia    │  geometria, riuscita
+      └─────────┘      └──┬──────────┬──────────┬──┘  parziale, errori
+                          │          │          │
+                     ┌────▼────┐ ┌───▼────┐ ┌───▼────┐
+                     │ Fase 7  │ │ Fase 9 │ │        │
+                     │AI: tag, │ │culling,│ │        │
+                     │scene    │ │rinomina│ │        │
+                     └────┬────┘ └───┬────┘ │        │
+                          │          │      │        │
+                     ┌────▼────┐     │      │        │
+                     │ Fase 8  │     │      │        │
+                     │  volti  │     │      │        │
+                     └────┬────┘     │      │        │
+                          └──────────┴──────┴───┐    │
+                                     ┌──────────▼────▼──┐
+                                     │     Fase 11      │  interfaccia:
+                                     │   interfaccia    │  70 schermate
+                                     └──────────────────┘
 ```
 
 **Vincoli reali di ordine**, non preferenze:
@@ -69,6 +80,8 @@ Decisi nello spec, validi da subito, **non rinegoziabili per fase**. Ogni fase l
 - **8 dipende da 7**, e non per l'argomento: la 7 porta il motore di inferenza, pgvector, il probe hardware esteso e il backfill a priorità energetica. La 8 li **riusa** — da sola dovrebbe costruirseli.
 - **9 dipende da 1, 2, 3**: corregge un buco nell'identità dell'asset (1), riusa flag e sidecar del culling (2), riusa i permessi (3). **Non** dipende dalla 5: il modello a cartelle fisiche rende gli scelti visibili da WebDAV senza che WebDAV debba saperne nulla — ma ne beneficia, se la 5 è già chiusa, dal giorno stesso in cui la 9 chiude.
 - **6 è indipendente da 7/8/9**: può stare prima, in mezzo o dopo. È l'unica che chiude comunque.
+- **10 dipende da 6 e precede 7/8/9**: non per l'argomento, ma per la convenzione. Fissa l'involucro di riuscita parziale e la tassonomia degli errori che ogni operazione di massa deve rispettare; 7, 8 e 9 ne introducono almeno otto fra tutte, e se la convenzione arriva dopo vanno riscritte.
+- **11 dipende da tutte**, ma non in blocco: si consegna in quattro tranche. Il grosso delle 70 schermate è costruibile con 0-6 più la 10; Tag/Revisione/Analisi arrivano con la 7, Persone e volti con la 8, Culling e rinomina con la 9.
 
 **Variante consigliata se vuoi caricare il TB presto:** `0 → 1 → 5 → 2 → 3 → 4 → 6`. Sposta il WebDAV subito dopo l'ingestione, così inizi a versare i file mentre si sviluppa il resto.
 
@@ -386,6 +399,68 @@ si completa senza toccare il filesystem a mano.
 
 ---
 
+## Fase 10 — Superficie API per l'interfaccia
+
+**Obiettivo:** colmare lo scarto fra ciò che il documento funzionale
+dell'interfaccia chiede e ciò che il backend espone, limitatamente alle
+cose **trasversali** — quelle che non appartengono all'IA, ai volti o
+all'organizzazione, ma al modo in cui qualunque schermata parla col server.
+
+**Consuma:** Fasi 0-6. **Produce:** geometria della timeline in una sola
+richiesta binaria; involucro di riuscita parziale su ogni operazione di
+massa; tassonomia chiusa delle nature di fallimento; pile RAW+JPEG
+collassate nelle viste di browse; eliminazione di massa a tre vie; album
+dinamici; otto nuovi assi di ricerca; sessioni attive; spazio su disco;
+preferenze utente; OpenAPI completo.
+
+**Perché prima della 7:** l'involucro di riuscita parziale e la tassonomia
+degli errori sono convenzioni che *ogni* operazione di massa deve
+rispettare. Le Fasi 7, 8 e 9 ne introducono almeno otto: se la convenzione
+arriva dopo, quelle otto vanno riscritte.
+
+**Rischi:** le due richieste principali del documento (geometria di tutta
+la vista, esito per-foto delle operazioni di massa) non erano previste da
+nessuna fase. *Mitigazione: sono i primi due task, e il documento dichiara
+che se non fossero realizzabili cambierebbe il disegno dell'interfaccia,
+non l'implementazione — meglio scoprirlo subito.*
+
+**Dimensione:** ~1,5 settimane.
+
+**Chiusa quando:** una libreria da 200.000 scatti restituisce la propria
+geometria in una richiesta, e un'operazione di massa su 400 foto con tre
+fallimenti risponde con i tre nomi e le tre ragioni.
+
+---
+
+## Fase 11 — Interfaccia
+
+**Obiettivo:** portare il frontend alla forma descritta da
+`docs/ui/documento-funzionale-ui.md` e dal prototipo interattivo
+`docs/ui/keeppix-mockup.html`: 70 schermate, 30 pattern condivisi.
+
+**Consuma:** Fasi 0-10 (e, per tranche, 7, 8, 9).
+**Produce:** shell desktop e mobile, timeline giustificata e virtualizzata
+a scala reale, lightbox, ricerca, mappa, condivisioni, album, manutenzione,
+impostazioni, profilo — con stati di caricamento, errore e riuscita
+parziale reali.
+
+**Non è un progetto nuovo:** il frontend esiste (Vue 3.5, Pinia, Tailwind 4,
+`reka-ui`, 16 viste). Questa fase lo completa e lo riallinea.
+
+**Rischi:** il layout giustificato virtualizzato è il punto in cui "CSS da
+solo non basta". *Mitigazione: la geometria arriva già calcolata dalla Fase
+10, quindi la virtualizzazione è somme prefisse più ricerca binaria — non
+serve un virtualizzatore a misurazione, e non serve una libreria in più.*
+
+**Dimensione:** ~3 settimane, in quattro tranche che seguono le fasi da cui
+dipendono.
+
+**Chiusa quando:** ogni schermata del documento funzionale esiste, le
+etichette combaciano alla lettera, e il bundle iniziale resta sotto i 150 KB
+gzip che la CI già impone.
+
+---
+
 ## Stima complessiva
 
 | Fase | Dimensione | Cumulato |
@@ -397,9 +472,11 @@ si completa senza toccare il filesystem a mano.
 | 4 Mappe | 1 settimana | ~8,5 sett. |
 | 5 WebDAV | 1,5 settimane | ~10 sett. |
 | 6 Consolidamento | 2 settimane | ~12 sett. |
-| 7 AI scene e tag | 1,5 settimane | ~13,5 sett. |
-| 8 Volti | 1,5 settimane | ~15 sett. |
-| 9 Organizzazione | 1 settimana | ~16 sett. |
+| **10 API per l'interfaccia** | **1,5 settimane** | **~13,5 sett.** |
+| 7 AI scene e tag | 1,5 settimane | ~15 sett. |
+| 8 Volti | 1,5 settimane | ~16,5 sett. |
+| 9 Organizzazione | 1 settimana | ~17,5 sett. |
+| **11 Interfaccia** | **3 settimane** | **~20,5 sett.** |
 
 Stime a sviluppo continuativo. Vanno lette come rapporti fra le fasi, non come promesse sul calendario: la Fase 1 vale da sola un quarto del totale, ed è lì che va messa l'attenzione.
 
