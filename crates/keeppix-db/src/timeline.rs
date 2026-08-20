@@ -31,10 +31,18 @@ pub struct GeometryRecord {
 
 /// Geometria di un'intera vista della timeline, più l'informazione minima per
 /// costruire un `ETag`: il massimo `updated_at` fra gli asset della vista.
-/// `records.len()` è il conteggio: non serve una `count(*)` separata.
+/// `records.len()` è il conteggio della risposta piena.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Geometry {
     pub records: Vec<GeometryRecord>,
+    pub last_modified: Option<DateTime<Utc>>,
+}
+
+/// Timbratura leggera della vista geometria (`count` + `max(updated_at)`),
+/// usata per validare `If-None-Match` **prima** di scaricare tutti i record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeometryStamp {
+    pub count: u64,
     pub last_modified: Option<DateTime<Utc>>,
 }
 
@@ -310,6 +318,44 @@ impl<'a> TimelineRepo<'a> {
         })
     }
 
+    /// `count(*)` + `max(updated_at)` sugli stessi filtri di [`Self::geometry`],
+    /// senza leggere `width`/`height`. Serve a rispondere `304` senza pagare
+    /// la scansione completa della vista.
+    ///
+    /// # Errors
+    /// Come [`Self::geometry`].
+    pub async fn geometry_stamp(
+        &self,
+        ctx: &AuthContext,
+        library_id: Option<LibraryId>,
+    ) -> Result<GeometryStamp, DbError> {
+        if let Some(id) = library_id {
+            LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
+        }
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let sql = format!(
+            "SELECT count(*)::bigint, max(a.updated_at) FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             WHERE {} \
+               AND a.status = 'indexed' \
+               AND a.taken_at_utc IS NOT NULL \
+               AND ($4::uuid IS NULL OR f.library_id = $4)",
+            filter.sql()
+        );
+        let (count, last_modified): (i64, Option<DateTime<Utc>>) = sqlx::query_as(&sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .bind(library_id.map(|id| id.as_uuid()))
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(GeometryStamp {
+            count: u64::try_from(count).unwrap_or(0),
+            last_modified,
+        })
+    }
+
     /// Come [`Self::geometry`], ma ristretta a un riquadro geografico. Filtra
     /// `kind <> 'unknown'` come `buckets_in_bounds`/`page_in_bounds`: qui la
     /// query tocca comunque `asset_overrides` per la posizione effettiva, e
@@ -387,6 +433,51 @@ impl<'a> TimelineRepo<'a> {
             .await?;
         Ok(Geometry {
             records,
+            last_modified,
+        })
+    }
+
+    /// Timbratura leggera sugli stessi filtri di [`Self::geometry_in_bounds`].
+    ///
+    /// # Errors
+    /// Come [`Self::geometry_in_bounds`].
+    pub async fn geometry_stamp_in_bounds(
+        &self,
+        ctx: &AuthContext,
+        library_id: Option<LibraryId>,
+        bounds: MapBounds,
+    ) -> Result<GeometryStamp, DbError> {
+        if let Some(id) = library_id {
+            LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
+        }
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let bbox = effective_bbox_filter_sql(5, 6, 7, 8);
+        let sql = format!(
+            "SELECT count(*)::bigint, max(a.updated_at) FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             WHERE {} \
+               AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
+               AND a.taken_at_utc IS NOT NULL \
+               AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND ({bbox})",
+            filter.sql()
+        );
+        let (count, last_modified): (i64, Option<DateTime<Utc>>) = sqlx::query_as(&sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .bind(library_id.map(|id| id.as_uuid()))
+            .bind(bounds.west)
+            .bind(bounds.south)
+            .bind(bounds.east)
+            .bind(bounds.north)
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(GeometryStamp {
+            count: u64::try_from(count).unwrap_or(0),
             last_modified,
         })
     }

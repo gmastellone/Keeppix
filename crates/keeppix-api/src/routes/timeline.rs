@@ -3,7 +3,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, Utc};
-use keeppix_db::{AssetRepo, Geometry, GeometryRecord, OverrideRepo, TimelineRepo};
+use keeppix_db::{AssetRepo, Geometry, GeometryRecord, GeometryStamp, OverrideRepo, TimelineRepo};
 use keeppix_domain::{Asset, AssetId, LibraryId};
 use serde::{Deserialize, Serialize};
 
@@ -255,17 +255,28 @@ pub async fn geometry(
         .map(super::map::parse_bounds)
         .transpose()?;
     let repo = TimelineRepo::new(&state.db);
+    // Cache hit is the common case on re-entry: validate ETag with a cheap
+    // count+max stamp before paying for the full width/height scan.
+    if headers.contains_key(header::IF_NONE_MATCH) {
+        let stamp = if let Some(bounds) = bounds {
+            repo.geometry_stamp_in_bounds(&ctx, query.library, bounds)
+                .await?
+        } else {
+            repo.geometry_stamp(&ctx, query.library).await?
+        };
+        let etag = stamp_etag(&stamp);
+        if if_none_match_matches(&headers, &etag) {
+            let mut response = StatusCode::NOT_MODIFIED.into_response();
+            set_etag(&mut response, &etag);
+            return Ok(response);
+        }
+    }
     let geometry = if let Some(bounds) = bounds {
         repo.geometry_in_bounds(&ctx, query.library, bounds).await?
     } else {
         repo.geometry(&ctx, query.library).await?
     };
     let etag = geometry_etag(&geometry);
-    if if_none_match_matches(&headers, &etag) {
-        let mut response = StatusCode::NOT_MODIFIED.into_response();
-        set_etag(&mut response, &etag);
-        return Ok(response);
-    }
     let mut response = encode_geometry(&geometry.records).into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -317,8 +328,15 @@ fn month_index(taken_at_utc: DateTime<Utc>) -> u16 {
 /// rientrare sulla stessa vista senza modifiche rende `304` (spec fase-10
 /// §2.3). Non è pensato per essere confrontato fra viste diverse.
 fn geometry_etag(geometry: &Geometry) -> String {
-    let stamp = geometry.last_modified.map_or(0, |t| t.timestamp_micros());
-    format!("\"{:x}-{stamp:x}\"", geometry.records.len())
+    stamp_etag(&GeometryStamp {
+        count: u64::try_from(geometry.records.len()).unwrap_or(u64::MAX),
+        last_modified: geometry.last_modified,
+    })
+}
+
+fn stamp_etag(stamp: &GeometryStamp) -> String {
+    let micros = stamp.last_modified.map_or(0, |t| t.timestamp_micros());
+    format!("\"{:x}-{micros:x}\"", stamp.count)
 }
 
 fn set_etag(response: &mut Response, etag: &str) {
