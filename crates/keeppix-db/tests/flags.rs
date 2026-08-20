@@ -91,6 +91,7 @@ async fn a_user_can_rate_and_read_their_own_flags() {
         rating: Some(Rating::parse(4).unwrap()),
         pick: Pick::Pick,
         color_label: Some("red".to_owned()),
+        favorite: true,
     };
     repo.set(&ctx, asset, &flags).await.unwrap();
 
@@ -194,6 +195,7 @@ async fn batch_set_applies_the_same_flags_to_many_assets_at_once() {
         rating: None,
         pick: Pick::Reject,
         color_label: None,
+        favorite: false,
     };
     repo.batch_set(&ctx, &ids, &flags).await.unwrap();
 
@@ -220,6 +222,130 @@ async fn a_plain_user_cannot_set_flags_on_someone_elses_asset() {
         repo.get(&mario_ctx, asset).await,
         Err(DbError::Forbidden)
     ));
+}
+
+/// `favorite` non è un riuso di `Pick` (spec fase-10 §7bis.1): sono colonne
+/// separate. Scartare uno scatto nel culling (`pick = Reject`) non deve
+/// azzerare `favorite`, e viceversa impostare `favorite` non deve toccare
+/// `pick`.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn favorite_and_pick_are_independent_axes() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_asset(&test, admin, "DSC_0005.ARW").await;
+    let repo = FlagRepo::new(test.db());
+
+    repo.set(
+        &ctx,
+        asset,
+        &AssetFlags {
+            favorite: true,
+            pick: Pick::None,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(repo.get(&ctx, asset).await.unwrap().favorite);
+
+    // "Scartare nel culling": pick passa a Reject, favorite resta true.
+    repo.set(
+        &ctx,
+        asset,
+        &AssetFlags {
+            favorite: true,
+            pick: Pick::Reject,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let after_discard = repo.get(&ctx, asset).await.unwrap();
+    assert_eq!(after_discard.pick, Pick::Reject);
+    assert!(
+        after_discard.favorite,
+        "scartare nel culling non deve azzerare il preferito"
+    );
+
+    // E viceversa: togliere il preferito non deve toccare pick.
+    repo.set(
+        &ctx,
+        asset,
+        &AssetFlags {
+            favorite: false,
+            pick: Pick::Reject,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let after_unfavorite = repo.get(&ctx, asset).await.unwrap();
+    assert!(!after_unfavorite.favorite);
+    assert_eq!(
+        after_unfavorite.pick,
+        Pick::Reject,
+        "togliere il preferito non deve toccare pick"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn favorites_among_returns_only_the_callers_own_favorites_in_the_given_set() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let luca = seed_second_admin(&test, admin, "luca").await;
+    let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
+    let luca_ctx = AuthContext::user(luca, SystemRole::Admin);
+    let repo = FlagRepo::new(test.db());
+
+    let library = seed_library(&test, admin).await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let assets_repo = AssetRepo::new(test.db());
+    let loved = assets_repo
+        .upsert_discovered(discovered(folder.id, "DSC_0006.ARW"))
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let plain = assets_repo
+        .upsert_discovered(discovered(folder.id, "DSC_0007.ARW"))
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+
+    repo.set(
+        &admin_ctx,
+        loved,
+        &AssetFlags {
+            favorite: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    // Marta preferisce `plain`, ma non deve mai comparire nel set di admin.
+    repo.set(
+        &luca_ctx,
+        plain,
+        &AssetFlags {
+            favorite: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let favorites = repo
+        .favorites_among(&admin_ctx, &[loved, plain])
+        .await
+        .unwrap();
+    assert_eq!(favorites, std::collections::HashSet::from([loved]));
 }
 
 #[tokio::test]
