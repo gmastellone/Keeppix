@@ -62,12 +62,32 @@ fn assert_no_per_row_count_fields(value: &serde_json::Value, context: &str) {
             }
         }
         serde_json::Value::Object(map) => {
-            for forbidden in ["asset_count", "member_count", "item_count"] {
+            // `item_count` is checked separately per endpoint below (Task 15
+            // adds it, deliberately, to share links only): `asset_count` and
+            // `member_count` never shipped and stay forbidden everywhere.
+            for forbidden in ["asset_count", "member_count"] {
                 assert!(
                     !map.contains_key(forbidden),
                     "{context} must not expose `{forbidden}` (Task 11)"
                 );
             }
+        }
+        _ => {}
+    }
+}
+
+fn assert_no_item_count_field(value: &serde_json::Value, context: &str) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                assert_no_item_count_field(item, context);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            assert!(
+                !map.contains_key("item_count"),
+                "{context} must not expose `item_count` (Task 11)"
+            );
         }
         _ => {}
     }
@@ -135,6 +155,7 @@ async fn sidebar_endpoints_do_not_expose_per_row_counts() {
         .await
         .unwrap();
     assert_no_per_row_count_fields(&folders, "GET /folders/tree");
+    assert_no_item_count_field(&folders, "GET /folders/tree");
 
     let albums: serde_json::Value = server
         .client
@@ -146,6 +167,7 @@ async fn sidebar_endpoints_do_not_expose_per_row_counts() {
         .await
         .unwrap();
     assert_no_per_row_count_fields(&albums, "GET /albums");
+    assert_no_item_count_field(&albums, "GET /albums");
 
     let links: serde_json::Value = server
         .client
@@ -160,5 +182,9 @@ async fn sidebar_endpoints_do_not_expose_per_row_counts() {
     assert!(
         links[0]["view_count"].is_number(),
         "view_count resta: conta accessi al link, non elementi condivisi"
+    );
+    assert_eq!(
+        links[0]["item_count"], 0,
+        "item_count (Task 15): presente ma zero — l'unico asset è discovered, non indexed"
     );
 }

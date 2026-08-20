@@ -145,8 +145,12 @@ pub struct LinkView {
     pub has_password: bool,
     pub expires_at: Option<String>,
     pub max_views: Option<i32>,
-    /// Accessi al link, non «elementi condivisi» (Task 11: niente `item_count`).
+    /// Accessi al link, non «elementi condivisi» — quello è `item_count`.
     pub view_count: i32,
+    /// Elementi condivisi da questo link (§29: `"246 elementi"`). Task 11
+    /// lo aveva tolto come inutilizzato ovunque; qui torna perché la scheda
+    /// "Le mie condivisioni" lo chiede esplicitamente per i link pubblici.
+    pub item_count: i64,
     pub allow_download: bool,
     pub allow_original: bool,
     pub allow_upload: bool,
@@ -160,27 +164,31 @@ pub async fn list_links(
     State(state): State<AppState>,
     Auth(ctx): Auth,
 ) -> Result<Json<Vec<LinkView>>, Problem> {
-    let rows = ShareLinkRepo::new(&state.db)
-        .list_by_creator(&ctx, 100, 0)
-        .await?;
+    let repo = ShareLinkRepo::new(&state.db);
+    let rows = repo.list_by_creator(&ctx, 100, 0).await?;
+    let item_counts = repo.item_counts(&rows).await?;
 
     let views = rows
         .into_iter()
-        .map(|r| LinkView {
-            id: r.id.to_string(),
-            object_type: r.object_type,
-            object_id: r.object_id.to_string(),
-            has_password: r.password_hash.is_some(),
-            expires_at: r.expires_at.map(|t| t.to_rfc3339()),
-            max_views: r.max_views,
-            view_count: r.view_count,
-            allow_download: r.allow_download,
-            allow_original: r.allow_original,
-            allow_upload: r.allow_upload,
-            hide_metadata: r.hide_metadata,
-            revoked_at: r.revoked_at.map(|t| t.to_rfc3339()),
-            last_accessed_at: r.last_accessed_at.map(|t| t.to_rfc3339()),
-            created_at: r.created_at.to_rfc3339(),
+        .map(|r| {
+            let item_count = item_counts.get(&r.object_id).copied().unwrap_or(0);
+            LinkView {
+                id: r.id.to_string(),
+                object_type: r.object_type,
+                object_id: r.object_id.to_string(),
+                has_password: r.password_hash.is_some(),
+                expires_at: r.expires_at.map(|t| t.to_rfc3339()),
+                max_views: r.max_views,
+                view_count: r.view_count,
+                item_count,
+                allow_download: r.allow_download,
+                allow_original: r.allow_original,
+                allow_upload: r.allow_upload,
+                hide_metadata: r.hide_metadata,
+                revoked_at: r.revoked_at.map(|t| t.to_rfc3339()),
+                last_accessed_at: r.last_accessed_at.map(|t| t.to_rfc3339()),
+                created_at: r.created_at.to_rfc3339(),
+            }
         })
         .collect();
     Ok(Json(views))

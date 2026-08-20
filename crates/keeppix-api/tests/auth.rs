@@ -70,8 +70,7 @@ async fn authenticated_responses_are_marked_private() {
 #[allow(clippy::unwrap_used)]
 async fn me_response_carries_server_name_and_password_changed_at() {
     let server =
-        TestServer::start_with(|state| state.with_server_name("Casa Mastellone".to_owned()))
-            .await;
+        TestServer::start_with(|state| state.with_server_name("Casa Mastellone".to_owned())).await;
     setup(&server).await;
 
     let me: serde_json::Value = server
