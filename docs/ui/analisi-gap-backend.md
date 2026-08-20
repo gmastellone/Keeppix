@@ -380,3 +380,113 @@ prototipo assume che riesca sempre.
 → È coperto dalla tassonomia (Fase 10 §7) e dall'involucro di riuscita parziale (§3), ma va
 detto esplicitamente: **il dialog più distruttivo dell'app è anche quello che ha più modi di
 non riuscire**, e l'interfaccia deve saperlo dire per ogni file.
+
+---
+
+## 13. Costo per schermata, e il principio «se pesa troppo, si cambia strada»
+
+Le sezioni precedenti guardano *una query alla volta*. Questa guarda quello che conta davvero per
+un'interfaccia: **quante richieste costa una schermata**, e cosa fare quando la risposta è
+"troppe" o "troppo grosse". Il bersaglio resta un **Raspberry Pi 5 / 8 GB**, spesso raggiunto da
+fuori casa.
+
+### 13.1 La cascata all'avvio a freddo
+
+Aprire la Timeline — la schermata d'ingresso — costa oggi, con tutto ciò che le fasi prevedono:
+
+| # | Richiesta | A cosa serve | Blocca |
+|---|---|---|---|
+| 1 | `GET /auth/me` | chi sono | **tutto** |
+| 2 | `GET /users/me/preferences` | tema, densità griglia | **il layout** |
+| 3 | `GET /folders/tree` + conteggi | sidebar | — |
+| 4 | `GET /libraries/{id}/storage` | sidebar | — |
+| 5 | `GET /timeline/buckets` | mesi e conteggi | lo scrubber |
+| 6 | `GET /timeline/geometry` | proporzioni | **il layout** |
+| 7 | `GET /timeline?bucket=…` | prima pagina | — |
+| 8 | badge culling (Fase 9) | sidebar | — |
+| 9 | badge revisione (Fasi 7/8) | sidebar | — |
+
+**Nove richieste prima del primo disegno utile**, con tre catene di dipendenza vere
+(`auth → preferenze → densità → layout`, `geometry → layout`, `buckets → scrubber`). In LAN si
+notano poco; da fuori casa, con 100 ms di andata e ritorno, diventano quasi un secondo di attesa
+prima che appaia qualcosa.
+
+**Alternativa: un solo `GET /api/v1/bootstrap`** che restituisce in un colpo utente, preferenze,
+albero cartelle con conteggi, spazio su disco e i badge. Sono tutti dati piccoli, tutti richiesti
+sempre, tutti già in cache lato server. Nove richieste diventano tre: `bootstrap`, `geometry`,
+`timeline`.
+
+**Ruling: `bootstrap` è additivo e non sostituisce gli endpoint singoli.** — Le viste che
+cambiano un solo pezzo (le preferenze da Impostazioni, i conteggi dopo un import) devono poterlo
+rileggere senza riscaricare tutto, e i client non-web usano già i singoli. — *Costo se sbagliato:*
+due strade per lo stesso dato, che vanno tenute coerenti — mitigato dal fatto che `bootstrap`
+compone gli stessi repository, senza SQL proprio.
+
+### 13.2 La geometria: 4,7 MB è troppo per una connessione mobile
+
+L'endpoint di geometria (§Fase 10 §2) risolve la richiesta n.1 del documento, ma su una libreria
+da 214.000 scatti pesa **4,7 MB** (≈1,5 MB con gzip). Su LAN è nulla; in tethering è una pausa
+visibile, e su un telefono si paga a ogni avvio a freddo.
+
+**Alternativa, da adottare se la misura conferma il problema: geometria per mese.**
+
+- Si scaricano le proporzioni **solo dei mesi vicini a quello che si sta guardando** (il corrente
+  più due per lato), non dell'intera libreria.
+- L'altezza dei mesi non ancora scaricati si **stima** da `conteggio × rapporto d'aspetto medio`
+  — un numero che il server può restituire dentro `/timeline/buckets` a costo zero.
+- Quando un mese entra nella finestra, la sua geometria vera sostituisce la stima e l'altezza si
+  corregge.
+
+**Ruling: si parte dalla geometria intera, e si passa a quella per mese solo su misura.** — La
+versione intera è più semplice e rende lo scrubber **esatto** invece che approssimato; il
+documento chiede esplicitamente di conoscere l'altezza dell'intera libreria in anticipo.
+Frammentare subito significherebbe pagare complessità per un problema che su LAN — il caso d'uso
+primario di un server di casa — non esiste. Ma la soglia va **misurata**, non intuita: se il
+primo disegno su rete mobile supera i 2 secondi, si passa alla versione per mese. — *Costo se
+sbagliato:* si riscrive il caricatore della geometria, non il layout né il virtualizzatore, che
+restano identici.
+
+### 13.3 Conteggio dei membri degli album dinamici: la cosa più cara di tutte
+
+Un album dinamico non ha membri materializzati (ed è giusto così: sono raccolte *"vive"*). Ma la
+griglia Album mostra **"81 foto"** accanto a ognuno. Con otto album dinamici, aprire quella
+griglia significa **otto interrogazioni sull'intero catalogo**.
+
+Su 200.000 asset, su un Pi, è la query più cara che l'interfaccia sappia innescare — e si innesca
+a ogni apertura di una schermata di navigazione.
+
+**Tre rimedi, in ordine di preferenza:**
+1. **Cache `moka` con invalidazione esplicita** (già la convenzione della Fase 6), agganciata a
+   import, cestinamento e alle modifiche di metadati che l'AST può toccare.
+2. **Conteggio con tetto**: `LIMIT 1000` e mostrare *"più di 999"* oltre. L'utente non ha bisogno
+   della cifra esatta per un album da migliaia di foto, e il costo diventa costante.
+3. **Calcolo differito**: la griglia mostra la copertina subito e il conteggio quando arriva.
+
+**Ruling: 1 e 2 insieme, non 3.** — Un numero che compare in ritardo fa "saltare" la scheda ed è
+proprio l'effetto che il documento chiede di evitare con gli scheletri. Cache più tetto danno un
+numero immediato e stabile. — *Costo se sbagliato:* per gli album enormi si mostra un
+approssimato; è una perdita accettabile, l'alternativa è una griglia che si muove sotto il dito.
+
+### 13.4 I suggerimenti di ricerca girano a ogni battuta
+
+`SearchRepo::suggest` (`db/search.rs:107`) fa una `UNION` di due `ILIKE` con il filtro di
+visibilità, **a ogni carattere digitato**. Su 200.000 righe, su un Pi, è troppo per stare dietro
+alla digitazione.
+
+- Il prefisso è già usato (`like_prefix`), quindi gli indici trigram possono lavorare: bene.
+- Manca il **ritardo di digitazione**: 150 ms lato frontend eliminano la maggior parte delle
+  richieste senza che l'utente se ne accorga.
+- I modelli di **fotocamera e obiettivo distinti** sono poche decine e cambiano solo agli import:
+  vanno tenuti in cache in memoria, non ricavati con una query per battuta.
+
+### 13.5 Cosa è già ottimale e non va toccato
+
+- **Le miniature sono già gratis alla seconda visita.** `/media/thumb/{hash}` risponde con
+  `private, max-age=31536000, immutable` (`routes/media.rs:20`) e la chiave è il **content hash**:
+  l'URL cambia solo se cambia il contenuto. È il modo giusto, e vale anche per preview e full.
+- **Paginazione keyset ovunque** (`taken_at|id`), mai `OFFSET`.
+- **Visibilità risolta una volta** per richiesta (`VisibilityScope::resolve`) e compilata nel
+  `WHERE`, non valutata per riga.
+- **`POST /viewport`** esiste già per dire al server quali miniature servono per prime.
+- **Derivati con perdita** ridotti dal 3,3% allo 0,4% (Fase 2R3): ~36 GB invece di ~308 GB su
+  200.000 foto.
