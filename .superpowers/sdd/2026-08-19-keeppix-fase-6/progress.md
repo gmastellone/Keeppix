@@ -140,4 +140,4 @@ AES-GCM), not Argon2 — codes are high-entropy so slow hashing buys little and
 would make regenerate/login heavier. Cost if wrong: a weaker KDF if the keyed
 hash key leaks with the DB.
 
-Task 5: complete (commit f716aab, db totp 8/8, api totp 3/3, openapi 6/6, frontend build + i18n + check-wired verdi)
+Task 5: complete (commit 58386d7, db totp 8/8, api totp 3/3, openapi 6/6, frontend build + i18n + check-wired verdi)
