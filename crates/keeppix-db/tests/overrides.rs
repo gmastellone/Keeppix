@@ -189,6 +189,83 @@ async fn effective_coalesces_location_and_place_id_from_the_asset() {
     assert_eq!(after.place_id, Some(555), "place_id non era nell'override");
 }
 
+/// Task 4 (Fase 10), verifica richiesta dal piano: «nessuna posizione» è un
+/// **valore** che l'utente può scegliere esplicitamente («questa foto non ha
+/// un luogo, anche se l'exif ne indicherebbe uno»), non la semplice assenza
+/// di un override. `MetadataPatchRequest.location` porta già il tri-stato
+/// (`double_option`: assente / `Some(None)` azzera / `Some(Some(_))` imposta)
+/// fino a [`OverridePatch`]. Questo test verifica se quella scelta
+/// **sopravvive** alla lettura.
+///
+/// **Difetto confermato, deferito** (ledger Fase 10, Task 4): non
+/// sopravvive. `effective()` fa `COALESCE(o.location, a.location)`, e
+/// un override azzerato esplicitamente (`asset_overrides.location = NULL`,
+/// riga presente) produce lo stesso `NULL` di "nessuna riga di override
+/// ancora scritta" — `COALESCE` non li distingue, quindi la posizione exif
+/// dell'asset "vince" quando invece l'utente ha negato esplicitamente il
+/// luogo. Marcato `#[ignore]` (non `#[allow]` su un'asserzione sbagliata):
+/// il corpo del test resta il comportamento *corretto* che si vuole, così
+/// chi risolve il difetto lo riattiva togliendo l'attributo invece di
+/// scriverne un altro da zero.
+#[tokio::test]
+#[ignore = "difetto noto e deferito (ledger Fase 10 Task 4): l'azzeramento \
+            esplicito della posizione non vince ancora su COALESCE(override, exif)"]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn effective_location_after_an_explicit_clear_does_not_fall_back_to_the_exif_value() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_indexed_asset(&test, admin, "DSC_0004.ARW", exif_taken_at()).await;
+
+    // L'asset ha una posizione dall'exif (GPS della fotocamera/telefono).
+    sqlx::query(
+        "UPDATE assets SET location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography \
+          WHERE id = $1",
+    )
+    .bind(asset.as_uuid())
+    .bind(12.5_f64)
+    .bind(41.9_f64)
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+
+    let repo = OverrideRepo::new(test.db());
+
+    // L'utente imposta prima una posizione diversa, poi la nega
+    // esplicitamente: "questa foto non ha un luogo", non "non ho ancora
+    // detto nulla sul luogo di questa foto".
+    repo.apply(
+        &ctx,
+        asset,
+        &OverridePatch {
+            location: Some(Some(GeoPoint {
+                lat: 45.0,
+                lon: 9.0,
+            })),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    repo.apply(
+        &ctx,
+        asset,
+        &OverridePatch {
+            location: Some(None),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let effective = repo.effective(&ctx, asset).await.unwrap();
+    assert_eq!(
+        effective.location, None,
+        "l'azzeramento esplicito deve vincere sulla posizione exif dell'asset, \
+         non confondersi con \"nessun override mai scritto\""
+    );
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn apply_batch_on_many_assets_is_one_operation() {
