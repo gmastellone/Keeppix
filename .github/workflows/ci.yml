@@ -50,14 +50,13 @@ jobs:
         with: { components: "rustfmt, clippy" }
       - uses: Swatinem/rust-cache@v2.9.2
         with:
-          # Salva sempre, anche sui PR — non solo su main. GitHub isola le
-          # cache per branch/PR di suo (una PR non tocca la cache di
-          # un'altra), quindi non c'è collisione. Restava disabilitato sui PR
-          # per un incidente storico (vedi sotto, ora risolto): senza questo,
-          # ogni push su un branch lungo ricompila da capo tutto ciò che quel
-          # branch ha già aggiunto, anche se il push precedente aveva appena
-          # compilato lo stesso codice.
-          save-if: true
+          # Solo su main. Era stato provato "true" ovunque (anche sui PR) per
+          # evitare che un branch lungo ricompilasse tutto a ogni push — ma
+          # con 4 fasi attive in parallelo il salvataggio su ogni PR ha
+          # spinto la cache Actions del repo al tetto di 10 GB (747 voci) e
+          # contribuito ai costi di fatturazione. Il guadagno di velocità non
+          # valeva quel costo: si torna al solo main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Formattazione
         run: cargo fmt --all --check
@@ -99,17 +98,23 @@ jobs:
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json
 
-      # NON fare `cargo clean` qui: gli step normali girano **prima** dei
-      # post-step, e `Swatinem/rust-cache` salva in un post-step. Uno
-      # `cargo clean` prima del salvataggio svuota `target/` e la cache
-      # ripristinata pesa solo le sorgenti delle dipendenze (105 MB) — ogni
-      # run successivo ricompila da capo: 3m07s di clippy più 10m36s di
-      # test, misurati sul run 31972217130. Questo era il motivo per cui
-      # `save-if` restava disattivato sui PR: la pulizia serviva a evitare
-      # "No space left" nel Post della cache, ma con `save-if: true`
-      # ovunque va evitata ovunque, non solo su main.
-      - name: Spazio disco dopo i test
-        if: always()
+      # `cargo clean` qui rende inutile la cache, e non è ovvio: gli step
+      # normali girano **prima** dei post-step, e `Swatinem/rust-cache`
+      # salva in un post-step. Su main — l'unico ramo dove `save-if` è vero
+      # — svuotare `target/` prima del Post significa salvare una cache
+      # vuota (105 MB di sole sorgenti), e ogni run successivo ricompila da
+      # capo: 3m07s di clippy più 10m36s di test, misurati sul run
+      # 31972217130. Sui PR `save-if` è falso, quindi qui la pulizia non
+      # toglie niente e libera lo spazio del runner. Si pulisce solo dove
+      # non si salva.
+      - name: Libera disco dopo i test
+        if: always() && github.ref != 'refs/heads/main'
+        run: |
+          cargo clean || true
+          df -h /
+
+      - name: Spazio disco su main (la cache viene salvata dopo)
+        if: always() && github.ref == 'refs/heads/main'
         run: df -h /
 
   frontend:
