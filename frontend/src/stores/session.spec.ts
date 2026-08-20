@@ -13,6 +13,10 @@ vi.mock('@/api/auth', () => ({
   refresh: vi.fn()
 }))
 
+vi.mock('@/api/users', () => ({
+  updateUser: vi.fn()
+}))
+
 const auth = await import('@/api/auth')
 
 const user = {
@@ -40,6 +44,7 @@ describe('session bootstrap', () => {
   })
 
   afterEach(() => {
+    useSessionStore().stopWatchdog()
     vi.useRealTimers()
   })
 
@@ -64,6 +69,17 @@ describe('session bootstrap', () => {
     expect(session.unavailable).toBe(false)
     expect(session.user).toBeNull()
     expect(session.ready).toBe(true)
+  })
+
+  it('login applica users.locale al i18n', async () => {
+    vi.mocked(auth.login).mockResolvedValue({
+      user: { ...user, locale: 'it' }
+    })
+    const session = useSessionStore()
+    await session.login('giovanni', 'correct horse battery staple')
+    expect(session.user?.locale).toBe('it')
+    const { i18n } = await import('@/i18n')
+    expect(i18n.global.locale.value).toBe('it')
   })
 })
 

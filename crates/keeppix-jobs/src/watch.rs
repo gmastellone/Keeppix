@@ -297,7 +297,7 @@ fn inotify_watches_ok() -> bool {
 }
 
 /// Scrive il probe hardware in `system_settings.capabilities`.
-/// Oggi il valore è `"unprobed"`: non c'è un rilevamento (Fase 6).
+/// Misura l'accelerazione video reale (Fase 6) e persiste il risultato JSON.
 ///
 /// # Errors
 /// Database.

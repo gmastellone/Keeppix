@@ -162,6 +162,12 @@ impl<'a> GroupRepo<'a> {
             }
         }
 
+        let members: Vec<uuid::Uuid> =
+            sqlx::query_scalar("SELECT user_id FROM group_members WHERE group_id = $1")
+                .bind(id.as_uuid())
+                .fetch_all(self.db.pool())
+                .await?;
+
         let mut tx = self.db.pool().begin().await?;
         if cascade {
             sqlx::query("DELETE FROM permissions WHERE subject_type = 'group' AND subject_id = $1")
@@ -174,6 +180,11 @@ impl<'a> GroupRepo<'a> {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
+        for member in members {
+            self.db
+                .invalidate_permission_cache_for_user(UserId::from_uuid(member))
+                .await;
+        }
         Ok(())
     }
 
@@ -243,6 +254,7 @@ impl<'a> GroupRepo<'a> {
         .bind(user_id.as_uuid())
         .execute(self.db.pool())
         .await?;
+        self.db.invalidate_permission_cache_for_user(user_id).await;
         Ok(())
     }
 
@@ -272,6 +284,7 @@ impl<'a> GroupRepo<'a> {
             .bind(user_id.as_uuid())
             .execute(self.db.pool())
             .await?;
+        self.db.invalidate_permission_cache_for_user(user_id).await;
         Ok(())
     }
 }

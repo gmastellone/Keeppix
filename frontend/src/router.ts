@@ -17,7 +17,44 @@ export const router = createRouter({
       component: () => import('@/views/settings/MapsOfflineView.vue'),
       meta: { auth: true }
     },
+    {
+      path: '/settings/webdav',
+      component: () => import('@/views/settings/WebdavSetupView.vue'),
+      meta: { auth: true }
+    },
+    {
+      path: '/settings/security/totp',
+      component: () => import('@/views/settings/TotpSetupView.vue'),
+      meta: { auth: true }
+    },
+    {
+      path: '/settings/backup',
+      component: () => import('@/views/settings/BackupView.vue'),
+      meta: { auth: true }
+    },
+    {
+      path: '/settings/restore',
+      component: () => import('@/views/settings/RestoreView.vue'),
+      meta: { auth: true }
+    },
+    {
+      path: '/settings/sync',
+      component: () => import('@/views/settings/SyncProbeView.vue'),
+      meta: { auth: true }
+    },
+    {
+      path: '/player/:id',
+      component: () => import('@/views/PlayerView.vue'),
+      meta: { auth: true }
+    },
     { path: '/culling', component: () => import('@/views/CullingView.vue'), meta: { auth: true } },
+    // PWA Share Target (§4.2 fase-5): il service worker redirige qui dopo
+    // aver intercettato un POST "Condividi -> Keeppix" dalla galleria.
+    {
+      path: '/share-target',
+      component: () => import('@/views/ShareTargetView.vue'),
+      meta: { auth: true }
+    },
     { path: '/albums', component: () => import('@/views/AlbumsView.vue'), meta: { auth: true } },
     { path: '/shares', component: () => import('@/views/SharesView.vue'), meta: { auth: true } },
     { path: '/trash', component: () => import('@/views/TrashView.vue'), meta: { auth: true } },

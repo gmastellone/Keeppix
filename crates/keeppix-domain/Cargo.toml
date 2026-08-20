@@ -15,6 +15,7 @@ argon2 = { version = "0.5.3", features = ["std"] }
 sha2 = "0.11.0"
 rand = { version = "0.10.2", features = ["std", "std_rng"] }
 base64 = "0.23.1"
+zeroize = { version = "1.9.0", features = ["std", "derive"] }
 
 [lints]
 workspace = true

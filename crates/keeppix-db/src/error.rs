@@ -20,6 +20,15 @@ pub enum DbError {
     /// percorso che non risponde — disco pieno, permessi, mount caduto.
     #[error("filesystem error: {0}")]
     Io(String),
+    /// Spazio su disco insufficiente per `expected_size` alla creazione di
+    /// una sessione di upload: rifiutata subito, non scoperta a metà.
+    #[error("insufficient storage")]
+    InsufficientStorage,
+    /// La risorsa esisteva ma non è più utilizzabile — una sessione di
+    /// upload scaduta. Distinta da `NotFound`: il chiamante l'aveva vista,
+    /// non ha sbagliato id.
+    #[error("gone")]
+    Gone,
 }
 
 impl From<sqlx::migrate::MigrateError> for DbError {

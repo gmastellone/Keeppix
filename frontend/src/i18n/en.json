@@ -51,8 +51,13 @@
     "title": "Sign in",
     "username": "Username",
     "password": "Password",
+    "totpCode": "Authenticator or recovery code",
     "submit": "Sign in",
-    "errors": { "invalidCredentials": "Incorrect username or password." },
+    "submitTotp": "Verify and sign in",
+    "errors": {
+      "invalidCredentials": "Incorrect username or password.",
+      "invalidTotp": "Incorrect authenticator or recovery code."
+    },
     "notices": {
       "signedOutOffline": "You were signed out locally; we couldn't confirm it with the server (likely a network issue)."
     }
@@ -145,7 +150,14 @@
     "submit": "Search",
     "invalid": "Invalid query."
   },
-  "viewer": { "title": "Photo", "close": "Close" },
+  "viewer": { "title": "Photo", "close": "Close"   },
+  "player": {
+    "close": "Close",
+    "loading": "Preparing playback…",
+    "error": "Could not start playback.",
+    "unsupported": "This browser cannot play HLS video.",
+    "saveBandwidth": "Save bandwidth (720p)"
+  },
   "culling": {
     "entry": "Culling",
     "title": "Culling",
@@ -280,6 +292,166 @@
     "newPassword": "New password",
     "savePassword": "Save password"
   },
+  "webdav": {
+    "title": "Configure WebDAV",
+    "subtitle": "Generate an app password to connect your devices to Keeppix over WebDAV.",
+    "labelField": "Device label",
+    "defaultLabel": "My device",
+    "generate": "Generate",
+    "generateTitle": "App password generated",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "secretWarning": "This password is shown only once. Copy it now — it cannot be retrieved later.",
+    "status": {
+      "connected": "Connected",
+      "waiting": "Waiting for the first connection…"
+    },
+    "clients": {
+      "macos": {
+        "title": "macOS Finder",
+        "steps": "Press ⌘K in Finder and connect to {url}"
+      },
+      "windows": {
+        "title": "Windows",
+        "hint": "We recommend Cyberduck for the best experience.",
+        "limitWarning": "The built-in Windows WebDAV client limits files to 50 MB."
+      },
+      "rclone": {
+        "title": "rclone",
+        "hint": "Copy this ready-to-use configuration block:"
+      },
+      "mobile": {
+        "title": "iPhone / Android",
+        "hint": "Enter this address in your WebDAV app of choice:"
+      }
+    },
+    "previous": {
+      "title": "Previously used app passwords",
+      "empty": "No app passwords yet.",
+      "usedOn": "used on {date}",
+      "neverUsed": "never used",
+      "revoke": "Revoke"
+    },
+    "errors": {
+      "generateFailed": "Could not generate the app password.",
+      "revokeFailed": "Could not revoke the app password."
+    }
+  },
+  "backup": {
+    "title": "Backup",
+    "subtitle": "Catalogue backup with age encryption. Originals are optional and usually stay your responsibility.",
+    "content": "Contents",
+    "include": {
+      "database": "Database (irreplaceable)",
+      "config": "Configuration",
+      "maps": "Map region list",
+      "sidecars": "XMP sidecars",
+      "derivatives": "Derivatives (regenerable)",
+      "originals": "Originals"
+    },
+    "originalsWarning": "Without Originals this backup does NOT contain your photos. It contains the catalogue.",
+    "encryption": "Encryption",
+    "passphraseHint": "age passphrase. If you lose it, the backup cannot be recovered.",
+    "passphraseSet": "Set passphrase",
+    "passphraseChange": "Change passphrase",
+    "destination": "Destination",
+    "destinationDefault": "Local backups",
+    "label": "Label",
+    "path": "Path / URL",
+    "username": "Username",
+    "password": "Password",
+    "s3": {
+      "endpoint": "Endpoint URL",
+      "bucket": "Bucket",
+      "prefix": "Prefix (optional)",
+      "region": "Region",
+      "accessKey": "Access key",
+      "secretKey": "Secret key"
+    },
+    "webdav": {
+      "url": "WebDAV URL"
+    },
+    "sftp": {
+      "host": "Host",
+      "port": "Port",
+      "path": "Remote directory",
+      "privateKey": "Private key PEM (optional; preferred over password)"
+    },
+    "addDestination": "Add destination",
+    "runNow": "Run now",
+    "history": "History",
+    "errors": {
+      "loadFailed": "Could not load backup settings.",
+      "saveFailed": "Could not save backup settings.",
+      "destinationFailed": "Could not add destination.",
+      "runFailed": "Backup failed."
+    }
+  },
+  "sync": {
+    "title": "Sync probe",
+    "subtitle": "Call GET /api/v1/sync/delta to verify the incremental sync endpoint used by mobile clients.",
+    "probe": "Try synchronisation",
+    "cursor": "Cursor",
+    "upserted": "Upserted assets",
+    "deleted": "Deleted assets",
+    "hasMore": "More pages",
+    "yes": "yes",
+    "no": "no",
+    "errors": {
+      "failed": "Sync probe failed."
+    }
+  },
+  "restore": {
+    "title": "Restore",
+    "subtitle": "Inspect a .kpxb backup, preview changes, then restore. A safety dump is taken before overwriting the database.",
+    "path": "Backup file path on the server",
+    "passphrase": "age passphrase",
+    "inspect": "Inspect",
+    "preview": "Preview (dry run)",
+    "run": "Restore",
+    "done": "Restore finished.",
+    "tooNew": "This backup was created by a newer Keeppix version than the one installed.",
+    "components": {
+      "database": "Database",
+      "config": "Configuration",
+      "maps": "Maps (hot restore)"
+    },
+    "errors": {
+      "inspectFailed": "Could not read the backup.",
+      "restoreFailed": "Restore failed."
+    }
+  },
+  "totp": {
+    "title": "Two-factor authentication",
+    "subtitle": "Protect your account with an authenticator app (TOTP) and recovery codes.",
+    "intro": "Scan a QR code with Google Authenticator, Aegis, Bitwarden, or any RFC 6238 app.",
+    "start": "Set up authenticator",
+    "scanTitle": "Scan this QR code",
+    "manualHint": "Or enter the secret manually into your authenticator.",
+    "codeLabel": "Enter the 6-digit code to confirm",
+    "confirm": "Enable 2FA",
+    "recoveryTitle": "Recovery codes",
+    "recoveryWarning": "Store these codes somewhere safe. Each works only once, and they are shown only now.",
+    "copy": "Copy codes",
+    "copied": "Copied!",
+    "manageTitle": "Manage 2FA",
+    "actionCodeLabel": "Authenticator or recovery code",
+    "regenerate": "Regenerate recovery codes",
+    "disable": "Disable 2FA",
+    "status": {
+      "off": "Two-factor authentication is off.",
+      "pending": "Setup started — confirm a code from your authenticator to finish.",
+      "enabled": "Two-factor authentication is on.",
+      "recoveryLeft": "{count} unused recovery codes"
+    },
+    "errors": {
+      "alreadyEnabled": "2FA is already enabled. Disable it first to start over.",
+      "setupFailed": "Could not start 2FA setup.",
+      "confirmFailed": "That code was not accepted. Try the next one from your app.",
+      "regenerateFailed": "Could not regenerate recovery codes.",
+      "disableFailed": "Could not disable 2FA."
+    }
+  },
   "trash": {
     "entry": "Trash",
     "title": "Trash",
@@ -316,11 +488,42 @@
     "close": "Close",
     "createLink": "Create link"
   },
+  "upload": {
+    "title": "Uploads",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "clearCompleted": "Clear completed",
+    "retry": "Retry",
+    "pause": "Pause",
+    "resume": "Resume",
+    "progress": "{received} of {total}",
+    "status": {
+      "queued": "Waiting…",
+      "uploading": "Uploading…",
+      "paused": "Paused",
+      "done": "Done",
+      "error": "Failed",
+      "skipped": "Already in library"
+    },
+    "collision": {
+      "skipped_duplicate": "Already in the library",
+      "renamed": "Saved as {filename}"
+    },
+    "errors": {
+      "expired": "This upload expired and could not be resumed.",
+      "missingFile": "Select the file again to resume this upload.",
+      "missingFolder": "No destination folder was chosen for this file.",
+      "unknown": "The upload failed."
+    }
+  },
   "common": {
     "loading": "Loading…",
     "unexpectedError": "An unexpected error occurred.",
     "unavailable": "The server is unreachable",
     "unavailableHint": "Try again shortly: this is not a sign-in problem.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "language": "Language",
+    "languageIt": "Italiano",
+    "languageEn": "English"
   }
 }

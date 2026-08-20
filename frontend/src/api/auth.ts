@@ -32,10 +32,18 @@ export function setupAccount(payload: SetupPayload): Promise<{ user: User }> {
   })
 }
 
-export function login(username: string, password: string): Promise<{ user: User }> {
+export function login(
+  username: string,
+  password: string,
+  totpCode?: string
+): Promise<{ user: User }> {
   return apiFetch('/api/v1/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password })
+    body: JSON.stringify({
+      username,
+      password,
+      ...(totpCode ? { totp_code: totpCode } : {})
+    })
   })
 }
 

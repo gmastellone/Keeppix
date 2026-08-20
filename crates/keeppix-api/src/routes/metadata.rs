@@ -187,6 +187,7 @@ pub struct TimezoneApplyView {
     path = "/api/v1/assets/{id}/metadata",
     tag = "metadata",
     operation_id = "metadata_effective",
+    summary = "Get effective asset metadata",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'asset")),
     responses(
@@ -211,6 +212,7 @@ pub async fn effective(
     path = "/api/v1/assets/{id}/metadata",
     tag = "metadata",
     operation_id = "metadata_apply",
+    summary = "Apply metadata overrides to an asset",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'asset")),
     request_body = MetadataPatchRequest,
@@ -239,6 +241,7 @@ pub async fn apply(
     path = "/api/v1/metadata/batch",
     tag = "metadata",
     operation_id = "metadata_apply_batch",
+    summary = "Apply metadata overrides in batch",
     security(("session_cookie" = [])),
     request_body = BatchApplyRequest,
     responses(
@@ -282,6 +285,7 @@ pub async fn apply_batch(
     path = "/api/v1/metadata/batch/shift-taken-at",
     tag = "metadata",
     operation_id = "metadata_shift_taken_at",
+    summary = "Shift taken-at timestamps in batch",
     security(("session_cookie" = [])),
     request_body = BatchShiftRequest,
     responses(
@@ -310,6 +314,7 @@ pub async fn shift_taken_at(
     path = "/api/v1/metadata/batch/recalculate-timezones/preview",
     tag = "metadata",
     operation_id = "metadata_recalculate_timezones_preview",
+    summary = "Preview timezone recalculation",
     security(("session_cookie" = [])),
     request_body = RecalculateTimezonesRequest,
     responses(
@@ -351,6 +356,7 @@ pub async fn preview_timezones(
     path = "/api/v1/metadata/batch/recalculate-timezones",
     tag = "metadata",
     operation_id = "metadata_recalculate_timezones_apply",
+    summary = "Apply timezone recalculation",
     security(("session_cookie" = [])),
     request_body = RecalculateTimezonesRequest,
     responses(
@@ -409,6 +415,7 @@ fn geotag_problem(error: keeppix_jobs::geotag::GeotagError) -> Problem {
     path = "/api/v1/metadata/batch/{batch_id}/undo",
     tag = "metadata",
     operation_id = "metadata_undo_batch",
+    summary = "Undo a metadata batch",
     security(("session_cookie" = [])),
     params(("batch_id" = String, Path, description = "Id del batch restituito da apply/shift")),
     responses(

@@ -41,6 +41,7 @@ async fn openapi_document_is_served_and_complete() {
 
     assert_eq!(doc["openapi"].as_str().unwrap(), "3.1.0");
     assert_eq!(doc["info"]["title"], "Keeppix API");
+    assert_eq!(doc["info"]["version"], "1.0.0");
 
     for path in [
         "/api/v1/setup/status",
@@ -49,6 +50,10 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/auth/refresh",
         "/api/v1/auth/logout",
         "/api/v1/auth/me",
+        "/api/v1/auth/totp",
+        "/api/v1/auth/totp/setup",
+        "/api/v1/auth/totp/confirm",
+        "/api/v1/auth/totp/recovery-codes",
         "/api/v1/timeline/buckets",
         "/api/v1/timeline",
         "/api/v1/folders/tree",
@@ -58,6 +63,9 @@ async fn openapi_document_is_served_and_complete() {
         "/media/preview/{hash}",
         "/media/full/{hash}",
         "/media/original/{id}",
+        "/media/video/{id}/playback",
+        "/media/video/{id}/hls/{file}",
+        "/media/video/{id}/poster",
         "/api/v1/viewport",
         "/api/v1/search",
         "/api/v1/search/suggest",
@@ -67,6 +75,7 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/saved-searches",
         "/api/v1/ws",
         "/api/v1/ws/ticket",
+        "/api/v1/sync/delta",
         "/api/v1/problems",
         "/api/v1/duplicates",
         "/api/v1/duplicates/{content_hash}",
@@ -87,11 +96,28 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/metadata/batch/{batch_id}/undo",
         "/api/v1/assets/{id}/flags",
         "/api/v1/flags/batch",
+        "/api/v1/users/me/app-passwords",
+        "/api/v1/users/me/app-passwords/{id}",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
 
     assert!(doc["components"]["schemas"]["UserView"].is_object());
+    assert_eq!(
+        doc["paths"]["/api/v1/auth/login"]["post"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["$ref"],
+        "#/components/schemas/LoginResponse"
+    );
+    assert_eq!(
+        doc["paths"]["/api/v1/auth/me"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+            ["$ref"],
+        "#/components/schemas/MeResponse"
+    );
+    assert_eq!(
+        doc["paths"]["/api/v1/setup"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]
+            ["$ref"],
+        "#/components/schemas/SetupResponse"
+    );
 }
 
 /// Pin sul punto in cui è facile sbagliare: la rotta va montata **dentro**
@@ -180,8 +206,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 69,
-        "il documento deve descrivere sessantanove operazioni"
+        checked, 81,
+        "il documento deve descrivere ottantuno operazioni"
     );
 }
 
@@ -193,7 +219,7 @@ async fn documented_operations_are_all_mounted() {
 /// lo abbiano, e che il cookie descritto sia davvero quello che l'extractor
 /// legge.
 #[test]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::too_many_lines)]
 fn security_requirements_name_a_declared_scheme() {
     let doc =
         serde_json::to_value(<keeppix_api::openapi::ApiDoc as utoipa::OpenApi>::openapi()).unwrap();
@@ -240,6 +266,11 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/assets/{id}/stack/primary",
             "/api/v1/auth/me",
             "/api/v1/auth/refresh",
+            "/api/v1/auth/totp",
+            "/api/v1/auth/totp",
+            "/api/v1/auth/totp/confirm",
+            "/api/v1/auth/totp/recovery-codes",
+            "/api/v1/auth/totp/setup",
             "/api/v1/duplicates",
             "/api/v1/duplicates/{content_hash}",
             "/api/v1/duplicates/{content_hash}/resolve",
@@ -275,12 +306,16 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/saved-searches",
             "/api/v1/search",
             "/api/v1/search/suggest",
+            "/api/v1/sync/delta",
             "/api/v1/timeline",
             "/api/v1/timeline/buckets",
             "/api/v1/trash",
             "/api/v1/trash/empty",
             "/api/v1/users",
             "/api/v1/users",
+            "/api/v1/users/me/app-passwords",
+            "/api/v1/users/me/app-passwords",
+            "/api/v1/users/me/app-passwords/{id}",
             "/api/v1/users/me/home",
             "/api/v1/users/me/home",
             "/api/v1/users/me/password",
@@ -294,6 +329,9 @@ fn security_requirements_name_a_declared_scheme() {
             "/media/original/{id}",
             "/media/preview/{hash}",
             "/media/thumb/{hash}",
+            "/media/video/{id}/hls/{file}",
+            "/media/video/{id}/playback",
+            "/media/video/{id}/poster",
         ]
     );
 }
@@ -304,7 +342,7 @@ fn security_requirements_name_a_declared_scheme() {
 /// `create`. Gli `operation_id` sono quindi espliciti e con prefisso di area;
 /// questo test fallisce se due operazioni tornano a chiamarsi allo stesso modo.
 #[test]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::too_many_lines)]
 fn operation_ids_are_explicit_and_unique() {
     let doc =
         serde_json::to_value(<keeppix_api::openapi::ApiDoc as utoipa::OpenApi>::openapi()).unwrap();
@@ -326,6 +364,9 @@ fn operation_ids_are_explicit_and_unique() {
     assert_eq!(
         ids,
         [
+            "app_passwords_create",
+            "app_passwords_list",
+            "app_passwords_revoke",
             "assets_delete",
             "assets_get",
             "assets_restore",
@@ -335,6 +376,7 @@ fn operation_ids_are_explicit_and_unique() {
             "auth_logout",
             "auth_me",
             "auth_refresh",
+            "delta",
             "duplicates_list",
             "duplicates_members",
             "duplicates_resolve",
@@ -362,6 +404,9 @@ fn operation_ids_are_explicit_and_unique() {
             "media_original",
             "media_preview",
             "media_thumb",
+            "media_video_hls",
+            "media_video_playback",
+            "media_video_poster",
             "metadata_apply",
             "metadata_apply_batch",
             "metadata_copy_location",
@@ -382,6 +427,11 @@ fn operation_ids_are_explicit_and_unique() {
             "setup_status",
             "timeline_buckets",
             "timeline_page",
+            "totp_confirm",
+            "totp_disable",
+            "totp_regenerate_recovery",
+            "totp_setup",
+            "totp_status",
             "trash_empty",
             "trash_list",
             "users_change_password",
@@ -396,6 +446,52 @@ fn operation_ids_are_explicit_and_unique() {
             "ws_connect",
             "ws_ticket"
         ]
+    );
+}
+
+/// `utoipa` prende la summary dalla prima riga di rustdoc se `summary =` manca.
+/// Quando il doc comment inizia con `/// # Errors`, quella heading finisce nel
+/// documento pubblico e nei client generati. Ogni operazione deve avere una
+/// summary inglese esplicita (o un rustdoc che non sia una sezione Errors).
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn openapi_summaries_do_not_contain_errors_heading() {
+    let response = app()
+        .oneshot(
+            Request::builder()
+                .uri("/api/openapi.json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = http_body_util::BodyExt::collect(response.into_body())
+        .await
+        .unwrap()
+        .to_bytes();
+    let doc: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    let mut checked = 0_usize;
+    for (path, item) in doc["paths"].as_object().unwrap() {
+        for (method, operation) in item.as_object().unwrap() {
+            if !HTTP_METHODS.contains(&method.as_str()) {
+                continue;
+            }
+            let summary = operation["summary"].as_str().unwrap_or("");
+            assert!(
+                !summary.contains("# Errors"),
+                "{method} {path} (operationId={:?}) summary must not contain `# Errors`: {summary:?}",
+                operation.get("operationId")
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(
+        checked, 81,
+        "il documento deve descrivere ottantuno operazioni"
     );
 }
 

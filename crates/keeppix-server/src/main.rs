@@ -56,11 +56,11 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("migrations applied");
             Ok(())
         }
-        _ => serve(config, db).await,
+        _ => serve(config, db, cli.config).await,
     }
 }
 
-async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
+async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<()> {
     let imported = keeppix_db::PlaceRepo::new(&db)
         .seed_from_csv_if_empty(Path::new(PLACES_CSV_PATH))
         .await
@@ -101,6 +101,8 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
         data_dir: config.data_dir.clone(),
         stability_wait: keeppix_jobs::PRODUCTION_SETTLED_AFTER,
         trash_retention_days: config.trash_retention_days,
+        database_url: config.database_url.clone(),
+        config_path: Some(config_path),
     };
     let night = keeppix_jobs::default_night_window();
     let workers = keeppix_jobs::worker_count(
@@ -137,21 +139,20 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(addr = %config.bind, "keeppix listening");
 
-    let app = keeppix_server::embed::mount(keeppix_api::router_parts()).with_state({
-        let mut state =
-            keeppix_api::AppState::new(db, config.session_ttl_secs, config.data_dir.clone())
-                .with_on_authenticated({
-                    let tracker = tracker.clone();
-                    std::sync::Arc::new(move || tracker.notify_authenticated_request())
-                })
-                .with_allowed_origins(config.allowed_origins.clone())
-                .with_library_roots(config.library_roots.clone())
-                .with_full_cache_bytes(config.full_cache_bytes);
-        if let Some(watchers) = library_watchers {
-            state = state.with_library_watchers(watchers);
-        }
-        state
-    });
+    let mut state =
+        keeppix_api::AppState::new(db, config.session_ttl_secs, config.data_dir.clone())
+            .with_database_url(config.database_url.clone())
+            .with_on_authenticated({
+                let tracker = tracker.clone();
+                std::sync::Arc::new(move || tracker.notify_authenticated_request())
+            })
+            .with_allowed_origins(config.allowed_origins.clone())
+            .with_library_roots(config.library_roots.clone())
+            .with_full_cache_bytes(config.full_cache_bytes);
+    if let Some(watchers) = library_watchers {
+        state = state.with_library_watchers(watchers);
+    }
+    let app = keeppix_server::embed::mount(keeppix_api::router_parts(state));
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
@@ -159,6 +160,7 @@ async fn serve(config: Config, db: Db) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 async fn spawn_maintenance(db: Db) {
     if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
         tracing::warn!(error = %e, "trash cleanup could not be scheduled");
@@ -169,6 +171,21 @@ async fn spawn_maintenance(db: Db) {
     if let Err(e) = keeppix_jobs::regions::schedule_reap_stale(&db).await {
         tracing::warn!(error = %e, "stale-job reaper could not be scheduled");
     }
+    if let Err(e) = keeppix_jobs::tmp_cleanup::schedule(&db).await {
+        tracing::warn!(error = %e, "upload tmp cleanup could not be scheduled");
+    }
+    if let Err(e) = keeppix_jobs::maintenance::schedule_purge_sessions(&db).await {
+        tracing::warn!(error = %e, "session purge could not be scheduled");
+    }
+    if let Err(e) = keeppix_jobs::maintenance::schedule_cleanup_done_jobs(&db).await {
+        tracing::warn!(error = %e, "done-jobs cleanup could not be scheduled");
+    }
+    if let Err(e) = keeppix_jobs::maintenance::schedule_cleanup_idempotency(&db).await {
+        tracing::warn!(error = %e, "idempotency cleanup could not be scheduled");
+    }
+    if let Err(e) = keeppix_jobs::maintenance::schedule_cleanup_transcode_cache(&db).await {
+        tracing::warn!(error = %e, "transcode cache cleanup could not be scheduled");
+    }
     {
         let db = db.clone();
         tokio::spawn(async move {
@@ -178,6 +195,36 @@ async fn spawn_maintenance(db: Db) {
                 interval.tick().await;
                 if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
                     tracing::warn!(error = %e, "trash cleanup could not be scheduled");
+                }
+                if let Err(e) = keeppix_jobs::maintenance::schedule_purge_sessions(&db).await {
+                    tracing::warn!(error = %e, "session purge could not be scheduled");
+                }
+                if let Err(e) = keeppix_jobs::maintenance::schedule_cleanup_done_jobs(&db).await {
+                    tracing::warn!(error = %e, "done-jobs cleanup could not be scheduled");
+                }
+                if let Err(e) = keeppix_jobs::maintenance::schedule_cleanup_idempotency(&db).await {
+                    tracing::warn!(error = %e, "idempotency cleanup could not be scheduled");
+                }
+                if let Err(e) =
+                    keeppix_jobs::maintenance::schedule_cleanup_transcode_cache(&db).await
+                {
+                    tracing::warn!(error = %e, "transcode cache cleanup could not be scheduled");
+                }
+            }
+        });
+    }
+    {
+        // Un'ora, non 24h come il cestino: un temporaneo scaduto occupa
+        // spazio reale su disco (fino a `expected_size` per sessione), non
+        // solo una riga di manutenzione da smaltire con calma.
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(e) = keeppix_jobs::tmp_cleanup::schedule(&db).await {
+                    tracing::warn!(error = %e, "upload tmp cleanup could not be scheduled");
                 }
             }
         });
@@ -191,6 +238,41 @@ async fn spawn_maintenance(db: Db) {
                 interval.tick().await;
                 if let Err(e) = keeppix_jobs::regions::schedule_reap_stale(&db).await {
                     tracing::warn!(error = %e, "stale-job reaper could not be scheduled");
+                }
+            }
+        });
+    }
+    {
+        // Nightly window work: VACUUM, backup dump, integrity scrub, restore proof.
+        // Re-check every hour; only enqueue when inside the default night window
+        // so Interactive daytime load is never queued for these heavy jobs.
+        let db = db.clone();
+        tokio::spawn(async move {
+            let night = keeppix_jobs::default_night_window();
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let now = chrono::Utc::now().time();
+                let in_night = if night.0 <= night.1 {
+                    now >= night.0 && now < night.1
+                } else {
+                    now >= night.0 || now < night.1
+                };
+                if !in_night {
+                    continue;
+                }
+                if let Err(e) = keeppix_jobs::maintenance::schedule_vacuum_analyze(&db).await {
+                    tracing::warn!(error = %e, "vacuum could not be scheduled");
+                }
+                if let Err(e) = keeppix_jobs::backup::schedule(&db).await {
+                    tracing::warn!(error = %e, "backup dump could not be scheduled");
+                }
+                if let Err(e) = keeppix_jobs::maintenance::schedule_integrity_scrub(&db).await {
+                    tracing::warn!(error = %e, "integrity scrub could not be scheduled");
+                }
+                if let Err(e) = keeppix_jobs::backup::schedule_restore_proof(&db).await {
+                    tracing::warn!(error = %e, "restore proof could not be scheduled");
                 }
             }
         });

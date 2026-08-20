@@ -17,7 +17,6 @@
 # =============================================================================
 # Rinvii — consumatore in una fase non ancora eseguita
 # =============================================================================
-fn get_or_create_secret fase-6
 fn extract_poster fase-6
 route /health ops
 route /api/openapi.json ci
@@ -26,7 +25,7 @@ route /api/openapi.json ci
 # Debiti — spediti in una fase già chiusa senza consumatore
 # =============================================================================
 # origine fase-0 (sessioni). /auth/refresh: pagato in 12b (watchdog SPA).
-fn purge_expired fase-6
+# purge_expired: pagato in Fase 6 Task 8 (maintenance scheduler).
 fn ping fase-6
 
 # origine fase-1a. get_json: il primo lettore vero è la Fase 7, che rilegge

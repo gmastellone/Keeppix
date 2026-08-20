@@ -16,6 +16,16 @@ pub enum JobKind {
     CleanupTrash,
     RetryErrorAssets,
     DownloadMapRegion,
+    TmpCleanup,
+    TranscodeVideo,
+    BackupDump,
+    RestoreProof,
+    PurgeSessions,
+    CleanupDoneJobs,
+    CleanupTranscodeCache,
+    CleanupIdempotency,
+    VacuumAnalyze,
+    IntegrityScrub,
 }
 
 impl JobKind {
@@ -32,6 +42,16 @@ impl JobKind {
             Self::CleanupTrash => "cleanup_trash",
             Self::RetryErrorAssets => "retry_error_assets",
             Self::DownloadMapRegion => "download_map_region",
+            Self::TmpCleanup => "tmp_cleanup",
+            Self::TranscodeVideo => "transcode_video",
+            Self::BackupDump => "backup_dump",
+            Self::RestoreProof => "restore_proof",
+            Self::PurgeSessions => "purge_sessions",
+            Self::CleanupDoneJobs => "cleanup_done_jobs",
+            Self::CleanupTranscodeCache => "cleanup_transcode_cache",
+            Self::CleanupIdempotency => "cleanup_idempotency",
+            Self::VacuumAnalyze => "vacuum_analyze",
+            Self::IntegrityScrub => "integrity_scrub",
         }
     }
 
@@ -49,6 +69,16 @@ impl JobKind {
             "cleanup_trash" => Ok(Self::CleanupTrash),
             "retry_error_assets" => Ok(Self::RetryErrorAssets),
             "download_map_region" => Ok(Self::DownloadMapRegion),
+            "tmp_cleanup" => Ok(Self::TmpCleanup),
+            "transcode_video" => Ok(Self::TranscodeVideo),
+            "backup_dump" => Ok(Self::BackupDump),
+            "restore_proof" => Ok(Self::RestoreProof),
+            "purge_sessions" => Ok(Self::PurgeSessions),
+            "cleanup_done_jobs" => Ok(Self::CleanupDoneJobs),
+            "cleanup_transcode_cache" => Ok(Self::CleanupTranscodeCache),
+            "cleanup_idempotency" => Ok(Self::CleanupIdempotency),
+            "vacuum_analyze" => Ok(Self::VacuumAnalyze),
+            "integrity_scrub" => Ok(Self::IntegrityScrub),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
     }
@@ -148,6 +178,16 @@ mod tests {
             JobKind::CleanupTrash,
             JobKind::RetryErrorAssets,
             JobKind::DownloadMapRegion,
+            JobKind::TmpCleanup,
+            JobKind::TranscodeVideo,
+            JobKind::BackupDump,
+            JobKind::RestoreProof,
+            JobKind::PurgeSessions,
+            JobKind::CleanupDoneJobs,
+            JobKind::CleanupTranscodeCache,
+            JobKind::CleanupIdempotency,
+            JobKind::VacuumAnalyze,
+            JobKind::IntegrityScrub,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
         }

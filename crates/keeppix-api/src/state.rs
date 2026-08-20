@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use keeppix_db::Db;
 use keeppix_domain::{AuthContext, LibraryId, SessionToken, ShareToken, UserId};
 
+use crate::idempotency::IdempotencyLockStore;
 use crate::ratelimit::RateLimiter;
 
 #[derive(Clone, Default)]
@@ -194,6 +195,9 @@ pub struct AppState {
     pub db: Db,
     pub session_ttl: Duration,
     pub data_dir: PathBuf,
+    /// Postgres URL for `pg_dump`/`pg_restore` (backup/restore). Empty in
+    /// unit tests that never exercise those paths.
+    pub database_url: String,
     pub on_authenticated: Option<Arc<dyn Fn() + Send + Sync>>,
     pub tickets: TicketStore,
     pub sessions: SessionCache,
@@ -215,6 +219,7 @@ pub struct AppState {
     /// In-process unlock proofs for password-protected share links.
     pub share_unlocks: ShareUnlockStore,
     pub tz_previews: TimezonePreviewStore,
+    pub idempotency_locks: IdempotencyLockStore,
 }
 
 impl AppState {
@@ -224,6 +229,7 @@ impl AppState {
             db,
             session_ttl: Duration::from_secs(session_ttl_secs),
             data_dir,
+            database_url: String::new(),
             on_authenticated: None,
             tickets: TicketStore::default(),
             sessions: SessionCache::default(),
@@ -236,7 +242,14 @@ impl AppState {
             login_limiter: RateLimiter::new(Duration::from_secs(300), 10),
             share_unlocks: ShareUnlockStore::default(),
             tz_previews: TimezonePreviewStore::default(),
+            idempotency_locks: IdempotencyLockStore::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_database_url(mut self, url: String) -> Self {
+        self.database_url = url;
+        self
     }
 
     #[must_use]

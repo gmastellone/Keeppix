@@ -51,8 +51,13 @@
     "title": "Accedi",
     "username": "Nome utente",
     "password": "Password",
+    "totpCode": "Codice autenticatore o di recupero",
     "submit": "Accedi",
-    "errors": { "invalidCredentials": "Nome utente o password non corretti." },
+    "submitTotp": "Verifica e accedi",
+    "errors": {
+      "invalidCredentials": "Nome utente o password non corretti.",
+      "invalidTotp": "Codice autenticatore o di recupero non corretto."
+    },
     "notices": {
       "signedOutOffline": "Sei uscito localmente; non siamo riusciti a confermarlo con il server (probabile problema di rete)."
     }
@@ -145,7 +150,14 @@
     "submit": "Cerca",
     "invalid": "Query non valida."
   },
-  "viewer": { "title": "Foto", "close": "Chiudi" },
+  "viewer": { "title": "Foto", "close": "Chiudi"   },
+  "player": {
+    "close": "Chiudi",
+    "loading": "Preparazione riproduzione…",
+    "error": "Impossibile avviare la riproduzione.",
+    "unsupported": "Questo browser non può riprodurre video HLS.",
+    "saveBandwidth": "Risparmia banda (720p)"
+  },
   "culling": {
     "entry": "Culling",
     "title": "Culling",
@@ -280,6 +292,166 @@
     "newPassword": "Nuova password",
     "savePassword": "Salva password"
   },
+  "webdav": {
+    "title": "Configura WebDAV",
+    "subtitle": "Genera una app-password per collegare i tuoi dispositivi a Keeppix via WebDAV.",
+    "labelField": "Etichetta dispositivo",
+    "defaultLabel": "Il mio dispositivo",
+    "generate": "Genera",
+    "generateTitle": "App-password generata",
+    "copy": "Copia",
+    "copied": "Copiata!",
+    "secretWarning": "Questa password viene mostrata una sola volta. Copiala ora: non potrà essere recuperata in seguito.",
+    "status": {
+      "connected": "Connesso",
+      "waiting": "In attesa della prima connessione…"
+    },
+    "clients": {
+      "macos": {
+        "title": "macOS Finder",
+        "steps": "Premi ⌘K nel Finder e collegati a {url}"
+      },
+      "windows": {
+        "title": "Windows",
+        "hint": "Consigliamo Cyberduck per un'esperienza migliore.",
+        "limitWarning": "Il client WebDAV integrato in Windows limita i file a 50 MB."
+      },
+      "rclone": {
+        "title": "rclone",
+        "hint": "Copia questo blocco di configurazione pronto all'uso:"
+      },
+      "mobile": {
+        "title": "iPhone / Android",
+        "hint": "Inserisci questo indirizzo nella tua app WebDAV preferita:"
+      }
+    },
+    "previous": {
+      "title": "App-password usate in precedenza",
+      "empty": "Nessuna app-password ancora.",
+      "usedOn": "usata il {date}",
+      "neverUsed": "mai usata",
+      "revoke": "Revoca"
+    },
+    "errors": {
+      "generateFailed": "Impossibile generare la app-password.",
+      "revokeFailed": "Impossibile revocare la app-password."
+    }
+  },
+  "backup": {
+    "title": "Backup",
+    "subtitle": "Backup del catalogo cifrato con age. Gli originali sono opzionali e restano di norma responsabilità tua.",
+    "content": "Contenuto",
+    "include": {
+      "database": "Database (irrecuperabile)",
+      "config": "Configurazione",
+      "maps": "Elenco regioni mappa",
+      "sidecars": "Sidecar XMP",
+      "derivatives": "Derivati (rigenerabili)",
+      "originals": "Originali"
+    },
+    "originalsWarning": "Senza Originali questo backup NON contiene le tue foto. Contiene il catalogo.",
+    "encryption": "Cifratura",
+    "passphraseHint": "Passphrase age. Se la perdi, il backup non è recuperabile.",
+    "passphraseSet": "Imposta passphrase",
+    "passphraseChange": "Cambia passphrase",
+    "destination": "Destinazione",
+    "destinationDefault": "Backup locali",
+    "label": "Etichetta",
+    "path": "Percorso / URL",
+    "username": "Nome utente",
+    "password": "Password",
+    "s3": {
+      "endpoint": "URL endpoint",
+      "bucket": "Bucket",
+      "prefix": "Prefisso (opzionale)",
+      "region": "Regione",
+      "accessKey": "Access key",
+      "secretKey": "Secret key"
+    },
+    "webdav": {
+      "url": "URL WebDAV"
+    },
+    "sftp": {
+      "host": "Host",
+      "port": "Porta",
+      "path": "Directory remota",
+      "privateKey": "Chiave privata PEM (opzionale; preferita alla password)"
+    },
+    "addDestination": "Aggiungi destinazione",
+    "runNow": "Esegui adesso",
+    "history": "Cronologia",
+    "errors": {
+      "loadFailed": "Impossibile caricare le impostazioni di backup.",
+      "saveFailed": "Impossibile salvare le impostazioni di backup.",
+      "destinationFailed": "Impossibile aggiungere la destinazione.",
+      "runFailed": "Backup non riuscito."
+    }
+  },
+  "sync": {
+    "title": "Prova sincronizzazione",
+    "subtitle": "Chiama GET /api/v1/sync/delta per verificare l'endpoint di sync incrementale usato dai client mobili.",
+    "probe": "Prova sincronizzazione",
+    "cursor": "Cursore",
+    "upserted": "Asset aggiornati",
+    "deleted": "Asset cancellati",
+    "hasMore": "Altre pagine",
+    "yes": "sì",
+    "no": "no",
+    "errors": {
+      "failed": "Prova di sincronizzazione fallita."
+    }
+  },
+  "restore": {
+    "title": "Ripristino",
+    "subtitle": "Ispeziona un backup .kpxb, anteprima le modifiche, poi ripristina. Prima di sovrascrivere il database viene creato un dump di sicurezza.",
+    "path": "Percorso del file di backup sul server",
+    "passphrase": "Passphrase age",
+    "inspect": "Ispeziona",
+    "preview": "Anteprima (simulazione)",
+    "run": "Ripristina",
+    "done": "Ripristino completato.",
+    "tooNew": "Questo backup è stato creato da una versione di Keeppix più recente di quella installata.",
+    "components": {
+      "database": "Database",
+      "config": "Configurazione",
+      "maps": "Mappe (a caldo)"
+    },
+    "errors": {
+      "inspectFailed": "Impossibile leggere il backup.",
+      "restoreFailed": "Ripristino non riuscito."
+    }
+  },
+  "totp": {
+    "title": "Autenticazione a due fattori",
+    "subtitle": "Proteggi l'account con un'app autenticatore (TOTP) e i codici di recupero.",
+    "intro": "Inquadra un QR con Google Authenticator, Aegis, Bitwarden o qualsiasi app RFC 6238.",
+    "start": "Configura autenticatore",
+    "scanTitle": "Inquadra questo QR",
+    "manualHint": "Oppure inserisci il segreto a mano nell'app autenticatore.",
+    "codeLabel": "Inserisci il codice a 6 cifre per confermare",
+    "confirm": "Attiva il 2FA",
+    "recoveryTitle": "Codici di recupero",
+    "recoveryWarning": "Conserva questi codici in un posto sicuro. Ognuno vale una sola volta e vengono mostrati solo ora.",
+    "copy": "Copia i codici",
+    "copied": "Copiati!",
+    "manageTitle": "Gestisci il 2FA",
+    "actionCodeLabel": "Codice autenticatore o di recupero",
+    "regenerate": "Rigenera i codici di recupero",
+    "disable": "Disattiva il 2FA",
+    "status": {
+      "off": "L'autenticazione a due fattori è disattivata.",
+      "pending": "Configurazione avviata — conferma un codice dall'app per completarla.",
+      "enabled": "L'autenticazione a due fattori è attiva.",
+      "recoveryLeft": "{count} codici di recupero ancora validi"
+    },
+    "errors": {
+      "alreadyEnabled": "Il 2FA è già attivo. Disattivalo prima di ricominciare.",
+      "setupFailed": "Impossibile avviare la configurazione del 2FA.",
+      "confirmFailed": "Codice non accettato. Prova il successivo dall'app.",
+      "regenerateFailed": "Impossibile rigenerare i codici di recupero.",
+      "disableFailed": "Impossibile disattivare il 2FA."
+    }
+  },
   "trash": {
     "entry": "Cestino",
     "title": "Cestino",
@@ -316,11 +488,42 @@
     "close": "Chiudi",
     "createLink": "Crea link"
   },
+  "upload": {
+    "title": "Caricamenti",
+    "collapse": "Riduci",
+    "expand": "Espandi",
+    "clearCompleted": "Rimuovi completati",
+    "retry": "Riprova",
+    "pause": "Pausa",
+    "resume": "Riprendi",
+    "progress": "{received} di {total}",
+    "status": {
+      "queued": "In attesa…",
+      "uploading": "Caricamento…",
+      "paused": "In pausa",
+      "done": "Completato",
+      "error": "Non riuscito",
+      "skipped": "Già in libreria"
+    },
+    "collision": {
+      "skipped_duplicate": "Già presente in libreria",
+      "renamed": "Salvato come {filename}"
+    },
+    "errors": {
+      "expired": "Questo caricamento è scaduto e non può essere ripreso.",
+      "missingFile": "Seleziona di nuovo il file per riprendere questo caricamento.",
+      "missingFolder": "Non è stata scelta una cartella di destinazione per questo file.",
+      "unknown": "Il caricamento non è riuscito."
+    }
+  },
   "common": {
     "loading": "Caricamento…",
     "unexpectedError": "Si è verificato un errore imprevisto.",
     "unavailable": "Il server non è raggiungibile",
     "unavailableHint": "Riprova tra poco: non è un problema di accesso.",
-    "retry": "Riprova"
+    "retry": "Riprova",
+    "language": "Lingua",
+    "languageIt": "Italiano",
+    "languageEn": "English"
   }
 }
