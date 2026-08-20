@@ -93,6 +93,7 @@ async fn performance_indexes_exist() {
         "assets_rating_idx",
         "asset_flags_favorite_idx",
         "assets_taken_day_idx",
+        "assets_timeline_indexed_idx",
     ] {
         assert!(
             indexes.contains(&expected.to_owned()),

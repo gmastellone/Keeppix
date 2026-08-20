@@ -211,6 +211,47 @@ async fn explain_buckets(pool: &sqlx::PgPool, library_id: uuid::Uuid) -> String 
     join_plan(rows)
 }
 
+/// Predicati e ordinamento di `TimelineRepo::page` sulla sola tabella `assets`:
+/// duplicato qui di proposito perché la query vera è privata del repository
+/// (stesso pattern di `favorite_search_uses_the_partial_index` in search.rs).
+async fn explain_timeline_ordering(pool: &sqlx::PgPool) -> String {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL max_parallel_workers_per_gather = 0")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SET LOCAL enable_seqscan = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE pg_index SET indisvalid = false \
+          WHERE indexrelid IN ( \
+            SELECT c.oid FROM pg_class c \
+             WHERE c.relname IN ( \
+               'assets_timeline_idx', 'assets_taken_day_idx', 'assets_geometry_idx', \
+               'assets_folder_idx', 'assets_status_idx', 'assets_content_hash_idx', \
+               'assets_location_gist', 'assets_filename_trgm', 'assets_rating_idx' \
+             ) \
+          )",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "EXPLAIN (ANALYZE, BUFFERS) \
+         SELECT id FROM assets \
+         WHERE status = 'indexed' AND kind <> 'unknown' \
+         ORDER BY taken_at_utc DESC NULLS LAST, id DESC \
+         LIMIT 200",
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    tx.rollback().await.unwrap();
+    join_plan(rows)
+}
+
 async fn explain_page(pool: &sqlx::PgPool, month: NaiveDate) -> String {
     let start = month.and_hms_opt(0, 0, 0).unwrap().and_utc();
     let end = month
@@ -282,6 +323,42 @@ fn join_plan(rows: Vec<(String,)>) -> String {
         .map(|(line,)| line)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// `TimelineRepo::page` filtra `status = 'indexed' AND kind <> 'unknown'`.
+/// Con vincolo di mese a 200k righe il planner preferisce
+/// `assets_taken_day_idx` (Task 6); sulla sola tabella `assets` l'indice
+/// parziale nuovo sostituisce `assets_timeline_idx` + filtro `kind`.
+#[tokio::test]
+async fn timeline_page_uses_assets_timeline_indexed_idx() {
+    let test = TestDb::start().await;
+    let (_, library_id) = seed_two_hundred_thousand(&test).await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library_id, &["unknowns"])
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, kind, status, \
+                             taken_at_utc, width, height) \
+         SELECT gen_random_uuid(), $1, 'NOTE_' || lpad(g::text, 6, '0') || '.txt', \
+                100, now(), 'unknown', 'indexed', now() - make_interval(mins => g), NULL, NULL \
+           FROM generate_series(1, 5000) AS g",
+    )
+    .bind(folder.id.as_uuid())
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+    sqlx::query("ANALYZE assets")
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+    let plan = explain_timeline_ordering(test.db().pool()).await;
+    eprintln!("EXPLAIN timeline ordering (Task 12):\n{plan}");
+    assert!(
+        plan.contains("assets_timeline_indexed_idx"),
+        "TimelineRepo::page deve poter servirsi dell'indice parziale \
+         assets_timeline_indexed_idx:\n{plan}"
+    );
 }
 
 #[tokio::test]
