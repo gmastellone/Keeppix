@@ -1,4 +1,4 @@
-//! S3 destination must send AWS SigV4 — not invented Keeppix headers.
+//! S3 destination must send AWS `SigV4` — not invented Keeppix headers.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
@@ -30,7 +30,9 @@ async fn s3_upload_sends_aws4_authorization_header() {
     let auths = seen.lock().unwrap().clone();
     assert!(!auths.is_empty(), "mock must see at least one request");
     assert!(
-        auths.iter().any(|a| a.starts_with("AWS4-HMAC-SHA256 Credential=")),
+        auths
+            .iter()
+            .any(|a| a.starts_with("AWS4-HMAC-SHA256 Credential=")),
         "expected SigV4 Authorization, got {auths:?}"
     );
     assert!(

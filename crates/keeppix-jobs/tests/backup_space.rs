@@ -1,5 +1,5 @@
 //! Destination free-space must be checked *before* staging work (spec §2.2 /
-//! adversarial review). A failure mid-backup after pg_dump + pack wastes I/O.
+//! adversarial review). A failure mid-backup after `pg_dump` + pack wastes I/O.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
@@ -9,9 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use harness::{TestDb, seed_admin};
-use keeppix_db::{
-    BackupKind, BackupPreferences, BackupRepo, NewBackupDestination, SettingsRepo,
-};
+use keeppix_db::{BackupKind, BackupPreferences, BackupRepo, NewBackupDestination, SettingsRepo};
 use keeppix_domain::{AuthContext, SystemRole};
 use keeppix_jobs::backup::{BackupContext, run};
 use serde_json::json;
@@ -27,11 +25,13 @@ async fn insufficient_destination_space_aborts_before_creating_staging() {
     let dest_path = data_dir.path().join("keeppix-nospace");
     fs::create_dir_all(&dest_path).unwrap();
 
-    let mut prefs = BackupPreferences::default();
-    prefs.passphrase = Some("test-passphrase-not-secret".into());
-    prefs.include_database = true;
-    prefs.include_originals = false;
-    prefs.verify_after_write = false;
+    let prefs = BackupPreferences {
+        passphrase: Some("test-passphrase-not-secret".into()),
+        include_database: true,
+        include_originals: false,
+        verify_after_write: false,
+        ..Default::default()
+    };
     BackupRepo::new(test.db())
         .put_preferences(&ctx, &prefs)
         .await
@@ -80,12 +80,7 @@ async fn insufficient_destination_space_aborts_before_creating_staging() {
         "no packed backup must exist when space check fails first"
     );
     assert!(
-        dest_path
-            .read_dir()
-            .unwrap()
-            .filter_map(Result::ok)
-            .next()
-            .is_none(),
+        dest_path.read_dir().unwrap().find_map(Result::ok).is_none(),
         "destination must stay empty — upload never starts"
     );
 }
