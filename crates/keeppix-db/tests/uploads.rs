@@ -715,12 +715,16 @@ async fn finalize_renames_on_same_name_different_hash_never_overwriting() {
     let renamed_path = root.join("2024").join("foto_1.jpg");
     assert_eq!(fs::read(&renamed_path).unwrap(), b"contenuto diverso");
 
-    let names: Vec<String> =
-        sqlx::query_scalar("SELECT filename FROM assets WHERE folder_id = $1 ORDER BY filename")
+    let mut names: Vec<String> =
+        sqlx::query_scalar("SELECT filename FROM assets WHERE folder_id = $1")
             .bind(folder.as_uuid())
             .fetch_all(test.db().pool())
             .await
             .unwrap();
+    // Don't rely on Postgres ORDER BY filename: ICU/en_US collations can put
+    // `foto_1.jpg` before `foto.jpg` (underscore vs `.`), which is what CI
+    // saw. Sort in Rust for a stable assertion.
+    names.sort();
     assert_eq!(names, vec!["foto.jpg".to_owned(), "foto_1.jpg".to_owned()]);
 
     let _ = fs::remove_dir_all(&root);
