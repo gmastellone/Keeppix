@@ -296,3 +296,33 @@ di un tag «tramonto», e il progetto lo tratta come tale.
 - **Raggruppamento a lotti globale** (HDBSCAN e simili): §4.1 — incompatibile
   con la persistenza delle correzioni manuali.
 - **Riconoscimento in tempo reale su video**: fuori scope; i video sono Fase 6.
+
+
+---
+
+## Emendamento — 20 agosto 2026: stesse regole della Fase 7
+
+Tre vincoli, identici a quelli fissati per l'analisi delle scene, e per le stesse ragioni.
+
+**1. I volti non si cercano nel culling.** I lotti sono un'area di transito: le foto ci arrivano
+dalla scheda, si scelgono, e poi escono. Il rilevamento parte **quando una foto entra in
+libreria**, non prima. Il confine è una condizione sulla cartella (`folders.culling_role`), non
+uno stato per foto.
+
+**2. Un volto per pila, non per file.** Si lavora sul primario: RAW e JPEG affiancati sono lo
+stesso scatto e le stesse facce.
+
+**3. L'ingresso è la miniatura, con un'avvertenza.** A differenza delle scene, qui i **240 px
+della miniatura possono non bastare**: un volto in secondo piano su uno scatto di gruppo occupa
+pochi pixel, e sotto una certa dimensione il rilevamento fallisce o l'impronta è rumorosa.
+
+**Ruling: il rilevamento gira sulla miniatura, l'impronta del volto sulla preview.** — Trovare
+*dove* sono i volti è un compito su scala grossa e la miniatura basta; ricavare l'impronta che
+distingue Marta da Elena richiede pixel veri. La preview da 2048 px (`PREVIEW_LONG_SIDE`) esiste
+già su disco, quindi neanche qui si decodifica l'originale. — *Costo se sbagliato:* i volti molto
+piccoli restano non riconosciuti, il che è preferibile a riconoscerli male: un'attribuzione
+sbagliata costa all'utente più di un volto mancato, perché va trovata e corretta a mano.
+
+**Conseguenza sui costi.** L'analisi dei volti resta la voce più cara dopo l'ingestione, ma il
+lavoro si riduce alla libreria vera — non ai lotti in lavorazione — e non ripaga mai due volte lo
+stesso scatto.
