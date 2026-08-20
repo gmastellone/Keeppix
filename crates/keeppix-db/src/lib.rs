@@ -75,7 +75,7 @@ pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
 pub use share_links::{NewShareLink, ShareLinkRepo, ShareLinkRow};
 pub use stacks::{StackDetails, StackMember, StackRepo};
-pub use timeline::{MonthBucket, TimelineRepo};
+pub use timeline::{Geometry, GeometryRecord, MonthBucket, TimelineRepo};
 pub use totp::{TotpConfirmed, TotpRepo, TotpSetup, TotpStatus};
 pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
 pub use uploads::{
