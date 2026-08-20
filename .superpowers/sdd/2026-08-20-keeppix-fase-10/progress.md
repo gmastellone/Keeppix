@@ -406,3 +406,82 @@ toccati dal task (`keeppix-db` albums.rs, migrations.rs, geo.rs;
 non tocca lo snapshot — `albums` resta fuori dalla superficie OpenAPI
 generata, la chiude il Task 10/23).
 
+## Task 6 — Nuovi assi di `SearchNode`
+
+Ruling: i nove nuovi assi (`Rating`, `Favorite`, `DateRange`, `Day`,
+`Month`, `Country`, `Aperture`, `Shutter`, `Place`) si annidano nell'unico
+`SearchNode`/`compile_for_sql` esistente — nessun secondo modello, come
+richiesto dal brief. `compile_for_sql` cresceva oltre il limite
+`too_many_lines` di clippy con il nuovo match, quindi è stato scomposto in
+`compile_for_sql` (combinatori `And`/`Or`/`Not` + dispatch) → `compile_leaf`
+(assi già esistenti + dispatch dei nuovi) → `compile_search_axis` (i nove
+assi del Task 6). Nessun comportamento cambia, solo la forma. — *Costo se
+sbagliato:* nessuno, è un refactor a struttura.
+
+Ruling: `compile_for_sql` prende ora `user_id: Option<uuid::Uuid>` per
+alimentare `Rating`/`Favorite`, che sono per-utente (spec §4.1: il tuo 5
+stelle non è il 5 stelle di un altro). `None` (un `AuthContext` senza
+utente, se mai esistesse per questi percorsi) fa fallire quei due nodi con
+`Forbidden` invece di produrre silenziosamente un confronto vuoto o, peggio,
+un confronto sbagliato. Verificato che tutti i chiamanti reali
+(`SearchRepo::run`, `AlbumRepo::refresh`, `GeoRepo::clusters`) passano da un
+estrattore `SessionNotShare` che garantisce sempre `Some`, quindi il ramo
+`Forbidden` è difensivo, non atteso in pratica. — *Costo se sbagliato:* nessuno
+osservato; se in futuro un percorso senza sessione userà `Rating`/`Favorite`,
+il `Forbidden` è il comportamento giusto comunque.
+
+Ruling: `Favorite` — il piano lo assegna al Task 6 come asse di ricerca con
+verifica `EXPLAIN`, ma la colonna `asset_flags.favorite` non esiste ancora
+(è nominalmente Task 10: scrittura, `AssetView`, dominio `AssetFlags`).
+Ho aggiunto la colonna minima (`boolean NOT NULL DEFAULT false`) e il suo
+indice parziale (`asset_flags_favorite_idx` su `(user_id, asset_id) WHERE
+favorite`) in questo task, con nome e forma già identici a quanto la spec
+del Task 10 dichiara — così il Task 6 è verificabile end-to-end (query +
+`EXPLAIN`) senza duplicare lavoro: il Task 10 troverà colonna e indice
+pronti e userà solo la parte che gli manca (scrittura, superficie API). —
+*Costo se sbagliato:* se il Task 10 avesse in mente un nome/forma diversi
+per l'indice, va normalizzato lì; il costo è un `DROP`/`CREATE INDEX` in
+più, non un conflitto di dati.
+
+Ruling: `Country` risolve via `assets.place_id → places.country_code`
+(`EXISTS` su `places`), **non** riusando `Folder` — nel prodotto reale
+cartella e luogo sono due concetti distinti anche se nel prototipo
+coincidevano (spec fase-10 §6). Non ho costruito un backfill automatico di
+reverse-geocoding per popolare `place_id`: è fuori scope del Task 6, che
+deve solo esporre l'asse di ricerca sul dato che Fase 4 già produce
+(assegnazione manuale/import GPX). `value` viene uppercased a compile time
+per combaciare con la convenzione di `country_code`. — *Costo se sbagliato:*
+un asset senza `place_id` mai assegnato non compare mai per nessun paese,
+comportamento corretto ma silenzioso finché non arriva un backfill dedicato.
+
+Ruling: `Shutter` confronta `asset_exif.exposure` (testo EXIF grezzo, es.
+`"1/125"` o `"2"`) convertendolo a secondi con un `CASE` SQL che gestisce
+sia la forma a frazione sia quella decimale, e ritorna `NULL` (mai
+comparabile, quindi mai un match falso) su formati malformati o divisore
+zero invece di fallire la query. — *Costo se sbagliato:* un formato EXIF non
+previsto (locale con virgola, notazione scientifica) non genera un errore
+ma semplicemente non partecipa al filtro; preferibile a un panic o a un
+500 su dati EXIF di terze parti che non controlliamo.
+
+Ruling: `Day`/`Month` sono filtri ricorrenti (giorno-del-mese,
+mese-dell'anno), non date assolute — la controparte naturale di `Year` già
+esistente, e la lettura più utile per un utente che cerca "le foto di
+compleanno" o "le foto d'estate" attraverso gli anni. `DateRange` resta
+l'asse per un intervallo assoluto esplicito, entrambi gli estremi inclusi.
+Tutti e tre filtrano su `taken_at_utc` restando fuori dal cestino, coerenti
+con l'indice `assets_taken_day_idx` aggiunto nella stessa migrazione. —
+*Costo se sbagliato:* se l'interfaccia si aspettava "giorno esatto" per
+`Day`, la migrazione a un range di un giorno è un cambio piccolo e
+localizzato in `compile_search_axis`.
+
+Task 6: complete (commit 6ab60c8 migrazione + f1afe20 db/compile_for_sql +
+12419cd test, tests green: `keeppix-db` search.rs 19/19 [+9 nuovi assi, +1
+depth guard, +1 EXPLAIN partial index], migrations.rs 11/11 [+3 nuovi
+indici], albums.rs 11/11, geo.rs 14/14; `keeppix-api` albums.rs 3/3,
+openapi.rs 7/7 [nessuna modifica di superficie, `SearchNode` non è ancora
+esposto via OpenAPI]). `cargo fmt --check` e `cargo clippy --workspace
+--all-targets -- -D warnings` verdi su tutto il workspace. `./scripts/
+test.sh` completo **non eseguito** (stesso motivo dei task precedenti);
+eseguiti invece tutti i test toccati dal task più `keeppix-api` albums.rs/
+openapi.rs per confermare che l'aggiunta non rompe il contratto pubblico.
+
