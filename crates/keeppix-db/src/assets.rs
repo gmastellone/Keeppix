@@ -713,11 +713,47 @@ impl<'a> AssetRepo<'a> {
         Ok(out)
     }
 
+    /// Restituisce gli id fra `ids` che il chiamante può vedere, nello stesso
+    /// ordine della richiesta. Gli assenti (inesistenti o fuori scope) non
+    /// compaiono: le operazioni a riuscita parziale li mettono in `failed`.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn filter_visible(
+        &self,
+        ctx: &AuthContext,
+        ids: &[AssetId],
+    ) -> Result<Vec<AssetId>, DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let uuids: Vec<uuid::Uuid> = ids.iter().map(AssetId::as_uuid).collect();
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
+        let visible: Vec<uuid::Uuid> = sqlx::query_scalar(&format!(
+            "SELECT a.id FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             WHERE a.id = ANY($1) AND {}",
+            filter.sql()
+        ))
+        .bind(&uuids)
+        .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let visible: std::collections::HashSet<uuid::Uuid> = visible.into_iter().collect();
+        Ok(ids
+            .iter()
+            .copied()
+            .filter(|id| visible.contains(&id.as_uuid()))
+            .collect())
+    }
+
     /// Verifica in una sola query che il chiamante veda **tutti** gli id
-    /// dati. La usano gli override e i flag per non pagare un round-trip per
-    /// asset su un batch di 500: chi sonda anche un solo id fuori dalla
-    /// propria visibilità riceve `Forbidden`, mai un errore parziale che
-    /// riveli quali id esistono.
+    /// dati. La usano le operazioni che restano all-or-nothing. Per i lotti
+    /// a riuscita parziale preferire [`Self::filter_visible`].
     ///
     /// # Errors
     /// `Forbidden` se anche un solo id non è visibile — compreso il caso in
@@ -727,27 +763,13 @@ impl<'a> AssetRepo<'a> {
         if ids.is_empty() {
             return Ok(());
         }
-        let uuids: Vec<uuid::Uuid> = ids.iter().map(AssetId::as_uuid).collect();
-        let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
-        let visible: i64 = sqlx::query_scalar(&format!(
-            "SELECT count(DISTINCT a.id) FROM assets a \
-             JOIN folders f ON f.id = a.folder_id \
-             WHERE a.id = ANY($1) AND {}",
-            filter.sql()
-        ))
-        .bind(&uuids)
-        .bind(filter.bind())
-        .bind(filter.holes())
-        .bind(filter.assets())
-        .fetch_one(self.db.pool())
-        .await?;
+        let visible = self.filter_visible(ctx, ids).await?;
+        let visible: std::collections::HashSet<uuid::Uuid> =
+            visible.into_iter().map(|id| id.as_uuid()).collect();
+        let distinct: std::collections::HashSet<uuid::Uuid> =
+            ids.iter().map(AssetId::as_uuid).collect();
 
-        let mut distinct = uuids;
-        distinct.sort_unstable();
-        distinct.dedup();
-
-        if visible == i64::try_from(distinct.len()).unwrap_or(i64::MAX) {
+        if visible.len() == distinct.len() {
             Ok(())
         } else if ctx.is_admin() {
             Err(DbError::NotFound)
