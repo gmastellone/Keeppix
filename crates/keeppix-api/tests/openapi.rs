@@ -449,6 +449,49 @@ fn operation_ids_are_explicit_and_unique() {
     );
 }
 
+/// `utoipa` prende la summary dalla prima riga di rustdoc se `summary =` manca.
+/// Quando il doc comment inizia con `/// # Errors`, quella heading finisce nel
+/// documento pubblico e nei client generati. Ogni operazione deve avere una
+/// summary inglese esplicita (o un rustdoc che non sia una sezione Errors).
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn openapi_summaries_do_not_contain_errors_heading() {
+    let response = app()
+        .oneshot(
+            Request::builder()
+                .uri("/api/openapi.json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = http_body_util::BodyExt::collect(response.into_body())
+        .await
+        .unwrap()
+        .to_bytes();
+    let doc: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    let mut checked = 0_usize;
+    for (path, item) in doc["paths"].as_object().unwrap() {
+        for (method, operation) in item.as_object().unwrap() {
+            if !HTTP_METHODS.contains(&method.as_str()) {
+                continue;
+            }
+            let summary = operation["summary"].as_str().unwrap_or("");
+            assert!(
+                !summary.contains("# Errors"),
+                "{method} {path} (operationId={:?}) summary must not contain `# Errors`: {summary:?}",
+                operation.get("operationId")
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 81, "il documento deve descrivere ottantuno operazioni");
+}
+
 /// Blocca la specifica su disco: da questo file si generano i client mobile,
 /// quindi una modifica va vista prima di essere pubblicata, non dopo.
 #[test]

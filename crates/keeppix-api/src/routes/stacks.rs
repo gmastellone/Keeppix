@@ -35,6 +35,7 @@ pub struct StackView {
     path = "/api/v1/assets/{id}/stack",
     tag = "trash",
     operation_id = "assets_stack_get",
+    summary = "Get an asset stack",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'asset")),
     responses(
@@ -79,6 +80,7 @@ pub async fn get_members(
     path = "/api/v1/assets/{id}/stack/primary",
     tag = "trash",
     operation_id = "assets_stack_set_primary",
+    summary = "Set the primary asset in a stack",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'asset da promuovere")),
     responses(

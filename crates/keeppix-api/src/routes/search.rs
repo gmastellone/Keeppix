@@ -56,6 +56,7 @@ pub struct SavedSearchView {
     path = "/api/v1/search",
     tag = "search",
     operation_id = "search_run",
+    summary = "Run a search",
     security(("session_cookie" = [])),
     request_body = SearchRequest,
     responses(
@@ -92,6 +93,7 @@ pub async fn run(
     path = "/api/v1/search/suggest",
     tag = "search",
     operation_id = "search_suggest",
+    summary = "Suggest search terms",
     security(("session_cookie" = [])),
     params(("q" = String, Query, description = "Prefisso")),
     responses(
@@ -115,6 +117,7 @@ pub async fn suggest(
     path = "/api/v1/saved-searches",
     tag = "search",
     operation_id = "saved_searches_list",
+    summary = "List saved searches",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Ricerche salvate dell'utente", body = [SavedSearchView]),
@@ -144,6 +147,7 @@ pub async fn list_saved(
     path = "/api/v1/saved-searches",
     tag = "search",
     operation_id = "saved_searches_create",
+    summary = "Create a saved search",
     security(("session_cookie" = [])),
     request_body = SavedSearchRequest,
     responses(

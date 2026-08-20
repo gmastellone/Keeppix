@@ -78,6 +78,7 @@ pub struct ReorderBody {
     path = "/api/v1/albums",
     tag = "albums",
     operation_id = "albums_create",
+    summary = "Create an album",
     security(("session_cookie" = [])),
     request_body = CreateAlbumBody,
     responses(
@@ -109,6 +110,7 @@ pub async fn create(
     path = "/api/v1/albums",
     tag = "albums",
     operation_id = "albums_list",
+    summary = "List albums",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Lista album visibili", body = Vec<AlbumView>),
@@ -132,6 +134,7 @@ pub async fn list(
     path = "/api/v1/albums/{id}",
     tag = "albums",
     operation_id = "albums_get",
+    summary = "Get an album",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'album")),
     responses(
@@ -156,6 +159,7 @@ pub async fn get(
     path = "/api/v1/albums/{id}",
     tag = "albums",
     operation_id = "albums_patch",
+    summary = "Update an album",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'album")),
     request_body = PatchAlbumBody,
@@ -201,6 +205,7 @@ pub async fn patch(
     path = "/api/v1/albums/{id}",
     tag = "albums",
     operation_id = "albums_delete",
+    summary = "Delete an album",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'album")),
     responses(
@@ -225,6 +230,7 @@ pub async fn delete(
     path = "/api/v1/albums/{id}/assets/{asset_id}",
     tag = "albums",
     operation_id = "albums_add_asset",
+    summary = "Add an asset to an album",
     security(("session_cookie" = [])),
     params(
         ("id" = String, Path, description = "Id dell'album"),
@@ -254,6 +260,7 @@ pub async fn add_asset(
     path = "/api/v1/albums/{id}/assets/{asset_id}",
     tag = "albums",
     operation_id = "albums_remove_asset",
+    summary = "Remove an asset from an album",
     security(("session_cookie" = [])),
     params(
         ("id" = String, Path, description = "Id dell'album"),
@@ -283,6 +290,7 @@ pub async fn remove_asset(
     path = "/api/v1/albums/{id}/assets/{asset_id}/position",
     tag = "albums",
     operation_id = "albums_reorder_asset",
+    summary = "Reorder an album asset",
     security(("session_cookie" = [])),
     params(
         ("id" = String, Path, description = "Id dell'album"),
@@ -314,6 +322,7 @@ pub async fn reorder_asset(
     path = "/api/v1/albums/{id}/assets",
     tag = "albums",
     operation_id = "albums_list_assets",
+    summary = "List album assets",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'album")),
     responses(

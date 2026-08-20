@@ -32,6 +32,7 @@ pub struct DeltaView {
 #[utoipa::path(
     get,
     path = "/api/v1/sync/delta",
+    summary = "List incremental asset changes",
     params(DeltaQuery),
     security(("session_cookie" = [])),
     responses(

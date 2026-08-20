@@ -47,6 +47,7 @@ pub struct TotpRecoveryCodesView {
     path = "/api/v1/auth/totp",
     tag = "auth",
     operation_id = "totp_status",
+    summary = "Get TOTP status",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Current TOTP enrolment state", body = TotpStatusView),
@@ -75,6 +76,7 @@ pub async fn status(
     path = "/api/v1/auth/totp/setup",
     tag = "auth",
     operation_id = "totp_setup",
+    summary = "Start TOTP setup",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "otpauth URI and QR for the authenticator app", body = TotpSetupView),
@@ -109,6 +111,7 @@ pub async fn setup(
     path = "/api/v1/auth/totp/confirm",
     tag = "auth",
     operation_id = "totp_confirm",
+    summary = "Confirm and enable TOTP",
     security(("session_cookie" = [])),
     request_body = TotpCodeRequest,
     responses(
@@ -138,6 +141,7 @@ pub async fn confirm(
     path = "/api/v1/auth/totp/recovery-codes",
     tag = "auth",
     operation_id = "totp_regenerate_recovery",
+    summary = "Regenerate TOTP recovery codes",
     security(("session_cookie" = [])),
     request_body = TotpCodeRequest,
     responses(
@@ -168,6 +172,7 @@ pub async fn regenerate_recovery(
     path = "/api/v1/auth/totp",
     tag = "auth",
     operation_id = "totp_disable",
+    summary = "Disable TOTP",
     security(("session_cookie" = [])),
     request_body = TotpCodeRequest,
     responses(
