@@ -120,6 +120,36 @@ async fn assets_autovacuum_scale_factor_is_aggressive() {
     );
 }
 
+/// Task 5: le colonne dell'album «Aggiorna album» (rule + i quattro campi
+/// aggiuntivi di §5.2) devono esistere dopo la migrazione 0036.
+#[tokio::test]
+#[allow(clippy::expect_used)]
+async fn album_refresh_columns_exist() {
+    let test = TestDb::start().await;
+
+    let columns: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'albums' \
+         ORDER BY column_name",
+    )
+    .fetch_all(test.db().pool())
+    .await
+    .expect("colonne di albums");
+
+    for expected in [
+        "rule",
+        "rule_run_at",
+        "is_shared",
+        "cover_tint",
+        "monochrome",
+    ] {
+        assert!(
+            columns.contains(&expected.to_owned()),
+            "manca la colonna albums.{expected}"
+        );
+    }
+}
+
 #[tokio::test]
 #[allow(clippy::expect_used)]
 async fn usernames_are_unique_case_insensitively() {

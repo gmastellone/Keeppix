@@ -36,7 +36,7 @@ pub mod uploads;
 pub mod users;
 pub mod visibility;
 
-pub use albums::{Album, AlbumAsset, AlbumPatch, AlbumRepo, NewAlbum};
+pub use albums::{Album, AlbumAsset, AlbumPatch, AlbumRefresh, AlbumRepo, NewAlbum};
 pub use assets::{AssetRepo, DirectPutOutcome};
 pub use audit::{AuditEntry, AuditRepo};
 pub use backup::{

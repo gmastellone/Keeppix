@@ -227,6 +227,7 @@ async fn library_album_folder_and_search_scopes_are_applied() {
             NewAlbum {
                 name: "Map".to_owned(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await
@@ -269,6 +270,7 @@ async fn foreign_scope_ids_are_forbidden_for_every_scope_kind() {
             NewAlbum {
                 name: "Private".to_owned(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await
