@@ -489,7 +489,10 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
             checked += 1;
         }
     }
-    assert_eq!(checked, 81, "il documento deve descrivere ottantuno operazioni");
+    assert_eq!(
+        checked, 81,
+        "il documento deve descrivere ottantuno operazioni"
+    );
 }
 
 /// Blocca la specifica su disco: da questo file si generano i client mobile,
