@@ -1261,8 +1261,15 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "Stessi flag applicati a ogni asset"
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
           },
           "400": {
             "description": "rating fuori range o batch troppo grande",
@@ -1276,16 +1283,6 @@
           },
           "401": {
             "description": "Non autenticato",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Un asset non è visibile",
             "content": {
               "application/json": {
                 "schema": {
@@ -2498,11 +2495,11 @@
         },
         "responses": {
           "200": {
-            "description": "Stesso patch applicato a ogni asset, annullabile",
+            "description": "Esito per asset; batch_id annullabile sui riusciti",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BatchView"
+                  "$ref": "#/components/schemas/BulkOutcome"
                 }
               }
             }
@@ -2519,16 +2516,6 @@
           },
           "401": {
             "description": "Non autenticato",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Un asset non è visibile",
             "content": {
               "application/json": {
                 "schema": {
@@ -2564,11 +2551,11 @@
         },
         "responses": {
           "200": {
-            "description": "Posizione effettiva copiata sui target, annullabile",
+            "description": "Esito per target; batch_id annullabile sui riusciti",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BatchView"
+                  "$ref": "#/components/schemas/BulkOutcome"
                 }
               }
             }
@@ -2594,7 +2581,7 @@
             }
           },
           "403": {
-            "description": "Sorgente o target non visibile/modificabile",
+            "description": "Sorgente non visibile",
             "content": {
               "application/json": {
                 "schema": {
@@ -2630,11 +2617,11 @@
         },
         "responses": {
           "200": {
-            "description": "Coordinate GPX abbinate e applicate in un batch annullabile",
+            "description": "Esito per asset; batch_id annullabile sui geotaggati",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BatchView"
+                  "$ref": "#/components/schemas/BulkOutcome"
                 }
               }
             }
@@ -2651,16 +2638,6 @@
           },
           "401": {
             "description": "Non autenticato",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Un asset non è visibile/modificabile",
             "content": {
               "application/json": {
                 "schema": {
@@ -2808,11 +2785,11 @@
         },
         "responses": {
           "200": {
-            "description": "taken_at spostato di N ore per ogni asset, annullabile",
+            "description": "Esito per asset; batch_id annullabile sui riusciti",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BatchView"
+                  "$ref": "#/components/schemas/BulkOutcome"
                 }
               }
             }
@@ -2829,16 +2806,6 @@
           },
           "401": {
             "description": "Non autenticato",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Un asset non è visibile",
             "content": {
               "application/json": {
                 "schema": {
@@ -5168,14 +5135,53 @@
           }
         }
       },
-      "BatchView": {
+      "BulkFailure": {
         "type": "object",
         "required": [
-          "batch_id"
+          "id",
+          "reason"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/FailureReason"
+          }
+        }
+      },
+      "BulkOutcome": {
+        "type": "object",
+        "description": "Esito di un'operazione di massa: ogni elemento è una transazione a sé\n(spec §3: non all-or-nothing sul lotto intero).",
+        "required": [
+          "succeeded",
+          "failed"
         ],
         "properties": {
           "batch_id": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Presente quando l'operazione ha registrato un batch annullabile.\n`flags/batch` lo lascia `null`: i voti non sono annullabili via\n`metadata/batch/{id}/undo`."
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkFailure"
+            }
+          },
+          "succeeded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -5482,6 +5488,17 @@
             ]
           }
         }
+      },
+      "FailureReason": {
+        "type": "string",
+        "description": "Tassonomia chiusa (spec §7). Il quinto valore `Unknown` è onesto: meglio\nun caso in più che fingere una delle quattro nature.",
+        "enum": [
+          "unreachable",
+          "permission-denied",
+          "file-missing",
+          "timeout",
+          "unknown"
+        ]
       },
       "FolderChildren": {
         "type": "object",
@@ -6433,18 +6450,33 @@
       "TimezoneApplyView": {
         "type": "object",
         "required": [
-          "changed_count"
+          "changed_count",
+          "succeeded",
+          "failed"
         ],
         "properties": {
           "batch_id": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Kept for additive `/api/v1` compatibility; same value as\n[`BulkOutcome::batch_id`]."
           },
           "changed_count": {
             "type": "integer",
             "minimum": 0
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkFailure"
+            }
+          },
+          "succeeded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

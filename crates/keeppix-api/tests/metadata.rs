@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use chrono::{TimeZone, Utc};
 use harness::TestServer;
-use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
+use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, OverrideRepo};
 use keeppix_domain::{
     AssetId, AssetKind, AssetName, AuthContext, FolderId, NewAsset, NewLibrary, SystemRole, UserId,
 };
@@ -244,6 +244,8 @@ async fn apply_batch_touches_every_asset_and_is_undoable() {
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json().await.unwrap();
     let batch_id = body["batch_id"].as_str().expect("batch_id").to_owned();
+    assert_eq!(body["succeeded"].as_array().unwrap().len(), 2);
+    assert!(body["failed"].as_array().unwrap().is_empty());
 
     for asset in [a, b] {
         let effective: serde_json::Value = server
@@ -278,6 +280,171 @@ async fn apply_batch_touches_every_asset_and_is_undoable() {
     assert_eq!(restored["description"], serde_json::Value::Null);
 
     let _ = fs::remove_dir_all(&root);
+}
+
+/// Spec §3: lotto misto → HTTP 200, `succeeded`/`failed` per id, e
+/// `undo` sul `batch_id` annulla solo i riusciti.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
+async fn metadata_batch_partial_success_and_undo_only_touches_succeeded() {
+    let server = TestServer::start().await;
+    let admin = setup_admin(&server).await;
+    let admin_root = temp_root();
+    let admin_folder = ensure_folder(&server, admin, &admin_root).await;
+    let foreign = seed_indexed_asset(&server, admin_folder, &admin_root, "private.jpg").await;
+
+    // Pre-seed a description on the foreign asset so we can prove undo did
+    // not touch it (and that the batch never applied to it).
+    OverrideRepo::new(&server.db)
+        .apply(
+            &AuthContext::user(admin, SystemRole::Admin),
+            foreign,
+            &keeppix_domain::OverridePatch {
+                description: Some(Some("Resta dell'admin".to_owned())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let mario = keeppix_db::UserRepo::new(&server.db)
+        .create(
+            &AuthContext::user(admin, SystemRole::Admin),
+            keeppix_domain::NewUser {
+                username: keeppix_domain::Username::parse("mario").unwrap(),
+                email: None,
+                display_name: "Mario".to_owned(),
+                password_hash: keeppix_domain::hash_password(
+                    &keeppix_domain::Password::parse("correct horse battery staple").unwrap(),
+                )
+                .unwrap()
+                .as_str()
+                .to_owned(),
+                role: SystemRole::User,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    let mario_root = std::env::temp_dir().join(format!(
+        "keeppix-api-metadata-mario-{}",
+        uuid::Uuid::now_v7()
+    ));
+    fs::create_dir_all(&mario_root).unwrap();
+    let mario_folder = {
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let library = LibraryRepo::new(&server.db)
+            .create(
+                &ctx,
+                NewLibrary {
+                    name: "Mario".to_owned(),
+                    owner_id: mario,
+                    root_path: mario_root.clone(),
+                    exclude_patterns: vec![],
+                },
+            )
+            .await
+            .unwrap()
+            .id;
+        fs::create_dir_all(mario_root.join("2024")).unwrap();
+        FolderRepo::new(&server.db)
+            .ensure_path(library, &["2024"])
+            .await
+            .unwrap()
+            .id
+    };
+    let mine = seed_indexed_asset(&server, mario_folder, &mario_root, "mine.jpg").await;
+
+    let mario_client = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(harness::client_headers())
+        .build()
+        .unwrap();
+    assert_eq!(
+        mario_client
+            .post(server.url("/api/v1/auth/login"))
+            .json(&json!({ "username": "mario", "password": "correct horse battery staple" }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+
+    let response = mario_client
+        .post(server.url("/api/v1/metadata/batch"))
+        .json(&json!({
+            "asset_ids": [mine.to_string(), foreign.to_string()],
+            "patch": { "description": "Matrimonio Rossi" }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["succeeded"], json!([mine.to_string()]));
+    let failed = body["failed"].as_array().expect("failed");
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["id"], foreign.to_string());
+    assert_eq!(failed[0]["reason"], "permission-denied");
+    let batch_id = body["batch_id"]
+        .as_str()
+        .expect("batch_id for succeeded")
+        .to_owned();
+
+    let mine_meta: serde_json::Value = mario_client
+        .get(server.url(&format!("/api/v1/assets/{mine}/metadata")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(mine_meta["description"], "Matrimonio Rossi");
+
+    // Foreign asset still has the admin's pre-seeded description.
+    let foreign_meta = OverrideRepo::new(&server.db)
+        .effective(&AuthContext::user(admin, SystemRole::Admin), foreign)
+        .await
+        .unwrap();
+    assert_eq!(
+        foreign_meta.description.as_deref(),
+        Some("Resta dell'admin"),
+        "failed id must not have been patched"
+    );
+
+    assert_eq!(
+        mario_client
+            .post(server.url(&format!("/api/v1/metadata/batch/{batch_id}/undo")))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+
+    let mine_restored: serde_json::Value = mario_client
+        .get(server.url(&format!("/api/v1/assets/{mine}/metadata")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(mine_restored["description"], serde_json::Value::Null);
+
+    let foreign_after_undo = OverrideRepo::new(&server.db)
+        .effective(&AuthContext::user(admin, SystemRole::Admin), foreign)
+        .await
+        .unwrap();
+    assert_eq!(
+        foreign_after_undo.description.as_deref(),
+        Some("Resta dell'admin"),
+        "undo must not touch assets that never entered the batch"
+    );
+
+    let _ = fs::remove_dir_all(&admin_root);
+    let _ = fs::remove_dir_all(&mario_root);
 }
 
 #[tokio::test]
@@ -321,6 +488,121 @@ async fn shift_taken_at_moves_the_effective_date_by_n_hours() {
     assert_ne!(after["taken_at"], before_taken_at);
 
     let _ = fs::remove_dir_all(&root);
+}
+
+/// Spec §3: `shift-taken-at` su un lotto misto riesce sugli asset propri e
+/// riporta `permission-denied` per quelli altrui, senza abortire la richiesta.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
+async fn shift_taken_at_reports_partial_success_when_one_asset_is_foreign() {
+    let server = TestServer::start().await;
+    let admin = setup_admin(&server).await;
+    let admin_root = temp_root();
+    let admin_folder = ensure_folder(&server, admin, &admin_root).await;
+    let foreign = seed_indexed_asset(&server, admin_folder, &admin_root, "private.jpg").await;
+
+    let mario = keeppix_db::UserRepo::new(&server.db)
+        .create(
+            &AuthContext::user(admin, SystemRole::Admin),
+            keeppix_domain::NewUser {
+                username: keeppix_domain::Username::parse("mario").unwrap(),
+                email: None,
+                display_name: "Mario".to_owned(),
+                password_hash: keeppix_domain::hash_password(
+                    &keeppix_domain::Password::parse("correct horse battery staple").unwrap(),
+                )
+                .unwrap()
+                .as_str()
+                .to_owned(),
+                role: SystemRole::User,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    let mario_root = std::env::temp_dir().join(format!(
+        "keeppix-api-metadata-shift-mario-{}",
+        uuid::Uuid::now_v7()
+    ));
+    fs::create_dir_all(&mario_root).unwrap();
+    let mario_folder = {
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let library = LibraryRepo::new(&server.db)
+            .create(
+                &ctx,
+                NewLibrary {
+                    name: "Mario".to_owned(),
+                    owner_id: mario,
+                    root_path: mario_root.clone(),
+                    exclude_patterns: vec![],
+                },
+            )
+            .await
+            .unwrap()
+            .id;
+        fs::create_dir_all(mario_root.join("2024")).unwrap();
+        FolderRepo::new(&server.db)
+            .ensure_path(library, &["2024"])
+            .await
+            .unwrap()
+            .id
+    };
+    let mine = seed_indexed_asset(&server, mario_folder, &mario_root, "mine.jpg").await;
+
+    let mario_client = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(harness::client_headers())
+        .build()
+        .unwrap();
+    assert_eq!(
+        mario_client
+            .post(server.url("/api/v1/auth/login"))
+            .json(&json!({ "username": "mario", "password": "correct horse battery staple" }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+
+    let before: serde_json::Value = mario_client
+        .get(server.url(&format!("/api/v1/assets/{mine}/metadata")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let before_taken_at = before["taken_at"].as_str().unwrap().to_owned();
+
+    let response = mario_client
+        .post(server.url("/api/v1/metadata/batch/shift-taken-at"))
+        .json(&json!({
+            "asset_ids": [mine.to_string(), foreign.to_string()],
+            "hours": -2
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["succeeded"], json!([mine.to_string()]));
+    assert_eq!(body["failed"][0]["id"], foreign.to_string());
+    assert_eq!(body["failed"][0]["reason"], "permission-denied");
+    assert!(body["batch_id"].is_string());
+
+    let after: serde_json::Value = mario_client
+        .get(server.url(&format!("/api/v1/assets/{mine}/metadata")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_ne!(after["taken_at"], before_taken_at);
+
+    let _ = fs::remove_dir_all(&admin_root);
+    let _ = fs::remove_dir_all(&mario_root);
 }
 
 #[tokio::test]

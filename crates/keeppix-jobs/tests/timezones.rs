@@ -167,7 +167,7 @@ async fn preview_is_read_only_and_apply_is_undoable_idempotent_and_selective() {
         );
     }
 
-    let applied = recalculate
+    let (applied, _) = recalculate
         .apply(&ctx, library_id)
         .await
         .expect("first apply");
@@ -209,7 +209,7 @@ async fn preview_is_read_only_and_apply_is_undoable_idempotent_and_selective() {
         "an existing taken_at override belongs to the user"
     );
 
-    let second = recalculate
+    let (second, _) = recalculate
         .apply(&ctx, library_id)
         .await
         .expect("idempotent second apply");

@@ -201,6 +201,21 @@ impl<'a> OverrideRepo<'a> {
         self.apply_batch_inner(ctx, asset_ids, patch, None).await
     }
 
+    /// Come [`Self::apply_batch`], a riuscita parziale: gli asset non
+    /// scrivibili finiscono in `failed` e non entrano nel batch di undo.
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente autenticato; `Connection` sul database.
+    pub async fn apply_batch_partial(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+        patch: &OverridePatch,
+    ) -> Result<(Option<BatchId>, Vec<AssetId>, Vec<(AssetId, DbError)>), DbError> {
+        self.apply_batch_partial_inner(ctx, asset_ids, patch, None)
+            .await
+    }
+
     /// Applica una posizione uniforme e registra su `assets.location_source`
     /// chi l'ha assegnata. La sorgente fa parte della stessa transazione e
     /// dello stesso snapshot di annullamento degli override.
@@ -216,6 +231,40 @@ impl<'a> OverrideRepo<'a> {
     ) -> Result<BatchId, DbError> {
         self.apply_batch_inner(ctx, asset_ids, patch, Some(source))
             .await
+    }
+
+    /// Variante a riuscita parziale di [`Self::apply_location_batch`].
+    ///
+    /// # Errors
+    /// Come [`Self::apply_batch_partial`].
+    pub async fn apply_location_batch_partial(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+        patch: &OverridePatch,
+        source: LocationSource,
+    ) -> Result<(Option<BatchId>, Vec<AssetId>, Vec<(AssetId, DbError)>), DbError> {
+        self.apply_batch_partial_inner(ctx, asset_ids, patch, Some(source))
+            .await
+    }
+
+    async fn apply_batch_partial_inner(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+        patch: &OverridePatch,
+        source: Option<LocationSource>,
+    ) -> Result<(Option<BatchId>, Vec<AssetId>, Vec<(AssetId, DbError)>), DbError> {
+        let (editable, failed) = crate::PermissionRepo::new(self.db)
+            .partition_editable_assets(ctx, asset_ids)
+            .await?;
+        if editable.is_empty() {
+            return Ok((None, editable, failed));
+        }
+        let batch_id = self
+            .apply_batch_inner(ctx, &editable, patch, source)
+            .await?;
+        Ok((Some(batch_id), editable, failed))
     }
 
     async fn apply_batch_inner(
@@ -513,6 +562,27 @@ impl<'a> OverrideRepo<'a> {
         tx.commit().await?;
         enqueue_sidecar_sweep(self.db).await?;
         Ok(batch_id)
+    }
+
+    /// Variante a riuscita parziale di [`Self::shift_taken_at`]: solo gli
+    /// asset modificabili entrano nel batch di undo.
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente; `Connection` sul database.
+    pub async fn shift_taken_at_partial(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+        hours: i32,
+    ) -> Result<(Option<BatchId>, Vec<AssetId>, Vec<(AssetId, DbError)>), DbError> {
+        let (editable, failed) = crate::PermissionRepo::new(self.db)
+            .partition_editable_assets(ctx, asset_ids)
+            .await?;
+        if editable.is_empty() {
+            return Ok((None, editable, failed));
+        }
+        let batch_id = self.shift_taken_at(ctx, &editable, hours).await?;
+        Ok((Some(batch_id), editable, failed))
     }
 
     /// Asset con override non ancora scritti su file:
