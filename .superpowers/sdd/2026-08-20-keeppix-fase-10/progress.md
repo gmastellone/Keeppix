@@ -485,3 +485,127 @@ test.sh` completo **non eseguito** (stesso motivo dei task precedenti);
 eseguiti invece tutti i test toccati dal task più `keeppix-api` albums.rs/
 openapi.rs per confermare che l'aggiunta non rompe il contratto pubblico.
 
+## Task 7 — Sessioni attive
+
+Ruling: `SessionId` (nuovo `id_type!` in `keeppix-domain`) identifica una
+**famiglia** (`sessions.family_id`), non una riga di `sessions` — la riga
+attiva cambia a ogni `POST /auth/refresh`, la famiglia no. `GET
+/users/me/sessions` e la revoca lavorano sempre a livello di famiglia:
+è quello che l'utente intende per "sessione"/dispositivo. — *Costo se
+sbagliato:* nessuno osservato, è la lettura naturale dello schema 0002
+(un login = una famiglia, una rotazione = una riga nuova nella stessa
+famiglia).
+
+Ruling: `device_label_from_user_agent` — funzione pura in `keeppix-db`,
+non in `keeppix-domain` (non manipola entità di dominio, solo un
+`Option<&str>` -> `Option<String>`) — riconosce browser/OS per
+sottostringa con un ordine di priorità esplicito (Edge prima di Chrome,
+Chrome prima di Safari, iOS prima di Android/Linux): gli `User-Agent`
+reali si contengono a vicenda (Edge dichiara sia `Chrome/` sia `Safari/`;
+un iPhone dichiara "like Mac OS X"). Un header presente ma non
+riconosciuto produce `"Unknown device"`, non `None`: l'utente ha comunque
+un dispositivo, semplicemente non sappiamo etichettarlo; solo l'header
+**assente** produce `None`. — *Costo se sbagliato:* un browser/OS non
+coperto (Brave, Vivaldi, ChromeOS) si etichetta col nome del motore
+sottostante o "Unknown device" invece che col proprio nome; nessun rischio
+di sicurezza, la stringa non è mai usata per decisioni di autorizzazione.
+
+Ruling: la colonna legacy `sessions.user_agent` (0002_sessions.sql) resta
+nello schema — non si modificano migrazioni già applicate (invariante
+AGENTS.md) — ma da questo task in avanti `SessionRepo::create`/`rotate`
+non ci scrivono più nulla: solo `device_label` viene popolato. Verificato
+con un test che, dato lo stesso `User-Agent` in input, la colonna legacy
+resta `NULL` mentre `device_label` porta l'etichetta breve. — *Costo se
+sbagliato:* nessuno per gli utenti nuovi; le righe scritte prima di questo
+task mantengono lo `User-Agent` intero già salvato, un debito preesistente
+che questo task non retroattiva (fuori scope: nessuna riscrittura di dati
+storici richiesta dal brief).
+
+Ruling: `family_of` non prende `AuthContext` — stessa eccezione
+documentata di `authenticate` (non elencata esplicitamente fra le quattro
+di AGENTS.md, ma della stessa natura: il token presentato *è* la
+credenziale, non c'è ancora un contesto quando serve risolvere la
+famiglia corrente per confrontarla nell'elenco). Il confronto "è la
+sessione corrente?" per il blocco della revoca (400
+`keeppix/session-is-current`) vive nell'handler HTTP, non nel repository:
+l'handler ha già il cookie sotto mano, e mettere quel controllo in
+`revoke_family` avrebbe significato una seconda query di lookup dentro il
+repository invece di un confronto in memoria. — *Costo se sbagliato:*
+nessuno osservato; se un secondo chiamante HTTP arrivasse a usare
+`revoke_family` senza passare dall'handler esistente, perderebbe la
+protezione — non c'è oggi un secondo chiamante.
+
+Ruling: `list_active` seleziona `consumed_at IS NULL AND revoked_at IS
+NULL AND expires_at > now()` senza `GROUP BY`: la rotazione marca sempre
+`consumed_at` sulla riga superata prima di inserirne una nuova, quindi
+quel filtro individua già esattamente una riga per famiglia. `last_seen_at`
+è `created_at` della riga attiva (login, o ultima rotazione se c'è stata):
+è l'approssimazione più economica disponibile senza un contatore
+aggiornato a ogni richiesta autenticata, che `authenticate()` non fa
+apposta (vedi `authenticate_does_not_slide_expiry`, Fase 0). — *Costo se
+sbagliato:* "ultimo accesso" nella UI può essere più vecchio dell'ultima
+richiesta autenticata reale se la sessione non ha ancora ruotato; accettabile,
+è la stessa granularità con cui l'utente già vede scadere la sessione.
+
+Ruling: `revoke_family` tratta "famiglia inesistente" e "famiglia di un
+altro utente" allo stesso modo — `Forbidden`, mai `NotFound` — stessa
+regola di `AppPasswordRepo::revoke` e per lo stesso motivo (invariante
+AGENTS.md: niente oracolo di esistenza). A differenza di
+`AppPasswordRepo::revoke` non c'è un ramo admin: la spec non prevede che
+un admin gestisca le sessioni di un altro utente da questo endpoint (lo
+strumento per quello resta `POST /users/{id}/disable`, che già revoca
+tutto). — *Costo se sbagliato:* se in futuro serve un pannello admin sulle
+sessioni altrui, va aggiunto un percorso `AdminAuth` dedicato, non
+riadattato questo.
+
+Ruling: `DELETE /users/me/sessions/{id}` sulla propria sessione risponde
+`400 keeppix/session-is-current` con `Problem::bad_request`, non `403`: non
+è un problema di proprietà (è certamente sua), è che l'azione richiesta non
+ha senso lì — il brief dice esplicitamente "per uscire c'è `/auth/logout`".
+Un `type` stabile distinto permette al frontend di mostrare un messaggio
+diverso da un 403 generico. — *Costo se sbagliato:* un client che non
+distingue i due 4xx tratta "è la sessione corrente" come un generico
+errore di permesso; il messaggio in `detail`/`title` resta comunque
+comprensibile in debug.
+
+Ruling: sia `DELETE .../sessions/{id}` sia `POST .../revoke-others`
+chiamano `state.sessions.clear()` dopo la revoca — stesso pattern già
+usato da `users::disable`/`users::change_password` — perché la cache
+in-process è indicizzata per token del *chiamante*, non per famiglia
+revocata: non esiste un `drop_token` puntuale possibile per un token che
+questa richiesta non conosce. Il costo è che l'intera cache (di tutti gli
+utenti) si svuota per la revoca di una sessione di un solo utente; la
+cache ha comunque un TTL di 30s per entry, quindi il caso peggiore è già
+limitato. — *Costo se sbagliato:* un utente revoca una propria sessione e
+tutti gli altri utenti pagano un round-trip al database in più sulla
+prossima richiesta autenticata; nessun rischio di correttezza.
+
+Task 7: complete (commit 4baf8cb domain SessionId + f425e36 db device
+label/list/revoke + e251a73 api routes/openapi, tests green: `keeppix-db`
+sessions.rs lib 4/4 nuovi [device_label_from_user_agent], sessions.rs
+integration 22/22 [16 preesistenti + 6 nuovi: label storage, propagazione
+alla rotazione, `list_active` marca solo la corrente, esclude
+revocate/scadute, `revoke_family` isola il dispositivo, ownership
+Forbidden-non-NotFound], migrations.rs 11/11; `keeppix-api` sessions.rs
+7/7 nuovi [current su sessione singola e su due dispositivi, revoca cross-
+dispositivo senza toccare la chiamante, blocco sulla sessione corrente,
+403 non 404 su sessione di un altro utente, revoke-others multi-
+dispositivo, 401 senza autenticazione], auth.rs 27/27, users.rs 9/9,
+credentials.rs 5/5 [preesistenti, confermano che le modifiche a
+`SessionRepo::create`/`rotate` non hanno rotto nulla], openapi.rs 7/7
+[snapshot rigenerato, 83→86 operazioni, nuovo schema `SessionView`, tag
+`auth` riusato]). `cargo fmt --check`, `cargo clippy --workspace
+--all-targets -- -D warnings` e `cargo build --workspace --all-targets`
+verdi su tutto il workspace; `cargo deny check bans` verde (nessuna nuova
+dipendenza). `./scripts/test.sh` completo **non eseguito** (stesso motivo
+dei task precedenti: costerebbe l'intera suite, incluse le prove di scala
+non toccate da questo task); eseguiti invece tutti i test toccati dal
+task più i moduli con dipendenza diretta su `SessionRepo`.
+
+`scripts/check-wired.py` segnala le tre nuove rotte come "senza
+consumatore frontend" — atteso: il frontend arriva in Fase 11 (come già
+per `/timeline/geometry` del Task 2 e `/assets/batch/delete` del Task 4,
+nessuno dei due aggiunto a `wired-exceptions.txt`). Seguito lo stesso
+precedente: non aggiunto alle eccezioni, lasciato alla chiusura di fase
+insieme agli altri.
+
