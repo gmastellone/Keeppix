@@ -65,28 +65,39 @@ GET /api/v1/timeline/geometry?library={id}&bbox=…&filter=…
 → 200 application/octet-stream  (oppure JSON, vedi Ruling)
 ```
 
-Un solo record per scatto, tre campi:
+Un solo record per scatto, **senza identificativo**:
 
 | campo | tipo | byte |
 |---|---|---|
-| `id` | uuid | 16 |
 | `w`, `h` | u16, u16 | 4 |
 | `month` | u16 (anni*12+mese) | 2 |
 
-**22 byte per scatto.** Per 214.000 scatti: **4,7 MB** non compressi, ~1,5 MB con gzip — una
+**6 byte per scatto.** Per 214.000 scatti: **1,22 MB** non compressi, **0,44 MB con gzip** — una
 sola richiesta, cacheabile con `ETag`.
 
+**Ruling: la geometria non porta gli id.** — La prima stesura di questa spec includeva l'uuid
+(16 byte) «per riconciliare geometria e pagine per identità», stimando ~1,5 MB compressi. La
+stima era **sbagliata**: un uuid è casuale, quindi **incomprimibile**. Misurato su 214.000
+record realistici: con uuid 4,49 MB grezzi → **3,88 MB** gzip; senza, 1,22 MB → **0,44 MB**.
+Nove volte più piccolo sul filo, ed è la differenza fra un avvio accettabile e uno no su rete
+mobile.
+
+La riconciliazione non serve, perché **la geometria non identifica nulla: descrive solo altezze**.
+I record stanno nello stesso ordine delle pagine (`taken_at DESC, id DESC`); le tessere vere
+arrivano dalle pagine, che portano gli uuid. Se la libreria cambia fra la richiesta della
+geometria e quella di una pagina, l'unico effetto è un'altezza di riga leggermente stantia — un
+difetto cosmetico che si corregge da solo al rinfresco, non un errore di identità.
+— *Costo se sbagliato:* dopo un import massiccio la barra di scorrimento è imprecisa finché
+l'`ETag` non scade.
+
 **Ruling: risposta binaria compatta, non JSON.** — Lo stesso contenuto in JSON
-(`{"id":"…36 char…","w":6000,"h":4000,"m":24318}`) pesa ~75 byte per scatto: 16 MB invece di
-4,7, e costringe il browser a costruire 214.000 oggetti JavaScript solo per leggerli. Il formato
+(`{"w":6000,"h":4000,"m":24318}`) pesa ~30 byte per scatto: 6,4 MB invece di 1,22, e costringe
+il browser a costruire 214.000 oggetti JavaScript solo per leggerli. Il formato
 binario si legge in un `ArrayBuffer` con una sola `DataView`, senza allocazioni per elemento, e
 alimenta direttamente i `Float64Array` del calcolo di layout. — *Costo se sbagliato:* il
 frontend deve scrivere un lettore binario (~40 righe) invece di `await res.json()`.
 
-**Ruling: gli id restano uuid a 16 byte, non indici densi.** — Un indice denso (0…N) sarebbe più
-compatto, ma legherebbe la geometria all'ordinamento esatto della pagina successiva: qualunque
-foto aggiunta o cestinata fra le due richieste sfalserebbe tutti gli indici. Con l'uuid la
-geometria e le pagine si riconciliano per identità. — *Costo se sbagliato:* 4,7 MB invece di 1,3.
+
 
 **Ruling: la geometria rispetta gli stessi filtri e la stessa visibilità della timeline.** —
 Deve descrivere *la vista corrente*, non la libreria: se l'utente ha una cartella aperta o un
@@ -99,9 +110,9 @@ c'è un filtro, che è il caso normale.
 Serve una sola query, senza join e senza ordinamenti costosi:
 
 ```sql
-SELECT a.id, a.width, a.height, date_trunc('month', a.taken_at_utc)
+SELECT a.width, a.height, date_trunc('month', a.taken_at_utc)
 FROM assets a JOIN folders f ON f.id = a.folder_id
-WHERE <visibility> AND a.status <> 'trashed' AND <filtro>
+WHERE <visibility> AND a.status = 'indexed' AND <filtro>
 ORDER BY a.taken_at_utc DESC, a.id DESC;
 ```
 
@@ -111,7 +122,7 @@ ORDER BY a.taken_at_utc DESC, a.id DESC;
 CREATE INDEX assets_geometry_idx
     ON assets (folder_id, taken_at_utc DESC, id DESC)
     INCLUDE (width, height)
-    WHERE status <> 'trashed';
+    WHERE status = 'indexed';
 ```
 
 Con `INCLUDE` la query si serve **solo dall'indice** (index-only scan), senza toccare la heap:

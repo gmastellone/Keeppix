@@ -490,3 +490,64 @@ alla digitazione.
 - **`POST /viewport`** esiste già per dire al server quali miniature servono per prime.
 - **Derivati con perdita** ridotti dal 3,3% allo 0,4% (Fase 2R3): ~36 GB invece di ~308 GB su
   200.000 foto.
+
+---
+
+## 14. Tre ottimizzazioni trovate al secondo giro, di cui una gate sulle altre
+
+### 14.1 Postgres gira con le impostazioni di fabbrica — e questo **annulla** parte del lavoro sugli indici
+
+`compose.yaml` avvia `postgis/postgis:17-3.5` **senza nessun parametro**. Restano quindi i
+default, pensati per una macchina qualunque degli anni Duemila:
+
+| Parametro | Default | Su un Pi 5 / 8 GB dovrebbe essere | Perché conta |
+|---|---|---|---|
+| `random_page_cost` | **4.0** | **1.1** su SSD/NVMe | Dice al pianificatore che una lettura casuale costa **quattro volte** una sequenziale. Su disco rotante era vero; su SSD no. **È il parametro che decide se Postgres userà gli indici che stiamo aggiungendo o preferirà una scansione sequenziale.** |
+| `shared_buffers` | 128 MB | ~2 GB (25% della RAM) | Con 128 MB su una libreria da 200k asset, la cache interna non tiene nulla |
+| `effective_cache_size` | 4 GB | ~6 GB | Altra stima che entra nel calcolo del pianificatore |
+| `work_mem` | 4 MB | 32–64 MB | Sotto questa soglia ordinamenti e hash **finiscono su disco**. La timeline ordina su `taken_at DESC, id DESC` |
+| `max_connections` | 100 | 20 | Ogni connessione costa memoria; l'app è un processo solo con un pool solo |
+
+**Questo va fatto prima di misurare qualunque indice.** Aggiungere `assets_geometry_idx`,
+`assets_timeline_indexed_idx` e gli indici parziali su `favorite`/`rating` mentre il
+pianificatore crede che l'I/O casuale costi quattro volte quello sequenziale significa
+costruirli e vederseli ignorare — e concludere, sbagliando, che "gli indici non servono".
+
+Va anche distinto **SD card contro SSD**: su microSD `random_page_cost` resta alto e il profilo
+cambia del tutto. Il valore giusto dipende dal supporto, quindi va **misurato all'installazione**,
+non cablato.
+
+### 14.2 `thumbhash` è già nel payload, e nessuno lo sta usando
+
+`AssetView` porta già `thumbhash` (`routes/timeline.rs:56`) — l'impronta minuscola (~25 byte) da
+cui si ricostruisce un'anteprima sfocata.
+
+Significa che **il primo disegno della griglia non ha bisogno di nessuna richiesta di
+miniatura**: le tessere si dipingono subito dalle impronte già arrivate con la pagina, e le
+miniature vere le sostituiscono man mano. Su una griglia da 60 tessere sono **60 richieste tolte
+dal percorso critico**, non rimandate.
+
+È l'antidoto giusto al problema opposto a quello della geometria: la geometria dà le
+**proporzioni** prima di disegnare, `thumbhash` dà il **colore**. Insieme, il primo fotogramma è
+completo e corretto senza aver scaricato una sola immagine.
+
+### 14.3 Gli index-only scan dipendono dall'autovacuum
+
+L'indice di copertura della geometria (`INCLUDE (width, height)`) rende la query un *index-only
+scan* **solo se la mappa di visibilità è aggiornata**. Su una tabella che riceve import massicci
+e cestinamenti, se l'autovacuum resta indietro Postgres deve comunque andare in heap, e il
+guadagno sparisce senza nessun errore visibile.
+
+→ `autovacuum_vacuum_scale_factor` più aggressivo su `assets`, e un `VACUUM ANALYZE` alla fine di
+ogni import massiccio (lo scheduler di manutenzione della Fase 6 è il posto giusto).
+
+### 14.4 Il payload della timeline è più grasso del necessario
+
+`AssetView` porta `content_hash`, `size_bytes`, `kind`, `status`, `taken_at_utc`, `thumbhash`,
+`location`, `width`, `height`, `folder_id`, `filename`. Per **disegnare una tessera** servono:
+id, `thumbhash`, `content_hash` (è la chiave dell'URL della miniatura), `raw_kind`, `favorite`,
+`filename`. Non servono `size_bytes`, `status`, `location`, `taken_at`.
+
+Su 200 elementi per pagina è una differenza modesta (~60 KB contro ~35 KB), ma è gratis: basta
+un parametro `fields=grid`. Da fare **solo se la misura lo giustifica** — è esattamente il tipo
+di ottimizzazione che non vale la complessità se il numero non la chiede.

@@ -145,6 +145,15 @@ un album aperto lo riapre.
    tastiera**, cosa che il prototipo non fa.
 6. Miniature solo per le righe visibili più una schermata di margine, con `IntersectionObserver`,
    `loading="lazy"`, `decoding="async"`, e `POST /viewport` per la priorità di generazione.
+7. **Il primo fotogramma non scarica nessuna miniatura.** `AssetView` porta già `thumbhash`
+   (`routes/timeline.rs:56`), l'impronta da ~25 byte da cui si ricostruisce un'anteprima
+   sfocata: le tessere si dipingono subito da quella, arrivata con la pagina, e le miniature
+   vere la sostituiscono man mano. Su una griglia da 60 tessere sono **60 richieste tolte dal
+   percorso critico**, non rimandate.
+
+   È l'altra metà della richiesta n.1: la geometria dà le **proporzioni** prima di disegnare,
+   `thumbhash` dà il **colore**. Insieme il primo fotogramma è completo e corretto senza aver
+   scaricato una sola immagine.
 
 **Verifica:** test su una geometria finta da 200.000 record che il numero di tessere montate
 resta sotto una soglia esplicita durante uno scroll simulato; test che l'altezza totale calcolata
