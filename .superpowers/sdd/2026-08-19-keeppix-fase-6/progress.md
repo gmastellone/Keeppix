@@ -252,3 +252,7 @@ real fix for perfect overlap under load.
 Ruling: upload finalize rename test sorts filenames in Rust — Postgres
 `ORDER BY filename` under en_US/ICU can put `foto_1.jpg` before `foto.jpg`.
 
+Ruling: CI installs `age` + `zstd` alongside ffmpeg — kpxb external CLI
+round-trip test requires them; spawn-`age -d -p` was a false check that
+panicked on NotFound before asserting magic.
+

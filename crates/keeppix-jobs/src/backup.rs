@@ -1212,18 +1212,17 @@ mod tests {
         let kpxb = dir.path().join("keeppix-test.kpxb");
         pack_kpxb(&staging, "test-passphrase-not-secret", &kpxb).unwrap();
 
-        // External CLI path: age -d | zstd -d | tar tf -
-        let decrypted = Command::new("age")
-            .args(["-d", "-p"])
-            .arg(&kpxb)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("age CLI");
-        // age 1.1 reads passphrase from terminal; use Rust unpack for CI and
-        // assert external tools exist + format magic.
-        let _ = decrypted;
+        // External CLI presence: age must be on PATH for operators; in tests we
+        // only require the binary to exist (spawn is interactive for -p).
+        assert!(
+            Command::new("age")
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success()),
+            "age CLI must be installed (apt install age) for kpxb interoperability"
+        );
         assert!(kpxb.exists());
         let magic = fs::read(&kpxb).unwrap();
         assert!(
