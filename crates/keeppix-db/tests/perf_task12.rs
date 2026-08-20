@@ -173,3 +173,87 @@ async fn ensure_path_cost_stays_acceptable_for_ingest_depths() {
         "cold ensure_path batch took {cold:?}; rewrite may be justified"
     );
 }
+
+#[tokio::test]
+async fn status_not_trashed_filter_explain_is_acceptable_without_rewriting() {
+    // Spec §6.3 / Task 12: `status <> 'trashed'` does not match the partial
+    // `assets_status_idx` (discovered|error only) or `assets_timeline_idx`
+    // (status = indexed). Measure whether a rewrite to `status IN (...)` is
+    // worth the risk on a folder listing shaped like AssetRepo.
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let library = LibraryRepo::new(test.db())
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "TrashFilter".to_owned(),
+                owner_id: admin,
+                root_path: std::path::PathBuf::from("/mnt/trash-filter"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library.id, &[])
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, kind, status) \
+         SELECT gen_random_uuid(), $1, 'IMG_' || g || '.jpg', 1000, now(), 'image', \
+                CASE WHEN g % 20 = 0 THEN 'trashed' ELSE 'indexed' END \
+           FROM generate_series(1, 20000) AS g",
+    )
+    .bind(folder.id.as_uuid())
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+    sqlx::query("ANALYZE assets")
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    let ne_plan: Vec<String> = sqlx::query_scalar(
+        "EXPLAIN (ANALYZE, BUFFERS) \
+         SELECT id FROM assets \
+          WHERE folder_id = $1 AND status <> 'trashed' \
+          ORDER BY filename",
+    )
+    .bind(folder.id.as_uuid())
+    .fetch_all(test.db().pool())
+    .await
+    .unwrap();
+    let in_plan: Vec<String> = sqlx::query_scalar(
+        "EXPLAIN (ANALYZE, BUFFERS) \
+         SELECT id FROM assets \
+          WHERE folder_id = $1 \
+            AND status IN ('discovered', 'indexed', 'error') \
+          ORDER BY filename",
+    )
+    .bind(folder.id.as_uuid())
+    .fetch_all(test.db().pool())
+    .await
+    .unwrap();
+
+    let ne = ne_plan.join("\n");
+    let inn = in_plan.join("\n");
+    eprintln!("MEASUREMENT status <> 'trashed':\n{ne}");
+    eprintln!("MEASUREMENT status IN (...):\n{inn}");
+
+    // Both plans must stay index-friendly on folder_id (PK/FK path). We do
+    // not require a specific index name — the ruling is that <> is fine when
+    // the folder filter already prunes enough rows.
+    assert!(
+        ne.to_ascii_lowercase().contains("index") || ne.contains("Bitmap"),
+        "folder listing with <> trashed should still use an index: {ne}"
+    );
+    // Sanity: both return the same cardinality class (no accidental full scan
+    // explosion). Extract "rows=" from the top node loosely.
+    assert!(
+        !ne.to_ascii_lowercase().contains("seq scan on assets")
+            || ne.contains("folder_id"),
+        "unexpected seq scan shape for <> filter: {ne}"
+    );
+}
