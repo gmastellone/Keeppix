@@ -39,7 +39,9 @@ deve trovare.
    apre con un riquadro di emendamenti: leggilo. E **leggi la Parte XII prima del resto**
    («Assunzioni e domande aperte»): contiene i difetti del prototipo da **non** replicare.
 4. **`docs/ui/analisi-gap-backend.md`** — il confronto punto per punto col backend reale.
-5. `AGENTS.md`, il roadmap, e la spec + il piano della fase su cui lavori.
+5. **`docs/ui/caricamento-nuove-foto.md`** — solo se lavori sulla Fase 11 Task 6: l'area di
+   caricamento di nuove foto dal browser, aggiunta dopo la consegna del 20 agosto.
+6. `AGENTS.md`, il roadmap, e la spec + il piano della fase su cui lavori.
 
 ### Decisioni aggiunte dopo la stesura di questo file — 20 agosto sera
 
@@ -56,6 +58,10 @@ deve trovare.
   sfora alla dimensione di lotto minima utile non si sceglie come predefinito, punto.
 - **La libreria gestisce anche PNG, TIFF, WebP-sorgente, HEIF 8/10 bit**, non solo JPEG — debito
   reale su codice già in produzione: `derive.rs` oggi decodifica solo JPEG (Fase 10 Task 22).
+- **L'area di caricamento di nuove foto dal browser è disegnata e prototipata** (Fase 11 Task 6,
+  dettaglio nel piano). Non serve nuovo lavoro di backend: `POST /upload` accetta già
+  `target_folder_id` e già distingue `created`/`skipped_duplicate`/`renamed` per file — è wiring
+  del frontend su tus, già spedito in Fase 5. Fonte: `docs/ui/caricamento-nuove-foto.md`.
 
 ### La precedenza, quando le fonti divergono
 

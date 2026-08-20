@@ -14,10 +14,15 @@ Le trovi in **[`costo-beneficio-funzioni.md`](costo-beneficio-funzioni.md)**, se
 | Nessuna menzione di video | Il video **esiste** nel backend: una sola resa, solo in background o di notte, e non si tocca un video già riproducibile. Serve una tessera con badge di durata e uno stato «in preparazione» |
 | Registro di controllo | **Spento di default**, si accende col secondo utente |
 
-Altre due cose che questo documento non poteva sapere, decise dopo:
+Altre tre cose che questo documento non poteva sapere, decise dopo:
 
 - **L'IA non entra nel culling.** Analizza la libreria; i lotti sono un'area di transito.
 - **L'analisi legge la miniatura da 240 px**, mai l'originale.
+- **Esiste un'area di caricamento di foto e video dal browser.** La riga della Parte I,
+  §1 *«niente pulsante di caricamento foto»* **non vale più**: tre porte d'ingresso —
+  trascinamento su desktop, il comando `Carica`/`Carica qui` in topbar, il `+` nell'header
+  mobile — mai un pulsante flottante, e a coda vuota il costo in pixel è zero. Disegno
+  completo, verificato nel prototipo: [`caricamento-nuove-foto.md`](caricamento-nuove-foto.md).
 
 ## L'ordine di precedenza, quando le fonti divergono
 
