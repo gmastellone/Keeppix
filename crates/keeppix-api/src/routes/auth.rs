@@ -66,6 +66,7 @@ pub struct LoginResponse {
     path = "/api/v1/auth/login",
     tag = "auth",
     operation_id = "auth_login",
+    summary = "Open a session with username and password",
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Sessione aperta", body = LoginResponse),
@@ -156,6 +157,7 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
     path = "/api/v1/auth/refresh",
     tag = "auth",
     operation_id = "auth_refresh",
+    summary = "Rotate the current session cookie",
     security(("session_cookie" = [])),
     responses(
         (status = 204, description = "Sessione ruotata, nuovo cookie emesso"),
@@ -193,6 +195,7 @@ pub async fn refresh(
     path = "/api/v1/auth/logout",
     tag = "auth",
     operation_id = "auth_logout",
+    summary = "Revoke the current session and clear the cookie",
     responses((status = 204, description = "Sessione chiusa e cookie ripulito"))
 )]
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
@@ -228,6 +231,7 @@ pub struct MeResponse {
     path = "/api/v1/auth/me",
     tag = "auth",
     operation_id = "auth_me",
+    summary = "Return the current authenticated user",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Utente della sessione corrente", body = MeResponse),
