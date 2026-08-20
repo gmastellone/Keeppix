@@ -226,7 +226,105 @@ campo sconosciuto viene rifiutato con `400` invece di essere accettato in silenz
 
 ---
 
-## Task 10 — Chiudere l'OpenAPI e i client generati
+## Task 10 — «Preferito», il concetto che manca
+
+**Dove:** nuova migrazione, `crates/keeppix-domain/src/flags.rs`,
+`crates/keeppix-db/src/flags.rs`, `routes/flags.rs`, `routes/timeline.rs`.
+
+Il backend non ha nessuna nozione di «preferito»: zero occorrenze di `favorite`.
+L'interfaccia lo usa in sette punti (spec §7bis.1). **Non è `Pick`**: quello è lo
+stato dentro un lotto di culling, un asse indipendente.
+
+1. Migrazione: `ALTER TABLE asset_flags ADD COLUMN favorite boolean NOT NULL DEFAULT false;`
+   più `CREATE INDEX asset_flags_favorite_idx ON asset_flags (user_id, asset_id) WHERE favorite;`
+   (parziale: i preferiti sono una minoranza, ~8% nel prototipo).
+2. `favorite` entra in `AssetFlagsBody`, in `AssetFlags` di dominio, e in `AssetView`
+   (additivo).
+3. Scrittura singola (`PUT /assets/{id}/flags`) e di massa (`POST /flags/batch`, con
+   l'involucro del Task 1).
+4. `SearchNode::Favorite` — è la variante del Task 6 che alimenta sia il chip di
+   Cerca sia la vista "Preferiti" sia gli album dinamici: **una sola
+   implementazione per tre schermate.**
+
+**Verifica:** test che `favorite` e `pick` sono indipendenti (scartare nel culling
+non tocca il preferito); `EXPLAIN` sulla vista Preferiti deve usare l'indice
+parziale.
+
+---
+
+## Task 11 — Gli aggregati per riga di elenco
+
+**Dove:** `crates/keeppix-db/src/folders.rs`, `albums.rs`, `share.rs`, cache in
+`crates/keeppix-db/src/lib.rs`.
+
+Tre conteggi che l'interfaccia mostra accanto a **ogni riga** di un elenco, e che
+diventano N+1 se scritti nel modo ovvio:
+
+1. **foto per cartella** → `asset_count` in `FolderView`, per `/folders/tree`.
+2. **membri per album** → già previsto dal Task 5, stessa tecnica.
+3. **elementi per link pubblico** → in `/share/links`.
+
+Regola unica: **un solo `GROUP BY` per elenco**, mai un `COUNT` per riga. Risultato
+in cache `moka` con **invalidazione esplicita** agganciata a import, cestinamento e
+spostamento — la cache di Fase 6 è senza TTL apposta, e qui un conteggio scaduto è
+un numero sbagliato mostrato all'utente, non un rallentamento.
+
+**Verifica:** un test che conta le query emesse (`sqlx` logging o un contatore) e
+asserisce che una sidebar con 3 cartelle ne emette **una**, non tre; un test che
+l'import di una foto invalida il conteggio della sua cartella.
+
+---
+
+## Task 12 — L'indice che manca alla timeline
+
+`TimelineRepo::page` (`crates/keeppix-db/src/timeline.rs:134`) filtra
+`status = 'indexed' AND kind <> 'unknown'`, ma `assets_timeline_idx` copre solo
+`(taken_at_utc DESC, id DESC)`: i due predicati restano filtri applicati dopo il
+recupero dalla heap. E `assets_status_idx` è parziale su `('discovered','error')`,
+cioè **l'insieme opposto**: non aiuta mai la timeline.
+
+```sql
+CREATE INDEX assets_timeline_indexed_idx ON assets (taken_at_utc DESC, id DESC)
+    WHERE status = 'indexed' AND kind <> 'unknown';
+```
+
+Questo chiude anche la domanda rimasta aperta dalla Fase 6 sull'indice
+`status <> 'trashed'`: il predicato reale non è una disuguaglianza ma
+`= 'indexed'`, quindi l'indice giusto è parziale sul valore cercato.
+
+**Verifica:** `EXPLAIN ANALYZE` prima e dopo su `crates/keeppix-db/tests/scale_200k.rs`,
+con il numero nel ledger.
+
+---
+
+## Task 13 — Problemi composti, non materia prima
+
+`ProblemsView` (`routes/problems.rs:30`) è `{offline_libraries, failed_jobs,
+error_assets}`: tre secchi di materia prima. La §47 dell'interfaccia chiede un
+**elenco piatto**, dove ogni problema ha: id, gravità (avviso / errore), titolo,
+descrizione **già in linguaggio naturale**, cartella o libreria coinvolta, e
+l'elenco delle **azioni proposte con la loro etichetta**.
+
+1. Comporre i problemi lato server: è il server che sa perché un job è fallito, non
+   il frontend.
+2. Le due nature che il prototipo mostra devono esistere davvero: *"file con sidecar
+   XMP non scrivibile"* (permessi) e *"libreria offline"* (percorso di rete).
+3. L'azione **"Riprova connessione"** richiede un endpoint di verifica di
+   raggiungibilità: `POST /libraries/{id}/probe`.
+
+**Ruling: la descrizione in linguaggio naturale la produce il backend, non il
+frontend.** — Il frontend non ha il contesto per trasformare `last_error` in *"permessi
+di scrittura mancanti sulla cartella"*, e replicare quella traduzione in ogni client
+(web, iOS, futuri) significa scriverla tre volte e sbagliarla due. — *Costo se
+sbagliato:* i messaggi vanno tradotti lato server, quindi la lingua dell'utente deve
+arrivare nella richiesta.
+
+**Verifica:** test che una cartella resa non scrivibile con `chmod` produce un
+problema con gravità, testo e azione corretti.
+
+---
+
+## Task 14 — Chiudere l'OpenAPI e i client generati
 
 1. Annotare con `utoipa` gli otto gruppi oggi assenti dallo spec generato: `albums`,
    `share`, `groups`, `permissions`, `audit`, `backup`, `restore`, `upload`,
