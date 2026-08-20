@@ -13,28 +13,63 @@ vince la spec, e annoti il ruling nel ledger.
 
 Non fare push, PR o merge se l'utente non lo chiede.
 
-## Snapshot (2026-08-19)
+## Snapshot (2026-08-20)
 
 - **`main`** contiene le Fasi 0, 1a-1c, 2 (più i rimedi 2R, 2R2, 2R3), 3 e 4.
   Tutte verificate sull'archivio reale, non solo dai test.
-- **Fase in corso: la 5** — WebDAV e upload tus riprendibile. Piano scritto
-  (`plans/2026-08-19-keeppix-fase-5.md`).
-- **Fasi 6, 7, 8:** spec scritte, **piani no**. Vietato anticiparle: un piano
-  di dettaglio scritto prima del codice su cui poggia inventa firme contro API
-  che non esistono. È il modo in cui questo progetto ha già perso tempo.
-- La **Fase 7** (AI: scene, tag, ricerca semantica) salda il debito del probe
-  hardware, che oggi restituisce `"unprobed"` e non misura niente.
+- **Fasi 5 e 6:** implementate su branch, **con una lista di fix aperta** — fra
+  cui un errore di compilazione vero in `crates/keeppix-db/src/uploads.rs:588`
+  (mismatch `u32`/`u64` fra piattaforme). Vanno chiuse e mergiate per prime.
+- **Il disegno dell'interfaccia è concluso** e sta in `docs/ui/`: prototipo
+  interattivo, documento funzionale a 70 schermate, brand sheet, più l'analisi
+  del divario col backend e le decisioni di costo/beneficio.
+- **Da quel confronto sono nate due fasi nuove**, entrambe con spec e piano:
+  la **10** (superficie API per l'interfaccia) e la **11** (l'interfaccia).
+- **Tutti i piani sono ora scritti**: 7, 8, 9, 10, 11. Quelli di 7, 8 e 9 sono
+  volutamente a livello di task e decisioni, non di firme, perché redatti prima
+  che la 10 esista — vanno ripassati col codice vero davanti quando la 10 chiude.
+
+**Ordine di esecuzione:** `fix 5/6 → 10 → 7 → 8 → 9 → 11 (in quattro tranche)`.
+
+La **10 precede la 7, la 8 e la 9** e non è un'opinione: fissa l'involucro di
+riuscita parziale, la tassonomia chiusa degli errori, `SearchNode` come unico
+modello di filtro e gli eventi WebSocket. Le altre tre introducono da sole più di
+otto operazioni di massa: se la convenzione arriva dopo, quelle otto si
+riscrivono.
+
+## Le decisioni del 20 agosto, che sovrascrivono i documenti più vecchi
+
+Il documento funzionale e il prototipo sono **precedenti** a queste decisioni e
+**non sono stati riscritti**. Seguirli alla lettera significherebbe ricostruire
+ciò che è stato tolto.
+
+- **Album dinamici: non esistono.** Un album ricorda il filtro con cui è nato e
+  ha un pulsante «Aggiorna album».
+- **Conteggi accanto alle righe: tolti**, tranne nel culling dove restano esatti.
+- **Video: si tiene ma minimo** — una sola resa, solo in background o di notte,
+  e non si tocca un video già riproducibile dal browser.
+- **Audit: spento di default**, si accende col secondo utente.
+- **L'IA non entra nel culling** e **legge la miniatura da 240 px**, mai
+  l'originale.
+
+**Precedenza fra le fonti:** decisioni (`docs/ui/costo-beneficio-funzioni.md`) →
+prototipo (comportamento) → documento funzionale (cosa mostra, etichette) →
+analisi gap (cosa il backend può dare). Con un'eccezione: sull'accessibilità da
+tastiera il prototipo **non** è fonte di verità, perché è rotta e lo dice il
+documento stesso.
 
 ## Cosa leggere, in quest'ordine
 
 1. `AGENTS.md`
-2. `docs/superpowers/plans/2026-08-18-keeppix-fase-4.md` — l'ultima fase chiusa
+2. `docs/ui/costo-beneficio-funzioni.md`, sezione «Decisioni prese» — la fonte
+   che vince su tutte le altre.
+3. `docs/superpowers/plans/2026-08-18-keeppix-fase-4.md` — l'ultima fase chiusa
    (PR #9). Utile soprattutto per la sezione iniziale «Cosa esiste già»: è il
    modello di come si fonda un piano sul codice reale invece che sulla spec.
-3. `docs/superpowers/plans/2026-08-13-keeppix-roadmap.md` — le fasi e i
+4. `docs/superpowers/plans/2026-08-13-keeppix-roadmap.md` — le fasi e i
    contratti congelati.
-4. `docs/superpowers/specs/2026-08-13-keeppix-design.md` — architettura.
-5. La spec e il piano della fase su cui lavori.
+5. `docs/superpowers/specs/2026-08-13-keeppix-design.md` — architettura.
+6. La spec e il piano della fase su cui lavori.
 
 L'indice completo è `docs/superpowers/README.md`.
 
