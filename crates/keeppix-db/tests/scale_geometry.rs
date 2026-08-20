@@ -8,8 +8,9 @@
 //!    anche sull'intera vista (nessuna paginazione, a differenza di
 //!    `page`/`buckets`);
 //! 2. il piano usa `assets_geometry_idx` in **index-only scan** — l'indice di
-//!    copertura di 0034, non un seq scan come lo stand-in misurato in
-//!    Task 1bis.
+//!    copertura di 0034 (esteso in 0035 con `stack_id`/`kind` per il filtro
+//!    di primario di pila del Task 3), non un seq scan come lo stand-in
+//!    misurato in Task 1bis.
 
 mod harness;
 
@@ -152,10 +153,13 @@ async fn explain_geometry(
         "EXPLAIN (ANALYZE, BUFFERS) \
          SELECT a.width, a.height, a.taken_at_utc FROM assets a \
          JOIN folders f ON f.id = a.folder_id \
+         LEFT JOIN stacks s ON s.id = a.stack_id \
          WHERE {} \
            AND a.status = 'indexed' \
+           AND a.kind <> 'unknown' \
            AND a.taken_at_utc IS NOT NULL \
            AND ($4::uuid IS NULL OR f.library_id = $4) \
+           AND (a.stack_id IS NULL OR a.id = s.primary_asset_id) \
          ORDER BY a.taken_at_utc DESC, a.id DESC",
         filter.sql()
     );
