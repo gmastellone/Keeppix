@@ -182,3 +182,111 @@ decisioni del 20 agosto sera su Culling/RAW/IA restano **Fase 7+**; in
 Fase 10 il Task 3 (stack in browse) resta come da piano. — *Costo se
 sbagliato:* chiudere la 10 senza Task 22 lascia "carica foto normali"
 rotto per tutto tranne JPEG.
+
+## Task 3 — Lo stack collassato nelle viste di browse
+
+Un implementatore precedente si è bloccato a metà lavoro (file modificati ma
+non committati, più due migrazioni concorrenti numerate 0035/0036 che
+duplicavano/contraddicevano la stessa modifica all'indice). Ho ripreso il
+task da zero verificando ogni file toccato riga per riga invece di fidarmi
+del lavoro trovato, ed eliminato le migrazioni duplicate: resta solo
+`0035_assets_geometry_idx_stack.sql`.
+
+Ruling: `TimelineRepo::page`/`page_in_bounds`, `SearchRepo::run` restituiscono
+`Vec<AssetWithStack>` (`keeppix-db::stacks`), non un `BrowseAsset` separato —
+`AssetWithStack { asset: Asset, stack: StackBadge }` con `Deref<Target =
+Asset>`, così il codice che legge solo campi dell'asset (cursori keyset,
+`taken_at_utc`, `id`) non cambia. La riga grezza è `AssetStackRow`, che
+converte passando per `AssetRow::from_raw` (i campi di `AssetRow` sono
+privati al modulo `assets`) — stesso pattern di `AlbumAssetRow` in
+`albums.rs`. — *Costo se sbagliato:* nessuno osservato; è solo una scelta di
+forma, riusabile identica da timeline e ricerca.
+
+Ruling: il filtro di primario (`LEFT JOIN stacks s ON s.id = a.stack_id` +
+`WHERE (a.stack_id IS NULL OR a.id = s.primary_asset_id)`) e il calcolo del
+badge (`LEFT JOIN LATERAL` che aggrega `count(*)` e i `kind` dei membri) sono
+due frammenti SQL separati in `stacks.rs`
+(`STACK_PRIMARY_JOIN_SQL`/`STACK_PRIMARY_ONLY_SQL` vs
+`STACK_BADGE_JOIN_SQL`/`STACK_BADGE_COLUMNS_SQL`): la geometria usa solo il
+primo (deve solo escludere i non-primari, non mostrare `stack_size`/
+`raw_kind`), page/search usano il secondo (che include il primo). Un join in
+meno da pianificare per la geometria, che è già la query più sensibile
+all'indice di copertura. — *Costo se sbagliato:* nessuno, è solo economia di
+piano di esecuzione.
+
+Ruling: `/timeline/buckets` conta direttamente da `assets` (join `folders` +
+`stacks`, stesso filtro di primario di `page`) invece di leggere da
+`folder_month_counts`. Il trigger che alimenta quella tabella
+(`sync_folder_month_counts`, migrazioni 0009/00011) non guarda `stack_id`:
+farglielo guardare avrebbe richiesto un secondo trigger su `stacks` per
+intercettare i cambi di primario fatti da `StackRepo::set_primary` (che non
+tocca `assets`, quindi il trigger su `assets` non se ne accorgerebbe da
+solo) — più complessità nel trigger per un solo endpoint che la legge.
+`folder_month_counts` resta intatta per gli altri usi (contatori di
+cartella, cestino, `scale_200k.rs`). — *Costo se sbagliato:* un doppio
+mantenimento contabile (query diretta per i bucket, trigger per il resto) se
+in futuro serve un altro consumatore stack-aware dei conteggi mensili;
+accettabile oggi con un solo consumatore.
+
+Ruling: **bug trovato e corretto in review**: `TimelineRepo::geometry` (il
+percorso senza `bbox`) aveva già il commento che dichiarava il filtro
+`a.kind <> 'unknown'` (per restare coerente con `page`/`buckets`, ora che
+`buckets` non legge più da `folder_month_counts`), ma l'SQL non lo
+applicava — probabilmente un resto del refactor precedente lasciato a metà.
+Corretto aggiungendo il filtro a `geometry()`, al suo `last_modified_sql` e a
+`geometry_stamp()` (che deve restare sugli stessi filtri di `geometry()`,
+altrimenti il suo `count` diverge da `geometry.records.len()` e il 304 su
+`If-None-Match` diventerebbe scorretto). Aggiunto un test rosso→verde
+(`geometry_omits_unknown_kind_assets_without_a_bbox_filter`) che prima non
+esisteva: la copertura precedente controllava solo il percorso con `bbox`. —
+*Costo se sbagliato:* nessuno ora che il test lo blocca; prima del fix, un
+file "unknown" (nota di testo, sidecar) sarebbe comparso nella geometria
+della vista intera ma non nella pagina corrispondente, un'incoerenza visiva
+silenziosa.
+
+Ruling (item 5 del brief — "misura il JOIN prima di aggiungere indici"):
+misurato con `EXPLAIN (ANALYZE, BUFFERS)` a 200k righe (`scale_200k.rs`,
+`scale_geometry.rs`, aggiornati per riflettere le query vere con lo stack
+join). Il `LEFT JOIN stacks` per il filtro di primario costa sub-millisecondo
+anche a 200k asset (tabella `stacks` piccola, hash/nested-loop join) — buckets
+81ms, pagina 200 righe 3ms (budget 300ms), geometria intera 161ms (budget
+900ms) con `Index Only Scan` su `assets_geometry_idx` e `Heap Fetches: 0`
+confermati nel piano. **Nessuna denormalizzazione** (`is_stack_primary`
+booleano su `assets`) è stata necessaria: il join resta la soluzione, come
+preferito dal brief. — *Costo se sbagliato:* da rivedere se un utente reale
+arriva ad avere centinaia di migliaia di stack (non solo di asset) nella
+stessa libreria, scenario non misurato qui.
+
+Ruling: `assets_geometry_idx` (migrazione 0034, Task 2) va esteso — non
+aggiunto un secondo indice — con `stack_id` e `kind` nell'`INCLUDE`
+(migrazione 0035): senza, testare quei due campi nella `WHERE` di `geometry`
+avrebbe forzato un heap fetch per riga, perdendo l'index-only scan misurato
+nel Task 2. Non si può modificare la 0034 già applicata (regola sqlx del
+checksum), quindi si droppa e si ricrea l'indice con lo stesso nome in una
+migrazione nuova — stesso pattern già usato per la 0034 stessa quando ha
+sostituito l'indice precedente. Verificato con `EXPLAIN`: piano rimane
+`Index Only Scan ... Heap Fetches: 0` con entrambi i filtri applicati. —
+*Costo se sbagliato:* un `DROP`+`CREATE INDEX` su una tabella già popolata a
+200k+ righe è bloccante (nessun `CONCURRENTLY` nelle migrazioni sqlx
+transazionali); accettabile per una fase di sviluppo, da rivedere se questa
+migrazione deve girare online su un'istanza già in produzione.
+
+Ruling: `raw_kind` per un asset non impilato si deriva dal solo `kind` di
+quell'asset (`raw_image` → `"raw"`, `image` → `"jpeg"`, video/unknown →
+`None`), senza toccare il database: è il caso coperto da
+`AssetView::from_asset` (usato anche da `GET /assets/{id}`, che non ha
+accesso al badge di stack). Per un primario di pila, `raw_kind` aggrega i
+`kind` di **tutti** i membri (non solo il primario): uno stack RAW+JPEG dà
+`"raw+jpeg"` anche se si guarda solo il campo del primario RAW. — *Costo se
+sbagliato:* nessuno osservato, è la lettura naturale della tabella nel
+brief.
+
+Task 3: complete (commit successivo a questa voce, test verdi:
+`keeppix-db` timeline.rs 16/16, search.rs 8/8, scale_200k.rs 2/2,
+scale_geometry.rs 1/1 [+3 harness]; `keeppix-api` timeline.rs 20/20,
+search.rs 2/2, stacks.rs 2/2, openapi.rs 7/7 incl. snapshot rigenerato per i
+due campi additivi di `AssetView`). `cargo fmt --check` e `cargo clippy
+--workspace --all-targets -- -D warnings` verdi su tutto il workspace.
+`./scripts/test.sh` completo **non eseguito** (stesso motivo del Task 2:
+costerebbe l'intera suite); eseguiti invece tutti i test toccati dal task
+più le due prove di scala a 200k, con `EXPLAIN` alla mano.
