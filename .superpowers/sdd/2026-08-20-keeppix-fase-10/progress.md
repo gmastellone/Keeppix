@@ -154,7 +154,8 @@ un generatore di client molto pedante potrebbe tipare il corpo come
 `number[]` invece di `Uint8Array`/`Data`; da rivedere se un client generato
 si rivela scomodo da usare.
 
-Task 2: complete (commit da annotare dopo `git commit`, test verdi:
+Task 2: complete (commit e3c7944 db + 447cd66 test di scala + 597372a api +
+9bab5d0 ledger, test verdi:
 `keeppix-db` timeline.rs 11/11, scale_geometry.rs 4/4, migrations.rs
 11/11; `keeppix-api` timeline.rs 18/18, openapi.rs 7/7 incl. snapshot
 rigenerato). `cargo fmt --check` e `cargo clippy --workspace --all-targets
