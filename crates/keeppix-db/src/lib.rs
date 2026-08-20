@@ -72,7 +72,10 @@ pub use places::PlaceRepo;
 pub use preferences::{
     GridDensity, NotificationPreferences, PreferencesPatchError, PreferencesRepo, UserPreferences,
 };
-pub use problems::{ProblemSet, ProblemsRepo};
+pub use problems::{
+    ComposedProblem, ErrorAsset, FailedJob, OfflineLibrary, ProblemAction, ProblemLanguage,
+    ProblemSet, ProblemSeverity, ProblemsRepo,
+};
 pub use regions::{MapRegion, NewMapRegion, RegionDownloadSource, RegionRepo, RegionStatus};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::{SessionRepo, SessionSummary};
