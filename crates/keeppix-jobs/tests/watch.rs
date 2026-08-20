@@ -12,15 +12,22 @@ use keeppix_jobs::discover;
 use keeppix_jobs::watch::{self, WatcherMode};
 
 #[tokio::test]
-async fn persist_capabilities_writes_unprobed() {
+async fn persist_capabilities_writes_the_measured_probe_result() {
     let test = TestDb::start().await;
+    let expected = keeppix_media::probe();
     watch::persist_capabilities(test.db()).await.unwrap();
     let value = SettingsRepo::new(test.db())
         .get_json("capabilities")
         .await
         .unwrap()
         .expect("capabilities");
-    assert_eq!(value["backend"], "unprobed");
+    assert_eq!(value["backend"], serde_json::json!(expected.backend));
+    assert_eq!(value["extra"], serde_json::json!({}));
+    assert_eq!(
+        value["decode_fps"].is_null(),
+        expected.decode_fps.is_none(),
+        "persisted capabilities must preserve whether the probe measured fps"
+    );
 }
 
 #[tokio::test]

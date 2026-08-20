@@ -104,5 +104,4 @@ so a role change is reflected on the same browser session without waiting the
 the session cache. Cost if wrong: unrelated profile patches also flush sessions
 cache (cheap; re-auth from DB).
 
-Task 12: complete (commit pending verification; indexes + moka caches +
-ensure_path ruling; invalidation tests for revoke/role/group/user)
+Task 12: complete (commits 82881b9, c2e35e3, test verdi)
