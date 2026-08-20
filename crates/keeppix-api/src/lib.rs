@@ -214,6 +214,7 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/libraries/{id}/scan",
             get(routes::libraries::scan_status).post(routes::libraries::start_scan),
         )
+        .route("/libraries/{id}/storage", get(routes::libraries::storage))
         .route(
             "/groups",
             get(routes::groups::list).post(routes::groups::create),

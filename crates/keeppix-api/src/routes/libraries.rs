@@ -320,6 +320,21 @@ pub struct ScanStatusView {
     pub last_scan_at: Option<String>,
 }
 
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct LibraryStorageView {
+    pub free_bytes: u64,
+    pub total_bytes: u64,
+}
+
+impl From<keeppix_db::LibraryStorage> for LibraryStorageView {
+    fn from(usage: keeppix_db::LibraryStorage) -> Self {
+        Self {
+            free_bytes: usage.free_bytes,
+            total_bytes: usage.total_bytes,
+        }
+    }
+}
+
 /// Accoda `DiscoverLibrary` (idempotente via `dedup_key`).
 ///
 /// # Errors
@@ -416,4 +431,32 @@ pub async fn scan_status(
         eta_seconds: None,
         last_scan_at: library.last_scan_at.map(|t| t.to_rfc3339()),
     }))
+}
+
+/// Spazio libero e totale sul volume della libreria. Il valore è in cache
+/// breve (60 s): la sidebar lo chiede a ogni caricamento.
+///
+/// # Errors
+/// Visibilità come `get`; `503` se `statvfs` fallisce in modo irrecuperabile.
+#[utoipa::path(
+    get,
+    path = "/api/v1/libraries/{id}/storage",
+    tag = "libraries",
+    operation_id = "libraries_storage",
+    summary = "Get library disk usage",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della libreria")),
+    responses(
+        (status = 200, description = "Spazio libero e totale", body = LibraryStorageView),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non visibile", body = Problem)
+    )
+)]
+pub async fn storage(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    AxumPath(id): AxumPath<LibraryId>,
+) -> Result<Json<LibraryStorageView>, Problem> {
+    let usage = LibraryRepo::new(&state.db).storage(&ctx, id).await?;
+    Ok(Json(LibraryStorageView::from(usage)))
 }
