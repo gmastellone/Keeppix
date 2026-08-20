@@ -60,13 +60,6 @@ pub async fn apply(State(state): State<AppState>, mut req: Request, next: Next) 
         return next.run(req).await;
     };
 
-    let Some(user_id) = (match session_user_id(&state, req.headers()).await {
-        Ok(user_id) => user_id,
-        Err(problem) => return problem.into_response(),
-    }) else {
-        return next.run(req).await;
-    };
-
     let path = req.uri().path().to_owned();
     let body = match extract_body(&mut req).await {
         Ok(Some(bytes)) => bytes,
@@ -81,8 +74,34 @@ pub async fn apply(State(state): State<AppState>, mut req: Request, next: Next) 
 
     let lock = state.idempotency_locks.lock_for(&key);
     let _guard = lock.lock().await;
-
     let repo = IdempotencyRepo::new(&state.db);
+
+    // Resolve auth *after* we have the key+fingerprint so a refresh retry with
+    // a consumed cookie can still replay the cached Set-Cookie.
+    let user_id = match session_user_id(&state, req.headers()).await {
+        Ok(Some(user_id)) => user_id,
+        Ok(None) => {
+            // No cookie at all — leave unauthenticated routes alone.
+            *req.body_mut() = Body::from(body);
+            return next.run(req).await;
+        }
+        Err(auth_problem) => {
+            return match repo.lookup_by_key(&key, &fingerprint).await {
+                Ok(IdempotencyLookupResult::Replay { status, response }) => {
+                    replay(status, response)
+                }
+                Ok(IdempotencyLookupResult::Conflict) => Problem::new(
+                    StatusCode::CONFLICT,
+                    "idempotency-key-conflict",
+                    "Idempotency-Key was already used for a different request",
+                )
+                .into_response(),
+                Ok(IdempotencyLookupResult::Missing) => auth_problem.into_response(),
+                Err(error) => Problem::from(error).into_response(),
+            };
+        }
+    };
+
     match repo.lookup(user_id, &key, &fingerprint).await {
         Ok(IdempotencyLookupResult::Replay { status, response }) => {
             return replay(status, response);

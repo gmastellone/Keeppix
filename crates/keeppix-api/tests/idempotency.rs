@@ -106,3 +106,70 @@ async fn create_album(
         .await
         .unwrap()
 }
+
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn refresh_replay_with_the_consumed_cookie_returns_the_cached_set_cookie() {
+    use harness::plain_client;
+
+    let server = TestServer::start().await;
+    let setup = server
+        .client
+        .post(server.url("/api/v1/setup"))
+        .json(&json!({
+            "username": "giovanni",
+            "display_name": "Giovanni",
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), 201);
+    let old_cookie = session_cookie_value(&setup);
+
+    let first = plain_client()
+        .post(server.url("/api/v1/auth/refresh"))
+        .header("cookie", format!("__Host-kpx_session={old_cookie}"))
+        .header("idempotency-key", "refresh-retry-1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 204, "first refresh must succeed");
+    let new_cookie = session_cookie_value(&first);
+    assert_ne!(old_cookie, new_cookie);
+
+    // Real clients may retry with the pre-rotation cookie after a lost
+    // response. Auth fails, but the Idempotency-Key cache must still replay.
+    let replay = plain_client()
+        .post(server.url("/api/v1/auth/refresh"))
+        .header("cookie", format!("__Host-kpx_session={old_cookie}"))
+        .header("idempotency-key", "refresh-retry-1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        replay.status(),
+        204,
+        "replay with the consumed cookie must hit the idempotency cache, not 401"
+    );
+    let replayed = session_cookie_value(&replay);
+    assert_eq!(
+        replayed, new_cookie,
+        "cached Set-Cookie from the successful refresh must be replayed"
+    );
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+fn session_cookie_value(response: &reqwest::Response) -> String {
+    response
+        .headers()
+        .get("set-cookie")
+        .expect("set-cookie presente")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .trim_start_matches("__Host-kpx_session=")
+        .to_owned()
+}

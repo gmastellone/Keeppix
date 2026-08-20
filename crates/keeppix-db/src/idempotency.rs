@@ -90,6 +90,46 @@ impl<'a> IdempotencyRepo<'a> {
         })
     }
 
+    /// Look up a cached response by key alone — used when the request presents
+    /// an Idempotency-Key but the session cookie is already consumed (the
+    /// refresh-retry case). Ownership of the key is the secret; fingerprint
+    /// still has to match.
+    ///
+    /// # Errors
+    /// `DbError::Connection` / `Corrupted` as for [`Self::lookup`].
+    pub async fn lookup_by_key(
+        &self,
+        key: &str,
+        fingerprint: &RequestFingerprint,
+    ) -> Result<LookupResult, DbError> {
+        let row: Option<StoredRow> = sqlx::query_as(
+            "SELECT user_id, response_status, response_body \
+               FROM idempotency_keys \
+              WHERE key = $1",
+        )
+        .bind(key)
+        .fetch_optional(self.db.pool())
+        .await?;
+
+        let Some(row) = row else {
+            return Ok(LookupResult::Missing);
+        };
+
+        let envelope: StoredEnvelope =
+            serde_json::from_value(row.response_body.unwrap_or_default())
+                .map_err(|e| DbError::Corrupted(format!("invalid idempotency payload: {e}")))?;
+
+        if envelope.request != *fingerprint {
+            return Ok(LookupResult::Conflict);
+        }
+
+        Ok(LookupResult::Replay {
+            status: u16::try_from(row.response_status)
+                .map_err(|e| DbError::Corrupted(format!("invalid idempotency status: {e}")))?,
+            response: envelope.response,
+        })
+    }
+
     /// # Errors
     /// `DbError::Connection` se l'upsert fallisce; `DbError::Corrupted` se lo
     /// status HTTP non entra in `smallint` o l'envelope non è serializzabile.
