@@ -269,9 +269,7 @@ async fn named_database(server_url: &str) -> ProvisionedDb {
 
 fn drop_test_database(admin_url: &str, name: &str) {
     if !name.starts_with("keeppix_test_")
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
     {
         return;
     }

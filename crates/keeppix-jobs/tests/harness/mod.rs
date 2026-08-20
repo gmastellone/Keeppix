@@ -30,9 +30,7 @@ impl TestDb {
     pub async fn start() -> Self {
         let provisioned = provision().await;
 
-        let db = Db::connect(&provisioned.url, 5)
-            .await
-            .expect("connessione");
+        let db = Db::connect(&provisioned.url, 5).await.expect("connessione");
         db.migrate().await.expect("migrazioni");
 
         Self {
@@ -190,9 +188,7 @@ async fn named_database(server_url: &str) -> ProvisionedDb {
 
 fn drop_test_database(admin_url: &str, name: &str) {
     if !name.starts_with("keeppix_test_")
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
     {
         return;
     }
