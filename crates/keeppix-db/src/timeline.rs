@@ -1,10 +1,14 @@
 //! Bucket mensili e pagine keyset della timeline. Nessun `OFFSET`.
 
 use chrono::{DateTime, Months, NaiveDate, Utc};
-use keeppix_domain::{Asset, AssetId, AuthContext, LibraryId};
+use keeppix_domain::{AssetId, AuthContext, LibraryId};
 
-use crate::assets::{A_COLUMNS, AssetRow};
+use crate::assets::A_COLUMNS;
 use crate::libraries::LibraryRepo;
+use crate::stacks::{
+    AssetStackRow, AssetWithStack, STACK_BADGE_COLUMNS_SQL, STACK_BADGE_JOIN_SQL,
+    STACK_PRIMARY_JOIN_SQL, STACK_PRIMARY_ONLY_SQL,
+};
 use crate::visibility::VisibilityScope;
 use crate::{Db, DbError, MapBounds};
 
@@ -52,6 +56,17 @@ impl<'a> TimelineRepo<'a> {
         Self { db }
     }
 
+    /// Conta le pile (una pila impilata conta 1, non quanti file la
+    /// compongono), non più righe di `folder_month_counts` (Ruling Task 3):
+    /// il trigger che alimenta quella tabella non guarda `stack_id` — farlo
+    /// significherebbe insegnargli a ricalcolare il conteggio di uno stack
+    /// ogni volta che cambia il primario (`StackRepo::set_primary`) o un
+    /// membro si aggiunge/rimuove, molta più complessità nel trigger per un
+    /// solo endpoint. Si conta direttamente da `assets` con lo stesso
+    /// filtro di primario di `page`, così il numero di mesi e il numero di
+    /// tessere per mese non divergono mai. La tabella `folder_month_counts`
+    /// resta intatta per gli altri usi (contatori di cartella, cestino).
+    ///
     /// # Errors
     /// `Forbidden` se `library_id` non è del chiamante (anche inesistente).
     /// `Connection` se la query fallisce.
@@ -64,14 +79,21 @@ impl<'a> TimelineRepo<'a> {
             LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
         }
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter_for_folder_aggregate("f.path", "f.library_id", "f.id", 1);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let sql = format!(
-            "SELECT fmc.month, sum(fmc.asset_count)::bigint AS count \
-               FROM folder_month_counts fmc \
-               JOIN folders f ON f.id = fmc.folder_id \
-              WHERE {} AND ($4::uuid IS NULL OR f.library_id = $4) \
-              GROUP BY fmc.month \
-              ORDER BY fmc.month DESC",
+            "SELECT date_trunc('month', a.taken_at_utc)::date AS month, \
+                    count(*)::bigint AS count \
+               FROM assets a \
+               JOIN folders f ON f.id = a.folder_id \
+               {STACK_PRIMARY_JOIN_SQL} \
+              WHERE {} \
+                AND ($4::uuid IS NULL OR f.library_id = $4) \
+                AND a.status = 'indexed' \
+                AND a.kind <> 'unknown' \
+                AND a.taken_at_utc IS NOT NULL \
+                AND {STACK_PRIMARY_ONLY_SQL} \
+              GROUP BY month \
+              ORDER BY month DESC",
             filter.sql()
         );
         let rows: Vec<(NaiveDate, i64)> = sqlx::query_as(&sql)
@@ -110,12 +132,14 @@ impl<'a> TimelineRepo<'a> {
                FROM assets a \
                JOIN folders f ON f.id = a.folder_id \
                LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+               {STACK_PRIMARY_JOIN_SQL} \
               WHERE {} \
                 AND ($4::uuid IS NULL OR f.library_id = $4) \
                 AND a.status = 'indexed' \
                 AND a.kind <> 'unknown' \
                 AND a.taken_at_utc IS NOT NULL \
                 AND ({bbox}) \
+                AND {STACK_PRIMARY_ONLY_SQL} \
               GROUP BY month \
               ORDER BY month DESC",
             filter.sql()
@@ -137,7 +161,9 @@ impl<'a> TimelineRepo<'a> {
             .collect())
     }
 
-    /// Pagina keyset dentro un mese. `limit` è clampato a 1..=200.
+    /// Pagina keyset dentro un mese. `limit` è clampato a 1..=200. Restituisce
+    /// solo il primario di ogni pila, con il badge di stack (Task 3): un
+    /// asset RAW+JPEG impilato è una tessera, non due.
     ///
     /// # Errors
     /// `Forbidden` / `Connection` come `buckets`.
@@ -147,7 +173,7 @@ impl<'a> TimelineRepo<'a> {
         bucket: NaiveDate,
         cursor: Option<(DateTime<Utc>, AssetId)>,
         limit: i64,
-    ) -> Result<Vec<Asset>, DbError> {
+    ) -> Result<Vec<AssetWithStack>, DbError> {
         let limit = limit.clamp(1, 200);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 6);
@@ -160,8 +186,9 @@ impl<'a> TimelineRepo<'a> {
             None => (None, None),
         };
         let sql = format!(
-            "SELECT {A_COLUMNS} FROM assets a \
+            "SELECT {A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL} FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
+             {STACK_BADGE_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
                AND a.kind <> 'unknown' \
@@ -169,11 +196,12 @@ impl<'a> TimelineRepo<'a> {
                AND ($3::timestamptz IS NULL \
                     OR a.taken_at_utc < $3 \
                     OR (a.taken_at_utc = $3 AND a.id < $4)) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
              ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
              LIMIT $5",
             filter.sql()
         );
-        let rows: Vec<AssetRow> = sqlx::query_as(&sql)
+        let rows: Vec<AssetStackRow> = sqlx::query_as(&sql)
             .bind(start)
             .bind(end)
             .bind(cursor_time)
@@ -184,7 +212,7 @@ impl<'a> TimelineRepo<'a> {
             .bind(filter.assets())
             .fetch_all(self.db.pool())
             .await?;
-        rows.into_iter().map(AssetRow::into_domain).collect()
+        rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
     /// Pagina keyset dentro un mese e un riquadro geografico.
@@ -198,7 +226,7 @@ impl<'a> TimelineRepo<'a> {
         cursor: Option<(DateTime<Utc>, AssetId)>,
         limit: i64,
         bounds: MapBounds,
-    ) -> Result<Vec<Asset>, DbError> {
+    ) -> Result<Vec<AssetWithStack>, DbError> {
         let limit = limit.clamp(1, 200);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 6);
@@ -212,9 +240,10 @@ impl<'a> TimelineRepo<'a> {
         };
         let bbox = effective_bbox_filter_sql(9, 10, 11, 12);
         let sql = format!(
-            "SELECT {A_COLUMNS} FROM assets a \
+            "SELECT {A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL} FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
              LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             {STACK_BADGE_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
                AND a.kind <> 'unknown' \
@@ -223,11 +252,12 @@ impl<'a> TimelineRepo<'a> {
                     OR a.taken_at_utc < $3 \
                     OR (a.taken_at_utc = $3 AND a.id < $4)) \
                AND ({bbox}) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
              ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
              LIMIT $5",
             filter.sql()
         );
-        let rows: Vec<AssetRow> = sqlx::query_as(&sql)
+        let rows: Vec<AssetStackRow> = sqlx::query_as(&sql)
             .bind(start)
             .bind(end)
             .bind(cursor_time)
@@ -242,7 +272,7 @@ impl<'a> TimelineRepo<'a> {
             .bind(bounds.north)
             .fetch_all(self.db.pool())
             .await?;
-        rows.into_iter().map(AssetRow::into_domain).collect()
+        rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
     /// Geometria di tutta la vista (nessuna paginazione): larghezza, altezza
@@ -251,11 +281,16 @@ impl<'a> TimelineRepo<'a> {
     /// risultato con `None`: escluderli farebbe "saltare" il layout quando il
     /// sizing arriva (spec fase-10 §2.3, punto 5).
     ///
-    /// Nessun filtro su `kind`: la query resta servibile dal solo
+    /// Filtra `kind <> 'unknown'` come `page` (Ruling Task 3: prima non lo
+    /// faceva, per restare coerente con `folder_month_counts`, che non guarda
+    /// `kind` — ma ora che `buckets` non legge più da lì e filtra `kind`
+    /// direttamente, è quella la coerenza da mantenere). Restituisce solo il
+    /// primario di ogni pila (Task 3). La query resta index-only su
     /// `assets_geometry_idx` (`folder_id, taken_at_utc DESC, id DESC INCLUDE
-    /// (width, height) WHERE status = 'indexed'`), e coincide con ciò che
-    /// `folder_month_counts` già conta (il trigger non guarda `kind`) — è
-    /// quello il conteggio con cui `geometry_matches_bucket_counts` confronta.
+    /// (width, height, stack_id, kind) WHERE status = 'indexed'`, migrazione
+    /// 0035): sia `stack_id` (per il filtro di primario) sia `kind` sono
+    /// nell'`INCLUDE`; il join verso `stacks` per l'uguaglianza col primario
+    /// tocca solo quella tabella, piccola, non `assets`.
     ///
     /// # Errors
     /// `Forbidden` se `library_id` non è del chiamante; `Connection` se la
@@ -273,10 +308,13 @@ impl<'a> TimelineRepo<'a> {
         let sql = format!(
             "SELECT a.width, a.height, a.taken_at_utc FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
+             {STACK_PRIMARY_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
                AND a.taken_at_utc IS NOT NULL \
                AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
              ORDER BY a.taken_at_utc DESC, a.id DESC",
             filter.sql()
         );
@@ -299,10 +337,13 @@ impl<'a> TimelineRepo<'a> {
         let last_modified_sql = format!(
             "SELECT max(a.updated_at) FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
+             {STACK_PRIMARY_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
                AND a.taken_at_utc IS NOT NULL \
-               AND ($4::uuid IS NULL OR f.library_id = $4)",
+               AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND {STACK_PRIMARY_ONLY_SQL}",
             filter.sql()
         );
         let last_modified: Option<DateTime<Utc>> = sqlx::query_scalar(&last_modified_sql)
@@ -337,10 +378,13 @@ impl<'a> TimelineRepo<'a> {
         let sql = format!(
             "SELECT count(*)::bigint, max(a.updated_at) FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
+             {STACK_PRIMARY_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
                AND a.taken_at_utc IS NOT NULL \
-               AND ($4::uuid IS NULL OR f.library_id = $4)",
+               AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND {STACK_PRIMARY_ONLY_SQL}",
             filter.sql()
         );
         let (count, last_modified): (i64, Option<DateTime<Utc>>) = sqlx::query_as(&sql)
@@ -379,12 +423,14 @@ impl<'a> TimelineRepo<'a> {
             "SELECT a.width, a.height, a.taken_at_utc FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
              LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             {STACK_PRIMARY_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
                AND a.kind <> 'unknown' \
                AND a.taken_at_utc IS NOT NULL \
                AND ($4::uuid IS NULL OR f.library_id = $4) \
                AND ({bbox}) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
              ORDER BY a.taken_at_utc DESC, a.id DESC",
             filter.sql()
         );
@@ -412,12 +458,14 @@ impl<'a> TimelineRepo<'a> {
             "SELECT max(a.updated_at) FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
              LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             {STACK_PRIMARY_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
                AND a.kind <> 'unknown' \
                AND a.taken_at_utc IS NOT NULL \
                AND ($4::uuid IS NULL OR f.library_id = $4) \
-               AND ({bbox})",
+               AND ({bbox}) \
+               AND {STACK_PRIMARY_ONLY_SQL}",
             filter.sql()
         );
         let last_modified: Option<DateTime<Utc>> = sqlx::query_scalar(&last_modified_sql)
@@ -457,12 +505,14 @@ impl<'a> TimelineRepo<'a> {
             "SELECT count(*)::bigint, max(a.updated_at) FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
              LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             {STACK_PRIMARY_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
                AND a.kind <> 'unknown' \
                AND a.taken_at_utc IS NOT NULL \
                AND ($4::uuid IS NULL OR f.library_id = $4) \
-               AND ({bbox})",
+               AND ({bbox}) \
+               AND {STACK_PRIMARY_ONLY_SQL}",
             filter.sql()
         );
         let (count, last_modified): (i64, Option<DateTime<Utc>>) = sqlx::query_as(&sql)
