@@ -809,3 +809,55 @@ Task 12: complete (commit successivo a questa voce, tests green:
 `./scripts/test.sh` completo **non eseguito** (stesso motivo dei task
 precedenti).
 
+## Task 13 — Problemi composti, non materia prima
+
+Ruling: **la lingua arriva dalla richiesta, non da `UserPreferences.language`.**
+— `ProblemLanguage::parse` prende una stringa grezza (query `?lang=` o il primo
+tag di `Accept-Language`); l'handler HTTP prova prima `?lang=`, poi l'header,
+default italiano. Nessuna lettura di preferenze salvate: un utente non loggato
+sullo stesso browser di un altro vedrebbe comunque i propri problemi nella
+lingua giusta senza bisogno di autenticarsi per leggere la preferenza. —
+*Costo se sbagliato:* un client che manda solo `Accept-Language` senza query
+avrebbe comunque la lingua giusta; il costo è basso.
+
+Ruling: **il marcatore `permission-denied:` va messo da `keeppix-jobs`, non
+indovinato da `keeppix-db` col testo libero di `io::Error`.** — Il messaggio di
+un `PermissionDenied` cambia formulazione a seconda della piattaforma
+(`Permission denied (os error 13)` su Linux, altro altrove); un marcatore
+stabile scritto al punto in cui l'errore nasce sopravvive a qualunque
+`Display` di `std::io::Error`. — *Costo se sbagliato:* la classificazione
+"sidecar non scrivibile" smette di riconoscere il fallimento su piattaforme
+diverse da quella testata, e il job finito in errore ricade nel caso generico
+("operazione pianificata non riuscita") — degrado, non un errore visibile.
+
+Ruling: **`GET /problems` resta additivo** (contratto `/api/v1` congelato):
+`ProblemsView` mantiene `offline_libraries`/`failed_jobs`/`error_assets` e
+aggiunge `problems`, l'elenco piatto composto. Il frontend (`ProblemsView.vue`)
+non è stato toccato — il piano affida il consumo della UI a una fase/task
+successivo (§47 è nella spec dell'interfaccia, non nel piano di questo task) —
+e resta a leggere i secchi grezzi finché non viene aggiornato.
+
+Ruling: **`ProblemsRepo::compose` accetta un `ProblemSet` già ottenuto**
+(oltre a `composed`, che lo richiama internamente per chi non ha già il set) —
+l'endpoint HTTP deve restituire sia i secchi grezzi sia l'elenco composto nella
+stessa risposta; senza questo, avrebbe interrogato il database due volte per
+la stessa richiesta.
+
+Verifica chmod (spec del task): `keeppix-jobs/tests/xmp.rs
+a_readonly_folder_surfaces_as_a_composed_sidecar_problem` rende una cartella
+`0o555` con `chmod`, fa fallire realisticamente il job `WriteSidecar` (claim +
+run + fail manuale sulla riga, `max_attempts` di default non fa scattare
+`failed` con un solo tentativo), poi chiama `ProblemsRepo::composed` e
+verifica: gravità `Warning`, titolo/descrizione in italiano che menzionano
+permessi mancanti e cartella coinvolta, azioni `view-files`/`ignore`.
+
+Task 13: complete (commits 7af00e7, 870b4f7, f01daea, e4949de; tests green:
+`keeppix-db` libraries.rs 3 nuovi + problems.rs 9/9; `keeppix-jobs` xmp.rs 7/7
+incluso i due test di permessi; `keeppix-api` libraries.rs 3 nuovi +
+problems.rs 4/4 + openapi.rs 7/7). `cargo fmt --check` e `cargo clippy
+--workspace --all-targets -- -D warnings` verdi. Suite complete eseguite a
+mano (non via `./scripts/test.sh`, per lo stesso motivo di tempo dei task
+precedenti — ogni crate girato singolarmente con `--jobs 1
+--test-threads=1`): `keeppix-db` 100% verde, `keeppix-jobs` 100% verde,
+`keeppix-api` 45 file di test 100% verde, `keeppix-server` 100% verde.
+
