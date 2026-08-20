@@ -74,6 +74,8 @@ ingest/scan writes; a single-query rewrite is deferred.
 Full gate (`npm ci && npm run build`, `cargo fmt --check`, clippy `-D warnings`,
 `./scripts/test.sh`) runs after this report/commit.
 
+Final commits: `82881b9` (implementation), `c2e35e3` (permissions test helpers).
+
 ## Concerns
 
 - On very small `asset_exif` tables the planner may still prefer the legacy
