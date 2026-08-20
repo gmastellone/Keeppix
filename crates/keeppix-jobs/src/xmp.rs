@@ -91,10 +91,23 @@ async fn write_one(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
         label: pick_label(source.owner_pick),
     };
 
-    keeppix_media::write_sidecar(&sidecar_path, &data)
-        .map_err(|e| JobError::Worker(e.to_string()))?;
+    keeppix_media::write_sidecar(&sidecar_path, &data).map_err(|e| map_sidecar_error(&e))?;
     overrides.mark_sidecar_written(asset_id).await?;
     Ok(())
+}
+
+/// `permission-denied: ` è un marcatore stabile, non testo libero: è da lì
+/// che `keeppix_db::ProblemsRepo::composed` (Fase 10 Task 13) riconosce la
+/// natura "sidecar XMP non scrivibile" in `jobs.last_error` senza dover
+/// interpretare il messaggio di un `io::Error` che potrebbe cambiare
+/// formulazione a seconda della piattaforma.
+fn map_sidecar_error(e: &keeppix_media::XmpError) -> JobError {
+    if let keeppix_media::XmpError::Io(io_err) = e
+        && io_err.kind() == std::io::ErrorKind::PermissionDenied
+    {
+        return JobError::Worker(format!("permission-denied: {e}"));
+    }
+    JobError::Worker(e.to_string())
 }
 
 /// `IMG_1234.ARW` → `IMG_1234.ARW.xmp`, accanto al file (spec §3.4).

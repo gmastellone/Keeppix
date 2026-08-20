@@ -545,3 +545,143 @@ async fn deleting_a_library_leaves_the_files_untouched() {
     let after = fs::read_dir(&root).unwrap().count();
     assert_eq!(before, after);
 }
+
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn probing_a_library_whose_root_path_vanished_marks_it_offline() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let root = library_dir(&server, "vanishing");
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "Vanishing",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    fs::remove_dir_all(&root).unwrap();
+
+    let response = server
+        .client
+        .post(server.url(&format!("/api/v1/libraries/{id}/probe")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["status"], "offline");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn probing_a_library_whose_root_path_came_back_marks_it_active_again() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let root = library_dir(&server, "coming-back");
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "ComingBack",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    fs::remove_dir_all(&root).unwrap();
+    server
+        .client
+        .post(server.url(&format!("/api/v1/libraries/{id}/probe")))
+        .send()
+        .await
+        .unwrap();
+
+    fs::create_dir_all(&root).unwrap();
+    let response = server
+        .client
+        .post(server.url(&format!("/api/v1/libraries/{id}/probe")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["status"], "active");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn probing_someone_elses_library_via_the_probe_endpoint_is_forbidden() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let admin_id = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap()["user"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+
+    UserRepo::new(&server.db)
+        .create(
+            &AuthContext::user(admin_id, SystemRole::Admin),
+            NewUser {
+                username: Username::parse("mario").unwrap(),
+                email: None,
+                display_name: "Mario".to_owned(),
+                password_hash: hash_password(&Password::parse("mario-password-ok").unwrap())
+                    .unwrap()
+                    .as_str()
+                    .to_owned(),
+                role: SystemRole::User,
+            },
+        )
+        .await
+        .unwrap();
+
+    let root = library_dir(&server, "probe-forbidden");
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "ProbeForbidden",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let mario = login_as(&server, "mario", "mario-password-ok").await;
+    let response = mario
+        .post(server.url(&format!("/api/v1/libraries/{id}/probe")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+    let problem: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(problem["type"], "keeppix/forbidden");
+}

@@ -433,6 +433,35 @@ pub async fn scan_status(
     }))
 }
 
+/// Verifica di raggiungibilità del percorso di rete (§47 «Riprova
+/// connessione»): aggiorna lo stato e restituisce la libreria come sta ora,
+/// così la UI può far scomparire il problema senza un secondo giro.
+///
+/// # Errors
+/// Visibilità come `get`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/libraries/{id}/probe",
+    tag = "libraries",
+    operation_id = "libraries_probe",
+    summary = "Retry reaching a library's root path",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della libreria")),
+    responses(
+        (status = 200, description = "Esito della verifica", body = LibraryView),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non visibile", body = Problem)
+    )
+)]
+pub async fn probe(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    AxumPath(id): AxumPath<LibraryId>,
+) -> Result<Json<LibraryView>, Problem> {
+    let library = LibraryRepo::new(&state.db).probe(&ctx, id).await?;
+    Ok(Json(LibraryView::from_library(&library)))
+}
+
 /// Spazio libero e totale sul volume della libreria. Il valore è in cache
 /// breve (60 s): la sidebar lo chiede a ogni caricamento.
 ///
