@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use chrono::{DateTime, Utc};
 use keeppix_domain::{Asset, AssetId, AuthContext, FolderId, StackId};
 use uuid::Uuid;
 
@@ -10,6 +11,126 @@ use crate::{AssetRepo, Db, DbError};
 /// preferire il RAW come primario senza tirare in ballo `AssetKind` di
 /// dominio solo per un confronto di stringa.
 const RAW_IMAGE: &str = "raw_image";
+
+/// Badge additivo di stack per la vista di browse (fase-10, Task 3):
+/// `stack_size == 1` per un asset non impilato. `raw_kind` distingue le tre
+/// composizioni che l'interfaccia mostra come badge (SP-15): `"raw"`,
+/// `"jpeg"`, `"raw+jpeg"` — `None` solo per kind che non sono né l'uno né
+/// l'altro (video, unknown).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackBadge {
+    pub stack_size: u16,
+    pub raw_kind: Option<String>,
+}
+
+/// Un [`Asset`] con il suo [`StackBadge`]: usato dove la vista di browse
+/// mostra solo il primario di ogni pila (timeline, ricerca — Task 3).
+/// Il `Deref` verso `Asset` lascia inalterato il codice che legge solo i
+/// campi dell'asset (id, `taken_at_utc`, cursori, …).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetWithStack {
+    pub asset: Asset,
+    pub stack: StackBadge,
+}
+
+impl std::ops::Deref for AssetWithStack {
+    type Target = Asset;
+
+    fn deref(&self) -> &Asset {
+        &self.asset
+    }
+}
+
+/// `LEFT JOIN` che porta il primario dello stack (per filtrare) di ogni
+/// riga `assets a`. Da solo (senza [`STACK_BADGE_JOIN_SQL`]) per le query
+/// che devono solo escludere i non-primari senza mostrare il badge
+/// (geometria): un join in meno da pianificare.
+pub(crate) const STACK_PRIMARY_JOIN_SQL: &str = "LEFT JOIN stacks s ON s.id = a.stack_id";
+
+/// Riga esclusa se è un membro non-primario di uno stack. Richiede
+/// [`STACK_PRIMARY_JOIN_SQL`] (o [`STACK_BADGE_JOIN_SQL`], che lo include)
+/// nella query.
+pub(crate) const STACK_PRIMARY_ONLY_SQL: &str = "(a.stack_id IS NULL OR a.id = s.primary_asset_id)";
+
+/// Come [`STACK_PRIMARY_JOIN_SQL`], più un aggregato laterale sui membri
+/// dello stack per calcolare `stack_size`/`raw_kind` — eseguito solo per le
+/// righe che superano `WHERE`/`LIMIT` (non per ogni candidato), quindi il
+/// costo resta legato al numero di tessere restituite, non alla scansione.
+pub(crate) const STACK_BADGE_JOIN_SQL: &str = "LEFT JOIN stacks s ON s.id = a.stack_id \
+     LEFT JOIN LATERAL ( \
+         SELECT count(*)::int2 AS stack_size, \
+                CASE WHEN bool_or(m.kind = 'raw_image') AND bool_or(m.kind = 'image') \
+                     THEN 'raw+jpeg' \
+                     WHEN bool_or(m.kind = 'raw_image') THEN 'raw' \
+                     WHEN bool_or(m.kind = 'image') THEN 'jpeg' \
+                     ELSE NULL END AS raw_kind \
+           FROM assets m WHERE m.stack_id = a.stack_id \
+     ) si ON a.stack_id IS NOT NULL";
+
+/// Colonne aggiuntive da affiancare ad [`A_COLUMNS`] per ottenere
+/// `stack_size`/`raw_kind` nella stessa riga. Un asset non impilato deriva
+/// il badge dal proprio `kind` (nessun aggregato da leggere); uno impilato
+/// legge l'aggregato calcolato da [`STACK_BADGE_JOIN_SQL`].
+pub(crate) const STACK_BADGE_COLUMNS_SQL: &str = "CASE WHEN a.stack_id IS NULL THEN 1::int2 ELSE si.stack_size END AS stack_size, \
+     CASE WHEN a.stack_id IS NULL THEN \
+         CASE a.kind WHEN 'raw_image' THEN 'raw' WHEN 'image' THEN 'jpeg' ELSE NULL END \
+     ELSE si.raw_kind END AS raw_kind";
+
+/// Riga grezza di una query `{A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL}`: stesso
+/// pattern di `AlbumAssetRow` in `albums.rs` — un secondo tipo con tutti i
+/// campi di `AssetRow` più le colonne extra, convertito passando per
+/// `AssetRow::from_raw` perché i campi di `AssetRow` sono privati al modulo
+/// `assets`.
+#[derive(sqlx::FromRow)]
+pub(crate) struct AssetStackRow {
+    id: Uuid,
+    folder_id: Uuid,
+    filename: String,
+    content_hash: Option<Vec<u8>>,
+    size_bytes: i64,
+    mtime: DateTime<Utc>,
+    inode: Option<i64>,
+    kind: String,
+    status: String,
+    taken_at_utc: Option<DateTime<Utc>>,
+    width: Option<i32>,
+    height: Option<i32>,
+    thumbhash: Option<Vec<u8>>,
+    created_at: DateTime<Utc>,
+    stack_size: i16,
+    raw_kind: Option<String>,
+}
+
+impl AssetStackRow {
+    pub(crate) fn into_domain(self) -> Result<AssetWithStack, DbError> {
+        let stack_size = u16::try_from(self.stack_size).unwrap_or(1).max(1);
+        let raw_kind = self.raw_kind;
+        let asset = AssetRow::from_raw(
+            self.id,
+            self.folder_id,
+            self.filename,
+            self.content_hash,
+            self.size_bytes,
+            self.mtime,
+            self.inode,
+            self.kind,
+            self.status,
+            self.taken_at_utc,
+            self.width,
+            self.height,
+            self.thumbhash,
+            self.created_at,
+        )
+        .into_domain()?;
+        Ok(AssetWithStack {
+            asset,
+            stack: StackBadge {
+                stack_size,
+                raw_kind,
+            },
+        })
+    }
+}
 
 pub struct StackRepo<'a> {
     db: &'a Db,

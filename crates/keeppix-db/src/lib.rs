@@ -74,7 +74,7 @@ pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
 pub use sessions::SessionRepo;
 pub use settings::SettingsRepo;
 pub use share_links::{NewShareLink, ShareLinkRepo, ShareLinkRow};
-pub use stacks::{StackDetails, StackMember, StackRepo};
+pub use stacks::{AssetWithStack, StackBadge, StackDetails, StackMember, StackRepo};
 pub use timeline::{Geometry, GeometryRecord, GeometryStamp, MonthBucket, TimelineRepo};
 pub use totp::{TotpConfirmed, TotpRepo, TotpSetup, TotpStatus};
 pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
