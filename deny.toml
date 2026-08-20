@@ -1,5 +1,13 @@
 [advisories]
 yanked = "deny"
+# age 0.11 → i18n-embed-fl → proc-macro-error2 (unmaintained, RUSTSEC-2026-0173).
+# age 0.12 drops that crate but currently fails to compile (ml-kem 0.2.1 vs
+# crypto-common dual versions). The advisory is build-time-only for age's
+# fluent macros — not reachable at runtime in keeppix. Revisit when age 0.12
+# (or a patched ml-kem) builds cleanly.
+ignore = [
+    { id = "RUSTSEC-2026-0173", reason = "transitive build-only via age 0.11; age 0.12 does not compile yet (ml-kem)" },
+]
 
 [licenses]
 allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause",

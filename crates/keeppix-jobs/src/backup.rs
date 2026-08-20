@@ -396,6 +396,9 @@ fn verify_kpxb(path: &Path, passphrase: &str) -> Result<(), JobError> {
 }
 
 fn ensure_destination_space(dest: &BackupDestination, size: i64) -> Result<(), JobError> {
+    // Local only: remote kinds (S3/WebDAV/SFTP) have no portable free-space
+    // probe — quotas are provider-specific and often invisible until PUT fails.
+    // Upload errors surface as JobError::Worker; do not pretend we checked.
     if dest.kind != BackupKind::Local {
         return Ok(());
     }
