@@ -252,7 +252,11 @@ async fn batch_set_applies_the_same_flags_to_every_asset() {
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), 204);
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["succeeded"].as_array().unwrap().len(), 2);
+    assert!(body["failed"].as_array().unwrap().is_empty());
+    assert!(body["batch_id"].is_null());
 
     for asset in [a, b] {
         let flags: serde_json::Value = server
@@ -269,4 +273,113 @@ async fn batch_set_applies_the_same_flags_to_every_asset() {
     }
 
     let _ = fs::remove_dir_all(&root);
+}
+
+/// Spec §3: un lotto misto non è tutto-o-niente — l'asset visibile riesce,
+/// quello altrui finisce in `failed` con `permission-denied`, HTTP 200.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn flags_batch_reports_partial_success_when_one_asset_is_foreign() {
+    let server = TestServer::start().await;
+    let admin = setup_admin(&server).await;
+    let admin_root = temp_root();
+    let admin_folder = ensure_folder(&server, admin, &admin_root).await;
+    let foreign = seed_asset(&server, admin_folder, &admin_root, "private.jpg").await;
+
+    let mario = keeppix_db::UserRepo::new(&server.db)
+        .create(
+            &AuthContext::user(admin, SystemRole::Admin),
+            keeppix_domain::NewUser {
+                username: keeppix_domain::Username::parse("mario").unwrap(),
+                email: None,
+                display_name: "Mario".to_owned(),
+                password_hash: keeppix_domain::hash_password(
+                    &keeppix_domain::Password::parse("correct horse battery staple").unwrap(),
+                )
+                .unwrap()
+                .as_str()
+                .to_owned(),
+                role: SystemRole::User,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    let mario_root =
+        std::env::temp_dir().join(format!("keeppix-api-flags-mario-{}", uuid::Uuid::now_v7()));
+    fs::create_dir_all(&mario_root).unwrap();
+    let mario_folder = {
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let library = LibraryRepo::new(&server.db)
+            .create(
+                &ctx,
+                NewLibrary {
+                    name: "Mario".to_owned(),
+                    owner_id: mario,
+                    root_path: mario_root.clone(),
+                    exclude_patterns: vec![],
+                },
+            )
+            .await
+            .unwrap()
+            .id;
+        fs::create_dir_all(mario_root.join("2024")).unwrap();
+        FolderRepo::new(&server.db)
+            .ensure_path(library, &["2024"])
+            .await
+            .unwrap()
+            .id
+    };
+    let mine = seed_asset(&server, mario_folder, &mario_root, "mine.jpg").await;
+
+    let mario_client = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(harness::client_headers())
+        .build()
+        .unwrap();
+    let login = mario_client
+        .post(server.url("/api/v1/auth/login"))
+        .json(&json!({ "username": "mario", "password": "correct horse battery staple" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200);
+
+    let response = mario_client
+        .post(server.url("/api/v1/flags/batch"))
+        .json(&json!({
+            "asset_ids": [mine.to_string(), foreign.to_string()],
+            "rating": 5,
+            "pick": "pick",
+            "color_label": null
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "partial success is still HTTP 200");
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(
+        body["succeeded"],
+        json!([mine.to_string()]),
+        "only the visible asset must succeed"
+    );
+    let failed = body["failed"].as_array().expect("failed array");
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["id"], foreign.to_string());
+    assert_eq!(failed[0]["reason"], "permission-denied");
+    assert!(body["batch_id"].is_null());
+
+    let mine_flags: serde_json::Value = mario_client
+        .get(server.url(&format!("/api/v1/assets/{mine}/flags")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(mine_flags["rating"], 5);
+    assert_eq!(mine_flags["pick"], "pick");
+
+    let _ = fs::remove_dir_all(&admin_root);
+    let _ = fs::remove_dir_all(&mario_root);
 }
