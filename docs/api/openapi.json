@@ -1951,6 +1951,64 @@
         ]
       }
     },
+    "/api/v1/libraries/{id}/probe": {
+      "post": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Retry reaching a library's root path",
+        "description": "# Errors\nVisibilità come `get`.",
+        "operationId": "libraries_probe",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Esito della verifica",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/libraries/{id}/scan": {
       "get": {
         "tags": [
