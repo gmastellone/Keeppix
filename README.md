@@ -13,7 +13,8 @@
 <p align="center">
   <a href="https://github.com/gmastellone/Keeppix/actions/workflows/ci.yml"><img src="https://github.com/gmastellone/Keeppix/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg" alt="License: AGPL v3"></a>
-  <img src="https://img.shields.io/badge/hardware-Raspberry%20Pi%205%20%2F%208GB-c51a4a.svg" alt="Runs on Raspberry Pi 5">
+  <img src="https://img.shields.io/badge/hardware%20bar-Raspberry%20Pi%205%20%2F%208GB-c51a4a.svg" alt="Hardware bar: Raspberry Pi 5">
+  <img src="https://img.shields.io/badge/arch-amd64%20%7C%20arm64-informational.svg" alt="amd64 and arm64">
   <img src="https://img.shields.io/badge/backend-Rust-orange.svg" alt="Rust">
   <img src="https://img.shields.io/badge/frontend-Vue%203-42b883.svg" alt="Vue 3">
 </p>
@@ -28,10 +29,11 @@ files get treated as an afterthought, videos need a beefy transcoding box, and "
 "still calls a tile server."
 
 Keeppix is built the other way around: **a Raspberry Pi 5 with 8 GB of RAM is the hardware bar,
-not the minimum you apologize for.** A RAW and its JPEG sibling are one photograph, not two files
-competing for a spot in your library. Maps work with the network cable pulled out. And when AI
-tags your photos, it never invents a category you didn't ask for — it only ever matches against
-tags *you* created.
+not the minimum you apologize for.** That's the floor, not the only target — the same image runs
+just as well on an x86 mini-PC or a full server; if it stays smooth on a Pi, it has room to spare
+everywhere else. A RAW and its JPEG sibling are one photograph, not two files competing for a spot
+in your library. Maps work with the network cable pulled out. And when AI tags your photos, it
+never invents a category you didn't ask for — it only ever matches against tags *you* created.
 
 It's for the family that wants to hand their parents a URL instead of a Google Photos login, and
 for the photographer who needs the RAWs to stay put, get culled fast, and be handed to a client
@@ -103,7 +105,7 @@ rewriting the UI three times.
 | Database | PostgreSQL 17 + PostGIS 3.5 (pgvector joins the same instance for AI — no second database) |
 | Frontend | Vue 3, TypeScript, Vite, Tailwind v4, Reka UI |
 | Media | LibRaw, `zune-jpeg`, WebP derivatives at ~0.4% of original size |
-| Delivery | Single distroless, non-root, shell-less container image |
+| Delivery | Single distroless, non-root, shell-less container image — built for `linux/amd64` and `linux/arm64` |
 | License | AGPL-3.0-or-later, commercial licensing available (see below) |
 
 Crates: `keeppix-domain`, `keeppix-db` (the *only* one allowed to touch SQL), `keeppix-media`
