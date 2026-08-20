@@ -290,3 +290,85 @@ due campi additivi di `AssetView`). `cargo fmt --check` e `cargo clippy
 `./scripts/test.sh` completo **non eseguito** (stesso motivo del Task 2:
 costerebbe l'intera suite); eseguiti invece tutti i test toccati dal task
 più le due prove di scala a 200k, con `EXPLAIN` alla mano.
+
+## Task 4 — Eliminazione di massa a tre vie
+
+Ruling: `TrashRepo::choose` è stato scomposto in una funzione libera
+`authorize_choose` (visibilità + editor/owner-admin + risoluzione di
+`asset`/`library`/`folder_abs`) più il corpo che scrive. `choose` la chiama e
+basta; il nuovo `TrashRepo::assert_batch_purge_authorized` la richiama in un
+ciclo su tutti gli id del lotto con `DiskAction::Purged`, **senza** eseguire
+mai la parte che scrive. Questo è il modo in cui `purged` diventa
+all-or-nothing solo sull'autorizzazione: `POST /assets/batch/delete` chiama
+`assert_batch_purge_authorized` (che fallisce sul primo id non autorizzato,
+prima di toccare qualunque file) solo quando `disk_action == purged`, poi
+itera `choose` per elemento esattamente come per `kept`/`moved_to_trash` —
+nessuna logica di cancellazione duplicata, il brief lo chiedeva
+esplicitamente. — *Costo se sbagliato:* nessuno osservato; è un refactor a
+comportamento osservabile identico per il percorso singolo (`DELETE
+/assets/{id}`), coperto dagli stessi test di trash.rs (db) che erano già
+verdi prima del task.
+
+Ruling: il lotto per `kept`/`moved_to_trash` resta a riuscita parziale
+per-id (come Task 1): ogni `choose` gira per conto suo e un fallimento
+(Forbidden, file mancante, permessi) finisce in `failed` via
+`BulkOutcome::from_partition`, senza bloccare gli altri id. Solo `purged` ha
+il doppio cancello (autorizzazione tutto-o-niente, poi esecuzione per
+elemento) — il brief lo chiede solo per `purged`, e alzarlo anche per le
+altre due opzioni contraddirebbe l'invariante "ogni file deve poter
+riportare il proprio esito" già stabilito per `choose`. — *Costo se
+sbagliato:* nessuno nel dominio del brief.
+
+Task 4: complete (commit successivo a questa voce). Test nuovi verdi:
+`keeppix-api` trash.rs 6/6 (3 nuovi: rifiuto dell'intero lotto `purged` per
+un editor non owner con i file intatti; successo parziale su file già
+assente con `moved_to_trash` — `purged` è tollerante ai file mancanti, quindi
+la prova RED/GREEN usa `moved_to_trash`, che non lo è; successo parziale su
+cartella di cestino in sola lettura con `chmod`, mappato a
+`permission-denied`). Tutti RED prima dell'implementazione (404, la rotta
+non esisteva), GREEN dopo. Test preesistenti ancora verdi dopo il refactor
+di `choose`: `keeppix-db` trash.rs 12/12, duplicates.rs 8/8 (usa `choose` in
+loop in `DuplicateRepo::resolve`), permissions.rs 17/17; `keeppix-api`
+duplicates.rs 4/4, metadata.rs 8/8, openapi.rs 7/7 (snapshot rigenerato con
+`UPDATE_OPENAPI=1`, elenchi `operationId`/`security`/conteggio operazioni
+aggiornati da 82 a 83 per `assets_batch_delete`). `cargo fmt --check` e
+`cargo clippy --workspace --all-targets -- -D warnings` verdi su tutto il
+workspace. `./scripts/test.sh` completo **non eseguito** (stesso motivo dei
+Task 2/3): eseguiti i test toccati dal task più i moduli con dipendenza
+diretta su `TrashRepo::choose`/`parse_action`.
+
+### Verifica richiesta dal brief: «nessuna posizione» come valore
+
+Difetto confermato, **deferito** (fuori dai file di questo task):
+`OverrideRepo::effective` calcola `location` con
+`COALESCE(o.location, a.location)`. Un override azzerato esplicitamente
+(l'utente ha scelto "questa foto non ha un luogo", `asset_overrides.location
+= NULL` con la riga presente) produce lo stesso `NULL` SQL di "nessuna riga
+di override mai scritta" — `COALESCE` non li distingue, quindi la posizione
+exif dell'asset torna a "vincere" anche dopo l'azzeramento esplicito. Non è
+una sottigliezza teorica: verificato con un test end-to-end contro Postgres
+reale (`crates/keeppix-db/tests/overrides.rs`,
+`effective_location_after_an_explicit_clear_does_not_fall_back_to_the_exif_value`),
+osservato RED (`Some(GeoPoint { lat: 41.9, lon: 12.5 })` invece di `None`)
+prima di marcarlo `#[ignore]` con la spiegazione — non `#[allow]` su
+un'asserzione sbagliata: il corpo resta il comportamento *corretto*
+desiderato, così chi lo risolve lo riattiva togliendo l'attributo. La stessa
+ambiguità vale, per costruzione identica, anche per `taken_at` e `place_id`
+(entrambi letti con lo stesso `COALESCE`); il brief chiedeva solo di
+verificare `location`, quindi non ho aperto il test per gli altri due, ma il
+difetto è lo stesso.
+
+**Perché non risolto qui**: un fix corretto richiede di distinguere "riga di
+override con quel campo esplicitamente `NULL`" da "riga assente/campo non
+toccato" — oggi impossibile perché entrambi gli stati collassano sullo stesso
+`NULL` in colonna. Serve una nuova colonna/sentinella per campo (o un
+formato diverso di `asset_overrides`), che tocca `apply_patch`,
+`load_previous`/`restore_previous` (l'annullamento dei batch) e
+`sidecar_source`, non solo `effective` — un cambiamento di modello dati più
+grande del batch delete di questo task, e farlo solo per `location` senza
+`taken_at`/`place_id` lascerebbe il contratto `COALESCE` incoerente a metà.
+— *Costo se lasciato com'è:* un utente che nega esplicitamente il luogo di
+una foto (GPS del telefono sbagliato, foto scannerizzata con exif fantasma)
+la rivede comunque geolocalizzata finché non arriva un fix dedicato; nessun
+rischio di sicurezza (nessuna esposizione di dati a chi non dovrebbe vederli,
+solo un valore mostrato che l'utente aveva chiesto di azzerare).
