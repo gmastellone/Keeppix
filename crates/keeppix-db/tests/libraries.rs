@@ -209,6 +209,73 @@ async fn storage_for_someone_elses_library_is_forbidden_not_not_found() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn probing_an_unreachable_root_path_marks_the_library_offline() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let repo = LibraryRepo::new(test.db());
+
+    let missing_root =
+        std::env::temp_dir().join(format!("kpx-probe-missing-{}", uuid::Uuid::now_v7()));
+    let library = repo
+        .create(
+            &ctx,
+            new_library("Rete", missing_root.to_str().unwrap(), admin),
+        )
+        .await
+        .unwrap();
+
+    let probed = repo.probe(&ctx, library.id).await.unwrap();
+    assert_eq!(probed.status, LibraryStatus::Offline);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn probing_a_reachable_root_path_brings_an_offline_library_back_active() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let repo = LibraryRepo::new(test.db());
+    let root = std::env::temp_dir().join(format!("kpx-probe-ok-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+
+    let library = repo
+        .create(&ctx, new_library("Locale", root.to_str().unwrap(), admin))
+        .await
+        .unwrap();
+    repo.set_status(&ctx, library.id, LibraryStatus::Offline)
+        .await
+        .unwrap();
+
+    let probed = repo.probe(&ctx, library.id).await.unwrap();
+    assert_eq!(probed.status, LibraryStatus::Active);
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn probing_someone_elses_library_is_forbidden_not_not_found() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
+    let repo = LibraryRepo::new(test.db());
+
+    let mine = repo
+        .create(&admin_ctx, new_library("Admin", "/tmp", admin))
+        .await
+        .unwrap();
+
+    let mario_ctx = AuthContext::user(mario, SystemRole::User);
+    assert!(matches!(
+        repo.probe(&mario_ctx, mine.id).await,
+        Err(DbError::Forbidden)
+    ));
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn mark_scanned_records_the_time() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
