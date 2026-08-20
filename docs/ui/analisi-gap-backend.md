@@ -348,3 +348,35 @@ La Parte XII ne elenca una trentina. Quelli con conseguenze sul backend:
 - **L'anno è fisso a "2026"** nelle intestazioni: va derivato dai dati.
 - **`"1 fota rinominata"`, `"3 fote"`** — la flessione automatica sbaglia: "foto" è invariabile.
   Riguarda i messaggi che il backend produrrà (Fase 10, Task 13).
+
+## 12. Tre finezze trovate nei sottotitoli di dettaglio
+
+Emerse dal setaccio dei sottotitoli 2-8, non dalle sezioni *"Dati necessari"*.
+
+### 12.1 Il chip «Luogo» del filtro rapido **non filtra per luogo**
+Il documento lo dichiara: *«l'etichetta dice "Luogo" ma i valori sono le cartelle e il confronto
+è su `p.folderId`. Nel mockup le tre cartelle coincidono con tre luoghi, quindi la finzione
+regge; nel prodotto reale sono due concetti diversi.»*
+
+→ Serve una variante **`Place { id }`** di `SearchNode`, distinta da `Folder`. I luoghi
+esistono già (`places`, geocodifica inversa della Fase 4): manca l'asse di filtro.
+
+### 12.2 «Nessuna posizione» è un valore, non un'assenza — ✅ già gestito
+Il documento avverte: *«valore speciale "nessuna" → nessun luogo, **anche se la cartella ne
+avrebbe uno**»*. È un tri-stato: non impostata (eredita dalla cartella) / impostata / **negata
+esplicitamente**.
+
+Il backend lo regge già: `MetadataPatchRequest` usa `double_option`
+(`Option<Option<GeoPointView>>`), dove assente = non toccare, `Some(None)` = azzera
+esplicitamente, `Some(Some(x))` = imposta. È esattamente il pattern giusto.
+**Da verificare** che `EffectiveMetadata` faccia vincere l'azzeramento esplicito sull'eredità
+della cartella, e non lo confonda con "non impostata".
+
+### 12.3 L'eliminazione dal disco **può fallire**, e il prototipo non lo prevede
+Il documento lo marca come *«il buco più rilevante per il backend»*: l'opzione
+`"Elimina dal disco adesso"` può fallire per permessi, file in uso o libreria offline, e il
+prototipo assume che riesca sempre.
+
+→ È coperto dalla tassonomia (Fase 10 §7) e dall'involucro di riuscita parziale (§3), ma va
+detto esplicitamente: **il dialog più distruttivo dell'app è anche quello che ha più modi di
+non riuscire**, e l'interfaccia deve saperlo dire per ogni file.

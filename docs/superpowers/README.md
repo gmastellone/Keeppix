@@ -88,7 +88,8 @@ Tre file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 
 | [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ⬜ **in lavorazione** — upload tus riprendibile, WebDAV, app-password |
 | [`plans/2026-08-19-keeppix-fase-6.md`](plans/2026-08-19-keeppix-fase-6.md) | ⬜ scritto, in attesa che la Fase 5 chiuda |
 | [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ⬜ scritto — 10 task, va **prima** di 7/8/9 perché ne fissa le convenzioni |
-| Fase 7, 8, 9, 11 | spec scritte; piani da scrivere, uno alla volta |
+| [`plans/2026-08-20-keeppix-fase-11.md`](plans/2026-08-20-keeppix-fase-11.md) | ⬜ scritto — 17 task in quattro tranche che seguono le fasi da cui dipendono |
+| Fase 7, 8, 9 | spec scritte; piani da scrivere, uno alla volta |
 
 ## Consegne
 
