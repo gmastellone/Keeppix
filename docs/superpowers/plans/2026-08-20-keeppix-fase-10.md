@@ -615,7 +615,49 @@ momento in cui un utente decide se tenerlo.
 
 ---
 
-## Task 22 — Chiudere l'OpenAPI e i client generati
+## Task 22 — La pipeline di derivati sa decodificare solo JPEG: chiuderlo
+
+**Debito trovato il 20 agosto 2026 su codice già in produzione (Fase 1b/2), non su una
+fase futura.** `crates/keeppix-media/src/kind.rs::detect_kind` classifica correttamente
+JPEG, PNG, GIF, WebP, TIFF (non-camera) e HEIC/HEIF/AVIF come `AssetKind::Image` — ma
+`crates/keeppix-media/src/derive.rs::derive_from_bytes` chiama **solo**
+`zune_jpeg::JpegDecoder`. Un TIFF, PNG, WebP-sorgente o HEIF importato oggi viene accettato
+in libreria e poi **fallisce a generare miniatura e preview** (`DeriveError::Decode`),
+verificato leggendo il codice, non ipotizzato.
+
+**Contesto che rende questo task più urgente, non meno**: dopo la decisione del 20 agosto
+sul Culling (`fase-7-ai-tag-scene.md` §B), i RAW entrano in Keeppix **solo** attraverso il
+Culling — mai importati direttamente in libreria. Chi vuole una foto "normale" in libreria
+la carica lei, e quella foto è quasi sempre uno di questi formati non-JPEG, non un RAW.
+Senza questo fix, "carica foto normali" funziona bene solo per chi esporta sempre in JPEG.
+
+1. **PNG**: crate `png` (o `image` con la sola feature PNG) — puro Rust, nessuna dipendenza
+   C nuova.
+2. **TIFF**: crate `tiff` — stesso decoder usato internamente da `image`-rs, puro Rust.
+3. **WebP sorgente**: la libreria `webp` (già dipendenza, usata oggi solo per scrivere) sa
+   anche leggere — verificare se serve solo collegarla nel dispatch o se manca un percorso.
+4. **HEIF 8 e 10 bit**: `libheif-rs` (binding a `libheif`) — **l'unica vera dipendenza C
+   nuova**, stessa categoria di LibRaw (già accettata nel progetto). Verificare esplicitamente
+   che il build di libheif scelto supporti il 10 bit: non è garantito su tutte le
+   distribuzioni pacchettizzate, e va confermato prima di dichiararlo supportato.
+
+**Ruling: i nuovi decoder passano dallo stesso sandbox degli altri, non ne sono esenti.** —
+`libheif`/HEVC hanno una storia reale di vulnerabilità nei parser su input non fidato: è
+esattamente la classe di rischio per cui LibRaw e ffmpeg già girano dentro
+`crates/keeppix-media/src/sandbox.rs` (`RLIMIT_AS`/`RLIMIT_CPU`). Un decoder nuovo che
+processa file caricati da chiunque abbia accesso alla libreria non è meno pericoloso di un
+RAW o un video — è più pericoloso: HEIF è il formato con la storia di CVE più recente dei
+quattro. — *Costo se sbagliato:* un decoder fuori sandbox è il prossimo
+`RLIMIT_AS`-troppo-basso della situazione, scoperto in produzione invece che in test.
+
+**Verifica:** un file di prova per formato (incluso un HEIF 10 bit reale, non sintetico) che
+produce miniatura e preview corrette; un test che un file malformato di ciascun formato fa
+fallire il job in modo pulito (nessun crash, nessun processo orfano) invece di bloccare la
+coda.
+
+---
+
+## Task 23 — Chiudere l'OpenAPI e i client generati
 
 1. Annotare con `utoipa` gli otto gruppi oggi assenti dallo spec generato: `albums`,
    `share`, `groups`, `permissions`, `audit`, `backup`, `restore`, `upload`,

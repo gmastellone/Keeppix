@@ -172,4 +172,4 @@ tutti i `width`/`height`. — *Costo se sbagliato:* stamp e body divergono
 se i filtri differiscono; i test di uguaglianza stamp↔geometry lo
 bloccano.
 
-Task 2 review fix: complete (commit pending, tests green)
+Task 2 review fix: complete (commit 38063f6, tests green)
