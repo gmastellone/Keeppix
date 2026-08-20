@@ -120,6 +120,7 @@ pub struct RunView {
     path = "/api/v1/backup/preferences",
     tag = "backup",
     operation_id = "backup_preferences",
+    summary = "Get backup preferences",
     security(("session_cookie" = [])),
     responses((status = 200, body = BackupPreferencesView), (status = 403, body = Problem))
 )]
@@ -138,6 +139,7 @@ pub async fn get_preferences(
     path = "/api/v1/backup/preferences",
     tag = "backup",
     operation_id = "backup_preferences_put",
+    summary = "Update backup preferences",
     security(("session_cookie" = [])),
     request_body = BackupPreferencesPatch,
     responses((status = 200, body = BackupPreferencesView), (status = 403, body = Problem))

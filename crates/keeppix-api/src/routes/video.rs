@@ -46,6 +46,7 @@ struct ResolvedVideo {
     path = "/media/video/{id}/playback",
     tag = "media",
     operation_id = "media_video_playback",
+    summary = "Negotiate video playback",
     security(("session_cookie" = [])),
     params(
         ("id" = String, Path, description = "Asset id"),
@@ -129,6 +130,7 @@ pub async fn playback(
     path = "/media/video/{id}/hls/{file}",
     tag = "media",
     operation_id = "media_video_hls",
+    summary = "Serve an HLS playlist or segment",
     security(("session_cookie" = [])),
     params(
         ("id" = String, Path, description = "Asset id"),
@@ -189,6 +191,7 @@ pub async fn hls(
     path = "/media/video/{id}/poster",
     tag = "media",
     operation_id = "media_video_poster",
+    summary = "Serve a video poster frame",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Asset id")),
     responses(

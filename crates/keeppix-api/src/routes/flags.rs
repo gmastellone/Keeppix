@@ -63,6 +63,7 @@ pub struct BatchFlagsRequest {
     path = "/api/v1/assets/{id}/flags",
     tag = "flags",
     operation_id = "flags_get",
+    summary = "Get asset flags",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'asset")),
     responses(
@@ -88,6 +89,7 @@ pub async fn get(
     path = "/api/v1/assets/{id}/flags",
     tag = "flags",
     operation_id = "flags_set",
+    summary = "Set asset flags",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'asset")),
     request_body = AssetFlagsBody,
@@ -117,6 +119,7 @@ pub async fn set(
     path = "/api/v1/flags/batch",
     tag = "flags",
     operation_id = "flags_batch_set",
+    summary = "Set flags on multiple assets",
     security(("session_cookie" = [])),
     request_body = BatchFlagsRequest,
     responses(

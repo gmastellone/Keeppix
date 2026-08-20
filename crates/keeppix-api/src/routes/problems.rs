@@ -40,6 +40,7 @@ pub struct ProblemsView {
     path = "/api/v1/problems",
     tag = "library",
     operation_id = "problems_list",
+    summary = "List media problems",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Problemi visibili", body = ProblemsView),

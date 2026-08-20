@@ -48,6 +48,7 @@ pub struct AppPasswordView {
     path = "/api/v1/users/me/app-passwords",
     tag = "users",
     operation_id = "app_passwords_create",
+    summary = "Create an app password",
     security(("session_cookie" = [])),
     request_body = CreateAppPasswordRequest,
     responses(
@@ -84,6 +85,7 @@ pub async fn create(
     path = "/api/v1/users/me/app-passwords",
     tag = "users",
     operation_id = "app_passwords_list",
+    summary = "List app passwords",
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Elenco delle app-password non revocate", body = [AppPasswordView]),
@@ -120,6 +122,7 @@ pub async fn list(
     path = "/api/v1/users/me/app-passwords/{id}",
     tag = "users",
     operation_id = "app_passwords_revoke",
+    summary = "Revoke an app password",
     security(("session_cookie" = [])),
     params(("id" = String, Path, description = "Id dell'app-password")),
     responses(
