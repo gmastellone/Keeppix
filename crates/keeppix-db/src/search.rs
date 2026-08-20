@@ -26,27 +26,97 @@ pub enum IsoCmp {
     Eq,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// Niente `Eq`: `Aperture`/`Shutter` portano un `f32`, che non lo implementa.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum SearchNode {
-    And { args: Vec<SearchNode> },
-    Or { args: Vec<SearchNode> },
-    Not { arg: Box<SearchNode> },
-    Text { value: String },
-    Type { value: String },
-    Camera { value: String },
-    Lens { value: String },
-    Iso { cmp: IsoCmp, value: i32 },
-    Year { value: i32 },
-    Folder { id: uuid::Uuid },
+    And {
+        args: Vec<SearchNode>,
+    },
+    Or {
+        args: Vec<SearchNode>,
+    },
+    Not {
+        arg: Box<SearchNode>,
+    },
+    Text {
+        value: String,
+    },
+    Type {
+        value: String,
+    },
+    Camera {
+        value: String,
+    },
+    Lens {
+        value: String,
+    },
+    Iso {
+        cmp: IsoCmp,
+        value: i32,
+    },
+    Year {
+        value: i32,
+    },
+    Folder {
+        id: uuid::Uuid,
+    },
     HasGps,
+    /// Voto dell'utente che esegue la ricerca (spec §4.1, per-utente: il tuo
+    /// 5 stelle non è il 5 stelle di un altro). `IsoCmp` riusato: è lo stesso
+    /// confronto numerico di `Iso`, non un secondo enum per lo stesso scopo.
+    Rating {
+        cmp: IsoCmp,
+        value: i32,
+    },
+    /// Chip "Preferiti" (Task 6/Task 10): stesso schema per-utente di
+    /// `Rating`. La colonna `asset_flags.favorite` esiste da questo task
+    /// (migrazione 0037) — il resto del concetto (scrittura, `AssetView`,
+    /// `AssetFlags` di dominio) resta del Task 10, che la userà già pronta.
+    Favorite,
+    /// Intervallo esplicito, entrambi gli estremi inclusi.
+    DateRange {
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    },
+    /// Giorno del mese (1..=31), indipendente dal mese e dall'anno — la
+    /// controparte ricorrente di `Year`/`Month`.
+    Day {
+        value: i32,
+    },
+    /// Mese dell'anno (1..=12), indipendente dall'anno.
+    Month {
+        value: i32,
+    },
+    /// Paese via `assets.place_id → places.country_code`. **Non** è
+    /// `Folder`: nel prodotto reale cartella e luogo sono due concetti
+    /// diversi anche se nel prototipo coincidevano (spec fase-10 §6).
+    Country {
+        value: String,
+    },
+    Aperture {
+        cmp: IsoCmp,
+        value: f32,
+    },
+    /// Tempo di scatto in secondi (`1/125` → `0.008`): `asset_exif.exposure`
+    /// è testo EXIF grezzo, convertito a un numero nella query stessa.
+    Shutter {
+        cmp: IsoCmp,
+        value: f32,
+    },
+    /// Un luogo del catalogo `places` (Fase 4), non una cartella.
+    Place {
+        id: i64,
+    },
 }
 
 pub(crate) enum SearchBind {
     Text(String),
     I32(i32),
+    F32(f32),
     Uuid(uuid::Uuid),
     Ts(DateTime<Utc>),
+    I64(i64),
 }
 
 impl<'a> SearchRepo<'a> {
@@ -71,7 +141,13 @@ impl<'a> SearchRepo<'a> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let mut param = 4_usize;
-        let (clause, binds) = compile_for_sql(ast, &mut param, 0, "a.location")?;
+        let (clause, binds) = compile_for_sql(
+            ast,
+            &mut param,
+            0,
+            "a.location",
+            ctx.user_id().map(|u| u.as_uuid()),
+        )?;
         let time_p = next(&mut param);
         let id_p = next(&mut param);
         let limit_p = next(&mut param);
@@ -469,28 +545,54 @@ fn bind_one<'q>(
     match b {
         SearchBind::Text(s) => q.bind(s),
         SearchBind::I32(n) => q.bind(n),
+        SearchBind::F32(n) => q.bind(n),
         SearchBind::Uuid(u) => q.bind(u),
         SearchBind::Ts(t) => q.bind(t),
+        SearchBind::I64(n) => q.bind(n),
     }
 }
 
+/// `user_id` alimenta gli assi per-utente (`Rating`, `Favorite`): `None` per
+/// un `AuthContext` senza utente (link pubblico) fa fallire quei due nodi con
+/// `Forbidden` invece di produrre un confronto silenziosamente vuoto — non
+/// hanno senso senza un utente che vota.
 pub(crate) fn compile_for_sql(
     node: &SearchNode,
     param: &mut usize,
     depth: usize,
     gps_sql: &str,
+    user_id: Option<uuid::Uuid>,
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     if depth > 16 {
         return Err(DbError::Conflict("search too nested".to_owned()));
     }
     match node {
         SearchNode::And { args } if args.is_empty() => Ok(("TRUE".to_owned(), Vec::new())),
-        SearchNode::And { args } => join(args, " AND ", param, depth, gps_sql),
+        SearchNode::And { args } => join(args, " AND ", param, depth, gps_sql, user_id),
         SearchNode::Or { args } if args.is_empty() => Ok(("FALSE".to_owned(), Vec::new())),
-        SearchNode::Or { args } => join(args, " OR ", param, depth, gps_sql),
+        SearchNode::Or { args } => join(args, " OR ", param, depth, gps_sql, user_id),
         SearchNode::Not { arg } => {
-            let (inner, binds) = compile_for_sql(arg, param, depth + 1, gps_sql)?;
+            let (inner, binds) = compile_for_sql(arg, param, depth + 1, gps_sql, user_id)?;
             Ok((format!("NOT COALESCE(({inner}), FALSE)"), binds))
+        }
+        leaf => compile_leaf(leaf, param, gps_sql, user_id),
+    }
+}
+
+/// Ogni variante che non è un combinatore (`And`/`Or`/`Not`): non ricorre,
+/// quindi non ha bisogno di `depth` — separata da [`compile_for_sql`] solo
+/// per restare sotto il limite di righe per funzione di clippy. A sua volta
+/// delega gli assi nuovi del Task 6 a [`compile_search_axis`], per lo stesso
+/// motivo.
+fn compile_leaf(
+    node: &SearchNode,
+    param: &mut usize,
+    gps_sql: &str,
+    user_id: Option<uuid::Uuid>,
+) -> Result<(String, Vec<SearchBind>), DbError> {
+    match node {
+        SearchNode::And { .. } | SearchNode::Or { .. } | SearchNode::Not { .. } => {
+            unreachable!("i combinatori sono gestiti da compile_for_sql")
         }
         SearchNode::Text { value } => {
             let p = next(param);
@@ -523,13 +625,7 @@ pub(crate) fn compile_for_sql(
             ))
         }
         SearchNode::Iso { cmp, value } => {
-            let op = match cmp {
-                IsoCmp::Gt => ">",
-                IsoCmp::Gte => ">=",
-                IsoCmp::Lt => "<",
-                IsoCmp::Lte => "<=",
-                IsoCmp::Eq => "=",
-            };
+            let op = cmp_op(*cmp);
             let p = next(param);
             Ok((format!("e.iso {op} ${p}"), vec![SearchBind::I32(*value)]))
         }
@@ -559,7 +655,143 @@ pub(crate) fn compile_for_sql(
             ))
         }
         SearchNode::HasGps => Ok((format!("{gps_sql} IS NOT NULL"), Vec::new())),
+        axis => compile_search_axis(axis, param, user_id),
     }
+}
+
+/// Le nove varianti nuove del Task 6 (spec fase-10 §6): nessuna ricorre, e
+/// nessuna dipende da `gps_sql` — separate da [`compile_leaf`] solo per
+/// restare sotto il limite di righe per funzione di clippy.
+fn compile_search_axis(
+    node: &SearchNode,
+    param: &mut usize,
+    user_id: Option<uuid::Uuid>,
+) -> Result<(String, Vec<SearchBind>), DbError> {
+    match node {
+        SearchNode::And { .. }
+        | SearchNode::Or { .. }
+        | SearchNode::Not { .. }
+        | SearchNode::Text { .. }
+        | SearchNode::Type { .. }
+        | SearchNode::Camera { .. }
+        | SearchNode::Lens { .. }
+        | SearchNode::Iso { .. }
+        | SearchNode::Year { .. }
+        | SearchNode::Folder { .. }
+        | SearchNode::HasGps => unreachable!("gestite da compile_for_sql/compile_leaf"),
+        SearchNode::Rating { cmp, value } => {
+            let user = user_id.ok_or(DbError::Forbidden)?;
+            let op = cmp_op(*cmp);
+            let uid_p = next(param);
+            let val_p = next(param);
+            Ok((
+                format!(
+                    "EXISTS (SELECT 1 FROM asset_flags af \
+                     WHERE af.asset_id = a.id AND af.user_id = ${uid_p} \
+                       AND af.rating {op} ${val_p})"
+                ),
+                vec![SearchBind::Uuid(user), SearchBind::I32(*value)],
+            ))
+        }
+        SearchNode::Favorite => {
+            let user = user_id.ok_or(DbError::Forbidden)?;
+            let uid_p = next(param);
+            Ok((
+                format!(
+                    "EXISTS (SELECT 1 FROM asset_flags af \
+                     WHERE af.asset_id = a.id AND af.user_id = ${uid_p} AND af.favorite)"
+                ),
+                vec![SearchBind::Uuid(user)],
+            ))
+        }
+        SearchNode::DateRange { from, to } => {
+            let p1 = next(param);
+            let p2 = next(param);
+            Ok((
+                format!("a.taken_at_utc >= ${p1} AND a.taken_at_utc <= ${p2}"),
+                vec![SearchBind::Ts(*from), SearchBind::Ts(*to)],
+            ))
+        }
+        SearchNode::Day { value } => {
+            if !(1..=31).contains(value) {
+                return Err(DbError::Conflict("invalid day".to_owned()));
+            }
+            let p = next(param);
+            Ok((
+                format!("EXTRACT(DAY FROM a.taken_at_utc)::int = ${p}"),
+                vec![SearchBind::I32(*value)],
+            ))
+        }
+        SearchNode::Month { value } => {
+            if !(1..=12).contains(value) {
+                return Err(DbError::Conflict("invalid month".to_owned()));
+            }
+            let p = next(param);
+            Ok((
+                format!("EXTRACT(MONTH FROM a.taken_at_utc)::int = ${p}"),
+                vec![SearchBind::I32(*value)],
+            ))
+        }
+        SearchNode::Country { value } => {
+            let p = next(param);
+            Ok((
+                format!(
+                    "EXISTS (SELECT 1 FROM places p \
+                     WHERE p.id = a.place_id AND p.country_code = ${p})"
+                ),
+                vec![SearchBind::Text(value.to_uppercase())],
+            ))
+        }
+        SearchNode::Aperture { cmp, value } => {
+            let op = cmp_op(*cmp);
+            let p = next(param);
+            Ok((
+                format!("e.f_number {op} ${p}"),
+                vec![SearchBind::F32(*value)],
+            ))
+        }
+        SearchNode::Shutter { cmp, value } => {
+            let op = cmp_op(*cmp);
+            let p = next(param);
+            Ok((
+                format!("({}) {op} ${p}", shutter_seconds_sql("e")),
+                vec![SearchBind::F32(*value)],
+            ))
+        }
+        SearchNode::Place { id } => {
+            let p = next(param);
+            Ok((format!("a.place_id = ${p}"), vec![SearchBind::I64(*id)]))
+        }
+    }
+}
+
+fn cmp_op(cmp: IsoCmp) -> &'static str {
+    match cmp {
+        IsoCmp::Gt => ">",
+        IsoCmp::Gte => ">=",
+        IsoCmp::Lt => "<",
+        IsoCmp::Lte => "<=",
+        IsoCmp::Eq => "=",
+    }
+}
+
+/// Converte `asset_exif.exposure` (testo EXIF grezzo, `"1/125"` o `"2"`) in
+/// secondi. `NULL` per qualunque testo che non rispetti una delle due forme
+/// attese, invece di far fallire la query con un cast non valido — un EXIF
+/// scritto male resta cosmetico (nessun campo perso dal filtro), non un
+/// errore 500.
+fn shutter_seconds_sql(exif_alias: &str) -> String {
+    format!(
+        "CASE \
+           WHEN {exif_alias}.exposure ~ '^[0-9]+/[0-9]+$' \
+                AND split_part({exif_alias}.exposure, '/', 2) <> '0' \
+             THEN split_part({exif_alias}.exposure, '/', 1)::real \
+                  / split_part({exif_alias}.exposure, '/', 2)::real \
+           WHEN {exif_alias}.exposure ~ '^[0-9]+(\\.[0-9]+)?$' \
+             THEN {exif_alias}.exposure::real \
+           ELSE NULL \
+         END"
+    )
 }
 
 fn join(
@@ -568,11 +800,12 @@ fn join(
     param: &mut usize,
     depth: usize,
     gps_sql: &str,
+    user_id: Option<uuid::Uuid>,
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     let mut parts = Vec::new();
     let mut binds = Vec::new();
     for arg in args {
-        let (sql, b) = compile_for_sql(arg, param, depth + 1, gps_sql)?;
+        let (sql, b) = compile_for_sql(arg, param, depth + 1, gps_sql, user_id)?;
         parts.push(format!("({sql})"));
         binds.extend(b);
     }

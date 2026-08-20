@@ -329,6 +329,7 @@ impl<'a> GeoRepo<'a> {
                 &mut next_param,
                 0,
                 "COALESCE(o.location, a.location)",
+                ctx.user_id().map(|id| id.as_uuid()),
             )?,
             None => ("TRUE".to_owned(), Vec::new()),
         };
@@ -670,8 +671,10 @@ impl ClusterQuery<'_> {
             query = match bind {
                 SearchBind::Text(value) => query.bind(value),
                 SearchBind::I32(value) => query.bind(value),
+                SearchBind::F32(value) => query.bind(value),
                 SearchBind::Uuid(value) => query.bind(value),
                 SearchBind::Ts(value) => query.bind(value),
+                SearchBind::I64(value) => query.bind(value),
             };
         }
         query
