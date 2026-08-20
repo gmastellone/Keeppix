@@ -173,3 +173,12 @@ se i filtri differiscono; i test di uguaglianza stamp↔geometry lo
 bloccano.
 
 Task 2 review fix: complete (commit 38063f6, tests green)
+
+## Sync docs da main (a6c5ee1)
+
+Ruling: piano Fase 10 e PROSEGUI riallineati da `origin/main` — aggiunto
+**Task 22** (decodifica PNG/TIFF/WebP/HEIF; OpenAPI diventa Task 23). Le
+decisioni del 20 agosto sera su Culling/RAW/IA restano **Fase 7+**; in
+Fase 10 il Task 3 (stack in browse) resta come da piano. — *Costo se
+sbagliato:* chiudere la 10 senza Task 22 lascia "carica foto normali"
+rotto per tutto tranne JPEG.
