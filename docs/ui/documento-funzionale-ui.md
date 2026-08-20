@@ -1,3 +1,38 @@
+# ⚠️ Leggi prima: questo documento è stato emendato
+
+**Questo file è il disegno d'interfaccia come è stato consegnato il 20 agosto 2026, e non è
+stato riscritto.** Dopo la consegna sono state prese quattro decisioni che **cambiano cosa va
+costruito**. Dove questo documento e quelle decisioni divergono, **vincono le decisioni**.
+
+Le trovi in **[`costo-beneficio-funzioni.md`](costo-beneficio-funzioni.md)**, sezione
+*«Decisioni prese»*. In sintesi:
+
+| Cosa dice questo documento | Cosa si costruisce davvero |
+|---|---|
+| **Album dinamici**, con condizioni e operatore, membri ricalcolati da soli (§41, §42, §43) | **Non esistono.** Un album normale che ricorda il filtro con cui è nato, più un pulsante **«Aggiorna album»** |
+| **Conteggi esatti** accanto a ogni riga di ogni elenco (cartelle in §2 e §6, album in §41, link in §29, tag in §52, persone in §31) | **Tolti ovunque tranne il culling** (§14, §16), dove restano esatti |
+| Nessuna menzione di video | Il video **esiste** nel backend: una sola resa, solo in background o di notte, e non si tocca un video già riproducibile. Serve una tessera con badge di durata e uno stato «in preparazione» |
+| Registro di controllo | **Spento di default**, si accende col secondo utente |
+
+Altre due cose che questo documento non poteva sapere, decise dopo:
+
+- **L'IA non entra nel culling.** Analizza la libreria; i lotti sono un'area di transito.
+- **L'analisi legge la miniatura da 240 px**, mai l'originale.
+
+## L'ordine di precedenza, quando le fonti divergono
+
+1. **Le decisioni** in `costo-beneficio-funzioni.md` — su *cosa* costruire.
+2. **Il prototipo** `keeppix-mockup.html` — su *come si comporta* ciò che si costruisce
+   (interazioni, stati, durate). Attenzione: contiene anche le funzioni tagliate — ignorale.
+3. **Questo documento** — su *cosa mostra ogni schermata* e le **etichette esatte**.
+4. `analisi-gap-backend.md` — su *cosa il backend può davvero dare*.
+
+**Un'eccezione che vale ovunque:** l'accessibilità da tastiera del prototipo è dichiaratamente
+rotta (vedi la Parte XII, §2.3) e **non va replicata**. Su quello il prototipo non è fonte di
+verità: lo dice il documento stesso.
+
+---
+
 # Keeppix — Documento funzionale UI
 
 **Versione:** 1.0 — 20 agosto 2026
