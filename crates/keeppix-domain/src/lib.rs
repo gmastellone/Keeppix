@@ -28,7 +28,7 @@ pub use flags::{AssetFlags, Pick, Rating};
 pub use folder::{Folder, FolderPath};
 pub use geo::Place;
 pub use ids::{
-    AlbumId, AssetId, BatchId, FolderId, GroupId, LibraryId, StackId, TrashEntryId,
+    AlbumId, AssetId, BatchId, FolderId, GroupId, LibraryId, SessionId, StackId, TrashEntryId,
     UploadSessionId, UserId,
 };
 pub use job::{Job, JobKind, JobPriority, JobStatus};
