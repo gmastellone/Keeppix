@@ -247,6 +247,15 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/users/me/app-passwords/{id}",
             axum::routing::delete(routes::credentials::revoke),
         )
+        .route("/users/me/sessions", get(routes::sessions::list))
+        .route(
+            "/users/me/sessions/revoke-others",
+            axum::routing::post(routes::sessions::revoke_others),
+        )
+        .route(
+            "/users/me/sessions/{id}",
+            axum::routing::delete(routes::sessions::revoke),
+        )
         .route("/users/{id}", axum::routing::patch(routes::users::patch))
         .route(
             "/users/{id}/disable",
