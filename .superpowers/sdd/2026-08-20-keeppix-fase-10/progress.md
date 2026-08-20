@@ -73,4 +73,4 @@ Limit → Sort → Seq Scan on assets (Filter: status = 'indexed')
 `random_page_cost=1.1` — geometry stand-in: **stesso piano** (Seq Scan — indice
 covering non esiste ancora, Task 2).
 
-Task 1bis: complete (commit 376f030, tests green)
+Task 1bis: complete (commit 376f030 + ledger cbccdd0, tests green)
