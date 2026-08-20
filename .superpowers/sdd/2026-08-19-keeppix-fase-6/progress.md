@@ -46,3 +46,17 @@ Task 6: complete (commits 7f0f807..be8bdbc, review clean — `/sync/delta` REST)
 Task 9: complete (in progress commit range to be finalized in next commit; test
 openapi 6/6 verdi, client TypeScript buildato, package Swift validato via
 `swift package dump-package`)
+
+Ruling: il service worker offline resta deliberatamente piccolo: precache della
+shell (`/`, manifest, favicon, icone) + cache-first per `/media/thumb/*` e gli
+asset statici hashed, senza introdurre una seconda logica di sincronizzazione
+offline per le API `/api/v1`. Costo se sbagliato: offline limitato alla shell e
+alle miniature già viste, ma nessuna cache stantia di payload auth/metadata.
+
+Ruling: l'update del service worker non usa `skipWaiting()`: una nuova versione
+resta in waiting finché le tab vecchie non si chiudono, così non sostituisce in
+silenzio una shell durante upload o altre operazioni attive. Costo se sbagliato:
+l'utente vede l'update al riavvio della PWA invece che immediatamente.
+
+Task 10: complete (offline shell + cached thumbs + installable PNG icons;
+frontend build verde, `node --check public/sw.js`, manifest JSON valido)
