@@ -15,6 +15,7 @@ pub mod media;
 pub mod metadata;
 pub mod permissions;
 pub mod places;
+pub mod preferences;
 pub mod problems;
 pub mod regions;
 pub mod restore;

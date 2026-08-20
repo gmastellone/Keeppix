@@ -241,6 +241,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::put(routes::users::set_home).delete(routes::users::delete_home),
         )
         .route(
+            "/users/me/preferences",
+            get(routes::preferences::get).patch(routes::preferences::patch),
+        )
+        .route(
             "/users/me/app-passwords",
             axum::routing::post(routes::credentials::create).get(routes::credentials::list),
         )
