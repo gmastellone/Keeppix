@@ -127,10 +127,7 @@ async fn delta_http_overlapping_transactions_do_not_drop_rows() {
         .json::<serde_json::Value>()
         .await
         .expect("json");
-    let seen: Vec<String> = first_ids
-        .into_iter()
-        .chain(upserted_ids(&second))
-        .collect();
+    let seen: Vec<String> = first_ids.into_iter().chain(upserted_ids(&second)).collect();
     assert!(
         seen.contains(&id_a.to_string()),
         "A commits after B: HTTP cursor must not drop it (cursor={cursor}, seen={seen:?})"

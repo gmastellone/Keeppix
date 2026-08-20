@@ -252,8 +252,7 @@ async fn status_not_trashed_filter_explain_is_acceptable_without_rewriting() {
     // Sanity: both return the same cardinality class (no accidental full scan
     // explosion). Extract "rows=" from the top node loosely.
     assert!(
-        !ne.to_ascii_lowercase().contains("seq scan on assets")
-            || ne.contains("folder_id"),
+        !ne.to_ascii_lowercase().contains("seq scan on assets") || ne.contains("folder_id"),
         "unexpected seq scan shape for <> filter: {ne}"
     );
 }
