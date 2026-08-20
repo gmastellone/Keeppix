@@ -99,6 +99,28 @@ async fn performance_indexes_exist() {
 
 #[tokio::test]
 #[allow(clippy::expect_used)]
+async fn assets_autovacuum_scale_factor_is_aggressive() {
+    let test = TestDb::start().await;
+
+    let reloptions: Option<Vec<String>> = sqlx::query_scalar(
+        "SELECT c.reloptions FROM pg_class c \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = 'public' AND c.relname = 'assets'",
+    )
+    .fetch_one(test.db().pool())
+    .await
+    .expect("assets table");
+
+    let opts = reloptions.unwrap_or_default();
+    assert!(
+        opts.iter()
+            .any(|o| o == "autovacuum_vacuum_scale_factor=0.05"),
+        "assets must vacuum at 5% dead tuples, got {opts:?}"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::expect_used)]
 async fn usernames_are_unique_case_insensitively() {
     let test = TestDb::start().await;
     let pool = test.db().pool();
@@ -123,4 +145,85 @@ async fn usernames_are_unique_case_insensitively() {
         second.is_err(),
         "l'indice unico deve rifiutare il duplicato"
     );
+}
+
+/// Manual EXPLAIN capture for Task 1bis ledger (`--ignored --nocapture`).
+#[tokio::test]
+#[ignore = "ledger evidence: cargo test -p keeppix-db explain_guc -- --ignored --nocapture"]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn explain_guc_plans_for_ledger() {
+    use keeppix_db::{FolderRepo, LibraryRepo};
+    use keeppix_domain::{AuthContext, NewLibrary, SystemRole};
+
+    let test = TestDb::start().await;
+    let pool = test.db().pool();
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let library = LibraryRepo::new(test.db())
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Explain".to_owned(),
+                owner_id: admin,
+                root_path: std::path::PathBuf::from("/mnt/explain"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library.id, &["2015"])
+        .await
+        .unwrap();
+
+    sqlx::query("ALTER TABLE assets DISABLE TRIGGER assets_month_counts")
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, kind, status, \
+                            taken_at_utc, width, height) \
+         SELECT gen_random_uuid(), $1, 'IMG_' || lpad(g::text, 6, '0') || '.jpg', \
+                200000, timestamptz '2015-01-01' + make_interval(hours => g), \
+                'image', 'indexed', \
+                timestamptz '2015-01-01' + make_interval(hours => g), 4000, 3000 \
+           FROM generate_series(1, 15000) AS g",
+    )
+    .bind(folder.id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("ANALYZE assets").execute(pool).await.unwrap();
+
+    let timeline_sql = "SELECT a.id FROM assets a \
+        JOIN folders f ON f.id = a.folder_id \
+        WHERE a.status = 'indexed' AND a.kind <> 'unknown' \
+          AND a.taken_at_utc >= timestamptz '2015-06-01' \
+          AND a.taken_at_utc < timestamptz '2015-07-01' \
+        ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC LIMIT 200";
+    let geometry_sql = "SELECT folder_id, taken_at_utc, id, width, height FROM assets \
+        WHERE status = 'indexed' \
+        ORDER BY folder_id, taken_at_utc DESC, id DESC LIMIT 200";
+
+    for rpc in [4.0, 1.1] {
+        let set = format!("SET random_page_cost = {rpc}");
+        sqlx::query(&set).execute(pool).await.unwrap();
+        println!("\n=== random_page_cost={rpc} ===");
+        println!("-- timeline page");
+        for line in explain_lines(pool, timeline_sql).await {
+            println!("{line}");
+        }
+        println!("-- geometry stand-in");
+        for line in explain_lines(pool, geometry_sql).await {
+            println!("{line}");
+        }
+    }
+}
+
+async fn explain_lines(pool: &sqlx::PgPool, sql: &str) -> Vec<String> {
+    let explain = format!("EXPLAIN (FORMAT TEXT) {sql}");
+    sqlx::query_scalar::<_, String>(&explain)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
 }
