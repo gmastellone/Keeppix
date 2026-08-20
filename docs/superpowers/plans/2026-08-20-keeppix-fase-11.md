@@ -293,7 +293,8 @@ simulato le tessere montate restano sotto soglia; e una misura del tempo di layo
 Un task per blocco del documento, ognuno chiuso confrontando la schermata col prototipo aperto
 di fianco:
 
-- **Task 6** — Shell desktop e mobile, sidebar, topbar, menu account, pagina "Altro".
+- **Task 6** — Shell desktop e mobile, sidebar, topbar, menu account, pagina "Altro", **più
+  l'area di caricamento di nuove foto** (vedi sotto).
 - **Task 7** — Foto/Timeline (composizione finale), Preferiti, filtro rapido, selezione multipla,
   modifica in blocco.
 - **Task 8** — Lightbox, pannello informazioni, menu ⋯. Scorciatoie: `Esc` **a due livelli**
@@ -313,6 +314,56 @@ di fianco:
   è *«di sola lettura da tastiera»* nel prototipo: da rifare.
 - **Task 14** — Impostazioni e Profilo. **Nessun "Salva"** in nessuna pagina di preferenze
   (SP-23): ogni modifica è immediata. Unica eccezione: "Dati account" del Profilo.
+
+### Task 6, dettaglio — L'area di caricamento di nuove foto
+
+Aggiunta dopo la consegna del 20 agosto, disegnata e prototipata per intero. **Fonte di
+verità:** [`../../ui/caricamento-nuove-foto.md`](../../ui/caricamento-nuove-foto.md) — leggerlo
+prima di aprire il prototipo su questa parte, spiega il perché di ogni scelta, non solo il
+cosa.
+
+**Non è un problema di backend.** Verificato sul codice reale, non assunto: `POST /upload`
+accetta già `target_folder_id` (`crates/keeppix-api/src/routes/upload.rs:78`), e ogni upload
+risponde già con un esito preciso — `created` / `skipped_duplicate` / `renamed`
+(`CollisionOutcome`, stesso file) — non un generico riuscito/fallito. tus e WebDAV sono
+spediti dalla Fase 5. **Questo task è wiring del frontend**, non nuovo lavoro server: collegare
+`UploadPanel.vue` e `useUploadStore().addFiles(fileList, folderId)` (già scritti, già
+funzionanti) a comandi reali — oggi non lo sono, nessun `<input type="file">` e nessuna zona di
+trascinamento esistono nell'app vera.
+
+**Il vincolo che governa tutto il disegno**: in `frontend/src/stores/upload.ts`, `pump()`
+filtra `s.targetFolderId !== null` — una sessione senza cartella di destinazione non parte
+**mai**. Ogni schermata deve garantire che una destinazione sia nota, o rendere quel blocco
+visibile e risolvibile — non un caso limite da gestire a parte.
+
+Punti che il prototipo fissa e che **non vanno reinventati** in fase di implementazione:
+
+- **Tre porte d'ingresso**, mai un pulsante flottante: trascinamento su `#app` (desktop),
+  comando `Carica`/`Carica qui` nella topbar, `+` nell'header mobile (solo dove caricare ha
+  senso: Foto, Preferiti, Album, Libreria — mai Culling, mai Impostazioni).
+- **La destinazione si eredita dal contesto** quando possibile (dentro una cartella → quella
+  cartella); si chiede **solo** da "Tutte le foto", con un chip sempre visibile e modificabile.
+- **Il Culling rifiuta ogni rilascio** con un messaggio dedicato — è un'area separata con un suo
+  percorso di importazione, mai toccata da questo task.
+- **I RAW sono rifiutati sempre**, con rimando al Culling — l'elenco esatto delle estensioni è
+  in `caricamento-nuove-foto.md` §4 (include `dng`, trattato come RAW). Il rifiuto è parziale
+  quando l'utente trascina una cartella mista: i file validi partono, i RAW finiscono in un
+  blocco a parte con i nomi elencati e un pulsante `Apri Culling`.
+- **Sei stati per file** (in coda, in caricamento, in pausa, completato, saltato, errore), più
+  `IN PREPARAZIONE` per i video non ancora resi — stessa nozione di `PlaybackResponse.ready`
+  già usata altrove. Il duplicato (`skipped_duplicate`) è un esito legittimo con colore proprio,
+  **mai un errore, mai silenzioso**.
+- **A coda vuota, zero pixel**: niente striscia, niente pannello, niente area tratteggiata
+  permanente. A riposo si vede solo il comando in topbar (e il `+` su mobile).
+- **Accessibile da subito** — Tab su ogni comando, Invio/Spazio per attivare, Esc a due livelli
+  (menu destinazione poi pannello), `role="dialog"` sul pannello, `role="listbox"` sul menu
+  destinazione. Nessun comando disabilitato: la destinazione mancante è resa *visibile*, non un
+  pulsante spento.
+
+**Verifica:** un test che un upload senza cartella resti "in attesa di una destinazione" e non
+parta finché non gliene viene assegnata una; un test per ciascuno dei sei stati; un test che il
+Culling rifiuta ogni `drop`; un test che i RAW vengono sempre esclusi e mai fatti passare come
+immagini normali.
 
 ---
 

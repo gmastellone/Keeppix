@@ -67,7 +67,7 @@ e non codice da scrivere.
 
 ## Il documento funzionale dell'interfaccia
 
-Tre file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 11:
+Sei file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 11:
 
 | File | Cos'è |
 |---|---|
@@ -76,6 +76,7 @@ Tre file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 
 | [`../ui/brand-sheet.png`](../ui/brand-sheet.png) | il marchio |
 | [`../ui/analisi-gap-backend.md`](../ui/analisi-gap-backend.md) | il confronto punto per punto fra ciò che l'interfaccia chiede e ciò che il backend fa — matrice schermata per schermata, audit di query e indici, costo per schermata |
 | [`../ui/costo-beneficio-funzioni.md`](../ui/costo-beneficio-funzioni.md) | **quali funzioni non valgono il loro prezzo**, viste da architetto, analista e utente. Documento di decisione: cosa tagliare, cosa degradare, cosa tenere |
+| [`../ui/caricamento-nuove-foto.md`](../ui/caricamento-nuove-foto.md) | l'area di caricamento di foto e video dal browser (Task 6, Tranche B): le tre porte d'ingresso, la regola di destinazione, i sei stati della coda — aggiunta dopo la consegna del 20 agosto, prototipata e verificata |
 
 ## Piani
 

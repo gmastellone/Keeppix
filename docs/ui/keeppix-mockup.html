@@ -63,7 +63,14 @@ h1{font-size:28px;margin:0 0 14px;letter-spacing:-.01em;}
   --border:#ececec; --border-strong:#dcdcdc;
   --accent:#F2812E; --accent-text:#1a1005;
   --accent-tint:#FDE7D6; --accent-tint-strong:#FBDABE;
-  --danger:#CC4038; --danger-tint:#FBE4E2;
+  --danger:#CC4038; --danger-tint:#FBE4E2; --danger-border:#F0BDB8;
+  /* "riuscito solo in parte" non è né un successo né un errore: ha un colore proprio */
+  --warn:#A15C00; --warn-tint:#FDF0DC; --warn-border:#EFD4A8;
+  /* il toast è invertito rispetto al tema (fondo scuro su tema chiaro), quindi i suoi
+     filetti colorati non possono usare --danger/--warn: servono varianti che si leggano
+     sulla superficie invertita */
+  --toast-danger:#FF7A6E; --toast-warn:#FFB84D;
+  --skel-sheen:rgba(255,255,255,.9);
   --chip-bg:#f5f5f5; --chip-bg-hover:#ececec; --card-bg:#ffffff;
   --scrim:rgba(20,20,20,.72);
   --map-bg:linear-gradient(160deg,#eef3ea,#e4ece2 40%,#dbe7e0);
@@ -76,7 +83,10 @@ h1{font-size:28px;margin:0 0 14px;letter-spacing:-.01em;}
   --border:#1e1e1e; --border-strong:#2c2c2c;
   --accent:#FF9D52; --accent-text:#1a1005;
   --accent-tint:#2c1c0e; --accent-tint-strong:#3d2712;
-  --danger:#FF6B61; --danger-tint:#331411;
+  --danger:#FF6B61; --danger-tint:#331411; --danger-border:#5A2621;
+  --warn:#F0A23C; --warn-tint:#2E2110; --warn-border:#4A361A;
+  --toast-danger:#C6382F; --toast-warn:#A66200;
+  --skel-sheen:rgba(255,255,255,.06);
   --chip-bg:#141414; --chip-bg-hover:#1c1c1c; --card-bg:#0a0a0a;
   --scrim:rgba(0,0,0,.85);
   --map-bg:linear-gradient(160deg,#10151c,#0c1116 45%,#0a0f13);
@@ -146,7 +156,6 @@ h1{font-size:28px;margin:0 0 14px;letter-spacing:-.01em;}
 }
 .folder-item:hover{background:var(--chip-bg);color:var(--text);}
 .folder-item.active{color:var(--text);font-weight:600;border-left-color:var(--accent);background:var(--chip-bg);}
-.folder-count{font-size:11.5px;color:var(--text-tertiary);}
 .sidebar-spacer{flex:1;}
 .storage-card{
   background:var(--chip-bg);border-radius:10px;padding:11px 12px;margin:6px 2px 12px;
@@ -810,6 +819,258 @@ h1{font-size:28px;margin:0 0 14px;letter-spacing:-.01em;}
 .empty-state .msg{font-size:13.5px;}
 svg{display:block;}
 
+/* =========================================================
+   STATI DI CARICAMENTO ED ERRORE
+   Tre principi, validi in tutta l'app:
+   1. Il caricamento non è mai uno spinner al centro del vuoto: è uno scheletro che ha
+      già la FORMA del contenuto che sta arrivando. Così il layout non salta quando i
+      dati atterrano, e l'occhio sa già dove guardare.
+   2. L'errore non è mai un vicolo cieco: ha sempre un'azione per riprovare, e dice cosa
+      è fallito, non "qualcosa è andato storto".
+   3. Il fallimento parziale (riuscito su 40 foto su 50) è un caso di prima classe, non
+      un errore né un successo: ha un suo colore, un suo messaggio e un suo "riprova
+      solo quelle non riuscite".
+========================================================= */
+@keyframes kpxShimmer{0%{background-position:-260px 0;}100%{background-position:260px 0;}}
+@keyframes kpxSpin{to{transform:rotate(360deg);}}
+@keyframes kpxFadeIn{from{opacity:0;}to{opacity:1;}}
+
+/* Lo scheletro: un blocco neutro con un riflesso che scorre. Non usa --accent apposta —
+   il caricamento non deve sembrare un elemento attivo o selezionato. */
+.skel{
+  background:var(--chip-bg);
+  background-image:linear-gradient(90deg, transparent 0%, var(--skel-sheen) 50%, transparent 100%);
+  background-size:260px 100%;background-repeat:no-repeat;
+  animation:kpxShimmer 1.15s linear infinite;border-radius:6px;
+}
+.skel-line{height:11px;border-radius:5px;}
+.skel-tile{border-radius:var(--tile-radius, 6px);}
+/* Le tessere scheletro riusano la stessa geometria giustificata delle tessere vere
+   (larghezza dal rapporto d'aspetto, altezza di riga comune): quando le foto arrivano,
+   prendono esattamente il posto che lo scheletro occupava, senza scarti di layout. */
+.skel-head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;}
+
+/* Comparsa delle tessere che entrano nel viewport durante lo scorrimento. Volutamente
+   brevissima: deve smussare il "pop", non farsi notare come animazione. */
+.tile-in{animation:kpxFadeIn .18s ease both;}
+
+.spinner{
+  width:14px;height:14px;flex:0 0 auto;border-radius:50%;
+  border:2px solid var(--border-strong);border-top-color:var(--text-secondary);
+  animation:kpxSpin .7s linear infinite;
+}
+.spinner.sm{width:12px;height:12px;border-width:2px;}
+
+/* Pulsante occupato: resta della sua dimensione (niente salti), perde il testo a favore
+   dello spinner solo se è a sola icona, altrimenti affianca. Non cliccabile due volte. */
+.btn.is-busy{pointer-events:none;opacity:.75;}
+.btn.is-busy .spinner{border-top-color:currentColor;}
+
+/* Barra di avanzamento sottile in cima all'area contenuto, per i caricamenti che
+   avvengono mentre qualcosa è già a schermo (cambio filtro, pagina successiva):
+   segnala "sto lavorando" senza sostituire ciò che l'utente sta già guardando. */
+.load-bar{position:absolute;top:0;left:0;right:0;height:2px;overflow:hidden;z-index:60;pointer-events:none;}
+.load-bar::after{
+  content:'';position:absolute;top:0;height:100%;width:40%;background:var(--accent);
+  border-radius:2px;animation:kpxIndeterminate 1.1s ease-in-out infinite;
+}
+@keyframes kpxIndeterminate{0%{left:-40%;}100%{left:100%;}}
+
+/* Stato di errore: stessa impaginazione dello stato vuoto (.empty-state), così i due si
+   leggono come parenti, ma con l'icona in colore di pericolo e un'azione obbligatoria. */
+.error-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px 20px;text-align:center;gap:4px;}
+.error-state .ico{color:var(--danger);opacity:.9;margin-bottom:10px;}
+.error-state .err-title{font-size:14px;font-weight:700;color:var(--text);}
+.error-state .err-sub{font-size:12.5px;color:var(--text-tertiary);max-width:380px;line-height:1.55;margin-bottom:6px;}
+.error-state .err-detail{font-size:11.5px;color:var(--text-tertiary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin-top:8px;opacity:.8;}
+.error-state .err-actions{display:flex;gap:8px;margin-top:10px;}
+
+/* Errore "in riga": una porzione della pagina non si è caricata ma il resto sì.
+   Non prende tutta la vista — segnala solo il pezzo mancante e offre di ritentarlo. */
+.error-inline{
+  display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;
+  border:1px solid var(--danger-border);background:var(--danger-tint);
+  font-size:12.5px;color:var(--text-secondary);margin:8px 0;
+}
+.error-inline .ico{color:var(--danger);flex:0 0 auto;}
+.error-inline .err-grow{flex:1;min-width:0;}
+
+/* Toast: tre nature distinte. Il successo resta neutro (è il caso normale, non merita
+   colore); errore e riuscita-parziale hanno un filetto colorato a sinistra e possono
+   portare un'azione — è l'unico caso in cui un toast è cliccabile. */
+.toast{display:flex;align-items:center;gap:10px;}
+.toast.toast-error{border-left:3px solid var(--toast-danger);}
+.toast.toast-partial{border-left:3px solid var(--toast-warn);}
+.toast-action{
+  font-weight:700;text-decoration:underline;cursor:pointer;white-space:nowrap;
+  color:inherit;padding:2px 0;
+}
+.toast-action:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px;}
+
+/* Piede dello scorrimento infinito: sostituisce il "carica altre" manuale. Ha tre
+   configurazioni — sto caricando / non è riuscito, riprova / sei arrivato in fondo. */
+.stream-foot{display:flex;align-items:center;justify-content:center;gap:9px;padding:22px 0 30px;font-size:12.5px;color:var(--text-tertiary);}
+
+/* Il pannello di anteprima degli stati è scaffolding del prototipo, non prodotto: si
+   distingue visivamente da tutto il resto delle Impostazioni con un bordo tratteggiato
+   e un'icona da laboratorio, così non lo si scambia mai per una vera preferenza.
+   Nel prodotto finito sparisce con questa regola e il blocco che la usa. */
+.demo-section{
+  border:1px dashed var(--border-strong);border-radius:12px;
+  padding:16px 16px 6px;margin-top:34px;background:var(--chip-bg);
+}
+.demo-section .settings-section-title{display:flex;align-items:center;gap:7px;}
+.demo-section .demo-flag{color:var(--text-tertiary);}
+.demo-section .settings-row:last-child{border-bottom:none;}
+
+/* =========================================================
+   CARICAMENTO DI NUOVE FOTO
+   Principio: Keeppix non chiede mai "dove?" quando la risposta è già sullo schermo.
+   Sei dentro una cartella → le foto vanno lì. Sei su "Tutte le foto" → solo allora la
+   domanda è legittima, e solo allora viene fatta.
+
+   Nessun pulsante flottante sopra la griglia: in basso a destra passano già lo scrubber
+   dei mesi e i toast, e ogni pixel occupato da un comando è una foto che non si vede. Le
+   porte d'ingresso sono tre, in ordine di sforzo crescente: trascinare (costo a riposo
+   zero), il comando "Carica" nella topbar, il "+" nell'header da mobile.
+
+   La coda vive nel piede della sidebar, sopra "Spazio libero" — cioè accanto
+   all'informazione sulla risorsa che un caricamento consuma — e si espande verso l'alto
+   senza mai coprire la griglia sulla destra. Da mobile diventa il bottom sheet già usato
+   dai filtri.
+========================================================= */
+
+/* --- velo di rilascio: compare solo mentre si trascina, dichiara la destinazione --- */
+.drop-overlay{
+  position:absolute;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;
+  background:var(--accent-tint);border:2px dashed var(--accent);border-radius:12px;
+  pointer-events:none;animation:kpxFadeIn .12s ease both;
+}
+.drop-overlay-inner{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding:24px;}
+.drop-overlay-inner .ico{color:var(--accent);}
+.drop-title{font-size:16px;font-weight:700;color:var(--text);}
+.drop-sub{font-size:12.5px;color:var(--text-secondary);max-width:340px;line-height:1.5;}
+
+/* --- striscia compatta nel piede della sidebar --- */
+.upload-dock{
+  background:var(--chip-bg);border-radius:10px;padding:10px 12px;margin:6px 2px 8px;
+  cursor:pointer;position:relative;
+}
+.upload-dock:hover{background:var(--chip-bg-hover);}
+.upload-dock:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.upload-dock-top{display:flex;align-items:center;gap:7px;margin-bottom:6px;}
+.upload-dock-label{font-size:11.5px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.upload-dock-count{font-size:11px;color:var(--text-tertiary);}
+/* la barra riusa la geometria di .storage-bar: le due stanno una sopra l'altra e devono
+   leggersi come la stessa famiglia, non come due indicatori diversi */
+.upload-dock-bar{height:5px;border-radius:3px;background:var(--border-strong);overflow:hidden;}
+.upload-dock-fill{height:100%;background:var(--accent);width:0;transition:width .25s ease;}
+.upload-dock.needs-dest{box-shadow:inset 0 0 0 1.5px var(--accent);}
+
+/* --- pannello espanso: ancorato in basso a sinistra, mai sopra lo scrubber --- */
+.upload-panel{
+  position:absolute;left:12px;bottom:12px;width:344px;max-height:min(460px, calc(100% - 24px));
+  background:var(--card-bg);border:1px solid var(--border-strong);border-radius:12px;
+  box-shadow:0 18px 44px rgba(0,0,0,.28);z-index:75;display:flex;flex-direction:column;overflow:hidden;
+}
+.upload-panel-head{
+  display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--border);flex:0 0 auto;
+}
+.upload-panel-title{font-size:13px;font-weight:700;flex:1;min-width:0;}
+.upload-panel-body{overflow-y:auto;padding:8px 12px 12px;flex:1 1 auto;}
+.upload-panel-foot{
+  padding:9px 12px;border-top:1px solid var(--border);background:var(--chip-bg);
+  display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-secondary);flex:0 0 auto;
+}
+
+/* --- chip della destinazione: precompilato dal contesto, sempre modificabile --- */
+.upload-dest{
+  display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:9px;
+  background:var(--chip-bg);font-size:12px;margin-bottom:10px;cursor:pointer;position:relative;
+}
+.upload-dest:hover{background:var(--chip-bg-hover);}
+.upload-dest:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.upload-dest-label{color:var(--text-tertiary);flex:0 0 auto;}
+.upload-dest-value{font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* destinazione mancante: è l'unico stato che blocca davvero la coda, e si vede */
+.upload-dest.empty{background:var(--accent-tint);box-shadow:inset 0 0 0 1.5px var(--accent);}
+.upload-dest.empty .upload-dest-value{color:var(--accent-strong, var(--text));font-style:italic;font-weight:600;}
+/* Il chip sta in una fascia che NON scorre, e il menu si apre verso il basso: aprendolo
+   verso l'alto finiva fuori dal pannello (che ha overflow:hidden per gli angoli tondi) e
+   i click atterravano sulla griglia sotto. */
+.upload-panel-dest{padding:10px 12px 0;flex:0 0 auto;position:relative;z-index:5;}
+.upload-dest-menu{
+  position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--card-bg);
+  border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.3);
+  padding:6px;z-index:20;max-height:230px;overflow-y:auto;
+}
+
+/* --- righe della coda --- */
+.upload-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--border);}
+.upload-row:last-child{border-bottom:none;}
+.upload-thumb{
+  width:30px;height:30px;border-radius:6px;background:var(--chip-bg);flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);
+}
+.upload-info{flex:1;min-width:0;}
+.upload-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.upload-meta{font-size:11px;color:var(--text-tertiary);margin-top:1px;display:flex;align-items:center;gap:5px;}
+.upload-bar{height:3px;border-radius:2px;background:var(--border-strong);overflow:hidden;margin-top:4px;}
+.upload-bar-fill{height:100%;background:var(--accent);width:0;transition:width .2s linear;}
+.upload-row-act{flex:0 0 auto;display:flex;align-items:center;gap:4px;}
+
+/* Gli esiti hanno tre nature distinte e tre colori, come altrove nell'app: completato è
+   neutro (è la norma), saltato è ambra (non è un errore: il file c'era già), errore è
+   rosso. Il duplicato NON viene nascosto — sparire in silenzio è il modo più veloce per
+   far credere all'utente di aver perso delle foto. */
+.upload-badge{
+  font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;flex:0 0 auto;
+  text-transform:uppercase;letter-spacing:.02em;
+}
+.upload-badge.done{background:var(--chip-bg);color:var(--text-secondary);}
+.upload-badge.skipped{background:var(--warn-tint);color:var(--warn);}
+.upload-badge.error{background:var(--danger-tint);color:var(--danger);}
+.upload-badge.preparing{background:var(--accent-tint);color:var(--text-secondary);}
+.upload-link{font-size:11px;font-weight:600;text-decoration:underline;cursor:pointer;color:var(--text-secondary);}
+.upload-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px;}
+
+/* --- gruppo dei file rifiutati: informa e insegna, non si limita a dire di no --- */
+.upload-rejected{
+  border:1px solid var(--warn-border);background:var(--warn-tint);border-radius:10px;
+  padding:10px 11px;margin-bottom:10px;font-size:11.5px;color:var(--text-secondary);line-height:1.5;
+}
+.upload-rejected-title{font-weight:700;color:var(--text);font-size:12px;margin-bottom:3px;}
+.upload-rejected-files{font-size:11px;color:var(--text-tertiary);margin-top:5px;word-break:break-all;}
+.upload-rejected-act{margin-top:8px;}
+
+/* Da mobile il pannello diventa il bottom sheet già usato dai filtri. position:absolute e
+   non fixed: #app è il contenitore posizionato del guscio mobile, mentre fixed sfuggirebbe
+   alla finestra del telefono e si stenderebbe su tutta la pagina. */
+#app.device-mobile .upload-panel{
+  position:absolute;left:0;right:0;bottom:0;width:auto;border-radius:14px 14px 0 0;max-height:72%;
+}
+.upload-scrim{display:none;}
+#app.device-mobile .upload-scrim{display:block;position:absolute;inset:0;background:rgba(0,0,0,.4);z-index:74;}
+
+/* Senza sidebar la striscia non ha dove stare: da mobile si appoggia sopra la tab bar,
+   che è il bordo persistente equivalente. Stessa informazione, stesso comportamento al
+   tocco, solo un altro ancoraggio. */
+.upload-dock-mobile{display:none;}
+#app.device-mobile .upload-dock-mobile{
+  display:block;flex:0 0 auto;padding:0 12px 8px;background:var(--bg);
+  border-top:1px solid var(--border);padding-top:8px;
+}
+#app.device-mobile .upload-dock-mobile .upload-dock{margin:0;}
+
+@media (prefers-reduced-motion: reduce){
+  .drop-overlay{animation:none;}
+  .upload-dock-fill,.upload-bar-fill{transition:none;}
+  .skel{animation:none;}
+  .tile-in{animation:none;}
+  .load-bar::after{animation:none;width:100%;opacity:.5;}
+  .spinner{animation-duration:2.4s;}
+}
+
 /* ===== modal (delete dialog) ===== */
 .modal-scrim{position:absolute;inset:0;background:var(--scrim);z-index:80;display:flex;align-items:center;justify-content:center;}
 .modal-card{width:360px;background:var(--card-bg);border:1px solid var(--border-strong);border-radius:12px;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.3);}
@@ -1153,6 +1414,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible{
 
         <div class="sidebar-spacer"></div>
 
+        <div id="uploadDockHost"></div>
         <div class="storage-card">
           <div class="storage-label">Spazio libero</div>
           <div class="storage-value">1,4 TB su 2 TB</div>
@@ -1172,12 +1434,20 @@ input:focus-visible, select:focus-visible, textarea:focus-visible{
         <div class="topbar">
           <div class="breadcrumb" id="breadcrumb"></div>
           <div class="topbar-right">
+            <!-- etichetta e aria-label sono riscritti da renderTopbar: cambiano con la cartella aperta -->
+            <div class="btn btn-sm btn-ghost" id="uploadTopBtn" role="button" tabindex="0" aria-label="Carica foto o video"></div>
             <input class="search-box" id="topSearch" placeholder="Cerca per data, luogo, persona…" readonly>
           </div>
         </div>
         <div class="mobile-header" id="mobileHeaderHost"></div>
         <div class="view-root" id="viewRoot"></div>
+        <div class="upload-dock-mobile" id="uploadDockMobileHost"></div>
         <div class="mobile-tabbar" id="mobileTabbarHost"></div>
+        <div id="dropOverlayHost"></div>
+        <div id="uploadPanelHost"></div>
+        <input type="file" id="uploadInput" multiple
+               accept=".jpg,.jpeg,.jpe,.png,.tif,.tiff,.webp,.heic,.heif,.mp4,.mov,.m4v,image/*,video/mp4,video/quicktime"
+               style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
       </div>
 
       <div id="lightboxRoot"></div>
@@ -1216,6 +1486,12 @@ function icon(name, size){
     link:'<path d="M9 15l6-6M10 6l1.4-1.4a4 4 0 115.7 5.7L15.6 12M14 18l-1.4 1.4a4 4 0 11-5.7-5.7L8.4 12"/>',
     folder:'<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>',
     rotate:'<path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v6h-6"/>',
+    refresh:'<path d="M3 12a9 9 0 0115.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 01-15.5 6.2L3 16"/><path d="M3 21v-5h5"/>',
+    flask:'<path d="M9 3h6"/><path d="M10 3v6.5L4.5 18A2 2 0 006.2 21h11.6a2 2 0 001.7-3L14 9.5V3"/><path d="M7.5 15h9"/>',
+    upload:'<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v13"/>',
+    video:'<path d="M3 7a2 2 0 012-2h9a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M16 10.5l5-3v9l-5-3z"/>',
+    pause:'<path d="M9 5v14"/><path d="M15 5v14"/>',
+    play:'<path d="M7 4.5l12 7.5-12 7.5z"/>',
     plusUser:'<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.9 3.1-7 7-7s7 3.1 7 7"/><path d="M18 8v6M15 11h6"/>',
     user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>',
     settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 01-4 0v-.2a1.7 1.7 0 00-1-1.5 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 010-4h.2a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 014 0v.2a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 010 4h-.2a1.7 1.7 0 00-1.5 1z"/>',
@@ -2140,6 +2416,16 @@ const state = {
   searchPills:[],    // filtri strutturati/tag composti nella barra di ricerca — vedi renderCerca
   mapPopover:null,
   avatarColor:null, // null = arancione di default (--accent); altrimenti uno degli AVATAR_COLOR_PRESETS, scelto in Profilo
+  // Pannello "Anteprima stati" in fondo a Impostazioni: accende a comando gli stati che
+  // nel prodotto vero dipendono dalla rete e che qui, con i dati già in memoria, non si
+  // verificherebbero mai. Tutti spenti = comportamento normale, nessun residuo.
+  demo:{slow:false, loadError:false, partial:false},
+  // Caricamento di nuove foto. dest = id della cartella di destinazione: null significa
+  // "non ancora decisa", ed è l'unico stato che tiene la coda ferma — vedi uploadTick().
+  // È la trasposizione voluta del vincolo reale (una coda senza cartella non parte mai):
+  // qui però non è un blocco silenzioso, è la cosa più visibile del pannello.
+  upload:{open:false, dest:null, items:[], destMenuOpen:false, paused:false, rejected:null},
+  dragging:false,
   device:'desktop',  // desktop | mobile — form-factor switch for the WAP-style mobile shell
   aiTier:'pieno',    // pieno | ridotto | spento — vedi Impostazioni → Intelligenza artificiale
   lastNavAt:0,       // ultimo click di navigazione reale — pilota la pausa automatica dell'analisi
@@ -2226,7 +2512,7 @@ function renderSidebar(){
 
   const folders = FOLDERS.map(f=>`
     <div class="folder-item ${state.view==='foto' && state.currentFolder===f.id?'active':''}" data-folder="${f.id}">
-      <span>${f.name}</span><span class="folder-count">${f.total}</span>
+      <span>${f.name}</span>
     </div>`).join('');
   document.getElementById('nav-folders').innerHTML = folders;
 
@@ -2287,18 +2573,637 @@ function renderUserMenu(){
 }
 document.addEventListener('click', ()=>{ if(state.userMenuOpen){ state.userMenuOpen=false; renderUserMenu(); } });
 document.addEventListener('click', ()=>{ if(state.lbMoreOpen){ state.lbMoreOpen=false; renderAll(); } });
+// un click fuori chiude solo il menu della destinazione, non il pannello: chiuderlo per
+// sbaglio mentre si guarda una coda in corso sarebbe fastidioso
+document.addEventListener('click', ()=>{ if(state.upload.destMenuOpen){ state.upload.destMenuOpen=false; renderUploadPanel(); } });
 // picklist "Cartella" nella creazione album: si chiude cliccando fuori o con Esc, come
 // il resto dei pannelli a tendina dell'app.
 if(!('openPicklistIdx' in state)) state.openPicklistIdx = null;
 document.addEventListener('click', ()=>{ if(state.openPicklistIdx!==null && state.view==='createAlbum'){ state.openPicklistIdx=null; renderAll(); } });
-function showToast(msg){
+/* Il toast ha tre nature. Il successo resta neutro e sparisce da solo: è il caso
+   normale e non merita né colore né attenzione. L'errore e la riuscita parziale
+   portano un filetto colorato, restano a schermo più a lungo (leggere "cosa non ha
+   funzionato" richiede più tempo che leggere "fatto") e possono avere un'azione —
+   quasi sempre "Riprova". Un toast con azione non sparisce mentre ci si sta
+   ragionando sopra: passandoci il mouse il timer si ferma. */
+function showToast(msg, opts){
+  opts = opts || {};
+  const kind = opts.kind || 'ok';          // ok | error | partial
   const appEl = document.getElementById('app');
   const t = document.createElement('div');
-  t.className = 'toast';
-  t.textContent = msg;
+  t.className = 'toast' + (kind==='error' ? ' toast-error' : kind==='partial' ? ' toast-partial' : '');
+  if(kind!=='ok') t.setAttribute('role','alert');
+  const label = document.createElement('span');
+  label.textContent = msg;
+  t.appendChild(label);
+  if(opts.action && opts.action.label){
+    const a = document.createElement('span');
+    a.className = 'toast-action';
+    a.textContent = opts.action.label;
+    a.setAttribute('role','button');
+    a.tabIndex = 0;
+    const run = ()=>{ close(); opts.action.fn && opts.action.fn(); };
+    a.onclick = run;
+    a.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); run(); } };
+    t.appendChild(a);
+  }
   appEl.appendChild(t);
   setTimeout(()=>{ t.classList.add('show'); },10);
-  setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(),250); },2400);
+  let timer = null;
+  const close = ()=>{ clearTimeout(timer); t.classList.remove('show'); setTimeout(()=>t.remove(),250); };
+  const life = opts.action ? 6500 : (kind==='ok' ? 2400 : 4200);
+  const arm = ()=>{ timer = setTimeout(close, life); };
+  arm();
+  if(opts.action){
+    t.onmouseenter = ()=> clearTimeout(timer);
+    t.onmouseleave = arm;
+  }
+  return close;
+}
+function showErrorToast(msg, retryFn){
+  return showToast(msg, {kind:'error', action: retryFn ? {label:'Riprova', fn:retryFn} : null});
+}
+/* Riuscita parziale: il caso più probabile su un'operazione di massa, e il meno
+   rappresentato di solito. Non è un successo (qualcosa non è passato) e non è un
+   errore (la maggior parte è passata): dice esattamente quante ne sono rimaste
+   indietro e offre di ritentare SOLO quelle. */
+function showPartialToast(okCount, failed, retryFn){
+  const n = failed.length;
+  return showToast(
+    `${okCount} su ${okCount+n} completate — ${n} non ${n===1?'è riuscita':'sono riuscite'}.`,
+    {kind:'partial', action: retryFn ? {label:`Riprova le ${n} rimaste`, fn:()=>retryFn(failed)} : null}
+  );
+}
+
+/* Pulsante occupato: mantiene la sua larghezza, si spegne ai click e mostra uno
+   spinner accanto all'etichetta. Serve a due cose insieme — dire "sto lavorando" e
+   impedire il doppio invio, che su un'azione di massa è il modo più facile per
+   duplicare un'operazione. */
+function setBtnBusy(btn, on){
+  if(!btn) return;
+  if(on){
+    btn.classList.add('is-busy');
+    btn.setAttribute('aria-busy','true');
+    if(!btn.querySelector('.spinner')){
+      const s = document.createElement('span');
+      s.className = 'spinner sm';
+      btn.insertBefore(s, btn.firstChild);
+    }
+  } else {
+    btn.classList.remove('is-busy');
+    btn.removeAttribute('aria-busy');
+    const s = btn.querySelector('.spinner');
+    if(s) s.remove();
+  }
+}
+
+/* Azione su più foto con esito esplicito.
+   Su un'operazione di massa il caso più probabile non è "tutto bene" né "tutto male":
+   è che una parte passi e una no — un file bloccato, un permesso mancante, un disco
+   che non risponde per qualche scatto. Quel caso qui è di prima classe: l'app applica
+   ciò che è riuscito, dice quante sono rimaste indietro e offre di ritentare solo
+   quelle, invece di far ripartire tutto da capo o di dichiarare un successo che non c'è
+   stato. Il secondo tentativo riesce sempre — un errore che si ripete identico
+   all'infinito sarebbe un vicolo cieco, non uno stato. */
+function runBulkAction(opts){
+  const {btn, photos, apply, okMsg, isRetry} = opts;
+  setBtnBusy(btn, true);
+  const finish = ()=>{
+    const wantPartial = state.demo.partial && !isRetry && photos.length > 1;
+    if(wantPartial){
+      const failCount = Math.max(1, Math.round(photos.length*0.2));
+      const ok = photos.slice(0, photos.length-failCount);
+      const failed = photos.slice(photos.length-failCount);
+      apply(ok);
+      renderAll();
+      showPartialToast(ok.length, failed, (retryList)=>
+        runBulkAction({btn:null, photos:retryList, apply, okMsg, isRetry:true}));
+    } else {
+      apply(photos);
+      renderAll();
+      showToast(okMsg(photos.length));
+    }
+  };
+  // con gli interruttori spenti l'azione è immediata, come prima
+  if(state.demo.partial || state.demo.slow) setTimeout(finish, 700);
+  else finish();
+}
+
+/* =========================================================
+   CARICAMENTO DI NUOVE FOTO — classificazione e coda
+
+   Cosa entra e cosa no. Le immagini "normali" e i video entrano; i RAW no, mai, e non
+   per una limitazione tecnica ma per una decisione di prodotto: i RAW entrano in Keeppix
+   dal Culling, dove si scelgono PRIMA di importarli. Rifiutarli qui senza dirlo sarebbe
+   inutile — il messaggio indirizza al Culling invece di limitarsi a negare.
+
+   Un fotografo che trascina una cartella ci butta dentro RAW e JPEG insieme: rifiutare
+   l'intero rilascio sarebbe ostile. Quindi il gruppo si divide — quello che può entrare
+   parte, il resto viene elencato a parte con la sua ragione.
+========================================================= */
+const UPLOAD_IMAGE_EXT = ['jpg','jpeg','jpe','png','tif','tiff','webp','heic','heif'];
+const UPLOAD_VIDEO_EXT = ['mp4','mov','m4v'];
+// Estensioni RAW dei principali costruttori, più DNG (che è un contenitore RAW a tutti
+// gli effetti e va trattato come tale, non come immagine normale).
+const UPLOAD_RAW_EXT = ['arw','sr2','srf','cr2','cr3','crw','nef','nrw','raf','orf','rw2','raw',
+  'dng','pef','srw','x3f','3fr','iiq','mos','mef','erf','kdc','dcr','mrw','rwl','fff'];
+
+function uploadExtOf(name){
+  const i = String(name||'').lastIndexOf('.');
+  return i<0 ? '' : name.slice(i+1).toLowerCase();
+}
+function uploadKindOf(name){
+  const e = uploadExtOf(name);
+  if(UPLOAD_RAW_EXT.includes(e)) return 'raw';
+  if(UPLOAD_IMAGE_EXT.includes(e)) return 'image';
+  if(UPLOAD_VIDEO_EXT.includes(e)) return 'video';
+  return 'other';
+}
+function uploadSizeLabel(bytes){
+  if(!bytes && bytes!==0) return '';
+  if(bytes >= 1024*1024*1024) return (bytes/(1024*1024*1024)).toFixed(1).replace('.',',')+' GB';
+  if(bytes >= 1024*1024) return (bytes/(1024*1024)).toFixed(1).replace('.',',')+' MB';
+  return Math.max(1, Math.round(bytes/1024))+' KB';
+}
+let _uploadSeq = 0;
+
+/* Punto d'ingresso unico: ci arrivano sia il trascinamento sia il selettore di file.
+   La destinazione NON viene chiesta qui: si eredita dal contesto se c'è (sei dentro una
+   cartella), altrimenti resta vuota e sarà il pannello a reclamarla. */
+function uploadAddFiles(fileList, destHint){
+  const files = Array.from(fileList||[]);
+  if(!files.length) return;
+
+  const accepted = [], raws = [], others = [];
+  files.forEach(f=>{
+    const kind = uploadKindOf(f.name);
+    if(kind==='raw') raws.push(f.name);
+    else if(kind==='other') others.push(f.name);
+    else accepted.push({
+      id:'up'+(++_uploadSeq),
+      name:f.name,
+      bytes:f.size||0,
+      kind,
+      status:'queued',   // queued | uploading | paused | done | skipped | error
+      progress:0,
+      preparing:false,   // solo video: caricato ma non ancora riproducibile
+      reason:''
+    });
+  });
+
+  state.upload.rejected = (raws.length || others.length) ? {raw:raws, other:others} : null;
+
+  /* Da dove viene la destinazione, in ordine di precedenza:
+     1. il contesto esplicito del comando premuto (sei dentro una cartella);
+     2. se la coda precedente è finita, il contesto attuale — la destinazione NON resta
+        appiccicata a quella di un caricamento concluso mezz'ora fa: sarebbe il modo più
+        silenzioso di mandare delle foto nel posto sbagliato;
+     3. se una coda è ancora in corso, la sua destinazione resta (è un lotto solo, non si
+        ridirigono file già partiti). */
+  const queueActive = state.upload.items.some(it=>
+    it.status==='queued' || it.status==='uploading' || it.status==='paused');
+  if(destHint !== undefined && destHint !== null && destHint !== '') state.upload.dest = destHint;
+  else if(!queueActive) state.upload.dest = state.currentFolder || null;
+
+  state.upload.items = state.upload.items.concat(accepted);
+
+  state.upload.open = true;
+  state.upload.paused = false;
+  renderAll();
+  uploadEnsureTicker();
+
+  if(raws.length && !accepted.length){
+    showToast(`${raws.length===1?'1 file RAW non caricato':`${raws.length} file RAW non caricati`} — i RAW entrano dal Culling.`, {kind:'error'});
+  }
+}
+
+/* Avanzamento simulato. Nel prodotto vero questo ritmo lo detta la rete; qui serve solo
+   a rendere osservabili i sei stati. Duplicati ed errori sono deterministici (ogni 7ª e
+   ogni 11ª voce) invece che casuali: così una revisione ripetuta vede sempre la stessa
+   cosa, e il controllo automatico può affermare qualcosa di stabile. */
+let _uploadTicker = null;
+function uploadEnsureTicker(){
+  if(_uploadTicker) return;
+  _uploadTicker = setInterval(uploadTick, 90);
+}
+function uploadStopTicker(){
+  if(_uploadTicker){ clearInterval(_uploadTicker); _uploadTicker = null; }
+}
+function uploadTick(){
+  const u = state.upload;
+  // Il vincolo vero, reso visibile: senza cartella di destinazione NIENTE parte. Nel
+  // codice reale questo è un blocco silenzioso e permanente su "queued"; qui la coda si
+  // ferma allo stesso modo, ma il pannello dice perché e come sbloccarla.
+  if(!u.dest || u.paused){ return; }
+
+  let cur = u.items.find(it=>it.status==='uploading');
+  if(!cur){
+    cur = u.items.find(it=>it.status==='queued' || it.status==='paused');
+    if(!cur){ uploadStopTicker(); return; }
+    cur.status = 'uploading';
+  }
+  // ~3 passi per file: la barra si vede muovere senza che rivedere la coda diventi
+  // un'attesa. Con "Rete lenta" acceso il ritmo rallenta, come per il resto dell'app.
+  const step = state.demo.slow ? 7 : 34;
+  cur.progress = Math.min(100, cur.progress + step);
+  if(cur.progress >= 100){
+    const idx = u.items.indexOf(cur);
+    if((idx+1) % 7 === 0){
+      // stesso hash del contenuto già in libreria: saltato, non fallito
+      cur.status = 'skipped';
+      cur.reason = 'già in libreria';
+    } else if((idx+1) % 11 === 0){
+      cur.status = 'error';
+      cur.reason = 'il server non ha risposto';
+    } else {
+      cur.status = 'done';
+      // Un video caricato non è ancora guardabile: la resa gira in background o di notte.
+      // Lo stato "in preparazione" appartiene alla foto, non alla coda, e resta visibile.
+      cur.preparing = (cur.kind === 'video');
+    }
+  }
+  renderUploadDock();
+  renderUploadPanel();
+}
+
+function uploadCounts(){
+  const it = state.upload.items;
+  return {
+    total: it.length,
+    done: it.filter(x=>x.status==='done').length,
+    skipped: it.filter(x=>x.status==='skipped').length,
+    error: it.filter(x=>x.status==='error').length,
+    pending: it.filter(x=>x.status==='queued'||x.status==='uploading'||x.status==='paused').length,
+    finished: it.filter(x=>x.status==='done'||x.status==='skipped'||x.status==='error').length
+  };
+}
+function uploadSetDest(folderId){
+  state.upload.dest = folderId;
+  state.upload.destMenuOpen = false;
+  renderAll();
+  uploadEnsureTicker();   // scegliere la cartella è ciò che fa partire la coda ferma
+}
+function uploadTogglePause(){
+  state.upload.paused = !state.upload.paused;
+  const cur = state.upload.items.find(it=>it.status==='uploading');
+  if(state.upload.paused && cur) cur.status = 'paused';
+  renderAll();
+  if(!state.upload.paused) uploadEnsureTicker();
+}
+function uploadRetry(id){
+  const it = state.upload.items.find(x=>x.id===id);
+  if(!it) return;
+  it.status='queued'; it.progress=0; it.reason=''; it.retried=true;
+  renderAll();
+  uploadEnsureTicker();
+}
+function uploadClearFinished(){
+  state.upload.items = state.upload.items.filter(it=>
+    it.status!=='done' && it.status!=='skipped' && it.status!=='error');
+  state.upload.rejected = null;
+  if(!state.upload.items.length) state.upload.open = false;
+  renderAll();
+}
+function uploadCancelAll(){
+  uploadStopTicker();
+  state.upload.items = [];
+  state.upload.rejected = null;
+  state.upload.open = false;
+  state.upload.paused = false;
+  state.upload.dest = null;   // il prossimo caricamento riparte dal contesto, non da qui
+  renderAll();
+}
+/* Apre il selettore di file del sistema. destHint arriva dal contesto in cui si è
+   premuto: dalla topbar dentro una cartella significa "questa cartella". */
+function uploadPick(destHint){
+  const inp = document.getElementById('uploadInput');
+  if(!inp) return;
+  inp.dataset.destHint = (destHint===undefined || destHint===null) ? '' : destHint;
+  inp.value = '';
+  inp.click();
+}
+
+/* =========================================================
+   CARICAMENTO DI NUOVE FOTO — interfaccia
+========================================================= */
+/* "1 saltate" e "e altri 1" sono errori che l'app fa già altrove e che sono segnalati fra
+   i difetti: non vanno aggiunti anche qui. Concorda il participio col numero. */
+function uploadPlural(n, singolare, plurale){ return `${n} ${n===1?singolare:plurale}`; }
+function uploadAndOthers(n){ return n===1 ? ' e un altro' : ` e altri ${n}`; }
+
+function uploadDestName(){
+  const f = FOLDERS.find(x=>x.id===state.upload.dest);
+  return f ? f.name : null;
+}
+
+/* Striscia compatta nel piede della sidebar, sopra "Spazio libero": accanto
+   all'informazione sulla risorsa che il caricamento consuma. Non compare mai se non c'è
+   niente in coda — a riposo il costo in pixel è zero. */
+function renderUploadDock(){
+  // due ancoraggi possibili: il piede della sidebar da desktop, la fascia sopra la tab bar
+  // da mobile. Si riempie solo quello attivo e si svuota sempre l'altro, così cambiando
+  // form factor non restano due strisce.
+  const deskHost = document.getElementById('uploadDockHost');
+  const mobHost = document.getElementById('uploadDockMobileHost');
+  const host = state.device==='mobile' ? mobHost : deskHost;
+  const other = state.device==='mobile' ? deskHost : mobHost;
+  if(other) other.innerHTML = '';
+  if(!host) return;
+  const u = state.upload;
+  if(!u.items.length){ host.innerHTML = ''; return; }
+  const c = uploadCounts();
+  const needsDest = !u.dest && c.pending>0;
+  const pct = c.total ? Math.round((c.finished/c.total)*100) : 0;
+  const label = needsDest ? 'Scegli dove'
+    : u.paused ? 'In pausa'
+    : c.pending ? 'Caricamento'
+    : 'Caricate';
+  host.innerHTML = `
+    <div class="upload-dock ${needsDest?'needs-dest':''}" id="uploadDockBtn" role="button" tabindex="0"
+         aria-expanded="${u.open}" aria-label="${label}, ${c.finished} di ${c.total}. Apri il pannello dei caricamenti">
+      <div class="upload-dock-top">
+        ${needsDest ? ico('alert',13) : u.paused ? ico('pause',13) : c.pending ? '<span class="spinner sm"></span>' : ico('check',13)}
+        <span class="upload-dock-label">${label}</span>
+        <span class="upload-dock-count">${c.finished}/${c.total}</span>
+      </div>
+      <div class="upload-dock-bar"><div class="upload-dock-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  bindActivatable(document.getElementById('uploadDockBtn'), (e)=>{
+    if(e && e.stopPropagation) e.stopPropagation();
+    state.upload.open = !state.upload.open;
+    renderUploadPanel();
+    renderUploadDock();
+  });
+}
+
+function uploadRowHTML(it){
+  const kindIco = it.kind==='video' ? 'video' : 'photo';
+  let right = '', meta = uploadSizeLabel(it.bytes);
+  if(it.status==='uploading'){
+    meta += ` · ${it.progress}%`;
+  } else if(it.status==='queued'){
+    meta += ' · in coda';
+  } else if(it.status==='paused'){
+    meta += ' · in pausa';
+  } else if(it.status==='done'){
+    right = it.preparing
+      ? `<span class="upload-badge preparing" title="Il video è caricato ma la resa non è ancora pronta">In preparazione</span>`
+      : `<span class="upload-badge done">Completato</span>`;
+  } else if(it.status==='skipped'){
+    // Un duplicato non è un errore: è un esito legittimo, e va visto. Sparire in silenzio
+    // è il modo più rapido per far credere all'utente di aver perso delle foto.
+    right = `<span class="upload-badge skipped">Saltato</span>`;
+  } else if(it.status==='error'){
+    right = `<span class="upload-badge error">Errore</span>`;
+  }
+  const sub = (it.status==='skipped' || it.status==='error') ? `<div class="upload-meta">${it.reason}${
+      it.status==='skipped' ? ` · <span class="upload-link" data-upseeexisting="${it.id}" role="button" tabindex="0">Vedi quella presente</span>`
+                            : ` · <span class="upload-link" data-upretry="${it.id}" role="button" tabindex="0">Riprova</span>`
+    }</div>` : '';
+  return `<div class="upload-row" data-uprow="${it.id}">
+    <div class="upload-thumb">${icon(kindIco,15)}</div>
+    <div class="upload-info">
+      <div class="upload-name" title="${it.name}">${it.name}</div>
+      <div class="upload-meta">${meta}</div>
+      ${it.status==='uploading' ? `<div class="upload-bar"><div class="upload-bar-fill" style="width:${it.progress}%"></div></div>` : ''}
+      ${sub}
+    </div>
+    <div class="upload-row-act">${right}</div>
+  </div>`;
+}
+
+function renderUploadPanel(){
+  const host = document.getElementById('uploadPanelHost');
+  if(!host) return;
+  const u = state.upload;
+  if(!u.open || !u.items.length){ host.innerHTML = ''; return; }
+  const c = uploadCounts();
+  const needsDest = !u.dest && c.pending>0;
+  const destName = uploadDestName();
+
+  const rejected = u.rejected ? `
+    <div class="upload-rejected" role="note">
+      ${u.rejected.raw.length ? `
+        <div class="upload-rejected-title">${u.rejected.raw.length===1?'1 file RAW non caricato':`${u.rejected.raw.length} file RAW non caricati`}</div>
+        <div>I RAW entrano in Keeppix dal <b>Culling</b>, dove li scegli prima di importarli. Da qui si caricano solo foto già sviluppate e video.</div>
+        <div class="upload-rejected-files">${u.rejected.raw.slice(0,4).join(', ')}${u.rejected.raw.length>4?uploadAndOthers(u.rejected.raw.length-4):''}</div>
+        <div class="upload-rejected-act"><div class="btn btn-sm btn-ghost" id="uploadGoCulling" role="button" tabindex="0">${icon('funnel',13)} Apri Culling</div></div>` : ''}
+      ${u.rejected.other.length ? `
+        <div class="upload-rejected-title" style="${u.rejected.raw.length?'margin-top:10px':''}">${u.rejected.other.length===1?'1 file di formato non supportato':`${u.rejected.other.length} file di formato non supportato`}</div>
+        <div>Keeppix accetta JPEG, PNG, TIFF, WebP, HEIF/HEIC e video MP4 o MOV.</div>
+        <div class="upload-rejected-files">${u.rejected.other.slice(0,4).join(', ')}${u.rejected.other.length>4?uploadAndOthers(u.rejected.other.length-4):''}</div>` : ''}
+    </div>` : '';
+
+  host.innerHTML = `
+    <div class="upload-scrim" id="uploadScrim"></div>
+    <div class="upload-panel" id="uploadPanel" role="dialog" aria-label="Caricamento di nuove foto">
+      <div class="upload-panel-head">
+        <div class="upload-panel-title">${c.pending ? (needsDest ? 'In attesa di una destinazione' : u.paused ? 'Caricamento in pausa' : 'Caricamento in corso') : 'Caricamento completato'}</div>
+        ${c.pending && !needsDest ? `<div class="tag-icon-btn" id="uploadPauseBtn" role="button" tabindex="0" aria-label="${u.paused?'Riprendi':'Metti in pausa'}" data-tip="${u.paused?'Riprendi':'Pausa'}">${icon(u.paused?'play':'pause',14)}</div>` : ''}
+        <div class="tag-icon-btn" id="uploadCloseBtn" role="button" tabindex="0" aria-label="Chiudi il pannello">${icon('close',15)}</div>
+      </div>
+      <div class="upload-panel-dest">
+        <div class="upload-dest ${needsDest?'empty':''}" id="uploadDestBtn" role="button" tabindex="0"
+             aria-haspopup="listbox" aria-expanded="${u.destMenuOpen}"
+             aria-label="Destinazione: ${destName||'nessuna cartella scelta'}. Cambia">
+          ${ico('folder',14)}
+          <span class="upload-dest-label">Destinazione</span>
+          <span class="upload-dest-value">${destName || 'Scegli una cartella'}</span>
+          ${ico('chevronDown',13)}
+          ${u.destMenuOpen ? `<div class="upload-dest-menu" id="uploadDestMenu" role="listbox">
+            ${FOLDERS.map(f=>`<div class="user-menu-item" data-updest="${f.id}" role="option" tabindex="0" aria-selected="${u.dest===f.id}">${ico('folder',14)} ${f.name}${u.dest===f.id?' ✓':''}</div>`).join('')}
+            <div class="user-menu-sep"></div>
+            <div class="user-menu-item" id="uploadNewFolder" role="option" tabindex="0">${ico('plus',14)} Nuova cartella…</div>
+          </div>` : ''}
+        </div>
+        ${needsDest ? `<div class="upload-meta" style="margin:6px 0 0">Le foto restano in coda finché non scegli dove metterle.</div>` : ''}
+      </div>
+      <div class="upload-panel-body">
+        ${rejected}
+        ${u.items.map(uploadRowHTML).join('')}
+      </div>
+      <div class="upload-panel-foot">
+        <span style="flex:1">${uploadPlural(c.done,'caricata','caricate')}${c.skipped?` · ${uploadPlural(c.skipped,'saltata','saltate')}`:''}${c.error?` · ${c.error===1?'1 non riuscita':`${c.error} non riuscite`}`:''}</span>
+        ${c.finished ? `<span class="upload-link" id="uploadClearBtn" role="button" tabindex="0">Pulisci completate</span>` : ''}
+        ${c.pending ? `<span class="upload-link" id="uploadCancelBtn" role="button" tabindex="0">Annulla tutto</span>` : ''}
+      </div>
+    </div>`;
+
+  const panel = document.getElementById('uploadPanel');
+  if(panel) panel.onclick = (e)=> e.stopPropagation();
+  bindActivatable(document.getElementById('uploadCloseBtn'), (e)=>{
+    if(e && e.stopPropagation) e.stopPropagation();
+    state.upload.open=false; renderUploadPanel(); renderUploadDock();
+  });
+  bindActivatable(document.getElementById('uploadPauseBtn'), (e)=>{
+    if(e && e.stopPropagation) e.stopPropagation(); uploadTogglePause();
+  });
+  bindActivatable(document.getElementById('uploadDestBtn'), (e)=>{
+    if(e && e.stopPropagation) e.stopPropagation();
+    state.upload.destMenuOpen = !state.upload.destMenuOpen; renderUploadPanel();
+  });
+  const destMenu = document.getElementById('uploadDestMenu');
+  if(destMenu) destMenu.onclick = (e)=> e.stopPropagation();
+  host.querySelectorAll('[data-updest]').forEach(el=>{
+    bindActivatable(el, (e)=>{ if(e&&e.stopPropagation) e.stopPropagation(); uploadSetDest(el.dataset.updest); });
+  });
+  bindActivatable(document.getElementById('uploadNewFolder'), (e)=>{
+    if(e && e.stopPropagation) e.stopPropagation();
+    state.upload.destMenuOpen = false;
+    openTextInputDialog('Nuova cartella', 'La cartella viene creata nella libreria e le foto in coda ci finiscono dentro.', 'Nome della cartella', '', 'Crea', (name)=>{
+      const id = 'f'+Date.now();
+      FOLDERS.push({id, name, total:0});
+      uploadSetDest(id);
+      showToast(`Cartella "${name}" creata.`);
+    });
+  });
+  bindActivatable(document.getElementById('uploadGoCulling'), (e)=>{
+    if(e && e.stopPropagation) e.stopPropagation();
+    state.upload.open=false; state.view='culling'; state.cullingBatchId=null; renderAll();
+  });
+  bindActivatable(document.getElementById('uploadClearBtn'), (e)=>{
+    if(e && e.stopPropagation) e.stopPropagation(); uploadClearFinished();
+  });
+  bindActivatable(document.getElementById('uploadCancelBtn'), (e)=>{
+    if(e && e.stopPropagation) e.stopPropagation(); uploadCancelAll();
+  });
+  host.querySelectorAll('[data-upretry]').forEach(el=>{
+    bindActivatable(el, (e)=>{ if(e&&e.stopPropagation) e.stopPropagation(); uploadRetry(el.dataset.upretry); });
+  });
+  host.querySelectorAll('[data-upseeexisting]').forEach(el=>{
+    bindActivatable(el, (e)=>{
+      if(e&&e.stopPropagation) e.stopPropagation();
+      state.upload.open=false;
+      showToast('Solo demo — aprirebbe la copia già presente in libreria.');
+      renderAll();
+    });
+  });
+  const scrim = document.getElementById('uploadScrim');
+  if(scrim) scrim.onclick = ()=>{ state.upload.open=false; renderUploadPanel(); renderUploadDock(); };
+}
+
+/* Velo di rilascio. dragenter/dragleave scattano anche passando sui figli, quindi si
+   conta la profondità invece di fidarsi del singolo evento. */
+let _dragDepth = 0;
+function renderDropOverlay(){
+  const host = document.getElementById('dropOverlayHost');
+  if(!host) return;
+  if(!state.dragging){ host.innerHTML=''; return; }
+  const folderName = state.currentFolder ? FOLDERS.find(f=>f.id===state.currentFolder).name : null;
+  host.innerHTML = `
+    <div class="drop-overlay">
+      <div class="drop-overlay-inner">
+        ${ico('upload',34,'ico')}
+        <div class="drop-title">${folderName ? `Rilascia per caricare in ${folderName}` : 'Rilascia le foto qui'}</div>
+        <div class="drop-sub">${folderName
+          ? 'Foto sviluppate e video. I RAW si caricano dal Culling.'
+          : 'Poi scegli in quale cartella metterle. Foto sviluppate e video: i RAW si caricano dal Culling.'}</div>
+      </div>
+    </div>`;
+}
+
+/* =========================================================
+   CARICAMENTO ED ERRORE — macchina a stati
+   Nel prototipo i dati sono già tutti in memoria, quindi senza una simulazione questi
+   stati non esisterebbero mai e non si potrebbero rivedere. Il pannello "Anteprima
+   stati" in fondo a Impostazioni li accende a comando.
+
+   Quando gli interruttori sono spenti (impostazione predefinita) loadStateFor()
+   risponde sempre "pronto" e l'app si comporta esattamente come prima: la simulazione
+   non lascia residui sul percorso normale.
+
+   Nel prodotto vero questa macchina resta identica — cambia solo chi la fa avanzare:
+   la risposta del server invece di un timer.
+========================================================= */
+const DEMO_LATENCY_MS = 1100;
+const _loadState = {};   // chiave dataset -> 'loading' | 'ready' | 'error'
+const _loadTimers = {};
+
+function demoLoadingOn(){ return !!(state.demo && (state.demo.slow || state.demo.loadError)); }
+
+/* Ogni vista dichiara la chiave del "dataset" che le serve (es. foto:urbino). È la
+   chiave a essere caricata, non la schermata: tornando su una cartella già letta non
+   si rivede lo scheletro, esattamente come farebbe una cache vera. */
+function loadStateFor(key){
+  if(!demoLoadingOn()) return 'ready';
+  if(_loadState[key]) return _loadState[key];
+  _loadState[key] = 'loading';
+  _loadTimers[key] = setTimeout(()=>{
+    _loadState[key] = state.demo.loadError ? 'error' : 'ready';
+    delete _loadTimers[key];
+    renderAll();
+  }, DEMO_LATENCY_MS);
+  return 'loading';
+}
+function retryLoad(key){
+  clearTimeout(_loadTimers[key]);
+  delete _loadTimers[key];
+  delete _loadState[key];
+  renderAll();
+}
+function resetLoadStates(){
+  Object.keys(_loadTimers).forEach(k=> clearTimeout(_loadTimers[k]));
+  Object.keys(_loadTimers).forEach(k=> delete _loadTimers[k]);
+  Object.keys(_loadState).forEach(k=> delete _loadState[k]);
+}
+
+/* Stato di errore a piena vista. Ha sempre tre parti: cosa non è riuscito, la
+   rassicurazione su cosa NON è successo (i file sono intatti) e un'azione per
+   riprovare. Mai un vicolo cieco, mai "qualcosa è andato storto". */
+function errorStateHTML(title, sub, retryKey, detail){
+  return `<div class="error-state" role="alert">
+    ${ico('alert',34,'ico')}
+    <div class="err-title">${title}</div>
+    <div class="err-sub">${sub}</div>
+    <div class="err-actions">
+      <div class="btn btn-sm" data-retry="${retryKey}" role="button" tabindex="0">${icon('refresh',14)} Riprova</div>
+    </div>
+    ${detail ? `<div class="err-detail">${detail}</div>` : ''}
+  </div>`;
+}
+/* Errore parziale, in riga: il resto della pagina si è caricato, manca un pezzo. Non
+   prende tutta la vista — sarebbe sproporzionato — ma non si lascia nemmeno passare
+   sotto silenzio. */
+function errorInlineHTML(msg, retryKey){
+  return `<div class="error-inline" role="alert">
+    ${ico('alert',17,'ico')}
+    <div class="err-grow">${msg}</div>
+    <div class="btn btn-sm btn-ghost" data-retry="${retryKey}" role="button" tabindex="0">Riprova</div>
+  </div>`;
+}
+function wireErrorRetry(root){
+  (root||document).querySelectorAll('[data-retry]').forEach(el=>{
+    bindActivatable(el, (e)=>{ if(e && e.stopPropagation) e.stopPropagation(); retryLoad(el.dataset.retry); });
+  });
+}
+
+/* Scheletro di una griglia fotografica: non un rettangolo grigio qualunque, ma la
+   stessa impaginazione giustificata del contenuto vero — righe ad altezza comune,
+   larghezze diverse. Quando le foto arrivano prendono il posto dello scheletro senza
+   che nulla si sposti, ed è per questo che l'attesa non "salta". */
+const SKEL_ASPECTS = [1.5,0.67,1.5,1.33,1.5,0.75,1.78,1.5,0.67,1.5,1.33,1.5,1.5,0.75,1.5,1.78,1.33,0.67,1.5,1.5,1.33,1.5,0.75,1.5];
+function skelGridHTML(count, rowH){
+  rowH = rowH || 150;
+  let out = '';
+  for(let i=0;i<count;i++){
+    const ar = SKEL_ASPECTS[i % SKEL_ASPECTS.length];
+    out += `<div class="skel skel-tile" style="height:${rowH}px;flex:${ar} 1 ${Math.round(ar*rowH)}px"></div>`;
+  }
+  return `<div class="photo-grid" style="display:flex;flex-wrap:wrap;gap:6px" aria-hidden="true">${out}</div>`;
+}
+/* Scheletro della timeline: due mesi, con l'intestazione anch'essa in scheletro. Due e
+   non uno perché il ritmo "titolo, griglia, titolo, griglia" è parte di ciò che si sta
+   annunciando. */
+function streamSkeletonPlaceholderHTML(approxCount){
+  const perMonth = Math.max(8, Math.min(16, Math.round(approxCount/2) || 12));
+  const month = ()=>`<div class="month-block">
+    <div class="skel-head">
+      <div class="skel skel-line" style="width:118px;height:15px"></div>
+      <div class="skel skel-line" style="width:56px;height:10px"></div>
+    </div>
+    ${skelGridHTML(perMonth)}
+  </div>`;
+  return `<div class="stream-skeleton" role="status" aria-label="Caricamento delle foto in corso">${month()}${month()}</div>`;
 }
 
 /* =========================================================
@@ -2327,6 +3232,19 @@ function renderTopbar(){
     bulkEdit: `<b>Modifica multipla</b>`,
   };
   document.getElementById('breadcrumb').innerHTML = crumbs[state.view] || '';
+
+  /* Il comando "Carica" sta accanto alla ricerca, non su un pulsante flottante: stesso
+     posto in ogni vista, e non copre mai una foto. L'etichetta dichiara la destinazione
+     quando c'è — così la si legge PRIMA di aprire il selettore, non dopo. */
+  const upBtn = document.getElementById('uploadTopBtn');
+  if(upBtn){
+    upBtn.innerHTML = `${icon('upload',14)} ${folderName ? 'Carica qui' : 'Carica'}`;
+    upBtn.setAttribute('aria-label', folderName
+      ? `Carica foto o video nella cartella ${folderName}`
+      : 'Carica foto o video, poi scegli la cartella');
+    upBtn.setAttribute('data-tip', folderName ? `Carica in ${folderName}` : 'Carica foto o video');
+    bindActivatable(upBtn, ()=> uploadPick(state.view==='foto' ? state.currentFolder : null));
+  }
 }
 
 /* =========================================================
@@ -2361,6 +3279,11 @@ document.querySelectorAll('#deviceSwitch [data-device]').forEach(el=>{
    MOBILE SHELL: header + bottom tab bar + Libreria menu
 ========================================================= */
 const MOBILE_ROOT_VIEWS = ['foto','cerca','libreria'];
+/* Da mobile il "+" non è un pulsante flottante sopra la griglia: sta nell'header, dove
+   già vivono i comandi della schermata. In basso c'è la tab bar e sopra la griglia la
+   toolbar dei filtri sticky — un FAB finirebbe per forza sopra le foto. Compare solo
+   dove caricare ha un senso: non nel Culling (area separata), non nelle impostazioni. */
+const MOBILE_UPLOAD_VIEWS = ['foto','preferiti','album','libreria'];
 function mobileTitleFor(){
   const folderName = state.currentFolder ? FOLDERS.find(f=>f.id===state.currentFolder).name : 'Tutte le foto';
   const openCullBatch = state.cullingBatchId ? cullingBatchById(state.cullingBatchId) : null;
@@ -2392,6 +3315,7 @@ function renderMobileHeader(){
       <div class="mobile-header-title">${mobileTitleFor()}</div>
     </div>
     <div class="mobile-header-right">
+      ${MOBILE_UPLOAD_VIEWS.includes(state.view)?`<div class="mobile-icon-btn" id="mobileUploadBtn" role="button" tabindex="0" aria-label="${state.currentFolder?`Carica foto o video in ${FOLDERS.find(f=>f.id===state.currentFolder).name}`:'Carica foto o video'}">${icon('plus',20)}</div>`:''}
       ${state.view==='foto'?`<div class="mobile-icon-btn" id="mobileCullingBtn" aria-label="Culling">${icon('funnel',18)}${qCount>0?`<span class="nav-badge" style="position:absolute;top:-3px;right:-3px">${qCount}</span>`:''}</div>`:''}
       <div class="mobile-account-btn" id="mobileAccountBtn"><div class="avatar" style="width:28px;height:28px;font-size:11px;${myAvatarStyle()}">GM</div></div>
       <div id="mobileAccountMenuHost"></div>
@@ -2404,6 +3328,10 @@ function renderMobileHeader(){
   };
   const cullingBtn = document.getElementById('mobileCullingBtn');
   if(cullingBtn) cullingBtn.onclick = ()=>{ state.view='culling'; renderAll(); };
+  // stessa regola del desktop: dentro una cartella la destinazione è quella, altrove la
+  // si sceglie dopo nel pannello
+  bindActivatable(document.getElementById('mobileUploadBtn'),
+    ()=> uploadPick(state.view==='foto' ? state.currentFolder : null));
   const accBtn = document.getElementById('mobileAccountBtn');
   if(accBtn) accBtn.onclick = (e)=>{ e.stopPropagation(); state.mobileAccountOpen = !state.mobileAccountOpen; renderMobileAccountMenu(); };
   renderMobileAccountMenu();
@@ -2511,7 +3439,7 @@ function renderCartelle(root){
         const cover = photosFor(f.id)[0];
         return `<div class="folder-card" data-jumpfolder="${f.id}">
           <div class="folder-card-cover" style="${tileStyle(cover)}"></div>
-          <div class="folder-card-body"><div class="folder-card-title">${f.name}</div><div class="folder-card-sub">${f.total} foto</div></div>
+          <div class="folder-card-body"><div class="folder-card-title">${f.name}</div></div>
         </div>`;
       }).join('')}
     </div>`;
@@ -2713,14 +3641,15 @@ function renderPersonDetail(root){
       <div class="btn btn-sm btn-ghost" id="personHideBtn" role="button" tabindex="0">${icon(person.hidden?'check':'close',13)} ${person.hidden?'Mostra di nuovo':'Nascondi'}</div>
     </div>
     <div class="grid-toolbar">${state.selectionMode ? selectionBarHTML() : `<div class="grid-toolbar-row"><span></span>${gridQuickActionsHTML(photos, shown)}</div>`}</div>
-    ${shown.length ? `<div class="photo-grid">${shown.map(tileHTML).join('')}</div>` :
+    ${gridLoadBodyHTML('persona:'+person.id, `le foto di ${person.name||'questa persona'}`, shown.length,
       photos.length ? emptyStateHTML('funnel','Nessuna foto corrisponde ai filtri','Prova ad allargare i filtri, o cancellali dal pannello qui sopra.')
-                     : emptyStateHTML('user','Nessuna foto qui','Questa persona non ha (più) volti confermati.')}
+                     : emptyStateHTML('user','Nessuna foto qui','Questa persona non ha (più) volti confermati.'))}
   `;
   document.getElementById('personBack').onclick = ()=>{ state.openPerson=null; renderAll(); };
-  attachTileHandlers(root, shown);
   attachSelectionBar(shown);
   wireGridQuickActions(root, photos, shown);
+  wireErrorRetry(root);
+  mountFlatStream(root, shown);
   bindActivatable(document.getElementById('personRenameBtn'), ()=>{
     openTextInputDialog('Rinomina persona', '', 'Nome', person.name, 'Salva', (name)=>{
       person.name = name; showToast('Persona rinominata.'); renderAll();
@@ -2823,7 +3752,7 @@ function openMergePeopleDialog(people){
   const rowsHTML = ()=> people.map(p=>`<div class="album-picker-row" data-mergesurvivor="${p.id}" role="radio" aria-checked="${survivorId===p.id}" tabindex="0">
     <div class="picklist-check ${survivorId===p.id?'on':''}" aria-hidden="true">${survivorId===p.id?icon('check',10):''}</div>
     <div class="album-picker-name">${personDisplayName(p)}</div>
-    <span style="font-size:11px;color:var(--text-tertiary)">${personPhotoCount(p.id)} foto</span>
+    
   </div>`).join('');
   el.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="mergeTitle">
     <div class="modal-title" id="mergeTitle">Unisci ${people.length} persone</div>
@@ -2958,7 +3887,7 @@ function openPersonPickerDialog(onPick){
       </div>` : ''}
       ${people.map(p=>`<div class="album-picker-row" data-pickperson="${p.id}" role="button" tabindex="0">
         <div class="album-picker-name">${personDisplayName(p)}</div>
-        <span style="font-size:11px;color:var(--text-tertiary)">${personPhotoCount(p.id)} foto</span>
+        
       </div>`).join('')}
       ${people.length===0 && (!q || exactMatch) ? `<div class="region-search-empty">Nessuna persona trovata.</div>` : ''}
     `;
@@ -3079,9 +4008,15 @@ function renderAll(){
     bulkEdit: renderBulkEdit,
     createAlbum: renderCreateAlbum,
   };
+  // i flussi virtualizzati del render precedente hanno gestori appesi a contenitori che
+  // stanno per sparire: vanno staccati prima, non lasciati accumulare
+  teardownStreams();
   root.innerHTML = '';
   (renderers[state.view]||renderFoto)(root);
   layoutJustifiedGrids(root);
+  renderUploadDock();
+  renderUploadPanel();
+  renderDropOverlay();
   if(state.lightbox) renderLightbox(); else document.getElementById('lightboxRoot').innerHTML='';
 }
 /* Griglia foto "justified" (Google Photos/Immich/Flickr DESKTOP): ogni riga ha
@@ -3106,8 +4041,13 @@ function layoutJustifiedGrids(root){
   const isMobile = state.device==='mobile';
   const cols = (state.gridDensity && state.gridDensity[state.device]) || (isMobile?3:4);
 
+  // Le griglie del flusso virtualizzato (.stream-grid) hanno una geometria già calcolata
+  // in anticipo dal piano e posizionano le righe in assoluto: questa funzione non deve
+  // toccarle, o disferebbe il lavoro appena fatto.
+  const grids = (sel)=> Array.from(root.querySelectorAll(sel)).filter(g=>!g.classList.contains('stream-grid'));
+
   if(isMobile){
-    root.querySelectorAll('.photo-grid').forEach(grid=>{
+    grids('.photo-grid').forEach(grid=>{
       grid.style.display = 'grid';
       grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
       grid.querySelectorAll('.tile').forEach(t=>{ t.style.width=''; t.style.height=''; t.style.flex=''; });
@@ -3115,7 +4055,7 @@ function layoutJustifiedGrids(root){
     return;
   }
 
-  root.querySelectorAll('.photo-grid').forEach(grid=>{
+  grids('.photo-grid').forEach(grid=>{
     grid.style.display = 'flex';
     grid.style.gridTemplateColumns = '';
     const tiles = Array.from(grid.querySelectorAll('.tile[data-ar]'));
@@ -3334,9 +4274,12 @@ function attachSelectionBar(list){
     const sel = selectedPhotos();
     if(sel.length===0) return;
     const allFav = sel.every(p=>p.isFav);
-    sel.forEach(p=>p.isFav = !allFav);
-    showToast(allFav?'Rimossi dai preferiti.':'Aggiunti ai preferiti.');
-    renderAll();
+    runBulkAction({
+      btn: document.getElementById('selFavBtn'),
+      photos: sel,
+      apply: (list)=> list.forEach(p=>p.isFav = !allFav),
+      okMsg: ()=> allFav ? 'Rimossi dai preferiti.' : 'Aggiunti ai preferiti.'
+    });
   });
   bindActivatable(document.getElementById('selAlbumBtn'), ()=>{
     const sel = selectedPhotos();
@@ -3595,7 +4538,7 @@ function renderBulkEdit(root){
   bindActivatable(document.getElementById('bulkRenameBtn'), ()=> openRenameDialog({kind:'selection', photos: sel, hasSubfolders:false}));
   bindActivatable(document.getElementById('bulkApplyBtn'), ()=>{
     const d = state.bulkEditDraft;
-    sel.forEach(p=>{
+    const applyTo = (list)=> list.forEach(p=>{
       if(d.rating>0) p.rating = d.rating;
       if(d.pick) p.pick = d.pick;
       if(d.fav==='add') p.isFav = true;
@@ -3603,29 +4546,233 @@ function renderBulkEdit(root){
       if(d.folder) p.folderId = d.folder;
       if(d.title.trim()) p.title = d.title.trim();
     });
-    showToast(`Modifiche applicate a ${sel.length} foto.`);
-    clearSelection();
-    state.view='foto';
-    renderAll();
+    runBulkAction({
+      btn: document.getElementById('bulkApplyBtn'),
+      photos: sel,
+      apply: (list)=>{
+        applyTo(list);
+        // Si esce comunque dalla modifica in blocco, anche con un esito parziale: il
+        // "Riprova le N rimaste" del messaggio lavora sulle foto stesse, non sulla
+        // selezione, quindi non serve tenerla in vita per poterlo usare.
+        clearSelection();
+        state.view = 'foto';
+      },
+      okMsg: (n)=> `Modifiche applicate a ${n} foto.`
+    });
   });
 }
-function monthBlocksHTML(photosList){
-  // Raggruppato per monthIdx (mese di calendario reale), non per monthOffset — monthOffset
-  // è relativo alla singola cartella e non è confrontabile quando si combinano più
-  // cartelle nella timeline "Tutte le foto". monthDistance(monthIdx) dà l'ordinamento
-  // cronologico corretto in entrambi i casi (equivalente a monthOffset per una cartella sola).
-  const byMonth = {};
-  photosList.forEach(p=>{ (byMonth[p.monthIdx] = byMonth[p.monthIdx]||[]).push(p); });
-  const monthIdxs = Object.keys(byMonth).map(Number).sort((a,b)=>monthDistance(a)-monthDistance(b));
-  return monthIdxs.map(mi=>{
-    const list = byMonth[mi];
-    const shown = list.slice(0,24);
-    return `<div class="month-block" data-month-idx="${mi}">
-      <div class="month-head"><div class="month-title">${MONTHS_FULL[mi]} 2026</div><div class="month-count">${list.length} scatti</div></div>
-      <div class="photo-grid">${shown.map(tileHTML).join('')}</div>
-    </div>`;
-  }).join('');
+/* =========================================================
+   FLUSSO FOTO VIRTUALIZZATO
+   Prima c'era un tetto fisso: ogni mese mostrava al massimo 24 foto, mentre
+   l'intestazione dichiarava il totale vero ("375 scatti"). Le altre 351 non
+   esistevano — nessun "carica altre", nessuno scorrimento infinito.
+
+   Toglierlo e basta significherebbe però mettere nel DOM tutte le tessere della
+   libreria in una volta. Con centinaia di migliaia di scatti non regge, e non regge
+   nemmeno il modello mentale: la barra di scorrimento salterebbe a ogni caricamento.
+
+   La soluzione qui è quella dei visualizzatori seri (Google Photos, Immich): la
+   GEOMETRIA è calcolata in anticipo per l'intera libreria, il DOM no.
+
+   1. Dai soli rapporti d'aspetto — senza toccare il DOM, senza misurare nulla —
+      si calcola dove finirà ogni singola tessera: quali foto stanno su quale riga,
+      quanto è alta ogni riga, quanto è alto ogni mese, quanto è alto il tutto.
+      È lo stesso algoritmo giustificato di prima, solo eseguito sui dati.
+   2. La pagina prende SUBITO la sua altezza definitiva. La barra di scorrimento è
+      corretta dal primo istante, lo scrubber dei mesi sa esattamente dove saltare, e
+      niente si sposta sotto il dito mentre le foto arrivano.
+   3. Solo le righe che ricadono nella finestra visibile (più un margine di sicurezza
+      sopra e sotto) esistono davvero come nodi. Scorrendo, le righe che escono vengono
+      smontate e quelle che entrano montate.
+
+   Il risultato: il numero di nodi nel DOM dipende dall'altezza della finestra, non da
+   quante foto ci sono in libreria. Una libreria da 200.000 scatti costa quanto una da
+   200. È questo che rende il tetto di 24 non più necessario invece che semplicemente
+   rimosso.
+========================================================= */
+const GRID_GAP = 6;
+const STREAM_OVERSCAN = 1.25; // quanti schermi di margine tenere montati sopra e sotto
+const MONTH_HEAD_H = 19 + 10; // .month-head (riga a 16px) + margin-bottom
+const MONTH_GAP = 26;         // .month-block margin-bottom
+
+function gridColsFor(){
+  return (state.gridDensity && state.gridDensity[state.device]) || (state.device==='mobile' ? 3 : 4);
 }
+
+/* Distanza verticale di un elemento dall'inizio del contenuto scorribile: si risale la
+   catena degli offsetParent fino al contenitore di scorrimento. Serve perché il flusso
+   non è sempre figlio diretto dello scroller (da mobile la toolbar sticky sta in mezzo). */
+function offsetWithin(el, scroller){
+  let y = 0, n = el, guard = 0;
+  while(n && n !== scroller && guard++ < 20){ y += n.offsetTop; n = n.offsetParent; }
+  return y;
+}
+
+/* Impagina una lista di foto in righe, restituendo per ognuna la posizione verticale e
+   la larghezza esatta di ogni tessera. Nessun accesso al DOM: è pura aritmetica sui
+   rapporti d'aspetto, quindi si può eseguire su tutta la libreria in un colpo solo. */
+function planPhotoRows(list, width){
+  const cols = gridColsFor();
+  const rows = [];
+  if(!list.length || !width) return {rows, height:0};
+
+  if(state.device==='mobile'){
+    // Da mobile la griglia è a colonne fisse con tessere quadrate (vedi il commento su
+    // layoutJustifiedGrids): la geometria è banale e non dipende dai rapporti d'aspetto.
+    const tileW = (width - (cols-1)*GRID_GAP) / cols;
+    for(let i=0; i<list.length; i+=cols){
+      rows.push({
+        top: (rows.length)*(tileW+GRID_GAP),
+        h: tileW,
+        items: list.slice(i,i+cols).map(p=>({p, w:tileW, h:tileW}))
+      });
+    }
+    return {rows, height: rows.length ? rows[rows.length-1].top + tileW : 0};
+  }
+
+  const targetH = Math.max(64, (width - (cols-1)*GRID_GAP) / cols / 1.3);
+  let cur = [], sumAspect = 0, top = 0;
+  const commit = (stretch)=>{
+    if(!cur.length) return;
+    const totalGap = (cur.length-1)*GRID_GAP;
+    let scale = stretch ? (width-totalGap)/(sumAspect*targetH) : 1;
+    scale = Math.min(Math.max(scale, 0.7), 1.6);
+    const h = Math.round(targetH*scale);
+    rows.push({ top, h, items: cur.map(p=>({p, w: Math.round((parseFloat(p.aspect)||1)*h), h})) });
+    top += h + GRID_GAP;
+    cur = []; sumAspect = 0;
+  };
+  list.forEach(p=>{
+    const ar = parseFloat(p.aspect)||1;
+    cur.push(p); sumAspect += ar;
+    if(sumAspect*targetH + (cur.length-1)*GRID_GAP >= width) commit(true);
+  });
+  commit(false); // ultima riga: altezza naturale, non stirata a riempire
+  return {rows, height: top ? top - GRID_GAP : 0};
+}
+
+/* Impagina più sezioni (i mesi della timeline, o una sezione sola per le griglie
+   piatte) e restituisce il piano completo con l'altezza totale. */
+function planStream(sections, width){
+  let top = 0;
+  const planned = sections.map(sec=>{
+    const headH = sec.title ? MONTH_HEAD_H : 0;
+    const body = planPhotoRows(sec.photos, width);
+    const entry = {...sec, top, headH, rows: body.rows, bodyH: body.height, height: headH + body.height};
+    top += entry.height + MONTH_GAP;
+    return entry;
+  });
+  return {sections: planned, height: Math.max(0, top - MONTH_GAP)};
+}
+
+/* Monta lo scheletro del flusso: un contenitore per sezione con l'altezza già
+   definitiva, e dentro un'area vuota che verrà riempita riga per riga. */
+function streamSkeletonHTML(plan){
+  return plan.sections.map((sec,i)=>`
+    <div class="month-block" data-stream-sec="${i}"${sec.monthIdx!==undefined?` data-month-idx="${sec.monthIdx}"`:''}>
+      ${sec.title ? `<div class="month-head"><div class="month-title">${sec.title}</div><div class="month-count">${sec.count} scatti</div></div>` : ''}
+      <div class="photo-grid stream-grid" data-stream-body="${i}" style="position:relative;display:block;height:${sec.bodyH}px"></div>
+    </div>`).join('');
+}
+
+/* Riempie la finestra visibile: monta le righe entrate, smonta quelle uscite.
+   Le righe già montate non vengono ricreate — scorrere non ricostruisce nulla. */
+function syncStreamWindow(host, plan, scroller, ctx){
+  if(!host || !scroller) return;
+  const viewTop = scroller.scrollTop;
+  const viewH = scroller.clientHeight || 600;
+  const margin = viewH * STREAM_OVERSCAN;
+  const from = viewTop - margin, to = viewTop + viewH + margin;
+  // offset del flusso dentro il contenitore di scorrimento (la toolbar sta sopra).
+  // Va risalita la catena degli offsetParent invece di leggere host.offsetTop e basta:
+  // da desktop il flusso è figlio diretto del contenitore di scorrimento, da mobile no.
+  const hostTop = offsetWithin(host, scroller);
+
+  plan.sections.forEach((sec,si)=>{
+    const body = host.querySelector(`[data-stream-body="${si}"]`);
+    if(!body) return;
+    const secTop = hostTop + sec.top + sec.headH;
+    // salta in blocco i mesi interamente fuori finestra: non si scorre riga per riga
+    // su un anno di foto per scoprire che non serve nulla
+    if(secTop + sec.bodyH < from || secTop > to){
+      if(body.childElementCount) body.innerHTML = '';
+      return;
+    }
+    const wanted = new Set();
+    sec.rows.forEach((row,ri)=>{
+      const rowTop = secTop + row.top;
+      if(rowTop + row.h < from || rowTop > to) return;
+      wanted.add(ri);
+      if(body.querySelector(`[data-stream-row="${ri}"]`)) return;
+      const el = document.createElement('div');
+      el.className = 'stream-row tile-in';
+      el.dataset.streamRow = ri;
+      el.style.cssText = `position:absolute;left:0;top:${row.top}px;height:${row.h}px;display:flex;gap:${GRID_GAP}px;`;
+      el.innerHTML = row.items.map(it=>tileHTML(it.p)).join('');
+      row.items.forEach((it,k)=>{
+        const t = el.children[k];
+        if(!t) return;
+        t.style.width = it.w+'px'; t.style.height = it.h+'px'; t.style.flex = '0 0 auto';
+      });
+      body.appendChild(el);
+      // i gestori vanno agganciati solo alle tessere appena create, non a tutte
+      attachTileHandlers(el, ctx.list);
+    });
+    Array.from(body.children).forEach(el=>{
+      if(!wanted.has(Number(el.dataset.streamRow))) el.remove();
+    });
+  });
+}
+
+/* Aggancia il flusso al suo contenitore di scorrimento. Ricalcola il piano quando
+   cambia la larghezza (finestra ridimensionata, densità, sidebar) e rimonta la
+   finestra visibile a ogni scorrimento, ma passando da requestAnimationFrame: lo
+   scorrimento resta fluido perché si lavora al massimo una volta per fotogramma. */
+function mountPhotoStream(root, hostSel, scrollerSel, sections, list){
+  const host = root.querySelector(hostSel);
+  const scroller = document.querySelector(scrollerSel) || root.querySelector(scrollerSel);
+  if(!host) return null;
+  const width = host.clientWidth || host.getBoundingClientRect().width;
+  if(!width) return null;
+
+  let plan = planStream(sections, width);
+  host.innerHTML = streamSkeletonHTML(plan);
+  const ctx = {list};
+  syncStreamWindow(host, plan, scroller, ctx);
+
+  let ticking = false;
+  const onScroll = ()=>{
+    if(ticking) return;
+    ticking = true;
+    requestAnimationFrame(()=>{ ticking = false; syncStreamWindow(host, plan, scroller, ctx); });
+  };
+  // assegnazione diretta invece di addEventListener: ogni render sostituisce il
+  // gestore precedente invece di accumularne uno nuovo a ogni passaggio sulla vista
+  scroller.addEventListener('scroll', onScroll, {passive:true});
+  _streamCleanups.push(()=> scroller.removeEventListener('scroll', onScroll));
+
+  const replan = ()=>{
+    const w = host.clientWidth;
+    if(!w || w===width) return;
+    plan = planStream(sections, w);
+    host.innerHTML = streamSkeletonHTML(plan);
+    syncStreamWindow(host, plan, scroller, ctx);
+  };
+  return {host, scroller, getPlan:()=>plan, replan, sync:()=> syncStreamWindow(host, plan, scroller, ctx)};
+}
+
+// I gestori di scorrimento dei flussi montati vanno rimossi prima del render successivo,
+// altrimenti restano appesi a contenitori non più in pagina.
+let _streamCleanups = [];
+function teardownStreams(){
+  _streamCleanups.forEach(fn=>{ try{ fn(); }catch(e){} });
+  _streamCleanups = [];
+}
+
+/* monthBlocksHTML() è stata rimossa: era la vecchia impaginazione dei mesi, quella col
+   tetto di 24 foto. Da quando la timeline è virtualizzata le sezioni le costruisce
+   renderFoto() e le impagina planStream(); la funzione restava orfana con dentro proprio
+   il difetto appena tolto, ed era una trappola per chi legge il file. */
 
 /* =========================================================
    VIEW: FOTO (timeline)
@@ -3646,8 +4793,19 @@ function renderFoto(root){
   const isMobile = state.device==='mobile';
   const toolbarInner = state.selectionMode ? selectionBarHTML()
     : `<div class="grid-toolbar-row">${state.currentFolder ? fotoToolbarExtrasHTML() : '<span></span>'}${gridQuickActionsHTML(allList, photosList)}</div>`;
-  const gridBody = photosList.length ? monthBlocksHTML(photosList)
+  // Stato di caricamento / errore: la timeline è la vista più pesante da servire, ed è
+  // quella in cui l'attesa si nota di più. Vedi loadStateFor() e i tre stati possibili.
+  const load = loadStateFor('foto:'+(state.currentFolder||'tutte'));
+  const gridBody = load==='loading' ? streamSkeletonPlaceholderHTML(photosList.length || 24)
+    : load==='error' ? errorStateHTML(
+        'Non è stato possibile caricare la libreria',
+        state.currentFolder
+          ? `La cartella "${FOLDERS.find(f=>f.id===state.currentFolder).name}" non ha risposto. Le foto sono al sicuro: è la lettura ad essere fallita, non i file.`
+          : 'Il server non ha risposto alla richiesta delle foto. Le foto sono al sicuro: è la lettura ad essere fallita, non i file.',
+        'foto:'+(state.currentFolder||'tutte'))
+    : photosList.length ? '<div id="fotoStream"></div>'
     : `<div style="padding:6px 2px">${emptyStateHTML('funnel','Nessuna foto corrisponde ai filtri','Prova ad allargare i filtri, o cancellali dal pannello qui sopra.')}</div>`;
+  const showScrubber = load==='ready' && photosList.length;
   root.innerHTML = isMobile
     ? `<div class="grid-toolbar">${toolbarInner}</div>
        <div id="fotoScroll" style="position:relative;">
@@ -3657,22 +4815,36 @@ function renderFoto(root){
          <div class="grid-toolbar">${toolbarInner}</div>
          ${gridBody}
        </div>
-       <div class="scrubber" id="scrubber"></div>`;
-  attachTileHandlers(root, photosList);
+       ${showScrubber ? '<div class="scrubber" id="scrubber"></div>' : ''}`;
   attachSelectionBar(photosList);
   wireGridQuickActions(root, allList, photosList);
+  wireErrorRetry(root);
   const renameFolderBtn = document.getElementById('renameFolderBtn');
   if(renameFolderBtn) bindActivatable(renameFolderBtn, ()=> openRenameDialog({kind:'folder', photos: photosList, label: FOLDERS.find(f=>f.id===state.currentFolder).name, hasSubfolders:false}));
-  if(!isMobile && photosList.length) setupScrubber(root, photosList);
+  if(load!=='ready' || !photosList.length) return;
+
+  // Una sezione per mese di calendario, in ordine cronologico. monthIdx (non monthOffset)
+  // perché la timeline "Tutte le foto" combina più cartelle e monthOffset è relativo
+  // alla singola cartella, quindi non confrontabile.
+  const byMonth = {};
+  photosList.forEach(p=>{ (byMonth[p.monthIdx] = byMonth[p.monthIdx]||[]).push(p); });
+  const sections = Object.keys(byMonth).map(Number)
+    .sort((a,b)=>monthDistance(a)-monthDistance(b))
+    .map(mi=>({ key:'m'+mi, monthIdx:mi, title:`${MONTHS_FULL[mi]} 2026`, count:byMonth[mi].length, photos:byMonth[mi] }));
+
+  const scrollerSel = isMobile ? '#viewRoot' : '#fotoScroll';
+  const stream = mountPhotoStream(root, '#fotoStream', scrollerSel, sections, photosList);
+  if(!isMobile && stream) setupScrubber(root, sections);
 }
-function setupScrubber(root, photosList){
+function setupScrubber(root, sections){
+  const photosList = sections; // ogni voce ha .monthIdx: l'elenco dei mesi presenti, in ordine
   // #fotoScroll è ora il vero contenitore di scroll (overflow-y:auto) — #viewRoot resta
   // fermo apposta, così .scrubber (ancorato a #viewRoot) non scivola più insieme al
   // contenuto mentre si scrolla. Vedi il commento CSS su .view-root.has-scrubber.
   const scrollEl = document.getElementById('fotoScroll');
   const scroller = scrollEl;
   const rail = document.getElementById('scrubber');
-  const offsets = [...new Set(photosList.map(p=>p.monthIdx))].sort((a,b)=>monthDistance(a)-monthDistance(b));
+  const offsets = photosList.map(s=>s.monthIdx);
   const labels = offsets.map(mi=>MONTHS[mi]);
   rail.innerHTML = `
     <div class="scrubber-rail"></div>
@@ -3688,10 +4860,11 @@ function setupScrubber(root, photosList){
   }
   function scrollToOffset(mi){
     const block = root.querySelector(`[data-month-idx="${mi}"]`);
-    // #fotoScroll è sia il contenitore di scroll che l'offsetParent di .month-block
-    // (è lui ad avere position:absolute ora), quindi basta il suo offsetTop diretto —
-    // non serve più sommare un offset intermedio come nella struttura precedente.
-    if(block){ scroller.scrollTop = block.offsetTop - 4; }
+    // Con il flusso virtualizzato l'altezza di ogni mese è nota fin dal primo istante,
+    // quindi il salto atterra esattamente sul mese giusto anche su un mese ancora da
+    // montare — prima, con le foto tagliate a 24, l'offset era quello di un blocco
+    // molto più corto del reale e lo scrubber "mentiva".
+    if(block){ scroller.scrollTop = offsetWithin(block, scroller) - 4; }
   }
   function handleDrag(clientY){
     const rect = rail.getBoundingClientRect();
@@ -3736,10 +4909,39 @@ function renderPreferiti(root){
     : `<div class="grid-toolbar-row"><span></span>${gridQuickActionsHTML(favs, shown)}</div>`;
   root.innerHTML = `<div class="section-title">Preferiti</div><div class="section-sub">${favs.length} foto, da tutte le cartelle</div>
     <div class="grid-toolbar">${toolbarInner}</div>
-    ${shown.length ? `<div class="photo-grid">${shown.map(tileHTML).join('')}</div>` : emptyStateHTML('funnel','Nessuna foto corrisponde ai filtri','Prova ad allargare i filtri, o cancellali dal pannello qui sopra.')}`;
-  attachTileHandlers(root, shown);
+    ${gridLoadBodyHTML('preferiti', 'i preferiti', shown.length,
+        emptyStateHTML('funnel','Nessuna foto corrisponde ai filtri','Prova ad allargare i filtri, o cancellali dal pannello qui sopra.'))}`;
   attachSelectionBar(shown);
   wireGridQuickActions(root, favs, shown);
+  wireErrorRetry(root);
+  mountFlatStream(root, shown);
+}
+
+/* Involucro comune a tutte le viste a griglia piatta: decide fra scheletro, errore e
+   contenuto, così la stessa tripletta non va riscritta in ogni vista. Restituisce
+   l'ospite vuoto del flusso quando c'è da mostrare contenuto: a riempirlo sarà
+   mountFlatStream(), dopo che il markup è in pagina e la larghezza è misurabile. */
+function gridLoadBodyHTML(key, label, shownCount, emptyHTML){
+  const load = loadStateFor(key);
+  if(load==='loading'){
+    return `<div role="status" aria-label="Caricamento in corso">${skelGridHTML(Math.max(8, Math.min(18, shownCount||12)))}</div>`;
+  }
+  if(load==='error'){
+    return errorStateHTML(
+      `Non è stato possibile caricare ${label}`,
+      'Il server non ha risposto. Nessuna foto è andata persa: è la lettura ad essere fallita, non i file sul disco.',
+      key);
+  }
+  return shownCount ? '<div id="fotoStream"></div>' : emptyHTML;
+}
+/* Griglia piatta: stessa impalcatura virtualizzata della timeline, ma con una sezione
+   sola e senza intestazioni di mese. Il contenitore di scorrimento qui è sempre la
+   vista stessa, non un contenitore interno come su Foto. */
+function mountFlatStream(root, list){
+  if(!list || !list.length) return null;
+  if(!root.querySelector('#fotoStream')) return null;
+  return mountPhotoStream(root, '#fotoStream', '#viewRoot',
+    [{key:'all', title:null, count:list.length, photos:list}], list);
 }
 function emptyStateHTML(ic,title,sub){
   return `<div class="empty-state">${ico(ic,34,'ico')}<div class="msg"><b>${title}</b><br>${sub}</div></div>`;
@@ -4525,7 +5727,7 @@ function renderCercaDynamic(){
         const cover = photosFor(f.id)[0];
         return `<div class="folder-card" data-jumpfolder="${f.id}">
           <div class="folder-card-cover" style="${tileStyle(cover)}"></div>
-          <div class="folder-card-body"><div class="folder-card-title">${f.name}</div><div class="folder-card-sub">${f.total} foto</div></div>
+          <div class="folder-card-body"><div class="folder-card-title">${f.name}</div></div>
         </div>`;
       }).join('')}
     </div>`}
@@ -4713,7 +5915,7 @@ function shareMineHTML(){
           <div class="album-cover" style="background:${a.mono?'linear-gradient(135deg,#a8a8a8,#3a3a3a)':`linear-gradient(135deg,hsl(${a.hue},40%,55%),hsl(${a.hue+18},35%,32%))`}">
             <div class="album-shared-badge">${icon('share',10)} condiviso</div>
           </div>
-          <div class="album-card-body"><div class="album-title">${a.name}</div><div class="album-sub">${a.count} elementi · ${a.range}</div></div>
+          <div class="album-card-body"><div class="album-title">${a.name}</div><div class="album-sub">${a.range}</div></div>
         </div>`).join('')}
       </div>
     </div>`;
@@ -4727,7 +5929,7 @@ function shareWithMeHTML(){
         <div class="album-cover" style="background:linear-gradient(135deg,hsl(${s.hue},40%,55%),hsl(${s.hue+18},35%,32%))">
           <div class="album-shared-badge">${icon('share',10)} da ${s.owner}</div>
         </div>
-        <div class="album-card-body"><div class="album-title">${s.name}</div><div class="album-sub">${s.type} · ${s.count} elementi · tu: ${s.role}</div></div>
+        <div class="album-card-body"><div class="album-title">${s.name}</div><div class="album-sub">${s.type} · tu: ${s.role}</div></div>
       </div>`).join('')}
     </div>
   </div>`;
@@ -4772,14 +5974,15 @@ function renderAlbumDetail(root){
     <div class="section-title">${a.name}${a.dynamic?` <span class="album-dynamic-inline-badge">${icon('funnel',11)} dinamico</span>`:''}</div>
     <div class="section-sub">${items.length} foto · ${albumRangeLabel(a,items)}${a.shared?' · condiviso':''}${a.dynamic?' · si aggiorna da solo in base al filtro':''}</div>
     <div class="grid-toolbar">${toolbarInner}</div>
-    ${shown.length ? `<div class="photo-grid">${shown.map(tileHTML).join('')}</div>` :
+    ${gridLoadBodyHTML('album:'+a.id, `l'album "${a.name}"`, shown.length,
       items.length ? emptyStateHTML('funnel','Nessuna foto corrisponde ai filtri','Prova ad allargare i filtri, o cancellali dal pannello qui sopra.') :
       a.dynamic ? emptyStateHTML('funnel','Nessuna foto corrisponde al filtro','Torna indietro e allarga le condizioni — per esempio passando da "Tutte" ad "Almeno una".')
-                : emptyStateHTML('album','Album vuoto','Seleziona una o più foto in Timeline, poi "Aggiungi ad album" dalla barra di selezione.')}`;
+                : emptyStateHTML('album','Album vuoto','Seleziona una o più foto in Timeline, poi "Aggiungi ad album" dalla barra di selezione.'))}`;
   document.getElementById('albumBack').onclick = ()=>{ state.openAlbum=null; renderAll(); };
-  attachTileHandlers(root, shown);
   attachSelectionBar(shown);
   wireGridQuickActions(root, items, shown);
+  wireErrorRetry(root);
+  mountFlatStream(root, shown);
 }
 
 /* =========================================================
@@ -5307,7 +6510,7 @@ function renderTagManagement(root){
         ${showPrompt?`<div class="tag-row-prompt">Prompt: «${t.prompt}»</div>`:''}
       </div>
       <div class="tag-row-meta">
-        <span class="tag-row-count">${tagConfirmedCount(t)} foto</span>
+        
         <span class="tag-threshold-badge" title="Sopra questa confidenza l'IA lo assegna in automatico">${t.threshold}%</span>
       </div>
       <div class="tag-row-actions">
@@ -6184,7 +7387,35 @@ function renderImpostazioni(root){
       </div>
       ${!state.faceRecognitionEnabled ? `<div class="settings-section-sub" style="margin-top:0">Disattivato: nessun volto nuovo viene rilevato, e "Persone" non mostra più nulla. I dati già raccolti restano salvati finché non li elimini qui sotto.</div>` : ''}
       <div class="btn btn-sm btn-ghost btn-danger" id="faceDataDeleteBtn" role="button" tabindex="0" style="margin-top:12px">${icon('trash',13)} Elimina tutti i dati dei volti</div>
+    </div>
+
+    <div class="settings-section demo-section">
+      <div class="settings-section-title">Anteprima stati ${ico('flask',13,'demo-flag')}</div>
+      <div class="settings-section-sub">Solo in questo prototipo. Gli stati di caricamento ed errore dipendono dalla rete e da un server vero: qui i dati sono già in memoria, quindi senza questi interruttori non si vedrebbero mai. Accendili per rivederne il disegno in ogni schermata. Nel prodotto finito questa sezione non esiste.</div>
+      <div class="settings-row">
+        <div><div class="settings-row-label">Rete lenta</div><div class="settings-row-sub">Ogni schermata impiega ${(DEMO_LATENCY_MS/1000).toFixed(1).replace('.',',')} s a caricare i suoi dati, mostrando intanto lo scheletro del contenuto.</div></div>
+        <div class="mini-switch ${state.demo.slow?'on':''}" data-demo="slow" role="switch" tabindex="0" aria-checked="${state.demo.slow}" aria-label="Simula rete lenta"><div class="mini-knob"></div></div>
+      </div>
+      <div class="settings-row">
+        <div><div class="settings-row-label">Errore di caricamento</div><div class="settings-row-sub">Le richieste falliscono invece di completarsi: mostra lo stato d'errore a piena vista, con il suo "Riprova".</div></div>
+        <div class="mini-switch ${state.demo.loadError?'on':''}" data-demo="loadError" role="switch" tabindex="0" aria-checked="${state.demo.loadError}" aria-label="Simula errore di caricamento"><div class="mini-knob"></div></div>
+      </div>
+      <div class="settings-row">
+        <div><div class="settings-row-label">Esito parziale</div><div class="settings-row-sub">Le azioni su più foto riescono solo su una parte — il caso più probabile su un'operazione di massa, e quello che di solito nessuno disegna.</div></div>
+        <div class="mini-switch ${state.demo.partial?'on':''}" data-demo="partial" role="switch" tabindex="0" aria-checked="${state.demo.partial}" aria-label="Simula esito parziale"><div class="mini-knob"></div></div>
+      </div>
     </div>`;
+
+  root.querySelectorAll('[data-demo]').forEach(el=>{
+    bindActivatable(el, ()=>{
+      const k = el.dataset.demo;
+      state.demo[k] = !state.demo[k];
+      // Cambiando le condizioni simulate, le viste già "caricate" vanno dimenticate:
+      // altrimenti accendere l'errore non avrebbe effetto su ciò che è già a schermo.
+      resetLoadStates();
+      renderAll();
+    });
+  });
 
   root.querySelectorAll('[data-theme-pref]').forEach(el=>{
     el.onclick = ()=>{
@@ -6300,6 +7531,15 @@ document.addEventListener('keydown', (e)=>{
   // Esc chiude la ricerca regioni indipendentemente da dove si trova il focus in quel
   // momento (non solo quando il focus è nel campo di testo) — prima si poteva restare
   // "intrappolati" lì se il focus era finito su un risultato o sul pulsante Annulla.
+  // Esc a livelli sul pannello dei caricamenti: prima chiude il menu della destinazione,
+  // solo un secondo Esc chiude il pannello. Il caricamento continua comunque: chiudere il
+  // pannello non annulla nulla, ed è il dock nella sidebar a ricordarlo.
+  if(state.upload.destMenuOpen && e.key==='Escape'){
+    state.upload.destMenuOpen = false; renderUploadPanel(); return;
+  }
+  if(state.upload.open && e.key==='Escape'){
+    state.upload.open = false; renderUploadPanel(); renderUploadDock(); return;
+  }
   if(state.regionPickerOpen && e.key==='Escape'){
     state.regionPickerOpen = false; state.regionSearchQuery = ''; renderAll(); return;
   }
@@ -6343,6 +7583,58 @@ document.addEventListener('keydown', (e)=>{
     else if(['1','2','3','4','5'].includes(e.key)){ const cur=q[state.cullingIdx]; if(cur){ const n=Number(e.key); cur.rating=(cur.rating===n)?0:n; renderAll(); } }
   }
 });
+
+/* =========================================================
+   CARICAMENTO — trascinamento e selettore di file
+   Il trascinamento è la porta principale da desktop: è quello che un fotografo fa già
+   dal gestore file, e a riposo non occupa un solo pixel dell'interfaccia.
+========================================================= */
+(function wireUploadEntryPoints(){
+  const app = document.getElementById('app');
+  if(!app) return;
+
+  const hasFiles = (e)=> e.dataTransfer && Array.from(e.dataTransfer.types||[]).includes('Files');
+
+  app.addEventListener('dragenter', (e)=>{
+    if(!hasFiles(e)) return;
+    e.preventDefault();
+    _dragDepth++;
+    if(!state.dragging){ state.dragging = true; renderDropOverlay(); }
+  });
+  app.addEventListener('dragover', (e)=>{
+    if(!hasFiles(e)) return;
+    e.preventDefault();                       // senza questo il browser apre il file
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  app.addEventListener('dragleave', (e)=>{
+    if(!hasFiles(e)) return;
+    _dragDepth = Math.max(0, _dragDepth-1);
+    if(_dragDepth===0 && state.dragging){ state.dragging = false; renderDropOverlay(); }
+  });
+  app.addEventListener('drop', (e)=>{
+    if(!hasFiles(e)) return;
+    e.preventDefault();
+    _dragDepth = 0;
+    state.dragging = false;
+    renderDropOverlay();
+    // La destinazione si eredita da dove si è rilasciato: dentro una cartella è quella.
+    // Il Culling non accetta rilasci — è un'area separata con un suo flusso.
+    if(state.view==='culling'){
+      showToast('Il Culling ha un suo percorso di importazione: qui non si rilasciano file.', {kind:'error'});
+      return;
+    }
+    uploadAddFiles(e.dataTransfer.files, state.view==='foto' ? state.currentFolder : null);
+  });
+
+  const inp = document.getElementById('uploadInput');
+  if(inp){
+    inp.addEventListener('change', (e)=>{
+      const hint = inp.dataset.destHint || null;
+      uploadAddFiles(e.target.files, hint || null);
+      inp.value = '';
+    });
+  }
+})();
 
 /* =========================================================
    INIT

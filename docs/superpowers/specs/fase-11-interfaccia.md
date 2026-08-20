@@ -8,6 +8,9 @@ prototipo.**
 controllo con etichetta esatta, ogni scorciatoia, ogni stato disabilitato con la ragione, ogni
 durata di transizione.
 **Marchio:** `docs/ui/brand-sheet.png`.
+**Area di caricamento (Task 6):** `docs/ui/caricamento-nuove-foto.md` — aggiunta dopo la
+consegna del 20 agosto, stessa gerarchia di fonti: il prototipo decide il comportamento, questo
+file decide il perché.
 
 ---
 
