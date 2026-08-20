@@ -21,6 +21,7 @@ pub mod libraries;
 pub mod overrides;
 pub mod permissions;
 pub mod places;
+pub mod preferences;
 pub mod problems;
 pub mod regions;
 mod row;
@@ -68,6 +69,9 @@ pub use permissions::{
     ExplainResult, NewGrant, ObjectType, PermissionGrantView, PermissionRepo, SubjectType,
 };
 pub use places::PlaceRepo;
+pub use preferences::{
+    GridDensity, NotificationPreferences, PreferencesPatchError, PreferencesRepo, UserPreferences,
+};
 pub use problems::{ProblemSet, ProblemsRepo};
 pub use regions::{MapRegion, NewMapRegion, RegionDownloadSource, RegionRepo, RegionStatus};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo};
