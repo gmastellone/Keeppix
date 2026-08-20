@@ -441,3 +441,67 @@ Il vincolo di progetto è invariato: **zero richieste di rete verso l'esterno**.
 - **Inferenza lato client** (browser, app mobile): possibile in futuro come
   ottimizzazione, mai come sostituto — WebDAV, rclone e il watcher non hanno un
   client che possa calcolare. Il percorso server-locale resta l'unico obbligatorio.
+
+
+---
+
+## Emendamento — 20 agosto 2026: da dove si legge, e cosa si analizza
+
+La specifica non diceva **da quale immagine** si calcola l'impronta né **quali foto** si
+analizzano. Sono le due leve che pesano di più sul costo, più di qualunque scelta di modello.
+
+### A. L'ingresso è la miniatura già generata, non l'originale
+
+Il modello lavora a **224–256 px**. Keeppix genera già una miniatura **WebP da 240 px** per ogni
+foto (`THUMB = 240`, `keeppix-media/src/derive.rs:40`), scritta su disco all'ingestione.
+
+**Ruling: l'analisi legge la miniatura, non l'originale.** — Decodificare un RAW costa centinaia
+di millisecondi ed è la ragione per cui l'ingestione è lenta; leggere una WebP da 240 px ne costa
+uno o due. Rifare quel lavoro per l'IA significherebbe **pagare due volte la parte più cara della
+pipeline**, per ottenere un'immagine che poi viene comunque ridotta a 224 px. Con la miniatura,
+il costo per foto si riduce all'inferenza e basta. — *Costo se sbagliato:* dettagli fini persi
+sotto i 240 px; per riconoscere «tramonto», «montagna» o «ritratto» sono irrilevanti.
+
+Corollario: **l'analisi può girare solo su foto che hanno già la miniatura**, il che la incatena
+naturalmente a valle dell'ingestione invece di competerci.
+
+### B. Non tutte le foto meritano un'impronta
+
+| Cosa si esclude | Perché | Risparmio tipico |
+|---|---|---|
+| **Gli scartati del culling** | sono destinati a sparire; analizzarli è lavoro buttato | in un flusso fotografico reale gli scarti sono la **maggioranza** |
+| **I membri non primari di una pila** | RAW e JPEG affiancati sono **un solo scatto** (richiesta #4): una foto, un'impronta | fino alla metà dei file su un archivio RAW+JPEG |
+| **Le foto nel cestino** | idem | piccolo |
+
+**Ruling: si analizza il primario di ogni pila non scartata.** — È la stessa definizione di «una
+foto» che l'interfaccia usa per contare, selezionare ed eliminare: usarne una diversa qui
+significherebbe che i numeri non tornano fra due schermate. — *Costo se sbagliato:* riabilitare
+uno scarto richiede di analizzarlo al momento, che costa un'inferenza singola.
+
+### C. Le altre leve, in ordine di resa
+
+1. **Inferenza a lotti** — passare N immagini al modello in una volta invece di una alla volta:
+   tipicamente 2–4× di throughput, perché ammortizza il costo fisso per invocazione.
+2. **Quantizzazione int8** — su CPU ARM tipicamente 2–3× più veloce, con perdita di qualità
+   trascurabile per un confronto di somiglianza (non stiamo classificando, stiamo ordinando).
+3. **Modello più piccolo** — la scala MobileCLIP ha varianti: la più piccola è molto più veloce e
+   perde poco su categorie larghe come quelle di un archivio fotografico. **Da misurare**, è il
+   compromesso più soggettivo.
+4. **Prima ciò che si guarda** — analizzare per prime le foto viste di recente e la cartella
+   aperta, così la ricerca funziona su ciò che interessa mentre il resto arriva. Riusa la stessa
+   idea di `POST /viewport`.
+
+### D. L'indice vettoriale: da misurare, non da dare per scontato
+
+La specifica dava per acquisito un indice HNSW. Su 200.000 impronte:
+
+- **HNSW** — ricerca in millisecondi, ma costa RAM e un tempo di costruzione non banale;
+- **IVFFlat** — molto più economico da costruire e da tenere in memoria, richiamo leggermente
+  inferiore;
+- **nessun indice** — una scansione lineare legge ~400 MB; se stanno nella cache di Postgres
+  (`shared_buffers` tarato, vedi Fase 10 Task 1bis) può bastare.
+
+**Ruling: si parte senza indice e si misura.** — Su un Pi con 8 GB, un indice HNSW compete per la
+RAM con `shared_buffers`, che serve a tutto il resto dell'applicazione. Se la scansione lineare
+sta sotto la soglia di interattività, l'indice è complessità e memoria spese per niente.
+— *Costo se sbagliato:* si aggiunge l'indice dopo, che è un `CREATE INDEX` e nient'altro.
