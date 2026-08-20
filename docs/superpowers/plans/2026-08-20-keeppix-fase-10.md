@@ -136,10 +136,24 @@ timeline, `stack_size == 2`, `raw_kind == "raw+jpeg"`, e `buckets` che conta 1.
 2. `disk_action` **obbligatorio**, stessa validazione di `parse_action`, stessa
    restrizione owner/admin su `purged`.
 3. Riusa `TrashRepo::choose` per elemento: nessuna nuova logica di eliminazione.
+4. **`purged` è il caso che fallisce di più, non di meno.** Il documento lo marca
+   come *«il buco più rilevante per il backend»*: l'eliminazione dal disco può
+   fallire per permessi, file in uso o libreria offline, e il prototipo assume che
+   riesca sempre. È il dialog più distruttivo dell'app ed è anche quello con più
+   modi di non riuscire: ogni file deve poter riportare il proprio esito.
 
 **Verifica:** test che con `purged` e un chiamante non-owner l'intero lotto è
 rifiutato **prima** di toccare qualunque file (autorizzazione prima
-dell'esecuzione, non a metà); test di riuscita parziale con un file già assente.
+dell'esecuzione, non a metà); test di riuscita parziale con un file già assente;
+test di riuscita parziale con una cartella non scrivibile (`chmod`), che è il caso
+reale più probabile.
+
+**Da verificare durante il task**, perché il documento lo segnala come sottigliezza:
+«nessuna posizione» è un **valore**, non un'assenza — una foto può negare
+esplicitamente il luogo *anche se la cartella ne avrebbe uno*. Il backend regge già
+il tri-stato (`MetadataPatchRequest` usa `double_option`), ma va confermato che
+`EffectiveMetadata` faccia vincere l'azzeramento esplicito sull'eredità della
+cartella invece di confonderlo con "non impostata".
 
 ---
 
@@ -170,7 +184,14 @@ una foto viene marcata preferita, **senza** che nulla venga scritto in
 
 1. Varianti nuove: `Rating{cmp,value}`, `Favorite`, `DateRange{from,to}`,
    `Day{value}`, `Month{value}`, `Country{value}`, `Aperture{cmp,value}`,
-   `Shutter{cmp,value}`.
+   `Shutter{cmp,value}`, **`Place{id}`**.
+
+   `Place` non è `Folder`. Il documento lo dichiara esplicitamente: nel prototipo
+   il chip «Luogo» del filtro rapido *«dice "Luogo" ma i valori sono le cartelle e
+   il confronto è su `folderId`; nel mockup le tre cartelle coincidono con tre
+   luoghi, quindi la finzione regge — nel prodotto reale sono due concetti
+   diversi.»* I luoghi esistono già (tabella `places`, geocodifica inversa della
+   Fase 4): manca solo l'asse di filtro.
 2. Indici della spec §6.1, **tutti parziali** dove ha senso (favorite, rating>0).
 3. `Country` richiede che la geocodifica inversa della Fase 4 abbia salvato il paese
    su `asset_exif` o su una tabella collegata: **verificare prima**; se non c'è, il
