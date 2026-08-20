@@ -315,7 +315,59 @@ sbagliato:* aggiungere una quinta natura è un cambio additivo, non rotto.
 
 ---
 
-## 8. Cose piccole che nessuna fase copre
+## 7bis. Due concetti che nel backend non esistono affatto
+
+Non sono dettagli di forma: sono nozioni di prima classe che attraversano molte schermate, e il
+primo passaggio di analisi le aveva mancate.
+
+### 7bis.1 «Preferito»
+
+Zero occorrenze di `favorite` in `keeppix-domain`, `keeppix-db`, `keeppix-api`.
+`AssetFlagsBody` (`crates/keeppix-api/src/routes/flags.rs:19`) ha **solo** `rating`, `pick`,
+`color_label`.
+
+L'interfaccia lo usa in sette punti: il cuoricino su **ogni** tessera (SP-1), la sezione
+"Preferiti" che è una vista intera (§9, *"71 foto, da tutte le cartelle"*), l'azione di massa
+della barra di selezione (SP-2), il chip "Preferiti" di Cerca (§23), una condizione degli album
+dinamici (§43), la modifica in blocco (§13), e il pannello informazioni del lightbox (§19).
+
+**Ruling: `favorite` è un campo nuovo di `asset_flags`, non un riuso di `Pick`.** — `Pick` è lo
+stato di una foto *dentro un lotto di culling*, e il glossario del documento è esplicito: *"sono
+stati del culling, non della libreria: una foto scartata in un lotto non è una foto eliminata"*.
+Una foto può essere `Pick` e non preferita, e viceversa: sono assi indipendenti. Riusarlo
+significherebbe che scartare uno scatto nel culling lo toglie dai preferiti. — *Costo se
+sbagliato:* una colonna e un indice parziale in più.
+
+`favorite` è **per utente**, come il resto di `asset_flags`: due persone sulla stessa libreria
+hanno preferiti diversi.
+
+### 7bis.2 Conteggio di foto per cartella
+
+`FolderView` (`crates/keeppix-api/src/routes/folders.rs:14`) è
+`{id, library_id, parent_id, name, depth}`. La sidebar mostra `Urbino 556`,
+`Lago di Braies 110`, `Chioggia e Venezia 246` accanto a **ogni** cartella (§2), e la
+sotto-pagina mobile "Cartelle" mostra `"556 foto"` su ogni scheda (§6).
+
+È il primo di una famiglia: gli aggregati che l'interfaccia mostra **per riga di un elenco**, e
+che diventano N+1 se non si progettano come una sola query.
+
+| Aggregato | Dove | Fase |
+|---|---|---|
+| foto per cartella | sidebar, a ogni render | **10** |
+| membri per album | griglia album | **10** (§5) |
+| elementi per link pubblico | Condivisioni (§29) | **10** |
+| foto per tag | Tag e categorie (§52) | 7 |
+| foto per persona | Persone (§31) | 8 |
+| da valutare per lotto | badge sidebar, selettore lotto (§14, §16) | 9 |
+
+**Ruling: un `GROUP BY` solo per elenco, mai un `COUNT` per riga; risultato in cache `moka` con
+invalidazione esplicita.** — La cache di Fase 6 è senza TTL apposta: qui un conteggio scaduto non
+è un rallentamento, è un numero sbagliato mostrato all'utente. Le invalidazioni vanno agganciate a
+import, cestinamento e spostamento. — *Costo se sbagliato:* la sidebar fa N query a ogni render.
+
+---
+
+## 8. Altre cose che nessuna fase copre
 
 ### 8.1 Sessioni attive (§61 Profilo)
 La UI elenca i dispositivi collegati con *tipo di dispositivo/browser*, *ultimo accesso
