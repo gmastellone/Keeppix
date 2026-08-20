@@ -306,7 +306,9 @@ di fianco:
   accessibilità da tastiera: va costruita da zero.
 - **Task 11** — Condivisioni e dialog di condivisione. *«La schermata meno accessibile del
   blocco: da ricostruire con elementi nativi.»*
-- **Task 12** — Album: griglia, dettaglio, creazione (manuale **e** dinamico), aggiungi ad album.
+- **Task 12** — Album: griglia, dettaglio, creazione, «Aggiungi ad album» e **«Aggiorna album»**.
+  Gli album dinamici **non esistono**: un album ricorda il filtro con cui è nato e lo rilancia
+  quando l'utente preme il pulsante (decisione del 20 agosto).
 - **Task 13** — Manutenzione: Cestino, Duplicati, Problemi, dialog file con problemi. Il Cestino
   è *«di sola lettura da tastiera»* nel prototipo: da rifare.
 - **Task 14** — Impostazioni e Profilo. **Nessun "Salva"** in nessuna pagina di preferenze
