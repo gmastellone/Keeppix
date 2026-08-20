@@ -16,6 +16,7 @@ struct UserRow {
     locale: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
     disabled_at: Option<chrono::DateTime<chrono::Utc>>,
+    password_changed_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl UserRow {
@@ -36,6 +37,7 @@ impl UserRow {
             locale: self.locale,
             created_at: self.created_at,
             disabled_at: self.disabled_at,
+            password_changed_at: self.password_changed_at,
         })
     }
 }
@@ -153,7 +155,7 @@ impl<'a> UserRepo<'a> {
     ) -> Result<Option<(User, PasswordHash)>, DbError> {
         let row: Option<UserWithHashRow> = sqlx::query_as(
             "SELECT id, username, email, display_name, password_hash, role, locale, \
-                    created_at, disabled_at \
+                    created_at, disabled_at, password_changed_at \
                FROM users WHERE lower(username) = lower($1)",
         )
         .bind(username.as_str())
@@ -172,7 +174,8 @@ impl<'a> UserRepo<'a> {
         }
 
         let row: Option<UserRow> = sqlx::query_as(
-            "SELECT id, username, email, display_name, role, locale, created_at, disabled_at \
+            "SELECT id, username, email, display_name, role, locale, created_at, disabled_at, \
+                    password_changed_at \
                FROM users WHERE id = $1",
         )
         .bind(id.as_uuid())
@@ -191,7 +194,8 @@ impl<'a> UserRepo<'a> {
             return Err(DbError::Forbidden);
         }
         let rows: Vec<UserRow> = sqlx::query_as(
-            "SELECT id, username, email, display_name, role, locale, created_at, disabled_at \
+            "SELECT id, username, email, display_name, role, locale, created_at, disabled_at, \
+                    password_changed_at \
                FROM users ORDER BY username",
         )
         .fetch_all(self.db.pool())
@@ -224,7 +228,8 @@ impl<'a> UserRepo<'a> {
                 role = COALESCE($4, role), \
                 updated_at = now() \
               WHERE id = $1 \
-              RETURNING id, username, email, display_name, role, locale, created_at, disabled_at",
+              RETURNING id, username, email, display_name, role, locale, created_at, disabled_at, \
+                        password_changed_at",
         )
         .bind(id.as_uuid())
         .bind(display_name)
@@ -310,11 +315,14 @@ impl<'a> UserRepo<'a> {
         password_hash: &str,
     ) -> Result<(), DbError> {
         self.find_by_id(ctx, id).await?;
-        sqlx::query("UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1")
-            .bind(id.as_uuid())
-            .bind(password_hash)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            "UPDATE users SET password_hash = $2, updated_at = now(), \
+             password_changed_at = now() WHERE id = $1",
+        )
+        .bind(id.as_uuid())
+        .bind(password_hash)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 }
@@ -326,7 +334,8 @@ async fn insert_user(
     sqlx::query_as(
         "INSERT INTO users (id, username, email, display_name, password_hash, role) \
          VALUES ($1, $2, $3, $4, $5, $6) \
-         RETURNING id, username, email, display_name, role, locale, created_at, disabled_at",
+         RETURNING id, username, email, display_name, role, locale, created_at, disabled_at, \
+                   password_changed_at",
     )
     .bind(UserId::new().as_uuid())
     .bind(new.username.as_str())
