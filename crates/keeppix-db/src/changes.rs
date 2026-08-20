@@ -3,7 +3,9 @@ use keeppix_domain::{AssetId, AuthContext};
 use crate::visibility::VisibilityScope;
 use crate::{Db, DbError};
 
-const PAGE: usize = 1000;
+/// Page size for [`ChangeLogRepo::since`]. Public so HTTP tests can seed past
+/// the boundary without drifting from the production constant.
+pub const CHANGE_LOG_PAGE: usize = 1000;
 
 pub struct ChangeLogRepo<'a> {
     db: &'a Db,
@@ -49,7 +51,7 @@ impl<'a> ChangeLogRepo<'a> {
               ORDER BY c.seq \
               LIMIT {}",
             filter.sql(),
-            PAGE + 1
+            CHANGE_LOG_PAGE + 1
         ))
         .bind(cursor)
         .bind(filter.bind())
@@ -58,8 +60,8 @@ impl<'a> ChangeLogRepo<'a> {
         .fetch_all(self.db.pool())
         .await?;
 
-        let has_more = rows.len() > PAGE;
-        let page: Vec<ChangeRow> = rows.into_iter().take(PAGE).collect();
+        let has_more = rows.len() > CHANGE_LOG_PAGE;
+        let page: Vec<ChangeRow> = rows.into_iter().take(CHANGE_LOG_PAGE).collect();
 
         let mut upserted = Vec::new();
         let mut deleted = Vec::new();
