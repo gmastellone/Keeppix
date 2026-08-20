@@ -17,7 +17,11 @@
 # =============================================================================
 # Rinvii — consumatore in una fase non ancora eseguita
 # =============================================================================
-fn extract_poster fase-6
+# extract_poster (video.rs): estrae il fotogramma di copertina. Il consumatore
+# è la tessera video con badge di durata — non disegnata: il documento
+# funzionale dichiara "l'intero disegno assume fotografie". Arriva con la UI
+# video minima decisa il 20 agosto 2026 (vedi costo-beneficio-funzioni.md).
+fn extract_poster fase-11
 route /health ops
 route /api/openapi.json ci
 
@@ -25,24 +29,39 @@ route /api/openapi.json ci
 # Debiti — spediti in una fase già chiusa senza consumatore
 # =============================================================================
 # origine fase-0 (sessioni). /auth/refresh: pagato in 12b (watchdog SPA).
-# purge_expired: pagato in Fase 6 Task 8 (maintenance scheduler).
-fn ping fase-6
+# ping (keeppix-db/src/lib.rs): /health oggi risponde senza controllare il
+# database. Wiring minimo, non legato a una fase numerata — va fatto quando si
+# tocca /health per altro (Fase 10 tocca cose adiacenti: storage, bootstrap).
+fn ping fase-10
 
 # origine fase-1a. get_json: il primo lettore vero è la Fase 7, che rilegge
 # le capacità hardware misurate dal probe per decidere se e quanto inferire.
-fn ensure_child fase-6
+# ensure_child (folders.rs): crea UNA sottocartella sotto un genitore — la
+# stessa firma di cui la Fase 9 ha bisogno per creare le sottocartelle
+# _taken/_skipped di un lotto di culling (folders.culling_role).
+fn ensure_child fase-9
 fn get_json fase-7
 
-# origine fase-1b. count_by_status / set_status: ingest. Probe hardware:
-# keeppix_media::probe ha un chiamante ma non misura (vedi R6 nel ledger);
-# la guardia non prende quella classe. Il saldo si sposta alla Fase 7: è
-# l'inferenza AI ad avere bisogno di una misura vera (quanti thread, quanti
-# ms per foto, se disattivarsi), non il video della Fase 6.
-fn count_by_status fase-6
-fn set_status fase-6
+# origine fase-1b. count_by_status / set_status: contano/impostano lo stato di
+# scansione di una libreria. Nessuna schermata li usa oggi perché l'import
+# iniziale non ha interfaccia (vedi analisi-gap-backend.md §18.5) — sono
+# esattamente i dati che l'avanzamento di scan (Fase 10, evento
+# `scan.progress`) e la sua UI (Fase 11) devono leggere.
+fn count_by_status fase-10
+fn set_status fase-10
 
-# origine fase-4 (mappe/geotag). Funzioni DB usate solo in test o per admin tooling.
-fn get_for_user fase-6
-fn timezone_for fase-6
-fn timezone_changes fase-6
-fn apply_taken_at_batch fase-6
+# origine fase-4 (mappe/geotag). get_for_user: legge la posizione "casa" di un
+# utente (si scrive con /users/me/home ma non si rilegge da nessuna route).
+# timezone_for / timezone_changes / apply_taken_at_batch: verificate il 20
+# agosto 2026 — apply_timezone_changes (nome diverso, geotag.rs) è la funzione
+# davvero wired dietro /metadata/batch/recalculate-timezones; queste tre sono
+# un secondo percorso rimasto scollegato, non lo stesso codice con un nome
+# diverso. Nessuna fase del roadmap le rivendica: l'amministrazione del server
+# è dichiarata fuori dal disegno dell'interfaccia (Parte XII del documento
+# funzionale). Non riassegnate a una fase specifica di proposito — vanno
+# decise (wired per davvero, o rimosse se ridondanti) la prossima volta che
+# si tocca home/timezone, non lasciate scorrere in silenzio.
+fn get_for_user non-rivendicata
+fn timezone_for non-rivendicata
+fn timezone_changes non-rivendicata
+fn apply_taken_at_batch non-rivendicata

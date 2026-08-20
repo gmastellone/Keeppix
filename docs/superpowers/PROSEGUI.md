@@ -1,15 +1,18 @@
 # Keeppix — vai fino alla fine
 
-Fai `git pull` su `main`: c'è tutto quello che ti serve. Da qui in avanti procedi da solo, con
-quattro sole eccezioni elencate in fondo.
+**Fasi 0-6 chiuse e mergiate in `main`** (PR #3-#11, ultimo commit `b174452`). Fai `git pull` su
+`main`: c'è tutto quello che ti serve. Da qui in avanti procedi da solo, con quattro sole
+eccezioni elencate in fondo.
 
 ---
 
 ## 1. L'ordine, e perché è quello
 
 ```
-fix Fase 5/6  →  Fase 10  →  Fase 7  →  Fase 8  →  Fase 9  →  Fase 11 (A→B→C→D)
+Fase 10  →  Fase 7  →  Fase 8  →  Fase 9  →  Fase 11 (A→B→C→D)
 ```
+
+**La Fase 10 è la prossima.** Branch nuovo da `main`, non da un branch di fase precedente.
 
 **La Fase 10 va prima della 7, 8 e 9, e non è un'opinione.** Fissa l'involucro di riuscita
 parziale, la tassonomia chiusa degli errori, `SearchNode` come unico modello di filtro e gli
@@ -94,10 +97,10 @@ Vanno nel ledger, con il numero.
 
 ---
 
-## 6. Le tre trappole già identificate
+## 6. Le trappole già identificate
 
-1. **`crates/keeppix-db/src/uploads.rs:588` non compila** (mismatch `u32`/`u64` fra
-   piattaforme). È il punto 0 dei fix di Fase 5/6, e il Task 8 della Fase 10 ci dipende.
+1. ~~`crates/keeppix-db/src/uploads.rs:588` non compilava~~ — **risolto** nel fix pass di Fase 6
+   (cast `u64` esplicito, verificato riga per riga). Il Task 8 della Fase 10 può procedere.
 2. **Postgres gira con i default** (`random_page_cost = 4.0`, `shared_buffers = 128 MB`). Se
    costruisci gli indici della Fase 10 prima di tararlo, **il pianificatore li ignora** e
    concluderai che non servono. Il **Task 1bis va prima** dei task sugli indici.
@@ -105,6 +108,9 @@ Vanno nel ledger, con il numero.
    un lotto aperto, digitare `1` cambia la valutazione della foto sottostante. È un difetto
    dichiarato, da risolvere alla radice: **mai attivare scorciatoie se il focus è in un campo o
    se un dialog è aperto.**
+4. **Quattro funzioni in `wired-exceptions.txt` sono marcate `non-rivendicata`**
+   (`get_for_user`, `timezone_for`, `timezone_changes`, `apply_taken_at_batch`, origine Fase 4):
+   nessuna fase le rivendica. Se tocchi home/timezone, decidile — wired per davvero o rimosse.
 
 ---
 
