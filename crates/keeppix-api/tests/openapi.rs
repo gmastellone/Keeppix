@@ -100,15 +100,18 @@ async fn openapi_document_is_served_and_complete() {
 
     assert!(doc["components"]["schemas"]["UserView"].is_object());
     assert_eq!(
-        doc["paths"]["/api/v1/auth/login"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        doc["paths"]["/api/v1/auth/login"]["post"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["$ref"],
         "#/components/schemas/LoginResponse"
     );
     assert_eq!(
-        doc["paths"]["/api/v1/auth/me"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+        doc["paths"]["/api/v1/auth/me"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+            ["$ref"],
         "#/components/schemas/MeResponse"
     );
     assert_eq!(
-        doc["paths"]["/api/v1/setup"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]["$ref"],
+        doc["paths"]["/api/v1/setup"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]
+            ["$ref"],
         "#/components/schemas/SetupResponse"
     );
 }
