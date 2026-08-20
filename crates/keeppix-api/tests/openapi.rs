@@ -207,8 +207,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 86,
-        "il documento deve descrivere ottantasei operazioni"
+        checked, 87,
+        "il documento deve descrivere ottantasette operazioni"
     );
 }
 
@@ -288,6 +288,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/libraries/{id}",
             "/api/v1/libraries/{id}/scan",
             "/api/v1/libraries/{id}/scan",
+            "/api/v1/libraries/{id}/storage",
             "/api/v1/map/clusters",
             "/api/v1/map/regions",
             "/api/v1/map/regions",
@@ -401,6 +402,7 @@ fn operation_ids_are_explicit_and_unique() {
             "libraries_preview",
             "libraries_scan_start",
             "libraries_scan_status",
+            "libraries_storage",
             "map_clusters",
             "map_regions_cancel",
             "map_regions_delete",
@@ -501,8 +503,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 86,
-        "il documento deve descrivere ottantasei operazioni"
+        checked, 87,
+        "il documento deve descrivere ottantasette operazioni"
     );
 }
 

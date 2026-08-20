@@ -2065,6 +2065,64 @@
         ]
       }
     },
+    "/api/v1/libraries/{id}/storage": {
+      "get": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Get library disk usage",
+        "description": "# Errors\nVisibilità come `get`; `503` se `statvfs` fallisce in modo irrecuperabile.",
+        "operationId": "libraries_storage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Spazio libero e totale",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryStorageView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/map/clusters": {
       "get": {
         "tags": [
@@ -5931,6 +5989,25 @@
             "format": "int32",
             "description": "Se assente vale cinque minuti. Fuori dal range coperto si usa\nl'estremo solo entro questa tolleranza.",
             "example": 5,
+            "minimum": 0
+          }
+        }
+      },
+      "LibraryStorageView": {
+        "type": "object",
+        "required": [
+          "free_bytes",
+          "total_bytes"
+        ],
+        "properties": {
+          "free_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
             "minimum": 0
           }
         }
