@@ -216,6 +216,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
         )
         .route("/libraries/{id}/storage", get(routes::libraries::storage))
         .route(
+            "/libraries/{id}/probe",
+            axum::routing::post(routes::libraries::probe),
+        )
+        .route(
             "/groups",
             get(routes::groups::list).post(routes::groups::create),
         )
