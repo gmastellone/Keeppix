@@ -31,5 +31,6 @@ workspace = true
 [dev-dependencies]
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3.20", features = ["registry", "env-filter"] }
 uuid.workspace = true
 blake3 = "1"
