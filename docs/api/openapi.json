@@ -1951,6 +1951,64 @@
         ]
       }
     },
+    "/api/v1/libraries/{id}/probe": {
+      "post": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Retry reaching a library's root path",
+        "description": "# Errors\nVisibilità come `get`.",
+        "operationId": "libraries_probe",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Esito della verifica",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non visibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/libraries/{id}/scan": {
       "get": {
         "tags": [
@@ -3181,6 +3239,17 @@
         ],
         "summary": "List media problems",
         "operationId": "problems_list",
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "description": "Lingua delle descrizioni composte (\"it\" o \"en\"); default dall'header Accept-Language, poi italiano",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Problemi visibili",
@@ -6540,12 +6609,83 @@
           }
         }
       },
+      "ProblemActionView": {
+        "type": "object",
+        "required": [
+          "action",
+          "label"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "ProblemView": {
+        "type": "object",
+        "description": "Una riga dell'elenco piatto composto (spec §47, Task 13): a differenza dei\nsecchi grezzi qui sotto, arriva già in linguaggio naturale nella lingua\ndella richiesta, con l'azione proposta pronta per un bottone della UI.",
+        "required": [
+          "id",
+          "severity",
+          "title",
+          "description",
+          "actions"
+        ],
+        "properties": {
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProblemActionView"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "folder_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "library_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "ProblemsView": {
         "type": "object",
         "required": [
           "offline_libraries",
           "failed_jobs",
-          "error_assets"
+          "error_assets",
+          "problems"
         ],
         "properties": {
           "error_assets": {
@@ -6565,6 +6705,13 @@
             "items": {
               "$ref": "#/components/schemas/OfflineLibraryView"
             }
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProblemView"
+            },
+            "description": "Elenco piatto composto (Task 13). Additivo: i tre secchi grezzi sopra\nrestano per non rompere un client che li leggeva già."
           }
         }
       },

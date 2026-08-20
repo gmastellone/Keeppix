@@ -99,6 +99,7 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/flags/batch",
         "/api/v1/users/me/app-passwords",
         "/api/v1/users/me/app-passwords/{id}",
+        "/api/v1/libraries/{id}/probe",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
@@ -207,8 +208,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 89,
-        "il documento deve descrivere ottantanove operazioni"
+        checked, 90,
+        "il documento deve descrivere novanta operazioni"
     );
 }
 
@@ -286,6 +287,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/libraries/{id}",
             "/api/v1/libraries/{id}",
             "/api/v1/libraries/{id}",
+            "/api/v1/libraries/{id}/probe",
             "/api/v1/libraries/{id}/scan",
             "/api/v1/libraries/{id}/scan",
             "/api/v1/libraries/{id}/storage",
@@ -402,6 +404,7 @@ fn operation_ids_are_explicit_and_unique() {
             "libraries_list",
             "libraries_patch",
             "libraries_preview",
+            "libraries_probe",
             "libraries_scan_start",
             "libraries_scan_status",
             "libraries_storage",
@@ -507,8 +510,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 89,
-        "il documento deve descrivere ottantanove operazioni"
+        checked, 90,
+        "il documento deve descrivere novanta operazioni"
     );
 }
 
