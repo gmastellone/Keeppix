@@ -26,6 +26,76 @@ const passphrase = ref('')
 const newKind = ref('local')
 const newLabel = ref('')
 const newPath = ref('/data/backups')
+const newEndpoint = ref('')
+const newBucket = ref('')
+const newPrefix = ref('')
+const newAccessKey = ref('')
+const newSecretKey = ref('')
+const newRegion = ref('us-east-1')
+const newUrl = ref('')
+const newUsername = ref('')
+const newPassword = ref('')
+const newHost = ref('')
+const newPort = ref('22')
+const newPrivateKey = ref('')
+
+function destinationConfig(): Record<string, unknown> {
+  switch (newKind.value) {
+    case 's3':
+      return {
+        endpoint: newEndpoint.value,
+        bucket: newBucket.value,
+        prefix: newPrefix.value,
+        access_key: newAccessKey.value,
+        secret_key: newSecretKey.value,
+        region: newRegion.value || 'us-east-1'
+      }
+    case 'webdav':
+      return {
+        url: newUrl.value,
+        username: newUsername.value,
+        password: newPassword.value
+      }
+    case 'sftp': {
+      const cfg: Record<string, unknown> = {
+        host: newHost.value,
+        port: Number(newPort.value) || 22,
+        username: newUsername.value || 'keeppix',
+        path: newPath.value || '.'
+      }
+      if (newPrivateKey.value.trim()) {
+        cfg.private_key = newPrivateKey.value
+      } else {
+        cfg.password = newPassword.value
+      }
+      return cfg
+    }
+    default:
+      return { path: newPath.value }
+  }
+}
+
+async function addDestination(): Promise<void> {
+  loading.value = true
+  error.value = ''
+  try {
+    await createBackupDestination({
+      kind: newKind.value,
+      label: newLabel.value || t('backup.destinationDefault'),
+      config: destinationConfig()
+    })
+    newLabel.value = ''
+    newPassword.value = ''
+    newSecretKey.value = ''
+    newPrivateKey.value = ''
+    await refresh()
+  } catch (e) {
+    error.value =
+      e instanceof ApiProblem ? e.title : t('backup.errors.destinationFailed')
+  } finally {
+    loading.value = false
+  }
+}
 
 const showOriginalsWarning = computed(
   () => prefs.value?.originals_warning === true && !prefs.value.include_originals
@@ -64,25 +134,6 @@ async function toggleOriginals(value: boolean): Promise<void> {
   if (!prefs.value) return
   prefs.value = { ...prefs.value, include_originals: value }
   await savePrefs()
-}
-
-async function addDestination(): Promise<void> {
-  loading.value = true
-  error.value = ''
-  try {
-    await createBackupDestination({
-      kind: newKind.value,
-      label: newLabel.value || t('backup.destinationDefault'),
-      config: { path: newPath.value }
-    })
-    newLabel.value = ''
-    await refresh()
-  } catch (e) {
-    error.value =
-      e instanceof ApiProblem ? e.title : t('backup.errors.destinationFailed')
-  } finally {
-    loading.value = false
-  }
 }
 
 async function runNow(): Promise<void> {
@@ -174,7 +225,78 @@ onMounted(() => {
           <option value="sftp">sftp</option>
         </select>
         <input v-model="newLabel" class="border px-2 py-1" :placeholder="t('backup.label')" />
-        <input v-model="newPath" class="border px-2 py-1" :placeholder="t('backup.path')" />
+        <template v-if="newKind === 'local'">
+          <input v-model="newPath" class="border px-2 py-1" :placeholder="t('backup.path')" />
+        </template>
+        <template v-else-if="newKind === 's3'">
+          <input
+            v-model="newEndpoint"
+            class="border px-2 py-1"
+            :placeholder="t('backup.s3.endpoint')"
+          />
+          <input
+            v-model="newBucket"
+            class="border px-2 py-1"
+            :placeholder="t('backup.s3.bucket')"
+          />
+          <input
+            v-model="newPrefix"
+            class="border px-2 py-1"
+            :placeholder="t('backup.s3.prefix')"
+          />
+          <input
+            v-model="newRegion"
+            class="border px-2 py-1"
+            :placeholder="t('backup.s3.region')"
+          />
+          <input
+            v-model="newAccessKey"
+            class="border px-2 py-1"
+            :placeholder="t('backup.s3.accessKey')"
+          />
+          <input
+            v-model="newSecretKey"
+            type="password"
+            class="border px-2 py-1"
+            :placeholder="t('backup.s3.secretKey')"
+          />
+        </template>
+        <template v-else-if="newKind === 'webdav'">
+          <input v-model="newUrl" class="border px-2 py-1" :placeholder="t('backup.webdav.url')" />
+          <input
+            v-model="newUsername"
+            class="border px-2 py-1"
+            :placeholder="t('backup.username')"
+          />
+          <input
+            v-model="newPassword"
+            type="password"
+            class="border px-2 py-1"
+            :placeholder="t('backup.password')"
+          />
+        </template>
+        <template v-else-if="newKind === 'sftp'">
+          <input v-model="newHost" class="border px-2 py-1" :placeholder="t('backup.sftp.host')" />
+          <input v-model="newPort" class="border px-2 py-1" :placeholder="t('backup.sftp.port')" />
+          <input
+            v-model="newUsername"
+            class="border px-2 py-1"
+            :placeholder="t('backup.username')"
+          />
+          <input
+            v-model="newPassword"
+            type="password"
+            class="border px-2 py-1"
+            :placeholder="t('backup.password')"
+          />
+          <input v-model="newPath" class="border px-2 py-1" :placeholder="t('backup.sftp.path')" />
+          <textarea
+            v-model="newPrivateKey"
+            class="w-full border px-2 py-1 font-mono text-xs"
+            rows="3"
+            :placeholder="t('backup.sftp.privateKey')"
+          />
+        </template>
         <button
           type="button"
           class="border px-3 py-1"

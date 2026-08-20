@@ -5,6 +5,7 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Duration;
 
 use age::secrecy::SecretString;
@@ -466,80 +467,219 @@ async fn upload_to_destination(
         }
         BackupKind::S3 => upload_s3(dest, local, filename).await,
         BackupKind::Webdav => upload_webdav(dest, local, filename).await,
-        BackupKind::Sftp => upload_sftp(dest, local, filename),
+        BackupKind::Sftp => upload_sftp_async(dest, local, filename).await,
     }
 }
 
-async fn upload_s3(
+/// Upload `local` to the S3-compatible destination with AWS SigV4.
+///
+/// # Errors
+/// Missing config, signing failure, or non-success HTTP status.
+pub async fn upload_s3(
     dest: &BackupDestination,
     local: &Path,
     filename: &str,
 ) -> Result<String, JobError> {
-    let endpoint = dest
-        .config
-        .get("endpoint")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| JobError::Worker("s3 destination missing endpoint".to_owned()))?;
-    let bucket = dest
-        .config
-        .get("bucket")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| JobError::Worker("s3 destination missing bucket".to_owned()))?;
-    let prefix = dest
-        .config
-        .get("prefix")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let key = if prefix.is_empty() {
-        filename.to_owned()
-    } else {
-        format!("{}/{}", prefix.trim_end_matches('/'), filename)
-    };
-    let access_key = dest
-        .config
-        .get("access_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let secret_key = dest
-        .config
-        .get("secret_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let region = dest
-        .config
-        .get("region")
-        .and_then(|v| v.as_str())
-        .unwrap_or("auto");
-
+    let cfg = S3Config::from_dest(dest)?;
     let body = fs::read(local).map_err(io_err)?;
-    let url = format!("{}/{}/{}", endpoint.trim_end_matches('/'), bucket, key);
-    // Minimal S3-compatible PUT with AWS SigV4 would need a full signer.
-    // Honest minimum: HTTP PUT with optional basic query auth headers for
-    // MinIO path-style when `auth=none`/`path_style` test setups; otherwise
-    // use Authorization Bearer-style custom header pair for operators who
-    // terminate auth at a gateway. Real SigV4 is recorded as a known limit.
+    let key = cfg.object_key(filename);
+    s3_signed_request(&cfg, "PUT", &key, body, Duration::from_secs(600)).await?;
+    Ok(format!("s3://{}/{}", cfg.bucket, key))
+}
+
+/// Test-only alias kept for readability in integration tests.
+pub async fn upload_s3_for_test(
+    dest: &BackupDestination,
+    local: &Path,
+    filename: &str,
+) -> Result<String, JobError> {
+    upload_s3(dest, local, filename).await
+}
+
+struct S3Config {
+    endpoint: String,
+    bucket: String,
+    prefix: String,
+    access_key: String,
+    secret_key: String,
+    region: String,
+}
+
+impl S3Config {
+    fn from_dest(dest: &BackupDestination) -> Result<Self, JobError> {
+        let endpoint = dest
+            .config
+            .get("endpoint")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| JobError::Worker("s3 destination missing endpoint".to_owned()))?
+            .trim_end_matches('/')
+            .to_owned();
+        let bucket = dest
+            .config
+            .get("bucket")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| JobError::Worker("s3 destination missing bucket".to_owned()))?
+            .to_owned();
+        let prefix = dest
+            .config
+            .get("prefix")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim_matches('/')
+            .to_owned();
+        let access_key = dest
+            .config
+            .get("access_key")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| JobError::Worker("s3 destination missing access_key".to_owned()))?
+            .to_owned();
+        let secret_key = dest
+            .config
+            .get("secret_key")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| JobError::Worker("s3 destination missing secret_key".to_owned()))?
+            .to_owned();
+        let region = dest
+            .config
+            .get("region")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty() && *s != "auto")
+            .unwrap_or("us-east-1")
+            .to_owned();
+        Ok(Self {
+            endpoint,
+            bucket,
+            prefix,
+            access_key,
+            secret_key,
+            region,
+        })
+    }
+
+    fn object_key(&self, filename: &str) -> String {
+        if self.prefix.is_empty() {
+            filename.to_owned()
+        } else {
+            format!("{}/{}", self.prefix, filename)
+        }
+    }
+
+    fn object_url(&self, key: &str) -> String {
+        format!("{}/{}/{}", self.endpoint, self.bucket, key)
+    }
+}
+
+async fn s3_signed_request(
+    cfg: &S3Config,
+    method: &str,
+    key: &str,
+    body: Vec<u8>,
+    timeout: Duration,
+) -> Result<(), JobError> {
+    use aws_credential_types::Credentials;
+    use aws_sigv4::http_request::{SignableBody, SignableRequest, SigningSettings, sign};
+    use aws_sigv4::sign::v4;
+    use std::time::SystemTime;
+
+    let url = cfg.object_url(key);
+    let identity = Credentials::new(
+        cfg.access_key.clone(),
+        cfg.secret_key.clone(),
+        None,
+        None,
+        "keeppix-backup",
+    )
+    .into();
+    let mut signing_settings = SigningSettings::default();
+    signing_settings.payload_checksum_kind = aws_sigv4::http_request::PayloadChecksumKind::XAmzSha256;
+
+    let signing_params = v4::SigningParams::builder()
+        .identity(&identity)
+        .region(&cfg.region)
+        .name("s3")
+        .time(SystemTime::now())
+        .settings(signing_settings)
+        .build()
+        .map_err(|e| JobError::Worker(format!("s3 signing params: {e}")))?
+        .into();
+
+    let payload_hash = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(&body))
+    };
+    let host = url_host(&url)?.to_owned();
+    let headers = [
+        ("x-amz-content-sha256", payload_hash.as_str()),
+        ("host", host.as_str()),
+    ];
+    let signable = SignableRequest::new(
+        method,
+        &url,
+        headers.into_iter(),
+        SignableBody::Bytes(&body),
+    )
+    .map_err(|e| JobError::Worker(format!("s3 signable: {e}")))?;
+
+    let (instructions, _signature) = sign(signable, &signing_params)
+        .map_err(|e| JobError::Worker(format!("s3 sign: {e}")))?
+        .into_parts();
+
+    let mut http_req = http::Request::builder()
+        .method(method)
+        .uri(&url)
+        .body(body)
+        .map_err(|e| JobError::Worker(format!("s3 http request: {e}")))?;
+    instructions.apply_to_request_http1x(&mut http_req);
+
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(600))
+        .timeout(timeout)
         .build()
         .map_err(|e| JobError::Worker(e.to_string()))?;
-    let mut req = client.put(&url).body(body);
-    if !access_key.is_empty() {
-        req = req.header("x-keeppix-s3-access-key", access_key);
-        req = req.header("x-keeppix-s3-secret-key", secret_key);
-        req = req.header("x-amz-content-sha256", "UNSIGNED-PAYLOAD");
-        req = req.header("x-amz-region", region);
+    let mut builder = match method {
+        "PUT" => client.put(&url),
+        "DELETE" => client.delete(&url),
+        "HEAD" => client.head(&url),
+        "GET" => client.get(&url),
+        other => {
+            return Err(JobError::Worker(format!(
+                "unsupported s3 method {other}"
+            )));
+        }
+    };
+    for (name, value) in http_req.headers() {
+        builder = builder.header(name.as_str(), value.as_bytes());
     }
-    let resp = req
+    if method == "PUT" {
+        builder = builder.body(http_req.into_body());
+    }
+    let resp = builder
         .send()
         .await
-        .map_err(|e| JobError::Worker(format!("s3 upload: {e}")))?;
-    if !resp.status().is_success() {
+        .map_err(|e| JobError::Worker(format!("s3 {method}: {e}")))?;
+    if !(resp.status().is_success()
+        || resp.status().as_u16() == 204
+        || (method == "DELETE" && resp.status().as_u16() == 404))
+    {
         return Err(JobError::Worker(format!(
-            "s3 upload HTTP {}",
+            "s3 {method} HTTP {}",
             resp.status()
         )));
     }
-    Ok(format!("s3://{bucket}/{key}"))
+    Ok(())
+}
+
+fn url_host(url: &str) -> Result<&str, JobError> {
+    let without_scheme = url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(url);
+    without_scheme
+        .split('/')
+        .next()
+        .filter(|h| !h.is_empty())
+        .ok_or_else(|| JobError::Worker("s3 url missing host".to_owned()))
 }
 
 async fn upload_webdav(
@@ -588,41 +728,179 @@ async fn upload_webdav(
     Ok(url)
 }
 
-fn upload_sftp(dest: &BackupDestination, local: &Path, filename: &str) -> Result<String, JobError> {
-    // Honest minimum: shell out to `scp` when present. Full embedded SSH is a
-    // large dependency surface; see ledger ruling.
-    let host = dest
-        .config
-        .get("host")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| JobError::Worker("sftp destination missing host".to_owned()))?;
-    let port = dest
-        .config
-        .get("port")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(22);
-    let user = dest
-        .config
-        .get("username")
-        .and_then(|v| v.as_str())
-        .unwrap_or("keeppix");
-    let remote_dir = dest
-        .config
-        .get("path")
-        .and_then(|v| v.as_str())
-        .unwrap_or(".");
-    let target = format!("{user}@{host}:{remote_dir}/{filename}");
-    let status = Command::new("scp")
-        .args(["-P", &port.to_string(), "-o", "BatchMode=yes"])
-        .arg(local)
-        .arg(&target)
-        .status()
-        .map_err(|e| JobError::Worker(format!("scp spawn: {e}")))?;
-    if status.success() {
-        Ok(format!("sftp://{host}:{port}/{remote_dir}/{filename}"))
-    } else {
-        Err(JobError::Worker(format!("scp failed: {status}")))
+async fn upload_sftp_async(
+    dest: &BackupDestination,
+    local: &Path,
+    filename: &str,
+) -> Result<String, JobError> {
+    let cfg = SftpConfig::from_dest(dest)?;
+    let body = fs::read(local).map_err(io_err)?;
+    let remote = format!(
+        "{}/{}",
+        cfg.remote_dir.trim_end_matches('/'),
+        filename
+    );
+    sftp_with_session(&cfg, |sftp| {
+        let remote = remote.clone();
+        let body = body.clone();
+        async move {
+            let mut file = sftp
+                .create(&remote)
+                .await
+                .map_err(|e| JobError::Worker(format!("sftp create {remote}: {e}")))?;
+            use tokio::io::AsyncWriteExt as _;
+            file.write_all(&body)
+                .await
+                .map_err(|e| JobError::Worker(format!("sftp write: {e}")))?;
+            file.shutdown()
+                .await
+                .map_err(|e| JobError::Worker(format!("sftp close: {e}")))?;
+            Ok(())
+        }
+    })
+    .await?;
+    Ok(format!(
+        "sftp://{}:{}/{}/{}",
+        cfg.host, cfg.port, cfg.remote_dir, filename
+    ))
+}
+
+struct SftpConfig {
+    host: String,
+    port: u16,
+    username: String,
+    password: Option<String>,
+    private_key: Option<String>,
+    private_key_passphrase: Option<String>,
+    remote_dir: String,
+}
+
+impl SftpConfig {
+    fn from_dest(dest: &BackupDestination) -> Result<Self, JobError> {
+        let host = dest
+            .config
+            .get("host")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| JobError::Worker("sftp destination missing host".to_owned()))?
+            .to_owned();
+        let port = u16::try_from(
+            dest.config
+                .get("port")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(22),
+        )
+        .map_err(|_| JobError::Worker("sftp port out of range".to_owned()))?;
+        let username = dest
+            .config
+            .get("username")
+            .and_then(|v| v.as_str())
+            .unwrap_or("keeppix")
+            .to_owned();
+        let password = dest
+            .config
+            .get("password")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        let private_key = dest
+            .config
+            .get("private_key")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        let private_key_passphrase = dest
+            .config
+            .get("private_key_passphrase")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        if password.is_none() && private_key.is_none() {
+            return Err(JobError::Worker(
+                "sftp destination needs password or private_key".to_owned(),
+            ));
+        }
+        let remote_dir = dest
+            .config
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or(".")
+            .to_owned();
+        Ok(Self {
+            host,
+            port,
+            username,
+            password,
+            private_key,
+            private_key_passphrase,
+            remote_dir,
+        })
     }
+}
+
+struct SshClientHandler;
+
+impl russh::client::Handler for SshClientHandler {
+    type Error = russh::Error;
+
+    fn check_server_key(
+        &mut self,
+        _server_public_key: &russh::keys::ssh_key::PublicKey,
+    ) -> impl std::future::Future<Output = Result<bool, Self::Error>> + Send {
+        // Operators pin hosts out-of-band for now; accepting the presented key
+        // keeps backup upload working against fresh destinations. A known_hosts
+        // file can be wired later without changing the config shape.
+        async { Ok(true) }
+    }
+}
+
+async fn sftp_with_session<F, Fut, T>(cfg: &SftpConfig, f: F) -> Result<T, JobError>
+where
+    F: FnOnce(russh_sftp::client::SftpSession) -> Fut,
+    Fut: std::future::Future<Output = Result<T, JobError>>,
+{
+    use russh::client;
+    use russh::keys::{HashAlg, PrivateKeyWithHashAlg, decode_secret_key};
+
+    let config = Arc::new(client::Config::default());
+    let mut handle = client::connect(config, (cfg.host.as_str(), cfg.port), SshClientHandler)
+        .await
+        .map_err(|e| JobError::Worker(format!("sftp connect {}:{}: {e}", cfg.host, cfg.port)))?;
+
+    let authed = if let Some(pem) = &cfg.private_key {
+        let key = decode_secret_key(pem, cfg.private_key_passphrase.as_deref())
+            .map_err(|e| JobError::Worker(format!("sftp private_key: {e}")))?;
+        let key = PrivateKeyWithHashAlg::new(Arc::new(key), Some(HashAlg::Sha512));
+        handle
+            .authenticate_publickey(&cfg.username, key)
+            .await
+            .map_err(|e| JobError::Worker(format!("sftp pubkey auth: {e}")))?
+            .success()
+    } else {
+        let password = cfg.password.as_deref().unwrap_or("");
+        handle
+            .authenticate_password(&cfg.username, password)
+            .await
+            .map_err(|e| JobError::Worker(format!("sftp password auth: {e}")))?
+            .success()
+    };
+    if !authed {
+        return Err(JobError::Worker(
+            "sftp authentication rejected by server".to_owned(),
+        ));
+    }
+
+    let channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|e| JobError::Worker(format!("sftp channel: {e}")))?;
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(|e| JobError::Worker(format!("sftp subsystem: {e}")))?;
+    let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+        .await
+        .map_err(|e| JobError::Worker(format!("sftp session: {e}")))?;
+    f(sftp).await
 }
 
 /// Test a destination before saving. Returns Ok(()) when reachable.
@@ -644,26 +922,17 @@ pub async fn test_destination(dest: &BackupDestination) -> Result<(), JobError> 
             Ok(())
         }
         BackupKind::S3 => {
-            let endpoint = dest
-                .config
-                .get("endpoint")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| JobError::Worker("s3 destination missing endpoint".to_owned()))?;
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(15))
-                .build()
-                .map_err(|e| JobError::Worker(e.to_string()))?;
-            let resp = client
-                .head(endpoint)
-                .send()
-                .await
-                .map_err(|e| JobError::Worker(format!("s3 test: {e}")))?;
-            if resp.status().as_u16() >= 500 {
-                return Err(JobError::Worker(format!(
-                    "s3 endpoint unhealthy: {}",
-                    resp.status()
-                )));
-            }
+            let cfg = S3Config::from_dest(dest)?;
+            let key = cfg.object_key(".keeppix-write-test");
+            s3_signed_request(
+                &cfg,
+                "PUT",
+                &key,
+                b"ok".to_vec(),
+                Duration::from_secs(30),
+            )
+            .await?;
+            s3_signed_request(&cfg, "DELETE", &key, Vec::new(), Duration::from_secs(30)).await?;
             Ok(())
         }
         BackupKind::Webdav => {
@@ -704,25 +973,38 @@ pub async fn test_destination(dest: &BackupDestination) -> Result<(), JobError> 
             Ok(())
         }
         BackupKind::Sftp => {
-            let host = dest
-                .config
-                .get("host")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| JobError::Worker("sftp destination missing host".to_owned()))?;
-            let port = dest
-                .config
-                .get("port")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(22);
-            let addr = format!("{host}:{port}");
-            tokio::time::timeout(
-                Duration::from_secs(10),
-                tokio::net::TcpStream::connect(&addr),
-            )
+            let cfg = SftpConfig::from_dest(dest)?;
+            let probe = if cfg.remote_dir == "." || cfg.remote_dir.is_empty() {
+                "keeppix-write-test".to_owned()
+            } else {
+                format!(
+                    "{}/keeppix-write-test",
+                    cfg.remote_dir.trim_end_matches('/')
+                )
+            };
+            sftp_with_session(&cfg, |sftp| {
+                let probe = probe.clone();
+                async move {
+                    {
+                        let mut file = sftp
+                            .create(&probe)
+                            .await
+                            .map_err(|e| JobError::Worker(format!("sftp probe create: {e}")))?;
+                        use tokio::io::AsyncWriteExt as _;
+                        file.write_all(b"ok")
+                            .await
+                            .map_err(|e| JobError::Worker(format!("sftp probe write: {e}")))?;
+                        file.shutdown()
+                            .await
+                            .map_err(|e| JobError::Worker(format!("sftp probe close: {e}")))?;
+                    }
+                    sftp.remove_file(&probe)
+                        .await
+                        .map_err(|e| JobError::Worker(format!("sftp probe remove: {e}")))?;
+                    Ok(())
+                }
+            })
             .await
-            .map_err(|_| JobError::Worker(format!("sftp connect timeout to {addr}")))?
-            .map_err(|e| JobError::Worker(format!("sftp connect: {e}")))?;
-            Ok(())
         }
     }
 }
