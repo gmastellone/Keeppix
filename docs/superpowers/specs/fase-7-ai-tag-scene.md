@@ -465,18 +465,31 @@ sotto i 240 px; per riconoscere «tramonto», «montagna» o «ritratto» sono i
 Corollario: **l'analisi può girare solo su foto che hanno già la miniatura**, il che la incatena
 naturalmente a valle dell'ingestione invece di competerci.
 
-### B. Non tutte le foto meritano un'impronta
+### B. L'IA non entra nel culling. Punto.
 
-| Cosa si esclude | Perché | Risparmio tipico |
-|---|---|---|
-| **Gli scartati del culling** | sono destinati a sparire; analizzarli è lavoro buttato | in un flusso fotografico reale gli scarti sono la **maggioranza** |
-| **I membri non primari di una pila** | RAW e JPEG affiancati sono **un solo scatto** (richiesta #4): una foto, un'impronta | fino alla metà dei file su un archivio RAW+JPEG |
-| **Le foto nel cestino** | idem | piccolo |
+**Ruling: si analizza la libreria; i lotti di culling sono fuori.** — Il culling è un'**area di
+transito**: le foto ci arrivano dalla scheda, si scelgono, e poi escono — quelle tenute entrano
+in libreria, le altre spariscono. Analizzare lì dentro significa lavorare su materiale che per
+definizione non è ancora deciso, e nella maggior parte dei casi buttare il lavoro. Una foto viene
+analizzata **quando entra in libreria**, che è esattamente il momento in cui qualcuno ha deciso
+che vale la pena tenerla. — *Costo se sbagliato:* una foto appena uscita dal culling non è
+cercabile per contenuto finché l'analisi non la raggiunge, cosa che accade comunque in
+sottofondo entro pochi minuti.
 
-**Ruling: si analizza il primario di ogni pila non scartata.** — È la stessa definizione di «una
-foto» che l'interfaccia usa per contare, selezionare ed eliminare: usarne una diversa qui
-significherebbe che i numeri non tornano fra due schermate. — *Costo se sbagliato:* riabilitare
-uno scarto richiede di analizzarlo al momento, che costa un'inferenza singola.
+Il confine è **una condizione sulla cartella, non uno stato per foto**: la Fase 9 marca le
+cartelle di culling (`folders.culling_role`, sotto `libraries.culling_root_folder_id`). L'analisi
+le salta e basta.
+
+Questo cancella tre complicazioni che una versione precedente di questo emendamento si era
+inventata: escludere gli scartati uno per uno, buttare l'analisi quando una foto viene scartata,
+e rianalizzare quando viene ripescata. **Nessuna delle tre serve più.**
+
+Resta invece valida una sola esclusione, dentro la libreria:
+
+**Una impronta per pila, non per file.** RAW e JPEG affiancati sono **un solo scatto** (richiesta
+#4 del documento funzionale): si analizza il primario. È la stessa definizione di «una foto» che
+l'interfaccia usa per contare, selezionare ed eliminare — usarne una diversa qui farebbe divergere
+i numeri fra due schermate. Su un archivio RAW+JPEG è metà del lavoro in meno.
 
 ### C. Le altre leve, in ordine di resa
 
