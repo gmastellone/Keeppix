@@ -300,17 +300,23 @@ di un tag «tramonto», e il progetto lo tratta come tale.
 
 ---
 
-## Emendamento — 20 agosto 2026: stesse regole della Fase 7
+## Emendamento — 20 agosto 2026: stesse regole della Fase 7 (aggiornato in serata)
 
-Tre vincoli, identici a quelli fissati per l'analisi delle scene, e per le stesse ragioni.
+Vincoli identici a quelli fissati per l'analisi delle scene, e per le stesse ragioni.
+**Aggiornamento rispetto alla prima stesura**: il Culling non promuove mai automaticamente in
+libreria (decisione finale, vedi `fase-9-organizzazione.md` §2.2 e `fase-7-ai-tag-scene.md` §B) —
+questo semplifica sia il confine di esclusione sia la regola sulle pile.
 
-**1. I volti non si cercano nel culling.** I lotti sono un'area di transito: le foto ci arrivano
-dalla scheda, si scelgono, e poi escono. Il rilevamento parte **quando una foto entra in
-libreria**, non prima. Il confine è una condizione sulla cartella (`folders.culling_role`), non
-uno stato per foto.
+**1. I volti non si cercano nel culling — l'intero sottoalbero, non solo le sottocartelle
+marcate.** Il Culling è un'area **permanentemente separata** dalla libreria: una foto scelta
+resta in `_taken/`, nessuna promozione automatica. Il rilevamento parte solo su ciò che l'utente
+ha caricato **manualmente** nella libreria vera. Il confine è l'intero sottoalbero radicato in
+`libraries.culling_root_folder_id` (stesso meccanismo `path <@` dei permessi), non le sole
+sottocartelle marcate `folders.culling_role`.
 
-**2. Un volto per pila, non per file.** Si lavora sul primario: RAW e JPEG affiancati sono lo
-stesso scatto e le stesse facce.
+**2. Niente regola "un volto per pila".** Dato che i RAW esistono solo dentro il Culling (mai
+importati altrove) e il Culling è escluso in blocco, una pila RAW+JPEG non raggiunge mai il
+rilevamento: tutto ciò che arriva alla Fase 8 è già un singolo file non-RAW.
 
 **3. L'ingresso è la miniatura, con un'avvertenza.** A differenza delle scene, qui i **240 px
 della miniatura possono non bastare**: un volto in secondo piano su uno scatto di gruppo occupa

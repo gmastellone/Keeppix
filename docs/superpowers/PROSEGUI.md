@@ -78,10 +78,10 @@ replicarla.
   tocca** un video già piccolo o già riproducibile dal browser. Serve una tessera con badge di
   durata e uno stato «in preparazione» (`PlaybackResponse` ha già `ready`).
 - **Audit: spento di default**, si accende col secondo utente.
-- **L'IA non entra nel culling.** Analizza la libreria; i lotti sono un'area di transito.
+- **L'IA non entra nel culling — mai, l'intero sottoalbero.** Il Culling non promuove mai
+  automaticamente in libreria (dettagli e perché nella sezione più sotto, aggiunta dopo).
 - **L'IA legge la miniatura da 240 px**, mai l'originale. Per i volti: rilevamento sulla
   miniatura, impronta sulla preview da 2048 px.
-- **Una impronta per pila, non per file**: RAW+JPEG è un solo scatto.
 
 ---
 
