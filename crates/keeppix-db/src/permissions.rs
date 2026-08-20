@@ -151,12 +151,59 @@ impl<'a> PermissionRepo<'a> {
         ctx: &AuthContext,
         asset_ids: &[AssetId],
     ) -> Result<(), DbError> {
+        // Admin: short-circuit come prima — la visibilità resta a
+        // `assert_visible` / `filter_visible` del chiamante.
         if asset_ids.is_empty() || ctx.is_admin() {
             return Ok(());
         }
-        let ids: Vec<Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
-        let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
-            "SELECT DISTINCT a.folder_id, l.owner_id \
+        let (_, failed) = self.partition_editable_assets(ctx, asset_ids).await?;
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(DbError::Forbidden)
+        }
+    }
+
+    /// Parte gli `asset_ids` in modificabili / no, senza abortire al primo
+    /// rifiuto. Gli id non visibili e quelli solo in lettura finiscono in
+    /// `failed` con `Forbidden` (o `NotFound` per un admin su id assente).
+    ///
+    /// # Errors
+    /// `Connection` se una query fallisce.
+    pub async fn partition_editable_assets(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+    ) -> Result<(Vec<AssetId>, Vec<(AssetId, DbError)>), DbError> {
+        if asset_ids.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        let visible = crate::AssetRepo::new(self.db)
+            .filter_visible(ctx, asset_ids)
+            .await?;
+        let visible_set: std::collections::HashSet<Uuid> =
+            visible.iter().map(AssetId::as_uuid).collect();
+
+        let mut failed = Vec::new();
+        let mut candidates = Vec::new();
+        for &id in asset_ids {
+            if visible_set.contains(&id.as_uuid()) {
+                candidates.push(id);
+            } else if ctx.is_admin() {
+                failed.push((id, DbError::NotFound));
+            } else {
+                failed.push((id, DbError::Forbidden));
+            }
+        }
+
+        if candidates.is_empty() || ctx.is_admin() {
+            return Ok((candidates, failed));
+        }
+
+        let ids: Vec<Uuid> = candidates.iter().map(AssetId::as_uuid).collect();
+        let rows: Vec<(Uuid, Uuid, Uuid)> = sqlx::query_as(
+            "SELECT a.id, a.folder_id, l.owner_id \
                FROM assets a \
                JOIN folders f ON f.id = a.folder_id \
                JOIN libraries l ON l.id = f.library_id \
@@ -165,20 +212,30 @@ impl<'a> PermissionRepo<'a> {
         .bind(&ids)
         .fetch_all(self.db.pool())
         .await?;
+        let meta: std::collections::HashMap<Uuid, (Uuid, Uuid)> = rows
+            .into_iter()
+            .map(|(asset_id, folder_id, owner_id)| (asset_id, (folder_id, owner_id)))
+            .collect();
 
-        for (folder_id, owner_id) in rows {
+        let mut editable = Vec::new();
+        for &id in &candidates {
+            let Some((folder_id, owner_id)) = meta.get(&id.as_uuid()).copied() else {
+                failed.push((id, DbError::Forbidden));
+                continue;
+            };
             if ctx.user_id() == Some(UserId::from_uuid(owner_id)) {
+                editable.push(id);
                 continue;
             }
             match self
                 .effective_role(ctx, FolderId::from_uuid(folder_id))
                 .await?
             {
-                Some(ObjectRole::Editor) => {}
-                _ => return Err(DbError::Forbidden),
+                Some(ObjectRole::Editor) => editable.push(id),
+                _ => failed.push((id, DbError::Forbidden)),
             }
         }
-        Ok(())
+        Ok((editable, failed))
     }
 
     /// Elenco permessi diretti su un oggetto.

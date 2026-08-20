@@ -254,13 +254,14 @@ impl<'a> GeoRepo<'a> {
         &self,
         ctx: &AuthContext,
         library_id: LibraryId,
-    ) -> Result<(usize, Option<BatchId>), DbError> {
+    ) -> Result<(usize, Option<BatchId>, Vec<AssetId>), DbError> {
         crate::LibraryRepo::new(self.db)
             .find_by_id(ctx, library_id)
             .await?;
         let actor = ctx.user_id().ok_or(DbError::Forbidden)?;
         let mut transaction = self.db.pool().begin().await?;
         let changes = timezone_changes_on(&mut transaction, library_id).await?;
+        let succeeded: Vec<AssetId> = changes.iter().map(|change| change.asset_id).collect();
         let assignments: Vec<_> = changes
             .iter()
             .map(|change| (change.asset_id, change.after))
@@ -276,7 +277,7 @@ impl<'a> GeoRepo<'a> {
         if changed_count != 0 {
             crate::overrides::enqueue_sidecar_sweep(self.db).await?;
         }
-        Ok((changed_count, batch_id))
+        Ok((changed_count, batch_id, succeeded))
     }
 
     /// Calcola le correzioni applicabili a una libreria senza scrivere nulla.
