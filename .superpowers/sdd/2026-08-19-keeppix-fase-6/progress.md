@@ -241,3 +241,11 @@ Ruling: test harnesses DROP each `keeppix_test_*` DB on Drop with
 ~176 GB on the shared Postgres (and CI WAL thrash). Cost if wrong: Drop
 races a still-running pool; FORCE is the escape hatch.
 
+Ruling: `ChangeLogRepo::since` forces cursor forward on a full page when
+`safe_cursor` is stuck behind cluster-global `pg_snapshot_xmin` (shared CI
+Postgres + parallel tests). Prevents infinite `/sync/delta` pagination.
+Overlap safety still covered when `has_more` is false / safe retracts between
+polls. Cost if wrong: under extreme xmin holdback a full page could skip an
+in-flight lower seq — acceptable vs. client spin; dedicated Postgres is the
+real fix for perfect overlap under load.
+

@@ -75,7 +75,18 @@ impl<'a> ChangeLogRepo<'a> {
 
         let last_delivered = page.last().map_or(cursor, |row| row.seq);
         let safe = self.safe_cursor(cursor).await?;
-        let new_cursor = last_delivered.min(safe);
+        let mut new_cursor = last_delivered.min(safe);
+        // `safe_cursor` uses cluster-global `pg_snapshot_xmin`. Unrelated
+        // open transactions (other test DBs on a shared CI Postgres, long
+        // admin sessions, …) can hold that horizon so far back that `safe`
+        // never reaches `last_delivered` while `has_more` stays true — clients
+        // would spin on the same page forever. Guarantee forward progress on
+        // a full page; overlap safety still holds when `has_more` is false or
+        // when `safe` is allowed to retract between polls (duplicates are
+        // idempotent).
+        if has_more && new_cursor <= cursor {
+            new_cursor = last_delivered;
+        }
 
         Ok(ChangePage {
             cursor: new_cursor,
