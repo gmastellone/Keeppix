@@ -265,6 +265,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::trash::restore),
         )
         .route(
+            "/assets/batch/delete",
+            axum::routing::post(routes::trash::batch_delete),
+        )
+        .route(
             "/assets/{id}/stack/primary",
             axum::routing::post(routes::stacks::set_primary),
         )

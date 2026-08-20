@@ -207,8 +207,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 82,
-        "il documento deve descrivere ottantadue operazioni"
+        checked, 83,
+        "il documento deve descrivere ottantatré operazioni"
     );
 }
 
@@ -256,6 +256,7 @@ fn security_requirements_name_a_declared_scheme() {
     assert_eq!(
         protected,
         [
+            "/api/v1/assets/batch/delete",
             "/api/v1/assets/{id}",
             "/api/v1/assets/{id}",
             "/api/v1/assets/{id}/flags",
@@ -369,6 +370,7 @@ fn operation_ids_are_explicit_and_unique() {
             "app_passwords_create",
             "app_passwords_list",
             "app_passwords_revoke",
+            "assets_batch_delete",
             "assets_delete",
             "assets_get",
             "assets_restore",
@@ -493,8 +495,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 82,
-        "il documento deve descrivere ottantadue operazioni"
+        checked, 83,
+        "il documento deve descrivere ottantatré operazioni"
     );
 }
 

@@ -10,6 +10,73 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/assets/batch/delete": {
+      "post": {
+        "tags": [
+          "trash"
+        ],
+        "summary": "Delete multiple assets",
+        "description": "# Errors\n`400` `keeppix/invalid-disk-action` se `disk_action` non è una delle tre\nopzioni, o `keeppix/batch-too-large` se il lotto supera\n[`crate::batch::MAX_BATCH_ASSETS`]; `401` se non autenticato; `403` se\n`purged` è richiesto e il chiamante non può eliminare dal disco anche un\nsolo asset del lotto (owner/admin richiesti) — per `kept`/`moved_to_trash`\nun id non visibile o non modificabile finisce invece in `failed` con\nriuscita parziale.",
+        "operationId": "assets_batch_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa, tranne per purged non autorizzato)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "disk_action non riconosciuto, o lotto troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "purged richiesto da chi non è owner/admin di almeno un asset del lotto",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/{id}": {
       "get": {
         "tags": [
@@ -5189,6 +5256,26 @@
           },
           "patch": {
             "$ref": "#/components/schemas/MetadataPatchRequest"
+          }
+        }
+      },
+      "BatchDeleteRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "disk_action"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disk_action": {
+            "type": "string",
+            "description": "`kept`, `moved_to_trash`, o `purged` — obbligatorio, stesso\nvocabolario di `DELETE /api/v1/assets/{id}` (spec §6). Nessun\ndefault: il client scelga sempre.",
+            "example": "moved_to_trash"
           }
         }
       },
