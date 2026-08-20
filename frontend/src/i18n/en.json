@@ -387,6 +387,20 @@
       "runFailed": "Backup failed."
     }
   },
+  "sync": {
+    "title": "Sync probe",
+    "subtitle": "Call GET /api/v1/sync/delta to verify the incremental sync endpoint used by mobile clients.",
+    "probe": "Try synchronisation",
+    "cursor": "Cursor",
+    "upserted": "Upserted assets",
+    "deleted": "Deleted assets",
+    "hasMore": "More pages",
+    "yes": "yes",
+    "no": "no",
+    "errors": {
+      "failed": "Sync probe failed."
+    }
+  },
   "restore": {
     "title": "Restore",
     "subtitle": "Inspect a .kpxb backup, preview changes, then restore. A safety dump is taken before overwriting the database.",

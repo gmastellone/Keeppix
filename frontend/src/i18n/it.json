@@ -387,6 +387,20 @@
       "runFailed": "Backup non riuscito."
     }
   },
+  "sync": {
+    "title": "Prova sincronizzazione",
+    "subtitle": "Chiama GET /api/v1/sync/delta per verificare l'endpoint di sync incrementale usato dai client mobili.",
+    "probe": "Prova sincronizzazione",
+    "cursor": "Cursore",
+    "upserted": "Asset aggiornati",
+    "deleted": "Asset cancellati",
+    "hasMore": "Altre pagine",
+    "yes": "sì",
+    "no": "no",
+    "errors": {
+      "failed": "Prova di sincronizzazione fallita."
+    }
+  },
   "restore": {
     "title": "Ripristino",
     "subtitle": "Ispeziona un backup .kpxb, anteprima le modifiche, poi ripristina. Prima di sovrascrivere il database viene creato un dump di sicurezza.",

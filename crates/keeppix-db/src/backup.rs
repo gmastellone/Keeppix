@@ -409,24 +409,6 @@ impl<'a> BackupRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` if unknown (admin probe).
-    pub async fn get_run(&self, ctx: &AuthContext, id: Uuid) -> Result<BackupRun, DbError> {
-        require_admin(ctx)?;
-        let row: Option<RunRow> = sqlx::query_as(
-            "SELECT id, destination_id, started_at, completed_at, size_bytes, verified_at, \
-                    status, error, path, keeppix_version \
-               FROM backup_runs WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(self.db.pool())
-        .await?;
-        let Some(row) = row else {
-            return Err(DbError::Forbidden);
-        };
-        row_to_run(row)
-    }
-
-    /// # Errors
     /// Database failure.
     pub async fn get_run_for_jobs(&self, id: Uuid) -> Result<BackupRun, DbError> {
         let row: RunRow = sqlx::query_as(
