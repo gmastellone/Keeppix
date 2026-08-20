@@ -67,10 +67,22 @@ Le schermate si consegnano seguendo le fasi da cui dipendono, non tutte insieme.
 Dal prototipo, tre cose vanno estratte **come token** e non ricopiate a mano schermata per
 schermata:
 
-- **Palette dei tempi**, che è sorprendentemente piccola e va rispettata:
-  `.12s` (tooltip, comparsa dei comandi sulla tessera), `.15s` (rotazione della freccia dei
-  gruppi), `.2s` (toast, transizioni generiche), `.25s` (cambio di tema). Curva: `ease` quasi
-  ovunque.
+- **Palette dei tempi**, misurata sul documento e sorprendentemente piccola: `.12s` (54
+  occorrenze — tooltip, comparsa dei comandi sulla tessera), `.2s` (53 — toast, transizioni
+  generiche), `.15s` (14 — rotazione della freccia dei gruppi), `.25s` (2 — cambio di tema),
+  più `.1s`/`.18s`/`.3s` in cinque casi isolati. Curva `ease` in **108 casi su 111**.
+  **Tre valori coprono il 92% delle animazioni**: sono token, non numeri da riscrivere.
+
+- **Ritardi che non sono animazioni** e che vanno rispettati alla lettera: toast a **10 ms**
+  di ritardo, visibile **2400 ms** (successo) / **4,2 s** (errore e riuscita parziale) /
+  **6,5 s** se ha un'azione — e in quest'ultimo caso **il timer si ferma mentre il puntatore è
+  sopra**, senza il quale sparirebbe proprio mentre si decide se premerlo; rimozione dal DOM
+  dopo **250 ms**; tocco prolungato mobile a **500 ms** con **vibrazione di 15 ms**;
+  pulsazione dell'indicatore di analisi a **1,4 s**.
+
+  I **700 ms** che compaiono nel prototipo sono scaffolding (ritardo simulato fra avvio ed
+  esito), ma il documento nota che *«durante i 700 ms si può premere di nuovo, e il codice non
+  lo impedisce»*: nel prodotto vero quel caso è coperto da **SP-30**, il pulsante occupato.
 - **Colori semantici**, che nel documento significano qualcosa e non sono decorazione: il verde
   `#2E9E5B` è **lo stesso** per "Scelta" nel culling e per "In linea" nel piede utente — scelta
   deliberata per non introdurre una terza tonalità; il rosso è riservato a "elimina dal disco" e
@@ -108,6 +120,23 @@ schermate evita che dodici viste divergano ognuna per conto suo»*.
 | `NavGroup` | SP-25 | freccia che ruota in `.15s`; si apre da solo e **non si chiude** se la vista corrente è dentro |
 | `BusyButton` | SP-30 | mantiene la dimensione, blocca il doppio invio |
 | `LoadingSkeleton` | SP-27 | ha **la forma del contenuto**, mai uno spinner centrato |
+| `Popover` (su `reka-ui`) | SP-14 | click fuori chiude, **Esc chiude** (il prototipo lo fa solo a metà), Esc **a livelli** quando è annidato |
+
+**I ventiquattro dialog, menu e popover del documento si costruiscono sopra due soli
+componenti** — `Dialog` (SP-5) e `Popover` (SP-14) — non uno per uno:
+
+- **menu a comparsa (6):** account desktop · account mobile · «altre azioni» ⋯ del lightbox ·
+  selettore rapido di lotto · menu sul riquadro del volto · popover della mappa · picklist
+  della creazione album;
+- **dialog modali (18):** cartella radice di culling · imposta posizione · ricerca di regione ·
+  condividi selezione · scegli copertina · assegna a gruppo · unisci persone · separa persona ·
+  selettore di persona · selettore di tag · aggiungi ad album · file con problemi ·
+  **eliminazione a 3 opzioni** · informazione · conferma · modifica tag · modifica categoria ·
+  rinomina con formula · inserimento testo generico.
+
+Due eccezioni deliberate da **preservare**, non da uniformare: nel dialog di eliminazione il
+focus va sulla **prima opzione, la meno distruttiva**; nel dialog di conferma va su
+**"Annulla"**. Chi preme Invio d'istinto compie l'azione innocua.
 
 **Verifica:** un `*.spec.ts` per componente, con le etichette esatte asserite.
 
