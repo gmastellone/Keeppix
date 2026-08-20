@@ -553,12 +553,21 @@ pub(crate) fn map_unique_violation(err: sqlx::Error) -> DbError {
 /// esportarla non viola l'invariante "nessun SQL fuori da `keeppix-db`" né
 /// il divieto di dipendenza `keeppix-media` ↔ `keeppix-db` (ledger Task 7).
 ///
+/// Spazio libero e totale sul volume che contiene `root`.
+///
+/// # Errors
+/// `Io` se `statvfs` fallisce.
+pub fn disk_usage(root: &Path) -> Result<(u64, u64), DbError> {
+    let (free, total) = statvfs_bytes(root)?;
+    Ok((free, total))
+}
+
 /// # Errors
 /// `InsufficientStorage` se lo spazio libero su `root` è sotto
 /// `expected_size`. `Io` se `statvfs` fallisce.
 pub fn ensure_disk_space(root: &Path, expected_size: i64) -> Result<(), DbError> {
     let needed = u64::try_from(expected_size).unwrap_or(u64::MAX);
-    let available = available_bytes(root)?;
+    let (available, _) = statvfs_bytes(root)?;
     if available < needed {
         return Err(DbError::InsufficientStorage);
     }
@@ -566,7 +575,7 @@ pub fn ensure_disk_space(root: &Path, expected_size: i64) -> Result<(), DbError>
 }
 
 #[cfg(unix)]
-fn available_bytes(root: &Path) -> Result<u64, DbError> {
+fn statvfs_bytes(root: &Path) -> Result<(u64, u64), DbError> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt as _;
 
@@ -585,22 +594,25 @@ fn available_bytes(root: &Path) -> Result<u64, DbError> {
             std::io::Error::last_os_error()
         )));
     }
-    // `f_bavail` / `f_frsize` widths differ by platform (`u32` vs `u64`).
-    // On Linux both are already `u64`, so the casts look redundant to clippy;
-    // keep them so macOS (and other libc layouts) still compile.
+    // `f_bavail` / `f_blocks` / `f_frsize` widths differ by platform (`u32` vs
+    // `u64`). On Linux all are already `u64`, so the casts look redundant to
+    // clippy; keep them so macOS (and other libc layouts) still compile.
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         clippy::unnecessary_cast
     )]
     {
-        Ok((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
+        let frsize = stat.f_frsize as u64;
+        let free = (stat.f_bavail as u64).saturating_mul(frsize);
+        let total = (stat.f_blocks as u64).saturating_mul(frsize);
+        Ok((free, total))
     }
 }
 
 #[cfg(not(unix))]
-fn available_bytes(_root: &Path) -> Result<u64, DbError> {
-    Ok(u64::MAX)
+fn statvfs_bytes(_root: &Path) -> Result<(u64, u64), DbError> {
+    Ok((u64::MAX, u64::MAX))
 }
 
 #[cfg(test)]

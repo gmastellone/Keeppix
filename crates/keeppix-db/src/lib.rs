@@ -62,7 +62,7 @@ pub use idempotency::{
     LookupResult as IdempotencyLookupResult, RequestFingerprint as IdempotencyRequestFingerprint,
 };
 pub use jobs::JobRepo;
-pub use libraries::LibraryRepo;
+pub use libraries::{LibraryRepo, LibraryStorage};
 pub use overrides::{OverrideRepo, SidecarSource};
 pub use permissions::{
     ExplainResult, NewGrant, ObjectType, PermissionGrantView, PermissionRepo, SubjectType,
@@ -79,7 +79,8 @@ pub use timeline::{Geometry, GeometryRecord, GeometryStamp, MonthBucket, Timelin
 pub use totp::{TotpConfirmed, TotpRepo, TotpSetup, TotpStatus};
 pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
 pub use uploads::{
-    FinalizeOutcome, NewUploadSession, UPLOAD_TMP_DIR_NAME, UploadSessionRepo, ensure_disk_space,
+    FinalizeOutcome, NewUploadSession, UPLOAD_TMP_DIR_NAME, UploadSessionRepo, disk_usage,
+    ensure_disk_space,
 };
 pub use users::UserRepo;
 pub use visibility::VisibilityScope;
@@ -87,6 +88,9 @@ pub use visibility::VisibilityScope;
 use moka::future::Cache;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use std::time::Duration;
+
+const LIBRARY_STORAGE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
@@ -98,6 +102,7 @@ pub struct Db {
     pool: PgPool,
     permission_cache: Cache<uuid::Uuid, VisibilityScope>,
     settings_cache: Cache<String, Option<serde_json::Value>>,
+    library_storage_cache: Cache<uuid::Uuid, LibraryStorage>,
 }
 
 impl Db {
@@ -113,6 +118,10 @@ impl Db {
             pool,
             permission_cache: Cache::builder().max_capacity(10_000).build(),
             settings_cache: Cache::builder().max_capacity(1_000).build(),
+            library_storage_cache: Cache::builder()
+                .max_capacity(1_000)
+                .time_to_live(LIBRARY_STORAGE_CACHE_TTL)
+                .build(),
         })
     }
 
@@ -139,6 +148,11 @@ impl Db {
     #[must_use]
     pub fn settings_cache(&self) -> &Cache<String, Option<serde_json::Value>> {
         &self.settings_cache
+    }
+
+    #[must_use]
+    pub fn library_storage_cache(&self) -> &Cache<uuid::Uuid, LibraryStorage> {
+        &self.library_storage_cache
     }
 
     pub async fn invalidate_permission_cache_for_user(&self, user_id: keeppix_domain::UserId) {
