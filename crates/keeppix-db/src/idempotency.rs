@@ -126,4 +126,20 @@ impl<'a> IdempotencyRepo<'a> {
 
         Ok(())
     }
+
+    /// Deletes keys older than `before`. Pipeline maintenance — no
+    /// `AuthContext` (Task 8).
+    ///
+    /// # Errors
+    /// `DbError::Connection` if the delete fails.
+    pub async fn purge_older_than(
+        &self,
+        before: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, DbError> {
+        let result = sqlx::query("DELETE FROM idempotency_keys WHERE created_at < $1")
+            .bind(before)
+            .execute(self.db.pool())
+            .await?;
+        Ok(result.rows_affected())
+    }
 }
