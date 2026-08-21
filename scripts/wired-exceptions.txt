@@ -49,13 +49,12 @@ fn set_phase fase-11
 # Fase 10 ha chiuso senza collegarlo: debito non rivendicato.
 fn ping non-rivendicata
 
-# origine fase-1a. get_json: il primo lettore vero è la Fase 7, che rilegge
-# le capacità hardware misurate dal probe per decidere se e quanto inferire.
+# origine fase-1a. get_json: pagato — `transcode.rs` rilegge `capabilities`
+# (Fase 6) e Fase 7 Task 1 estende quel JSON con `extra.ai`. Non è più un rinvio.
 # ensure_child (folders.rs): crea UNA sottocartella sotto un genitore — la
 # stessa firma di cui la Fase 9 ha bisogno per creare le sottocartelle
 # _taken/_skipped di un lotto di culling (folders.culling_role).
 fn ensure_child fase-9
-fn get_json fase-7
 
 # origine fase-1b. count_by_status / set_status: contano/impostano lo stato di
 # scansione di una libreria. L'evento `scan.progress` (Fase 10) li espone in

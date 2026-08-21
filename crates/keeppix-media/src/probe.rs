@@ -20,8 +20,9 @@ pub enum VideoBackend {
 
 /// Esito del probe hardware di decode/transcodifica.
 ///
-/// Il campo `extra` resta disponibile per estensioni future (es. inferenza AI in
-/// Fase 7) senza cambiare la forma di `backend`/`decode_fps`.
+/// Il campo `extra` porta le estensioni: Fase 7 Task 1 scrive `extra.ai` con
+/// i fatti host per l'inferenza (RAM libera, core). I ms per inferenza restano
+/// `pending_runtime` finché Task 2 non sceglie tract/ort e gira il modello.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Capabilities {
     pub backend: VideoBackend,
@@ -41,26 +42,32 @@ const PROBE_CPU_SECS: u64 = 3;
 
 /// Misura l'accelerazione video disponibile provando un encode di 2 secondi con
 /// ogni backend candidato, in ordine di preferenza per il `SoC` rilevato.
+///
+/// Aggiunge sempre `extra.ai` (Fase 7 Task 1): RAM libera, core, e lo stato
+/// dell'inferenza — oggi `pending_runtime` finché non esiste un runtime/modello.
 #[must_use]
 pub fn probe() -> Capabilities {
-    if !crate::video::ffprobe_available() {
-        return software_fallback(None);
-    }
-
-    for backend in candidate_backends() {
-        if backend == VideoBackend::Software {
-            break;
+    let mut caps = if crate::video::ffprobe_available() {
+        let mut found = None;
+        for backend in candidate_backends() {
+            if backend == VideoBackend::Software {
+                break;
+            }
+            if let Some(fps) = try_encode(backend) {
+                found = Some(Capabilities {
+                    backend,
+                    decode_fps: Some(fps),
+                    extra: default_extra(),
+                });
+                break;
+            }
         }
-        if let Some(fps) = try_encode(backend) {
-            return Capabilities {
-                backend,
-                decode_fps: Some(fps),
-                extra: default_extra(),
-            };
-        }
-    }
-
-    software_fallback(try_encode(VideoBackend::Software))
+        found.unwrap_or_else(|| software_fallback(try_encode(VideoBackend::Software)))
+    } else {
+        software_fallback(None)
+    };
+    caps.extra = merge_ai_extra(caps.extra, measure_ai_host());
+    caps
 }
 
 fn software_fallback(fps: Option<f32>) -> Capabilities {
@@ -68,6 +75,67 @@ fn software_fallback(fps: Option<f32>) -> Capabilities {
         backend: VideoBackend::Software,
         decode_fps: fps,
         extra: default_extra(),
+    }
+}
+
+/// Fatti host per l'analisi IA, misurati senza caricare un modello.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AiHostFacts {
+    pub free_ram_bytes: u64,
+    pub cpu_cores: u32,
+    pub has_neon: bool,
+    /// `null` finché Task 2 non misura un'inferenza reale sul modello scelto.
+    pub inference_ms: Option<f64>,
+    pub inference_status: String,
+}
+
+fn measure_ai_host() -> AiHostFacts {
+    AiHostFacts {
+        free_ram_bytes: free_ram_bytes(),
+        cpu_cores: std::thread::available_parallelism()
+            .map(|n| u32::try_from(n.get()).unwrap_or(1))
+            .unwrap_or(1),
+        has_neon: cfg!(target_feature = "neon") || cfg!(target_arch = "aarch64"),
+        inference_ms: None,
+        inference_status: "pending_runtime".to_owned(),
+    }
+}
+
+fn merge_ai_extra(extra: serde_json::Value, ai: AiHostFacts) -> serde_json::Value {
+    let mut object = match extra {
+        serde_json::Value::Object(map) => map,
+        _ => serde_json::Map::new(),
+    };
+    if let Ok(value) = serde_json::to_value(ai) {
+        object.insert("ai".to_owned(), value);
+    }
+    serde_json::Value::Object(object)
+}
+
+/// RAM effettivamente disponibile per nuovi allocatori, non la sola `MemFree`
+/// (che esclude la cache reclamabile). Su Linux legge `/proc/meminfo`; altrove
+/// resta 0 e il chiamante tratta lo stato come sconosciuto.
+fn free_ram_bytes() -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(text) = std::fs::read_to_string("/proc/meminfo") else {
+            return 0;
+        };
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("MemAvailable:") {
+                let kb: u64 = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|t| t.parse().ok())
+                    .unwrap_or(0);
+                return kb.saturating_mul(1024);
+            }
+        }
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        0
     }
 }
 
@@ -241,5 +309,15 @@ mod tests {
     fn candidate_backends_always_ends_with_software() {
         let backends = candidate_backends();
         assert_eq!(*backends.last().expect("non-empty"), VideoBackend::Software);
+    }
+
+    #[test]
+    fn measure_ai_host_reports_positive_ram_on_linux() {
+        let facts = measure_ai_host();
+        assert!(facts.cpu_cores >= 1);
+        assert_eq!(facts.inference_status, "pending_runtime");
+        assert!(facts.inference_ms.is_none());
+        #[cfg(target_os = "linux")]
+        assert!(facts.free_ram_bytes > 0);
     }
 }
