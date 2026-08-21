@@ -16,6 +16,7 @@ pub mod video;
 pub mod walk;
 pub mod xmp;
 
+pub use clip::{MODEL_VERSION, MobileClip, first_complete_model_dir, model_dir_candidates};
 pub use derive::{
     DEFAULT_FULL_CACHE_BYTES, DEFAULT_WEBP_METHOD, DEFAULT_WEBP_QUALITY, DERIVATIVE_VERSION,
     DeriveError, DeriveResult, PREVIEW_LONG_SIDE, decode_to_rgb8, derivative_paths,

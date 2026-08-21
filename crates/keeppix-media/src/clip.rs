@@ -14,6 +14,10 @@ use tokenizers::{PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
 
 const EMBED_DIM: usize = 512;
 
+/// Identità stabile del checkpoint MobileCLIP2-S2 usato da probe, job e DB.
+/// Deve restare allineata a `extra.ai.model_version` del probe.
+pub const MODEL_VERSION: &str = "mobileclip2-s2";
+
 /// Directory candidata del modello MobileCLIP2-S2 (contiene visual.onnx, text.onnx,
 /// tokenizer.json, …).
 #[must_use]
@@ -202,34 +206,74 @@ impl MobileClip {
     /// # Errors
     /// Lunghezza NCHW errata, fallimento ort, o embedding non 512-d.
     pub fn embed_image_nchw(&mut self, nchw: &[f32]) -> Result<Vec<f32>, String> {
-        let expected = 3 * self.image_size * self.image_size;
+        let mut out = self.embed_images_nchw_batch(nchw, 1)?;
+        out.pop().ok_or_else(|| "empty batch".to_owned())
+    }
+
+    /// Inferenza a lotto: `nchw` è la concatenazione di `batch` immagini NCHW
+    /// (ognuna `3×size×size` in \[0,1\]). Restituisce `batch` vettori 512-d L2.
+    ///
+    /// # Errors
+    /// Lunghezza non divisibile, fallimento ort, o output non 512-d per riga.
+    pub fn embed_images_nchw_batch(
+        &mut self,
+        nchw: &[f32],
+        batch: usize,
+    ) -> Result<Vec<Vec<f32>>, String> {
+        if batch == 0 {
+            return Ok(Vec::new());
+        }
+        let per = 3 * self.image_size * self.image_size;
+        let expected = per * batch;
         if nchw.len() != expected {
             return Err(format!(
-                "expected {expected} floats for 1×3×{size}×{size}, got {}",
+                "expected {expected} floats for {batch}×3×{size}×{size}, got {}",
                 nchw.len(),
                 size = self.image_size,
             ));
         }
         let mut normalized = Vec::with_capacity(expected);
         let plane = self.image_size * self.image_size;
-        for c in 0..3 {
-            let m = self.mean[c];
-            let s = self.std[c];
-            for i in 0..plane {
-                let v = nchw[c * plane + i];
-                normalized.push((v - m) / s);
+        for b in 0..batch {
+            let base = b * per;
+            for c in 0..3 {
+                let m = self.mean[c];
+                let s = self.std[c];
+                let plane_base = base + c * plane;
+                for i in 0..plane {
+                    let v = nchw[plane_base + i];
+                    normalized.push((v - m) / s);
+                }
             }
         }
-        let input = Tensor::from_array(([1usize, 3, self.image_size, self.image_size], normalized))
+        let input = Tensor::from_array(([batch, 3, self.image_size, self.image_size], normalized))
             .map_err(|e| format!("image tensor: {e}"))?;
         let outputs = self
             .visual
             .run(ort::inputs![input])
             .map_err(|e| format!("visual infer: {e}"))?;
-        let (_shape, data) = outputs[0]
+        let (shape, data) = outputs[0]
             .try_extract_tensor::<f32>()
             .map_err(|e| format!("visual output: {e}"))?;
-        l2_normalize(data)
+        let mut shape_vec = Vec::with_capacity(shape.len());
+        for &d in shape.iter() {
+            let n = usize::try_from(d).map_err(|_| format!("invalid dim {d}"))?;
+            shape_vec.push(n);
+        }
+        if shape_vec == [EMBED_DIM] && batch == 1 {
+            return Ok(vec![l2_normalize(data)?]);
+        }
+        if shape_vec.len() != 2 || shape_vec[0] != batch || shape_vec[1] != EMBED_DIM {
+            return Err(format!(
+                "expected [{batch}, {EMBED_DIM}] visual output, got {shape_vec:?}"
+            ));
+        }
+        let mut out = Vec::with_capacity(batch);
+        for b in 0..batch {
+            let start = b * EMBED_DIM;
+            out.push(l2_normalize(&data[start..start + EMBED_DIM])?);
+        }
+        Ok(out)
     }
 
     /// Embedding 512-d L2-normalizzato di una stringa di testo.
@@ -387,6 +431,48 @@ mod tests {
             (txt_norm - 1.0).abs() < 1e-3,
             "text embedding must be L2-normalised, got {txt_norm}"
         );
+    }
+
+    #[test]
+    #[serial]
+    fn embed_images_batch_matches_single_when_model_present() {
+        let Some(dir) = first_complete_model_dir() else {
+            eprintln!("skipping: complete MobileCLIP2-S2 dir missing");
+            return;
+        };
+        let mut clip = MobileClip::load(&dir).expect("load model");
+        let size = clip.image_size();
+        let mut red = vec![0.0_f32; 3 * size * size];
+        for px in red.iter_mut().take(size * size) {
+            *px = 1.0;
+        }
+        let mut blue = vec![0.0_f32; 3 * size * size];
+        for px in blue.iter_mut().skip(2 * size * size) {
+            *px = 1.0;
+        }
+        let single_red = clip.embed_image_nchw(&red).expect("red single");
+        let single_blue = clip.embed_image_nchw(&blue).expect("blue single");
+        let mut stacked = red;
+        stacked.extend_from_slice(&blue);
+        let batch = clip
+            .embed_images_nchw_batch(&stacked, 2)
+            .expect("batch of 2");
+        assert_eq!(batch.len(), 2);
+        for (i, (a, b)) in [(&single_red, &batch[0]), (&single_blue, &batch[1])]
+            .into_iter()
+            .enumerate()
+        {
+            let cos: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+            assert!(
+                cos > 0.999,
+                "batch[{i}] must match single inference, cos={cos}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_version_constant_is_stable() {
+        assert_eq!(MODEL_VERSION, "mobileclip2-s2");
     }
 
     fn tempfile_dir() -> PathBuf {
