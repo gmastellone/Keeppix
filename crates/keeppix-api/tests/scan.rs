@@ -176,7 +176,11 @@ use harness::spawn_worker_pool;
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn cancelling_a_scan_via_the_api_leaves_a_partial_bulk_outcome() {
-    const TOTAL: usize = 40;
+    // Fase 10 Task 21: la scrittura del discover è a lotti multi-riga da
+    // `PRODUCTION_BATCH_SIZE` file — con meno file del lotto intero l'intera
+    // scansione si scrive in una sola istruzione, senza finestra "a metà"
+    // da poter annullare.
+    const TOTAL: usize = 5 * keeppix_jobs::PRODUCTION_BATCH_SIZE;
     let server = TestServer::start().await;
     setup_admin(&server).await;
     let root = library_dir(&server, "scan-cancel");
