@@ -119,6 +119,10 @@ pub async fn seed_user(
 /// processo, e un `CREATE DATABASE` per test. Il boot del container è la
 /// parte lenta; condividerlo è il checkpoint prestazioni della 1a.
 ///
+/// Fase 7: i test restano su `PostGIS` senza pgvector fino al Task 4 (schema
+/// vettoriale). Compose bundled costruisce `Dockerfile.db` (`PostGIS` +
+/// pgvector); vedi Ruling nel ledger Fase 7.
+///
 /// Percorso alternativo, attivo **solo** se `KEEPPIX_TEST_DATABASE_URL` è
 /// impostata: si usa il server già in ascolto, stesso `CREATE DATABASE`.
 #[allow(clippy::expect_used)]

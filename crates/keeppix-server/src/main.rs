@@ -77,6 +77,7 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
     }
 
     log_hardware_probe(&db).await;
+    log_pgvector_status(&db).await;
     let library_watchers = match keeppix_jobs::watch::spawn_all(
         &db,
         keeppix_jobs::watch::DEFAULT_DEBOUNCE,
@@ -175,6 +176,32 @@ async fn log_hardware_probe(db: &Db) {
             inference_status = %ai.inference_status,
             "ai host probe"
         );
+    }
+}
+
+/// Fase 7 Task 3: se pgvector manca (Postgres esterno senza l'estensione)
+/// Keeppix parte comunque; AI resta spenta e il log spiega il comando da
+/// eseguire. Una galleria non deve rifiutarsi di avviarsi per i tag.
+async fn log_pgvector_status(db: &Db) {
+    match keeppix_db::persist_pgvector_status(db).await {
+        Ok(status) if status.ai_disabled() => {
+            let message = status
+                .message
+                .as_deref()
+                .unwrap_or("pgvector is not available");
+            tracing::warn!(
+                enable_command = status.enable_command.as_deref().unwrap_or(""),
+                "{message}"
+            );
+        }
+        Ok(status) => {
+            tracing::info!(
+                available = status.available,
+                enabled = status.enabled,
+                "pgvector probe"
+            );
+        }
+        Err(e) => tracing::warn!(error = %e, "pgvector probe failed"),
     }
 }
 

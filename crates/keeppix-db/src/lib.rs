@@ -21,6 +21,7 @@ pub mod libraries;
 pub mod operations;
 pub mod overrides;
 pub mod permissions;
+pub mod pgvector;
 pub mod places;
 pub mod preferences;
 pub mod problems;
@@ -71,6 +72,7 @@ pub use permissions::{
     ExplainResult, NewGrant, ObjectType, PermissionGrantView, PermissionRepo, SharedWithMeItem,
     SubjectType,
 };
+pub use pgvector::{ENABLE_VECTOR_SQL, PgVectorStatus, persist_pgvector_status, probe_pgvector};
 pub use places::PlaceRepo;
 pub use preferences::{
     GridDensity, NotificationPreferences, PreferencesPatchError, PreferencesRepo, UserPreferences,
