@@ -1690,3 +1690,33 @@ dall'utente** (PROSEGUI §8). PR tooling non disponibile su questo repo.
 Prossimo lavoro dopo merge: **Fase 7**.
 
 Phase close: complete (verify green; merge non eseguito).
+
+## Phase close — bootstrap query-budget honesty (2026-08-21)
+
+Conferma sul punto 3 (gate `4d8119c` / `./scripts/test.sh` EXIT 0):
+
+- Nella run completa che ha chiuso la fase, **entrambi** i test del
+  binario `bootstrap.rs` sono passati davvero:
+  `bootstrap_emits_no_more_queries_than_individual_repos ... ok` e
+  `bootstrap_matches_individual_endpoints ... ok` (log locale
+  `/tmp/keeppix-test2.sh.log`, righe ~95-96). Non era un skip, non un
+  `--exact` isolato, non un retry.
+- **Non** c'era un commit dedicato che sistemasse il difetto annotato in
+  Task 19/21: `bootstrap.rs` era fermo a `ee16774` dal Task 17. Il ledger
+  precedente aveva ragione a sospettare lo stato del subscriber; il gate
+  finale ha avuto torto a non dirlo.
+
+Ruling: **`bootstrap_emits_*` gira con `tokio::test(flavor =
+"current_thread")`**, e il budget è rieseguito anche dopo un round-trip
+HTTP `/bootstrap` (`bootstrap_query_budget_still_holds_after_http_
+bootstrap_round_trip`). — Perché: `traced_db` usa
+`tracing::subscriber::set_default`, che è TLS; su runtime multi-thread un
+`.await` può riprendere il task su un altro worker e il capture torna
+vuoto (`individual == 0`). Il ledger parlava di «logger globale `log`»:
+sqlx emette comunque eventi `tracing` su `sqlx::query`, ma il sintomo
+(capture vuoto quando il binario è già caldo) è lo stesso. Isolare il
+runtime del test è la correzione alla radice, non un retry. — Costo se
+sbagliato: se un giorno il pool sqlx eseguisse davvero fuori dal
+current-thread runtime del test, il capture tornerebbe fragile; a quel
+punto serve un `Dispatch` globale con `reload::Layer`, non un flavor
+diverso.

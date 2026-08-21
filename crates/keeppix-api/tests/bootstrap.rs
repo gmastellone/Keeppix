@@ -94,6 +94,12 @@ impl tracing::field::Visit for SqlFieldVisitor {
     fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
 }
 
+/// Installa un subscriber che cattura `sqlx::query` **solo su questo thread**.
+///
+/// `tracing::subscriber::set_default` è thread-local: su un runtime multi-thread
+/// un `.await` può riprendere il task su un altro worker e le query spariscono
+/// dal capture (conteggio a zero). I test che usano questo helper devono quindi
+/// girare con `#[tokio::test(flavor = "current_thread")]`.
 #[allow(clippy::expect_used)]
 async fn traced_db(
     url: &str,
@@ -205,7 +211,14 @@ async fn bootstrap_matches_individual_endpoints() {
     assert_eq!(body["badges"]["revision"], 0);
 }
 
-#[tokio::test]
+/// Budget di query di `compose`: deve restare ≤ alla somma dei repo singoli.
+///
+/// `flavor = "current_thread"` isola il subscriber di `traced_db` (TLS): senza
+/// di esso, sullo stesso binario di `bootstrap_matches_individual_endpoints` il
+/// capture poteva tornare vuoto dopo un round-trip HTTP che scalda il runtime
+/// multi-thread — fallimento annotato nel ledger di Task 19/21, non un flake
+/// da ignorare.
+#[tokio::test(flavor = "current_thread")]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn bootstrap_emits_no_more_queries_than_individual_repos() {
     let server = TestServer::start().await;
@@ -213,19 +226,48 @@ async fn bootstrap_emits_no_more_queries_than_individual_repos() {
     let _library_id = seed_library(&server, admin).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
 
-    let (db, captured, _guard) = traced_db(&server.database_url).await;
+    assert_bootstrap_query_budget(&server.database_url, &ctx).await;
+}
+
+/// Stesso budget **dopo** un giro HTTP come `bootstrap_matches_*`: prova che
+/// l'ordine nel binario non spezza più il capture (regressione del difetto
+/// Task 19/21).
+#[tokio::test(flavor = "current_thread")]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn bootstrap_query_budget_still_holds_after_http_bootstrap_round_trip() {
+    let server = TestServer::start().await;
+    let admin = setup_admin(&server).await;
+    let library_id = seed_library(&server, admin).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let bootstrap = server
+        .client
+        .get(server.url("/api/v1/bootstrap"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bootstrap.status(), 200);
+    let body: serde_json::Value = bootstrap.json().await.unwrap();
+    assert!(body["storage"][&library_id].is_object());
+
+    assert_bootstrap_query_budget(&server.database_url, &ctx).await;
+}
+
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn assert_bootstrap_query_budget(database_url: &str, ctx: &AuthContext) {
+    let (db, captured, _guard) = traced_db(database_url).await;
 
     captured.lock().expect("lock").clear();
-    load_individual_repos(&db, &ctx).await;
+    load_individual_repos(&db, ctx).await;
     let individual = captured.lock().expect("lock").len();
 
     captured.lock().expect("lock").clear();
-    load_bootstrap_repos(&db, &ctx).await;
+    load_bootstrap_repos(&db, ctx).await;
     let bootstrap = captured.lock().expect("lock").len();
 
     assert!(
         individual > 0,
-        "il test deve catturare query dai singoli repository"
+        "il test deve catturare query dai singoli repository (individual=0: subscriber TLS perso?)"
     );
     assert!(
         bootstrap <= individual,
