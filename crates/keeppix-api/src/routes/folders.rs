@@ -22,7 +22,7 @@ pub struct FolderView {
 }
 
 impl FolderView {
-    fn from_folder(f: &Folder) -> Self {
+    pub(crate) fn from_folder(f: &Folder) -> Self {
         Self {
             id: f.id.to_string(),
             library_id: f.library_id.to_string(),

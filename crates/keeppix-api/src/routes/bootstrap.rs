@@ -1,0 +1,115 @@
+//! Cold-start bundle: user, preferences, folder tree, disk space, badge counts.
+//!
+//! Additive — does not replace the individual endpoints. Composes the same
+//! repositories they use; no SQL of its own.
+
+use std::collections::BTreeMap;
+
+use axum::extract::{Query, State};
+use keeppix_db::{Db, FolderRepo, LibraryRepo, PreferencesRepo, UserRepo};
+use keeppix_domain::AuthContext;
+use serde::{Deserialize, Serialize};
+
+use crate::extract::Auth;
+use crate::json::Json;
+use crate::problem::Problem;
+use crate::routes::auth::UserView;
+use crate::routes::folders::FolderView;
+use crate::routes::libraries::LibraryStorageView;
+use crate::routes::preferences::UserPreferencesView;
+use crate::state::AppState;
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BadgeCountsView {
+    /// Foto ancora da valutare nel culling (Fase 9). Zero finché i lotti non
+    /// esistono nel backend.
+    pub culling: i64,
+    /// Proposte tag/volti in attesa (Fasi 7/8). Zero finché non ci sono code.
+    pub revision: i64,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BootstrapResponse {
+    pub user: UserView,
+    pub preferences: UserPreferencesView,
+    pub folders: Vec<FolderView>,
+    /// Spazio libero/totale per ogni libreria visibile — stesso payload di
+    /// `GET /libraries/{id}/storage`, indicizzato per id libreria.
+    pub storage: BTreeMap<String, LibraryStorageView>,
+    pub badges: BadgeCountsView,
+}
+
+#[derive(Deserialize)]
+pub struct BootstrapQuery {
+    #[serde(default)]
+    roots: bool,
+}
+
+/// Stessa composizione del handler HTTP, esposta per i test che contano le
+/// query emesse (Task 17).
+///
+/// # Errors
+/// Come i singoli endpoint che compone.
+pub async fn compose(
+    db: &Db,
+    ctx: &AuthContext,
+    roots: bool,
+    server_name: &str,
+) -> Result<BootstrapResponse, Problem> {
+    let user_id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
+    let user = UserRepo::new(db).find_by_id(ctx, user_id).await?;
+    let prefs = PreferencesRepo::new(db).get(ctx).await?;
+
+    let folder_repo = FolderRepo::new(db);
+    let folders = if roots {
+        folder_repo.roots(ctx).await?
+    } else {
+        folder_repo.tree(ctx).await?
+    };
+
+    let libraries = LibraryRepo::new(db).list(ctx).await?;
+    let library_repo = LibraryRepo::new(db);
+    let mut storage = BTreeMap::new();
+    for library in &libraries {
+        let usage = library_repo.storage(ctx, library.id).await?;
+        storage.insert(library.id.to_string(), LibraryStorageView::from(usage));
+    }
+
+    Ok(BootstrapResponse {
+        user: UserView::new(&user, server_name),
+        preferences: UserPreferencesView::from(prefs),
+        folders: folders.iter().map(FolderView::from_folder).collect(),
+        storage,
+        badges: BadgeCountsView {
+            culling: 0,
+            revision: 0,
+        },
+    })
+}
+
+/// # Errors
+/// `401` se non autenticato; gli altri codici come i singoli endpoint composti.
+#[utoipa::path(
+    get,
+    path = "/api/v1/bootstrap",
+    tag = "auth",
+    operation_id = "bootstrap_get",
+    summary = "Return user, preferences, folders, storage and badge counts in one response",
+    security(("session_cookie" = [])),
+    params(
+        ("roots" = Option<bool>, Query, description = "Come GET /folders/tree: solo radici se true")
+    ),
+    responses(
+        (status = 200, description = "Bundle di avvio", body = BootstrapResponse),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn get(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Query(query): Query<BootstrapQuery>,
+) -> Result<Json<BootstrapResponse>, Problem> {
+    Ok(Json(
+        compose(&state.db, &ctx, query.roots, &state.server_name).await?,
+    ))
+}
