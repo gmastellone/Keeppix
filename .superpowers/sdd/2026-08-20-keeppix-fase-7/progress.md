@@ -387,3 +387,16 @@ Verificato dopo il fix: `cargo fmt --check` e
 `cargo clippy --workspace --all-targets -- -D warnings` puliti;
 `keeppix-db` asset_tags (21), `keeppix-api` tags/bootstrap/openapi/scan
 (26), `keeppix-jobs` embed/ingest_fixture/production_config (23) verdi.
+
+## Task 12 — OperationKind::AiAnalysis
+
+Ruling: **una `Operation` AiAnalysis per finestra `embed::run`**, owner =
+`UserRepo::first_admin_id` via `OperationsRepo::create_for_owner` (eccezione
+senza AuthContext, motivata: job background senza utente HTTP; `list_running`
+WS filtra per owner → l'admin vede il progresso). `set_total` =
+`count_pending` a inizio finestra; `record_success_many` per lotto;
+`finish_done` a drenaggio/pausa, `finish_cancelled` se `cancel_requested`.
+Niente evento WS nuovo — `drain_operations` basta. `suggestions.changed`
+non implementato (non in scope).
+
+Task 12: complete (test `embed_window_opens_and_finishes_an_ai_analysis_operation`)
