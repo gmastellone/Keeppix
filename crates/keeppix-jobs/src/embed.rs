@@ -95,10 +95,11 @@ pub async fn run(
     limit: i64,
     mut continue_window: impl FnMut() -> bool,
 ) -> Result<EmbedOutcome, JobError> {
-    let peek = EmbeddingRepo::new(db)
+    let has_pending = !EmbeddingRepo::new(db)
         .list_pending(MODEL_VERSION, 1)
-        .await?;
-    if peek.is_empty() {
+        .await?
+        .is_empty();
+    if !has_pending {
         return Ok(EmbedOutcome {
             embedded: 0,
             skipped_missing_thumb: 0,
