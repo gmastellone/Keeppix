@@ -178,4 +178,6 @@ embedded stessa versione, kind ≠ `image`, hash assente / thumb mancante.
 — Costo se sbagliato: video restano fuori finché non si decide un percorso
 dedicato; accettabile per questa fase.
 
-Task 5: complete
+Task 5: complete (commits 5650784, dfe8f94, 2be46f1, 6f1655b, 9507f79;
+test verdi: keeppix-db embeddings/migrations, keeppix-jobs embed,
+keeppix-media clip+probe)
