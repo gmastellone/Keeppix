@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 //! Task 11: misura scansione vettoriale su 200k impronte.
-//! Soglia interattiva: 1 s (prova di chiusura fase). Linear > soglia → IVFFlat.
+//! Soglia interattiva: 1 s (prova di chiusura fase). Linear > soglia → `IVFFlat`.
 
 mod harness;
 
@@ -17,36 +17,11 @@ const INTERACTIVE_BUDGET: Duration = Duration::from_secs(1);
 const N: i32 = 200_000;
 const K: u32 = 50;
 
-#[tokio::test]
-async fn vector_search_stays_interactive_with_ivfflat() {
-    let test = TestDb::start().await;
-    let admin = harness::seed_admin(&test).await;
-    let ctx = AuthContext::user(admin, SystemRole::Admin);
-    let library = LibraryRepo::new(test.db())
-        .create(
-            &ctx,
-            NewLibrary {
-                name: "VecScale".into(),
-                owner_id: admin,
-                root_path: std::path::PathBuf::from("/mnt/vec"),
-                exclude_patterns: vec![],
-            },
-        )
-        .await
-        .unwrap();
-    let folder = FolderRepo::new(test.db())
-        .ensure_path(library.id, &["2024"])
-        .await
-        .unwrap();
-
-    let idx: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM pg_indexes WHERE indexname = 'asset_embeddings_ivfflat_idx'",
-    )
-    .fetch_one(test.db().pool())
-    .await
-    .unwrap();
-    assert_eq!(idx, 1, "migration 0045 must create IVFFlat");
-
+/// Popola `N` asset sintetici + i loro embedding e prepara la sessione per la
+/// misura (`ANALYZE`, `ivfflat.probes`). Separata da
+/// [`vector_search_stays_interactive_with_ivfflat`] solo per restare sotto il
+/// tetto clippy di righe per funzione — nessun comportamento diverso.
+async fn seed_scale_fixture(test: &TestDb, folder_id: uuid::Uuid) {
     sqlx::query("ALTER TABLE assets DISABLE TRIGGER assets_month_counts")
         .execute(test.db().pool())
         .await
@@ -64,7 +39,7 @@ async fn vector_search_stays_interactive_with_ivfflat() {
                 decode(lpad(to_hex(g), 64, '0'), 'hex') \
            FROM generate_series(1, $2) AS g",
     )
-    .bind(folder.id.as_uuid())
+    .bind(folder_id)
     .bind(N)
     .execute(test.db().pool())
     .await
@@ -98,6 +73,39 @@ async fn vector_search_stays_interactive_with_ivfflat() {
         .execute(test.db().pool())
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn vector_search_stays_interactive_with_ivfflat() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let library = LibraryRepo::new(test.db())
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "VecScale".into(),
+                owner_id: admin,
+                root_path: std::path::PathBuf::from("/mnt/vec"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library.id, &["2024"])
+        .await
+        .unwrap();
+
+    let idx: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pg_indexes WHERE indexname = 'asset_embeddings_ivfflat_idx'",
+    )
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    assert_eq!(idx, 1, "migration 0045 must create IVFFlat");
+
+    seed_scale_fixture(&test, folder.id.as_uuid()).await;
 
     let mut query = vec![0.0_f32; 512];
     query[0] = 1.0;
