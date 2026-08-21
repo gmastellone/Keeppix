@@ -57,9 +57,15 @@ async fn a_completed_scan_marks_the_operation_done() {
 
 /// Ruling Task 16: annullare a metà produce una riuscita parziale, non un
 /// rollback. I file già scritti restano; l'operazione li elenca.
+///
+/// `TOTAL` deve superare `PRODUCTION_BATCH_SIZE` (Fase 10 Task 21): da
+/// quando la scrittura è a lotti multi-riga, il punto di osservabilità
+/// "a metà" è fra due lotti, non più fra due file — con meno file del lotto
+/// intero l'intera scansione si scriverebbe in una sola istruzione, senza
+/// finestra per annullare davvero a metà.
 #[tokio::test]
 async fn cancelling_mid_scan_leaves_exactly_the_files_already_applied() {
-    const TOTAL: usize = 40;
+    const TOTAL: usize = 5 * keeppix_jobs::PRODUCTION_BATCH_SIZE;
     let test = TestDb::start().await;
     let root = std::env::temp_dir().join(format!("kpx-op-cancel-{}", uuid::Uuid::now_v7()));
     fs::create_dir_all(&root).unwrap();
