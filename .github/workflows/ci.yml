@@ -77,8 +77,16 @@ jobs:
       # Video playback/transcode tests probe with ffprobe and seed clips with
       # ffmpeg. Without these the suite writes a fake file and probe → 404.
       # `age` + `zstd` are required by the kpxb external-CLI round-trip test.
-      - name: Installa ffmpeg, age, zstd (test video e backup)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg age zstd
+      # `libheif-examples` gives `heif-convert` (Task 22, HEIF/HEIC decode in
+      # sandbox); on ubuntu-latest (24.04) libheif ships its codecs as
+      # `dlopen` plugins, not linked in like on Debian bookworm (see
+      # Dockerfile), so `libheif-plugin-libde265` is needed too or every HEIC
+      # fixture test silently skips via `heif_convert_available()` instead of
+      # actually running.
+      - name: Installa ffmpeg, age, zstd, libheif (test video, backup, HEIF)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg age zstd libheif-examples libheif-plugin-libde265
 
       # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
       # in locale i test usano testcontainers e senza quel limite parte un
