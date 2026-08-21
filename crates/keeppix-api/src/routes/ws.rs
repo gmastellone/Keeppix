@@ -378,6 +378,13 @@ async fn drain_scan_progress(
 /// contratto (Fase 10 Task 19: *"un segnale, non uno stato"*): porta un
 /// conteggio come comodità, mai gli id — un client che lo perde deve
 /// ricaricare `GET /problems`, non fidarsi del numero.
+///
+/// Il primo giro con lista vuota non emette: non c'è un cambiamento da
+/// segnalare, e un `count: 0` in coda gareggia col Ping di apertura — i test
+/// (e un client lento) lo prenderebbero come l'evento "c'è un problema"
+/// successivo. Un reconnect con problemi già presenti continua a emettere
+/// subito (come `operations`). Il ritorno a zero problemi (firma precedente
+/// non vuota → count 0) emette normalmente.
 async fn drain_problems(
     db: &Db,
     ctx: &AuthContext,
@@ -390,7 +397,11 @@ async fn drain_problems(
         return Ok(());
     }
     let count = set.offline_libraries.len() + set.failed_jobs.len() + set.error_assets.len();
+    let first_empty_baseline = seen.is_none() && count == 0;
     *seen = Some(signature);
+    if first_empty_baseline {
+        return Ok(());
+    }
     enqueue(
         q,
         json!({

@@ -1659,3 +1659,18 @@ sbagliato 7/8/9.
 
 Phase close docs: complete (pending full AGENTS.md verify + user merge).
 `python3 scripts/check-wired.py` EXIT 0 con le eccezioni sopra.
+
+## Phase close verify (2026-08-21)
+
+Ruling: `drain_problems` — il primo giro con lista vuota non emette
+`problems.changed`. — Perché: `seen: None` + count 0 veniva trattato come
+cambio e metteva `count: 0` in coda; il Ping di apertura (primo tick
+dell'heartbeat) poteva vincere la race su `wait_until_looping`, lasciando
+quel messaggio per `recv_matching`, che falliva `count >= 1` anche dopo
+aver messo la libreria offline. Un reconnect con problemi già presenti
+continua a emettere; il ritorno a zero problemi pure. — Costo se sbagliato:
+un client che si aspettava un nudge a zero alla connessione non lo riceve
+(deve comunque partire da `GET /problems`).
+
+`./scripts/test.sh` rosso su `an_offline_library_is_pushed_as_problems_changed`
+prima del fix; rieseguito verde dopo.
