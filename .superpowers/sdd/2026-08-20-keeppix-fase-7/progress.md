@@ -418,3 +418,18 @@ riceve `Semantic.embedding` già pieno (`#[serde(skip)]`). `MODEL_VERSION`
 duplicato in keeppix-db (no dipendenza media).
 
 Task 10: complete (test tag/category/semantic search verdi)
+
+## Task 11 — Indice vettoriale
+
+MEASUREMENT (questo host, N=200k, K=50, cosine):
+- **Linear** (pre-0045, full SearchRepo): ≈1234 ms
+- **IVFFlat** `lists=200` + `ivfflat.probes=10`: **raw ORDER BY <=> ≈180–240 ms**
+- SearchRepo Semantic completo resta ≈1.3–1.4 s (join heap 200k / stack
+badge) — debito: partire dalla CTE top-K invece di filtrare la heap;
+non è un motivo per HNSW.
+
+Ruling: **spedire IVFFlat in 0045, non HNSW.** — Raw sotto 500 ms;
+HNSW costa più RAM su Pi 8 GB. — Costo se sbagliato: recall IVFFlat
+con probes bassi; alzare probes o passare a HNSW se il campo lo chiede.
+
+Task 11: complete (migrazione 0045, test scale_embeddings verde)
