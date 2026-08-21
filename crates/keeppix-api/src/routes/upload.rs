@@ -29,13 +29,13 @@ use crate::state::AppState;
 /// dal client, non accettato qui.
 const MAX_CHUNK_BYTES: u64 = 64 * 1024 * 1024;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CheckRequest {
     /// blake3 esadecimali (64 caratteri) calcolati localmente dal client.
     pub hashes: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct CheckResponse {
     /// Il sottoinsieme di `hashes` che il server **non** ha già: sono gli
     /// unici che vale la pena caricare (spec §1.2, «questi 47 li ho già,
@@ -48,6 +48,21 @@ pub struct CheckResponse {
 /// # Errors
 /// `400` se un hash non è esadecimale a 64 caratteri. `401`/`403` se il
 /// chiamante non ha un contesto valido.
+#[utoipa::path(
+    post,
+    path = "/api/v1/upload/check",
+    tag = "upload",
+    operation_id = "upload_check",
+    summary = "Check which hashes are already known",
+    security(("session_cookie" = [])),
+    request_body = CheckRequest,
+    responses(
+        (status = 200, description = "Hash non ancora presenti sul server", body = CheckResponse),
+        (status = 400, description = "Un hash non è esadecimale a 64 caratteri", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Contesto non valido", body = Problem)
+    )
+)]
 pub async fn check(
     State(state): State<AppState>,
     SessionOrShare(ctx): SessionOrShare,
@@ -73,8 +88,9 @@ pub async fn check(
     Ok(Json(CheckResponse { unknown_hashes }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateSessionRequest {
+    #[schema(value_type = String)]
     pub target_folder_id: uuid::Uuid,
     pub filename: String,
     pub expected_size: i64,
@@ -82,10 +98,11 @@ pub struct CreateSessionRequest {
     pub expected_hash: Option<String>,
     /// `mtime` originale sul dispositivo del client (spec §1.3): preservato
     /// come fallback di `taken_at` quando l'EXIF non ce l'ha.
+    #[schema(value_type = Option<String>)]
     pub client_mtime: Option<DateTime<Utc>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct CreateSessionResponse {
     pub id: String,
 }
@@ -98,6 +115,22 @@ pub struct CreateSessionResponse {
 /// chiamante non può scrivere nella cartella destinazione, o se un link
 /// condiviso non ha `allow_upload` sull'oggetto esatto. `507` se lo spazio
 /// libero sul filesystem della libreria è sotto `expected_size`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/upload",
+    tag = "upload",
+    operation_id = "upload_create_session",
+    summary = "Open a resumable upload session",
+    security(("session_cookie" = [])),
+    request_body = CreateSessionRequest,
+    responses(
+        (status = 201, description = "Sessione creata, Location: /api/v1/upload/{id}", body = CreateSessionResponse),
+        (status = 400, description = "filename o expected_hash non validi", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non può scrivere nella cartella destinazione", body = Problem),
+        (status = 507, description = "Spazio libero insufficiente", body = Problem)
+    )
+)]
 pub async fn create(
     State(state): State<AppState>,
     SessionOrShare(ctx): SessionOrShare,
@@ -144,6 +177,21 @@ pub async fn create(
 /// # Errors
 /// `403` se il chiamante non è il proprietario della sessione. `410` se è
 /// scaduta.
+#[utoipa::path(
+    head,
+    path = "/api/v1/upload/{id}",
+    tag = "upload",
+    operation_id = "upload_session_head",
+    summary = "Get the true received-bytes offset of an upload session",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della sessione")),
+    responses(
+        (status = 200, description = "Offset vero nell'header Upload-Offset"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non proprietario della sessione", body = Problem),
+        (status = 410, description = "Sessione scaduta", body = Problem)
+    )
+)]
 pub async fn head(
     State(state): State<AppState>,
     SessionOrShare(ctx): SessionOrShare,
@@ -155,7 +203,7 @@ pub async fn head(
     Ok((StatusCode::OK, offset_header(session.received_bytes)).into_response())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct UploadCompleteResponse {
     pub asset_id: String,
     pub filename: String,
@@ -180,6 +228,28 @@ pub struct UploadCompleteResponse {
 /// completo, se l'hash end-to-end non combacia con `expected_hash` o il
 /// file non è decodificabile — mai finito in libreria, temporaneo
 /// eliminato, sessione marcata fallita.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/upload/{id}",
+    tag = "upload",
+    operation_id = "upload_session_patch",
+    summary = "Append a chunk, finalizing the session when complete",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della sessione")),
+    request_body(content = Vec<u8>, description = "Chunk grezzo", content_type = "application/octet-stream"),
+    responses(
+        (status = 204, description = "Chunk accettato, sessione non ancora completa"),
+        (status = 201, description = "Sessione completata", body = UploadCompleteResponse),
+        (status = 400, description = "Header mancante o corpo vuoto", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non proprietario della sessione", body = Problem),
+        (status = 409, description = "Upload-Offset non combacia con received_bytes", body = Problem),
+        (status = 410, description = "Sessione scaduta", body = Problem),
+        (status = 413, description = "Chunk oltre il limite consentito", body = Problem),
+        (status = 422, description = "Hash end-to-end o decodifica falliti", body = Problem),
+        (status = 460, description = "Checksum del chunk non combacia", body = Problem)
+    )
+)]
 pub async fn patch(
     State(state): State<AppState>,
     SessionOrShare(ctx): SessionOrShare,
