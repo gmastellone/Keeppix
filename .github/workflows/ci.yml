@@ -1,7 +1,13 @@
 name: CI
 
 on:
-  push: { branches: [main] }
+  # 'fase-*' oltre a main: le PR verso questo repo sono attualmente rotte lato
+  # GitHub (pullRequests.totalCount torna 0 via API e via web nonostante le PR
+  # #10/#11 siano esistite ed elencate nella cronologia commit — verificato,
+  # non è un problema di permessi locali). Finché non è risolto lato GitHub,
+  # il push diretto sul branch di fase è l'unico modo di avere CI reale prima
+  # del merge.
+  push: { branches: [main, 'fase-*'] }
   pull_request:
 
 env:
