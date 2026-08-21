@@ -177,6 +177,53 @@ pub fn plain_client() -> reqwest::Client {
         .expect("client http")
 }
 
+/// Fa girare la pipeline dei job su cloni posseduti, così può vivere in un
+/// `tokio::spawn` mentre il test resta libero di interrogare il database o
+/// chiamare altre rotte HTTP nel frattempo (Task 16: annullamento a metà di
+/// una scansione lunga, osservato sia via `keeppix-api` che via WebSocket).
+#[allow(clippy::expect_used, dead_code)]
+pub fn spawn_worker_pool(
+    db: Db,
+    database_url: String,
+    data_dir: std::path::PathBuf,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let handler = keeppix_jobs::IngestHandler {
+            db: db.clone(),
+            data_dir,
+            stability_wait: Duration::ZERO,
+            trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
+            database_url,
+            config_path: None,
+        };
+        let pool = keeppix_jobs::WorkerPool::new(
+            db.clone(),
+            handler,
+            std::sync::Arc::new(keeppix_jobs::ActivityTracker::new()),
+            512 * 1024 * 1024,
+            keeppix_jobs::default_night_window(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let start = std::time::Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(60) {
+                return;
+            }
+            if !pool.step().await.expect("step") {
+                let pending: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM jobs WHERE status IN ('pending','running')",
+                )
+                .fetch_one(db.pool())
+                .await
+                .expect("count");
+                if pending == 0 {
+                    return;
+                }
+            }
+        }
+    })
+}
+
 /// Le asserzioni sugli header di sicurezza vivono in `keeppix-test-support`,
 /// una copia sola per tutto il workspace: `keeppix-api` e `keeppix-server` non
 /// possono condividere codice di test in altro modo. Ri-esportata qui perché i

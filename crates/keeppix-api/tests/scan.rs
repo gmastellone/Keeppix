@@ -167,51 +167,7 @@ async fn a_scan_request_while_one_is_already_queued_reports_no_operation() {
     );
 }
 
-/// Come [`drain_workers`], ma su cloni posseduti così può girare in un
-/// `tokio::spawn` mentre il test resta libero di interrogare il database e
-/// chiamare l'endpoint di annullamento nel frattempo.
-#[allow(clippy::expect_used)]
-fn spawn_worker_pool(
-    db: keeppix_db::Db,
-    database_url: String,
-    data_dir: std::path::PathBuf,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let handler = IngestHandler {
-            db: db.clone(),
-            data_dir,
-            stability_wait: Duration::ZERO,
-            trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
-            database_url,
-            config_path: None,
-        };
-        let pool = WorkerPool::new(
-            db.clone(),
-            handler,
-            std::sync::Arc::new(ActivityTracker::new()),
-            512 * 1024 * 1024,
-            keeppix_jobs::default_night_window(),
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        );
-        let start = std::time::Instant::now();
-        loop {
-            if start.elapsed() > Duration::from_secs(60) {
-                return;
-            }
-            if !pool.step().await.expect("step") {
-                let pending: i64 = sqlx::query_scalar(
-                    "SELECT count(*) FROM jobs WHERE status IN ('pending','running')",
-                )
-                .fetch_one(db.pool())
-                .await
-                .expect("count");
-                if pending == 0 {
-                    return;
-                }
-            }
-        }
-    })
-}
+use harness::spawn_worker_pool;
 
 /// Verifica di Task 16: annullare a metà (dopo aver visto qualche successo)
 /// lascia esattamente ciò che è stato applicato, come `BulkOutcome` — non un
