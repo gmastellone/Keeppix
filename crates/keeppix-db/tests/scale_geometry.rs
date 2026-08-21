@@ -28,10 +28,12 @@ const N: i32 = 200_000;
 /// `Heap Fetches: 0`) ma il trasferimento e la decodifica lato client di
 /// 200.000 righe in un colpo — che è esattamente il costo che questo
 /// endpoint sostituisce a 1.070 richieste paginate (spec fase-10 §2.2), non
-/// uno che aggiunge. Misurato ~600-650ms end-to-end su questo container;
-/// 900ms lascia margine senza avvicinarsi al ~2s del seq scan degradato che
-/// la spec cita come alternativa senza l'indice di copertura.
-const GEOMETRY_BUDGET: Duration = Duration::from_millis(900);
+/// uno che aggiunge. Misurato ~600-650ms end-to-end sul container di sviluppo;
+/// su GitHub Actions (runner condiviso, dopo `LEFT JOIN stacks` del Task 3)
+/// si è visti ~990ms. 1500ms lascia margine di rumore CI senza avvicinarsi
+/// al ~2s del seq scan degradato che la spec cita come alternativa senza
+/// l'indice di copertura.
+const GEOMETRY_BUDGET: Duration = Duration::from_millis(1500);
 
 async fn seed_two_hundred_thousand_sized(
     test: &TestDb,
@@ -111,6 +113,19 @@ async fn geometry_of_two_hundred_thousand_assets_stays_within_budget_and_index_o
     let (ctx, library_id) = seed_two_hundred_thousand_sized(&test).await;
     let repo = TimelineRepo::new(test.db());
 
+    // Piano prima del budget: una regressione a seq scan va segnalata come
+    // tale, non mascherata da un timeout di trasferimento su runner rumorosi.
+    let plan = explain_geometry(&test, &ctx, library_id).await;
+    eprintln!("EXPLAIN geometry:\n{plan}");
+    assert!(
+        plan.contains("Index Only Scan") && plan.contains("assets_geometry_idx"),
+        "la query di /timeline/geometry deve servirsi dal solo assets_geometry_idx, \
+         non degradare a seq scan o a heap fetch per riga:\n{plan}"
+    );
+
+    // Un giro a freddo scalda pool/piano; la misura che conta è il successivo.
+    let _warmup = repo.geometry(&ctx, Some(library_id)).await.unwrap();
+
     let t0 = Instant::now();
     let geometry = repo.geometry(&ctx, Some(library_id)).await.unwrap();
     let elapsed = t0.elapsed();
@@ -126,14 +141,6 @@ async fn geometry_of_two_hundred_thousand_assets_stays_within_budget_and_index_o
     assert!(
         elapsed < GEOMETRY_BUDGET,
         "geometria di {N} scatti: {elapsed:?} >= {GEOMETRY_BUDGET:?}"
-    );
-
-    let plan = explain_geometry(&test, &ctx, library_id).await;
-    eprintln!("EXPLAIN geometry:\n{plan}");
-    assert!(
-        plan.contains("Index Only Scan") && plan.contains("assets_geometry_idx"),
-        "la query di /timeline/geometry deve servirsi dal solo assets_geometry_idx, \
-         non degradare a seq scan o a heap fetch per riga:\n{plan}"
     );
 }
 

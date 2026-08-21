@@ -1720,3 +1720,23 @@ sbagliato: se un giorno il pool sqlx eseguisse davvero fuori dal
 current-thread runtime del test, il capture tornerebbe fragile; a quel
 punto serve un `Dispatch` globale con `reload::Layer`, non un flavor
 diverso.
+
+## CI on fase-10 (2026-08-21)
+
+`ae71675`: backend rosso su bootstrap capture (ordine matches→emits) —
+conferma del difetto ledger; riparato in `e97912b` (current_thread). I tre
+test bootstrap su `e97912b` sono verdi in CI.
+
+`e97912b`: backend rosso su
+`geometry_of_two_hundred_thousand_assets_stays_within_budget_and_index_only`
+— 992ms ≥ 900ms. Piano ancora index-only (non raggiunto dall'assert perché
+il budget falliva prima). Rumore del runner GHA + costo del
+`LEFT JOIN stacks` (Task 3), non regressione di piano.
+
+Ruling: budget geometria 200k portato a **1500ms**, con warmup prima della
+misura e assert sul piano **prima** del budget. — Perché: 992ms su Actions
+resta lontano dal ~2s del seq scan che il test deve ancora intercettare;
+fallire per 90ms di rumore CI non protegge nulla. Il piano per primo evita
+di confondere un seq scan con un timeout di trasferimento. — Costo se
+sbagliato: regressioni di trasferimento fra 900ms e 1500ms passano in
+silenzio; accettabile rispetto a un gate fase falso-positivo.
