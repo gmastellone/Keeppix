@@ -24,10 +24,14 @@ impl EnergyProfile {
     }
 }
 
+/// Finestra notturna a piena velocità. Fase 10 Task 21: allineata a
+/// **2:00-7:00** per tenere la promessa fatta all'utente dal documento
+/// funzionale UI (§57), che dichiarava già quella finestra mentre questa
+/// funzione ne restituiva un'altra (2:00-6:00).
 #[must_use]
 pub fn default_night_window() -> (NaiveTime, NaiveTime) {
     let start = NaiveTime::from_hms_opt(2, 0, 0).unwrap_or(NaiveTime::MIN);
-    let end = NaiveTime::from_hms_opt(6, 0, 0).unwrap_or(NaiveTime::MIN);
+    let end = NaiveTime::from_hms_opt(7, 0, 0).unwrap_or(NaiveTime::MIN);
     (start, end)
 }
 
