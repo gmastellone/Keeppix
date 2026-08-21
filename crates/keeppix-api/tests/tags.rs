@@ -54,7 +54,7 @@ async fn create_plain_user(server: &TestServer) {
 
 #[tokio::test]
 async fn unauthenticated_requests_are_rejected() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     let resp = server
         .client
         .get(server.url("/api/v1/tags"))
@@ -66,7 +66,7 @@ async fn unauthenticated_requests_are_rejected() {
 
 #[tokio::test]
 async fn a_plain_user_can_create_list_get_patch_and_delete_tags() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     create_plain_user(&server).await;
     let client = login_as(&server, "plain", "correct horse battery staple").await;
@@ -151,7 +151,7 @@ async fn a_plain_user_can_create_list_get_patch_and_delete_tags() {
 
 #[tokio::test]
 async fn unknown_tag_id_returns_forbidden_not_not_found() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let missing = uuid::Uuid::now_v7();
     let resp = server
@@ -167,7 +167,7 @@ async fn unknown_tag_id_returns_forbidden_not_not_found() {
 
 #[tokio::test]
 async fn duplicate_name_same_kind_is_conflict() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
 
     let first = server
@@ -191,7 +191,7 @@ async fn duplicate_name_same_kind_is_conflict() {
 
 #[tokio::test]
 async fn nesting_violations_are_rejected() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
 
     let leaf: serde_json::Value = server
@@ -235,7 +235,7 @@ async fn nesting_violations_are_rejected() {
 
 #[tokio::test]
 async fn categories_do_not_require_a_text_embedding() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
 
     let cat: serde_json::Value = server

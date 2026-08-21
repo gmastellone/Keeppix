@@ -18,6 +18,7 @@ use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 use tokio::sync::OnceCell;
 
 static SHARED: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
+static SHARED_VECTOR: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
 
 pub struct TestServer {
     // `Some` solo sul percorso stoppable (il test 503). Il container
@@ -42,6 +43,14 @@ impl TestServer {
     #[allow(clippy::expect_used)]
     pub async fn start() -> Self {
         boot(None, provision().await, |state| state).await
+    }
+
+    /// Come [`Self::start`], ma su Postgres con pgvector (`keeppix-db:dev` o
+    /// un `KEEPPIX_TEST_DATABASE_URL` che lo offre). I test AI (`/tags`, …)
+    /// devono usarlo: lo schema `0043` è un no-op senza `vector`.
+    #[allow(clippy::expect_used)]
+    pub async fn start_with_vector() -> Self {
+        boot(None, provision_with_vector().await, |state| state).await
     }
 
     /// Come [`Self::start`], con uno stato già modificato (demosaic finto,
@@ -244,19 +253,42 @@ pub fn spawn_worker_pool(
 pub use keeppix_test_support::assert_security_headers;
 
 /// Procura un database vergine. Un container per processo, un `CREATE
-/// DATABASE` per test — allineato a `crates/keeppix-db/tests/harness/mod.rs`.
+/// DATABASE` per test — allineato a `crates/keeppix-jobs/tests/harness/mod.rs`.
 ///
-/// Default: `keeppix-db:dev` (`PostGIS` + pgvector). Lo schema AI (Fase 7) è
-/// un no-op senza `vector`; i test `/api/v1/tags` mentirebbero su postgis-only.
-/// `KEEPPIX_TEST_DATABASE_URL` si usa solo se quel server offre `vector`.
+/// Default: `postgis/postgis:17-3.5` (o `KEEPPIX_TEST_DATABASE_URL` in CI).
+/// Lo schema AI è un no-op senza `vector`; i test che lo richiedono usano
+/// [`TestServer::start_with_vector`].
 #[allow(clippy::expect_used)]
 async fn provision() -> ProvisionedDb {
+    if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL") {
+        return named_database(&server_url).await;
+    }
+    let (_container, admin_url) = SHARED
+        .get_or_init(|| async {
+            let container = Postgres::default()
+                .with_tag("17-3.5")
+                .with_name("postgis/postgis")
+                .start()
+                .await
+                .expect("container Postgres");
+            let port = mapped_port(&container).await;
+            let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+            (container, url)
+        })
+        .await;
+    named_database(admin_url).await
+}
+
+/// Postgres con pgvector per i test AI (Fase 7). Stesso contratto di
+/// `keeppix-jobs::tests::harness::provision_with_vector`.
+#[allow(clippy::expect_used)]
+async fn provision_with_vector() -> ProvisionedDb {
     if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL")
         && server_offers_vector(&server_url).await
     {
         return named_database(&server_url).await;
     }
-    let (_container, admin_url) = SHARED
+    let (_container, admin_url) = SHARED_VECTOR
         .get_or_init(|| async {
             let container = Postgres::default()
                 .with_tag("dev")
