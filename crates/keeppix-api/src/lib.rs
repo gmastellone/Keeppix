@@ -361,6 +361,13 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/albums/{id}/refresh",
             axum::routing::post(routes::albums::refresh),
         )
+        .route("/tags", get(routes::tags::list).post(routes::tags::create))
+        .route(
+            "/tags/{id}",
+            get(routes::tags::get)
+                .patch(routes::tags::patch)
+                .delete(routes::tags::delete),
+        )
         .route(
             "/permissions",
             get(routes::permissions::list).post(routes::permissions::grant),

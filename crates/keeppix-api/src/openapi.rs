@@ -11,7 +11,7 @@ use crate::extract::SESSION_COOKIE;
 use crate::routes::{
     albums, audit, auth, backup, bootstrap, credentials, duplicates, flags, folders, geotag,
     groups, health, libraries, map, media, metadata, operations, permissions, places, preferences,
-    problems, regions, restore, search, sessions, setup, share, stacks, sync, timeline, totp,
+    problems, regions, restore, search, sessions, setup, share, stacks, sync, tags, timeline, totp,
     trash, upload, users, video, viewport, ws,
 };
 
@@ -151,6 +151,11 @@ impl utoipa::Modify for SecurityAddon {
         albums::reorder_asset,
         albums::list_assets,
         albums::refresh,
+        tags::list,
+        tags::create,
+        tags::get,
+        tags::patch,
+        tags::delete,
         groups::list,
         groups::create,
         groups::patch,
@@ -279,6 +284,9 @@ impl utoipa::Modify for SecurityAddon {
         albums::CreateAlbumBody,
         albums::PatchAlbumBody,
         albums::ReorderBody,
+        tags::TagView,
+        tags::CreateTagRequest,
+        tags::PatchTagRequest,
         groups::GroupView,
         groups::GroupMemberView,
         groups::CreateGroupRequest,
@@ -333,6 +341,7 @@ impl utoipa::Modify for SecurityAddon {
         (name = "health", description = "Liveness check"),
         (name = "operations", description = "Annullamento delle operazioni lunghe"),
         (name = "albums", description = "Album virtuali: CRUD e gestione asset"),
+        (name = "tags", description = "Vocabolario condiviso di tag e categorie"),
         (name = "groups", description = "Gruppi utente"),
         (name = "permissions", description = "Pannello permessi: elenco, concessione, revoca, explain"),
         (name = "share", description = "Link pubblici e accesso guest"),

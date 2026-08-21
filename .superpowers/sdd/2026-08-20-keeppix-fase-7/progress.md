@@ -256,3 +256,33 @@ JoinHandle: altrimenti cancel-scan scade a 20s. Derive accoda embed solo
 se i pesi CLIP ci sono. — Costo se sbagliato: un test che aspetta i retry
 dovrebbe fare sleep esplicito; oggi nessuno lo fa.
 
+
+## Task 7 — Tag e categorie CRUD
+
+Ruling: **vocabolario condiviso, qualsiasi utente autenticato.** — Spec:
+i tag non sono per-utente; `created_by` è audit. Admin non richiesto.
+— Costo se sbagliato: un utente può rinominare/cancellare tag creati da
+altri; accettabile per un archivio di famiglia, rivedibile con ACL in
+fase successiva.
+
+Ruling: **id sconosciuto → Forbidden (mai NotFound).** — Invariante
+AGENTS anche sul vocabolario condiviso: niente oracolo di esistenza.
+— Costo se sbagliato: client che aspettano 404 vanno aggiornati.
+
+Ruling: **solo `kind=tag` ha embedding testuale; le categorie no.** —
+Labbinamento (Task 8) è per tag; le categorie sono contenitori. Prompt
+assente → si embedda il `name`. Pesi assenti → create ok con
+`embedding=NULL`; patch del testo azzera un vettore stantio.
+— Costo se sbagliato: matching ritardato finché non ci sono i pesi.
+
+Ruling: **`assignment_count` su GET/list per il dialog di delete.** —
+Il cascade è già FK; la UI legge il conteggio prima di confermare.
+— Costo se sbagliato: conteggio include rejected (tutte le righe
+`asset_tags`); onesto per «foto coinvolte» dalla cancellazione.
+
+Ruling: **harness API → `keeppix-db:dev` (pgvector).** — Allineato a
+`keeppix-db` tests: senza `vector` lo schema AI è no-op e i test tags
+mentirebbero (503). `provision_dedicated` resta postgis-only (test 503).
+— Costo se sbagliato: CI deve già buildare `Dockerfile.db` (già vero).
+
+Task 7: complete

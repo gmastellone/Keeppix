@@ -245,25 +245,50 @@ pub use keeppix_test_support::assert_security_headers;
 
 /// Procura un database vergine. Un container per processo, un `CREATE
 /// DATABASE` per test — allineato a `crates/keeppix-db/tests/harness/mod.rs`.
+///
+/// Default: `keeppix-db:dev` (`PostGIS` + pgvector). Lo schema AI (Fase 7) è
+/// un no-op senza `vector`; i test `/api/v1/tags` mentirebbero su postgis-only.
+/// `KEEPPIX_TEST_DATABASE_URL` si usa solo se quel server offre `vector`.
 #[allow(clippy::expect_used)]
 async fn provision() -> ProvisionedDb {
-    if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL") {
+    if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL")
+        && server_offers_vector(&server_url).await
+    {
         return named_database(&server_url).await;
     }
     let (_container, admin_url) = SHARED
         .get_or_init(|| async {
             let container = Postgres::default()
-                .with_tag("17-3.5")
-                .with_name("postgis/postgis")
+                .with_tag("dev")
+                .with_name("keeppix-db")
                 .start()
                 .await
-                .expect("container Postgres");
+                .expect(
+                    "avvio del container Postgres (keeppix-db:dev); \
+                     costruiscilo con: docker build -f Dockerfile.db -t keeppix-db:dev .",
+                );
             let port = mapped_port(&container).await;
             let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
             (container, url)
         })
         .await;
     named_database(admin_url).await
+}
+
+/// `true` se il server espone l'estensione `vector` (pacchetto installato).
+#[allow(clippy::expect_used)]
+async fn server_offers_vector(server_url: &str) -> bool {
+    let Ok(mut conn) = PgConnection::connect(server_url).await else {
+        return false;
+    };
+    let offered = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap_or(false);
+    conn.close().await.ok();
+    offered
 }
 
 #[allow(clippy::expect_used)]
