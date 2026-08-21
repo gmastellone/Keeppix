@@ -141,6 +141,7 @@ fn api_routes(state: AppState) -> Router<AppState> {
         .route("/auth/refresh", axum::routing::post(routes::auth::refresh))
         .route("/auth/logout", axum::routing::post(routes::auth::logout))
         .route("/auth/me", get(routes::auth::me))
+        .route("/bootstrap", get(routes::bootstrap::get))
         .route(
             "/auth/totp",
             get(routes::totp::status).delete(routes::totp::disable),

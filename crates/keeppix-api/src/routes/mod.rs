@@ -2,6 +2,7 @@ pub mod albums;
 pub mod audit;
 pub mod auth;
 pub mod backup;
+pub mod bootstrap;
 pub mod credentials;
 pub mod duplicates;
 pub mod flags;
