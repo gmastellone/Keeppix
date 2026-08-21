@@ -186,7 +186,10 @@ async fn provision_with_vector() -> ProvisionedDb {
                 .with_name("keeppix-db")
                 .start()
                 .await
-                .expect("avvio del container Postgres (keeppix-db:dev)");
+                .expect(
+                    "avvio del container Postgres (keeppix-db:dev); \
+                     costruiscilo con: docker build -f Dockerfile.db -t keeppix-db:dev .",
+                );
             let port = mapped_port(&container).await;
             let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
             (container, url)
