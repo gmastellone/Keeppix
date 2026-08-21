@@ -1038,3 +1038,73 @@ dal task, più tre mutazioni manuali osservate rosse e ripristinate (route
 su group-only" rimossa → `via_group` sempre popolato) per confermare che i
 nuovi test provano davvero ciò che dichiarano.
 
+Ruling: **la rinomina di massa (Fase 9) non esiste ancora nel codice: Task
+16 costruisce l'infrastruttura di operazione/avanzamento/annullamento in
+generale (`OperationKind`, `operations`, `OperationsRepo`) e la aggancia
+all'unico long-op reale già presente, la scansione di libreria
+(`discover::run_with_operation`).** `OperationKind` resta un enum a un solo
+variante apposta: un futuro `BulkRename` si aggiunge senza toccare il
+protocollo. — *Costo se sbagliato:* nessuno finché la Fase 9 non esiste;
+quando esisterà, il contratto (`operation_id`, avanzamento sul WebSocket,
+`cancel` → `BulkOutcome` parziale) è già quello giusto da riusare.
+
+Ruling: **annullare a metà produce una riuscita parziale, non un
+rollback.** `operations.succeeded_asset_ids` accumula ciò che è già stato
+scritto; `finish_cancelled` chiude lo stato senza svuotarlo. `POST
+/operations/{id}/cancel` restituisce esattamente questo elenco come
+`BulkOutcome` (lo stesso involucro del Task 1, letto da qui invece che
+costruito da zero) — non un rollback, non un secondo formato di risposta.
+Verificato sia a livello `keeppix-jobs`
+(`cancelling_mid_scan_leaves_exactly_the_files_already_applied`) sia end to
+end via HTTP (`cancelling_a_scan_via_the_api_leaves_a_partial_bulk_outcome`,
+con un vero `WorkerPool` su 40 file e l'annullamento chiamato mentre gira),
+entrambi osservati **rossi** disabilitando rispettivamente il controllo di
+`cancel_requested` e la chiamata a `request_cancel` nell'handler, prima di
+ripristinarli.
+
+Ruling: **una seconda `POST /scan` mentre un job per la stessa libreria è
+già `pending`/`running` non crea una seconda operazione tracciata.** La
+`dedup_key` condivisa `discover:{library_id}` (watcher e richieste utente)
+fa collassare comunque i job su uno solo; creare comunque un'operazione la
+lascerebbe `running` per sempre, perché nessun job la farebbe avanzare.
+`start_scan` guarda prima se un job è già in coda (`operation_id: null` in
+quel caso) e, come rete di sicurezza contro la corsa fra quel controllo e
+l'accodamento, chiude comunque l'operazione appena creata
+(`finish_cancelled`, esito vuoto) se `enqueue_rescan_with_operation`
+scopre di aver perso la corsa. Verificato rosso disabilitando prima il
+controllo preventivo (il codice di riserva l'ha comunque salvato — prova
+che la rete di sicurezza serve davvero) e poi la rete di sicurezza stessa.
+
+Ruling: **il WebSocket non ha memoria fra connessioni.** `drain_operations`
+riparte con una mappa "visti" vuota a ogni nuova connessione: `operations`
+resta l'unica fonte di verità, letta a ogni giro di poll, mai un replay di
+eventi persi. Un client riconnesso a metà operazione vede quindi
+l'avanzamento corrente al primo giro utile — provato aprendo una
+connessione nuova solo dopo che una scansione aveva già superato 3 file
+riusciti (`operation_progress_arrives_over_a_connection_opened_mid_scan`,
+osservato rosso disabilitando la chiamata a `drain_operations`).
+
+Task 16: complete (commits edb3ff1 feat(db) operations table, cac25ca
+feat(jobs) wiring dello scan all'operazione, e3033f7 fix fmt/clippy,
+1837c34 feat(jobs) dispatch/watch portano `operation_id`, 9acf9cf feat(api)
+`operation_id` su scan + `POST /operations/{id}/cancel`, 4b6a145 feat(api)
+`operation.progress` sul WebSocket, 2d5f694/73fdb55 test, 90ca36e
+docs snapshot OpenAPI; test verdi: `keeppix-domain` 62/62 [invariato],
+`keeppix-db` operations.rs 14/14 [nuovo file], migrations.rs 11/11 [+1
+tabella], `keeppix-jobs` discover_operations.rs 3/3 [nuovo file],
+suite completa del crate 100% verde (40 file di test, nessuna regressione),
+`keeppix-api` scan.rs 8/8 [+4 nuovi: operation_id fino a `Done`, dedup
+senza operazione orfana, annullamento parziale via HTTP, `Forbidden` su
+operazione altrui], ws.rs 4/4 [+1 nuovo: avanzamento dopo connessione a
+metà scansione], suite completa del crate 100% verde (48 file di test),
+openapi.rs 7/7 [snapshot rigenerato: solo `ScanAccepted.operation_id`
+additivo — `POST /operations/{id}/cancel` resta non documentato, come la
+maggior parte delle rotte dal Task 9 in avanti, fino al Task 23].
+`cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
+warnings` verdi sull'intero workspace; `cargo deny check bans` verde
+(nessun nuovo arco proibito). `./scripts/test.sh` completo **non
+eseguito** (stesso motivo dei task precedenti: costoso e già coperto dalle
+suite complete dei crate toccati); sei mutazioni manuali osservate rosse e
+ripristinate in questo task (elencate nei Ruling sopra) per confermare che
+i nuovi test provano davvero ciò che dichiarano, non solo che passano.
+
