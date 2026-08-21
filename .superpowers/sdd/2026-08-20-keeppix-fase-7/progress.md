@@ -154,4 +154,5 @@ altrimenti testcontainers su `keeppix-db:dev`. Il degrade resta in
 sbagliato: CI senza Docker image locale fallisce il boot del container
 (serve `docker build -f Dockerfile.db -t keeppix-db:dev .`).
 
-Task 4: complete
+Task 4: complete (commits 4df8093, 0a3332c, 00313db; test verdi su
+`keeppix-db` migrations + pgvector)
