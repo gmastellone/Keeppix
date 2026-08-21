@@ -188,5 +188,10 @@ Fuori da questi quattro, procedi.
 | 9 | `plans/2026-08-20-keeppix-fase-9.md` | 11 | tocca **file veri**: chiudi le cinque convalide della rinomina prima |
 | 11 | `plans/2026-08-20-keeppix-fase-11.md` | 18 | **Task 5bis** (ottimizzazioni client) va letto **prima** di scrivere la prima schermata: cambia la struttura del codice |
 
-I piani di 7, 8 e 9 sono scritti **prima che la Fase 10 esista**, quindi sono a livello di task e
-decisioni, non di firme. Quando la 10 chiude, vanno ripassati col codice vero davanti — chiedimelo.
+**Fatto (21 agosto):** i piani di 7, 8 e 9 — scritti prima che la Fase 10 esistesse — sono stati
+ripassati contro il codice vero della Fase 10 mergiata, e corretti su nove punti reali (`Semantic`
+contro l'`ORDER BY` fisso di `SearchRepo::run`, l'evento WS che riusa `OperationKind` invece di
+inventarne uno, `BulkOutcome` da adattare per persone/volti, il permesso di destinazione sbagliato
+nella Fase 9, l'`undo` della rinomina che non toccava il filesystem, e altri — dettagli nei commit
+dei tre file). Restano a livello di task e decisioni, non di firme, ma non più scollegati dal
+codice reale.
