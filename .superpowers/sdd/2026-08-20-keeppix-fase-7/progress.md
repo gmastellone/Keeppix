@@ -365,3 +365,15 @@ non c'è un percorso «scarica davvero» senza uscire dal processo.
 
 Embed keepalive: complete (test verdi jobs embed window/pause + media
 keepalive 100-photo; clippy -D warnings ok)
+
+## Task 9 — Coda di revisione + bootstrap.revision
+
+Ruling: **`badges.revision` = count_proposed_visible** (metà tag; Fase 8
+aggiungerà i volti sullo stesso campo). `count_proposed_visible` non
+propaga assenza pgvector (0) — bootstrap non deve fallire per IA
+opzionale. Bulk confirm/reject per tag usano `BulkOutcome::from_partition`
+senza fallimenti (solo asset visibili). Rotte HTTP in wired-exceptions
+fase-11 (UI). OpenAPI 144→149.
+
+Task 9: complete (db 971ae1d + api HTTP/bootstrap/openapi; test verdi
+tags review_queue, bootstrap budget, openapi)

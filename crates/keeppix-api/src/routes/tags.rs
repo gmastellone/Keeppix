@@ -6,13 +6,14 @@
 //! Cambiare solo soglia/colore/parent non rivaluta.
 #![allow(clippy::missing_errors_doc)]
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use keeppix_db::{AssetTagRepo, NewTag, TagPatch, TagRepo};
-use keeppix_domain::{TagId, TagKind};
+use keeppix_domain::{AssetId, TagId, TagKind};
 use keeppix_media::{MODEL_VERSION, MobileClip, first_complete_model_dir};
 use serde::{Deserialize, Serialize};
 
+use crate::bulk::BulkOutcome;
 use crate::extract::Auth;
 use crate::json::Json;
 use crate::problem::Problem;
@@ -57,6 +58,40 @@ impl From<&keeppix_db::TagView> for TagView {
             assignment_count: t.assignment_count,
         }
     }
+}
+
+/// Una proposta di abbinamento IA in attesa di revisione umana (Fase 7
+/// Task 9). Arricchita con nome tag e nome file: la coda di revisione non
+/// deve fare un secondo giro per riga.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ProposalView {
+    pub asset_id: String,
+    pub tag_id: String,
+    pub tag_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
+    pub filename: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub taken_at_utc: Option<String>,
+}
+
+impl From<&keeppix_db::ProposalView> for ProposalView {
+    fn from(p: &keeppix_db::ProposalView) -> Self {
+        Self {
+            asset_id: p.asset_id.to_string(),
+            tag_id: p.tag_id.to_string(),
+            tag_name: p.tag_name.clone(),
+            score: p.score,
+            filename: p.filename.clone(),
+            taken_at_utc: p.taken_at_utc.map(|t| t.to_rfc3339()),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ListProposalsQuery {
+    #[serde(default)]
+    pub tag_id: Option<uuid::Uuid>,
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -326,6 +361,145 @@ pub async fn delete(
 ) -> Result<StatusCode, Problem> {
     TagRepo::new(&state.db).delete(&ctx, id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------------------------------------------------------------------------
+// Fase 7 Task 9: la coda di revisione delle proposte IA.
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/tags/proposals",
+    tag = "tags",
+    operation_id = "tags_list_proposals",
+    summary = "List pending AI tag proposals (review queue)",
+    security(("session_cookie" = [])),
+    params(
+        ("tag_id" = Option<String>, Query, description = "Filtra su un solo tag")
+    ),
+    responses(
+        (status = 200, description = "Proposte in attesa, visibili al chiamante, punteggio decrescente", body = [ProposalView]),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn list_proposals(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Query(query): Query<ListProposalsQuery>,
+) -> Result<Json<Vec<ProposalView>>, Problem> {
+    let tag_id = query.tag_id.map(TagId::from_uuid);
+    let proposals = AssetTagRepo::new(&state.db)
+        .list_proposed(&ctx, tag_id)
+        .await?;
+    Ok(Json(proposals.iter().map(ProposalView::from).collect()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/tags/{id}/assets/{asset_id}/confirm",
+    tag = "tags",
+    operation_id = "tags_confirm_proposal",
+    summary = "Confirm a single AI tag proposal",
+    security(("session_cookie" = [])),
+    params(
+        ("id" = String, Path, description = "Id tag"),
+        ("asset_id" = String, Path, description = "Id asset")
+    ),
+    responses(
+        (status = 204, description = "Confermato (idempotente se già confermato)"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Asset non visibile al chiamante", body = Problem),
+        (status = 404, description = "Nessuna proposta per questa coppia tag/asset", body = Problem),
+        (status = 409, description = "Già rifiutato: la decisione è permanente", body = Problem)
+    )
+)]
+pub async fn confirm_proposal(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path((id, asset_id)): Path<(TagId, AssetId)>,
+) -> Result<StatusCode, Problem> {
+    AssetTagRepo::new(&state.db)
+        .confirm(&ctx, id, asset_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/tags/{id}/assets/{asset_id}/reject",
+    tag = "tags",
+    operation_id = "tags_reject_proposal",
+    summary = "Reject a single AI tag proposal (permanent)",
+    security(("session_cookie" = [])),
+    params(
+        ("id" = String, Path, description = "Id tag"),
+        ("asset_id" = String, Path, description = "Id asset")
+    ),
+    responses(
+        (status = 204, description = "Rifiutato (idempotente se già rifiutato)"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Asset non visibile al chiamante", body = Problem),
+        (status = 404, description = "Nessuna proposta per questa coppia tag/asset", body = Problem),
+        (status = 409, description = "Già confermato: la decisione è permanente", body = Problem)
+    )
+)]
+pub async fn reject_proposal(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path((id, asset_id)): Path<(TagId, AssetId)>,
+) -> Result<StatusCode, Problem> {
+    AssetTagRepo::new(&state.db)
+        .reject(&ctx, id, asset_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/tags/{id}/proposals/confirm",
+    tag = "tags",
+    operation_id = "tags_confirm_all_proposals",
+    summary = "Confirm all pending proposals for a tag (bulk, «Conferma tutte»)",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id tag")),
+    responses(
+        (status = 200, description = "Esito: confermati gli asset visibili in attesa per questo tag", body = BulkOutcome),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn confirm_all_proposals(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(id): Path<TagId>,
+) -> Result<Json<BulkOutcome>, Problem> {
+    let confirmed = AssetTagRepo::new(&state.db)
+        .confirm_all_for_tag(&ctx, id)
+        .await?;
+    Ok(Json(BulkOutcome::from_partition(confirmed, &[], None)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/tags/{id}/proposals/reject",
+    tag = "tags",
+    operation_id = "tags_reject_all_proposals",
+    summary = "Reject all pending proposals for a tag (bulk, «Rifiuta tutte»)",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id tag")),
+    responses(
+        (status = 200, description = "Esito: rifiutati gli asset visibili in attesa per questo tag", body = BulkOutcome),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn reject_all_proposals(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(id): Path<TagId>,
+) -> Result<Json<BulkOutcome>, Problem> {
+    let rejected = AssetTagRepo::new(&state.db)
+        .reject_all_for_tag(&ctx, id)
+        .await?;
+    Ok(Json(BulkOutcome::from_partition(rejected, &[], None)))
 }
 
 fn parse_kind(raw: &str) -> Result<TagKind, Problem> {

@@ -362,11 +362,28 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::albums::refresh),
         )
         .route("/tags", get(routes::tags::list).post(routes::tags::create))
+        .route("/tags/proposals", get(routes::tags::list_proposals))
         .route(
             "/tags/{id}",
             get(routes::tags::get)
                 .patch(routes::tags::patch)
                 .delete(routes::tags::delete),
+        )
+        .route(
+            "/tags/{id}/proposals/confirm",
+            axum::routing::post(routes::tags::confirm_all_proposals),
+        )
+        .route(
+            "/tags/{id}/proposals/reject",
+            axum::routing::post(routes::tags::reject_all_proposals),
+        )
+        .route(
+            "/tags/{id}/assets/{asset_id}/confirm",
+            axum::routing::post(routes::tags::confirm_proposal),
+        )
+        .route(
+            "/tags/{id}/assets/{asset_id}/reject",
+            axum::routing::post(routes::tags::reject_proposal),
         )
         .route(
             "/permissions",

@@ -45,6 +45,13 @@ fn set_phase fase-11
 # branch, ma i consumatori HTTP restano i componenti Vue della 11.
 route /tags fase-11
 route /tags/{id} fase-11
+# Fase 7 Task 9 — coda di revisione delle proposte IA: stessa UI Fase 11
+# di /tags e /tags/{id} qui sopra.
+route /tags/proposals fase-11
+route /tags/{id}/proposals/confirm fase-11
+route /tags/{id}/proposals/reject fase-11
+route /tags/{id}/assets/{asset_id}/confirm fase-11
+route /tags/{id}/assets/{asset_id}/reject fase-11
 
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore

@@ -145,6 +145,11 @@ async fn load_individual_repos(db: &Db, ctx: &AuthContext) {
             .await
             .expect("storage");
     }
+    // Task 9: metà tag del badge `revision` — stessa query di `compose`.
+    keeppix_db::AssetTagRepo::new(db)
+        .count_proposed_visible(ctx)
+        .await
+        .expect("proposed count");
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
