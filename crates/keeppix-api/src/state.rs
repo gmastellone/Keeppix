@@ -199,6 +199,12 @@ pub struct AppState {
     /// unit tests that never exercise those paths.
     pub database_url: String,
     pub on_authenticated: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Gancio per `POST /viewport` (Task 20): un cambio di vista, non solo
+    /// una richiesta autenticata qualunque — alimenta la soglia di 4 secondi
+    /// della pausa automatica dell'analisi, molto più corta dei 5 minuti di
+    /// `on_authenticated`. Chiamato anche quando non c'è nulla da
+    /// promuovere: è comunque un segnale di navigazione.
+    pub on_viewport_activity: Option<Arc<dyn Fn() + Send + Sync>>,
     pub tickets: TicketStore,
     pub sessions: SessionCache,
     pub allowed_origins: Vec<String>,
@@ -234,6 +240,7 @@ impl AppState {
             data_dir,
             database_url: String::new(),
             on_authenticated: None,
+            on_viewport_activity: None,
             tickets: TicketStore::default(),
             sessions: SessionCache::default(),
             allowed_origins: Vec::new(),
@@ -259,6 +266,12 @@ impl AppState {
     #[must_use]
     pub fn with_on_authenticated(mut self, hook: Arc<dyn Fn() + Send + Sync>) -> Self {
         self.on_authenticated = Some(hook);
+        self
+    }
+
+    #[must_use]
+    pub fn with_on_viewport_activity(mut self, hook: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.on_viewport_activity = Some(hook);
         self
     }
 

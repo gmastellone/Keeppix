@@ -146,6 +146,10 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
                 let tracker = tracker.clone();
                 std::sync::Arc::new(move || tracker.notify_authenticated_request())
             })
+            .with_on_viewport_activity({
+                let tracker = tracker.clone();
+                std::sync::Arc::new(move || tracker.notify_viewport_activity())
+            })
             .with_allowed_origins(config.allowed_origins.clone())
             .with_library_roots(config.library_roots.clone())
             .with_full_cache_bytes(config.full_cache_bytes)
