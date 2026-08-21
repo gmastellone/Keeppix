@@ -377,3 +377,13 @@ fase-11 (UI). OpenAPI 144→149.
 
 Task 9: complete (db 971ae1d + api HTTP/bootstrap/openapi; test verdi
 tags review_queue, bootstrap budget, openapi)
+
+Nota: `cargo clippy --workspace --all-targets -- -D warnings` sul commit
+`eee260f` (embed keepalive) falliva — `peek`/`peak` in `embed::run`
+urtavano `clippy::similar_names`, e bloccava anche `keeppix-api` (che
+dipende da `keeppix-jobs`). Fix in e1e595f: la probe one-shot dei
+pending non ha più un binding nominato. Nessun cambio di comportamento.
+Verificato dopo il fix: `cargo fmt --check` e
+`cargo clippy --workspace --all-targets -- -D warnings` puliti;
+`keeppix-db` asset_tags (21), `keeppix-api` tags/bootstrap/openapi/scan
+(26), `keeppix-jobs` embed/ingest_fixture/production_config (23) verdi.
