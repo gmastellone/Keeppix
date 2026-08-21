@@ -1,13 +1,15 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use std::collections::{HashMap, HashSet};
+
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{FromRequestParts, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, header};
 use axum::response::Response;
-use keeppix_db::{ChangeLogRepo, Db};
-use keeppix_domain::AuthContext;
+use keeppix_db::{ChangeLogRepo, Db, OperationsRepo};
+use keeppix_domain::{AuthContext, OperationId, OperationStatus};
 use serde::Serialize;
 use serde_json::json;
 
@@ -111,6 +113,12 @@ async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
         return;
     };
     let mut outgoing = VecDeque::new();
+    // Vuoto a ogni nuova connessione **di proposito**: un client che si
+    // riconnette a metà di un'operazione non ha memoria di ciò che ha già
+    // visto, quindi il primo giro di poll la tratta come mai vista e ne
+    // emette subito lo stato corrente (spec Task 16: "arriva anche dopo una
+    // riconnessione"). `operations` è la fonte di verità, non questa mappa.
+    let mut op_seen: HashMap<OperationId, OperationProgressKey> = HashMap::new();
     let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
     let mut poll = tokio::time::interval(CHANGE_POLL);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -124,6 +132,12 @@ async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
             }
             _ = poll.tick() => {
                 if drain_changes(&state.db, &ctx, &mut cursor, &mut outgoing)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                if drain_operations(&state.db, &ctx, &mut op_seen, &mut outgoing)
                     .await
                     .is_err()
                 {
@@ -189,6 +203,79 @@ async fn drain_changes(
         );
     }
     Ok(())
+}
+
+/// `(done, total, phase)`: la chiave con cui `drain_operations` decide se
+/// un'operazione ha davvero fatto progressi da riportare, non solo se il
+/// giro di poll è passato.
+type OperationProgressKey = (i64, Option<i64>, String);
+
+/// Emette `operation.progress` per ogni operazione `running` del chiamante
+/// che è cambiata dall'ultimo giro, più un ultimo messaggio quando
+/// un'operazione tracciata esce da `running` (spec Task 16: `{operation_id,
+/// done, total, phase}`). `operations` resta l'unica fonte di verità — qui
+/// si legge, non si scrive — così un client riconnesso vede lo stato attuale
+/// al primo giro utile senza bisogno di un replay di eventi persi.
+async fn drain_operations(
+    db: &Db,
+    ctx: &AuthContext,
+    seen: &mut HashMap<OperationId, OperationProgressKey>,
+    q: &mut VecDeque<serde_json::Value>,
+) -> Result<(), keeppix_db::DbError> {
+    let ops = OperationsRepo::new(db);
+    let running = ops.list_running(ctx).await?;
+    let mut still_running = HashSet::with_capacity(running.len());
+    for op in running {
+        still_running.insert(op.id);
+        let key: OperationProgressKey = (op.done, op.total, op.phase.clone());
+        if seen.get(&op.id) == Some(&key) {
+            continue;
+        }
+        seen.insert(op.id, key);
+        enqueue(
+            q,
+            operation_progress_event(op.id, op.done, op.total, &op.phase),
+        );
+    }
+
+    let finished: Vec<OperationId> = seen
+        .keys()
+        .copied()
+        .filter(|id| !still_running.contains(id))
+        .collect();
+    for id in finished {
+        seen.remove(&id);
+        // Best-effort: se non è più visibile (improbabile, l'owner non
+        // cambia) si salta senza rompere il socket per un solo messaggio.
+        if let Ok(op) = ops.find(ctx, id).await {
+            let phase = match op.status {
+                OperationStatus::Done => "done",
+                OperationStatus::Cancelled => "cancelled",
+                OperationStatus::Failed => "failed",
+                OperationStatus::Running => op.phase.as_str(),
+            };
+            enqueue(q, operation_progress_event(op.id, op.done, op.total, phase));
+        }
+    }
+    Ok(())
+}
+
+fn operation_progress_event(
+    operation_id: OperationId,
+    done: i64,
+    total: Option<i64>,
+    phase: &str,
+) -> serde_json::Value {
+    json!({
+        "v": 1,
+        "type": "operation.progress",
+        "payload": {
+            "operation_id": operation_id.to_string(),
+            "done": done,
+            "total": total,
+            "phase": phase,
+        }
+    })
 }
 
 pub(crate) fn origin_allowed(origin: &str, host: &str, allowlist: &[String]) -> bool {
