@@ -1,5 +1,6 @@
 //! Elaborazione dei file. Nessun database, nessuna rete, nessuno stato.
 
+pub mod ai;
 pub mod derive;
 pub mod exif;
 pub mod gpx;
