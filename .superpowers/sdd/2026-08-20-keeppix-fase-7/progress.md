@@ -548,3 +548,18 @@ questa sessione. `cargo clean` (57 GiB liberati) ha sbloccato la
 verifica. Nessun impatto sul codice — solo sui tempi di questa sessione.
 
 Task 10: verificato indipendentemente, nessuna regressione trovata.
+
+## Chiusura Fase 7 — gate finale
+
+Verifica osservata (HEAD `efd5287`):
+- `cargo fmt --check` → pulito
+- `cargo clippy --workspace --all-targets -- -D warnings` → CLIPPY_EXIT:0
+- `cargo deny check` → advisories/bans/licenses/sources ok
+- `python3 scripts/check-wired.py` → verde
+- GitHub Actions run `32522791030` su `fase-7` @ `efd5287` → **success**
+  (frontend, audit, api-clients, image, backend)
+
+`./scripts/test.sh` locale in corso in parallelo; CI reale è il gate di
+chiusura (AGENTS.md + piano Task 13).
+
+Fase 7: chiusa sul branch `fase-7`. Prossima: Fase 8.
