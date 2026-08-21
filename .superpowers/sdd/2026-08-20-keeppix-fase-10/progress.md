@@ -1352,3 +1352,131 @@ gancio interno); `keeppix-server` config.rs 8/8 + embed.rs 5/5 (tocca
 dei task precedenti: costerebbe l'intera suite); eseguiti i test dei
 moduli toccati più le suite di non-regressione elencate sopra.
 
+## Task 21 — L'import a lotti, e le due discrepanze
+
+Ruling: **il lotto scrive tre istruzioni `UNNEST`, non una.**
+`AssetRepo::batch_upsert_discovered` (`INSERT ... ON CONFLICT DO UPDATE ...
+RETURNING`, filtra a `mtime`/`size_bytes` cambiati come già faceva
+`upsert_discovered`), `JobRepo::enqueue_many` (`INSERT ... ON CONFLICT
+(dedup_key) WHERE status IN ('pending','running') DO NOTHING`) e
+`OperationsRepo::record_success_many` (un solo `UPDATE` che avanza `done` e
+appende tutti gli `asset_id` con `array_length`/`||`) restano tre
+responsabilità separate dello stesso schema già in uso — non un'unica query
+gigante che le fonderebbe. "Un `change_log` per lotto" (brief) non significa
+una riga sommario: il trigger `assets_change_log` (`AFTER INSERT OR UPDATE
+... FOR EACH ROW`) scrive comunque una riga **per asset** dentro la singola
+istruzione `INSERT`, così il sync mobile non perde la granularità
+entità-per-entità richiesta dalla spec §2.6 — cambia solo che quelle righe
+nascono da un giro di rete invece che da 500. — *Costo se sbagliato:* se
+`change_log` fosse davvero per-lotto, un client mobile che sincronizza a
+metà lotto vedrebbe un cursore avanzato senza le righe intermedie: la
+diagnosi sarebbe un mismatch di conteggio silenzioso, non un errore.
+
+Ruling: **`FolderRepo::ensure_path` guadagna una cache per-scan
+(`HashMap<Vec<String>, FolderId>`), non solo i tre `INSERT` batch.** Senza
+cache, un migliaio di file nella stessa cartella avrebbe comunque fatto un
+giro di rete a cartella per file: la cache è la stessa idea di "un giro di
+rete per lotto" applicata alla risoluzione delle cartelle. — *Costo se
+sbagliato:* nessuno osservato; è un `HashMap` locale alla funzione, niente
+stato condiviso fra scan.
+
+Ruling: **la misura è sulla fase discover isolata, non sul tempo totale di
+import.** Con 1.000 file assestati (`discovering_a_thousand_settled_files_
+takes_seconds_not_hours`, stesso commit prima/dopo via `git worktree`):
+**1.698 s → 73 ms** (~23×, da ~1,7 ms/file a ~0,073 ms/file di soli round
+trip DB). Sulla pipeline intera (`ingest_fixture_indexes_three_jpegs`, 3
+JPEG reali attraverso exif+hash+derive+DB): **382 ms totali, ~127 ms/file**,
+di cui l'`exif` misurato è ~0 ms e il `derive` ~3 ms — il resto è
+ffmpeg/hash, non discover. Sull'archivio reale del campo
+(`field-test-20260817-1855.md`, 1.558 file, 7m52s totali): al ritmo
+misurato qui il discover di quell'intero archivio costerebbe ~114 ms *dopo*
+il lotto (~2,6 s prima) — una frazione irrilevante dei 472 s osservati, che
+sono dominati da exif (5m53s) e hash (6m54s), fasi CPU/IO-bound che questo
+task non tocca.
+
+**Ruling: il due-tempi resta una decisione differita, non presa qui, e il
+numero appena misurato è il motivo.** Il brief chiedeva la decisione "solo
+con il numero in mano" — il numero dice che il collo di bottiglia del
+"giorni per il primo import" non è la scrittura discover (che ora costa
+millisecondi anche su migliaia di file) ma exif+hash+derive per file, fasi
+che questo task non doveva toccare (fuori scope: "non implementare cose di
+fasi successive"). Battere il due-tempi (indicizzare subito, derivare dopo
+in background) resterebbe quindi necessario per il problema reale, ma è
+un cambio architetturale della pipeline di ingest — non una batch-insert —
+e va deciso con la sua spec, non improvvisato qui. — *Costo se sbagliato:*
+si spedisce Fase 10 credendo che il problema dell'import lungo sia risolto
+perché "abbiamo fatto le batch insert", mentre l'utente aspetta ancora
+ore/giorni allo stesso modo di prima.
+
+Ruling: **`default_night_window()` passa a 2:00–7:00: vince l'interfaccia,
+come richiesto dal brief e già annotato come discrepanza nel piano.**
+Osservato **rosso** con
+`default_night_window_matches_the_promise_made_in_the_ui` prima della
+correzione (`left: (02:00,06:00) right: (02:00,07:00)`). Le altre finestre
+di test (`night_window_yields_night_unless_interattivo` e simili) restano
+a `2:00–6:00` di proposito: testano `ActivityTracker::current_profile` con
+una finestra passata come parametro, non il default — non è la stessa
+asserzione, e cambiarle userebbe un numero arbitrario invece di uno
+significativo per quel test. — *Costo se sbagliato:* nessuno oltre al
+testo già scritto nell'interfaccia (§57), che il codice non contraddiceva
+più nemmeno prima di questo task nella forma della finestra, solo nell'ora
+di fine.
+
+Ruling: **`region.progress` porta `region_id`, `status`, `downloaded_bytes`,
+`size_bytes`, `last_error` — un campo più di quanto elencasse il brief.**
+`RegionView` cita solo `downloaded_bytes`/`status`/`last_error` come "dati
+che esistono", ma senza `size_bytes` un client non potrebbe calcolare una
+percentuale dall'evento da solo, e dovrebbe comunque richiamare `GET
+/regions`: `size_bytes` è lo stesso identico campo già esposto da quella
+rotta, non un dato nuovo. La chiave di deduplica per-regione è `(status,
+downloaded_bytes, last_error)`: `size_bytes` non cambia mai durante un
+download, quindi non serve nella chiave. `RegionRepo::list` richiede solo
+un utente autenticato (le regioni sono globali all'istanza, non per-utente,
+già così da Fase 4) — nessun controllo `is_admin` in più rispetto a `GET
+/regions`. — *Costo se sbagliato:* un client che ignora `size_bytes` non
+perde nulla; uno che lo usasse per altro dovrebbe comunque validarlo contro
+`GET /regions`, come già fa per gli altri eventi "segnale, non stato".
+
+Difetto osservato, non di questo task (annotato, non toccato):
+`cancelling_a_scan_via_the_api_leaves_a_partial_bulk_outcome`
+(`crates/keeppix-api/tests/scan.rs`) usava `TOTAL = 40`, sotto
+`PRODUCTION_BATCH_SIZE = 500`: con la scrittura a lotti l'intera scansione
+si applica in un'unica istruzione prima che il polling del test possa
+osservare uno stato "a metà", e l'annullamento non ha più nulla di parziale
+da lasciare. Stessa classe di difetto già vista e corretta in questo stesso
+task per `discover_operations.rs` e `ws.rs` — qui applicata anche a
+`scan.rs` con lo stesso rimedio (`TOTAL = 5 * PRODUCTION_BATCH_SIZE`),
+osservato **rosso** prima della correzione (`done` restava ≥ `TOTAL`,
+`status` era `Done` non `Cancelled`).
+
+Task 21: complete (commits 0c239bc fix(jobs) night window + f9c0ddc
+feat(db) batch primitives + 29c6921 feat(jobs) flush a lotti + f8d3059
+feat(api) region.progress + 414ce6b test(api) fixture di cancellazione;
+tests green: `keeppix-db` assets.rs 18/18 [+2 nuovi:
+`batch_upsert_discovered` inserisce ogni file nuovo, omette i file
+invariati], jobs.rs 15/15 [+2 nuovi: `enqueue_many` inserisce ogni voce,
+rispetta il `dedup_key` esistente], operations.rs 16/16 [+2 nuovi:
+`record_success_many` appende tutti gli id e avanza `done` una sola volta,
+un lotto vuoto è un no-op], regions.rs 6/6 (nessuna regressione); `keeppix-
+jobs` profile.rs 13/13 [+1 nuovo: `default_night_window()` è 2:00–7:00,
+osservato **rosso** prima della correzione], discover_operations.rs 6/6 e
+discover_perf.rs 6/6 (nessuna regressione, `TOTAL` già portato a `5 *
+PRODUCTION_BATCH_SIZE` nel task precedente di questa sessione),
+ingest_fixture.rs 4/4 (nessuna regressione); `keeppix-api` ws.rs 9/9 [+1
+nuovo: un download regione pushato come `region.progress`], scan.rs 8/8
+[+0 nuovi, 1 corretto: `cancelling_a_scan_via_the_api_leaves_a_partial_
+bulk_outcome` con `TOTAL` portato sopra `PRODUCTION_BATCH_SIZE`], map.rs
+10/10 (nessuna regressione, tocca `regions.rs`). `cargo fmt --check` e
+`cargo clippy --workspace --all-targets -- -D warnings` verdi su tutto il
+workspace; `cargo build --workspace --all-targets` verde. Rieseguite per
+intero senza regressioni: `keeppix-jobs` (22 suite, tutte verdi) e
+`keeppix-api` (tutte le suite tranne `bootstrap_emits_no_more_queries_
+than_individual_repos`, verde in isolamento — stesso difetto differito
+già annotato nel ledger di Task 19, non una regressione di questo task) e
+`keeppix-db` (41 suite, tutte verdi). `./scripts/test.sh` completo **non
+eseguito** (stesso motivo dei task precedenti: pulisce `target/` a fine
+corsa e costerebbe l'intera suite del workspace); eseguiti invece
+`cargo test -p keeppix-db`, `-p keeppix-jobs`, `-p keeppix-api` e `-p
+keeppix-server` per intero, oltre alla misura isolata via `git worktree`
+sul commit precedente per il numero "prima" della batch insert.
+
