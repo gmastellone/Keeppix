@@ -65,3 +65,38 @@ MEASUREMENT (questo host, Task 2, release):
   `inference_ms` misurato all'avvio
 
 Task 2: complete
+
+## Task 2bis — Verifica reale IT/EN prima di chiudere il modello
+
+Ruling: **si tiene MobileCLIP2-S2.** — Sul banco di 20 coppie foto-didascalia
+distinguibili (Wikimedia, non dog/cat), S2 fa EN recall@1=1.00 / MRR=1.000 e
+IT recall@1=0.95 / MRR=0.967 (gap R@1=0.05, gap MRR=0.033). Il divario è
+piccolo: non giustifica un checkpoint genuinamente multilingua. — Costo se
+sbagliato: qualche tag con prompt italiano “difficile” potrebbe rankare peggio;
+mitigazione futura = prompt bilingue o traduzione EN del solo testo del tag,
+senza cambiare modello.
+
+Ruling: **variante multilingua misurata solo come tetto, non scaricata.** —
+`immich-app/nllb-clip-base-siglip__v1` ha `textual/model.onnx` ≈ **1.66 GB**
+solo di pesi testo (oltre ~373 MB visual): a lotto minimo utile sforerebbe il
+tetto duro Task 6 (< 1 GB RSS). Con gap IT/EN già stretto su S2, non si spende
+il download. — Costo se sbagliato: si ripeserà solo se in produzione i prompt
+IT falliscono in modo misurabile.
+
+Ruling: **download script esteso a text+tokenizer; banco in testdata.** —
+`scripts/download-mobileclip2-s2.sh` tira anche `text.onnx` (+`.data`),
+`tokenizer.json`, config. Foto del banco via `scripts/download-ai-bench.sh`
+in `models/bench-it-en/` (gitignore); caption IT/EN in
+`crates/keeppix-media/testdata/ai-bench/captions.json`. — Costo se sbagliato:
+CI senza script salta il bench (assert soft).
+
+MEASUREMENT (questo host ≠ Pi, `keeppix-media` opt-level=2 in test, ort CPU):
+- EN: recall@1=1.00, recall@5=1.00, MRR=1.000
+- IT: recall@1=0.95, recall@5=1.00, MRR=0.967 (unica miss: id 18 rank 3)
+- ms/foto vision ≈ 43–44; ms/testo ≈ 15–17
+- RSS: before≈9 MB; after_load≈386–390 MB; peak_infer≈413–423 MB;
+  after_drop≈388–392 MB (ORT non restituisce subito tutte le pagine al SO —
+  Task 6 dovrà verificare lo scarico “utile”, non solo Drop)
+- tetto 1 GiB: **rispettato** (peak ≈ 0.39–0.40 GiB)
+
+Task 2bis: complete
