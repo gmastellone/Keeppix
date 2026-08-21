@@ -27,10 +27,9 @@ impl crate::JobHandler for IngestHandler {
     fn ram_hint_bytes(&self, job: &Job) -> u64 {
         match job.kind {
             JobKind::DeriveAsset => DEFAULT_RAM_HINT,
-            // Il demosaic gira in un processo a parte con il proprio rlimit,
-            // ma il gate deve comunque evitare di farne partire troppi in
-            // parallelo sulla stessa macchina.
-            JobKind::DeriveRaw => 512 * 1024 * 1024,
+            // DeriveRaw: demosaic out-of-process. EmbedAssets: MobileCLIP ~400 MB
+            // RSS a lotto (Task 2bis). Stesso tetto di gate.
+            JobKind::DeriveRaw | JobKind::EmbedAssets => 512 * 1024 * 1024,
             JobKind::TranscodeVideo => 1024 * 1024 * 1024,
             JobKind::BackupDump | JobKind::RestoreProof | JobKind::VacuumAnalyze => {
                 256 * 1024 * 1024
@@ -101,6 +100,12 @@ impl crate::JobHandler for IngestHandler {
             JobKind::CleanupIdempotency => crate::maintenance::cleanup_idempotency(&self.db).await,
             JobKind::VacuumAnalyze => crate::maintenance::vacuum_analyze(&self.db).await,
             JobKind::IntegrityScrub => crate::maintenance::integrity_scrub(&self.db).await,
+            JobKind::EmbedAssets => {
+                let limit = crate::embed::limit_from_payload(&job.payload)?;
+                crate::embed::run(&self.db, &self.data_dir, limit)
+                    .await
+                    .map(|_| ())
+            }
         }
     }
 }
