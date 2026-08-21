@@ -14,8 +14,8 @@ use chrono::Utc;
 use keeppix_db::{Db, EmbeddingRepo, JobRepo, PendingEmbedding};
 use keeppix_domain::{JobKind, JobPriority};
 use keeppix_media::{
-    MODEL_VERSION, MobileClip, decode_to_rgb8, derivative_paths, first_complete_model_dir,
-    measure_rss_peak_during,
+    MODEL_VERSION, MobileClip, current_rss_bytes, decode_to_rgb8, derivative_paths,
+    first_complete_model_dir, measure_rss_peak_during,
 };
 use serde_json::json;
 
@@ -94,11 +94,24 @@ pub async fn run(db: &Db, data_dir: &Path, limit: i64) -> Result<EmbedOutcome, J
         ))
     })?;
 
-    // Carica il modello una volta per lotto; Drop a fine scope libera la RAM.
+    // Carica il modello una volta per lotto; Drop a fine scope libera la
+    // sessione. `rss_after_drop` verifica che VmRSS scenda dal picco verso
+    // la base (Task 2bis → Task 6): Drop di Rust non implica che l'OS
+    // riprenda subito le pagine.
+    let rss_before = current_rss_bytes();
     let (load_result, rss_after_load) = measure_rss_peak_during(|| MobileClip::load(&model_dir));
     let mut clip = load_result.map_err(JobError::Worker)?;
-    let outcome = embed_pending(db, data_dir, &mut clip, &pending, rss_after_load).await?;
+    let (outcome, rss_peak_infer) =
+        embed_pending(db, data_dir, &mut clip, &pending, rss_after_load).await?;
     drop(clip);
+    let rss_after_drop = current_rss_bytes();
+    tracing::info!(
+        rss_before_bytes = rss_before,
+        rss_after_load_bytes = rss_after_load,
+        rss_peak_infer_bytes = rss_peak_infer,
+        rss_after_drop_bytes = rss_after_drop,
+        "embed batch rss"
+    );
     // Altri pending? Un altro job Background continua il backfill senza
     // tenere il modello in RAM tra un lotto e l'altro.
     maybe_requeue_backfill(db).await?;
@@ -121,7 +134,7 @@ async fn embed_pending(
     clip: &mut MobileClip,
     pending: &[PendingEmbedding],
     rss_after_load: Option<u64>,
-) -> Result<EmbedOutcome, JobError> {
+) -> Result<(EmbedOutcome, Option<u64>), JobError> {
     let mut prepared: Vec<(PendingEmbedding, Vec<f32>)> = Vec::new();
     let mut skipped_missing_thumb = 0_u32;
 
@@ -143,10 +156,13 @@ async fn embed_pending(
     }
 
     if prepared.is_empty() {
-        return Ok(EmbedOutcome {
-            embedded: 0,
-            skipped_missing_thumb,
-        });
+        return Ok((
+            EmbedOutcome {
+                embedded: 0,
+                skipped_missing_thumb,
+            },
+            rss_after_load,
+        ));
     }
 
     let batch = prepared.len();
@@ -168,12 +184,6 @@ async fn embed_pending(
             "embed RSS exceeded hard ceiling"
         );
     }
-    tracing::info!(
-        batch,
-        rss_after_load_bytes = rss_after_load,
-        rss_peak_infer_bytes = rss_peak_infer,
-        "embed batch rss"
-    );
 
     let repo = EmbeddingRepo::new(db);
     let mut embedded = 0_u32;
@@ -182,10 +192,13 @@ async fn embed_pending(
         embedded = embedded.saturating_add(1);
     }
 
-    Ok(EmbedOutcome {
-        embedded,
-        skipped_missing_thumb,
-    })
+    Ok((
+        EmbedOutcome {
+            embedded,
+            skipped_missing_thumb,
+        },
+        rss_peak_infer,
+    ))
 }
 
 enum ThumbLoadError {
