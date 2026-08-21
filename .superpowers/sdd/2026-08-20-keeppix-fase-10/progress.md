@@ -1129,3 +1129,32 @@ compose in `routes/bootstrap.rs`, route additiva `GET /api/v1/bootstrap`;
 warnings` verdi; mutazione route assente → 404 osservata rossa e
 ripristinata).
 
+## Task 18 — Misurare la geometria prima di complicarla
+
+Ruling: **metodologia di misura** — script riproducibile
+`scripts/measure-geometry-mobile.py` (gzip del formato binario Task 2 +
+stima cold-start) e misura server-side già presente in
+`scale_geometry.rs` (`MEASUREMENT geometry`). Il payload grezzo @ 214k è
+**1 284 008 byte** (8 + N×6, indipendente dall'entropia). Gzip dipende dai
+dati: da ~7 KiB (sintetico ripetitivo) a ~1,05 MiB (w/h/m a max entropia);
+il riferimento del progetto resta **451 KiB** misurato su record realistici
+(spec §2.3). Server @ 200k: **591 ms** in-process (105 ms SQL, index-only
+scan). Client: **~32 ms** per gzip+scan `DataView` @ 214k. Cold-start first
+paint stimato = `n×RTT + transfer(gzip) + server + client`, profilo Chrome
+**Fast 3G** (1.6 Mbps, 150 ms RTT, 3 RTT di handshake). — *Costo se
+sbagliato:* profilo di rete diverso dal reale; la soglia 2 s resta
+comparabile solo se si riusa lo stesso profilo.
+
+Ruling: **3,4 s @ 214k su Fast 3G** (451 KiB gzip spec + 591 ms server +
+32 ms client) → **supera la soglia 2 s**. Decisione: **pianificare geometria
+per mese in Fase 11** (mesi vicini + stima da `/timeline/buckets`, come da
+piano Task 18); **non frammentare** `GET /timeline/geometry` in fase-10 —
+questo task è solo misura. Whole-view resta perché il caso primario (server
+di casa in LAN/Wi-Fi) resta sotto i 2 s anche col worst-case gzip; la
+frammentazione serve agli accessi cellulari remoti. — *Costo se sbagliato:*
+implementare per-mese troppo presto (complessità) o troppo tardi (scroll
+impreciso su 4G remoto finché Fase 11 non lo fa).
+
+Task 18: complete (commits 230e4e8 script + 56f1b79 ledger/report; nessuna
+modifica API/DB).
+
