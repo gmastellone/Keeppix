@@ -2,7 +2,7 @@
 
 use chrono::{NaiveTime, TimeZone, Utc};
 use keeppix_domain::JobPriority;
-use keeppix_jobs::{ActivityTracker, EnergyProfile, RamGate, worker_count};
+use keeppix_jobs::{ActivityTracker, AnalysisLevel, EnergyProfile, RamGate, worker_count};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -79,6 +79,56 @@ fn night_window_yields_night_unless_interactive() {
         tracker.current_profile(three_am, night, false),
         EnergyProfile::Interactive
     );
+}
+
+// Task 20 — la pausa automatica dell'analisi è un comportamento del server,
+// guidato dal viewport, non dalla richiesta autenticata generica (quella ha
+// una finestra di 5 minuti, troppo lunga per "riprendi 4 secondi dopo che
+// l'utente ha smesso di scorrere").
+
+#[test]
+fn analysis_pauses_right_after_a_viewport_change() {
+    let tracker = ActivityTracker::new();
+    let now = Utc.with_ymd_and_hms(2026, 8, 20, 12, 0, 0).unwrap();
+    tracker.notify_viewport_activity_at(now);
+    assert!(!tracker.analysis_should_run(now, 4000));
+}
+
+#[test]
+fn analysis_resumes_exactly_at_the_idle_threshold() {
+    let tracker = ActivityTracker::new();
+    let now = Utc.with_ymd_and_hms(2026, 8, 20, 12, 0, 0).unwrap();
+    tracker.notify_viewport_activity_at(now);
+    assert!(!tracker.analysis_should_run(now + chrono::Duration::milliseconds(3999), 4000));
+    assert!(tracker.analysis_should_run(now + chrono::Duration::milliseconds(4000), 4000));
+}
+
+#[test]
+fn analysis_runs_when_no_viewport_activity_was_ever_recorded() {
+    let tracker = ActivityTracker::new();
+    let now = Utc.with_ymd_and_hms(2026, 8, 20, 12, 0, 0).unwrap();
+    assert!(tracker.analysis_should_run(now, 4000));
+}
+
+#[test]
+fn the_idle_threshold_is_a_caller_supplied_parameter_not_a_baked_in_constant() {
+    let tracker = ActivityTracker::new();
+    let now = Utc.with_ymd_and_hms(2026, 8, 20, 12, 0, 0).unwrap();
+    tracker.notify_viewport_activity_at(now);
+    let half_a_second_later = now + chrono::Duration::milliseconds(500);
+    // Un chiamante con soglia più corta riprende prima dello stesso chiamante
+    // con soglia più lunga, sullo stesso identico stato del tracker.
+    assert!(tracker.analysis_should_run(half_a_second_later, 250));
+    assert!(!tracker.analysis_should_run(half_a_second_later, 4000));
+}
+
+#[test]
+fn reduced_level_is_documented_as_about_six_times_slower_than_full() {
+    assert_eq!(AnalysisLevel::Full.ms_per_photo(), 42);
+    assert_eq!(AnalysisLevel::Reduced.ms_per_photo(), 260);
+    let ratio = f64::from(u32::try_from(AnalysisLevel::Reduced.ms_per_photo()).unwrap())
+        / f64::from(u32::try_from(AnalysisLevel::Full.ms_per_photo()).unwrap());
+    assert!((5.5..6.5).contains(&ratio), "ratio was {ratio}");
 }
 
 #[tokio::test]

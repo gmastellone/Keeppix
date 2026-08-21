@@ -31,14 +31,53 @@ pub fn default_night_window() -> (NaiveTime, NaiveTime) {
     (start, end)
 }
 
+/// Soglia di default della pausa automatica dell'analisi (Fase 10 Task 20):
+/// 4 secondi dall'ultimo cambio di vista. Un valore di partenza da un
+/// prototipo senza carico reale, non una misura — per questo ogni chiamante
+/// la passa come parametro invece di trovarla cablata dentro
+/// `ActivityTracker::analysis_should_run`.
+pub const DEFAULT_ANALYSIS_IDLE_MS: u64 = 4000;
+
+/// I due livelli di velocità dell'analisi IA (Fase 7). Non esiste ancora un
+/// job reale che li consumi: i tempi per foto sono gli obiettivi dichiarati
+/// dal documento funzionale, che Fase 7 misurerà sul proprio hardware e
+/// modello. Vive qui (non in Fase 7) perché la soglia di pausa e i livelli
+/// sono la stessa decisione di prodotto — «quanto costa, e quanto in fretta
+/// ci si ferma quando qualcuno naviga».
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisLevel {
+    Full,
+    Reduced,
+}
+
+impl AnalysisLevel {
+    /// Tempo target per foto, in millisecondi. `Reduced` è ~6× più lento di
+    /// `Full` — la stessa coda residua viene dichiarata all'utente come
+    /// proporzionalmente più lunga (documento funzionale UI).
+    #[must_use]
+    pub const fn ms_per_photo(self) -> u64 {
+        match self {
+            Self::Full => 42,
+            Self::Reduced => 260,
+        }
+    }
+}
+
 #[must_use]
 pub fn worker_count(cpu: usize) -> usize {
     cpu.saturating_sub(1).clamp(1, 8)
 }
 
 /// Unix-ts dell'ultima richiesta autenticata. L'API lo toccherà in 1c.
+///
+/// `last_viewport_unix` (Fase 10 Task 20) è un secondo segnale, indipendente
+/// dal primo: guida solo la pausa automatica dell'analisi, con una soglia di
+/// secondi non di minuti, quindi ha bisogno della propria risoluzione in
+/// millisecondi — `last_auth_unix` tronca ai secondi, il che sarebbe troppo
+/// grossolano per una soglia di 4000 ms.
 pub struct ActivityTracker {
     last_auth_unix: AtomicI64,
+    last_viewport_unix_ms: AtomicI64,
 }
 
 impl ActivityTracker {
@@ -46,6 +85,7 @@ impl ActivityTracker {
     pub const fn new() -> Self {
         Self {
             last_auth_unix: AtomicI64::new(0),
+            last_viewport_unix_ms: AtomicI64::new(0),
         }
     }
 
@@ -55,6 +95,32 @@ impl ActivityTracker {
 
     pub fn notify_authenticated_request_at(&self, at: DateTime<Utc>) {
         self.last_auth_unix.store(at.timestamp(), Ordering::Relaxed);
+    }
+
+    /// Il server registra un cambio di vista (`POST /viewport`), qualunque
+    /// sia l'esito della promozione dei job — è il segnale "l'utente sta
+    /// navigando", non "c'era qualcosa da promuovere".
+    pub fn notify_viewport_activity(&self) {
+        self.notify_viewport_activity_at(Utc::now());
+    }
+
+    pub fn notify_viewport_activity_at(&self, at: DateTime<Utc>) {
+        self.last_viewport_unix_ms
+            .store(at.timestamp_millis(), Ordering::Relaxed);
+    }
+
+    /// Se l'analisi (Fase 7, non ancora esistente) può girare ora: falsa se
+    /// l'ultimo cambio di vista è più recente di `idle_threshold_ms`, vera
+    /// altrimenti — incluso il caso "nessun cambio di vista mai osservato",
+    /// dove non c'è nulla da cui essere in pausa.
+    #[must_use]
+    pub fn analysis_should_run(&self, now: DateTime<Utc>, idle_threshold_ms: u64) -> bool {
+        let last = self.last_viewport_unix_ms.load(Ordering::Relaxed);
+        if last == 0 {
+            return true;
+        }
+        let idle_ms = now.timestamp_millis().saturating_sub(last);
+        idle_ms >= i64::try_from(idle_threshold_ms).unwrap_or(i64::MAX)
     }
 
     #[must_use]

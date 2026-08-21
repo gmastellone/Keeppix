@@ -30,7 +30,10 @@ pub use keeppix_media::{
     set_webp_quality,
 };
 pub use pool::{RamGate, WorkerPool};
-pub use profile::{ActivityTracker, EnergyProfile, default_night_window, worker_count};
+pub use profile::{
+    ActivityTracker, AnalysisLevel, DEFAULT_ANALYSIS_IDLE_MS, EnergyProfile, default_night_window,
+    worker_count,
+};
 
 /// Attesa prima di riconsiderare un file che sembra ancora in arrivo.
 /// Usata da `main.rs` e dai test: se divergessero, un difetto potrebbe
