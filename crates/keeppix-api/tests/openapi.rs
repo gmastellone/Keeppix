@@ -515,6 +515,161 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
     );
 }
 
+/// Estrae le chiamate `.route("...", VERBO(...))` dal testo di `lib.rs`,
+/// bilanciando le parentesi (una `.route(...)` può contenere più verbi
+/// incatenati, es. `get(a).post(b)`, e può andare su più righe). Non è un
+/// parser Rust: è la controparte pragmatica del fatto che axum 0.8 non offre
+/// introspezione sul `Router` (vedi il commento sopra
+/// `documented_operations_are_all_mounted`) — l'unica fonte di verità
+/// sulle rotte davvero montate è il testo che le dichiara.
+fn extract_route_calls(source: &str) -> Vec<(String, Vec<&'static str>)> {
+    const VERBS: [(&str, &str); 6] = [
+        ("get(", "get"),
+        ("post(", "post"),
+        ("put(", "put"),
+        ("patch(", "patch"),
+        ("delete(", "delete"),
+        ("head(", "head"),
+    ];
+
+    fn is_word_boundary_before(s: &str, idx: usize) -> bool {
+        match s[..idx].chars().next_back() {
+            None => true,
+            Some(c) => !(c.is_ascii_alphanumeric() || c == '_'),
+        }
+    }
+
+    fn verbs_in(block: &str) -> Vec<&'static str> {
+        let mut found = Vec::new();
+        for (needle, verb) in VERBS {
+            let mut from = 0;
+            while let Some(rel) = block[from..].find(needle) {
+                let abs = from + rel;
+                if is_word_boundary_before(block, abs) {
+                    found.push(verb);
+                }
+                from = abs + needle.len();
+            }
+        }
+        found
+    }
+
+    let bytes = source.as_bytes();
+    let mut out = Vec::new();
+    let mut search_from = 0;
+    while let Some(rel) = source[search_from..].find(".route(") {
+        let call_start = search_from + rel;
+        let paren_open = call_start + ".route".len();
+        let mut depth = 0_i32;
+        let mut i = paren_open;
+        let mut close = None;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        let close =
+            close.unwrap_or_else(|| panic!("unbalanced .route( call at byte {call_start} of lib.rs"));
+        let block = &source[paren_open + 1..close];
+        if let Some(q1) = block.find('"') {
+            if let Some(q2_rel) = block[q1 + 1..].find('"') {
+                let path = block[q1 + 1..q1 + 1 + q2_rel].to_owned();
+                out.push((path, verbs_in(block)));
+            }
+        }
+        search_from = close + 1;
+    }
+    out
+}
+
+/// **Il controllo CI richiesto dal Task 23**: fallisce se una rotta
+/// registrata nel router (`crates/keeppix-api/src/lib.rs`) non compare in
+/// `openapi.json` con lo stesso metodo. Copre la direzione che
+/// `documented_operations_are_all_mounted` lascia esplicitamente scoperta
+/// (rotta montata e non documentata) — le due insieme chiudono il cerchio.
+///
+/// Il testo di `lib.rs` è la fonte di verità: `fn api_routes` monta sotto
+/// `/api/v1`, `fn all_routes` monta senza prefisso (eccetto `/dav/{*path}`,
+/// fuori contratto di proposito — vedi il commento in `lib.rs` — e
+/// `/api/openapi.json`, che è il documento stesso, non un'operazione).
+#[test]
+#[allow(clippy::unwrap_used)]
+fn router_registered_routes_are_all_documented() {
+    let source = include_str!("../src/lib.rs");
+
+    let api_routes_start = source
+        .find("fn api_routes(")
+        .expect("lib.rs must define fn api_routes");
+    let all_routes_start = source
+        .find("fn all_routes(")
+        .expect("lib.rs must define fn all_routes");
+    let not_found_start = source
+        .find("async fn not_found()")
+        .expect("lib.rs must define async fn not_found");
+    assert!(api_routes_start < all_routes_start);
+    assert!(all_routes_start < not_found_start);
+
+    let api_routes_body = &source[api_routes_start..all_routes_start];
+    let all_routes_body = &source[all_routes_start..not_found_start];
+
+    let mut registered: Vec<(String, &'static str)> = Vec::new();
+    for (path, verbs) in extract_route_calls(api_routes_body) {
+        let full_path = format!("/api/v1{path}");
+        for verb in verbs {
+            registered.push((full_path.clone(), verb));
+        }
+    }
+    for (path, verbs) in extract_route_calls(all_routes_body) {
+        if path.starts_with("/dav") || path == "/api/openapi.json" {
+            continue;
+        }
+        for verb in verbs {
+            registered.push((path.clone(), verb));
+        }
+    }
+
+    // Guardia anti-regressione del parser stesso: se smettesse di trovare
+    // rotte (es. per una riformattazione di `lib.rs` che rompe l'assunzione
+    // su `.route(`), questo test passerebbe a vuoto senza controllare nulla.
+    assert!(
+        registered.len() > 100,
+        "il parser ha trovato solo {} rotte in lib.rs: probabilmente si è rotto, non che le rotte siano diminuite",
+        registered.len()
+    );
+
+    let doc =
+        serde_json::to_value(<keeppix_api::openapi::ApiDoc as utoipa::OpenApi>::openapi()).unwrap();
+    let paths = doc["paths"].as_object().unwrap();
+
+    let mut missing = Vec::new();
+    for (path, verb) in &registered {
+        let documented = paths
+            .get(path)
+            .and_then(|item| item.as_object())
+            .is_some_and(|item| item.contains_key(*verb));
+        if !documented {
+            missing.push(format!("{} {path}", verb.to_uppercase()));
+        }
+    }
+
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "rotte montate in lib.rs ma assenti da openapi.json (manca #[utoipa::path] o la \
+         registrazione in ApiDoc::paths): {missing:#?}"
+    );
+}
+
 /// Blocca la specifica su disco: da questo file si generano i client mobile,
 /// quindi una modifica va vista prima di essere pubblicata, non dopo.
 #[test]
