@@ -563,3 +563,9 @@ Verifica osservata (HEAD `efd5287`):
 chiusura (AGENTS.md + piano Task 13).
 
 Fase 7: chiusa sul branch `fase-7`. Prossima: Fase 8.
+
+Ruling: **`./scripts/test.sh` locale verde** (TEST_EXIT:0, ~55 min wall,
+cleanup `cargo clean` 47.5 GiB). Completa il gate AGENTS.md oltre la CI
+già verde su `efd5287`. — Costo se sbagliato: nessuno; conferma indipendente.
+
+Task 13 / Fase 7: chiusa (commit ledger + CI success su codice; test.sh locale ok).
