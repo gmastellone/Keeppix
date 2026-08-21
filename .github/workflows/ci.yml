@@ -104,6 +104,22 @@ jobs:
       - name: Build keeppix-db:dev (PostGIS + pgvector)
         run: docker build -f Dockerfile.db -t keeppix-db:dev .
 
+      # Pesi CLIP (gitignored). Senza di essi i test embed saltano; con cache
+      # Actions la suite li esegue davvero dopo il primo download (~140 MB
+      # visual + text). Zero rete a runtime del binario: solo CI/dev/bake.
+      - name: Cache MobileCLIP2-S2 weights
+        uses: actions/cache@v4
+        with:
+          path: models/mobileclip2-s2
+          key: mobileclip2-s2-${{ hashFiles('scripts/download-mobileclip2-s2.sh') }}
+      - name: Download MobileCLIP2-S2 if missing
+        run: |
+          if [[ -f models/mobileclip2-s2/visual.onnx && -f models/mobileclip2-s2/visual.onnx.data ]]; then
+            echo "weights already cached"
+          else
+            ./scripts/download-mobileclip2-s2.sh
+          fi
+
       # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
       # in locale i test usano testcontainers e senza quel limite parte un
       # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres di
