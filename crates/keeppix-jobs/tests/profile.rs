@@ -2,7 +2,9 @@
 
 use chrono::{NaiveTime, TimeZone, Utc};
 use keeppix_domain::JobPriority;
-use keeppix_jobs::{ActivityTracker, AnalysisLevel, EnergyProfile, RamGate, worker_count};
+use keeppix_jobs::{
+    ActivityTracker, AnalysisLevel, EnergyProfile, RamGate, default_night_window, worker_count,
+};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -59,6 +61,19 @@ fn five_minutes_idle_becomes_background() {
     assert_eq!(
         tracker.current_profile(now + chrono::Duration::minutes(5), night, false),
         EnergyProfile::Background
+    );
+}
+
+// Task 21 — l'interfaccia (§57) promette all'utente "2:00-7:00"; il codice
+// deve tenere quella promessa, non un'altra finestra scelta a caso.
+#[test]
+fn default_night_window_matches_the_promise_made_in_the_ui() {
+    assert_eq!(
+        default_night_window(),
+        (
+            NaiveTime::from_hms_opt(2, 0, 0).unwrap(),
+            NaiveTime::from_hms_opt(7, 0, 0).unwrap(),
+        )
     );
 }
 
