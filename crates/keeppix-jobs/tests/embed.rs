@@ -78,6 +78,13 @@ async fn ingest_until_thumb(
 
 #[tokio::test]
 async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
+    if keeppix_media::first_complete_model_dir().is_none() {
+        eprintln!(
+            "skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)"
+        );
+        return;
+    }
+
     let test = TestDb::start_with_vector().await;
     let admin = harness::seed_admin(&test).await;
     let root = std::env::temp_dir().join(format!("kpx-emb-{}", uuid::Uuid::now_v7()));
@@ -117,6 +124,13 @@ async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
 
 #[tokio::test]
 async fn embed_job_skips_culling_subtree_entirely() {
+    if keeppix_media::first_complete_model_dir().is_none() {
+        eprintln!(
+            "skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)"
+        );
+        return;
+    }
+
     let test = TestDb::start_with_vector().await;
     let root = std::env::temp_dir().join(format!("kpx-emb-cull-{}", uuid::Uuid::now_v7()));
     let data_dir = root.join("data");

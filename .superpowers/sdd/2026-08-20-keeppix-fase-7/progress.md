@@ -217,3 +217,10 @@ testcontainers `keeppix-db:dev`, che non è su Docker Hub. Senza lo step di
 build, albums/embeddings abortiscono con pull 404. — Costo se sbagliato:
 ~1–2 min in più per job backend; accettabile.
 
+
+Ruling: **CI scarica MobileCLIP2-S2 (cache Actions); i test embed
+saltano se i pesi mancano.** — Stesso contratto di probe/bench: zero rete
+a runtime, pesi via script. Skip evita panic locali senza models/; il
+download in CI fa girare i test per davvero. — Costo se sbagliato: ~150–
+300 MB su cache Actions + un fetch HF al miss.
+
