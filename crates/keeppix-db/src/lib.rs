@@ -18,6 +18,7 @@ pub mod home;
 pub mod idempotency;
 pub mod jobs;
 pub mod libraries;
+pub mod operations;
 pub mod overrides;
 pub mod permissions;
 pub mod places;
@@ -64,6 +65,7 @@ pub use idempotency::{
 };
 pub use jobs::JobRepo;
 pub use libraries::{LibraryRepo, LibraryStorage};
+pub use operations::{Operation, OperationsRepo};
 pub use overrides::{OverrideRepo, SidecarSource};
 pub use permissions::{
     ExplainResult, NewGrant, ObjectType, PermissionGrantView, PermissionRepo, SharedWithMeItem,
@@ -103,7 +105,7 @@ const LIBRARY_STORAGE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0040_assets_timeline_indexed_idx.
+// rivede la directory. 0042_operations.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

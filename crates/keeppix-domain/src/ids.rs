@@ -58,6 +58,7 @@ id_type!(BatchId);
 id_type!(StackId);
 id_type!(TrashEntryId);
 id_type!(UploadSessionId);
+id_type!(OperationId);
 // `SessionId` identifica una famiglia di refresh token (`sessions.family_id`),
 // cioè un dispositivo/login dal punto di vista dell'utente: la stessa
 // identità attraversa ogni rotazione (`SessionRepo::rotate`) senza cambiare,
