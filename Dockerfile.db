@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.9
+#
+# Postgres bundled con PostGIS (Fasi 4/5) e pgvector (Fase 7).
+# L'immagine pubblica `postgis/postgis:17-3.5` non include `vector`;
+# `pgvector/pgvector:pg17` non include PostGIS. Serve entrambe nello
+# stesso processo — nessuna seconda istanza Postgres sul Pi.
+FROM postgis/postgis:17-3.5
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+ && rm -rf /var/lib/apt/lists/*
