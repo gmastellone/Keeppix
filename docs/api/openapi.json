@@ -6873,6 +6873,13 @@
           "library_id": {
             "type": "string"
           },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Presente solo quando **questa** richiesta è quella che segue\ndavvero il job accodato (Fase 10 Task 16): se una scansione per la\nstessa libreria era già `pending`/`running` — accodata dal watcher o\nda una richiesta precedente — quella vince per via della `dedup_key`\ncondivisa, e questa risposta non ha un'operazione propria da offrire."
+          },
           "status": {
             "type": "string"
           }
