@@ -66,7 +66,8 @@ pub use jobs::JobRepo;
 pub use libraries::{LibraryRepo, LibraryStorage};
 pub use overrides::{OverrideRepo, SidecarSource};
 pub use permissions::{
-    ExplainResult, NewGrant, ObjectType, PermissionGrantView, PermissionRepo, SubjectType,
+    ExplainResult, NewGrant, ObjectType, PermissionGrantView, PermissionRepo, SharedWithMeItem,
+    SubjectType,
 };
 pub use places::PlaceRepo;
 pub use preferences::{

@@ -152,3 +152,15 @@ pub async fn explain(
         .await?;
     Ok(Json(result))
 }
+
+/// L'inverso di `list` (interrogabile solo per oggetto): tutto ciò che è
+/// stato condiviso **con** l'utente corrente (§29 scheda "Condivisi con me").
+pub async fn shared_with_me(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+) -> Result<Json<Vec<keeppix_db::SharedWithMeItem>>, Problem> {
+    let items = PermissionRepo::new(&state.db)
+        .list_shared_with_me(&ctx)
+        .await?;
+    Ok(Json(items))
+}
