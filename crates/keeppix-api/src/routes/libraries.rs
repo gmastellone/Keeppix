@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
-use keeppix_db::LibraryRepo;
-use keeppix_domain::{Library, LibraryId, NewLibrary};
+use keeppix_db::{JobRepo, LibraryRepo, OperationsRepo};
+use keeppix_domain::{JobStatus, Library, LibraryId, NewLibrary, OperationKind};
 use serde::{Deserialize, Serialize};
 
 use crate::extract::{AdminAuth, Auth};
@@ -304,6 +304,12 @@ pub async fn preview(
 pub struct ScanAccepted {
     pub library_id: String,
     pub status: String,
+    /// Presente solo quando **questa** richiesta è quella che segue
+    /// davvero il job accodato (Fase 10 Task 16): se una scansione per la
+    /// stessa libreria era già `pending`/`running` — accodata dal watcher o
+    /// da una richiesta precedente — quella vince per via della `dedup_key`
+    /// condivisa, e questa risposta non ha un'operazione propria da offrire.
+    pub operation_id: Option<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -335,7 +341,10 @@ impl From<keeppix_db::LibraryStorage> for LibraryStorageView {
     }
 }
 
-/// Accoda `DiscoverLibrary` (idempotente via `dedup_key`).
+/// Accoda `DiscoverLibrary` (idempotente via `dedup_key`) e, quando questa
+/// richiesta è quella che ottiene davvero il job, apre un'operazione
+/// tracciata (Fase 10 Task 16): avanzamento sul WebSocket, annullamento via
+/// `POST /operations/{id}/cancel`.
 ///
 /// # Errors
 /// Visibilità come `get`; errori di coda → 503.
@@ -359,17 +368,52 @@ pub async fn start_scan(
     AxumPath(id): AxumPath<LibraryId>,
 ) -> Result<(StatusCode, Json<ScanAccepted>), Problem> {
     LibraryRepo::new(&state.db).find_by_id(&ctx, id).await?;
-    keeppix_jobs::watch::enqueue_rescan(&state.db, id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "enqueue discover");
-            Problem::service_unavailable()
-        })?;
+
+    // Non creiamo un'operazione se una scansione per questa libreria è già
+    // `pending`/`running`: la stessa `dedup_key` di `enqueue_rescan` la
+    // farebbe comunque collassare su quel job (Ruling Task 16, vedi
+    // `enqueue_rescan_with_operation`), e crearne una che nessun job farà
+    // avanzare lascerebbe un'operazione "running" per sempre.
+    let already_in_flight = JobRepo::new(&state.db)
+        .discover_status_for_library(id)
+        .await?
+        .is_some_and(|job| matches!(job.status, JobStatus::Pending | JobStatus::Running));
+
+    let operation_id = if already_in_flight {
+        None
+    } else {
+        let operation = OperationsRepo::new(&state.db)
+            .create(&ctx, OperationKind::LibraryScan)
+            .await?;
+        let attached =
+            keeppix_jobs::watch::enqueue_rescan_with_operation(&state.db, id, operation.id)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, "enqueue discover");
+                    Problem::service_unavailable()
+                })?;
+        if attached {
+            Some(operation.id)
+        } else {
+            // Raro: un'altra richiesta ha vinto la corsa fra il controllo
+            // sopra e questo accodamento. La nostra operazione non sarà mai
+            // fatta avanzare da nessun job: la chiudiamo qui invece di
+            // lasciarla `running` all'infinito, con l'involucro parziale
+            // onestamente vuoto (nulla è stato applicato da questa
+            // richiesta).
+            OperationsRepo::new(&state.db)
+                .finish_cancelled(operation.id)
+                .await?;
+            None
+        }
+    };
+
     Ok((
         StatusCode::ACCEPTED,
         Json(ScanAccepted {
             library_id: id.to_string(),
             status: "accepted".to_owned(),
+            operation_id: operation_id.map(|o| o.to_string()),
         }),
     ))
 }
