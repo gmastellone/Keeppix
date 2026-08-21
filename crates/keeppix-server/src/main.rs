@@ -219,6 +219,9 @@ async fn spawn_maintenance(db: Db) {
     if let Err(e) = keeppix_jobs::tmp_cleanup::schedule(&db).await {
         tracing::warn!(error = %e, "upload tmp cleanup could not be scheduled");
     }
+    if let Err(e) = keeppix_jobs::embed::schedule_backfill(&db).await {
+        tracing::warn!(error = %e, "AI embed backfill could not be scheduled");
+    }
     if let Err(e) = keeppix_jobs::maintenance::schedule_purge_sessions(&db).await {
         tracing::warn!(error = %e, "session purge could not be scheduled");
     }

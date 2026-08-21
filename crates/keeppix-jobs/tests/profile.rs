@@ -3,7 +3,8 @@
 use chrono::{NaiveTime, TimeZone, Utc};
 use keeppix_domain::JobPriority;
 use keeppix_jobs::{
-    ActivityTracker, AnalysisLevel, EnergyProfile, RamGate, default_night_window, worker_count,
+    ActivityTracker, AnalysisLevel, EnergyProfile, RamGate, default_night_window,
+    max_claimable_priority, worker_count,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -138,12 +139,45 @@ fn the_idle_threshold_is_a_caller_supplied_parameter_not_a_baked_in_constant() {
 }
 
 #[test]
-fn reduced_level_is_documented_as_about_six_times_slower_than_full() {
-    assert_eq!(AnalysisLevel::Full.ms_per_photo(), 42);
-    assert_eq!(AnalysisLevel::Reduced.ms_per_photo(), 260);
-    let ratio = f64::from(u32::try_from(AnalysisLevel::Reduced.ms_per_photo()).unwrap())
-        / f64::from(u32::try_from(AnalysisLevel::Full.ms_per_photo()).unwrap());
+fn reduced_level_is_about_six_times_slower_than_full_using_measured_ms() {
+    // Task 2bis (questo host): vision ≈ 43–44 ms/foto → Full arrotondato a 45.
+    // Reduced resta ~6× (documento funzionale UI), non un secondo numero inventato.
+    assert_eq!(AnalysisLevel::Full.ms_per_photo(), Some(45));
+    assert_eq!(AnalysisLevel::Reduced.ms_per_photo(), Some(270));
+    assert_eq!(AnalysisLevel::Off.ms_per_photo(), None);
+    assert!(AnalysisLevel::Full.is_enabled());
+    assert!(AnalysisLevel::Reduced.is_enabled());
+    assert!(!AnalysisLevel::Off.is_enabled());
+    let ratio = f64::from(u32::try_from(AnalysisLevel::Reduced.ms_per_photo().unwrap()).unwrap())
+        / f64::from(u32::try_from(AnalysisLevel::Full.ms_per_photo().unwrap()).unwrap());
     assert!((5.5..6.5).contains(&ratio), "ratio was {ratio}");
+}
+
+#[test]
+fn analysis_pause_caps_claimable_priority_below_background() {
+    // Di notte / in background, senza pausa: si reclamano anche i job Background
+    // (EmbedAssets). Con viewport fresco la coda di analisi si ferma, il resto no.
+    assert_eq!(
+        max_claimable_priority(EnergyProfile::Night, true),
+        JobPriority::Background
+    );
+    assert_eq!(
+        max_claimable_priority(EnergyProfile::Night, false),
+        JobPriority::Visible
+    );
+    assert_eq!(
+        max_claimable_priority(EnergyProfile::Background, false),
+        JobPriority::Visible
+    );
+    // Interactive era già sotto Background: la pausa non cambia nulla.
+    assert_eq!(
+        max_claimable_priority(EnergyProfile::Interactive, false),
+        JobPriority::Visible
+    );
+    assert_eq!(
+        max_claimable_priority(EnergyProfile::Paused, false),
+        JobPriority::Interactive
+    );
 }
 
 #[tokio::test]

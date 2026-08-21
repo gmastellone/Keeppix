@@ -3,24 +3,71 @@
 //! Orchestrazione: `keeppix-db` elenca i pending (escluso culling),
 //! `keeppix-media` fa l'inferenza a lotto, poi si persiste. Gli originali
 //! non vengono mai decodificati.
+//!
+//! La sessione ONNX vive **solo per la durata del lotto** (Task 6): si carica
+//! all'inizio di `run`, si droppa alla fine. RSS misurato al carico e al
+//! picco di inferenza (tetto duro 1 GiB).
 
 use std::path::Path;
 
-use keeppix_db::{Db, EmbeddingRepo, PendingEmbedding};
+use chrono::Utc;
+use keeppix_db::{Db, EmbeddingRepo, JobRepo, PendingEmbedding};
+use keeppix_domain::{JobKind, JobPriority};
 use keeppix_media::{
     MODEL_VERSION, MobileClip, decode_to_rgb8, derivative_paths, first_complete_model_dir,
+    measure_rss_peak_during,
 };
+use serde_json::json;
 
 use crate::JobError;
 
 /// Dimensione di lotto di default (ammortizza il carico del modello).
 pub const DEFAULT_BATCH_SIZE: i64 = 16;
 
+/// Tetto duro RSS durante l'analisi (Task 6). Superarlo è un warning, non un
+/// abort del lotto: il modello è già stato scelto sotto questo tetto.
+pub const RSS_HARD_CEILING_BYTES: u64 = 1024 * 1024 * 1024;
+
 /// Esito di un giro di embedding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbedOutcome {
     pub embedded: u32,
     pub skipped_missing_thumb: u32,
+}
+
+/// Accoda un lotto ad alta priorità dopo l'ingest (foto nuove). Dedup mentre
+/// è pending/running: molte derive consecutive condividono un solo job.
+///
+/// # Errors
+/// Database.
+pub async fn enqueue_after_ingest(db: &Db) -> Result<(), JobError> {
+    JobRepo::new(db)
+        .enqueue(
+            JobKind::EmbedAssets,
+            json!({ "limit": DEFAULT_BATCH_SIZE }),
+            JobPriority::High,
+            Some("embed_assets:ingest"),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Accoda il backfill a priorità `Background` (si ferma da solo quando la
+/// galleria è in uso — `EnergyProfile` + pausa viewport Task 6).
+///
+/// # Errors
+/// Database.
+pub async fn schedule_backfill(db: &Db) -> Result<(), JobError> {
+    JobRepo::new(db)
+        .enqueue_after(
+            JobKind::EmbedAssets,
+            json!({ "limit": DEFAULT_BATCH_SIZE }),
+            JobPriority::Background,
+            Some("embed_assets:backfill"),
+            Utc::now(),
+        )
+        .await?;
+    Ok(())
 }
 
 /// # Errors
@@ -42,9 +89,25 @@ pub async fn run(db: &Db, data_dir: &Path, limit: i64) -> Result<EmbedOutcome, J
         ))
     })?;
 
-    // Carica il modello una volta per lotto; Drop a fine funzione libera la RAM.
-    let mut clip = MobileClip::load(&model_dir).map_err(JobError::Worker)?;
-    embed_pending(db, data_dir, &mut clip, &pending).await
+    // Carica il modello una volta per lotto; Drop a fine scope libera la RAM.
+    let (load_result, rss_after_load) = measure_rss_peak_during(|| MobileClip::load(&model_dir));
+    let mut clip = load_result.map_err(JobError::Worker)?;
+    let outcome = embed_pending(db, data_dir, &mut clip, &pending, rss_after_load).await?;
+    drop(clip);
+    // Altri pending? Un altro job Background continua il backfill senza
+    // tenere il modello in RAM tra un lotto e l'altro.
+    maybe_requeue_backfill(db).await?;
+    Ok(outcome)
+}
+
+async fn maybe_requeue_backfill(db: &Db) -> Result<(), JobError> {
+    let more = EmbeddingRepo::new(db)
+        .list_pending(MODEL_VERSION, 1)
+        .await?;
+    if more.is_empty() {
+        return Ok(());
+    }
+    schedule_backfill(db).await
 }
 
 async fn embed_pending(
@@ -52,6 +115,7 @@ async fn embed_pending(
     data_dir: &Path,
     clip: &mut MobileClip,
     pending: &[PendingEmbedding],
+    rss_after_load: Option<u64>,
 ) -> Result<EmbedOutcome, JobError> {
     let mut prepared: Vec<(PendingEmbedding, Vec<f32>)> = Vec::new();
     let mut skipped_missing_thumb = 0_u32;
@@ -86,9 +150,25 @@ async fn embed_pending(
         stacked.extend_from_slice(nchw);
     }
 
-    let embeddings = clip
-        .embed_images_nchw_batch(&stacked, batch)
-        .map_err(JobError::Worker)?;
+    let (infer_result, rss_peak_infer) =
+        measure_rss_peak_during(|| clip.embed_images_nchw_batch(&stacked, batch));
+    let embeddings = infer_result.map_err(JobError::Worker)?;
+
+    if let Some(peak) = rss_peak_infer
+        && peak > RSS_HARD_CEILING_BYTES
+    {
+        tracing::warn!(
+            peak_bytes = peak,
+            ceiling_bytes = RSS_HARD_CEILING_BYTES,
+            "embed RSS exceeded hard ceiling"
+        );
+    }
+    tracing::info!(
+        batch,
+        rss_after_load_bytes = rss_after_load,
+        rss_peak_infer_bytes = rss_peak_infer,
+        "embed batch rss"
+    );
 
     let repo = EmbeddingRepo::new(db);
     let mut embedded = 0_u32;

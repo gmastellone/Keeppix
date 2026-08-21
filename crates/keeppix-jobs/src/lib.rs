@@ -33,7 +33,7 @@ pub use keeppix_media::{
 pub use pool::{RamGate, WorkerPool};
 pub use profile::{
     ActivityTracker, AnalysisLevel, DEFAULT_ANALYSIS_IDLE_MS, EnergyProfile, default_night_window,
-    worker_count,
+    max_claimable_priority, worker_count,
 };
 
 /// Attesa prima di riconsiderare un file che sembra ancora in arrivo.

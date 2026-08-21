@@ -233,3 +233,33 @@ async fn embed_assets_job_kind_is_dispatched() {
     assert_eq!(JobKind::EmbedAssets.as_str(), "embed_assets");
     assert_eq!(JobPriority::Background.as_i16(), 3);
 }
+
+#[tokio::test]
+async fn ingest_enqueue_is_high_priority_and_deduped() {
+    let test = TestDb::start().await;
+    embed_job::enqueue_after_ingest(test.db()).await.unwrap();
+    embed_job::enqueue_after_ingest(test.db()).await.unwrap();
+    let rows: Vec<(String, i16)> =
+        sqlx::query_as("SELECT kind, priority FROM jobs WHERE dedup_key = 'embed_assets:ingest'")
+            .fetch_all(test.db().pool())
+            .await
+            .unwrap();
+    assert_eq!(rows.len(), 1, "dedup while pending: {rows:?}");
+    assert_eq!(rows[0].0, "embed_assets");
+    assert_eq!(rows[0].1, JobPriority::High.as_i16());
+}
+
+#[tokio::test]
+async fn backfill_schedule_is_background_and_deduped() {
+    let test = TestDb::start().await;
+    embed_job::schedule_backfill(test.db()).await.unwrap();
+    embed_job::schedule_backfill(test.db()).await.unwrap();
+    let rows: Vec<(String, i16)> =
+        sqlx::query_as("SELECT kind, priority FROM jobs WHERE dedup_key = 'embed_assets:backfill'")
+            .fetch_all(test.db().pool())
+            .await
+            .unwrap();
+    assert_eq!(rows.len(), 1, "dedup while pending: {rows:?}");
+    assert_eq!(rows[0].0, "embed_assets");
+    assert_eq!(rows[0].1, JobPriority::Background.as_i16());
+}
