@@ -108,6 +108,110 @@ async fn a_new_asset_is_pushed_as_assets_upserted() {
     );
 }
 
+/// Verifica di Task 16: "l'avanzamento arriva anche se il client si
+/// riconnette a metà operazione". Qui il client non si è mai connesso prima
+/// — è la stessa proprietà: `operations` è la fonte di verità letta dal
+/// poll, non uno stato che vive nella connessione, quindi una connessione
+/// aperta a metà scansione vede comunque l'avanzamento corrente al primo
+/// giro utile.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn operation_progress_arrives_over_a_connection_opened_mid_scan() {
+    const TOTAL: usize = 40;
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let root = server.photos_root.join("ws-op-progress");
+    std::fs::create_dir_all(&root).unwrap();
+    for n in 0..TOTAL {
+        std::fs::write(root.join(format!("{n:03}.jpg")), b"x").unwrap();
+    }
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "WsOpProgress",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status(), 201);
+
+    let library_id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let scan = server
+        .client
+        .post(server.url(&format!("/api/v1/libraries/{library_id}/scan")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scan.status(), 202);
+    let operation_id = scan.json::<serde_json::Value>().await.unwrap()["operation_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let _worker = harness::spawn_worker_pool(
+        server.db.clone(),
+        server.database_url.clone(),
+        server.data_dir.join("ws-op-progress-data"),
+    );
+
+    let admin = UserRepo::new(&server.db)
+        .find_by_username(&Username::parse("giovanni").unwrap())
+        .await
+        .unwrap()
+        .expect("admin")
+        .0
+        .id;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let ops = keeppix_db::OperationsRepo::new(&server.db);
+    let op_id: keeppix_domain::OperationId = operation_id.parse().unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "la scansione non ha fatto abbastanza progresso prima di connettersi"
+        );
+        if ops.find(&ctx, op_id).await.unwrap().done >= 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+
+    let issued = server
+        .client
+        .post(server.url("/api/v1/ws/ticket"))
+        .send()
+        .await
+        .unwrap();
+    let ticket = issued.json::<serde_json::Value>().await.unwrap()["ticket"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ws = open_socket(&server, &ticket).await;
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        assert!(
+            remaining > Duration::ZERO,
+            "nessun operation.progress arrivato dopo la connessione a metà scansione"
+        );
+        let msg = tokio::time::timeout(remaining, recv_json(&mut ws))
+            .await
+            .expect("timeout");
+        if msg["type"] == "operation.progress" && msg["payload"]["operation_id"] == operation_id {
+            assert!(msg["payload"]["done"].as_i64().unwrap() > 0);
+            break;
+        }
+    }
+}
+
 #[allow(clippy::unwrap_used)]
 async fn handshake(server: &TestServer, ticket: &str, origin: &str) -> u16 {
     server
