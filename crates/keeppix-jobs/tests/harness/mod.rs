@@ -119,9 +119,10 @@ pub async fn seed_user(
 /// processo, e un `CREATE DATABASE` per test. Il boot del container è la
 /// parte lenta; condividerlo è il checkpoint prestazioni della 1a.
 ///
-/// Fase 7: i test restano su `PostGIS` senza pgvector fino al Task 4 (schema
-/// vettoriale). Compose bundled costruisce `Dockerfile.db` (`PostGIS` +
-/// pgvector); vedi Ruling nel ledger Fase 7.
+/// Fase 7: i test di questo crate restano su `PostGIS` senza pgvector.
+/// Lo schema AI (`0043`) è un no-op se `vector` non è installabile, quindi
+/// migrate non fallisce. Compose bundled costruisce `Dockerfile.db`
+/// (PostGIS + pgvector); i test di schema AI vivono in `keeppix-db`.
 ///
 /// Percorso alternativo, attivo **solo** se `KEEPPIX_TEST_DATABASE_URL` è
 /// impostata: si usa il server già in ascolto, stesso `CREATE DATABASE`.
