@@ -477,3 +477,74 @@ Debiti lasciati espliciti (non in scope Task 13):
 - Tag suggest in `SearchRepo::suggest` ancora senza fonte tag ricca
 
 Task 13: complete (docs + wired/deny verdi; gate full sotto)
+
+## Verifica di chiusura Task 10 (sessione successiva)
+
+Ripresa del lavoro trovando Task 10-13 già commitati su `fase-7` da un
+altro agente (fad505f, 8452181, 4853406, 14dbf25, 7087e2e, f5399b6,
+fdd2f87). Revisione manuale di `search.rs`/`geo.rs`/`albums.rs`/
+`embeddings.rs`/`routes/search.rs` contro tutte le ruling sopra: nessuna
+discrepanza — `Tag`/`Category` filtrano `state='confirmed'`,
+`Semantic` richiede `embedding` 512-d riempito dall'API
+(`prepare_semantic_embeddings`), il fix `semantic_vis` in
+`albums.rs`/`geo.rs` è presente e corretto (K fra i visibili, non K
+globali poi filtrati), `deny.toml` bans ok (`keeppix-db` non dipende da
+`keeppix-media`).
+
+Ruling: **`cargo clippy --workspace --all-targets -- -D warnings` era
+rosso** su `crates/keeppix-db/tests/scale_embeddings.rs` (Task 11):
+`doc_markdown` (IVFFlat senza backtick) e `too_many_lines` (136/100) —
+il gate "full" menzionato in Task 13 non era mai stato eseguito così
+com'è, o è regredito dopo. Fix meccanico, nessun cambio di
+comportamento: backtick sul doc comment, estratto
+`seed_scale_fixture` per il seeding di asset/embedding. Corretto anche
+se fuori dal Task 10 nominale perché bloccava il gate di verifica che
+questo stesso task deve superare (AGENTS.md, "Verifica prima di
+dichiarare fatto"). — Costo se non corretto: `cargo clippy --workspace`
+resta rosso per chiunque riprenda il branch.
+
+Ruling: **due file lasciati non formattati da un commit precedente**
+(`crates/keeppix-db/src/lib.rs` — ordine export `embeddings::*`;
+`crates/keeppix-db/tests/scale_embeddings.rs` — wrap import) facevano
+fallire `cargo fmt --check`. Commit di sola formattazione, nessun
+cambio semantico.
+
+Verifica eseguita e osservata (non solo dichiarata):
+- `cargo fmt --check` → pulito.
+- `cargo clippy -p keeppix-db -p keeppix-api --all-targets -- -D warnings` → pulito.
+- `cargo clippy --workspace --all-targets -- -D warnings` → pulito (dopo il fix sopra).
+- `cargo test -p keeppix-db --test search --test geo --test albums --test embeddings -- --test-threads=1`
+  → 58 test verdi, incluso `semantic_search_selects_the_k_nearest_among_visible_assets_only`,
+  `tag_filter_matches_only_confirmed_assignments`,
+  `category_filter_matches_confirmed_child_tags`,
+  `semantic_filters_top_k_then_orders_by_date`.
+- `cargo test -p keeppix-api --test search --test model_version --test openapi -- --test-threads=1`
+  → 15 test verdi. Il modello MobileCLIP2-S2 **è** presente in questo
+  ambiente: `semantic_search_finds_the_asset_embedded_with_the_same_text`
+  ha girato per davvero (non skip), round-trip HTTP completo testo→embedding→ricerca.
+  `openapi_snapshot_matches_the_committed_file` conferma che `SearchNode`
+  (schema `Object` generico sul campo `ast`) non ha fatto driftare lo
+  snapshot, come previsto.
+- `cargo deny check` → `advisories ok, bans ok, licenses ok, sources ok`.
+- `python3 scripts/check-wired.py` → verde.
+- `./scripts/test.sh` (suite completa, un crate alla volta): avviato, ma
+  interrotto volontariamente durante la compilazione dei test di
+  `keeppix-api` (nessun fallimento — solo lento: `--jobs 1` più i lint
+  pedantic su decine di file di test, ~9 min solo per iniziare a
+  eseguire il primo binario). Interrotto perché il disco condiviso
+  della VM era già sceso da 54 GiB a 17 GiB liberi in quella finestra e
+  un'altra sessione di questo stesso ambiente aveva appena esaurito lo
+  spazio a 0 byte per build concorrenti di altri agenti (vedi nota
+  sotto): continuare rischiava di ripetere quella crisi per chiunque
+  altro condivida l'host. `cargo clean` post-interruzione ha liberato
+  35 GiB. Resta verifica pendente per chi riprende: i controlli mirati
+  sopra coprono comunque tutto il perimetro toccato dal Task 10 e
+  l'intero workspace per fmt/clippy/deny/wired.
+
+Nota ambientale (non un difetto del codice): la VM condivisa ha
+raggiunto **load average >800** e **disco pieno (0 byte disponibili)**
+per build concorrenti di altri agenti sullo stesso branch/host durante
+questa sessione. `cargo clean` (57 GiB liberati) ha sbloccato la
+verifica. Nessun impatto sul codice — solo sui tempi di questa sessione.
+
+Task 10: verificato indipendentemente, nessuna regressione trovata.
