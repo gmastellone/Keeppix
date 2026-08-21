@@ -2,7 +2,7 @@
 //! e writer batch, senza SQL in questo crate.
 
 use chrono::{DateTime, Duration, Utc};
-use keeppix_db::{Db, DbError, GeoRepo, OverrideRepo};
+use keeppix_db::{Db, DbError, GeoRepo, OverrideRepo, PermissionRepo};
 use keeppix_domain::{AssetId, AuthContext, BatchId, LibraryId, LocationSource};
 use keeppix_media::gpx::{GpxError, interpolate, parse};
 use thiserror::Error;
@@ -34,6 +34,14 @@ pub struct TimezonePreview {
 pub struct TimezoneApply {
     pub changed_count: usize,
     pub batch_id: Option<BatchId>,
+}
+
+/// Esito di un import GPX a riuscita parziale.
+#[derive(Debug)]
+pub struct GpxImportOutcome {
+    pub batch_id: Option<BatchId>,
+    pub succeeded: Vec<AssetId>,
+    pub failed: Vec<(AssetId, DbError)>,
 }
 
 pub struct RecalculateTimezones<'a> {
@@ -79,39 +87,61 @@ impl<'a> RecalculateTimezones<'a> {
         &self,
         ctx: &AuthContext,
         library_id: LibraryId,
-    ) -> Result<TimezoneApply, GeotagError> {
-        let (changed_count, batch_id) = GeoRepo::new(self.db)
+    ) -> Result<(TimezoneApply, Vec<AssetId>), GeotagError> {
+        let (changed_count, batch_id, succeeded) = GeoRepo::new(self.db)
             .apply_timezone_changes(ctx, library_id)
             .await?;
-        Ok(TimezoneApply {
-            changed_count,
-            batch_id,
-        })
+        Ok((
+            TimezoneApply {
+                changed_count,
+                batch_id,
+            },
+            succeeded,
+        ))
     }
 }
 
-/// Abbina gli asset alla traccia e applica tutte le coordinate prodotte in
-/// un'unica transazione annullabile.
+/// Abbina gli asset alla traccia e applica le coordinate prodotte. Gli asset
+/// non modificabili finiscono in `failed`; quelli senza match temporale non
+/// sono né riusciti né falliti (nessuna scrittura, nessuna ragione §7).
 ///
 /// # Errors
-/// GPX malformato, asset non visibile/modificabile o errore database.
+/// GPX malformato o errore database non attribuibile a un singolo id.
 pub async fn import_gpx(
     db: &Db,
     ctx: &AuthContext,
     asset_ids: &[AssetId],
     bytes: &[u8],
     tolerance: Duration,
-) -> Result<BatchId, GeotagError> {
+) -> Result<GpxImportOutcome, GeotagError> {
     let track = parse(bytes)?;
+    let (editable, failed) = PermissionRepo::new(db)
+        .partition_editable_assets(ctx, asset_ids)
+        .await?;
     let repo = OverrideRepo::new(db);
-    let times = repo.effective_taken_at(ctx, asset_ids).await?;
+    let times = if editable.is_empty() {
+        Vec::new()
+    } else {
+        repo.effective_taken_at(ctx, &editable).await?
+    };
     let assignments = times
         .into_iter()
         .filter_map(|(asset_id, taken_at)| {
             interpolate(&track, taken_at, tolerance).map(|point| (asset_id, point))
         })
         .collect::<Vec<_>>();
-    Ok(repo
-        .apply_geotag_points(ctx, &assignments, LocationSource::Gpx)
-        .await?)
+    let succeeded: Vec<AssetId> = assignments.iter().map(|(id, _)| *id).collect();
+    let batch_id = if assignments.is_empty() {
+        None
+    } else {
+        Some(
+            repo.apply_geotag_points(ctx, &assignments, LocationSource::Gpx)
+                .await?,
+        )
+    };
+    Ok(GpxImportOutcome {
+        batch_id,
+        succeeded,
+        failed,
+    })
 }

@@ -2,11 +2,17 @@
 //! Ordine manuale via `position`. Autorizzazione: owner o admin; utenti
 //! condivisi tramite permesso diretto sull'album.
 
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use keeppix_domain::{AlbumId, Asset, AssetId, AuthContext, UserId};
+use sqlx::Row;
+use sqlx::types::Json as SqlxJson;
 use uuid::Uuid;
 
 use crate::assets::AssetRow;
+use crate::search::{SearchBind, SearchNode, compile_for_sql};
+use crate::visibility::VisibilityScope;
 use crate::{AssetRepo, Db, DbError};
 
 pub struct AlbumRepo<'a> {
@@ -22,6 +28,14 @@ pub struct Album {
     pub cover_asset_id: Option<AssetId>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Il `SearchNode` con cui l'album è stato creato, se presente. Un album
+    /// senza `rule` è un album puramente manuale: non può essere aggiornato
+    /// (Task 5, «Aggiorna album» invece di album dinamici).
+    pub rule: Option<SearchNode>,
+    pub rule_run_at: Option<DateTime<Utc>>,
+    pub is_shared: bool,
+    pub cover_tint: Option<String>,
+    pub monochrome: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -33,6 +47,11 @@ struct AlbumRow {
     cover_asset_id: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    rule: Option<SqlxJson<SearchNode>>,
+    rule_run_at: Option<DateTime<Utc>>,
+    is_shared: bool,
+    cover_tint: Option<String>,
+    monochrome: bool,
 }
 
 impl AlbumRow {
@@ -45,6 +64,11 @@ impl AlbumRow {
             cover_asset_id: self.cover_asset_id.map(AssetId::from_uuid),
             created_at: self.created_at,
             updated_at: self.updated_at,
+            rule: self.rule.map(|SqlxJson(rule)| rule),
+            rule_run_at: self.rule_run_at,
+            is_shared: self.is_shared,
+            cover_tint: self.cover_tint,
+            monochrome: self.monochrome,
         }
     }
 }
@@ -52,6 +76,18 @@ impl AlbumRow {
 pub struct NewAlbum {
     pub name: String,
     pub description: String,
+    /// Il filtro con cui l'album nasce, se creato da una ricerca (spec
+    /// fase-10 §5.2). `None` per un album puramente manuale.
+    pub rule: Option<SearchNode>,
+}
+
+/// Esito di [`AlbumRepo::refresh`]: gli asset id entrati e usciti da
+/// `album_assets` in questa esecuzione. Il chiamante (livello HTTP) lo
+/// traduce nell'involucro di riuscita parziale (`BulkOutcome`, Task 1).
+#[derive(Debug, Clone, Default)]
+pub struct AlbumRefresh {
+    pub added: Vec<AssetId>,
+    pub removed: Vec<AssetId>,
 }
 
 pub struct AlbumPatch {
@@ -90,8 +126,8 @@ struct AlbumAssetRow {
     added_at: DateTime<Utc>,
 }
 
-const ALBUM_COLUMNS: &str =
-    "id, name, description, owner_id, cover_asset_id, created_at, updated_at";
+const ALBUM_COLUMNS: &str = "id, name, description, owner_id, cover_asset_id, created_at, \
+     updated_at, rule, rule_run_at, is_shared, cover_tint, monochrome";
 
 impl<'a> AlbumRepo<'a> {
     #[must_use]
@@ -194,14 +230,15 @@ impl<'a> AlbumRepo<'a> {
         let owner = ctx.user_id().ok_or(DbError::Forbidden)?;
         let id = Uuid::now_v7();
         let row: AlbumRow = sqlx::query_as(&format!(
-            "INSERT INTO albums (id, name, description, owner_id) \
-             VALUES ($1, $2, $3, $4) \
+            "INSERT INTO albums (id, name, description, owner_id, rule) \
+             VALUES ($1, $2, $3, $4, $5) \
              RETURNING {ALBUM_COLUMNS}"
         ))
         .bind(id)
         .bind(&album.name)
         .bind(&album.description)
         .bind(owner.as_uuid())
+        .bind(album.rule.as_ref().map(SqlxJson))
         .fetch_one(self.db.pool())
         .await?;
         Ok(row.into_domain())
@@ -433,5 +470,120 @@ impl<'a> AlbumRepo<'a> {
                 })
             })
             .collect()
+    }
+
+    /// Ricalcola l'appartenenza dell'album dalla `rule` con cui è nato e
+    /// scrive la differenza in `album_assets` (Task 5, «Aggiorna album» al
+    /// posto di un album dinamico che ricalcolerebbe a ogni apertura della
+    /// griglia). Aggiorna `rule_run_at`. Solo owner o admin.
+    ///
+    /// Ritorna `None` se l'album non ha una `rule`: non è un difetto di
+    /// autorizzazione, è che non c'è nulla da rilanciare — il chiamante HTTP
+    /// lo traduce in un `400`, non in un `403`.
+    ///
+    /// # Errors
+    /// `Forbidden` se non owner/admin; `Conflict` se la `rule` è troppo
+    /// annidata; `Connection` su errore DB.
+    pub async fn refresh(
+        &self,
+        ctx: &AuthContext,
+        album_id: AlbumId,
+    ) -> Result<Option<AlbumRefresh>, DbError> {
+        self.assert_owner(ctx, album_id).await?;
+        let actor = ctx.user_id().ok_or(DbError::Forbidden)?;
+
+        let rule: Option<SqlxJson<SearchNode>> =
+            sqlx::query_scalar("SELECT rule FROM albums WHERE id = $1")
+                .bind(album_id.as_uuid())
+                .fetch_one(self.db.pool())
+                .await?;
+        let Some(SqlxJson(rule)) = rule else {
+            return Ok(None);
+        };
+
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let mut param = 4_usize;
+        let (clause, binds) =
+            compile_for_sql(&rule, &mut param, 0, "a.location", Some(actor.as_uuid()))?;
+        let sql = format!(
+            "SELECT a.id AS id FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             LEFT JOIN asset_exif e ON e.asset_id = a.id \
+             WHERE {} AND a.status = 'indexed' AND ({clause})",
+            filter.sql()
+        );
+        let mut q = sqlx::query(&sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets());
+        for b in &binds {
+            q = bind_search(q, b);
+        }
+        let matched: HashSet<Uuid> = q
+            .fetch_all(self.db.pool())
+            .await?
+            .into_iter()
+            .map(|row| row.try_get::<Uuid, _>("id"))
+            .collect::<Result<_, _>>()?;
+
+        let current: HashSet<Uuid> =
+            sqlx::query_scalar::<_, Uuid>("SELECT asset_id FROM album_assets WHERE album_id = $1")
+                .bind(album_id.as_uuid())
+                .fetch_all(self.db.pool())
+                .await?
+                .into_iter()
+                .collect();
+
+        let to_add: Vec<Uuid> = matched.difference(&current).copied().collect();
+        let to_remove: Vec<Uuid> = current.difference(&matched).copied().collect();
+
+        let mut tx = self.db.pool().begin().await?;
+        for asset_id in &to_add {
+            sqlx::query(
+                "INSERT INTO album_assets (album_id, asset_id, position, added_by) \
+                 VALUES ($1, $2, \
+                   COALESCE((SELECT MAX(position) FROM album_assets WHERE album_id = $1), 0) \
+                     + 1000, \
+                   $3) \
+                 ON CONFLICT (album_id, asset_id) DO NOTHING",
+            )
+            .bind(album_id.as_uuid())
+            .bind(asset_id)
+            .bind(actor.as_uuid())
+            .execute(&mut *tx)
+            .await?;
+        }
+        if !to_remove.is_empty() {
+            sqlx::query("DELETE FROM album_assets WHERE album_id = $1 AND asset_id = ANY($2)")
+                .bind(album_id.as_uuid())
+                .bind(&to_remove)
+                .execute(&mut *tx)
+                .await?;
+        }
+        sqlx::query("UPDATE albums SET rule_run_at = now() WHERE id = $1")
+            .bind(album_id.as_uuid())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+
+        Ok(Some(AlbumRefresh {
+            added: to_add.into_iter().map(AssetId::from_uuid).collect(),
+            removed: to_remove.into_iter().map(AssetId::from_uuid).collect(),
+        }))
+    }
+}
+
+fn bind_search<'q>(
+    q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+    b: &'q SearchBind,
+) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+    match b {
+        SearchBind::Text(s) => q.bind(s),
+        SearchBind::I32(n) => q.bind(n),
+        SearchBind::F32(n) => q.bind(n),
+        SearchBind::Uuid(u) => q.bind(u),
+        SearchBind::Ts(t) => q.bind(t),
+        SearchBind::I64(n) => q.bind(n),
     }
 }

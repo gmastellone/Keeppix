@@ -28,10 +28,16 @@ pub struct UserView {
     pub role: &'static str,
     pub locale: Option<String>,
     pub disabled_at: Option<DateTime<Utc>>,
+    /// Nome del server (§61, cosmetico — `AppState::server_name`).
+    pub server_name: String,
+    /// Quando la password è stata impostata l'ultima volta (§61 «Ultima
+    /// modifica»). Coincide con la creazione dell'account finché non cambia.
+    pub password_changed_at: DateTime<Utc>,
 }
 
-impl From<&User> for UserView {
-    fn from(u: &User) -> Self {
+impl UserView {
+    #[must_use]
+    pub fn new(u: &User, server_name: &str) -> Self {
         Self {
             id: u.id.to_string(),
             username: u.username.as_str().to_owned(),
@@ -43,6 +49,8 @@ impl From<&User> for UserView {
             },
             locale: u.locale.clone(),
             disabled_at: u.disabled_at,
+            server_name: server_name.to_owned(),
+            password_changed_at: u.password_changed_at,
         }
     }
 }
@@ -146,7 +154,7 @@ pub async fn login(
         StatusCode::OK,
         jar,
         Json(LoginResponse {
-            user: UserView::from(&user),
+            user: UserView::new(&user, &state.server_name),
         }),
     ))
 }
@@ -272,7 +280,7 @@ pub async fn me(
     let id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
     let user = UserRepo::new(&state.db).find_by_id(&ctx, id).await?;
     Ok(Json(MeResponse {
-        user: UserView::from(&user),
+        user: UserView::new(&user, &state.server_name),
     }))
 }
 

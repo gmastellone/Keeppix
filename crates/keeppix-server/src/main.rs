@@ -146,9 +146,14 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
                 let tracker = tracker.clone();
                 std::sync::Arc::new(move || tracker.notify_authenticated_request())
             })
+            .with_on_viewport_activity({
+                let tracker = tracker.clone();
+                std::sync::Arc::new(move || tracker.notify_viewport_activity())
+            })
             .with_allowed_origins(config.allowed_origins.clone())
             .with_library_roots(config.library_roots.clone())
-            .with_full_cache_bytes(config.full_cache_bytes);
+            .with_full_cache_bytes(config.full_cache_bytes)
+            .with_server_name(config.server_name.clone());
     if let Some(watchers) = library_watchers {
         state = state.with_library_watchers(watchers);
     }

@@ -1,10 +1,14 @@
 //! Bucket mensili e pagine keyset della timeline. Nessun `OFFSET`.
 
 use chrono::{DateTime, Months, NaiveDate, Utc};
-use keeppix_domain::{Asset, AssetId, AuthContext, LibraryId};
+use keeppix_domain::{AssetId, AuthContext, LibraryId};
 
-use crate::assets::{A_COLUMNS, AssetRow};
+use crate::assets::A_COLUMNS;
 use crate::libraries::LibraryRepo;
+use crate::stacks::{
+    AssetStackRow, AssetWithStack, STACK_BADGE_COLUMNS_SQL, STACK_BADGE_JOIN_SQL,
+    STACK_PRIMARY_JOIN_SQL, STACK_PRIMARY_ONLY_SQL,
+};
 use crate::visibility::VisibilityScope;
 use crate::{Db, DbError, MapBounds};
 
@@ -18,12 +22,51 @@ pub struct MonthBucket {
     pub count: i64,
 }
 
+/// Una riga di geometria: dimensioni note (o `None` se l'asset non è ancora
+/// stato dimensionato) e il momento dello scatto, nello stesso ordine della
+/// timeline (`taken_at_utc DESC, id DESC`). Nessun identificativo: la
+/// geometria descrive altezze, non identifica asset (spec fase-10 §2.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeometryRecord {
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    pub taken_at_utc: DateTime<Utc>,
+}
+
+/// Geometria di un'intera vista della timeline, più l'informazione minima per
+/// costruire un `ETag`: il massimo `updated_at` fra gli asset della vista.
+/// `records.len()` è il conteggio della risposta piena.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Geometry {
+    pub records: Vec<GeometryRecord>,
+    pub last_modified: Option<DateTime<Utc>>,
+}
+
+/// Timbratura leggera della vista geometria (`count` + `max(updated_at)`),
+/// usata per validare `If-None-Match` **prima** di scaricare tutti i record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeometryStamp {
+    pub count: u64,
+    pub last_modified: Option<DateTime<Utc>>,
+}
+
 impl<'a> TimelineRepo<'a> {
     #[must_use]
     pub const fn new(db: &'a Db) -> Self {
         Self { db }
     }
 
+    /// Conta le pile (una pila impilata conta 1, non quanti file la
+    /// compongono), non più righe di `folder_month_counts` (Ruling Task 3):
+    /// il trigger che alimenta quella tabella non guarda `stack_id` — farlo
+    /// significherebbe insegnargli a ricalcolare il conteggio di uno stack
+    /// ogni volta che cambia il primario (`StackRepo::set_primary`) o un
+    /// membro si aggiunge/rimuove, molta più complessità nel trigger per un
+    /// solo endpoint. Si conta direttamente da `assets` con lo stesso
+    /// filtro di primario di `page`, così il numero di mesi e il numero di
+    /// tessere per mese non divergono mai. La tabella `folder_month_counts`
+    /// resta intatta per gli altri usi (contatori di cartella, cestino).
+    ///
     /// # Errors
     /// `Forbidden` se `library_id` non è del chiamante (anche inesistente).
     /// `Connection` se la query fallisce.
@@ -36,14 +79,21 @@ impl<'a> TimelineRepo<'a> {
             LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
         }
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
-        let filter = scope.filter_for_folder_aggregate("f.path", "f.library_id", "f.id", 1);
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let sql = format!(
-            "SELECT fmc.month, sum(fmc.asset_count)::bigint AS count \
-               FROM folder_month_counts fmc \
-               JOIN folders f ON f.id = fmc.folder_id \
-              WHERE {} AND ($4::uuid IS NULL OR f.library_id = $4) \
-              GROUP BY fmc.month \
-              ORDER BY fmc.month DESC",
+            "SELECT date_trunc('month', a.taken_at_utc)::date AS month, \
+                    count(*)::bigint AS count \
+               FROM assets a \
+               JOIN folders f ON f.id = a.folder_id \
+               {STACK_PRIMARY_JOIN_SQL} \
+              WHERE {} \
+                AND ($4::uuid IS NULL OR f.library_id = $4) \
+                AND a.status = 'indexed' \
+                AND a.kind <> 'unknown' \
+                AND a.taken_at_utc IS NOT NULL \
+                AND {STACK_PRIMARY_ONLY_SQL} \
+              GROUP BY month \
+              ORDER BY month DESC",
             filter.sql()
         );
         let rows: Vec<(NaiveDate, i64)> = sqlx::query_as(&sql)
@@ -82,12 +132,14 @@ impl<'a> TimelineRepo<'a> {
                FROM assets a \
                JOIN folders f ON f.id = a.folder_id \
                LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+               {STACK_PRIMARY_JOIN_SQL} \
               WHERE {} \
                 AND ($4::uuid IS NULL OR f.library_id = $4) \
                 AND a.status = 'indexed' \
                 AND a.kind <> 'unknown' \
                 AND a.taken_at_utc IS NOT NULL \
                 AND ({bbox}) \
+                AND {STACK_PRIMARY_ONLY_SQL} \
               GROUP BY month \
               ORDER BY month DESC",
             filter.sql()
@@ -109,7 +161,9 @@ impl<'a> TimelineRepo<'a> {
             .collect())
     }
 
-    /// Pagina keyset dentro un mese. `limit` è clampato a 1..=200.
+    /// Pagina keyset dentro un mese. `limit` è clampato a 1..=200. Restituisce
+    /// solo il primario di ogni pila, con il badge di stack (Task 3): un
+    /// asset RAW+JPEG impilato è una tessera, non due.
     ///
     /// # Errors
     /// `Forbidden` / `Connection` come `buckets`.
@@ -119,7 +173,7 @@ impl<'a> TimelineRepo<'a> {
         bucket: NaiveDate,
         cursor: Option<(DateTime<Utc>, AssetId)>,
         limit: i64,
-    ) -> Result<Vec<Asset>, DbError> {
+    ) -> Result<Vec<AssetWithStack>, DbError> {
         let limit = limit.clamp(1, 200);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 6);
@@ -132,8 +186,9 @@ impl<'a> TimelineRepo<'a> {
             None => (None, None),
         };
         let sql = format!(
-            "SELECT {A_COLUMNS} FROM assets a \
+            "SELECT {A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL} FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
+             {STACK_BADGE_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
                AND a.kind <> 'unknown' \
@@ -141,11 +196,12 @@ impl<'a> TimelineRepo<'a> {
                AND ($3::timestamptz IS NULL \
                     OR a.taken_at_utc < $3 \
                     OR (a.taken_at_utc = $3 AND a.id < $4)) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
              ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
              LIMIT $5",
             filter.sql()
         );
-        let rows: Vec<AssetRow> = sqlx::query_as(&sql)
+        let rows: Vec<AssetStackRow> = sqlx::query_as(&sql)
             .bind(start)
             .bind(end)
             .bind(cursor_time)
@@ -156,7 +212,7 @@ impl<'a> TimelineRepo<'a> {
             .bind(filter.assets())
             .fetch_all(self.db.pool())
             .await?;
-        rows.into_iter().map(AssetRow::into_domain).collect()
+        rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
     /// Pagina keyset dentro un mese e un riquadro geografico.
@@ -170,7 +226,7 @@ impl<'a> TimelineRepo<'a> {
         cursor: Option<(DateTime<Utc>, AssetId)>,
         limit: i64,
         bounds: MapBounds,
-    ) -> Result<Vec<Asset>, DbError> {
+    ) -> Result<Vec<AssetWithStack>, DbError> {
         let limit = limit.clamp(1, 200);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 6);
@@ -184,9 +240,10 @@ impl<'a> TimelineRepo<'a> {
         };
         let bbox = effective_bbox_filter_sql(9, 10, 11, 12);
         let sql = format!(
-            "SELECT {A_COLUMNS} FROM assets a \
+            "SELECT {A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL} FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
              LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             {STACK_BADGE_JOIN_SQL} \
              WHERE {} \
                AND a.status = 'indexed' \
                AND a.kind <> 'unknown' \
@@ -195,11 +252,12 @@ impl<'a> TimelineRepo<'a> {
                     OR a.taken_at_utc < $3 \
                     OR (a.taken_at_utc = $3 AND a.id < $4)) \
                AND ({bbox}) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
              ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
              LIMIT $5",
             filter.sql()
         );
-        let rows: Vec<AssetRow> = sqlx::query_as(&sql)
+        let rows: Vec<AssetStackRow> = sqlx::query_as(&sql)
             .bind(start)
             .bind(end)
             .bind(cursor_time)
@@ -214,7 +272,264 @@ impl<'a> TimelineRepo<'a> {
             .bind(bounds.north)
             .fetch_all(self.db.pool())
             .await?;
-        rows.into_iter().map(AssetRow::into_domain).collect()
+        rows.into_iter().map(AssetStackRow::into_domain).collect()
+    }
+
+    /// Geometria di tutta la vista (nessuna paginazione): larghezza, altezza
+    /// e istante dello scatto per ogni asset visibile, nello stesso ordine
+    /// della timeline. Gli asset senza `width`/`height` nota restano nel
+    /// risultato con `None`: escluderli farebbe "saltare" il layout quando il
+    /// sizing arriva (spec fase-10 §2.3, punto 5).
+    ///
+    /// Filtra `kind <> 'unknown'` come `page` (Ruling Task 3: prima non lo
+    /// faceva, per restare coerente con `folder_month_counts`, che non guarda
+    /// `kind` — ma ora che `buckets` non legge più da lì e filtra `kind`
+    /// direttamente, è quella la coerenza da mantenere). Restituisce solo il
+    /// primario di ogni pila (Task 3). La query resta index-only su
+    /// `assets_geometry_idx` (`folder_id, taken_at_utc DESC, id DESC INCLUDE
+    /// (width, height, stack_id, kind) WHERE status = 'indexed'`, migrazione
+    /// 0035): sia `stack_id` (per il filtro di primario) sia `kind` sono
+    /// nell'`INCLUDE`; il join verso `stacks` per l'uguaglianza col primario
+    /// tocca solo quella tabella, piccola, non `assets`.
+    ///
+    /// # Errors
+    /// `Forbidden` se `library_id` non è del chiamante; `Connection` se la
+    /// query fallisce.
+    pub async fn geometry(
+        &self,
+        ctx: &AuthContext,
+        library_id: Option<LibraryId>,
+    ) -> Result<Geometry, DbError> {
+        if let Some(id) = library_id {
+            LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
+        }
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let sql = format!(
+            "SELECT a.width, a.height, a.taken_at_utc FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             {STACK_PRIMARY_JOIN_SQL} \
+             WHERE {} \
+               AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
+               AND a.taken_at_utc IS NOT NULL \
+               AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
+             ORDER BY a.taken_at_utc DESC, a.id DESC",
+            filter.sql()
+        );
+        let rows: Vec<(Option<i32>, Option<i32>, DateTime<Utc>)> = sqlx::query_as(&sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .bind(library_id.map(|id| id.as_uuid()))
+            .fetch_all(self.db.pool())
+            .await?;
+        let records = rows
+            .into_iter()
+            .map(|(width, height, taken_at_utc)| GeometryRecord {
+                width,
+                height,
+                taken_at_utc,
+            })
+            .collect();
+
+        let last_modified_sql = format!(
+            "SELECT max(a.updated_at) FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             {STACK_PRIMARY_JOIN_SQL} \
+             WHERE {} \
+               AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
+               AND a.taken_at_utc IS NOT NULL \
+               AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND {STACK_PRIMARY_ONLY_SQL}",
+            filter.sql()
+        );
+        let last_modified: Option<DateTime<Utc>> = sqlx::query_scalar(&last_modified_sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .bind(library_id.map(|id| id.as_uuid()))
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(Geometry {
+            records,
+            last_modified,
+        })
+    }
+
+    /// `count(*)` + `max(updated_at)` sugli stessi filtri di [`Self::geometry`],
+    /// senza leggere `width`/`height`. Serve a rispondere `304` senza pagare
+    /// la scansione completa della vista.
+    ///
+    /// # Errors
+    /// Come [`Self::geometry`].
+    pub async fn geometry_stamp(
+        &self,
+        ctx: &AuthContext,
+        library_id: Option<LibraryId>,
+    ) -> Result<GeometryStamp, DbError> {
+        if let Some(id) = library_id {
+            LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
+        }
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let sql = format!(
+            "SELECT count(*)::bigint, max(a.updated_at) FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             {STACK_PRIMARY_JOIN_SQL} \
+             WHERE {} \
+               AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
+               AND a.taken_at_utc IS NOT NULL \
+               AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND {STACK_PRIMARY_ONLY_SQL}",
+            filter.sql()
+        );
+        let (count, last_modified): (i64, Option<DateTime<Utc>>) = sqlx::query_as(&sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .bind(library_id.map(|id| id.as_uuid()))
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(GeometryStamp {
+            count: u64::try_from(count).unwrap_or(0),
+            last_modified,
+        })
+    }
+
+    /// Come [`Self::geometry`], ma ristretta a un riquadro geografico. Filtra
+    /// `kind <> 'unknown'` come `buckets_in_bounds`/`page_in_bounds`: qui la
+    /// query tocca comunque `asset_overrides` per la posizione effettiva, e
+    /// non c'è indice di copertura da preservare come nel caso senza filtri.
+    ///
+    /// # Errors
+    /// `Forbidden` / `Connection` come [`Self::geometry`].
+    pub async fn geometry_in_bounds(
+        &self,
+        ctx: &AuthContext,
+        library_id: Option<LibraryId>,
+        bounds: MapBounds,
+    ) -> Result<Geometry, DbError> {
+        if let Some(id) = library_id {
+            LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
+        }
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let bbox = effective_bbox_filter_sql(5, 6, 7, 8);
+        let sql = format!(
+            "SELECT a.width, a.height, a.taken_at_utc FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             {STACK_PRIMARY_JOIN_SQL} \
+             WHERE {} \
+               AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
+               AND a.taken_at_utc IS NOT NULL \
+               AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND ({bbox}) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
+             ORDER BY a.taken_at_utc DESC, a.id DESC",
+            filter.sql()
+        );
+        let rows: Vec<(Option<i32>, Option<i32>, DateTime<Utc>)> = sqlx::query_as(&sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .bind(library_id.map(|id| id.as_uuid()))
+            .bind(bounds.west)
+            .bind(bounds.south)
+            .bind(bounds.east)
+            .bind(bounds.north)
+            .fetch_all(self.db.pool())
+            .await?;
+        let records = rows
+            .into_iter()
+            .map(|(width, height, taken_at_utc)| GeometryRecord {
+                width,
+                height,
+                taken_at_utc,
+            })
+            .collect();
+
+        let last_modified_sql = format!(
+            "SELECT max(a.updated_at) FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             {STACK_PRIMARY_JOIN_SQL} \
+             WHERE {} \
+               AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
+               AND a.taken_at_utc IS NOT NULL \
+               AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND ({bbox}) \
+               AND {STACK_PRIMARY_ONLY_SQL}",
+            filter.sql()
+        );
+        let last_modified: Option<DateTime<Utc>> = sqlx::query_scalar(&last_modified_sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .bind(library_id.map(|id| id.as_uuid()))
+            .bind(bounds.west)
+            .bind(bounds.south)
+            .bind(bounds.east)
+            .bind(bounds.north)
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(Geometry {
+            records,
+            last_modified,
+        })
+    }
+
+    /// Timbratura leggera sugli stessi filtri di [`Self::geometry_in_bounds`].
+    ///
+    /// # Errors
+    /// Come [`Self::geometry_in_bounds`].
+    pub async fn geometry_stamp_in_bounds(
+        &self,
+        ctx: &AuthContext,
+        library_id: Option<LibraryId>,
+        bounds: MapBounds,
+    ) -> Result<GeometryStamp, DbError> {
+        if let Some(id) = library_id {
+            LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
+        }
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let bbox = effective_bbox_filter_sql(5, 6, 7, 8);
+        let sql = format!(
+            "SELECT count(*)::bigint, max(a.updated_at) FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+             {STACK_PRIMARY_JOIN_SQL} \
+             WHERE {} \
+               AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
+               AND a.taken_at_utc IS NOT NULL \
+               AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND ({bbox}) \
+               AND {STACK_PRIMARY_ONLY_SQL}",
+            filter.sql()
+        );
+        let (count, last_modified): (i64, Option<DateTime<Utc>>) = sqlx::query_as(&sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .bind(library_id.map(|id| id.as_uuid()))
+            .bind(bounds.west)
+            .bind(bounds.south)
+            .bind(bounds.east)
+            .bind(bounds.north)
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(GeometryStamp {
+            count: u64::try_from(count).unwrap_or(0),
+            last_modified,
+        })
     }
 }
 

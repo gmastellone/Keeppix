@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use keeppix_domain::{AssetId, AuthContext, DiskAction, TrashEntry, TrashEntryId, UserId};
+use keeppix_domain::{Asset, AssetId, AuthContext, DiskAction, TrashEntry, TrashEntryId, UserId};
 use sqlx::PgConnection;
 
 use crate::visibility::VisibilityScope;
@@ -88,35 +88,7 @@ impl<'a> TrashRepo<'a> {
         asset_id: AssetId,
         action: DiskAction,
     ) -> Result<TrashEntry, DbError> {
-        // Cancello comune alle tre opzioni: senza visibilità sull'asset
-        // nessuna delle tre è ammessa.
-        AssetRepo::new(self.db)
-            .assert_visible(ctx, std::slice::from_ref(&asset_id))
-            .await?;
-
-        let asset = AssetRepo::new(self.db).get_for_scan(asset_id).await?;
-        let library = library_info_for_folder(self.db, asset.folder_id).await?;
-
-        // Viewer vede, non scrive: cestino e "kept" sono editor+ (spec §1.2).
-        // Purged resta owner/admin — un editor non distrugge i file.
-        if !matches!(action, DiskAction::Purged) {
-            crate::PermissionRepo::new(self.db)
-                .assert_can_edit_assets(ctx, std::slice::from_ref(&asset_id))
-                .await?;
-        }
-
-        // Secondo cancello, più stretto e solo per `Purged`: la cancellazione
-        // dal disco resta di owner/admin anche quando altri hanno visibilità
-        // sull'asset (design §4.2: «un editor non può distruggere file»).
-        if matches!(action, DiskAction::Purged)
-            && !may_purge(ctx, UserId::from_uuid(library.owner_id))
-        {
-            return Err(DbError::Forbidden);
-        }
-
-        let folder_abs = FolderRepo::new(self.db)
-            .absolute_path_for_scan(asset.folder_id)
-            .await?;
+        let (asset, library, folder_abs) = authorize_choose(self.db, ctx, asset_id, action).await?;
         let original_path = folder_abs.join(asset.filename.as_str());
 
         let entry_id = TrashEntryId::new();
@@ -205,6 +177,32 @@ impl<'a> TrashRepo<'a> {
         };
 
         row.into_domain()
+    }
+
+    /// Verifica che il chiamante possa richiedere [`DiskAction::Purged`] su
+    /// **tutti** gli asset del lotto, senza eseguire alcuna scrittura né su
+    /// database né su filesystem. Usata da `POST /assets/batch/delete`
+    /// (spec Fase 10 §Task 4) per rendere `purged` all-or-nothing
+    /// sull'autorizzazione: a differenza di `kept`/`moved_to_trash`, dove un
+    /// id non autorizzato finisce in `failed` senza bloccare gli altri, un
+    /// solo id non purgabile deve rifiutare l'intero lotto **prima** che
+    /// [`Self::choose`] tocchi il primo file — non un'eliminazione a metà.
+    ///
+    /// Riusa lo stesso cancello di [`Self::choose`] ([`authorize_choose`]),
+    /// non una copia: nessuna nuova regola di autorizzazione nasce qui.
+    ///
+    /// # Errors
+    /// `Forbidden` come [`Self::choose`] con [`DiskAction::Purged`], al
+    /// primo id del lotto che non lo supera.
+    pub async fn assert_batch_purge_authorized(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+    ) -> Result<(), DbError> {
+        for &asset_id in asset_ids {
+            authorize_choose(self.db, ctx, asset_id, DiskAction::Purged).await?;
+        }
+        Ok(())
     }
 
     /// Riporta al percorso originale il file più recentemente spostato nel
@@ -441,6 +439,52 @@ impl<'a> TrashRepo<'a> {
         }
         Ok(cleaned)
     }
+}
+
+/// Cancelli comuni a [`TrashRepo::choose`] e a
+/// [`TrashRepo::assert_batch_purge_authorized`], estratti perché il secondo
+/// deve poterli eseguire senza scrivere nulla — solo verificare.
+///
+/// # Errors
+/// `Forbidden` se il chiamante non vede l'asset — anche quando l'id non
+/// esiste — se chiede [`DiskAction::Purged`] senza essere il proprietario
+/// della libreria o un admin, o se chiede [`DiskAction::MovedToTrash`] /
+/// [`DiskAction::Kept`] senza ruolo editor (spec §1.2).
+async fn authorize_choose(
+    db: &Db,
+    ctx: &AuthContext,
+    asset_id: AssetId,
+    action: DiskAction,
+) -> Result<(Asset, LibraryInfo, PathBuf), DbError> {
+    // Cancello comune alle tre opzioni: senza visibilità sull'asset nessuna
+    // delle tre è ammessa.
+    AssetRepo::new(db)
+        .assert_visible(ctx, std::slice::from_ref(&asset_id))
+        .await?;
+
+    let asset = AssetRepo::new(db).get_for_scan(asset_id).await?;
+    let library = library_info_for_folder(db, asset.folder_id).await?;
+
+    // Viewer vede, non scrive: cestino e "kept" sono editor+ (spec §1.2).
+    // Purged resta owner/admin — un editor non distrugge i file.
+    if !matches!(action, DiskAction::Purged) {
+        crate::PermissionRepo::new(db)
+            .assert_can_edit_assets(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+    }
+
+    // Secondo cancello, più stretto e solo per `Purged`: la cancellazione
+    // dal disco resta di owner/admin anche quando altri hanno visibilità
+    // sull'asset (design §4.2: «un editor non può distruggere file»).
+    if matches!(action, DiskAction::Purged) && !may_purge(ctx, UserId::from_uuid(library.owner_id))
+    {
+        return Err(DbError::Forbidden);
+    }
+
+    let folder_abs = FolderRepo::new(db)
+        .absolute_path_for_scan(asset.folder_id)
+        .await?;
+    Ok((asset, library, folder_abs))
 }
 
 async fn library_info_for_folder(

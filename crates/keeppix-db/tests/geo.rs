@@ -133,6 +133,101 @@ async fn map_clusters_reuse_folder_visibility_and_viewer_rating_for_cover() {
     assert!((rows[0].lat - 41.044_921_875).abs() < 1e-9);
 }
 
+/// Il popover del cluster (spec fase-10 §27) chiede l'id di destinazione e
+/// l'etichetta del luogo *della stessa copertina*: `folder_id` e
+/// `place_label` sono aggregati con lo stesso `array_agg`/`ORDER BY` di
+/// `cover_asset_id`, non presi da un asset qualunque del gruppo.
+#[tokio::test]
+async fn grid_cluster_carries_the_cover_assets_folder_and_place_not_a_sibling() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let (library_id, folder_a) = library(&test, admin, "carries-place").await;
+    let folder_b = FolderRepo::new(test.db())
+        .ensure_path(library_id, &["carries-place", "second"])
+        .await
+        .unwrap()
+        .id;
+    let sibling = point(&test, folder_a, "sibling.jpg", 12.01, 41.01, 20).await;
+    let cover = point(&test, folder_b, "cover.jpg", 12.02, 41.02, 10).await;
+
+    keeppix_db::PlaceRepo::new(test.db())
+        .upsert(&keeppix_domain::Place {
+            id: 1,
+            name: "Sibling Town".to_owned(),
+            ascii_name: "Sibling Town".to_owned(),
+            country_code: Some("FR".to_owned()),
+            admin1: None,
+            admin2: None,
+            location: GeoPoint {
+                lat: 41.01,
+                lon: 12.01,
+            },
+            population: 1000,
+        })
+        .await
+        .unwrap();
+    keeppix_db::PlaceRepo::new(test.db())
+        .upsert(&keeppix_domain::Place {
+            id: 2,
+            name: "Cover Town".to_owned(),
+            ascii_name: "Cover Town".to_owned(),
+            country_code: Some("IT".to_owned()),
+            admin1: None,
+            admin2: None,
+            location: GeoPoint {
+                lat: 41.02,
+                lon: 12.02,
+            },
+            population: 2000,
+        })
+        .await
+        .unwrap();
+    sqlx::query("UPDATE assets SET place_id = 1 WHERE id = $1")
+        .bind(sibling.as_uuid())
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE assets SET place_id = 2 WHERE id = $1")
+        .bind(cover.as_uuid())
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+    // `cover` vince la copertina per rating più alto, non per ordine di
+    // inserimento: se `folder_id`/`place_label` leggessero un asset a caso
+    // del gruppo invece della stessa copertina, questo test lo rivelerebbe.
+    sqlx::query(
+        "INSERT INTO asset_flags (asset_id, user_id, rating, pick) \
+         VALUES ($1, $3, 1, 'none'), ($2, $3, 5, 'none')",
+    )
+    .bind(sibling.as_uuid())
+    .bind(cover.as_uuid())
+    .bind(admin.as_uuid())
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+
+    let rows = GeoRepo::new(test.db())
+        .clusters(
+            &AuthContext::user(admin, SystemRole::Admin),
+            world(),
+            10,
+            MapScope::Library(library_id),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].clustered);
+    assert_eq!(rows[0].count, 2);
+    assert_eq!(rows[0].cover_asset_id, cover);
+    assert_eq!(rows[0].folder_id, folder_b, "not the sibling's folder");
+    assert_eq!(
+        rows[0].place_label.as_deref(),
+        Some("Cover Town"),
+        "not the sibling's place"
+    );
+}
+
 #[tokio::test]
 async fn fiji_bbox_splits_at_the_antimeridian_and_uses_override_location() {
     let test = TestDb::start().await;
@@ -227,6 +322,7 @@ async fn library_album_folder_and_search_scopes_are_applied() {
             NewAlbum {
                 name: "Map".to_owned(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await
@@ -269,6 +365,7 @@ async fn foreign_scope_ids_are_forbidden_for_every_scope_kind() {
             NewAlbum {
                 name: "Private".to_owned(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await

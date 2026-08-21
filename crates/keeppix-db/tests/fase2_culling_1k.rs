@@ -65,6 +65,7 @@ async fn batch_flags_on_one_thousand_assets_stays_interactive() {
         rating: Some(Rating::parse(4).unwrap()),
         pick: Pick::Pick,
         color_label: None,
+        favorite: false,
     };
 
     let started = Instant::now();

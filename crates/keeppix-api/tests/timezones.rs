@@ -151,6 +151,8 @@ async fn preview_and_apply_are_separate_authenticated_operations() {
     let apply: Value = apply.json().await.expect("apply JSON");
     assert_eq!(apply["changed_count"], 1);
     assert!(apply["batch_id"].is_string());
+    assert_eq!(apply["succeeded"].as_array().expect("succeeded").len(), 1);
+    assert!(apply["failed"].as_array().expect("failed").is_empty());
 
     // Token is single-use: second apply fails.
     let reuse = server

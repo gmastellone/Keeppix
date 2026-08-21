@@ -71,6 +71,79 @@ async fn upsert_discovered_is_idempotent_and_refreshes_stat() {
     );
 }
 
+/// Fase 10 Task 21: l'inserimento a lotti deve produrre gli stessi asset
+/// dell'inserimento a file singolo, in una sola istruzione.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn batch_upsert_discovered_inserts_every_new_file() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let repo = AssetRepo::new(test.db());
+
+    let items: Vec<NewAsset> = (0..5)
+        .map(|n| discovered(folder.id, &format!("IMG_{n:04}.jpg"), 100 + n))
+        .collect();
+    let inserted = repo.batch_upsert_discovered(&items).await.unwrap();
+
+    assert_eq!(inserted.len(), 5);
+    let mut names: Vec<&str> = inserted.iter().map(|a| a.filename.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec![
+            "IMG_0000.jpg",
+            "IMG_0001.jpg",
+            "IMG_0002.jpg",
+            "IMG_0003.jpg",
+            "IMG_0004.jpg"
+        ]
+    );
+
+    let count = AssetRepo::new(test.db())
+        .count_in_library(library)
+        .await
+        .unwrap();
+    assert_eq!(count, 5);
+}
+
+/// Come `upsert_discovered`: un file già noto con lo stesso mtime/size non
+/// deve comparire nel risultato — il chiamante non deve riaccodare
+/// metadata/hash per lui.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn batch_upsert_discovered_omits_unchanged_files() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let repo = AssetRepo::new(test.db());
+
+    let first_pass = vec![
+        discovered(folder.id, "changed.jpg", 100),
+        discovered(folder.id, "unchanged.jpg", 100),
+    ];
+    repo.batch_upsert_discovered(&first_pass).await.unwrap();
+
+    let mut changed = discovered(folder.id, "changed.jpg", 200);
+    changed.mtime = Utc.with_ymd_and_hms(2024, 6, 3, 12, 0, 0).unwrap();
+    let unchanged = discovered(folder.id, "unchanged.jpg", 100);
+    let second_pass = vec![changed, unchanged];
+
+    let result = repo.batch_upsert_discovered(&second_pass).await.unwrap();
+
+    assert_eq!(result.len(), 1, "solo il file cambiato deve tornare");
+    assert_eq!(result[0].filename.as_str(), "changed.jpg");
+    assert_eq!(result[0].size_bytes, 200);
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn the_same_filename_in_two_folders_is_two_assets() {

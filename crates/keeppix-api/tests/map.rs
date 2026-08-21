@@ -2,8 +2,8 @@ mod harness;
 
 use chrono::{TimeZone as _, Utc};
 use harness::TestServer;
-use keeppix_db::{FolderRepo, LibraryRepo, NewMapRegion, RegionRepo, UserRepo};
-use keeppix_domain::{AuthContext, NewLibrary, SystemRole, UserId, Username};
+use keeppix_db::{FolderRepo, LibraryRepo, NewMapRegion, PlaceRepo, RegionRepo, UserRepo};
+use keeppix_domain::{AuthContext, GeoPoint, NewLibrary, Place, SystemRole, UserId, Username};
 use serde_json::json;
 
 #[tokio::test]
@@ -34,11 +34,12 @@ async fn clusters_require_a_session() {
 async fn clusters_return_the_scoped_map_payload() {
     let server = TestServer::start().await;
     let user = setup(&server).await;
-    let library = seed_library_with_point(&server, user).await;
+    let seeded = seed_library_with_point(&server, user).await;
     let response = server
         .client
         .get(server.url(&format!(
-            "/api/v1/map/clusters?bbox=10,40,15,45&zoom=15&scope=library&scope_id={library}"
+            "/api/v1/map/clusters?bbox=10,40,15,45&zoom=15&scope=library&scope_id={}",
+            seeded.library_id
         )))
         .send()
         .await
@@ -55,12 +56,46 @@ async fn clusters_return_the_scoped_map_payload() {
     assert!(rows[0]["cover_asset_id"].as_str().is_some());
 }
 
+/// Il popover del cluster (spec fase-10 §27) deve poter navigare alla
+/// cartella e mostrare l'etichetta del luogo senza una seconda richiesta:
+/// `folder_id` e `place_label` sono additivi su `MapClusterView`.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn cluster_carries_enough_data_to_open_its_folder_without_a_second_request() {
+    let server = TestServer::start().await;
+    let user = setup(&server).await;
+    let seeded = seed_library_with_point(&server, user).await;
+    let response = server
+        .client
+        .get(server.url(&format!(
+            "/api/v1/map/clusters?bbox=10,40,15,45&zoom=15&scope=library&scope_id={}",
+            seeded.library_id
+        )))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let rows = body.as_array().expect("array response");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0]["folder_id"].as_str().unwrap(),
+        seeded.folder_id.to_string(),
+        "id di destinazione per aprire la cartella dal popover"
+    );
+    assert_eq!(
+        rows[0]["place_label"], "Roma",
+        "etichetta leggibile del luogo, dalla geocodifica inversa di Fase 4"
+    );
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn invalid_map_queries_are_problem_json_400s() {
     let server = TestServer::start().await;
     let user = setup(&server).await;
-    let library = seed_library_with_point(&server, user).await;
+    let library = seed_library_with_point(&server, user).await.library_id;
     let cases = [
         (
             format!(
@@ -353,8 +388,13 @@ async fn setup(server: &TestServer) -> UserId {
         .id
 }
 
+struct SeededMapLibrary {
+    library_id: uuid::Uuid,
+    folder_id: uuid::Uuid,
+}
+
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-async fn seed_library_with_point(server: &TestServer, user: UserId) -> uuid::Uuid {
+async fn seed_library_with_point(server: &TestServer, user: UserId) -> SeededMapLibrary {
     let library = LibraryRepo::new(&server.db)
         .create(
             &AuthContext::user(user, SystemRole::Admin),
@@ -371,17 +411,36 @@ async fn seed_library_with_point(server: &TestServer, user: UserId) -> uuid::Uui
         .ensure_path(library.id, &["italy"])
         .await
         .unwrap();
+    let place = Place {
+        id: 3_169_070,
+        name: "Roma".to_owned(),
+        ascii_name: "Roma".to_owned(),
+        country_code: Some("IT".to_owned()),
+        admin1: None,
+        admin2: None,
+        location: GeoPoint {
+            lat: 41.9,
+            lon: 12.5,
+        },
+        population: 2_318_895,
+    };
+    PlaceRepo::new(&server.db).upsert(&place).await.unwrap();
     sqlx::query(
         "INSERT INTO assets \
-             (id, folder_id, filename, size_bytes, mtime, kind, status, taken_at_utc, location) \
+             (id, folder_id, filename, size_bytes, mtime, kind, status, taken_at_utc, \
+              location, place_id) \
          VALUES ($1, $2, 'rome.jpg', 1, $3, 'image', 'indexed', $3, \
-                 ST_SetSRID(ST_MakePoint(12.5, 41.9), 4326)::geography)",
+                 ST_SetSRID(ST_MakePoint(12.5, 41.9), 4326)::geography, $4)",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(folder.id.as_uuid())
     .bind(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap())
+    .bind(place.id)
     .execute(server.db.pool())
     .await
     .unwrap();
-    library.id.as_uuid()
+    SeededMapLibrary {
+        library_id: library.id.as_uuid(),
+        folder_id: folder.id.as_uuid(),
+    }
 }

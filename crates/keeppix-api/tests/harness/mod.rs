@@ -31,6 +31,7 @@ pub struct TestServer {
     /// Radice allowlist per `KEEPPIX_LIBRARY_ROOTS` nei test (sotto `data_dir`).
     pub photos_root: std::path::PathBuf,
     pub auth_pings: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    pub viewport_pings: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub base_url: String,
     pub client: reqwest::Client,
 }
@@ -111,6 +112,8 @@ async fn boot(
     std::fs::create_dir_all(&photos_root).expect("photos_root");
     let auth_pings = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let ping = auth_pings.clone();
+    let viewport_pings = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let viewport_ping = viewport_pings.clone();
     let watchers =
         keeppix_jobs::watch::LibraryWatchers::new(db.clone(), std::time::Duration::from_millis(80));
     let state = configure(
@@ -120,6 +123,9 @@ async fn boot(
             .with_library_watchers(watchers)
             .with_on_authenticated(std::sync::Arc::new(move || {
                 ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }))
+            .with_on_viewport_activity(std::sync::Arc::new(move || {
+                viewport_ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             })),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -146,6 +152,7 @@ async fn boot(
         data_dir,
         photos_root,
         auth_pings,
+        viewport_pings,
         base_url: format!("http://{addr}"),
         client,
     }
@@ -175,6 +182,53 @@ pub fn plain_client() -> reqwest::Client {
         .default_headers(client_headers())
         .build()
         .expect("client http")
+}
+
+/// Fa girare la pipeline dei job su cloni posseduti, così può vivere in un
+/// `tokio::spawn` mentre il test resta libero di interrogare il database o
+/// chiamare altre rotte HTTP nel frattempo (Task 16: annullamento a metà di
+/// una scansione lunga, osservato sia via `keeppix-api` che via WebSocket).
+#[allow(clippy::expect_used, dead_code)]
+pub fn spawn_worker_pool(
+    db: Db,
+    database_url: String,
+    data_dir: std::path::PathBuf,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let handler = keeppix_jobs::IngestHandler {
+            db: db.clone(),
+            data_dir,
+            stability_wait: Duration::ZERO,
+            trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
+            database_url,
+            config_path: None,
+        };
+        let pool = keeppix_jobs::WorkerPool::new(
+            db.clone(),
+            handler,
+            std::sync::Arc::new(keeppix_jobs::ActivityTracker::new()),
+            512 * 1024 * 1024,
+            keeppix_jobs::default_night_window(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let start = std::time::Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(60) {
+                return;
+            }
+            if !pool.step().await.expect("step") {
+                let pending: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM jobs WHERE status IN ('pending','running')",
+                )
+                .fetch_one(db.pool())
+                .await
+                .expect("count");
+                if pending == 0 {
+                    return;
+                }
+            }
+        }
+    })
 }
 
 /// Le asserzioni sugli header di sicurezza vivono in `keeppix-test-support`,

@@ -49,6 +49,13 @@ pub struct MapCluster {
     pub count: i64,
     pub cover_asset_id: AssetId,
     pub clustered: bool,
+    /// Cartella del `cover_asset_id`, per aprirla dal popover (spec fase-10
+    /// §27) senza una seconda richiesta.
+    pub folder_id: FolderId,
+    /// Etichetta leggibile del luogo, dalla geocodifica inversa di Fase 4
+    /// (`assets.place_id → places.name`). `None` finché l'asset di
+    /// copertina non ha un luogo assegnato.
+    pub place_label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +79,8 @@ struct ClusterRow {
     lat: f64,
     count: i64,
     cover_asset_id: uuid::Uuid,
+    folder_id: uuid::Uuid,
+    place_label: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -254,13 +263,14 @@ impl<'a> GeoRepo<'a> {
         &self,
         ctx: &AuthContext,
         library_id: LibraryId,
-    ) -> Result<(usize, Option<BatchId>), DbError> {
+    ) -> Result<(usize, Option<BatchId>, Vec<AssetId>), DbError> {
         crate::LibraryRepo::new(self.db)
             .find_by_id(ctx, library_id)
             .await?;
         let actor = ctx.user_id().ok_or(DbError::Forbidden)?;
         let mut transaction = self.db.pool().begin().await?;
         let changes = timezone_changes_on(&mut transaction, library_id).await?;
+        let succeeded: Vec<AssetId> = changes.iter().map(|change| change.asset_id).collect();
         let assignments: Vec<_> = changes
             .iter()
             .map(|change| (change.asset_id, change.after))
@@ -276,7 +286,7 @@ impl<'a> GeoRepo<'a> {
         if changed_count != 0 {
             crate::overrides::enqueue_sidecar_sweep(self.db).await?;
         }
-        Ok((changed_count, batch_id))
+        Ok((changed_count, batch_id, succeeded))
     }
 
     /// Calcola le correzioni applicabili a una libreria senza scrivere nulla.
@@ -328,6 +338,7 @@ impl<'a> GeoRepo<'a> {
                 &mut next_param,
                 0,
                 "COALESCE(o.location, a.location)",
+                ctx.user_id().map(|id| id.as_uuid()),
             )?,
             None => ("TRUE".to_owned(), Vec::new()),
         };
@@ -426,10 +437,12 @@ impl<'a> GeoRepo<'a> {
     async fn fetch_individual(&self, query: &ClusterQuery<'_>) -> Result<Vec<ClusterRow>, DbError> {
         let sql = format!(
             "{} \
-             SELECT ST_X(location) AS lon, ST_Y(location) AS lat, \
-                    1::bigint AS count, id AS cover_asset_id \
+             SELECT ST_X(candidates.location) AS lon, ST_Y(candidates.location) AS lat, \
+                    1::bigint AS count, candidates.id AS cover_asset_id, \
+                    candidates.folder_id, place.name AS place_label \
                FROM candidates \
-              ORDER BY taken_at_utc DESC NULLS LAST, id DESC \
+               LEFT JOIN places place ON place.id = candidates.place_id \
+              ORDER BY candidates.taken_at_utc DESC NULLS LAST, candidates.id DESC \
               LIMIT 501",
             query.candidates_sql()
         );
@@ -441,18 +454,37 @@ impl<'a> GeoRepo<'a> {
     }
 
     async fn fetch_grid(&self, query: &ClusterQuery<'_>) -> Result<Vec<ClusterRow>, DbError> {
+        // Il `cover_asset_id` decide anche `folder_id`/`place_label`: sono
+        // aggregati con lo stesso `array_agg`/`ORDER BY`, così i tre restano
+        // coerenti con la stessa copertina — un `LEFT JOIN places` non
+        // può leggere una colonna calcolata da un aggregato allo stesso
+        // livello, quindi la copertina si calcola in un livello e il nome
+        // del luogo si risolve in quello sopra.
         let sql = format!(
             "{} \
-             SELECT ST_X(cell) AS lon, ST_Y(cell) AS lat, count(*)::bigint AS count, \
-                    (array_agg(id ORDER BY COALESCE(rating, 0) DESC, \
-                                           taken_at_utc DESC NULLS LAST, id DESC))[1] \
-                        AS cover_asset_id \
+             SELECT ST_X(grouped.cell) AS lon, ST_Y(grouped.cell) AS lat, \
+                    grouped.cnt AS count, grouped.cover_asset_id, grouped.folder_id, \
+                    place.name AS place_label \
                FROM ( \
-                    SELECT ST_SnapToGrid(location, $6) AS cell, id, rating, taken_at_utc \
-                      FROM candidates \
-                    ) snapped \
-              GROUP BY cell \
-              ORDER BY cell",
+                    SELECT cell, count(*)::bigint AS cnt, \
+                           (array_agg(id ORDER BY COALESCE(rating, 0) DESC, \
+                                                  taken_at_utc DESC NULLS LAST, id DESC))[1] \
+                               AS cover_asset_id, \
+                           (array_agg(folder_id ORDER BY COALESCE(rating, 0) DESC, \
+                                                  taken_at_utc DESC NULLS LAST, id DESC))[1] \
+                               AS folder_id, \
+                           (array_agg(place_id ORDER BY COALESCE(rating, 0) DESC, \
+                                                  taken_at_utc DESC NULLS LAST, id DESC))[1] \
+                               AS place_id \
+                      FROM ( \
+                           SELECT ST_SnapToGrid(location, $6) AS cell, id, rating, \
+                                  taken_at_utc, folder_id, place_id \
+                             FROM candidates \
+                           ) snapped \
+                     GROUP BY cell \
+                    ) grouped \
+               LEFT JOIN places place ON place.id = grouped.place_id \
+              ORDER BY grouped.cell",
             query.candidates_sql()
         );
         query
@@ -624,7 +656,7 @@ impl ClusterQuery<'_> {
     fn candidates_sql(&self) -> String {
         format!(
             "WITH candidates AS ( \
-               SELECT a.id, a.taken_at_utc, fl.rating, \
+               SELECT a.id, a.taken_at_utc, a.folder_id, a.place_id, fl.rating, \
                       COALESCE(o.location, a.location)::geometry AS location \
                  FROM assets a \
                  JOIN folders f ON f.id = a.folder_id \
@@ -669,8 +701,10 @@ impl ClusterQuery<'_> {
             query = match bind {
                 SearchBind::Text(value) => query.bind(value),
                 SearchBind::I32(value) => query.bind(value),
+                SearchBind::F32(value) => query.bind(value),
                 SearchBind::Uuid(value) => query.bind(value),
                 SearchBind::Ts(value) => query.bind(value),
+                SearchBind::I64(value) => query.bind(value),
             };
         }
         query
@@ -722,6 +756,8 @@ fn into_clusters(rows: Vec<ClusterRow>, clustered: bool) -> Vec<MapCluster> {
             count: row.count,
             cover_asset_id: AssetId::from_uuid(row.cover_asset_id),
             clustered,
+            folder_id: FolderId::from_uuid(row.folder_id),
+            place_label: row.place_label,
         })
         .collect()
 }

@@ -17,8 +17,8 @@ pub use derive::{
     DEFAULT_FULL_CACHE_BYTES, DEFAULT_WEBP_METHOD, DEFAULT_WEBP_QUALITY, DERIVATIVE_VERSION,
     DeriveError, DeriveResult, PREVIEW_LONG_SIDE, derivative_paths, derive_from_bytes,
     derive_from_rgb, derive_jpeg, embedded_usable_as_full, enforce_full_cache_cap,
-    ensure_full_from_bytes, ensure_full_from_rgb, full_derivative_path, set_webp_method,
-    set_webp_quality,
+    ensure_full_from_bytes, ensure_full_from_rgb, full_derivative_path, heif_convert_available,
+    set_webp_method, set_webp_quality,
 };
 pub use exif::read_exif;
 pub use hash::hash_file;

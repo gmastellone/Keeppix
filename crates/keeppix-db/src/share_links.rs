@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use keeppix_domain::{AuthContext, ShareToken};
 use uuid::Uuid;
@@ -194,4 +196,72 @@ impl<'a> ShareLinkRepo<'a> {
         .await?;
         Ok(())
     }
+
+    /// Numero di elementi condivisi da ciascun link, per `object_id` — non
+    /// gli accessi (`view_count`, che resta separato). Due `GROUP BY` per
+    /// tutti i link insieme, non un `COUNT` per riga (stessa regola del
+    /// Task 11): un link `asset` conta sempre 1, senza query.
+    ///
+    /// # Errors
+    /// `DbError::Connection` se una delle due query fallisce.
+    pub async fn item_counts(&self, links: &[ShareLinkRow]) -> Result<HashMap<Uuid, i64>, DbError> {
+        let folder_ids: Vec<Uuid> = links
+            .iter()
+            .filter(|l| l.object_type == "folder")
+            .map(|l| l.object_id)
+            .collect();
+        let album_ids: Vec<Uuid> = links
+            .iter()
+            .filter(|l| l.object_type == "album")
+            .map(|l| l.object_id)
+            .collect();
+
+        let mut counts = folder_asset_counts(self.db, &folder_ids).await?;
+        counts.extend(album_asset_counts(self.db, &album_ids).await?);
+        for link in links.iter().filter(|l| l.object_type == "asset") {
+            counts.insert(link.object_id, 1);
+        }
+        Ok(counts)
+    }
+}
+
+/// Conteggio degli asset indicizzati per cartella, in un solo `GROUP BY`.
+/// Riusata da [`crate::permissions::PermissionRepo::list_shared_with_me`]
+/// per la stessa ragione: niente `COUNT` per riga in un elenco.
+pub(crate) async fn folder_asset_counts(
+    db: &Db,
+    folder_ids: &[Uuid],
+) -> Result<HashMap<Uuid, i64>, DbError> {
+    if folder_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT folder_id, count(*) FROM assets \
+          WHERE folder_id = ANY($1) AND status = 'indexed' \
+          GROUP BY folder_id",
+    )
+    .bind(folder_ids)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
+/// Conteggio dei membri per album, in un solo `GROUP BY`. Vedi
+/// [`folder_asset_counts`] per il motivo per cui è una funzione condivisa.
+pub(crate) async fn album_asset_counts(
+    db: &Db,
+    album_ids: &[Uuid],
+) -> Result<HashMap<Uuid, i64>, DbError> {
+    if album_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT album_id, count(*) FROM album_assets \
+          WHERE album_id = ANY($1) \
+          GROUP BY album_id",
+    )
+    .bind(album_ids)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.into_iter().collect())
 }

@@ -4,7 +4,6 @@ import type { TimelineAsset } from './timeline'
 export interface Album {
   id: string
   name: string
-  asset_count: number
   cover_hash: string | null
   created_at: string
 }

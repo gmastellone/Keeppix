@@ -1,9 +1,12 @@
 //! Permessi solo-allow. I gruppi si risolvono con un join, mai nel token.
 
+use std::collections::HashMap;
+
 use keeppix_domain::{AssetId, AuthContext, FolderId, ObjectRole, UserId};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::share_links::{album_asset_counts, folder_asset_counts};
 use crate::{Db, DbError};
 
 pub struct PermissionRepo<'a> {
@@ -151,12 +154,59 @@ impl<'a> PermissionRepo<'a> {
         ctx: &AuthContext,
         asset_ids: &[AssetId],
     ) -> Result<(), DbError> {
+        // Admin: short-circuit come prima — la visibilità resta a
+        // `assert_visible` / `filter_visible` del chiamante.
         if asset_ids.is_empty() || ctx.is_admin() {
             return Ok(());
         }
-        let ids: Vec<Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
-        let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
-            "SELECT DISTINCT a.folder_id, l.owner_id \
+        let (_, failed) = self.partition_editable_assets(ctx, asset_ids).await?;
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(DbError::Forbidden)
+        }
+    }
+
+    /// Parte gli `asset_ids` in modificabili / no, senza abortire al primo
+    /// rifiuto. Gli id non visibili e quelli solo in lettura finiscono in
+    /// `failed` con `Forbidden` (o `NotFound` per un admin su id assente).
+    ///
+    /// # Errors
+    /// `Connection` se una query fallisce.
+    pub async fn partition_editable_assets(
+        &self,
+        ctx: &AuthContext,
+        asset_ids: &[AssetId],
+    ) -> Result<(Vec<AssetId>, Vec<(AssetId, DbError)>), DbError> {
+        if asset_ids.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        let visible = crate::AssetRepo::new(self.db)
+            .filter_visible(ctx, asset_ids)
+            .await?;
+        let visible_set: std::collections::HashSet<Uuid> =
+            visible.iter().map(AssetId::as_uuid).collect();
+
+        let mut failed = Vec::new();
+        let mut candidates = Vec::new();
+        for &id in asset_ids {
+            if visible_set.contains(&id.as_uuid()) {
+                candidates.push(id);
+            } else if ctx.is_admin() {
+                failed.push((id, DbError::NotFound));
+            } else {
+                failed.push((id, DbError::Forbidden));
+            }
+        }
+
+        if candidates.is_empty() || ctx.is_admin() {
+            return Ok((candidates, failed));
+        }
+
+        let ids: Vec<Uuid> = candidates.iter().map(AssetId::as_uuid).collect();
+        let rows: Vec<(Uuid, Uuid, Uuid)> = sqlx::query_as(
+            "SELECT a.id, a.folder_id, l.owner_id \
                FROM assets a \
                JOIN folders f ON f.id = a.folder_id \
                JOIN libraries l ON l.id = f.library_id \
@@ -165,20 +215,30 @@ impl<'a> PermissionRepo<'a> {
         .bind(&ids)
         .fetch_all(self.db.pool())
         .await?;
+        let meta: std::collections::HashMap<Uuid, (Uuid, Uuid)> = rows
+            .into_iter()
+            .map(|(asset_id, folder_id, owner_id)| (asset_id, (folder_id, owner_id)))
+            .collect();
 
-        for (folder_id, owner_id) in rows {
+        let mut editable = Vec::new();
+        for &id in &candidates {
+            let Some((folder_id, owner_id)) = meta.get(&id.as_uuid()).copied() else {
+                failed.push((id, DbError::Forbidden));
+                continue;
+            };
             if ctx.user_id() == Some(UserId::from_uuid(owner_id)) {
+                editable.push(id);
                 continue;
             }
             match self
                 .effective_role(ctx, FolderId::from_uuid(folder_id))
                 .await?
             {
-                Some(ObjectRole::Editor) => {}
-                _ => return Err(DbError::Forbidden),
+                Some(ObjectRole::Editor) => editable.push(id),
+                _ => failed.push((id, DbError::Forbidden)),
             }
         }
-        Ok(())
+        Ok((editable, failed))
     }
 
     /// Elenco permessi diretti su un oggetto.
@@ -418,6 +478,124 @@ impl<'a> PermissionRepo<'a> {
         })
     }
 
+    /// Tutto ciò che è condiviso **con** l'utente corrente (cartelle e
+    /// album), l'inverso di `list_direct` — quella è interrogabile solo per
+    /// oggetto. Un accesso via gruppo compare con `via_group` impostato,
+    /// non solo quelli concessi direttamente all'utente.
+    ///
+    /// Se lo stesso oggetto arriva sia da un permesso diretto che da un
+    /// gruppo, vince il ruolo più alto e l'origine mostrata è quella
+    /// diretta — l'utente ha comunque accesso a titolo personale.
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente autenticato; `Connection` se una query
+    /// fallisce.
+    pub async fn list_shared_with_me(
+        &self,
+        ctx: &AuthContext,
+    ) -> Result<Vec<SharedWithMeItem>, DbError> {
+        let user_id = ctx.user_id().ok_or(DbError::Forbidden)?;
+
+        let rows: Vec<GrantRow> = sqlx::query_as(
+            "SELECT object_type, object_id, role, subject_type, subject_id \
+               FROM permissions \
+              WHERE object_type IN ('folder', 'album') \
+                AND ( \
+                     (subject_type = 'user' AND subject_id = $1) \
+                  OR (subject_type = 'group' AND subject_id IN ( \
+                        SELECT group_id FROM group_members WHERE user_id = $1 \
+                     )) \
+                )",
+        )
+        .bind(user_id.as_uuid())
+        .fetch_all(self.db.pool())
+        .await?;
+
+        let mut by_object: HashMap<Uuid, Aggregated> = HashMap::new();
+        for row in rows {
+            let role = ObjectRole::parse(&row.role)
+                .ok_or_else(|| crate::row::corrupted("permission role", &row.role))?;
+            let entry = by_object
+                .entry(row.object_id)
+                .or_insert_with(|| Aggregated {
+                    object_type: row.object_type.clone(),
+                    role,
+                    direct: false,
+                    group_ids: Vec::new(),
+                });
+            entry.role = entry.role.max(role);
+            if row.subject_type == "user" {
+                entry.direct = true;
+            } else {
+                entry.group_ids.push(row.subject_id);
+            }
+        }
+
+        let folder_ids: Vec<Uuid> = by_object
+            .iter()
+            .filter(|(_, a)| a.object_type == ObjectType::Folder.as_str())
+            .map(|(id, _)| *id)
+            .collect();
+        let album_ids: Vec<Uuid> = by_object
+            .iter()
+            .filter(|(_, a)| a.object_type == ObjectType::Album.as_str())
+            .map(|(id, _)| *id)
+            .collect();
+        let group_ids: Vec<Uuid> = by_object
+            .values()
+            .flat_map(|a| a.group_ids.iter().copied())
+            .collect();
+
+        let folders = folder_name_and_owner(self.db, &folder_ids).await?;
+        let albums = album_name_and_owner(self.db, &album_ids).await?;
+        let owner_ids: Vec<Uuid> = folders
+            .values()
+            .chain(albums.values())
+            .map(|(_, owner)| *owner)
+            .collect();
+        let owner_names = display_names(self.db, &owner_ids).await?;
+        let group_names = group_names(self.db, &group_ids).await?;
+        let folder_counts = folder_asset_counts(self.db, &folder_ids).await?;
+        let album_counts = album_asset_counts(self.db, &album_ids).await?;
+
+        let mut items: Vec<SharedWithMeItem> = Vec::new();
+        for (object_id, aggregated) in by_object {
+            let (name, owner_id, item_count) =
+                if aggregated.object_type == ObjectType::Folder.as_str() {
+                    let Some((name, owner_id)) = folders.get(&object_id) else {
+                        continue;
+                    };
+                    let count = folder_counts.get(&object_id).copied().unwrap_or(0);
+                    (name.clone(), *owner_id, count)
+                } else {
+                    let Some((name, owner_id)) = albums.get(&object_id) else {
+                        continue;
+                    };
+                    let count = album_counts.get(&object_id).copied().unwrap_or(0);
+                    (name.clone(), *owner_id, count)
+                };
+            let via_group = if aggregated.direct {
+                None
+            } else {
+                aggregated
+                    .group_ids
+                    .first()
+                    .and_then(|id| group_names.get(id).cloned())
+            };
+            items.push(SharedWithMeItem {
+                object_type: aggregated.object_type,
+                object_id,
+                name,
+                owner_name: owner_names.get(&owner_id).cloned().unwrap_or_default(),
+                role: aggregated.role,
+                via_group,
+                item_count,
+            });
+        }
+        items.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(items)
+    }
+
     async fn assert_can_manage(
         &self,
         ctx: &AuthContext,
@@ -464,6 +642,99 @@ impl<'a> PermissionRepo<'a> {
             Some(_) | None => Err(DbError::Forbidden),
         }
     }
+}
+
+/// Un oggetto (cartella o album) condiviso con l'utente corrente.
+#[derive(Debug, Clone, Serialize)]
+pub struct SharedWithMeItem {
+    pub object_type: String,
+    pub object_id: Uuid,
+    pub name: String,
+    pub owner_name: String,
+    pub role: ObjectRole,
+    /// `Some(nome del gruppo)` se l'accesso arriva solo da un gruppo;
+    /// `None` se l'utente ha (anche) un permesso diretto.
+    pub via_group: Option<String>,
+    pub item_count: i64,
+}
+
+#[derive(sqlx::FromRow)]
+struct GrantRow {
+    object_type: String,
+    object_id: Uuid,
+    role: String,
+    subject_type: String,
+    subject_id: Uuid,
+}
+
+struct Aggregated {
+    object_type: String,
+    role: ObjectRole,
+    direct: bool,
+    group_ids: Vec<Uuid>,
+}
+
+async fn folder_name_and_owner(
+    db: &Db,
+    folder_ids: &[Uuid],
+) -> Result<HashMap<Uuid, (String, Uuid)>, DbError> {
+    if folder_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(Uuid, String, Uuid)> = sqlx::query_as(
+        "SELECT f.id, f.name, l.owner_id \
+           FROM folders f JOIN libraries l ON l.id = f.library_id \
+          WHERE f.id = ANY($1)",
+    )
+    .bind(folder_ids)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, name, owner)| (id, (name, owner)))
+        .collect())
+}
+
+async fn album_name_and_owner(
+    db: &Db,
+    album_ids: &[Uuid],
+) -> Result<HashMap<Uuid, (String, Uuid)>, DbError> {
+    if album_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(Uuid, String, Uuid)> =
+        sqlx::query_as("SELECT id, name, owner_id FROM albums WHERE id = ANY($1)")
+            .bind(album_ids)
+            .fetch_all(db.pool())
+            .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, name, owner)| (id, (name, owner)))
+        .collect())
+}
+
+async fn display_names(db: &Db, user_ids: &[Uuid]) -> Result<HashMap<Uuid, String>, DbError> {
+    if user_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT id, display_name FROM users WHERE id = ANY($1)")
+            .bind(user_ids)
+            .fetch_all(db.pool())
+            .await?;
+    Ok(rows.into_iter().collect())
+}
+
+async fn group_names(db: &Db, group_ids: &[Uuid]) -> Result<HashMap<Uuid, String>, DbError> {
+    if group_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT id, name FROM groups WHERE id = ANY($1)")
+            .bind(group_ids)
+            .fetch_all(db.pool())
+            .await?;
+    Ok(rows.into_iter().collect())
 }
 
 #[derive(Debug, Clone, Serialize)]

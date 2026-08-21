@@ -6,7 +6,7 @@ use chrono::{TimeZone, Utc};
 use harness::TestDb;
 use keeppix_db::{
     AlbumRepo, AssetRepo, DbError, FolderRepo, LibraryRepo, NewAlbum, ObjectType, PermissionRepo,
-    SubjectType,
+    SearchNode, SubjectType,
 };
 use keeppix_domain::{
     AlbumId, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, FolderId, LibraryId,
@@ -103,6 +103,7 @@ async fn an_asset_can_live_in_many_albums() {
             NewAlbum {
                 name: "Vacanze".into(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await
@@ -113,6 +114,7 @@ async fn an_asset_can_live_in_many_albums() {
             NewAlbum {
                 name: "Famiglia".into(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await
@@ -155,6 +157,7 @@ async fn removing_from_an_album_does_not_delete_the_asset() {
             NewAlbum {
                 name: "Test".into(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await
@@ -226,6 +229,7 @@ async fn sharing_an_album_grants_its_assets_but_not_their_folders() {
             NewAlbum {
                 name: "Condiviso".into(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await
@@ -279,6 +283,7 @@ async fn deleting_an_album_deletes_no_photo() {
             NewAlbum {
                 name: "Da eliminare".into(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await
@@ -325,6 +330,7 @@ async fn probing_an_album_without_permission_is_forbidden() {
             NewAlbum {
                 name: "Privato".into(),
                 description: String::new(),
+                rule: None,
             },
         )
         .await
@@ -344,4 +350,163 @@ async fn probing_an_album_without_permission_is_forbidden() {
     // L'album non deve comparire nella lista di mario.
     let list = repo.list(&ctx_mario).await.unwrap();
     assert!(list.is_empty());
+}
+
+/// Un album senza `rule` non può essere aggiornato: non è un difetto di
+/// autorizzazione, è che non c'è nulla da rilanciare.
+#[tokio::test]
+async fn refreshing_an_album_without_a_rule_returns_none() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let repo = AlbumRepo::new(test.db());
+    let album = repo
+        .create(
+            &ctx,
+            NewAlbum {
+                name: "Senza filtro".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let outcome = repo.refresh(&ctx, album.id).await.unwrap();
+    assert!(
+        outcome.is_none(),
+        "un album senza rule non deve produrre un esito di refresh"
+    );
+}
+
+/// Il refresh riapplica la `rule` con cui l'album è stato creato: le foto che
+/// combaciano entrano, quelle che non combaciano più (o che erano state
+/// aggiunte a mano fuori dal filtro) escono. Un secondo refresh senza
+/// modifiche al catalogo non deve produrre duplicati né movimenti.
+#[tokio::test]
+async fn refresh_adds_matches_and_removes_non_matches_and_is_idempotent() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let lib = seed_library(&test, admin, "/mnt/nas").await;
+    let folder = seed_folder(&test, lib, "2024").await;
+    let jpeg = index_photo(&test, folder, "a.jpg").await;
+    let another_jpeg = index_photo(&test, folder, "b.jpg").await;
+
+    // Un video, fuori dal filtro type:image.
+    let video_repo = AssetRepo::new(test.db());
+    let video = video_repo
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("c.mov").unwrap(),
+            size_bytes: 10,
+            mtime: Utc.with_ymd_and_hms(2024, 7, 1, 0, 0, 0).unwrap(),
+            inode: Some(2),
+            kind: AssetKind::Video,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    video_repo
+        .set_indexed(
+            video.id,
+            Utc.with_ymd_and_hms(2024, 7, 2, 12, 0, 0).unwrap(),
+            1,
+            1,
+        )
+        .await
+        .unwrap();
+
+    let repo = AlbumRepo::new(test.db());
+    let album = repo
+        .create(
+            &ctx,
+            NewAlbum {
+                name: "Solo foto".into(),
+                description: String::new(),
+                rule: Some(SearchNode::Type {
+                    value: "image".to_owned(),
+                }),
+            },
+        )
+        .await
+        .unwrap();
+
+    // Aggiunto a mano, fuori dal filtro: il refresh deve rimuoverlo.
+    repo.add_asset(&ctx, album.id, video.id).await.unwrap();
+
+    let refresh = repo
+        .refresh(&ctx, album.id)
+        .await
+        .unwrap()
+        .expect("l'album ha una rule");
+    let mut added: Vec<AssetId> = refresh.added.clone();
+    added.sort_by_key(AssetId::as_uuid);
+    let mut expected_added = vec![jpeg, another_jpeg];
+    expected_added.sort_by_key(AssetId::as_uuid);
+    assert_eq!(added, expected_added, "le due foto devono essere aggiunte");
+    assert_eq!(
+        refresh.removed,
+        vec![video.id],
+        "il video fuori dal filtro deve essere rimosso"
+    );
+
+    let members = repo.list_assets(&ctx, album.id).await.unwrap();
+    let mut member_ids: Vec<AssetId> = members.iter().map(|m| m.asset.id).collect();
+    member_ids.sort_by_key(AssetId::as_uuid);
+    assert_eq!(member_ids, expected_added);
+
+    // rule_run_at è stato scritto.
+    let rule_run_at: Option<chrono::DateTime<Utc>> =
+        sqlx::query_scalar("SELECT rule_run_at FROM albums WHERE id = $1")
+            .bind(album.id.as_uuid())
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
+    assert!(rule_run_at.is_some(), "rule_run_at deve essere impostato");
+
+    // Un secondo refresh, senza cambi nel catalogo, non deve aggiungere né
+    // rimuovere nulla: idempotenza.
+    let second = repo.refresh(&ctx, album.id).await.unwrap().unwrap();
+    assert!(
+        second.added.is_empty(),
+        "il secondo refresh non deve aggiungere duplicati"
+    );
+    assert!(
+        second.removed.is_empty(),
+        "il secondo refresh non deve rimuovere nulla di già coerente"
+    );
+}
+
+/// Un utente senza permesso sull'album riceve `Forbidden` — mai `NotFound` —
+/// anche per il refresh, stesso invariante degli altri endpoint dell'album.
+#[tokio::test]
+async fn refreshing_a_foreign_album_is_forbidden() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let ctx_admin = AuthContext::user(admin, SystemRole::Admin);
+    let ctx_mario = AuthContext::user(mario, SystemRole::User);
+
+    let repo = AlbumRepo::new(test.db());
+    let album = repo
+        .create(
+            &ctx_admin,
+            NewAlbum {
+                name: "Privato".into(),
+                description: String::new(),
+                rule: Some(SearchNode::Type {
+                    value: "image".to_owned(),
+                }),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        repo.refresh(&ctx_mario, album.id).await,
+        Err(DbError::Forbidden)
+    ));
 }

@@ -25,11 +25,13 @@ use crate::routes::metadata::GeoPointView;
 use crate::routes::timeline::AssetView;
 use crate::state::AppState;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateLinkRequest {
     pub object_type: String,
+    #[schema(value_type = String)]
     pub object_id: uuid::Uuid,
     pub password: Option<String>,
+    #[schema(value_type = Option<String>)]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub max_views: Option<i32>,
     #[serde(default = "default_true")]
@@ -51,12 +53,30 @@ const fn default_true() -> bool {
     true
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct CreateLinkResponse {
     pub id: String,
     pub token: String,
 }
 
+/// # Errors
+/// `401` se non autenticato; `403` se non può condividere l'oggetto;
+/// `422` se `password` non è valida.
+#[utoipa::path(
+    post,
+    path = "/api/v1/share/links",
+    tag = "share",
+    operation_id = "share_links_create",
+    summary = "Create a public share link",
+    security(("session_cookie" = [])),
+    request_body = CreateLinkRequest,
+    responses(
+        (status = 201, description = "Link creato", body = CreateLinkResponse),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non owner/admin dell'oggetto", body = Problem),
+        (status = 422, description = "Password non valida", body = Problem)
+    )
+)]
 pub async fn create_link(
     State(state): State<AppState>,
     Auth(ctx): Auth,
@@ -117,6 +137,22 @@ pub async fn create_link(
     ))
 }
 
+/// # Errors
+/// `401` se non autenticato; `403` se non owner/admin del link.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/share/links/{id}",
+    tag = "share",
+    operation_id = "share_links_revoke",
+    summary = "Revoke a public share link",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id del link")),
+    responses(
+        (status = 204, description = "Link revocato"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non owner/admin del link", body = Problem)
+    )
+)]
 pub async fn revoke_link(
     State(state): State<AppState>,
     Auth(ctx): Auth,
@@ -137,7 +173,7 @@ pub async fn revoke_link(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct LinkView {
     pub id: String,
     pub object_type: String,
@@ -145,7 +181,12 @@ pub struct LinkView {
     pub has_password: bool,
     pub expires_at: Option<String>,
     pub max_views: Option<i32>,
+    /// Accessi al link, non «elementi condivisi» — quello è `item_count`.
     pub view_count: i32,
+    /// Elementi condivisi da questo link (§29: `"246 elementi"`). Task 11
+    /// lo aveva tolto come inutilizzato ovunque; qui torna perché la scheda
+    /// "Le mie condivisioni" lo chiede esplicitamente per i link pubblici.
+    pub item_count: i64,
     pub allow_download: bool,
     pub allow_original: bool,
     pub allow_upload: bool,
@@ -155,36 +196,71 @@ pub struct LinkView {
     pub created_at: String,
 }
 
+/// # Errors
+/// `401` se non autenticato.
+#[utoipa::path(
+    get,
+    path = "/api/v1/share/links",
+    tag = "share",
+    operation_id = "share_links_list",
+    summary = "List share links created by the caller",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "Link creati dal chiamante", body = Vec<LinkView>),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
 pub async fn list_links(
     State(state): State<AppState>,
     Auth(ctx): Auth,
 ) -> Result<Json<Vec<LinkView>>, Problem> {
-    let rows = ShareLinkRepo::new(&state.db)
-        .list_by_creator(&ctx, 100, 0)
-        .await?;
+    let repo = ShareLinkRepo::new(&state.db);
+    let rows = repo.list_by_creator(&ctx, 100, 0).await?;
+    let item_counts = repo.item_counts(&rows).await?;
 
     let views = rows
         .into_iter()
-        .map(|r| LinkView {
-            id: r.id.to_string(),
-            object_type: r.object_type,
-            object_id: r.object_id.to_string(),
-            has_password: r.password_hash.is_some(),
-            expires_at: r.expires_at.map(|t| t.to_rfc3339()),
-            max_views: r.max_views,
-            view_count: r.view_count,
-            allow_download: r.allow_download,
-            allow_original: r.allow_original,
-            allow_upload: r.allow_upload,
-            hide_metadata: r.hide_metadata,
-            revoked_at: r.revoked_at.map(|t| t.to_rfc3339()),
-            last_accessed_at: r.last_accessed_at.map(|t| t.to_rfc3339()),
-            created_at: r.created_at.to_rfc3339(),
+        .map(|r| {
+            let item_count = item_counts.get(&r.object_id).copied().unwrap_or(0);
+            LinkView {
+                id: r.id.to_string(),
+                object_type: r.object_type,
+                object_id: r.object_id.to_string(),
+                has_password: r.password_hash.is_some(),
+                expires_at: r.expires_at.map(|t| t.to_rfc3339()),
+                max_views: r.max_views,
+                view_count: r.view_count,
+                item_count,
+                allow_download: r.allow_download,
+                allow_original: r.allow_original,
+                allow_upload: r.allow_upload,
+                hide_metadata: r.hide_metadata,
+                revoked_at: r.revoked_at.map(|t| t.to_rfc3339()),
+                last_accessed_at: r.last_accessed_at.map(|t| t.to_rfc3339()),
+                created_at: r.created_at.to_rfc3339(),
+            }
         })
         .collect();
     Ok(Json(views))
 }
 
+/// # Errors
+/// `401` se non autenticato; `403` se non owner/admin della cartella di
+/// destinazione dell'upload guest.
+#[utoipa::path(
+    post,
+    path = "/api/v1/guest-uploads/{id}/approve",
+    tag = "share",
+    operation_id = "guest_uploads_approve",
+    summary = "Approve a guest upload",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id dell'upload guest")),
+    responses(
+        (status = 204, description = "Upload approvato, indicizzazione accodata"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non owner/admin", body = Problem)
+    )
+)]
 pub async fn approve_guest_upload(
     State(state): State<AppState>,
     Auth(ctx): Auth,
@@ -218,7 +294,7 @@ fn share_headers() -> HeaderMap {
     h
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct ShareInfoResponse {
     pub object_type: String,
     pub object_id: String,
@@ -229,6 +305,25 @@ pub struct ShareInfoResponse {
     pub has_password: bool,
 }
 
+/// Nessuna sicurezza a cookie di sessione: l'accesso è il token nel
+/// percorso stesso — è la superficie pubblica dei link di condivisione.
+///
+/// # Errors
+/// `403` se il token non esiste o è revocato; `429` oltre il rate limit
+/// per token.
+#[utoipa::path(
+    get,
+    path = "/api/v1/share/{token}",
+    tag = "share",
+    operation_id = "share_public_info",
+    summary = "Get public info about a share link",
+    params(("token" = String, Path, description = "Token del link pubblico")),
+    responses(
+        (status = 200, description = "Info pubbliche sul link", body = ShareInfoResponse),
+        (status = 403, description = "Token inesistente o revocato", body = Problem),
+        (status = 429, description = "Troppi accessi con questo token", body = Problem)
+    )
+)]
 pub async fn public_info(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -265,11 +360,28 @@ pub async fn public_info(
     Ok((share_headers(), jar, Json(resp)))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct ShareAuthRequest {
     pub password: Option<String>,
 }
 
+/// # Errors
+/// `403` se il token non esiste, è revocato, o la password non combacia;
+/// `429` oltre il rate limit per token.
+#[utoipa::path(
+    post,
+    path = "/api/v1/share/{token}/auth",
+    tag = "share",
+    operation_id = "share_public_auth",
+    summary = "Unlock a password-protected share link",
+    params(("token" = String, Path, description = "Token del link pubblico")),
+    request_body = ShareAuthRequest,
+    responses(
+        (status = 204, description = "Password corretta, cookie di sblocco impostato"),
+        (status = 403, description = "Token inesistente, revocato, o password errata", body = Problem),
+        (status = 429, description = "Troppi accessi con questo token", body = Problem)
+    )
+)]
 pub async fn public_auth(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -310,12 +422,27 @@ pub async fn public_auth(
     Ok((share_headers(), jar, StatusCode::NO_CONTENT))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct SharedContentResponse {
     pub object_type: String,
     pub assets: Vec<AssetView>,
 }
 
+/// # Errors
+/// `403` se il token/cookie di sblocco non è valido o l'oggetto condiviso
+/// non è più risolvibile.
+#[utoipa::path(
+    get,
+    path = "/api/v1/share/{token}/assets",
+    tag = "share",
+    operation_id = "share_public_assets",
+    summary = "List assets exposed by a share link",
+    params(("token" = String, Path, description = "Token del link pubblico")),
+    responses(
+        (status = 200, description = "Asset condivisi (metadati redatti se hide_metadata)", body = SharedContentResponse),
+        (status = 403, description = "Token/sblocco non valido", body = Problem)
+    )
+)]
 pub async fn public_assets(
     State(state): State<AppState>,
     ShareAuth(ctx): ShareAuth,
@@ -400,12 +527,35 @@ pub struct GuestUploadQuery {
     pub filename: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct GuestUploadResponse {
     pub id: String,
     pub filename: String,
 }
 
+/// # Errors
+/// `403` se il link non ha `allow_upload` o non è su una cartella; `400` se
+/// il nome file non è valido o il corpo è vuoto; `409` in caso di collisione
+/// esatta col nome finale; `413` oltre la quota residua del link.
+#[utoipa::path(
+    post,
+    path = "/api/v1/share/{token}/uploads",
+    tag = "share",
+    operation_id = "share_public_upload",
+    summary = "Upload a file through a share link",
+    params(
+        ("token" = String, Path, description = "Token del link pubblico"),
+        ("filename" = String, Query, description = "Nome file proposto dal client")
+    ),
+    request_body(content = Vec<u8>, description = "Corpo del file", content_type = "application/octet-stream"),
+    responses(
+        (status = 201, description = "File caricato e in coda per l'indicizzazione", body = GuestUploadResponse),
+        (status = 400, description = "Nome file non valido o corpo vuoto", body = Problem),
+        (status = 403, description = "Link non abilitato all'upload", body = Problem),
+        (status = 409, description = "Collisione di nome", body = Problem),
+        (status = 413, description = "Quota residua del link esaurita", body = Problem)
+    )
+)]
 pub async fn public_upload(
     State(state): State<AppState>,
     ShareAuth(ctx): ShareAuth,

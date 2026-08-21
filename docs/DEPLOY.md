@@ -91,6 +91,41 @@ metterla in `.env`, perché `.env` alimenta solo l'interpolazione delle
 variabili già referenziate nel file di compose (`DB_PASSWORD`, `DATABASE_URL`,
 `PHOTOS_PATH`), non l'ambiente del processo `keeppix` dentro al container.
 
+## Taratura Postgres (bundled)
+
+Il servizio `db` bundled passa parametri GUC via `command:` — configurabili
+con variabili d'ambiente interpolate da Compose (in `.env` o nella shell).
+I valori **non sono universali**: misurarli all'installazione (il probe
+hardware della Fase 7 è il posto naturale). Qui basta documentare due
+profili tipici e rendere tutto overrideable.
+
+| Parametro | Default fabbrica | SSD/NVMe (compose default) | microSD |
+|---|---|---|---|
+| `random_page_cost` | 4.0 | **1.1** | 4.0 |
+| `shared_buffers` | 128 MB | ~2 GB | 128 MB |
+| `effective_cache_size` | 4 GB | ~6 GB | 4 GB |
+| `work_mem` | 4 MB | 32–64 MB | 4 MB |
+| `max_connections` | 100 | 20 | 100 |
+
+Variabili Compose (valori predefiniti = profilo SSD in `compose.yaml`):
+
+| Variabile | Predefinito compose | Descrizione |
+|---|---|---|
+| `POSTGRES_RANDOM_PAGE_COST` | `1.1` | Costo pagina casuale per il pianificatore |
+| `POSTGRES_SHARED_BUFFERS` | `2GB` | Buffer condiviso Postgres |
+| `POSTGRES_EFFECTIVE_CACHE_SIZE` | `6GB` | Stima cache OS per il pianificatore |
+| `POSTGRES_WORK_MEM` | `64MB` | Memoria per sort/hash per operazione |
+| `POSTGRES_MAX_CONNECTIONS` | `20` | Connessioni massime Postgres |
+
+Per microSD, impostare in `.env` i valori della colonna microSD (es.
+`POSTGRES_RANDOM_PAGE_COST=4.0`). Con Postgres esterno, applicare gli stessi
+parametri nella configurazione dell'istanza.
+
+La tabella `assets` ha `autovacuum_vacuum_scale_factor = 0.05` (migrazione
+`0033`): le mappe di visibilità restano fresche per gli index-only scan.
+Dopo un import massiccio, lo scheduler accoda anche un `VACUUM ANALYZE`
+immediato (oltre al giro notturno).
+
 ## Volumi
 
 | Percorso | Modo | Contenuto |

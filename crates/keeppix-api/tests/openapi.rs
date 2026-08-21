@@ -19,7 +19,7 @@ const HTTP_METHODS: [&str; 8] = [
 ];
 
 #[tokio::test]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::too_many_lines)]
 async fn openapi_document_is_served_and_complete() {
     let response = app()
         .oneshot(
@@ -55,6 +55,7 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/auth/totp/confirm",
         "/api/v1/auth/totp/recovery-codes",
         "/api/v1/timeline/buckets",
+        "/api/v1/timeline/geometry",
         "/api/v1/timeline",
         "/api/v1/folders/tree",
         "/api/v1/folders/{id}",
@@ -98,6 +99,43 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/flags/batch",
         "/api/v1/users/me/app-passwords",
         "/api/v1/users/me/app-passwords/{id}",
+        "/api/v1/libraries/{id}/probe",
+        "/health",
+        "/api/v1/bootstrap",
+        "/api/v1/operations/{id}/cancel",
+        "/api/v1/albums",
+        "/api/v1/albums/{id}",
+        "/api/v1/albums/{id}/assets",
+        "/api/v1/albums/{id}/assets/{asset_id}",
+        "/api/v1/albums/{id}/assets/{asset_id}/position",
+        "/api/v1/albums/{id}/refresh",
+        "/api/v1/groups",
+        "/api/v1/groups/{id}",
+        "/api/v1/groups/{id}/members",
+        "/api/v1/groups/{group_id}/members/{user_id}",
+        "/api/v1/permissions",
+        "/api/v1/permissions/explain",
+        "/api/v1/permissions/{id}",
+        "/api/v1/shared-with-me",
+        "/api/v1/share/links",
+        "/api/v1/share/links/{id}",
+        "/api/v1/guest-uploads/{id}/approve",
+        "/api/v1/share/{token}",
+        "/api/v1/share/{token}/assets",
+        "/api/v1/share/{token}/auth",
+        "/api/v1/share/{token}/uploads",
+        "/api/v1/audit",
+        "/api/v1/backup/preferences",
+        "/api/v1/backup/destinations",
+        "/api/v1/backup/destinations/{id}",
+        "/api/v1/backup/destinations/{id}/test",
+        "/api/v1/backup/runs",
+        "/api/v1/backup/run",
+        "/api/v1/restore/inspect",
+        "/api/v1/restore",
+        "/api/v1/upload/check",
+        "/api/v1/upload",
+        "/api/v1/upload/{id}",
     ] {
         assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
     }
@@ -206,8 +244,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 81,
-        "il documento deve descrivere ottantuno operazioni"
+        checked, 139,
+        "il documento deve descrivere centotrentanove operazioni"
     );
 }
 
@@ -255,6 +293,17 @@ fn security_requirements_name_a_declared_scheme() {
     assert_eq!(
         protected,
         [
+            "/api/v1/albums",
+            "/api/v1/albums",
+            "/api/v1/albums/{id}",
+            "/api/v1/albums/{id}",
+            "/api/v1/albums/{id}",
+            "/api/v1/albums/{id}/assets",
+            "/api/v1/albums/{id}/assets/{asset_id}",
+            "/api/v1/albums/{id}/assets/{asset_id}",
+            "/api/v1/albums/{id}/assets/{asset_id}/position",
+            "/api/v1/albums/{id}/refresh",
+            "/api/v1/assets/batch/delete",
             "/api/v1/assets/{id}",
             "/api/v1/assets/{id}",
             "/api/v1/assets/{id}/flags",
@@ -264,6 +313,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/assets/{id}/restore",
             "/api/v1/assets/{id}/stack",
             "/api/v1/assets/{id}/stack/primary",
+            "/api/v1/audit",
             "/api/v1/auth/me",
             "/api/v1/auth/refresh",
             "/api/v1/auth/totp",
@@ -271,6 +321,15 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/auth/totp/confirm",
             "/api/v1/auth/totp/recovery-codes",
             "/api/v1/auth/totp/setup",
+            "/api/v1/backup/destinations",
+            "/api/v1/backup/destinations",
+            "/api/v1/backup/destinations/{id}",
+            "/api/v1/backup/destinations/{id}/test",
+            "/api/v1/backup/preferences",
+            "/api/v1/backup/preferences",
+            "/api/v1/backup/run",
+            "/api/v1/backup/runs",
+            "/api/v1/bootstrap",
             "/api/v1/duplicates",
             "/api/v1/duplicates/{content_hash}",
             "/api/v1/duplicates/{content_hash}/resolve",
@@ -278,14 +337,24 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/folders/tree",
             "/api/v1/folders/{id}",
             "/api/v1/folders/{id}/children",
+            "/api/v1/groups",
+            "/api/v1/groups",
+            "/api/v1/groups/{group_id}/members/{user_id}",
+            "/api/v1/groups/{group_id}/members/{user_id}",
+            "/api/v1/groups/{id}",
+            "/api/v1/groups/{id}",
+            "/api/v1/groups/{id}/members",
+            "/api/v1/guest-uploads/{id}/approve",
             "/api/v1/libraries",
             "/api/v1/libraries",
             "/api/v1/libraries/preview",
             "/api/v1/libraries/{id}",
             "/api/v1/libraries/{id}",
             "/api/v1/libraries/{id}",
+            "/api/v1/libraries/{id}/probe",
             "/api/v1/libraries/{id}/scan",
             "/api/v1/libraries/{id}/scan",
+            "/api/v1/libraries/{id}/storage",
             "/api/v1/map/clusters",
             "/api/v1/map/regions",
             "/api/v1/map/regions",
@@ -299,18 +368,35 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/metadata/batch/recalculate-timezones/preview",
             "/api/v1/metadata/batch/shift-taken-at",
             "/api/v1/metadata/batch/{batch_id}/undo",
+            "/api/v1/operations/{id}/cancel",
+            "/api/v1/permissions",
+            "/api/v1/permissions",
+            "/api/v1/permissions/explain",
+            "/api/v1/permissions/{id}",
+            "/api/v1/permissions/{id}",
             "/api/v1/places/reverse",
             "/api/v1/places/suggest",
             "/api/v1/problems",
+            "/api/v1/restore",
+            "/api/v1/restore/inspect",
             "/api/v1/saved-searches",
             "/api/v1/saved-searches",
             "/api/v1/search",
             "/api/v1/search/suggest",
+            "/api/v1/share/links",
+            "/api/v1/share/links",
+            "/api/v1/share/links/{id}",
+            "/api/v1/shared-with-me",
             "/api/v1/sync/delta",
             "/api/v1/timeline",
             "/api/v1/timeline/buckets",
+            "/api/v1/timeline/geometry",
             "/api/v1/trash",
             "/api/v1/trash/empty",
+            "/api/v1/upload",
+            "/api/v1/upload/check",
+            "/api/v1/upload/{id}",
+            "/api/v1/upload/{id}",
             "/api/v1/users",
             "/api/v1/users",
             "/api/v1/users/me/app-passwords",
@@ -319,6 +405,11 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/users/me/home",
             "/api/v1/users/me/home",
             "/api/v1/users/me/password",
+            "/api/v1/users/me/preferences",
+            "/api/v1/users/me/preferences",
+            "/api/v1/users/me/sessions",
+            "/api/v1/users/me/sessions/revoke-others",
+            "/api/v1/users/me/sessions/{id}",
             "/api/v1/users/{id}",
             "/api/v1/users/{id}/disable",
             "/api/v1/users/{id}/enable",
@@ -364,18 +455,39 @@ fn operation_ids_are_explicit_and_unique() {
     assert_eq!(
         ids,
         [
+            "albums_add_asset",
+            "albums_create",
+            "albums_delete",
+            "albums_get",
+            "albums_list",
+            "albums_list_assets",
+            "albums_patch",
+            "albums_refresh",
+            "albums_remove_asset",
+            "albums_reorder_asset",
             "app_passwords_create",
             "app_passwords_list",
             "app_passwords_revoke",
+            "assets_batch_delete",
             "assets_delete",
             "assets_get",
             "assets_restore",
             "assets_stack_get",
             "assets_stack_set_primary",
+            "audit_list",
             "auth_login",
             "auth_logout",
             "auth_me",
             "auth_refresh",
+            "backup_destinations_create",
+            "backup_destinations_delete",
+            "backup_destinations_list",
+            "backup_destinations_test",
+            "backup_preferences",
+            "backup_preferences_put",
+            "backup_run_now",
+            "backup_runs_list",
+            "bootstrap_get",
             "delta",
             "duplicates_list",
             "duplicates_members",
@@ -386,14 +498,25 @@ fn operation_ids_are_explicit_and_unique() {
             "folders_children",
             "folders_move",
             "folders_tree",
+            "groups_add_member",
+            "groups_create",
+            "groups_delete",
+            "groups_list",
+            "groups_list_members",
+            "groups_patch",
+            "groups_remove_member",
+            "guest_uploads_approve",
+            "health_get",
             "libraries_create",
             "libraries_delete",
             "libraries_get",
             "libraries_list",
             "libraries_patch",
             "libraries_preview",
+            "libraries_probe",
             "libraries_scan_start",
             "libraries_scan_status",
+            "libraries_storage",
             "map_clusters",
             "map_regions_cancel",
             "map_regions_delete",
@@ -416,16 +539,36 @@ fn operation_ids_are_explicit_and_unique() {
             "metadata_recalculate_timezones_preview",
             "metadata_shift_taken_at",
             "metadata_undo_batch",
+            "operations_cancel",
+            "permissions_explain",
+            "permissions_grant",
+            "permissions_list",
+            "permissions_patch",
+            "permissions_revoke",
+            "permissions_shared_with_me",
             "places_reverse",
             "places_suggest",
             "problems_list",
+            "restore_inspect",
+            "restore_restore",
             "saved_searches_create",
             "saved_searches_list",
             "search_run",
             "search_suggest",
+            "sessions_list",
+            "sessions_revoke",
+            "sessions_revoke_others",
             "setup_create",
             "setup_status",
+            "share_links_create",
+            "share_links_list",
+            "share_links_revoke",
+            "share_public_assets",
+            "share_public_auth",
+            "share_public_info",
+            "share_public_upload",
             "timeline_buckets",
+            "timeline_geometry",
             "timeline_page",
             "totp_confirm",
             "totp_disable",
@@ -434,6 +577,10 @@ fn operation_ids_are_explicit_and_unique() {
             "totp_status",
             "trash_empty",
             "trash_list",
+            "upload_check",
+            "upload_create_session",
+            "upload_session_head",
+            "upload_session_patch",
             "users_change_password",
             "users_create",
             "users_delete_home",
@@ -441,6 +588,8 @@ fn operation_ids_are_explicit_and_unique() {
             "users_enable",
             "users_list",
             "users_patch",
+            "users_preferences_get",
+            "users_preferences_patch",
             "users_set_home",
             "viewport_promote",
             "ws_connect",
@@ -490,8 +639,163 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 81,
-        "il documento deve descrivere ottantuno operazioni"
+        checked, 139,
+        "il documento deve descrivere centotrentanove operazioni"
+    );
+}
+
+/// Estrae le chiamate `.route("...", VERBO(...))` dal testo di `lib.rs`,
+/// bilanciando le parentesi (una `.route(...)` può contenere più verbi
+/// incatenati, es. `get(a).post(b)`, e può andare su più righe). Non è un
+/// parser Rust: è la controparte pragmatica del fatto che axum 0.8 non offre
+/// introspezione sul `Router` (vedi il commento sopra
+/// `documented_operations_are_all_mounted`) — l'unica fonte di verità
+/// sulle rotte davvero montate è il testo che le dichiara.
+fn extract_route_calls(source: &str) -> Vec<(String, Vec<&'static str>)> {
+    const VERBS: [(&str, &str); 6] = [
+        ("get(", "get"),
+        ("post(", "post"),
+        ("put(", "put"),
+        ("patch(", "patch"),
+        ("delete(", "delete"),
+        ("head(", "head"),
+    ];
+
+    fn is_word_boundary_before(s: &str, idx: usize) -> bool {
+        match s[..idx].chars().next_back() {
+            None => true,
+            Some(c) => !(c.is_ascii_alphanumeric() || c == '_'),
+        }
+    }
+
+    fn verbs_in(block: &str) -> Vec<&'static str> {
+        let mut found = Vec::new();
+        for (needle, verb) in VERBS {
+            let mut from = 0;
+            while let Some(rel) = block[from..].find(needle) {
+                let abs = from + rel;
+                if is_word_boundary_before(block, abs) {
+                    found.push(verb);
+                }
+                from = abs + needle.len();
+            }
+        }
+        found
+    }
+
+    let bytes = source.as_bytes();
+    let mut out = Vec::new();
+    let mut search_from = 0;
+    while let Some(rel) = source[search_from..].find(".route(") {
+        let call_start = search_from + rel;
+        let paren_open = call_start + ".route".len();
+        let mut depth = 0_i32;
+        let mut i = paren_open;
+        let mut close = None;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        let close = close
+            .unwrap_or_else(|| panic!("unbalanced .route( call at byte {call_start} of lib.rs"));
+        let block = &source[paren_open + 1..close];
+        if let Some(q1) = block.find('"') {
+            if let Some(q2_rel) = block[q1 + 1..].find('"') {
+                let path = block[q1 + 1..q1 + 1 + q2_rel].to_owned();
+                out.push((path, verbs_in(block)));
+            }
+        }
+        search_from = close + 1;
+    }
+    out
+}
+
+/// **Il controllo CI richiesto dal Task 23**: fallisce se una rotta
+/// registrata nel router (`crates/keeppix-api/src/lib.rs`) non compare in
+/// `openapi.json` con lo stesso metodo. Copre la direzione che
+/// `documented_operations_are_all_mounted` lascia esplicitamente scoperta
+/// (rotta montata e non documentata) — le due insieme chiudono il cerchio.
+///
+/// Il testo di `lib.rs` è la fonte di verità: `fn api_routes` monta sotto
+/// `/api/v1`, `fn all_routes` monta senza prefisso (eccetto `/dav/{*path}`,
+/// fuori contratto di proposito — vedi il commento in `lib.rs` — e
+/// `/api/openapi.json`, che è il documento stesso, non un'operazione).
+#[test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+fn router_registered_routes_are_all_documented() {
+    let source = include_str!("../src/lib.rs");
+
+    let api_routes_start = source
+        .find("fn api_routes(")
+        .expect("lib.rs must define fn api_routes");
+    let all_routes_start = source
+        .find("fn all_routes(")
+        .expect("lib.rs must define fn all_routes");
+    let not_found_start = source
+        .find("async fn not_found()")
+        .expect("lib.rs must define async fn not_found");
+    assert!(api_routes_start < all_routes_start);
+    assert!(all_routes_start < not_found_start);
+
+    let api_routes_body = &source[api_routes_start..all_routes_start];
+    let all_routes_body = &source[all_routes_start..not_found_start];
+
+    let mut registered: Vec<(String, &'static str)> = Vec::new();
+    for (path, verbs) in extract_route_calls(api_routes_body) {
+        let full_path = format!("/api/v1{path}");
+        for verb in verbs {
+            registered.push((full_path.clone(), verb));
+        }
+    }
+    for (path, verbs) in extract_route_calls(all_routes_body) {
+        if path.starts_with("/dav") || path == "/api/openapi.json" {
+            continue;
+        }
+        for verb in verbs {
+            registered.push((path.clone(), verb));
+        }
+    }
+
+    // Guardia anti-regressione del parser stesso: se smettesse di trovare
+    // rotte (es. per una riformattazione di `lib.rs` che rompe l'assunzione
+    // su `.route(`), questo test passerebbe a vuoto senza controllare nulla.
+    assert!(
+        registered.len() > 100,
+        "il parser ha trovato solo {} rotte in lib.rs: probabilmente si è rotto, non che le rotte siano diminuite",
+        registered.len()
+    );
+
+    let doc =
+        serde_json::to_value(<keeppix_api::openapi::ApiDoc as utoipa::OpenApi>::openapi()).unwrap();
+    let paths = doc["paths"].as_object().unwrap();
+
+    let mut missing = Vec::new();
+    for (path, verb) in &registered {
+        let documented = paths
+            .get(path)
+            .and_then(|item| item.as_object())
+            .is_some_and(|item| item.contains_key(*verb));
+        if !documented {
+            missing.push(format!("{} {path}", verb.to_uppercase()));
+        }
+    }
+
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "rotte montate in lib.rs ma assenti da openapi.json (manca #[utoipa::path] o la \
+         registrazione in ApiDoc::paths): {missing:#?}"
     );
 }
 

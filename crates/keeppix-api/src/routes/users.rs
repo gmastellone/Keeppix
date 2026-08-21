@@ -83,7 +83,12 @@ pub async fn list(
     AdminAuth(ctx): AdminAuth,
 ) -> Result<Json<Vec<UserView>>, Problem> {
     let users = UserRepo::new(&state.db).list(&ctx).await?;
-    Ok(Json(users.iter().map(UserView::from).collect()))
+    Ok(Json(
+        users
+            .iter()
+            .map(|u| UserView::new(u, &state.server_name))
+            .collect(),
+    ))
 }
 
 /// # Errors
@@ -149,7 +154,10 @@ pub async fn create(
             },
         )
         .await?;
-    Ok((StatusCode::CREATED, Json(UserView::from(&user))))
+    Ok((
+        StatusCode::CREATED,
+        Json(UserView::new(&user, &state.server_name)),
+    ))
 }
 
 /// # Errors
@@ -185,7 +193,7 @@ pub async fn patch(
         )
         .await?;
     state.sessions.clear();
-    Ok(Json(UserView::from(&user)))
+    Ok(Json(UserView::new(&user, &state.server_name)))
 }
 
 /// # Errors

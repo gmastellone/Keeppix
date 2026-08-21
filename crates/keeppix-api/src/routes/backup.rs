@@ -214,6 +214,19 @@ pub async fn put_preferences(
 
 /// # Errors
 /// `401`/`403`.
+#[utoipa::path(
+    get,
+    path = "/api/v1/backup/destinations",
+    tag = "backup",
+    operation_id = "backup_destinations_list",
+    summary = "List backup destinations",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "Destinazioni configurate (segreti oscurati)", body = Vec<DestinationView>),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo admin", body = Problem)
+    )
+)]
 pub async fn list_destinations(
     State(state): State<AppState>,
     AdminAuth(ctx): AdminAuth,
@@ -234,6 +247,21 @@ pub async fn list_destinations(
 
 /// # Errors
 /// `401`/`403`/`400`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/backup/destinations",
+    tag = "backup",
+    operation_id = "backup_destinations_create",
+    summary = "Create a backup destination",
+    security(("session_cookie" = [])),
+    request_body = NewDestinationRequest,
+    responses(
+        (status = 201, description = "Destinazione creata e verificata raggiungibile", body = DestinationView),
+        (status = 400, description = "Destinazione non raggiungibile o kind non valido", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo admin", body = Problem)
+    )
+)]
 pub async fn create_destination(
     State(state): State<AppState>,
     AdminAuth(ctx): AdminAuth,
@@ -273,6 +301,20 @@ pub async fn create_destination(
 
 /// # Errors
 /// `401`/`403`.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/backup/destinations/{id}",
+    tag = "backup",
+    operation_id = "backup_destinations_delete",
+    summary = "Delete a backup destination",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della destinazione")),
+    responses(
+        (status = 204, description = "Destinazione cancellata"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo admin", body = Problem)
+    )
+)]
 pub async fn delete_destination(
     State(state): State<AppState>,
     AdminAuth(ctx): AdminAuth,
@@ -286,6 +328,21 @@ pub async fn delete_destination(
 
 /// # Errors
 /// `401`/`403`/`400`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/backup/destinations/{id}/test",
+    tag = "backup",
+    operation_id = "backup_destinations_test",
+    summary = "Test that a backup destination is reachable",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della destinazione")),
+    responses(
+        (status = 204, description = "Destinazione raggiungibile"),
+        (status = 400, description = "Destinazione non raggiungibile", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo admin", body = Problem)
+    )
+)]
 pub async fn test_destination(
     State(state): State<AppState>,
     AdminAuth(ctx): AdminAuth,
@@ -302,6 +359,19 @@ pub async fn test_destination(
 
 /// # Errors
 /// `401`/`403`.
+#[utoipa::path(
+    get,
+    path = "/api/v1/backup/runs",
+    tag = "backup",
+    operation_id = "backup_runs_list",
+    summary = "List past backup runs",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "Ultimi 50 run, più recente prima", body = Vec<RunView>),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo admin", body = Problem)
+    )
+)]
 pub async fn list_runs(
     State(state): State<AppState>,
     AdminAuth(ctx): AdminAuth,
@@ -314,6 +384,20 @@ pub async fn list_runs(
 ///
 /// # Errors
 /// `401`/`403`/`503`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/backup/run",
+    tag = "backup",
+    operation_id = "backup_run_now",
+    summary = "Run a backup immediately",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 202, description = "Backup eseguito, run registrata"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo admin", body = Problem),
+        (status = 400, description = "Backup fallito", body = Problem)
+    )
+)]
 pub async fn run_now(
     State(state): State<AppState>,
     AdminAuth(_ctx): AdminAuth,

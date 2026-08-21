@@ -63,6 +63,33 @@ async fn authenticated_responses_are_marked_private() {
     assert_eq!(me.headers().get("cache-control").unwrap(), "private");
 }
 
+/// §61 (Profilo) mostra il nome del server e l'ultima modifica password:
+/// `UserView` li porta ora su ogni risposta che restituisce l'utente, non
+/// solo su `/auth/me`.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn me_response_carries_server_name_and_password_changed_at() {
+    let server =
+        TestServer::start_with(|state| state.with_server_name("Casa Mastellone".to_owned())).await;
+    setup(&server).await;
+
+    let me: serde_json::Value = server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(me["user"]["server_name"], "Casa Mastellone");
+    assert!(
+        me["user"]["password_changed_at"].is_string(),
+        "password_changed_at deve essere una data, non assente: {me}"
+    );
+}
+
 /// Le tre rejection che axum produce **prima** dell'handler devono restare
 /// dentro il contratto RFC 9457 (spec §9.2): `Content-Type` sbagliato, corpo
 /// malformato, metodo sbagliato. Senza il wrapper `keeppix_api::Json` e il
