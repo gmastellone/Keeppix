@@ -36,6 +36,7 @@ async fn expected_tables_exist() {
         "groups",
         "group_members",
         "map_regions",
+        "operations",
         "places",
         "sessions",
         "system_settings",
