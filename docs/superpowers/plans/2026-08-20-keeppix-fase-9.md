@@ -34,7 +34,18 @@ l'asset è irraggiungibile. Nell'ordine giusto, un fallimento lascia il file spo
 vecchia: la scansione successiva lo ritrova. **Il caso peggiore è recuperabile.** — *Costo se
 sbagliato:* asset fantasma che nessuna scansione ripara.
 
-Ogni spostamento verifica che la destinazione **non sia occupata**: non si sovrascrive mai.
+Ogni spostamento verifica che la destinazione **non sia occupata**: non si sovrascrive mai —
+best-effort contro ciò che Keeppix conosce (vincolo `UNIQUE`), non una garanzia atomica di
+filesystem: `rename()` su POSIX sovrascrive in silenzio un file non ancora tracciato (dettagli
+in spec §1.2). Il permesso su partenza e destinazione si verifica con **`FolderRepo::assert_editor`
+chiamato due volte**, non `assert_can_edit_assets` (che risolve solo la cartella corrente di un
+asset esistente, non una destinazione arbitraria — dettagli in spec §1.2).
+
+**`FailureReason` (Fase 10, `crates/keeppix-api/src/bulk.rs`) non ha una variante per la
+collisione di nome**: le cinque esistenti (`Unreachable`/`PermissionDenied`/`FileMissing`/
+`Timeout`/`Unknown`) mappano oggi una collisione su `Unknown`, che in un ambito da 500 file non
+dice all'utente cosa è successo. Aggiungere una variante `Collision` (o simile) prima di questo
+task, non dopo.
 
 ---
 
@@ -112,8 +123,15 @@ reso esplicito nella richiesta e nel testo.
 stesso nome. Il prototipo ha un solo `filename` per foto e non affronta il caso.
 
 ### Task 9 — Annullare
-Via `metadata_batches`, che esiste già con il suo `undo`. Una rinomina di massa è annullabile
-come una modifica di metadati.
+**Non è un drop-in del `undo` esistente.** `metadata_batches`/`OverridesRepo::undo_batch`
+(`crates/keeppix-db/src/overrides.rs`) opera **solo** su colonne di `asset_overrides` (titolo,
+descrizione, data, posizione, orientamento) — `filename`/`folder_id` vivono sulla tabella
+`assets`, e `restore_previous` non tocca il filesystem: scrive/cancella righe, non sposta file.
+Si riusa il **concetto** di raggruppamento e controllo di `metadata_batches` (stesso `batch_id`,
+stesso audit), ma serve un ramo nuovo che richiami `move_asset` **al contrario** per ogni file
+del lotto, non solo un ripristino di colonna diversa. Anche la guardia "già sincronizzato"
+(`xmp_written_at >= applied_at`) è specifica alla sincronizzazione XMP e non si applica a un
+annullamento di rinomina — verificare se serve una guardia equivalente per lo spostamento fisico.
 
 ---
 
@@ -123,6 +141,13 @@ come una modifica di metadati.
 Rinomina di massa e spostamenti usano avanzamento e annullamento della **Fase 10 Task 16**:
 `operation_id`, eventi sul WebSocket, `cancel`. **Annullare a metà produce una riuscita
 parziale, non un rollback**: le rinomine già fatte sono fatte, e vanno elencate.
+
+**Due cose da aggiungere esplicitamente, non assumere:**
+- `OperationKind` (`crates/keeppix-domain/src/operation.rs`) oggi ha **una sola variante**,
+  `LibraryScan` — serve una nuova variante (es. `BulkRename`) prima che questo task possa
+  registrare un'operazione; il commento nel codice la anticipa apposta.
+- La risposta della rinomina di massa **è** `BulkOutcome`/`BulkFailure` con `FailureReason`
+  (`crates/keeppix-api/src/bulk.rs`, stesso involucro della Fase 10) — non una forma nuova.
 
 ### Task 11 — Documenti e la prova che conta
 
