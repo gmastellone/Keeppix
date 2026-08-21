@@ -935,3 +935,106 @@ osservate rosse (kind letterale rotto in `suggest`, `ORDER BY` disallineato
 in `fetch_grid`) e ripristinate, per confermare che i nuovi test provano
 davvero ciò che dichiarano.
 
+## Task 15 — «Condivisi con me», e i pezzi mancanti del profilo
+
+Il brief (`task-15-brief.md`) non era presente nella cartella SDD del task;
+i requisiti sono stati letti dal piano di fase (`plans/2026-08-20-keeppix-
+fase-10.md`, sezione Task 15) e dallo spec funzionale UI (§29 "Condivisi con
+me", §61 "Profilo").
+
+Ruling: **`password_changed_at` prende `default now()` più un backfill a
+`created_at`**, non `NULL` nullable. — Il Profilo (§61) mostra sempre
+"Ultima modifica: N mesi fa", quindi la colonna non può essere opzionale;
+`now()` copre chi si registra da qui in avanti (una password appena
+impostata è appena cambiata), il backfill riporta gli account esistenti
+alla loro creazione — l'unico istante in cui è certo che la password
+corrente sia stata scritta. `set_password_hash` la aggiorna a `now()` a
+ogni cambio. — *Costo se sbagliato:* nessuno grave, è solo una data
+mostrata in un'etichetta informale ("circa").
+
+Ruling: **`server_name` è un campo di configurazione del server
+(`KEEPPIX_SERVER_NAME`, default `"Keeppix"`)**, non una riga in
+`system_settings`. — È un valore letto a ogni richiesta (`UserView` lo
+porta su ogni risposta di login/me), fisso per la vita del processo, e non
+ha un endpoint di scrittura in questo task: non serve la flessibilità
+runtime di una tabella, e `Config`/`AppState` sono già il canale per valori
+di questo tipo (vedi `webp_quality`, `watch_poll_secs`). — *Costo se
+sbagliato:* se in futuro serve renderlo modificabile da UI senza riavviare
+il server, va spostato in `system_settings` — un solo punto da cambiare,
+`UserView::new` prende già una `&str` a parte.
+
+Ruling: **`UserView::from(&User)` è diventato `UserView::new(&User,
+&str)`**, non un secondo costruttore parallelo. — Era una funzione pura
+senza accesso a `AppState`; `server_name` vive lì. Un secondo metodo
+avrebbe lasciato `From` silenziosamente incompleto (compilerebbe ma
+ometterebbe il campo) per chi lo richiama per abitudine. Tutti i punti di
+costruzione (`auth::login`, `auth::me`, `users::list/create/patch`,
+`setup::setup`) sono stati aggiornati nello stesso commit. — *Costo se
+sbagliato:* nessuno, è un refactor meccanico verificato dal type-checker.
+
+Ruling: **il conteggio elementi di `GET /share/links` conta solo gli asset
+`indexed`**, stessa regola dei conteggi cartella del Task 11. — Un link
+condiviso non deve promettere "246 elementi" e poi mostrarne meno perché
+alcuni sono ancora in coda di scansione o marcati non-indicizzati. Il test
+`item_counts_reports_indexed_assets_for_a_folder_link` semina apposta un
+asset non indicizzato per provare che non viene contato. — *Costo se
+sbagliato:* il numero visto nella scheda di condivisione non corrisponde a
+quanto si vede aprendo il link.
+
+Ruling: **il test `sidebar_endpoints_do_not_expose_per_row_counts` (Task
+11) andava aggiornato, non contraddetto in silenzio.** — Asseriva che
+nessun oggetto per-riga portasse un conteggio; `item_count` su
+`GET /share/links` è un conteggio per-riga voluto da questo task, diverso
+dai conteggi di cartelle/album che quel test protegge davvero (quelli
+restano assenti). L'assert è stato reso specifico (`item_count` ammesso
+solo per i link, ancora vietato per cartelle/album) invece di rimuovere la
+protezione. — *Costo se sbagliato:* un conteggio per-riga tornerebbe su
+cartelle o album senza che nessun test lo segnali.
+
+Ruling: **`SharedWithMeItem.via_group` è `Some(nome)` solo quando l'accesso
+è *puramente* di gruppo**, `None` se l'utente ha (anche) una concessione
+diretta sullo stesso oggetto. — Un utente con permesso diretto non deve
+vedere "condiviso tramite gruppo X" se in realtà gli è stato dato
+direttamente; la scheda deve riflettere l'origine più diretta, non una
+qualunque. Sugli oggetti con doppia origine vince il ruolo più alto delle
+due (stessa regola di `explain`), coerentemente con "il permesso più
+permissivo vince" già stabilito per il resto del sistema dei permessi.
+Verificato con
+`shared_with_me_collapses_direct_and_group_grants_on_the_same_object` e con
+`shared_with_me_shows_the_group_origin_not_only_direct_grants`, quest'ultimo
+osservato **rosso** rimuovendo temporaneamente la logica "diretto vince su
+group-only" (tutti gli oggetti tornavano con `via_group` anche quando
+c'era una concessione diretta) prima di ripristinarla. — *Costo se
+sbagliato:* un utente vedrebbe un'origine di condivisione sbagliata,
+confondendo chi gli ha davvero dato accesso.
+
+Ruling: **la visibilità implicita di un admin su tutto non compare in
+`/shared-with-me`.** — La query legge solo righe di `permissions`; un admin
+non ha (né riceve) una riga per ogni oggetto che può già vedere per ruolo.
+"Condivisi con me" deve elencare concessioni esplicite, non "tutto ciò che
+posso vedere" — altrimenti la lista di un admin sarebbe l'intera libreria.
+Verificato da `shared_with_me_never_lists_objects_the_user_cannot_see`
+(che copre anche il caso duale: nessun oggetto fuori scope compare).
+
+Task 15: complete (commits ac79bab feat(db) password_changed_at + f00eac2
+feat(api) UserView additive fields + 888949e feat(api) item_count su
+share/links + 3c6fb28 feat(api) GET /shared-with-me; tests green:
+`keeppix-db` users.rs 15/15 [+2 nuovi], share_links.rs 7/7 [+4 nuovi:
+conteggio batched per folder/album/asset, solo indexed], permissions.rs
+22/22 [+5 nuovi: grant diretto, origine gruppo, member count album, scope
+enforcement, collasso diretto+gruppo], migrations.rs invariato; `keeppix-
+server` config.rs 8/8 [+2 nuovi: default e override di `server_name`];
+`keeppix-api` auth.rs 28/28 [+1 nuovo: `me` porta i due campi additivi],
+shared_with_me.rs 3/3 [nuovo file: grant diretto compare, nessuna
+concessione → lista vuota, richiede autenticazione], sidebar_load.rs 1/1
+[asserzione aggiornata, non rimossa], permissions_roles.rs 2/2,
+share_link_channels.rs 3/3, openapi.rs 7/7 [snapshot rigenerato: `UserView`
++2 campi; `permissions`/`share` non erano e non sono nel documento
+OpenAPI]. `cargo fmt --check` e `cargo clippy --workspace --all-targets --
+-D warnings` verdi. `./scripts/test.sh` completo **non eseguito** (stesso
+motivo dei task precedenti); eseguiti tutti i test dei crate/file toccati
+dal task, più tre mutazioni manuali osservate rosse e ripristinate (route
+`/shared-with-me` assente → 404 sui tre test nuovi; logica "diretto vince
+su group-only" rimossa → `via_group` sempre popolato) per confermare che i
+nuovi test provano davvero ciò che dichiarano.
+
