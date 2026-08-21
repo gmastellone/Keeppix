@@ -77,6 +77,7 @@ impl OperationStatus {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -101,7 +102,10 @@ mod tests {
             OperationStatus::Cancelled,
             OperationStatus::Failed,
         ] {
-            assert_eq!(OperationStatus::parse(status.as_str()).expect("round-trip"), status);
+            assert_eq!(
+                OperationStatus::parse(status.as_str()).expect("round-trip"),
+                status
+            );
         }
     }
 

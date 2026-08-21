@@ -57,13 +57,16 @@ impl OperationRow {
             done: self.done,
             total: self.total,
             phase: self.phase,
-            succeeded: self.succeeded_asset_ids.into_iter().map(AssetId::from_uuid).collect(),
+            succeeded: self
+                .succeeded_asset_ids
+                .into_iter()
+                .map(AssetId::from_uuid)
+                .collect(),
         })
     }
 }
 
-const COLUMNS: &str =
-    "id, kind, owner_id, status, done, total, phase, succeeded_asset_ids";
+const COLUMNS: &str = "id, kind, owner_id, status, done, total, phase, succeeded_asset_ids";
 
 impl<'a> OperationsRepo<'a> {
     #[must_use]
@@ -75,7 +78,11 @@ impl<'a> OperationsRepo<'a> {
     ///
     /// # Errors
     /// `Forbidden` senza utente autenticato; `Connection` su errore DB.
-    pub async fn create(&self, ctx: &AuthContext, kind: OperationKind) -> Result<Operation, DbError> {
+    pub async fn create(
+        &self,
+        ctx: &AuthContext,
+        kind: OperationKind,
+    ) -> Result<Operation, DbError> {
         let owner = ctx.user_id().ok_or(DbError::Forbidden)?;
         let id = Uuid::now_v7();
         let row: OperationRow = sqlx::query_as(&format!(
