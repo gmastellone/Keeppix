@@ -33,7 +33,10 @@ async fn a_different_user_cannot_see_someone_elses_operation() {
     let other = seed_user(&test, admin, "altro").await;
     let repo = OperationsRepo::new(test.db());
     let op = repo
-        .create(&AuthContext::user(admin, SystemRole::Admin), OperationKind::LibraryScan)
+        .create(
+            &AuthContext::user(admin, SystemRole::Admin),
+            OperationKind::LibraryScan,
+        )
         .await
         .unwrap();
 
@@ -52,7 +55,10 @@ async fn an_admin_can_see_any_operation() {
     let other = seed_user(&test, admin, "altro").await;
     let repo = OperationsRepo::new(test.db());
     let op = repo
-        .create(&AuthContext::user(other, SystemRole::User), OperationKind::LibraryScan)
+        .create(
+            &AuthContext::user(other, SystemRole::User),
+            OperationKind::LibraryScan,
+        )
         .await
         .unwrap();
 
@@ -90,7 +96,10 @@ async fn request_cancel_is_forbidden_for_a_non_owner() {
     let other = seed_user(&test, admin, "altro").await;
     let repo = OperationsRepo::new(test.db());
     let op = repo
-        .create(&AuthContext::user(admin, SystemRole::Admin), OperationKind::LibraryScan)
+        .create(
+            &AuthContext::user(admin, SystemRole::Admin),
+            OperationKind::LibraryScan,
+        )
         .await
         .unwrap();
 
@@ -198,10 +207,18 @@ async fn list_running_only_returns_the_callers_own_running_operations() {
     let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
     let other_ctx = AuthContext::user(other, SystemRole::User);
 
-    let running = repo.create(&admin_ctx, OperationKind::LibraryScan).await.unwrap();
-    let finished = repo.create(&admin_ctx, OperationKind::LibraryScan).await.unwrap();
+    let running = repo
+        .create(&admin_ctx, OperationKind::LibraryScan)
+        .await
+        .unwrap();
+    let finished = repo
+        .create(&admin_ctx, OperationKind::LibraryScan)
+        .await
+        .unwrap();
     repo.finish_done(finished.id).await.unwrap();
-    repo.create(&other_ctx, OperationKind::LibraryScan).await.unwrap();
+    repo.create(&other_ctx, OperationKind::LibraryScan)
+        .await
+        .unwrap();
 
     let seen = repo.list_running(&admin_ctx).await.unwrap();
     assert_eq!(seen.len(), 1);
