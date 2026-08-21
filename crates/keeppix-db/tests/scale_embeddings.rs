@@ -9,8 +9,7 @@ use std::time::{Duration, Instant};
 
 use harness::TestDb;
 use keeppix_db::{
-    FolderRepo, LibraryRepo, MODEL_VERSION, SearchNode, SearchRepo, VisibilityScope,
-    vector_literal,
+    FolderRepo, LibraryRepo, MODEL_VERSION, SearchNode, SearchRepo, VisibilityScope, vector_literal,
 };
 use keeppix_domain::{AuthContext, NewLibrary, SystemRole};
 

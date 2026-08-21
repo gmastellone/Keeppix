@@ -55,8 +55,8 @@ pub use credentials::AppPasswordRepo;
 pub use dav_locks::DavLockRepo;
 pub use duplicates::{DuplicateGroup, DuplicateRepo};
 pub use embeddings::{
-    AssetEmbedding, EmbeddingRepo, PendingEmbedding, MODEL_VERSION,
-    MODEL_VERSION as EMBEDDING_MODEL_VERSION, vector_literal,
+    AssetEmbedding, EmbeddingRepo, MODEL_VERSION, MODEL_VERSION as EMBEDDING_MODEL_VERSION,
+    PendingEmbedding, vector_literal,
 };
 pub use error::DbError;
 pub use flags::FlagRepo;
