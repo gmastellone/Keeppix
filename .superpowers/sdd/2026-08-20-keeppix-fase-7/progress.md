@@ -156,3 +156,26 @@ sbagliato: CI senza Docker image locale fallisce il boot del container
 
 Task 4: complete (commits 4df8093, 0a3332c, 00313db; test verdi su
 `keeppix-db` migrations + pgvector)
+
+## Task 5 — Calcolare le impronte
+
+Ruling: **`libraries.culling_root_folder_id` arriva in migrazione `0044`
+(nullable), non si aspetta Fase 9.** — Perché: il predicato
+`NOT (f.path <@ cull.path)` deve compilare già ora; con NULL la LEFT JOIN
+rende il filtro inerte. Fase 9 imposterà il valore, non ricreerà la colonna.
+— Costo se sbagliato: migrazione Fase 9 dovrà usare `ADD COLUMN IF NOT EXISTS`
+(o diventare no-op).
+
+Ruling: **`model_version` stabile = `mobileclip2-s2` (`keeppix_media::MODEL_VERSION`).**
+— Allineato a `extra.ai.model_version` del probe quando `inference_status=ok`.
+— Costo se sbagliato: cambio nome = ricalcolo completo di tutti gli embedding.
+
+Ruling: **`JobKind::EmbedAssets` + `EmbeddingRepo::{list_pending,upsert,get}`.**
+— Media fa solo inferenza a lotto (`embed_images_nchw_batch`); jobs orchestra
+thumb→NCHW→batch→DB. Ingresso = `*-thumb.webp` 240px; originali non letti
+(test: originali corrotti dopo derive). Esclusi: culling subtree, già
+embedded stessa versione, kind ≠ `image`, hash assente / thumb mancante.
+— Costo se sbagliato: video restano fuori finché non si decide un percorso
+dedicato; accettabile per questa fase.
+
+Task 5: complete
