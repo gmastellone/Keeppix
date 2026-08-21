@@ -23,7 +23,7 @@ pub use derive::{
 pub use exif::read_exif;
 pub use hash::hash_file;
 pub use kind::detect_kind;
-pub use probe::{Capabilities, VideoBackend, probe};
+pub use probe::{AiHostFacts, Capabilities, VideoBackend, probe};
 pub use raw::{
     PreviewSource, RawError, RawPreview, dcraw_emu_available, demosaic_half,
     extract_embedded_preview,

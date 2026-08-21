@@ -76,9 +76,7 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
         tracing::info!(timezones = imported, "timezone boundaries imported");
     }
 
-    if let Err(e) = keeppix_jobs::watch::persist_capabilities(&db).await {
-        tracing::warn!(error = %e, "hardware probe failed");
-    }
+    log_hardware_probe(&db).await;
     let library_watchers = match keeppix_jobs::watch::spawn_all(
         &db,
         keeppix_jobs::watch::DEFAULT_DEBOUNCE,
@@ -163,6 +161,21 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+async fn log_hardware_probe(db: &Db) {
+    if let Err(e) = keeppix_jobs::watch::persist_capabilities(db).await {
+        tracing::warn!(error = %e, "hardware probe failed");
+        return;
+    }
+    if let Ok(Some(ai)) = keeppix_jobs::watch::load_ai_host_facts(db).await {
+        tracing::info!(
+            free_ram_bytes = ai.free_ram_bytes,
+            cpu_cores = ai.cpu_cores,
+            inference_status = %ai.inference_status,
+            "ai host probe"
+        );
+    }
 }
 
 #[allow(clippy::too_many_lines)]
