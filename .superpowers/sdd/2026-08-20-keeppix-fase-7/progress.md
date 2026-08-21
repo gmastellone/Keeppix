@@ -288,3 +288,7 @@ mentirebbero (503). `provision_dedicated` resta postgis-only (test 503).
 Task 7: complete
 
 Ruling: **/tags e /tags/{id} in wired-exceptions → fase-11.** — Task 7 è solo API; la pagina Tag/categorie è UI della 11 (come bootstrap/timeline). — Costo se sbagliato: eccezione da togliere quando arrivano i componenti Vue.
+
+Ruling: **API harness: postgis di default; `start_with_vector` solo per tags.** — Forzare keeppix-db:dev su tutti i test API in CI (URL senza vector) ha riacceso il flake bootstrap (`individual=0`). Stesso schema di keeppix-jobs. — Costo se sbagliato: dimenticare start_with_vector su un nuovo test AI → 503.
+
+Ruling: **budget bootstrap → capture sqlx global + lock.** — `set_default` TLS perde eventi quando sqlx logga da un altro worker sotto `--test-threads>1`. `set_global_default` una volta + `BUDGET_LOCK` tra i due test. — Costo se sbagliato: un altro test del binario che chiama set_global_default per primo spegne il capture (assert individual>0 fallisce esplicito).
