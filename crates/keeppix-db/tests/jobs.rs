@@ -34,6 +34,64 @@ async fn enqueue_is_idempotent_on_dedup_key() {
     assert_eq!(first.id, second.id);
 }
 
+/// Fase 10 Task 21: un solo giro di rete per un intero lotto invece di uno
+/// per file.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn enqueue_many_inserts_every_item() {
+    let test = TestDb::start().await;
+    let repo = JobRepo::new(test.db());
+
+    let items = vec![
+        (json!({"asset_id": "a"}), "meta:a".to_owned()),
+        (json!({"asset_id": "b"}), "meta:b".to_owned()),
+        (json!({"asset_id": "c"}), "meta:c".to_owned()),
+    ];
+    repo.enqueue_many(JobKind::ExtractMetadata, &items, JobPriority::Background)
+        .await
+        .unwrap();
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM jobs WHERE kind = 'extract_metadata' AND status = 'pending'",
+    )
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    assert_eq!(count, 3);
+}
+
+/// Come `enqueue`: un `dedup_key` già in coda `pending`/`running` non deve
+/// produrre una seconda riga, nemmeno dentro lo stesso lotto.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn enqueue_many_respects_dedup_key_against_existing_rows() {
+    let test = TestDb::start().await;
+    let repo = JobRepo::new(test.db());
+    repo.enqueue(
+        JobKind::ExtractMetadata,
+        json!({"asset_id": "a"}),
+        JobPriority::Background,
+        Some("meta:a"),
+    )
+    .await
+    .unwrap();
+
+    let items = vec![
+        (json!({"asset_id": "a"}), "meta:a".to_owned()),
+        (json!({"asset_id": "b"}), "meta:b".to_owned()),
+    ];
+    repo.enqueue_many(JobKind::ExtractMetadata, &items, JobPriority::Background)
+        .await
+        .unwrap();
+
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'extract_metadata'")
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
+    assert_eq!(count, 2, "meta:a non deve duplicarsi");
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn claim_skips_a_locked_row() {

@@ -88,6 +88,44 @@ async fn recording_success_appends_ids_and_advances_done() {
     assert_eq!(seen.succeeded, vec![a, b]);
 }
 
+/// Fase 10 Task 21: la controparte a lotti di `record_success` — un solo
+/// giro di rete per il lotto invece di uno per asset.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn recording_success_many_appends_all_ids_and_advances_done_once() {
+    let test = TestDb::start().await;
+    let admin = seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let repo = OperationsRepo::new(test.db());
+    let op = repo.create(&ctx, OperationKind::LibraryScan).await.unwrap();
+
+    let a = AssetId::new();
+    let b = AssetId::new();
+    let c = AssetId::new();
+    repo.record_success_many(op.id, &[a, b, c]).await.unwrap();
+
+    let seen = repo.find(&ctx, op.id).await.unwrap();
+    assert_eq!(seen.done, 3);
+    assert_eq!(seen.succeeded, vec![a, b, c]);
+}
+
+/// Un lotto vuoto non deve toccare `done`/`succeeded_asset_ids`.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn recording_success_many_with_an_empty_batch_is_a_no_op() {
+    let test = TestDb::start().await;
+    let admin = seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let repo = OperationsRepo::new(test.db());
+    let op = repo.create(&ctx, OperationKind::LibraryScan).await.unwrap();
+
+    repo.record_success_many(op.id, &[]).await.unwrap();
+
+    let seen = repo.find(&ctx, op.id).await.unwrap();
+    assert_eq!(seen.done, 0);
+    assert!(seen.succeeded.is_empty());
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn request_cancel_is_forbidden_for_a_non_owner() {
