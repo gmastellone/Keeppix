@@ -10,6 +10,8 @@ use thiserror::Error;
 use webp::Encoder as WebPEncoder;
 use zune_jpeg::JpegDecoder;
 
+use crate::sandbox;
+
 /// Versione della **ricetta** dei derivati, non del formato del file.
 ///
 /// Le URL `/media/{thumb,preview,full}/{hash}` escono con
@@ -117,9 +119,12 @@ fn webp_method() -> u8 {
 }
 
 /// Una decodifica, write su `.tmp`, `rename`. Idempotente se i file ci sono già.
+/// Il nome resta storico (era JPEG-only in Fase 1b): dispatcha su
+/// [`derive_from_bytes`], che riconosce il formato dai magic byte — vedi
+/// [`decode_source`].
 ///
 /// # Errors
-/// I/O, JPEG illeggibile, o immagine oltre 200 MP.
+/// I/O, formato non riconosciuto o illeggibile, o immagine oltre 200 MP.
 pub fn derive_jpeg(
     src: &Path,
     data_dir: &Path,
@@ -138,10 +143,15 @@ pub fn derive_jpeg(
     derive_from_bytes(&fs::read(src)?, data_dir, hash)
 }
 
-/// Stessa pipeline di [`derive_jpeg`], ma i byte JPEG sono già in memoria.
+/// Stessa pipeline di [`derive_jpeg`], ma i byte sono già in memoria. Il
+/// formato non è dato per scontato: si annusa dai magic byte (JPEG, PNG,
+/// TIFF, WebP, HEIF/HEIC) e si decodifica di conseguenza — vedi
+/// [`decode_source`]. Prima di questo task decodificava solo JPEG, e ogni
+/// altro formato che `kind::detect_kind` classifica come `Image` falliva
+/// silenziosamente a generare miniatura e preview (debito Task 22).
 ///
 /// # Errors
-/// I/O, JPEG illeggibile, o immagine oltre 200 MP.
+/// I/O, formato non riconosciuto o illeggibile, o immagine oltre 200 MP.
 pub fn derive_from_bytes(
     bytes: &[u8],
     data_dir: &Path,
@@ -158,22 +168,7 @@ pub fn derive_from_bytes(
         });
     }
 
-    let mut decoder = JpegDecoder::new(bytes);
-    decoder
-        .decode_headers()
-        .map_err(|e| DeriveError::Decode(e.to_string()))?;
-    let info = decoder
-        .info()
-        .ok_or_else(|| DeriveError::Decode("missing jpeg info".to_owned()))?;
-    let width = u32::from(info.width);
-    let height = u32::from(info.height);
-    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
-        return Err(DeriveError::TooManyPixels);
-    }
-    let rgb = decoder
-        .decode()
-        .map_err(|e| DeriveError::Decode(e.to_string()))?;
-
+    let (rgb, width, height) = decode_source(bytes)?;
     let skip_preview = width.max(height) <= SKIP_PREVIEW_PX
         && u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= SKIP_PREVIEW_BYTES;
     build_derivatives(&rgb, width, height, skip_preview, &thumb, &preview)
@@ -209,6 +204,289 @@ pub fn derive_from_rgb(
     }
     let skip_preview = width.max(height) <= SKIP_PREVIEW_PX;
     build_derivatives(rgb, width, height, skip_preview, &thumb, &preview)
+}
+
+/// Ceiling per il decode `heif-convert` in sandbox, stesso valore di
+/// `video::MEM`/`raw::DEMOSAIC_MEMORY_BYTES`: libheif mappa più plugin
+/// codec (libde265/aom) prima di iniziare a lavorare, e un HEIC 10 bit
+/// reale deve tenere in memoria un frame YUV/RGB pieno più i buffer di
+/// tone-mapping prima dell'encode PNG di uscita. Non rimisurato byte a
+/// byte su questo host — è lo stesso tetto già accettato per gli altri
+/// decoder in C, non uno nuovo inventato per l'occasione.
+const HEIF_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
+const HEIF_CPU_SECS: u64 = 30;
+
+/// `false` se `heif-convert` non è in `PATH`, sullo stesso modello di
+/// [`crate::raw::dcraw_emu_available`] / [`crate::video::ffprobe_available`]:
+/// permette ai test di saltare pulito su una macchina senza
+/// `libheif-examples` installato, invece di fallire.
+#[must_use]
+pub fn heif_convert_available() -> bool {
+    sandbox::run("heif-convert", &["--version"], 64 * 1024 * 1024, 5)
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Formato immagine riconosciuto dai magic byte, per il dispatch di
+/// [`decode_source`]. Non è [`crate::kind::AssetKind`]: quello classifica
+/// per l'import (RAW vs Image vs Video), questo sceglie *quale decoder*
+/// usare per un byte stream già sappiamo essere un'immagine non-RAW.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceFormat {
+    Jpeg,
+    Png,
+    Tiff,
+    WebP,
+    Heif,
+}
+
+fn sniff_source_format(bytes: &[u8]) -> Option<SourceFormat> {
+    if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+        return Some(SourceFormat::Jpeg);
+    }
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some(SourceFormat::Png);
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some(SourceFormat::WebP);
+    }
+    if bytes.len() >= 4
+        && (bytes.starts_with(&[0x49, 0x49, 0x2A, 0x00])
+            || bytes.starts_with(&[0x4D, 0x4D, 0x00, 0x2A]))
+    {
+        return Some(SourceFormat::Tiff);
+    }
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" && is_heif_ftyp(&bytes[8..]) {
+        return Some(SourceFormat::Heif);
+    }
+    None
+}
+
+/// Sottoinsieme "immagine fissa" dei brand HEIF/HEIC (esclude `avif`/`avis`
+/// di proposito: non richiesto da questo task, e `detect_kind` li classifica
+/// comunque come `Image` — resta debito noto, non introdotto qui).
+fn is_heif_ftyp(after_ftyp: &[u8]) -> bool {
+    after_ftyp.chunks_exact(4).any(|c| {
+        matches!(
+            c,
+            b"heic" | b"heix" | b"heif" | b"heim" | b"heis" | b"mif1" | b"msf1"
+        )
+    })
+}
+
+/// Decodifica byte di formato non noto a priori in RGB8 interleaved. Ogni
+/// ramo controlla `MAX_PIXELS` sulle sole dimensioni (header) prima di
+/// decodificare i pixel, per non pagare il costo di un decode completo su
+/// un file che verrà comunque rifiutato.
+///
+/// # Errors
+/// Formato non riconosciuto, file corrotto, o immagine oltre 200 MP.
+fn decode_source(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
+    match sniff_source_format(bytes) {
+        Some(SourceFormat::Jpeg) => decode_jpeg(bytes),
+        Some(SourceFormat::Png) => decode_png(bytes),
+        Some(SourceFormat::Tiff) => decode_tiff(bytes),
+        Some(SourceFormat::WebP) => decode_webp(bytes),
+        Some(SourceFormat::Heif) => decode_heif(bytes),
+        None => Err(DeriveError::Decode("unrecognized image format".to_owned())),
+    }
+}
+
+fn decode_jpeg(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
+    let mut decoder = JpegDecoder::new(bytes);
+    decoder
+        .decode_headers()
+        .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    let info = decoder
+        .info()
+        .ok_or_else(|| DeriveError::Decode("missing jpeg info".to_owned()))?;
+    let width = u32::from(info.width);
+    let height = u32::from(info.height);
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
+        return Err(DeriveError::TooManyPixels);
+    }
+    let rgb = decoder
+        .decode()
+        .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    Ok((rgb, width, height))
+}
+
+/// Puro Rust (crate `png`), nessuna dipendenza C nuova. `normalize_to_color8`
+/// riduce sempre a 8 bit/canale (`STRIP_16`) ed espande palette/tRNS/gray a
+/// bit-depth pieno (`EXPAND`) — il colore finale resta `Grayscale`,
+/// `GrayscaleAlpha`, `Rgb` o `Rgba` secondo la sorgente, non forzato a RGB
+/// dal crate: lo facciamo a mano sotto.
+fn decode_png(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder
+        .read_info()
+        .map_err(|e| DeriveError::Decode(format!("png: {e}")))?;
+    let info = reader.info();
+    let (width, height) = (info.width, info.height);
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
+        return Err(DeriveError::TooManyPixels);
+    }
+    let buf_len = reader
+        .output_buffer_size()
+        .ok_or_else(|| DeriveError::Decode("png: image too large to buffer".to_owned()))?;
+    let mut buf = vec![0u8; buf_len];
+    let out_info = reader
+        .next_frame(&mut buf)
+        .map_err(|e| DeriveError::Decode(format!("png: {e}")))?;
+    let pixels = &buf[..out_info.buffer_size()];
+    let rgb = match out_info.color_type {
+        png::ColorType::Rgb => pixels.to_vec(),
+        png::ColorType::Rgba => rgba8_to_rgb8(pixels),
+        png::ColorType::Grayscale => gray8_to_rgb8(pixels),
+        png::ColorType::GrayscaleAlpha => graya8_to_rgb8(pixels),
+        other @ png::ColorType::Indexed => {
+            return Err(DeriveError::Decode(format!(
+                "png: unsupported color type after normalization: {other:?}"
+            )));
+        }
+    };
+    Ok((rgb, width, height))
+}
+
+/// Puro Rust (crate `tiff`, lo stesso decoder usato da `image`-rs). Copre i
+/// TIFF "fotografici" non-camera-RAW: `kind::detect_kind` manda già i RAW
+/// (Bayer, `looks_like_camera_raw`) su `AssetKind::RawImage`, che non passa
+/// da qui. Palette e CMYK non sono fotografie comuni in libreria: si
+/// rifiuta con un errore leggibile invece di produrre colori sbagliati.
+fn decode_tiff(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
+    let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(bytes))
+        .map_err(|e| DeriveError::Decode(format!("tiff: {e}")))?;
+    let (width, height) = decoder
+        .dimensions()
+        .map_err(|e| DeriveError::Decode(format!("tiff: {e}")))?;
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
+        return Err(DeriveError::TooManyPixels);
+    }
+    let color = decoder
+        .colortype()
+        .map_err(|e| DeriveError::Decode(format!("tiff: {e}")))?;
+    let image = decoder
+        .read_image()
+        .map_err(|e| DeriveError::Decode(format!("tiff: {e}")))?;
+    tiff_samples_to_rgb8(color, image).map(|rgb| (rgb, width, height))
+}
+
+fn tiff_samples_to_rgb8(
+    color: tiff::ColorType,
+    image: tiff::decoder::DecodingResult,
+) -> Result<Vec<u8>, DeriveError> {
+    use tiff::ColorType;
+    use tiff::decoder::DecodingResult;
+    match (color, image) {
+        (ColorType::RGB(8), DecodingResult::U8(v)) => Ok(v),
+        (ColorType::RGB(16), DecodingResult::U16(v)) => Ok(u16_to_u8(&v)),
+        (ColorType::RGBA(8), DecodingResult::U8(v)) => Ok(rgba8_to_rgb8(&v)),
+        (ColorType::RGBA(16), DecodingResult::U16(v)) => Ok(rgba8_to_rgb8(&u16_to_u8(&v))),
+        (ColorType::Gray(8), DecodingResult::U8(v)) => Ok(gray8_to_rgb8(&v)),
+        (ColorType::Gray(16), DecodingResult::U16(v)) => Ok(gray8_to_rgb8(&u16_to_u8(&v))),
+        (ColorType::GrayA(8), DecodingResult::U8(v)) => Ok(graya8_to_rgb8(&v)),
+        (ColorType::GrayA(16), DecodingResult::U16(v)) => Ok(graya8_to_rgb8(&u16_to_u8(&v))),
+        (other, _) => Err(DeriveError::Decode(format!(
+            "tiff: unsupported color type {other:?}"
+        ))),
+    }
+}
+
+/// Il binding a libwebp legge (già usato oggi solo in scrittura per i
+/// derivati) — qui si collega anche in lettura per un WebP *sorgente*
+/// caricato in libreria. Nessuna dipendenza nuova.
+fn decode_webp(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
+    let features = webp::BitstreamFeatures::new(bytes)
+        .ok_or_else(|| DeriveError::Decode("webp: unreadable bitstream".to_owned()))?;
+    if u64::from(features.width()).saturating_mul(u64::from(features.height())) > MAX_PIXELS {
+        return Err(DeriveError::TooManyPixels);
+    }
+    let image = webp::Decoder::new(bytes)
+        .decode()
+        .ok_or_else(|| DeriveError::Decode("webp: decode failed".to_owned()))?;
+    let width = image.width();
+    let height = image.height();
+    let rgb = if image.is_alpha() {
+        rgba8_to_rgb8(&image)
+    } else {
+        image.to_vec()
+    };
+    Ok((rgb, width, height))
+}
+
+/// HEIF/HEIC (8 e 10 bit) via `heif-convert` in sandbox — mai libheif
+/// in-process. Ruling Task 22: `libheif`/HEVC hanno una storia di CVE nei
+/// parser almeno quanto LibRaw/ffmpeg, quindi passano dallo stesso
+/// `sandbox::run` con `RLIMIT_AS`/`RLIMIT_CPU`, non ne sono esenti perché
+/// sono un binding invece di un binario invocato altrove nel codice.
+///
+/// `heif-convert` legge e scrive solo file reali (non stdin/stdout: verificato
+/// contro libheif 1.17 — `-o -` fallisce con "Unknown file type in -"), quindi
+/// i byte transitano per due file temporanei che si autodistruggono al
+/// `Drop` di `NamedTempFile`. L'uscita è un PNG — 16-bit se la sorgente è
+/// 10-bit, confermato con `heif-info` sulla fixture `sample10.heic` — che
+/// rientra nel decoder PNG scritto per questo stesso task, il quale
+/// normalizza a 8 bit come tutto il resto della pipeline.
+fn decode_heif(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
+    let mut input = tempfile::Builder::new()
+        .prefix("kpx-heif-in-")
+        .suffix(".heic")
+        .tempfile()?;
+    input.write_all(bytes)?;
+    input.flush()?;
+
+    let output = tempfile::Builder::new()
+        .prefix("kpx-heif-out-")
+        .suffix(".png")
+        .tempfile()?;
+    let input_s = input.path().to_string_lossy().into_owned();
+    let output_s = output.path().to_string_lossy().into_owned();
+
+    let out = sandbox::run(
+        "heif-convert",
+        &[input_s.as_str(), output_s.as_str()],
+        HEIF_MEMORY_BYTES,
+        HEIF_CPU_SECS,
+    )
+    .map_err(|e| DeriveError::Decode(format!("heif-convert: {e}")))?;
+    if !out.status.success() {
+        return Err(DeriveError::Decode(format!(
+            "heif-convert: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    let png_bytes = fs::read(output.path())?;
+    decode_png(&png_bytes)
+}
+
+fn u16_to_u8(samples: &[u16]) -> Vec<u8> {
+    samples.iter().map(|s| (*s >> 8) as u8).collect()
+}
+
+fn rgba8_to_rgb8(rgba: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(rgba.len() / 4 * 3);
+    for chunk in rgba.chunks_exact(4) {
+        out.extend_from_slice(&chunk[..3]);
+    }
+    out
+}
+
+fn gray8_to_rgb8(gray: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(gray.len() * 3);
+    for &g in gray {
+        out.extend_from_slice(&[g, g, g]);
+    }
+    out
+}
+
+fn graya8_to_rgb8(graya: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(graya.len() / 2 * 3);
+    for chunk in graya.chunks_exact(2) {
+        let g = chunk[0];
+        out.extend_from_slice(&[g, g, g]);
+    }
+    out
 }
 
 /// Coda condivisa da [`derive_from_bytes`] e [`derive_from_rgb`]: resize,
@@ -358,10 +636,11 @@ pub fn full_derivative_path(data_dir: &Path, hash: &[u8; 32]) -> PathBuf {
 }
 
 /// Scrive il WebP a piena risoluzione se manca. Idempotente: se il file c'è
-/// già non si ricodifica (si aggiorna solo l'atime per lo LRU).
+/// già non si ricodifica (si aggiorna solo l'atime per lo LRU). Stesso
+/// riconoscimento del formato di [`derive_from_bytes`].
 ///
 /// # Errors
-/// I/O, JPEG illeggibile, o immagine oltre 200 MP.
+/// I/O, formato non riconosciuto o illeggibile, o immagine oltre 200 MP.
 pub fn ensure_full_from_bytes(
     bytes: &[u8],
     data_dir: &Path,
@@ -373,21 +652,7 @@ pub fn ensure_full_from_bytes(
         return Ok(path);
     }
 
-    let mut decoder = JpegDecoder::new(bytes);
-    decoder
-        .decode_headers()
-        .map_err(|e| DeriveError::Decode(e.to_string()))?;
-    let info = decoder
-        .info()
-        .ok_or_else(|| DeriveError::Decode("missing jpeg info".to_owned()))?;
-    let width = u32::from(info.width);
-    let height = u32::from(info.height);
-    if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
-        return Err(DeriveError::TooManyPixels);
-    }
-    let rgb = decoder
-        .decode()
-        .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    let (rgb, width, height) = decode_source(bytes)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
