@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use axum::extract::{Query, State};
-use keeppix_db::{Db, FolderRepo, LibraryRepo, PreferencesRepo, UserRepo};
+use keeppix_db::{AssetTagRepo, Db, FolderRepo, LibraryRepo, PreferencesRepo, UserRepo};
 use keeppix_domain::AuthContext;
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +75,12 @@ pub async fn compose(
         storage.insert(library.id.to_string(), LibraryStorageView::from(usage));
     }
 
+    // Fase 7 Task 9: metà "tag" del badge. `count_proposed_visible` non
+    // propaga l'assenza di pgvector (torna 0) — il bootstrap non deve mai
+    // fallire per una feature IA opzionale (Task 3 ruling). Fase 8
+    // aggiungerà la metà "volti" sullo stesso campo.
+    let revision = AssetTagRepo::new(db).count_proposed_visible(ctx).await?;
+
     Ok(BootstrapResponse {
         user: UserView::new(&user, server_name),
         preferences: UserPreferencesView::from(prefs),
@@ -82,7 +88,7 @@ pub async fn compose(
         storage,
         badges: BadgeCountsView {
             culling: 0,
-            revision: 0,
+            revision,
         },
     })
 }

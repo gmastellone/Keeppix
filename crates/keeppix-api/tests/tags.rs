@@ -250,3 +250,165 @@ async fn categories_do_not_require_a_text_embedding() {
         .unwrap();
     assert_eq!(cat["has_embedding"], false);
 }
+
+/// Task 9: coda di revisione — list / confirm / reject / bulk + badge revision.
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn review_queue_lists_confirms_rejects_and_updates_bootstrap_revision() {
+    use chrono::{TimeZone, Utc};
+    use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
+    use keeppix_domain::{
+        AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, UserId,
+    };
+    use std::fs;
+
+    let server = TestServer::start_with_vector().await;
+    setup_admin(&server).await;
+    let admin_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+    let admin = UserId::from_uuid(admin_id);
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let root = std::env::temp_dir().join(format!("kpx-review-{}", uuid::Uuid::now_v7()));
+    fs::create_dir_all(root.join("2024")).unwrap();
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Review".into(),
+                owner_id: admin,
+                root_path: root.clone(),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(&server.db)
+        .ensure_path(library.id, &["2024"])
+        .await
+        .unwrap();
+    fs::write(root.join("2024/a.jpg"), b"a").unwrap();
+    fs::write(root.join("2024/b.jpg"), b"b").unwrap();
+    let a = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("a.jpg").unwrap(),
+            size_bytes: 1,
+            mtime: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let b = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("b.jpg").unwrap(),
+            size_bytes: 1,
+            mtime: Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap(),
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+
+    let tag: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/tags"))
+        .json(&json!({ "name": "Mare", "kind": "tag" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let tag_id = tag["id"].as_str().unwrap().to_owned();
+
+    for (asset, score) in [(a, 0.95_f32), (b, 0.80_f32)] {
+        sqlx::query(
+            "INSERT INTO asset_tags (asset_id, tag_id, state, source, score) \
+             VALUES ($1, $2, 'proposed', 'ai', $3)",
+        )
+        .bind(asset.as_uuid())
+        .bind(uuid::Uuid::parse_str(&tag_id).unwrap())
+        .bind(score)
+        .execute(server.db.pool())
+        .await
+        .unwrap();
+    }
+
+    let boot: serde_json::Value = server
+        .client
+        .get(server.url("/api/v1/bootstrap"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(boot["badges"]["revision"], 2);
+
+    let list: serde_json::Value = server
+        .client
+        .get(server.url("/api/v1/tags/proposals"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let arr = list.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0]["filename"], "a.jpg");
+    assert!((arr[0]["score"].as_f64().unwrap() - 0.95).abs() < 1e-5);
+
+    let confirm = server
+        .client
+        .post(server.url(&format!("/api/v1/tags/{tag_id}/assets/{a}/confirm")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(confirm.status(), 204);
+
+    let reject_all: serde_json::Value = server
+        .client
+        .post(server.url(&format!("/api/v1/tags/{tag_id}/proposals/reject")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(reject_all["succeeded"].as_array().unwrap().len(), 1);
+    assert_eq!(reject_all["failed"].as_array().unwrap().len(), 0);
+
+    let empty: serde_json::Value = server
+        .client
+        .get(server.url("/api/v1/tags/proposals"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(empty.as_array().unwrap().is_empty());
+
+    let boot2: serde_json::Value = server
+        .client
+        .get(server.url("/api/v1/bootstrap"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(boot2["badges"]["revision"], 0);
+
+    let _ = fs::remove_dir_all(&root);
+}

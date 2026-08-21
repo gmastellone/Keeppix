@@ -6328,6 +6328,56 @@
         ]
       }
     },
+    "/api/v1/tags/proposals": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "List pending AI tag proposals (review queue)",
+        "operationId": "tags_list_proposals",
+        "parameters": [
+          {
+            "name": "tag_id",
+            "in": "query",
+            "description": "Filtra su un solo tag",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposte in attesa, visibili al chiamante, punteggio decrescente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProposalView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/tags/{id}": {
       "get": {
         "tags": [
@@ -6502,6 +6552,258 @@
           },
           "422": {
             "description": "Dati non validi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tags/{id}/assets/{asset_id}/confirm": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Confirm a single AI tag proposal",
+        "operationId": "tags_confirm_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Confermato (idempotente se già confermato)"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nessuna proposta per questa coppia tag/asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Già rifiutato: la decisione è permanente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tags/{id}/assets/{asset_id}/reject": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Reject a single AI tag proposal (permanent)",
+        "operationId": "tags_reject_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Rifiutato (idempotente se già rifiutato)"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nessuna proposta per questa coppia tag/asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Già confermato: la decisione è permanente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tags/{id}/proposals/confirm": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Confirm all pending proposals for a tag (bulk, «Conferma tutte»)",
+        "operationId": "tags_confirm_all_proposals",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Esito: confermati gli asset visibili in attesa per questo tag",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tags/{id}/proposals/reject": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Reject all pending proposals for a tag (bulk, «Rifiuta tutte»)",
+        "operationId": "tags_reject_all_proposals",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Esito: rifiutati gli asset visibili in attesa per questo tag",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
             "content": {
               "application/json": {
                 "schema": {
@@ -10996,6 +11298,43 @@
               "$ref": "#/components/schemas/ProblemView"
             },
             "description": "Elenco piatto composto (Task 13). Additivo: i tre secchi grezzi sopra\nrestano per non rompere un client che li leggeva già."
+          }
+        }
+      },
+      "ProposalView": {
+        "type": "object",
+        "description": "Una proposta di abbinamento IA in attesa di revisione umana (Fase 7\nTask 9). Arricchita con nome tag e nome file: la coda di revisione non\ndeve fare un secondo giro per riga.",
+        "required": [
+          "asset_id",
+          "tag_id",
+          "tag_name",
+          "filename"
+        ],
+        "properties": {
+          "asset_id": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "tag_id": {
+            "type": "string"
+          },
+          "tag_name": {
+            "type": "string"
+          },
+          "taken_at_utc": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
