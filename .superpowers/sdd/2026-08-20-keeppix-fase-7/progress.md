@@ -400,3 +400,21 @@ Niente evento WS nuovo — `drain_operations` basta. `suggestions.changed`
 non implementato (non in scope).
 
 Task 12: complete (test `embed_window_opens_and_finishes_an_ai_analysis_operation`)
+
+## Task 10 — SearchNode Tag / Category / Semantic
+
+Ruling: **Semantic ORDER BY = (a)** — membership nei K più simili sotto
+`VisibilityScope` (subquery riusa `$1,$2,$3`), risultati ancora
+`taken_at_utc DESC, id DESC`. Non similarity-ordered.
+
+Ruling: **Tag / Category filtrano solo `state='confirmed'`.** — Proposed
+rimane coda di revisione.
+
+Ruling: **Category** (nel piano, non in §4.1) = EXISTS su tag figli con
+`parent_id` = categoria. — Costo se sbagliato: serve un secondo asse.
+
+Ruling: **embedding testuale in API** (`prepare_semantic_embeddings`); db
+riceve `Semantic.embedding` già pieno (`#[serde(skip)]`). `MODEL_VERSION`
+duplicato in keeppix-db (no dipendenza media).
+
+Task 10: complete (test tag/category/semantic search verdi)

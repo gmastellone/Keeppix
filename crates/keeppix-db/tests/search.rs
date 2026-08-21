@@ -908,6 +908,169 @@ async fn suggest_returns_a_typed_result_for_each_supported_kind() {
 }
 
 #[tokio::test]
+async fn tag_filter_matches_only_confirmed_assignments() {
+    use keeppix_db::{NewTag, TagRepo};
+    use keeppix_domain::TagKind;
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let keep = index(&test, folder, "keep.jpg", AssetKind::Image, 1).await;
+    let proposed = index(&test, folder, "proposed.jpg", AssetKind::Image, 2).await;
+    let _other = index(&test, folder, "other.jpg", AssetKind::Image, 3).await;
+
+    let tag = TagRepo::new(test.db())
+        .create(
+            &ctx,
+            NewTag {
+                name: "Mare".into(),
+                kind: TagKind::Tag,
+                parent_id: None,
+                prompt: None,
+                color: None,
+                threshold: None,
+                embedding: None,
+                model_version: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO asset_tags (asset_id, tag_id, state, source, score) VALUES \
+         ($1, $2, 'confirmed', 'ai', 0.9), ($3, $2, 'proposed', 'ai', 0.9)",
+    )
+    .bind(keep.as_uuid())
+    .bind(tag.id.as_uuid())
+    .bind(proposed.as_uuid())
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+
+    let hits = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Tag {
+                id: tag.id.as_uuid(),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, keep);
+}
+
+#[tokio::test]
+async fn category_filter_matches_confirmed_child_tags() {
+    use keeppix_db::{NewTag, TagRepo};
+    use keeppix_domain::TagKind;
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let in_cat = index(&test, folder, "in.jpg", AssetKind::Image, 1).await;
+    let _out = index(&test, folder, "out.jpg", AssetKind::Image, 2).await;
+
+    let cat = TagRepo::new(test.db())
+        .create(
+            &ctx,
+            NewTag {
+                name: "Viaggi".into(),
+                kind: TagKind::Category,
+                parent_id: None,
+                prompt: None,
+                color: None,
+                threshold: None,
+                embedding: None,
+                model_version: None,
+            },
+        )
+        .await
+        .unwrap();
+    let child = TagRepo::new(test.db())
+        .create(
+            &ctx,
+            NewTag {
+                name: "Grecia".into(),
+                kind: TagKind::Tag,
+                parent_id: Some(cat.id),
+                prompt: None,
+                color: None,
+                threshold: None,
+                embedding: None,
+                model_version: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO asset_tags (asset_id, tag_id, state, source, score) VALUES ($1, $2, 'confirmed', 'user', NULL)",
+    )
+    .bind(in_cat.as_uuid())
+    .bind(child.id.as_uuid())
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+
+    let hits = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Category {
+                id: cat.id.as_uuid(),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, in_cat);
+}
+
+#[tokio::test]
+async fn semantic_filters_top_k_then_orders_by_date() {
+    use keeppix_db::{EmbeddingRepo, MODEL_VERSION};
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let far = index(&test, folder, "far.jpg", AssetKind::Image, 1).await;
+    let mid = index(&test, folder, "mid.jpg", AssetKind::Image, 2).await;
+    let near = index(&test, folder, "near.jpg", AssetKind::Image, 3).await;
+
+    let mut unit = vec![0.0_f32; 512];
+    unit[0] = 1.0;
+    let mut almost = vec![0.0_f32; 512];
+    almost[0] = 0.9;
+    almost[1] = (1.0_f32 - 0.9_f32 * 0.9_f32).sqrt();
+    let mut orthogonal = vec![0.0_f32; 512];
+    orthogonal[1] = 1.0;
+
+    let repo = EmbeddingRepo::new(test.db());
+    repo.upsert(near, &unit, MODEL_VERSION).await.unwrap();
+    repo.upsert(mid, &almost, MODEL_VERSION).await.unwrap();
+    repo.upsert(far, &orthogonal, MODEL_VERSION).await.unwrap();
+
+    let hits = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Semantic {
+                query: "ignored when embedding set".into(),
+                limit: 2,
+                embedding: Some(unit.clone()),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 2, "K=2 nearest");
+    assert_eq!(hits[0].id, near, "newest among the K first");
+    assert_eq!(hits[1].id, mid);
+    assert!(!hits.iter().any(|h| h.id == far));
+}
+
+#[tokio::test]
 async fn suggest_never_offers_the_tag_kind_without_a_source() {
     let test = TestDb::start().await;
     let (ctx, folder) = seed(&test).await;
@@ -919,6 +1082,6 @@ async fn suggest_never_offers_the_tag_kind_without_a_source() {
         .unwrap();
     assert!(
         !found.iter().any(|s| s.kind == SuggestionKind::Tag),
-        "nessuna fonte di tag esiste ancora (Fase 7): non deve comparire"
+        "senza tabella tag popolata non deve inventare suggerimenti tag"
     );
 }

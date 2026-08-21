@@ -10,6 +10,10 @@ use std::fmt::Write as _;
 
 use crate::{Db, DbError};
 
+/// Allineato a `keeppix_media::MODEL_VERSION`. Duplicato qui perché
+/// `keeppix-db` non può dipendere da `keeppix-media` (`deny.toml`).
+pub const MODEL_VERSION: &str = "mobileclip2-s2";
+
 /// Candidato all'inferenza: ha `content_hash` (quindi può avere miniatura).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingEmbedding {

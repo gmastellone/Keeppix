@@ -339,6 +339,7 @@ impl<'a> GeoRepo<'a> {
                 0,
                 "COALESCE(o.location, a.location)",
                 ctx.user_id().map(|id| id.as_uuid()),
+                None,
             )?,
             None => ("TRUE".to_owned(), Vec::new()),
         };
