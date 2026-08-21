@@ -240,6 +240,19 @@ async fn ai_schema_columns_exist() {
             "manca asset_tags.{expected}"
         );
     }
+
+    let library_cols: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'libraries' \
+         ORDER BY column_name",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("colonne libraries");
+    assert!(
+        library_cols.contains(&"culling_root_folder_id".to_owned()),
+        "manca libraries.culling_root_folder_id (Fase 7 Task 5, inerte fino a Fase 9)"
+    );
 }
 
 /// Sull'immagine bundled la migrazione abilita `vector`; senza HNSW (Task 11).

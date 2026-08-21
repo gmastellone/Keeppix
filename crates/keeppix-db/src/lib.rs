@@ -8,6 +8,7 @@ pub mod changes;
 pub mod credentials;
 pub mod dav_locks;
 pub mod duplicates;
+pub mod embeddings;
 pub mod error;
 pub mod flags;
 pub mod folders;
@@ -50,6 +51,7 @@ pub use changes::{CHANGE_LOG_PAGE, ChangeLogRepo, ChangePage};
 pub use credentials::AppPasswordRepo;
 pub use dav_locks::DavLockRepo;
 pub use duplicates::{DuplicateGroup, DuplicateRepo};
+pub use embeddings::{AssetEmbedding, EmbeddingRepo, PendingEmbedding};
 pub use error::DbError;
 pub use flags::FlagRepo;
 pub use folders::FolderRepo;
@@ -107,7 +109,7 @@ const LIBRARY_STORAGE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0043_ai_embeddings_tags.
+// rivede la directory. 0043_ai_embeddings_tags; 0044_culling_root_folder.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
