@@ -100,3 +100,30 @@ MEASUREMENT (questo host ≠ Pi, `keeppix-media` opt-level=2 in test, ort CPU):
 - tetto 1 GiB: **rispettato** (peak ≈ 0.39–0.40 GiB)
 
 Task 2bis: complete
+
+## Task 3 — Immagine Postgres con pgvector
+
+Ruling: **`Dockerfile.db` = `postgis/postgis:17-3.5` + `postgresql-17-pgvector`
+via apt (PGDG).** — Perché: né l'immagine PostGIS né quella pgvector portano
+entrambe le estensioni; il pacchetto Debian ufficiale per PG 17 è già nel
+repo PGDG montato dall'immagine base. Verificato: `CREATE EXTENSION vector`
+funziona sul build locale. — Costo se sbagliato: se un giorno PGDG ritarda
+il pacchetto per una major, si ricompila da sorgente nel Dockerfile.
+
+Ruling: **testcontainers restano su `postgis/postgis:17-3.5` (senza
+pgvector) fino al Task 4.** — Perché: Task 3 non introduce ancora lo schema
+vettoriale; l'immagine PostGIS-only è il percorso degradato reale di chi
+usa un Postgres esterno senza l'estensione, e i test `pgvector.rs` lo
+coprono. Passare all'immagine custom richiederebbe pubblicarla o un build
+in CI per ogni suite. — Costo se sbagliato: Task 4 dovrà far girare i test
+di schema su un Postgres con `vector` (immagine custom o `KEEPPIX_TEST_DATABASE_URL`).
+
+Ruling: **stato in `system_settings.pgvector`, non dentro `capabilities.extra`.** —
+`capabilities` è il risultato di `keeppix_media::probe()` (niente DB);
+pgvector è una proprietà del Postgres collegato, scritta da
+`persist_pgvector_status` in `keeppix-db` all'avvio. Messaggio inglese +
+`CREATE EXTENSION IF NOT EXISTS vector;` quando `available == false`;
+l'avvio non fallisce. — Costo se sbagliato: il pannello (Task 6) dovrà
+leggere due chiavi invece di una; banale.
+
+Task 3: complete
