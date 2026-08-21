@@ -55,6 +55,11 @@ fn probe_extra_includes_measured_ai_host_facts() {
             .and_then(serde_json::Value::as_f64)
             .expect("inference_ms when ok");
         assert!(ms.is_finite() && ms > 0.0, "inference_ms={ms}");
+        assert_eq!(
+            ai.get("model_version").and_then(serde_json::Value::as_str),
+            Some(keeppix_media::MODEL_VERSION),
+            "probe model_version must match the stable checkpoint id: {ai}"
+        );
     } else {
         assert!(
             ai.get("inference_ms")

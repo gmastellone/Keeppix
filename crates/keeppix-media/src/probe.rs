@@ -87,13 +87,18 @@ pub struct AiHostFacts {
     /// Millisecondi di una inferenza immagine sul modello locale, se riuscita.
     pub inference_ms: Option<f64>,
     pub inference_status: String,
-    /// Runtime che ha prodotto la misura (`tract`), se la prova è partita.
+    /// Runtime che ha prodotto la misura (`ort`), se la prova è partita.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inference_runtime: Option<String>,
+    /// Checkpoint usato per la misura; allineato a [`crate::clip::MODEL_VERSION`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_version: Option<String>,
 }
 
 fn measure_ai_host() -> AiHostFacts {
     let inference = crate::ai::measure_image_inference();
+    let model_version =
+        (inference.inference_status == "ok").then(|| crate::clip::MODEL_VERSION.to_owned());
     AiHostFacts {
         free_ram_bytes: free_ram_bytes(),
         cpu_cores: std::thread::available_parallelism()
@@ -103,6 +108,7 @@ fn measure_ai_host() -> AiHostFacts {
         inference_ms: inference.inference_ms,
         inference_status: inference.inference_status,
         inference_runtime: inference.runtime,
+        model_version,
     }
 }
 
