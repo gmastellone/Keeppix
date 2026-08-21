@@ -1158,3 +1158,95 @@ impreciso su 4G remoto finché Fase 11 non lo fa).
 Task 18: complete (commits 230e4e8 script + f0ed953 ledger/report; nessuna
 modifica API/DB).
 
+## Task 19 — Il protocollo WebSocket: da due eventi a nove
+
+Ruling: **`scan.progress` legge la stessa fonte già usata da `GET
+/libraries/{id}/scan`** (`JobRepo::discover_status_for_library` +
+`AssetRepo::count_in_library`), non uno stato inventato — estratta la fase
+(`idle`/`discovering`/`failed`/`offline`) in `scan_phase()` condivisa fra le
+due superfici. Copre anche le riscansioni innescate dal watcher, che non
+hanno un `operation_id` e quindi non compaiono mai in `operation.progress`
+(Task 16): quelle restano l'unico segnale per gli scan avviati da un utente
+con `POST /scan`, questo per "c'è attività su questa libreria" in generale.
+Poll per-libreria (N+1 come lo storage del bootstrap, Task 17) — accettabile
+alla scala di libreria per libreria/Pi di Keeppix. — *Costo se sbagliato:*
+poll ridondante con `operation.progress` quando una scansione è tracciata;
+nessuna perdita di informazione.
+
+Ruling: **`problems.changed` è una firma su `ProblemsRepo::list`, non un
+secondo stato.** Confronta un digest ordinato di (id libreria offline, id job
+falliti, id asset in errore) con l'ultimo giro; se cambia, emette solo un
+`count` come comodità — mai gli id, per il contratto già scritto nel piano
+("un segnale, non uno stato"). Un client che perde il messaggio deve
+ricaricare `GET /problems`, non fidarsi del numero. — *Costo se sbagliato:*
+un doppio giro di query ProblemsRepo per ogni tick di poll; già lo stesso
+costo che `GET /problems` paga a ogni refresh manuale.
+
+Ruling: **`asset.derivative.ready` legge `jobs`, non un canale in-process.**
+`JobRepo::list_recently_done(TranscodeVideo, cursor, …)` (nuovo,
+`max_done_id` inizializza il cursore alla connessione così non si rivedono
+transcodifiche già finite prima di collegarsi) più
+`AssetRepo::filter_visible` prima di emettere — un job scritto da un worker
+qualunque arriva al giro di poll successivo, la visibilità non si scavalca
+mai. — *Costo se sbagliato:* nessuno osservato; il filtro di visibilità è lo
+stesso già usato per le operazioni bulk (Task 1).
+
+Ruling: **`backup.finished` è admin-only e non replica lo stato "running".**
+`BackupRepo::list_runs(ctx, 1)`: se il chiamante non è admin si esce subito
+(altrimenti il `Forbidden` interno romperebbe il socket), se l'ultimo run è
+ancora `running` si aggiorna solo la mappa "visto" senza emettere — l'evento
+esce solo alla transizione verso `ok`/`failed`. Una riconnessione dopo che un
+backup è già finito vede comunque l'esito corrente al primo giro (stessa
+proprietà "nessuna memoria fra connessioni, stato attuale al primo poll
+utile" di `operation.progress`, Task 16): a differenza di
+`asset.derivative.ready`, qui l'esito passato è ancora rilevante per chi
+riapre Impostazioni. — *Costo se sbagliato:* nessuno osservato nei test.
+
+Ruling: **`analysis.progress`, `suggestions.changed`, `culling.changed` non
+sono cablati — nessun codice di Fase 7/8 esiste da cui leggerli.** Cablare un
+emettitore adesso significherebbe inventare una fonte di verità che le fasi
+future rifaranno da capo (violerebbe "non implementare cose di fasi
+successive"). Il `type` di questi eventi non è nemmeno riservato nel
+protocollo: il piano di Fase 7/8 dovrà solo scegliere quale dato persistito
+emettere, la forma del canale (poll + `enqueue`/`resync` su overflow) è già
+pronta e riusabile senza modifiche. `storage.changed` (elencato nel solo
+documento di analisi gap, non nella tabella del piano) resta fuori per lo
+stesso motivo per cui non serve: `GET /bootstrap` (Task 17) già porta lo
+spazio libero per libreria, e la spec lo elenca come alternativa accettabile
+("dentro bootstrap, oppure storage.changed"). — *Costo se sbagliato:*
+nessuno finché la Fase 7/8 non esiste; quando esisterà, il worker che scrive
+il progresso IA aggiungerà solo un altro `drain_*` nello stesso poll.
+
+Ruling: **il test `a_new_asset_is_pushed_as_assets_upserted` filtra per
+`type` invece di assumere il primo messaggio.** Con più tipi di evento sullo
+stesso canale, una libreria appena creata dal test può emettere anche
+`scan.progress` sullo stesso giro di poll — esattamente il comportamento che
+un client reale deve già tollerare (il piano lo richiede: "il WebSocket è
+canale di notifica", più tipi possono intercalarsi). Il test ora usa
+`recv_matching`, la stessa tecnica dei nuovi test. — *Costo se sbagliato:*
+nessuno; è l'unica modifica a un test preesistente.
+
+Difetto osservato, non di questo task (annotato, non toccato):
+`bootstrap_emits_no_more_queries_than_individual_repos`
+(`crates/keeppix-api/tests/bootstrap.rs`) fallisce in modo deterministico
+quando gira insieme a `bootstrap_matches_individual_endpoints` nello stesso
+binario (verificato anche sul commit prima di questo task, con `git stash`):
+il logger globale della crate `log` sembra restare quello installato dal
+primo test che chiama `traced_db`, quindi il secondo non cattura nulla.
+Isolato (`cargo test bootstrap_emits_no_more_queries_than_individual_repos`)
+passa sempre. Non è una regressione di questo task — differito.
+
+Task 19: complete (commits ce59769 feat(db) `list_recently_done`/
+`max_done_id`, 2ddf3df refactor(api) `scan_phase` condivisa, 48a4e33
+feat(api) i quattro nuovi emettitori + test. Test verdi: `keeppix-db` jobs.rs
+14/14 [+1 nuovo], suite completa del crate verde (invariato dal Task 18);
+`keeppix-api` ws.rs 8/8 [+4 nuovi: problems.changed, backup.finished,
+asset.derivative.ready, scan.progress], resto della suite verde tranne il
+difetto preesistente sopra. `cargo fmt --check` e `cargo clippy --workspace
+--all-targets -- -D warnings` verdi; `cargo deny check bans` verde (nessun
+arco `keeppix-media`↔`keeppix-db` introdotto). Quattro mutazioni manuali
+(una per nuovo emettitore, `if false && drain_x(...)`) osservate rosse e
+ripristinate per confermare che i nuovi test provano davvero l'emettitore e
+non solo che il socket resta vivo. `./scripts/test.sh` completo **non
+eseguito** (stesso motivo dei task precedenti).
+
