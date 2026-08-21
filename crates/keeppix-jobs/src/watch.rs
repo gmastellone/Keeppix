@@ -330,8 +330,9 @@ fn inotify_watches_ok() -> bool {
 }
 
 /// Scrive il probe hardware in `system_settings.capabilities`.
-/// Misura l'accelerazione video reale (Fase 6) e i fatti host AI (Fase 7
-/// Task 1: RAM libera, core) e persiste il risultato JSON.
+/// Misura l'accelerazione video reale (Fase 6) e i fatti host AI (Fase 7:
+/// RAM, core, e da Task 2 i ms di inferenza sul modello locale) e persiste
+/// il risultato JSON.
 ///
 /// # Errors
 /// Database.

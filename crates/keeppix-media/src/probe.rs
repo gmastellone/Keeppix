@@ -20,9 +20,9 @@ pub enum VideoBackend {
 
 /// Esito del probe hardware di decode/transcodifica.
 ///
-/// Il campo `extra` porta le estensioni: Fase 7 Task 1 scrive `extra.ai` con
-/// i fatti host per l'inferenza (RAM libera, core). I ms per inferenza restano
-/// `pending_runtime` finché Task 2 non sceglie tract/ort e gira il modello.
+/// Il campo `extra` porta le estensioni: Fase 7 scrive `extra.ai` con i fatti
+/// host (RAM, core) e, da Task 2, i ms di una inferenza reale sul modello
+/// locale (o `model_missing` / `failed` se i pesi o il runtime non bastano).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Capabilities {
     pub backend: VideoBackend,
@@ -43,8 +43,8 @@ const PROBE_CPU_SECS: u64 = 3;
 /// Misura l'accelerazione video disponibile provando un encode di 2 secondi con
 /// ogni backend candidato, in ordine di preferenza per il `SoC` rilevato.
 ///
-/// Aggiunge sempre `extra.ai` (Fase 7 Task 1): RAM libera, core, e lo stato
-/// dell'inferenza — oggi `pending_runtime` finché non esiste un runtime/modello.
+/// Aggiunge sempre `extra.ai` (Fase 7): RAM libera, core, e una prova di
+/// inferenza sul MobileCLIP2-S2 locale quando i pesi sono presenti.
 #[must_use]
 pub fn probe() -> Capabilities {
     let mut caps = if crate::video::ffprobe_available() {
@@ -78,26 +78,31 @@ fn software_fallback(fps: Option<f32>) -> Capabilities {
     }
 }
 
-/// Fatti host per l'analisi IA, misurati senza caricare un modello.
+/// Fatti host per l'analisi IA, più l'esito della prova di inferenza.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AiHostFacts {
     pub free_ram_bytes: u64,
     pub cpu_cores: u32,
     pub has_neon: bool,
-    /// `null` finché Task 2 non misura un'inferenza reale sul modello scelto.
+    /// Millisecondi di una inferenza immagine sul modello locale, se riuscita.
     pub inference_ms: Option<f64>,
     pub inference_status: String,
+    /// Runtime che ha prodotto la misura (`tract`), se la prova è partita.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inference_runtime: Option<String>,
 }
 
 fn measure_ai_host() -> AiHostFacts {
+    let inference = crate::ai::measure_image_inference();
     AiHostFacts {
         free_ram_bytes: free_ram_bytes(),
         cpu_cores: std::thread::available_parallelism()
             .map(|n| u32::try_from(n.get()).unwrap_or(1))
             .unwrap_or(1),
         has_neon: cfg!(target_feature = "neon") || cfg!(target_arch = "aarch64"),
-        inference_ms: None,
-        inference_status: "pending_runtime".to_owned(),
+        inference_ms: inference.inference_ms,
+        inference_status: inference.inference_status,
+        inference_runtime: inference.runtime,
     }
 }
 
@@ -315,8 +320,23 @@ mod tests {
     fn measure_ai_host_reports_positive_ram_on_linux() {
         let facts = measure_ai_host();
         assert!(facts.cpu_cores >= 1);
-        assert_eq!(facts.inference_status, "pending_runtime");
-        assert!(facts.inference_ms.is_none());
+        assert!(
+            matches!(
+                facts.inference_status.as_str(),
+                "ok" | "model_missing" | "failed"
+            ),
+            "unexpected status {}",
+            facts.inference_status
+        );
+        if facts.inference_status == "ok" {
+            assert!(
+                facts
+                    .inference_ms
+                    .is_some_and(|ms| ms.is_finite() && ms > 0.0)
+            );
+        } else {
+            assert!(facts.inference_ms.is_none());
+        }
         #[cfg(target_os = "linux")]
         assert!(facts.free_ram_bytes > 0);
     }

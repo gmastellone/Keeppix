@@ -6,6 +6,8 @@
 /target
 /data
 /pgdata
+/models/*
+!/models/README.md
 node_modules
 frontend/dist
 .env
