@@ -1108,3 +1108,23 @@ suite complete dei crate toccati); sei mutazioni manuali osservate rosse e
 ripristinate in questo task (elencate nei Ruling sopra) per confermare che
 i nuovi test provano davvero ciò che dichiarano, non solo che passano.
 
+Ruling: **`badges` resta `{culling:0, revision:0}` finché le Fasi 7/8/9 non
+espongono contatori singoli.** — Bootstrap deve comporre repository esistenti,
+non inventare SQL per code che non esistono ancora; i campi sono già nel
+contratto così il frontend può leggerli e i task futuri li riempiono senza
+rompere la forma. — *Costo se sbagliato:* badge a zero finché non arrivano le
+fasi IA/culling; accettabile perché oggi non ci sono endpoint badge da
+comporre.
+
+Ruling: **`storage` è una mappa per ogni libreria visibile, non un solo id.** —
+Il confronto query conta `list` + N×`storage`, come farebbe un client che
+chiede lo spazio per ogni libreria che possiede o vede. — *Costo se sbagliato:*
+payload leggermente più grande con molte librerie; coerente con la sidebar che
+mostra lo spazio della libreria corrente e non richiede un secondo giro.
+
+Task 17: complete (commits pending, test verdi: `keeppix-api` bootstrap.rs 2/2
+[nuovo file], compose in `routes/bootstrap.rs`, route additiva
+`GET /api/v1/bootstrap`; `cargo fmt --check` e `cargo clippy -p keeppix-api
+--all-targets -- -D warnings` verdi; mutazione route assente → 404 osservata
+rossa e ripristinata).
+
