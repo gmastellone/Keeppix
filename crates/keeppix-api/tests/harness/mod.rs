@@ -204,6 +204,7 @@ pub fn spawn_worker_pool(
     data_dir: std::path::PathBuf,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        let tracker = std::sync::Arc::new(keeppix_jobs::ActivityTracker::new());
         let handler = keeppix_jobs::IngestHandler {
             db: db.clone(),
             data_dir,
@@ -211,11 +212,12 @@ pub fn spawn_worker_pool(
             trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
             database_url,
             config_path: None,
+            activity: tracker.clone(),
         };
         let pool = keeppix_jobs::WorkerPool::new(
             db.clone(),
             handler,
-            std::sync::Arc::new(keeppix_jobs::ActivityTracker::new()),
+            tracker,
             512 * 1024 * 1024,
             keeppix_jobs::default_night_window(),
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

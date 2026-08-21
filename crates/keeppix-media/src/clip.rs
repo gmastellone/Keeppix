@@ -1,8 +1,9 @@
 //! MobileCLIP2-S2 via `ort` (Fase 7 Task 2 / 2bis): embedding immagine e testo.
 //!
 //! I pesi restano su disco sotto `models/mobileclip2-s2/` (visual + text +
-//! tokenizer). Zero rete a runtime. La sessione è pensata per essere caricata
-//! per lotto e scaricata subito dopo (ciclo di vita Task 6).
+//! tokenizer). Zero rete a runtime. La sessione vive per l'intera finestra
+//! di analisi (lotti da 16 + gate di pausa fra i lotti); Drop non restituisce
+//! `VmRSS` all'OS (onnxruntime#11627 / docs.rs/ort).
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -511,6 +512,91 @@ mod tests {
                  before={base} peak={peak} after_drop={dropped}"
             );
         }
+    }
+
+    #[test]
+    #[serial]
+    fn session_keepalive_beats_reload_every_batch_for_100_photos() {
+        // Prima/dopo: vecchia granularità = load+drop ogni DEFAULT_BATCH (16);
+        // nuova = una load per finestra. Stesso lavoro di inferenza; cambia
+        // solo il costo di avvio ONNX (docs.rs/ort; onnxruntime#11627: le
+        // pagine dell'allocatore restano residenti dopo Drop comunque).
+        const PHOTOS: usize = 100;
+        const BATCH: usize = 16;
+
+        let Some(dir) = first_complete_model_dir() else {
+            eprintln!("skipping: complete MobileCLIP2-S2 dir missing");
+            return;
+        };
+
+        let batches = PHOTOS.div_ceil(BATCH);
+
+        let mut clip = MobileClip::load(&dir).expect("warm load");
+        let size = clip.image_size();
+        let per = 3 * size * size;
+        let one: Vec<f32> = vec![0.5_f32; per];
+        // Warm-up: fuori misura.
+        let _ = clip.embed_images_nchw_batch(&one, 1).expect("warm infer");
+        drop(clip);
+
+        // --- Vecchia granularità: load/drop ogni lotto da 16 ---
+        let t_old = Instant::now();
+        let mut old_load_ms = 0.0_f64;
+        let mut old_infer_ms = 0.0_f64;
+        let mut remaining = PHOTOS;
+        while remaining > 0 {
+            let n = remaining.min(BATCH);
+            let t_load = Instant::now();
+            let mut clip = MobileClip::load(&dir).expect("old load");
+            old_load_ms += t_load.elapsed().as_secs_f64() * 1000.0;
+            let stacked: Vec<f32> = one.iter().copied().cycle().take(per * n).collect();
+            let t_inf = Instant::now();
+            let _ = clip
+                .embed_images_nchw_batch(&stacked, n)
+                .expect("old infer");
+            old_infer_ms += t_inf.elapsed().as_secs_f64() * 1000.0;
+            drop(clip);
+            remaining -= n;
+        }
+        let old_total_ms = t_old.elapsed().as_secs_f64() * 1000.0;
+
+        // --- Nuova: una sessione per tutta la finestra ---
+        let t_new = Instant::now();
+        let t_load = Instant::now();
+        let mut clip = MobileClip::load(&dir).expect("new load");
+        let new_load_ms = t_load.elapsed().as_secs_f64() * 1000.0;
+        let mut new_infer_ms = 0.0_f64;
+        let mut remaining = PHOTOS;
+        while remaining > 0 {
+            let n = remaining.min(BATCH);
+            let stacked: Vec<f32> = one.iter().copied().cycle().take(per * n).collect();
+            let t_inf = Instant::now();
+            let _ = clip
+                .embed_images_nchw_batch(&stacked, n)
+                .expect("new infer");
+            new_infer_ms += t_inf.elapsed().as_secs_f64() * 1000.0;
+            remaining -= n;
+        }
+        drop(clip);
+        let new_total_ms = t_new.elapsed().as_secs_f64() * 1000.0;
+        let rss_resident = current_rss_bytes();
+
+        eprintln!(
+            "KEEPALIVE 100-photo: batches={batches} \
+             OLD total_ms={old_total_ms:.1} (load={old_load_ms:.1} infer={old_infer_ms:.1}) \
+             NEW total_ms={new_total_ms:.1} (load={new_load_ms:.1} infer={new_infer_ms:.1}) \
+             rss_after_drop_bytes={rss_resident:?}"
+        );
+
+        assert!(
+            new_total_ms < old_total_ms,
+            "window session must beat reload-every-batch: new={new_total_ms:.1} old={old_total_ms:.1}"
+        );
+        // Il costo di load nella vecchia granularità è ~batches×; nella nuova ≈1×.
+        assert!(
+            old_load_ms > new_load_ms * 3.0,
+            "old load ({old_load_ms:.1}) should be many× new ({new_load_ms:.1}) across {batches} batches"
+        );
     }
 
     #[test]
