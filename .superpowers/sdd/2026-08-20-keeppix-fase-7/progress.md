@@ -293,6 +293,34 @@ Ruling: **API harness: postgis di default; `start_with_vector` solo per tags.** 
 
 Ruling: **budget bootstrap → capture sqlx global + lock.** — `set_default` TLS perde eventi quando sqlx logga da un altro worker sotto `--test-threads>1`. `set_global_default` una volta + `BUDGET_LOCK` tra i due test. — Costo se sbagliato: un altro test del binario che chiama set_global_default per primo spegne il capture (assert individual>0 fallisce esplicito).
 
+## Task 8 — Abbinamento tag↔foto
+
+Ruling: **`TAG_MATCH_BAND = 0.01f` (un punto percentuale).** — Spec: la
+banda sotto soglia è una costante di sistema «un punto percentuale sotto»,
+non esposta in API. Unico hint numerico nella spec → `0.01`. Score ≥
+`threshold − BAND` → `state='proposed'`, `source='ai'`; sotto → niente.
+Anche sopra soglia resta `proposed` (Task 9 conferma). — Costo se
+sbagliato: banda troppo stretta perde proposte deboli; troppo larga
+riempie la coda. Regolabile solo con un deploy.
+
+Ruling: **ON CONFLICT aggiorna solo `state='proposed'`.** — Spec: decisioni
+umane (`confirmed`/`rejected`) permanenti. Rematch aggiorna lo `score` delle
+proposte esistenti; non tocca le altre. — Costo se sbagliato: un bug nella
+clausola WHERE del DO UPDATE riporterebbe rifiuti in coda.
+
+Ruling: **filtro `asset_embeddings.model_version = tags.model_version`.** —
+Vettori di modelli diversi non sono confrontabili; mismatch → skip.
+— Costo se sbagliato: score spazzatura tra spazi latenti.
+
+Ruling: **API rematch solo su create con embedding o patch che riscrive
+l'embedding (name/prompt).** — Threshold/color/parent da soli non chiamano
+`propose_for_tag`: la soglia governa le analisi *future*. Job embed chiama
+`propose_for_assets` sul lotto appena upsertato. — Costo se sbagliato:
+cambiare soglia non ripulisce proposte già sotto soglia (accettato dalla
+spec: «Cambiare la soglia non rivaluta nulla di già deciso»).
+
+Task 8: in progress
+
 ## Task 6 follow-up — RSS dopo Drop (debito Task 2bis)
 
 Ruling: **`embed.rs` logga `rss_after_drop_bytes` (con before/load/peak).** —
