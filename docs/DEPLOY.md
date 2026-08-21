@@ -50,6 +50,23 @@ costruito per il servizio `db` bundled; il servizio `db` comunque non verrà
 avviato, perché appartiene al profilo `bundled` che qui non è passato a
 `docker compose`.
 
+### pgvector (ricerca semantica e tag automatici)
+
+Il Postgres bundled (`Dockerfile.db`, profilo `bundled`) include già
+**pgvector** insieme a PostGIS. Con un Postgres esterno, installa il
+pacchetto della tua distribuzione per la major version in uso (es.
+`postgresql-17-pgvector` su Debian/Ubuntu) e, quando lo schema AI sarà
+applicato, abilita l'estensione:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+Se l'estensione **non** è installata, Keeppix **parte lo stesso**: galleria,
+upload e il resto funzionano; le funzioni AI restano spente e all'avvio
+appare un avviso con il comando da eseguire. Non è un errore di
+configurazione bloccante.
+
 Attenzione se nella stessa cartella esiste già un `.env` usato per lo
 sviluppo locale (copiato da `.env.example` per `cargo run`): Compose legge
 lo stesso file, e se quel `.env` contiene un `DATABASE_URL` puntato a
