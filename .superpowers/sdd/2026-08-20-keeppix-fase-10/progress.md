@@ -1122,9 +1122,10 @@ chiede lo spazio per ogni libreria che possiede o vede. — *Costo se sbagliato:
 payload leggermente più grande con molte librerie; coerente con la sidebar che
 mostra lo spazio della libreria corrente e non richiede un secondo giro.
 
-Task 17: complete (commits pending, test verdi: `keeppix-api` bootstrap.rs 2/2
-[nuovo file], compose in `routes/bootstrap.rs`, route additiva
-`GET /api/v1/bootstrap`; `cargo fmt --check` e `cargo clippy -p keeppix-api
---all-targets -- -D warnings` verdi; mutazione route assente → 404 osservata
-rossa e ripristinata).
+Task 17: complete (commits c0281c4 feat(api) GET /bootstrap, ee16774 test
+query budget; test verdi: `keeppix-api` bootstrap.rs 2/2 [nuovo file],
+compose in `routes/bootstrap.rs`, route additiva `GET /api/v1/bootstrap`;
+`cargo fmt --check` e `cargo clippy -p keeppix-api --all-targets -- -D
+warnings` verdi; mutazione route assente → 404 osservata rossa e
+ripristinata).
 
