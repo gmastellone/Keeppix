@@ -40,6 +40,12 @@ route /shared-with-me fase-11
 # stato via WS operation.progress e cancel, non chiama set_phase direttamente.
 fn set_phase fase-11
 
+# Fase 7 Task 7 — CRUD tag/categorie: API pronta; la pagina "Tag e categorie"
+# (e la coda di revisione) è UI Fase 11. Matching/coda = Task 8–9 stesso
+# branch, ma i consumatori HTTP restano i componenti Vue della 11.
+route /tags fase-11
+route /tags/{id} fase-11
+
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore
 # =============================================================================

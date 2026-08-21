@@ -286,3 +286,5 @@ mentirebbero (503). `provision_dedicated` resta postgis-only (test 503).
 — Costo se sbagliato: CI deve già buildare `Dockerfile.db` (già vero).
 
 Task 7: complete
+
+Ruling: **/tags e /tags/{id} in wired-exceptions → fase-11.** — Task 7 è solo API; la pagina Tag/categorie è UI della 11 (come bootstrap/timeline). — Costo se sbagliato: eccezione da togliere quando arrivano i componenti Vue.
