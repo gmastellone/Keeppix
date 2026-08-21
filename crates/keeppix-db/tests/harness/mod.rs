@@ -229,7 +229,7 @@ pub async fn seed_user(
 /// Procura un database vergine.
 ///
 /// Percorso predefinito: **un** container `keeppix-db:dev` (`Dockerfile.db`:
-/// PostGIS + pgvector) per processo, e un `CREATE DATABASE` per test. Il boot
+/// `PostGIS` + pgvector) per processo, e un `CREATE DATABASE` per test. Il boot
 /// del container è la parte lenta; condividerlo è il checkpoint prestazioni
 /// della 1a. Fase 7 Task 4: lo schema AI usa il tipo `vector`, quindi i test
 /// di questo crate girano sull'immagine bundled.
