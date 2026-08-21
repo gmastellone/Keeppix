@@ -1565,3 +1565,76 @@ completa, ma sufficiente a confermare che `apt-get install
 libheif-examples` e la raccolta delle librerie con `ldd` funzionano come
 scritto.
 
+Ruling: **router↔spec parity si verifica parsando `lib.rs`, non
+introspezione a runtime.** `axum::Router` in 0.8 non esiste alcuna API per
+enumerare le rotte montate a runtime (nessun `.routes()`, niente `Debug`
+utile). L'alternativa era o costruire un secondo router "ombra" solo per i
+test (rischio che diverga da quello reale) o parsare il codice sorgente di
+`lib.rs` con una piccola regex-based extraction delle chiamate `.route(...)`.
+Ho scelto il secondo: `extract_route_calls` in `tests/openapi.rs` legge
+`crates/keeppix-api/src/lib.rs` a compile time (`include_str!`-style via
+`std::fs::read_to_string` sul path relativo al manifest), estrae `(method,
+path)` per ogni `.route("...", get(...)/post(...)/...)` e confronta l'insieme
+con le chiavi di `paths` nel documento OpenAPI generato in-process. — *Costo
+se sbagliato:* se qualcuno cambia lo stile di scrittura delle route in
+`lib.rs` (es. un macro-helper che genera `.route(...)` senza scriverlo
+letteralmente), il parser smette di vederle e il test perde silenziosamente
+copertura. Difetto noto, non c'è modo di evitarlo del tutto senza
+introspezione reale da axum.
+
+Ruling: **le view API (`AuditEntryView`, `PermissionGrantView`,
+`GrantSummaryView`, `ExplainView`, `ExplainChainLinkView`,
+`SharedWithMeView`) restano in `keeppix-api/src/routes/*.rs`, non in
+`keeppix-db`.** L'invariante del progetto è che `keeppix-db` non conosca
+concetti HTTP/OpenAPI; `utoipa::ToSchema` è un dettaglio di presentazione
+dell'API, non del dominio. Ogni view implementa `From<TipoDb>` e fa da
+adattatore 1:1 (nessuna logica, solo rinominare/riformattare campi dove il
+tipo db non è già `Serialize`-friendly per lo schema pubblico). — *Costo se
+sbagliato:* duplicazione di campi manuale ogni volta che il tipo db cambia
+forma; il compilatore lo cattura comunque (il `From` non compila più), quindi
+il rischio è basso.
+
+Ruling: **`upload::patch` e `share::public_upload` documentano il body con
+`request_body(content = Vec<u8>, content_type = "application/octet-stream")`
+invece di un content-type generico o omesso.** Sono gli unici due endpoint
+del progetto che accettano un body binario grezzo (chunk di upload
+resumable), non JSON; utoipa supporta `Vec<u8>` come schema binary nativo.
+`upload::patch` ha inoltre risposte multiple documentate (`204` per chunk
+accettato, `201` con `UploadCompleteResponse` quando il chunk completa la
+sessione) perché il codice HTTP reale dipende dallo stato della sessione, non
+solo dal successo/fallimento della singola chiamata. — *Costo se sbagliato:*
+i client generati (TypeScript/Swift/Kotlin/Dart) tratterebbero il body come
+JSON o mancherebbero la variante 201, ma è stato verificato generando
+davvero i client TypeScript/Swift dallo spec aggiornato.
+
+Difetto osservato, non di questo task (annotato, non toccato):
+`scripts/check-wired.py` segnala funzioni pubbliche senza chiamante di
+produzione e rotte montate senza consumer nel frontend, ed esce con codice 1
+anche stashando tutte le modifiche di questo task (verificato con `git
+stash` + re-run). È debito pre-esistente indipendente da Task 23 — molte
+rotte di Fase 10 (albums, groups, permissions, share, audit, backup,
+restore, upload) non hanno ancora un frontend che le consuma, che è
+esattamente lo stato aspettato a metà fase. Non risolto qui perché
+implementare il frontend per queste rotte è fuori scope (sarebbe "fare cose
+di fasi successive perché tanto ci vuole poco").
+
+Task 23: complete (commits 529f130 test(api) parity check red [49 rotte
+mancanti] + d2efdb7 feat(api) annotazioni utoipa su audit/permissions/
+backup/restore/share/upload/health + view struct + c361214 feat(api)
+registrazione paths/schemas/tags in ApiDoc + rigenerazione
+docs/api/openapi.json + 200ed3d test(api) aggiornamento assert conteggi/id
+[90→139 operazioni]). Tutti gli 8 test di `tests/openapi.rs` verdi,
+incluso il nuovo `router_registered_routes_are_all_documented` (era rosso
+all'inizio con 49 rotte mancanti, ora verde con zero rotte scoperte).
+`cargo fmt --check` e `cargo clippy --workspace --all-targets -- -D
+warnings` verdi. `cargo test -p keeppix-api --jobs 1 --
+--test-threads=1` completo verde (nessuna regressione su nessun altro
+modulo, incluse le suite WebDAV/WS/journeys/sidebar_load/budgets che
+toccano audit/permissions indirettamente). `scripts/generate-api-clients.sh`
+eseguito per intero dallo spec rigenerato: client TypeScript e Swift
+generati senza errori; il client TypeScript generato è stato inoltre
+type-checked con `tsc --noEmit` a zero errori. CI (`.github/workflows/
+ci.yml`) job `api-clients` che esegue lo stesso script era già presente dal
+commit `40a0ae9`, quindi il punto 3 del brief era già soddisfatto prima di
+questo task — non serviva aggiungerlo, solo verificarlo. Nessun push.
+
