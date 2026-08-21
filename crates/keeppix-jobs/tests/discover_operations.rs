@@ -59,10 +59,10 @@ async fn a_completed_scan_marks_the_operation_done() {
 /// rollback. I file già scritti restano; l'operazione li elenca.
 #[tokio::test]
 async fn cancelling_mid_scan_leaves_exactly_the_files_already_applied() {
+    const TOTAL: usize = 40;
     let test = TestDb::start().await;
     let root = std::env::temp_dir().join(format!("kpx-op-cancel-{}", uuid::Uuid::now_v7()));
     fs::create_dir_all(&root).unwrap();
-    const TOTAL: usize = 40;
     for n in 0..TOTAL {
         fs::write(root.join(format!("{n:03}.jpg")), b"x").unwrap();
     }
