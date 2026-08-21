@@ -30,11 +30,6 @@ http = "1"
 hex = "0.4"
 russh = { version = "0.60.3", default-features = false, features = ["aws-lc-rs"] }
 russh-sftp = "2.1"
-# Pin russh's rsa stack: newer rsa/crypto-primes want crypto-bigint 0.7.5,
-# which conflicts with russh's =0.7.0-rc.28. Keep the locked pre-release set.
-rsa = "=0.10.0-rc.16"
-crypto-primes = "=0.7.0-pre.9"
-crypto-bigint = "=0.7.0-rc.28"
 
 [lints]
 workspace = true

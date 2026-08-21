@@ -181,3 +181,32 @@ dedicato; accettabile per questa fase.
 Task 5: complete (commits 5650784, dfe8f94, 2be46f1, 6f1655b, 9507f79;
 test verdi: keeppix-db embeddings/migrations, keeppix-jobs embed,
 keeppix-media clip+probe)
+
+## CI unblock after Task 5 (pre-Task 6)
+
+Ruling: **`measure_rss_peak_during` in wired-exceptions (fase-7).** — Helper
+pubblico per il tetto RSS; Task 6 lo collega allo scheduler. Fino ad allora
+solo i test. — Costo se sbagliato: debito wired se Task 6 dimentica di
+togliarlo dalla lista quando lo chiama da produzione.
+
+Ruling: **rimossi i pin `rsa`/`crypto-primes`/`crypto-bigint` da
+`keeppix-jobs`.** — Servivano solo a sbloccare il lockfile quando ort entrò
+(Task 2); senza pin la risoluzione Cargo resta verde e `cargo deny` non
+segnala più RUSTSEC-2023-0071 sul pin diretto (rsa resta transitivo via
+russh, come prima di Fase 7). — Costo se sbagliato: un bump futuro di russh
+potrebbe richiedere di nuovo un pin esplicito.
+
+Ruling: **ignore `RUSTSEC-2024-0436` (`paste`).** — Proc-macro di build via
+`tokenizers` (CLIP BPE); upstream ≤0.23 dipende ancora da `paste`, non da
+`pastey`. Non finisce nel binario. — Costo se sbagliato: advisory resta
+aperta finché tokenizers non migra.
+
+Ruling: **Docker builder `rust:1.88-trixie` + runtime
+`distroless/cc-debian13` + staging libraw/heif su `debian:trixie-slim`.** —
+I prebuilt ort (`download-binaries`) referenziano glibc ≥2.38 /
+`_M_replace_cold`; bookworm/debian12 falliscono al link. — Costo se
+sbagliato: host di deploy devono avere un runtime Debian 13-compatible
+(già vero per un'immagine distroless fresca); Pi OS bookworm-host che
+corre l'immagine containerizzata non è affetto (glibc è dentro
+l'immagine).
+
