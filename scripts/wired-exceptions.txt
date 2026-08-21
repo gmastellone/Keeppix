@@ -25,14 +25,29 @@ fn extract_poster fase-11
 route /health ops
 route /api/openapi.json ci
 
+# Fase 10 — superficie API per l'interfaccia: i consumatori sono le 70
+# schermate della Fase 11 (tranche A/B subito dopo la 10).
+route /bootstrap fase-11
+route /timeline/geometry fase-11
+route /operations/{id}/cancel fase-11
+route /users/me/preferences fase-11
+route /users/me/sessions fase-11
+route /users/me/sessions/revoke-others fase-11
+route /users/me/sessions/{id} fase-11
+route /assets/batch/delete fase-11
+route /shared-with-me fase-11
+# set_phase: avanzamento operazioni lunghe (Task 16); il frontend legge lo
+# stato via WS operation.progress e cancel, non chiama set_phase direttamente.
+fn set_phase fase-11
+
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore
 # =============================================================================
 # origine fase-0 (sessioni). /auth/refresh: pagato in 12b (watchdog SPA).
 # ping (keeppix-db/src/lib.rs): /health oggi risponde senza controllare il
-# database. Wiring minimo, non legato a una fase numerata — va fatto quando si
-# tocca /health per altro (Fase 10 tocca cose adiacenti: storage, bootstrap).
-fn ping fase-10
+# database. Wiring minimo — va fatto quando si tocca /health per altro.
+# Fase 10 ha chiuso senza collegarlo: debito non rivendicato.
+fn ping non-rivendicata
 
 # origine fase-1a. get_json: il primo lettore vero è la Fase 7, che rilegge
 # le capacità hardware misurate dal probe per decidere se e quanto inferire.
@@ -43,12 +58,10 @@ fn ensure_child fase-9
 fn get_json fase-7
 
 # origine fase-1b. count_by_status / set_status: contano/impostano lo stato di
-# scansione di una libreria. Nessuna schermata li usa oggi perché l'import
-# iniziale non ha interfaccia (vedi analisi-gap-backend.md §18.5) — sono
-# esattamente i dati che l'avanzamento di scan (Fase 10, evento
-# `scan.progress`) e la sua UI (Fase 11) devono leggere.
-fn count_by_status fase-10
-fn set_status fase-10
+# scansione di una libreria. L'evento `scan.progress` (Fase 10) li espone in
+# WS; il consumatore UI è la Fase 11.
+fn count_by_status fase-11
+fn set_status fase-11
 
 # origine fase-4 (mappe/geotag). get_for_user: legge la posizione "casa" di un
 # utente (si scrive con /users/me/home ma non si rilegge da nessuna route).

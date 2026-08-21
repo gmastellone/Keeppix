@@ -1638,3 +1638,24 @@ ci.yml`) job `api-clients` che esegue lo stesso script era già presente dal
 commit `40a0ae9`, quindi il punto 3 del brief era già soddisfatto prima di
 questo task — non serviva aggiungerlo, solo verificarlo. Nessun push.
 
+
+## Phase close (2026-08-21)
+
+Ruling: `scripts/wired-exceptions.txt` — le nuove rotte di Fase 10 senza
+consumer frontend (`/bootstrap`, `/timeline/geometry`, sessioni, preferenze,
+batch delete, shared-with-me, cancel operation) e `set_phase` restano in
+Rinvii verso `fase-11`; `count_by_status`/`set_status` spostati da `fase-10`
+a `fase-11` (WS già emette `scan.progress`); `ping` rimane debito
+`non-rivendicata` perché /health non è stato collegato in questa fase. —
+Perché: `check-wired.py` deve restare verde a chiusura senza fingere che la
+UI di Fase 11 esista già. — Costo se sbagliato: debito silenzioso o eccezioni
+che bloccano la guardia senza motivo.
+
+Ruling: documenti di navigazione (`CONTINUE.md`, `superpowers/README.md`,
+`PROSEGUI.md`) aggiornati a «Fase 10 implementata sul branch, in attesa di
+merge; prossimo lavoro = Fase 7». — Perché: un agente nuovo non deve
+ripartire dalla 10. — Costo se sbagliato: doppia implementazione o ordine
+sbagliato 7/8/9.
+
+Phase close docs: complete (pending full AGENTS.md verify + user merge).
+`python3 scripts/check-wired.py` EXIT 0 con le eccezioni sopra.

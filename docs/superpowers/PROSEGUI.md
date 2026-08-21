@@ -9,15 +9,16 @@ eccezioni elencate in fondo.
 ## 1. L'ordine, e perché è quello
 
 ```
-Fase 10  →  Fase 7  →  Fase 8  →  Fase 9  →  Fase 11 (A→B→C→D)
+Fase 10 (✅ branch `fase-10`, in attesa di merge)  →  Fase 7  →  Fase 8  →  Fase 9  →  Fase 11 (A→B→C→D)
 ```
 
-**La Fase 10 è la prossima.** Branch nuovo da `main`, non da un branch di fase precedente.
+**La Fase 10 è implementata** sul branch `fase-10` (23 task). Dopo il merge, **la prossima è la
+Fase 7**. Branch nuovo da `main` (dopo il merge della 10), non da un branch di fase precedente.
 
-**La Fase 10 va prima della 7, 8 e 9, e non è un'opinione.** Fissa l'involucro di riuscita
-parziale, la tassonomia chiusa degli errori, `SearchNode` come unico modello di filtro e gli
-eventi WebSocket. Le altre tre introducono da sole più di otto operazioni di massa: se la
-convenzione arriva dopo, quelle otto vanno riscritte.
+**La Fase 10 è andata prima della 7, 8 e 9, e non era un'opinione.** Ha fissato l'involucro di
+riuscita parziale, la tassonomia chiusa degli errori, `SearchNode` come unico modello di filtro
+e gli eventi WebSocket. Le altre tre introducono da sole più di otto operazioni di massa: se la
+convenzione fosse arrivata dopo, quelle otto andavano riscritte.
 
 **La Fase 11 è in quattro tranche** che seguono le fasi da cui dipendono: A e B subito dopo la
 10, C dopo la 7, D dopo la 8 e la 9. Costruire Persone contro un backend senza volti significa
