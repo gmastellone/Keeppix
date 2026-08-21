@@ -416,6 +416,51 @@ impl<'a> JobRepo<'a> {
         row.map(JobRow::into_domain).transpose()
     }
 
+    /// Job `kind` conclusi con successo dopo `since_id`, in ordine di id.
+    /// Pipeline/notifica (Fase 10 Task 19: `asset.derivative.ready` sul
+    /// WebSocket) — nessun `AuthContext`, come [`Self::discover_status_for_library`]:
+    /// la visibilità sull'asset coinvolto va applicata dal chiamante
+    /// (`AssetRepo::filter_visible`), esattamente come fa già la pagina
+    /// Problemi con [`Self::discover_status_for_library`].
+    ///
+    /// # Errors
+    /// `Connection` / `Corrupted`.
+    pub async fn list_recently_done(
+        &self,
+        kind: JobKind,
+        since_id: i64,
+        limit: i64,
+    ) -> Result<Vec<Job>, DbError> {
+        let rows: Vec<JobRow> = sqlx::query_as(&format!(
+            "SELECT {COLUMNS} FROM jobs \
+              WHERE kind = $1 AND status = 'done' AND id > $2 \
+              ORDER BY id \
+              LIMIT $3"
+        ))
+        .bind(kind.as_str())
+        .bind(since_id)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(self.db.pool())
+        .await?;
+        rows.into_iter().map(JobRow::into_domain).collect()
+    }
+
+    /// Massimo id fra i job `kind` già `done` — inizializza il cursore di un
+    /// client che si connette ora al WebSocket, così non rivede
+    /// transcodifiche finite prima che si collegasse (Fase 10 Task 19).
+    /// Nessun `AuthContext`: stesso motivo di [`Self::list_recently_done`].
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn max_done_id(&self, kind: JobKind) -> Result<i64, DbError> {
+        let id: Option<i64> =
+            sqlx::query_scalar("SELECT max(id) FROM jobs WHERE kind = $1 AND status = 'done'")
+                .bind(kind.as_str())
+                .fetch_one(self.db.pool())
+                .await?;
+        Ok(id.unwrap_or(0))
+    }
+
     /// Quante righe (qualsiasi stato) condividono questa `dedup_key`.
     /// Lo usa il ritentativo dei derive: il vincolo unique vale solo su
     /// pending/running, quindi i `done` si accumulano e sono il tetto.
