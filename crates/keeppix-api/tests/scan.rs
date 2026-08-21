@@ -69,6 +69,329 @@ async fn drain_workers(server: &TestServer, data_dir: &std::path::Path) {
     }
 }
 
+/// Task 16: la richiesta che ottiene davvero il job accodato deve poter
+/// seguirlo — senza un `operation_id` non c'è niente da annullare né da
+/// mostrare sul WebSocket.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn starting_a_scan_returns_an_operation_id_that_reaches_done() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let root = library_dir(&server, "scan-op-id");
+    fs::write(root.join("a.jpg"), b"x").unwrap();
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "ScanOp",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let scan = server
+        .client
+        .post(server.url(&format!("/api/v1/libraries/{id}/scan")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scan.status(), 202);
+    let body: serde_json::Value = scan.json().await.unwrap();
+    let operation_id: keeppix_domain::OperationId =
+        body["operation_id"].as_str().unwrap().parse().unwrap();
+
+    drain_workers(&server, &server.data_dir.join("op-id-data")).await;
+
+    let admin = admin_id(&server).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let ops = keeppix_db::OperationsRepo::new(&server.db);
+    let op = ops.find(&ctx, operation_id).await.unwrap();
+    assert_eq!(op.status, keeppix_domain::OperationStatus::Done);
+    assert_eq!(op.done, 1);
+    assert_eq!(op.succeeded.len(), 1);
+}
+
+/// Task 16 Ruling: un secondo `POST /scan` mentre il primo job è ancora in
+/// coda non deve creare un'operazione orfana — quella non ha nessun job che
+/// la faccia avanzare, e resterebbe `running` per sempre.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn a_scan_request_while_one_is_already_queued_reports_no_operation() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let root = library_dir(&server, "scan-op-dedup");
+    fs::write(root.join("a.jpg"), b"x").unwrap();
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "ScanOpDedup",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let first = server
+        .client
+        .post(server.url(&format!("/api/v1/libraries/{id}/scan")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 202);
+    let first_body: serde_json::Value = first.json().await.unwrap();
+    assert!(first_body["operation_id"].is_string());
+
+    let second = server
+        .client
+        .post(server.url(&format!("/api/v1/libraries/{id}/scan")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), 202);
+    let second_body: serde_json::Value = second.json().await.unwrap();
+    assert!(
+        second_body["operation_id"].is_null(),
+        "il job del primo scan vince il dedup: la seconda richiesta non ha nulla da seguire"
+    );
+}
+
+/// Come [`drain_workers`], ma su cloni posseduti così può girare in un
+/// `tokio::spawn` mentre il test resta libero di interrogare il database e
+/// chiamare l'endpoint di annullamento nel frattempo.
+#[allow(clippy::expect_used)]
+fn spawn_worker_pool(
+    db: keeppix_db::Db,
+    database_url: String,
+    data_dir: std::path::PathBuf,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let handler = IngestHandler {
+            db: db.clone(),
+            data_dir,
+            stability_wait: Duration::ZERO,
+            trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
+            database_url,
+            config_path: None,
+        };
+        let pool = WorkerPool::new(
+            db.clone(),
+            handler,
+            std::sync::Arc::new(ActivityTracker::new()),
+            512 * 1024 * 1024,
+            keeppix_jobs::default_night_window(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let start = std::time::Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(60) {
+                return;
+            }
+            if !pool.step().await.expect("step") {
+                let pending: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM jobs WHERE status IN ('pending','running')",
+                )
+                .fetch_one(db.pool())
+                .await
+                .expect("count");
+                if pending == 0 {
+                    return;
+                }
+            }
+        }
+    })
+}
+
+/// Verifica di Task 16: annullare a metà (dopo aver visto qualche successo)
+/// lascia esattamente ciò che è stato applicato, come `BulkOutcome` — non un
+/// rollback. La stessa proprietà provata a livello di `keeppix-jobs`
+/// (`discover_operations.rs`), qui passando per davvero dalla rotta HTTP.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn cancelling_a_scan_via_the_api_leaves_a_partial_bulk_outcome() {
+    const TOTAL: usize = 40;
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let root = library_dir(&server, "scan-cancel");
+    for n in 0..TOTAL {
+        fs::write(root.join(format!("{n:03}.jpg")), b"x").unwrap();
+    }
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "ScanCancel",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    let id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let scan = server
+        .client
+        .post(server.url(&format!("/api/v1/libraries/{id}/scan")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scan.status(), 202);
+    let operation_id = scan.json::<serde_json::Value>().await.unwrap()["operation_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let worker = spawn_worker_pool(
+        server.db.clone(),
+        server.database_url.clone(),
+        server.data_dir.join("cancel-data"),
+    );
+
+    let admin = admin_id(&server).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let ops = keeppix_db::OperationsRepo::new(&server.db);
+    let op_id: keeppix_domain::OperationId = operation_id.parse().unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "la scansione non ha fatto abbastanza progresso da poter annullare"
+        );
+        if ops.find(&ctx, op_id).await.unwrap().done >= 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+
+    let cancel = server
+        .client
+        .post(server.url(&format!("/api/v1/operations/{operation_id}/cancel")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cancel.status(), 200);
+    let outcome: serde_json::Value = cancel.json().await.unwrap();
+    let succeeded = outcome["succeeded"].as_array().unwrap();
+    assert!(
+        !succeeded.is_empty(),
+        "la risposta deve elencare almeno ciò che era già applicato al momento dell'annullamento"
+    );
+    assert!(outcome["failed"].as_array().unwrap().is_empty());
+
+    tokio::time::timeout(Duration::from_secs(20), worker)
+        .await
+        .expect("il worker non si è fermato dopo l'annullamento")
+        .unwrap();
+
+    let finished = ops.find(&ctx, op_id).await.unwrap();
+    assert_eq!(finished.status, keeppix_domain::OperationStatus::Cancelled);
+    assert!(
+        finished.done < i64::try_from(TOTAL).unwrap(),
+        "un annullamento che completa comunque tutti i file non ha provato nulla: done={}",
+        finished.done
+    );
+    assert!(finished.done > 0);
+
+    let asset_count: i64 = sqlx::query_scalar("SELECT count(*) FROM assets")
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        asset_count, finished.done,
+        "gli asset scritti devono combaciare con l'esito parziale finale, non con la cartella intera"
+    );
+}
+
+/// Come ogni altro id sondabile nel sistema: chi non è owner né admin
+/// riceve `Forbidden`, non `NotFound` — altrimenti l'endpoint diventa un
+/// oracolo di esistenza sugli `operation_id` in corso.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn cancelling_someone_elses_operation_is_forbidden() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let admin = admin_id(&server).await;
+
+    keeppix_db::UserRepo::new(&server.db)
+        .create(
+            &AuthContext::user(admin, SystemRole::Admin),
+            keeppix_domain::NewUser {
+                username: keeppix_domain::Username::parse("mario").unwrap(),
+                email: None,
+                display_name: "Mario".to_owned(),
+                password_hash: keeppix_domain::hash_password(
+                    &keeppix_domain::Password::parse("mario-password-ok").unwrap(),
+                )
+                .unwrap()
+                .as_str()
+                .to_owned(),
+                role: SystemRole::User,
+            },
+        )
+        .await
+        .unwrap();
+
+    let ops = keeppix_db::OperationsRepo::new(&server.db);
+    let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
+    let operation = ops
+        .create(&admin_ctx, keeppix_domain::OperationKind::LibraryScan)
+        .await
+        .unwrap();
+
+    let mario = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(harness::client_headers())
+        .build()
+        .unwrap();
+    let login = mario
+        .post(server.url("/api/v1/auth/login"))
+        .json(&json!({ "username": "mario", "password": "mario-password-ok" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200);
+
+    let response = mario
+        .post(server.url(&format!("/api/v1/operations/{}/cancel", operation.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+    let problem: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(problem["type"], "keeppix/forbidden");
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn admin_id(server: &TestServer) -> keeppix_domain::UserId {
+    server
+        .client
+        .get(server.url("/api/v1/auth/me"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap()["user"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn starting_a_scan_creates_assets() {
