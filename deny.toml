@@ -7,6 +7,10 @@ yanked = "deny"
 # (or a patched ml-kem) builds cleanly.
 ignore = [
     { id = "RUSTSEC-2026-0173", reason = "transitive build-only via age 0.11; age 0.12 does not compile yet (ml-kem)" },
+    # tokenizers (CLIP BPE, Fase 7) pulls `paste` as a build-time proc-macro.
+    # Upstream still depends on paste through 0.23.x; pastey is not a drop-in
+    # for that crate graph. Not linked into the keeppix binary.
+    { id = "RUSTSEC-2024-0436", reason = "build-only proc-macro via tokenizers; no pastey migration upstream yet" },
 ]
 
 [licenses]

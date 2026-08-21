@@ -3190,8 +3190,6 @@ dependencies = [
  "aws-sigv4",
  "blake3",
  "chrono",
- "crypto-bigint",
- "crypto-primes",
  "filetime",
  "hex",
  "http 1.5.0",
@@ -3201,7 +3199,6 @@ dependencies = [
  "libc",
  "notify",
  "reqwest",
- "rsa 0.10.0-rc.16",
  "russh",
  "russh-sftp",
  "serde",
@@ -4726,7 +4723,6 @@ dependencies = [
  "rand_core 0.10.1",
  "sha2 0.11.0",
  "signature 3.0.0",
- "spki 0.8.0-rc.4",
  "zeroize",
 ]
 

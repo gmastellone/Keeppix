@@ -23,7 +23,11 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Backend ───────────────────────────────────────────────────────────────
-FROM rust:1.88-bookworm AS backend
+# trixie (glibc ≥ 2.38, libstdc++ GCC 14): i binari prebuilt di `ort`
+# (`download-binaries`) sono compilati su Ubuntu 24.04 e referenziano
+# `__isoc23_strtol` / `_M_replace_cold`. Su bookworm (glibc 2.36) il link
+# fallisce. Runtime sotto allineato a distroless/cc-debian13.
+FROM rust:1.88-trixie AS backend
 WORKDIR /app
 
 # Le query sqlx sono verificate a runtime con le forme funzione
@@ -54,9 +58,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # `keeppix/full-unavailable`: lo zoom del culling sui RAW non funziona.
 #
 # distroless non ha package manager, quindi il binario e le sue librerie si
-# raccolgono qui e si copiano nel runtime. Stessa base Debian 12 del runtime,
-# così le versioni combaciano.
-FROM debian:bookworm-slim AS libraw
+# raccolgono qui e si copiano nel runtime. Stessa base Debian 13 del runtime
+# (trixie), così le versioni combaciano con distroless/cc-debian13.
+FROM debian:trixie-slim AS libraw
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libraw-bin \
  && rm -rf /var/lib/apt/lists/*
@@ -84,12 +88,10 @@ RUN set -eu; \
 # `DeriveError::Decode` per ogni HEIC caricato in libreria (iPhone e molte
 # fotocamere recenti).
 #
-# Il pacchetto `libheif1` di bookworm (1.15.1, confermato con `apt-cache
-# depends`) collega i codec (libde265/HEVC, libaom/AVIF, dav1d, x265)
-# staticamente ai propri `.so`, non con `dlopen` a plugin come le build più
-# recenti (es. Ubuntu 24.04): `ldd` sotto li vede e basta la stessa raccolta
-# usata per `dcraw_emu`, nessuna directory di plugin da gestire a parte.
-FROM debian:bookworm-slim AS heif
+# Su trixie i codec HEIF restano raggiungibili via `ldd` sul binario
+# `heif-convert` (stessa raccolta di `dcraw_emu`); se un giorno passassero
+# a plugin `dlopen`, andrebbe aggiunta la directory dei plugin allo staging.
+FROM debian:trixie-slim AS heif
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libheif-examples \
  && rm -rf /var/lib/apt/lists/*
@@ -106,7 +108,8 @@ RUN set -eu; \
 
 # ── Runtime ───────────────────────────────────────────────────────────────
 # distroless: nessuna shell, nessun package manager, ~6 pacchetti da monitorare.
-FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+# debian13 allineato al builder trixie (ort prebuilt richiede glibc ≥ 2.38).
+FROM gcr.io/distroless/cc-debian13:nonroot AS runtime
 
 COPY --from=backend /usr/local/bin/keeppix /usr/local/bin/keeppix
 COPY --from=libraw /staging/bin/dcraw_emu /usr/bin/dcraw_emu
