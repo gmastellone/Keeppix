@@ -210,3 +210,10 @@ sbagliato: host di deploy devono avere un runtime Debian 13-compatible
 corre l'immagine containerizzata non è affetto (glibc è dentro
 l'immagine).
 
+
+Ruling: **CI costruisce `keeppix-db:dev` prima dei test.** — Il service
+`postgis/postgis:17-3.5` non ha pgvector; lo harness `keeppix-db` ricade su
+testcontainers `keeppix-db:dev`, che non è su Docker Hub. Senza lo step di
+build, albums/embeddings abortiscono con pull 404. — Costo se sbagliato:
+~1–2 min in più per job backend; accettabile.
+
