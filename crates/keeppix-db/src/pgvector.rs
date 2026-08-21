@@ -1,8 +1,9 @@
 //! Probe della presenza di pgvector (estensione `vector`) sul Postgres collegato.
 //!
-//! Fase 7 Task 3: se manca, Keeppix **non** rifiuta l'avvio — le funzioni AI
+//! Fase 7 Task 3/4: se manca, Keeppix **non** rifiuta l'avvio — le funzioni AI
 //! restano spente e lo stato persistito spiega perché, con il comando da
-//! eseguire. Lo schema (`asset_embeddings`, …) arriva al Task 4.
+//! eseguire. La migrazione `0043_ai_embeddings_tags` abilita `vector` e crea
+//! lo schema solo quando il pacchetto è installato; altrimenti è un no-op.
 
 use serde::{Deserialize, Serialize};
 
@@ -51,9 +52,9 @@ impl PgVectorStatus {
     /// Stato quando l'estensione è installata sul server.
     ///
     /// `enabled` distingue «pacchetto presente» da «già `CREATE EXTENSION`».
-    /// Finché Task 4 non crea lo schema, `enabled == false` resta legittimo
-    /// sul percorso bundled: le funzioni AI attendono la migrazione, non un
-    /// errore di installazione.
+    /// Dopo la migrazione Task 4 sull'immagine bundled, `enabled` è `true`.
+    /// Su un Postgres dove il pacchetto c'è ma la migrazione non ha ancora
+    /// corso (o è stata saltata), `enabled == false` resta legittimo.
     #[must_use]
     pub fn present(enabled: bool) -> Self {
         Self {
