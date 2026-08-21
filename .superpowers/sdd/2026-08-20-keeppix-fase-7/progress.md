@@ -319,7 +319,8 @@ l'embedding (name/prompt).** — Threshold/color/parent da soli non chiamano
 cambiare soglia non ripulisce proposte già sotto soglia (accettato dalla
 spec: «Cambiare la soglia non rivaluta nulla di già deciso»).
 
-Task 8: in progress
+Task 8: complete (commits 5051e9e, bba350a, 217fa2e, fc5a524; test verdi
+`keeppix-db` asset_tags, `keeppix-api` tags; clippy -D warnings)
 
 ## Task 6 follow-up — RSS dopo Drop (debito Task 2bis)
 
