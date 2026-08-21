@@ -11,12 +11,17 @@
 //! Alzare `DEFAULT_BATCH_SIZE` non è un sostituto: il gate si valuta fra i
 //! job/lotti piccoli, altrimenti la CPU resterebbe bloccata dopo che
 //! l'utente riprende a navigare.
+//!
+//! Ogni finestra apre un'`Operation` `AiAnalysis` (Task 12): il poll WS già
+//! esistente emette `operation.progress` senza eventi nuovi.
 
 use std::path::Path;
 
 use chrono::Utc;
-use keeppix_db::{AssetTagRepo, Db, EmbeddingRepo, JobRepo, PendingEmbedding};
-use keeppix_domain::{JobKind, JobPriority};
+use keeppix_db::{
+    AssetTagRepo, Db, EmbeddingRepo, JobRepo, OperationsRepo, PendingEmbedding, UserRepo,
+};
+use keeppix_domain::{AssetId, JobKind, JobPriority, OperationId, OperationKind};
 use keeppix_media::{
     MODEL_VERSION, MobileClip, current_rss_bytes, decode_to_rgb8, derivative_paths,
     first_complete_model_dir, measure_rss_peak_during,
@@ -95,10 +100,8 @@ pub async fn run(
     limit: i64,
     mut continue_window: impl FnMut() -> bool,
 ) -> Result<EmbedOutcome, JobError> {
-    let has_pending = !EmbeddingRepo::new(db)
-        .list_pending(MODEL_VERSION, 1)
-        .await?
-        .is_empty();
+    let embeddings = EmbeddingRepo::new(db);
+    let has_pending = !embeddings.list_pending(MODEL_VERSION, 1).await?.is_empty();
     if !has_pending {
         return Ok(EmbedOutcome {
             embedded: 0,
@@ -111,6 +114,9 @@ pub async fn run(
             "MobileCLIP model missing (expected {MODEL_VERSION} under models/)"
         ))
     })?;
+
+    let ops = OperationsRepo::new(db);
+    let op_id = open_ai_analysis_operation(db, &ops, &embeddings).await?;
 
     // Una sola load per finestra. Drop a fine scope. VmRSS dopo Drop resta
     // tipicamente ~pari ad after_load: l'allocatore ORT trattiene le pagine
@@ -126,17 +132,23 @@ pub async fn run(
     };
     let mut rss_peak_infer = rss_after_load;
     let mut stopped_for_pause = false;
+    let mut stopped_for_cancel = false;
     let mut batches = 0_u32;
 
     loop {
-        let pending = EmbeddingRepo::new(db)
-            .list_pending(MODEL_VERSION, limit)
-            .await?;
+        if let Some(id) = op_id
+            && ops.is_cancel_requested(id).await?
+        {
+            stopped_for_cancel = true;
+            break;
+        }
+
+        let pending = embeddings.list_pending(MODEL_VERSION, limit).await?;
         if pending.is_empty() {
             break;
         }
 
-        let (outcome, peak) =
+        let (outcome, peak, embedded_ids) =
             embed_pending(db, data_dir, &mut clip, &pending, rss_after_load).await?;
         total.embedded = total.embedded.saturating_add(outcome.embedded);
         total.skipped_missing_thumb = total
@@ -144,6 +156,11 @@ pub async fn run(
             .saturating_add(outcome.skipped_missing_thumb);
         if let Some(p) = peak {
             rss_peak_infer = Some(rss_peak_infer.map_or(p, |cur| cur.max(p)));
+        }
+        if let Some(id) = op_id
+            && !embedded_ids.is_empty()
+        {
+            ops.record_success_many(id, &embedded_ids).await?;
         }
         batches = batches.saturating_add(1);
 
@@ -164,6 +181,7 @@ pub async fn run(
         batches,
         embedded = total.embedded,
         stopped_for_pause,
+        stopped_for_cancel,
         rss_before_bytes = rss_before,
         rss_after_load_bytes = rss_after_load,
         rss_peak_infer_bytes = rss_peak_infer,
@@ -171,10 +189,36 @@ pub async fn run(
         "embed window rss"
     );
 
-    if stopped_for_pause {
+    if let Some(id) = op_id {
+        if stopped_for_cancel {
+            ops.finish_cancelled(id).await?;
+        } else {
+            ops.finish_done(id).await?;
+        }
+    }
+
+    if stopped_for_pause || stopped_for_cancel {
         maybe_requeue_backfill(db).await?;
     }
     Ok(total)
+}
+
+async fn open_ai_analysis_operation(
+    db: &Db,
+    ops: &OperationsRepo<'_>,
+    embeddings: &EmbeddingRepo<'_>,
+) -> Result<Option<OperationId>, JobError> {
+    let Some(owner) = UserRepo::new(db).first_admin_id().await? else {
+        tracing::warn!("embed window: no admin to own AiAnalysis operation");
+        return Ok(None);
+    };
+    let op = ops
+        .create_for_owner(owner, OperationKind::AiAnalysis)
+        .await?;
+    let pending_total = embeddings.count_pending(MODEL_VERSION).await?;
+    ops.set_total(op.id, Some(pending_total)).await?;
+    ops.set_phase(op.id, "embedding").await?;
+    Ok(Some(op.id))
 }
 
 async fn maybe_requeue_backfill(db: &Db) -> Result<(), JobError> {
@@ -193,7 +237,7 @@ async fn embed_pending(
     clip: &mut MobileClip,
     pending: &[PendingEmbedding],
     rss_after_load: Option<u64>,
-) -> Result<(EmbedOutcome, Option<u64>), JobError> {
+) -> Result<(EmbedOutcome, Option<u64>, Vec<AssetId>), JobError> {
     let mut prepared: Vec<(PendingEmbedding, Vec<f32>)> = Vec::new();
     let mut skipped_missing_thumb = 0_u32;
 
@@ -221,6 +265,7 @@ async fn embed_pending(
                 skipped_missing_thumb,
             },
             rss_after_load,
+            Vec::new(),
         ));
     }
 
@@ -265,6 +310,7 @@ async fn embed_pending(
             skipped_missing_thumb,
         },
         rss_peak_infer,
+        embedded_ids,
     ))
 }
 

@@ -80,6 +80,32 @@ impl<'a> EmbeddingRepo<'a> {
             .collect()
     }
 
+    /// Quanti asset immagine (fuori culling) ancora senza embedding per
+    /// `model_version`. Usato da `set_total` sulla finestra `AiAnalysis`.
+    ///
+    /// # Errors
+    /// `Connection` / schema AI assente.
+    pub async fn count_pending(&self, model_version: &str) -> Result<i64, DbError> {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*)::bigint \
+             FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             JOIN libraries l ON l.id = f.library_id \
+             LEFT JOIN folders cull ON cull.id = l.culling_root_folder_id \
+             WHERE a.content_hash IS NOT NULL \
+               AND a.kind = 'image' \
+               AND (cull.path IS NULL OR NOT (f.path <@ cull.path)) \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM asset_embeddings e \
+                   WHERE e.asset_id = a.id AND e.model_version = $1 \
+               )",
+        )
+        .bind(model_version)
+        .fetch_one(self.db.pool())
+        .await?;
+        Ok(n)
+    }
+
     /// Inserisce o aggiorna l'embedding. Con lo stesso `model_version` un
     /// secondo upsert è un no-op sul vettore già presente (ON CONFLICT DO
     /// UPDATE solo se cambia il modello — qui riscriviamo sempre ma il caller

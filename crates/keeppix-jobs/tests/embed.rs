@@ -335,6 +335,49 @@ async fn pause_between_batches_stops_and_requeues_backfill() {
 }
 
 #[tokio::test]
+async fn embed_window_opens_and_finishes_an_ai_analysis_operation() {
+    if keeppix_media::first_complete_model_dir().is_none() {
+        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+        return;
+    }
+
+    let test = TestDb::start_with_vector().await;
+    let admin = harness::seed_admin(&test).await;
+    let root = std::env::temp_dir().join(format!("kpx-emb-op-{}", uuid::Uuid::now_v7()));
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).unwrap();
+    let lib = root.join("lib");
+    let _ = ingest_until_thumb(&test, admin, &lib, &data_dir, "op.jpg").await;
+
+    let before: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM operations WHERE kind = 'ai_analysis' AND status = 'running'",
+    )
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    assert_eq!(before, 0);
+
+    let outcome = embed_job::run(test.db(), &data_dir, 16, || true)
+        .await
+        .unwrap();
+    assert_eq!(outcome.embedded, 1);
+
+    let done: Vec<(i64, Option<i64>, String)> = sqlx::query_as(
+        "SELECT done, total, status FROM operations \
+         WHERE kind = 'ai_analysis' ORDER BY created_at DESC LIMIT 1",
+    )
+    .fetch_all(test.db().pool())
+    .await
+    .unwrap();
+    assert_eq!(done.len(), 1, "one AiAnalysis op per window");
+    assert_eq!(done[0].0, 1, "done counts embedded assets");
+    assert_eq!(done[0].1, Some(1), "total was pending count at start");
+    assert_eq!(done[0].2, "done");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn embed_assets_job_kind_is_dispatched() {
     assert_eq!(JobKind::EmbedAssets.as_str(), "embed_assets");
     assert_eq!(JobPriority::Background.as_i16(), 3);

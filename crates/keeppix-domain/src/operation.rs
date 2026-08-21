@@ -13,6 +13,8 @@ use crate::error::DomainError;
 #[serde(rename_all = "snake_case")]
 pub enum OperationKind {
     LibraryScan,
+    /// Finestra di analisi CLIP (Fase 7 Task 12): embedding + abbinamento tag.
+    AiAnalysis,
 }
 
 impl OperationKind {
@@ -20,6 +22,7 @@ impl OperationKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::LibraryScan => "library_scan",
+            Self::AiAnalysis => "ai_analysis",
         }
     }
 
@@ -28,6 +31,7 @@ impl OperationKind {
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         match raw {
             "library_scan" => Ok(Self::LibraryScan),
+            "ai_analysis" => Ok(Self::AiAnalysis),
             other => Err(DomainError::InvalidOperationKind(other.to_owned())),
         }
     }
@@ -86,6 +90,10 @@ mod tests {
         assert_eq!(
             OperationKind::parse(OperationKind::LibraryScan.as_str()).expect("round-trip"),
             OperationKind::LibraryScan
+        );
+        assert_eq!(
+            OperationKind::parse(OperationKind::AiAnalysis.as_str()).expect("round-trip"),
+            OperationKind::AiAnalysis
         );
     }
 
