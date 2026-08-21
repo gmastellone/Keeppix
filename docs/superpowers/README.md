@@ -93,14 +93,16 @@ Tre file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 
 | [`plans/2026-08-18-keeppix-fase-4.md`](plans/2026-08-18-keeppix-fase-4.md) | ✅ completato e mergiato (PR #9) — GPS all'ingest, GeoNames, cluster mappa, fusi orari, PMTiles offline, geofence «casa» |
 | [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ✅ completato e mergiato (PR #10) — upload tus riprendibile, WebDAV, app-password |
 | [`plans/2026-08-19-keeppix-fase-6.md`](plans/2026-08-19-keeppix-fase-6.md) | ✅ completato e mergiato (PR #11) — video, backup, TOTP, PWA, sync/delta, client API generati |
-| [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ⬜ scritto — 23 task, va **prima** di 7/8/9 perché ne fissa le convenzioni — **prossima fase** |
+| [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ✅ implementata sul branch `fase-10` (23 task) — **in attesa di review/merge** — poi 7 → 8 → 9 → 11 |
 | [`plans/2026-08-20-keeppix-fase-7.md`](plans/2026-08-20-keeppix-fase-7.md) | ⬜ scritto — 13 task; comincia **misurando** l'inferenza sull'hardware vero |
 | [`plans/2026-08-20-keeppix-fase-8.md`](plans/2026-08-20-keeppix-fase-8.md) | ⬜ scritto — 11 task; il **primo** è il test che garantisce che i volti non escano dai link pubblici |
 | [`plans/2026-08-20-keeppix-fase-9.md`](plans/2026-08-20-keeppix-fase-9.md) | ⬜ scritto — 11 task; è la fase che tocca **file veri sul disco** |
 | [`plans/2026-08-20-keeppix-fase-11.md`](plans/2026-08-20-keeppix-fase-11.md) | ⬜ scritto — 18 task in quattro tranche che seguono le fasi da cui dipendono |
 
-**Tutti i piani sono scritti.** Fasi 0-6 chiuse. L'ordine di esecuzione da qui è
-`10 → 7 → 8 → 9 → 11 (A→B→C→D)`; il perché sta nel grafo delle dipendenze del roadmap.
+**Tutti i piani sono scritti.** Fasi 0-6 chiuse su `main`. Fase 10 implementata
+sul branch `fase-10` (in attesa di merge). L'ordine di esecuzione da qui è
+`7 → 8 → 9 → 11 (A→B→C→D)` dopo il merge della 10; il perché sta nel grafo
+delle dipendenze del roadmap.
 
 ## Consegne
 
