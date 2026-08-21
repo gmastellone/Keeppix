@@ -33,6 +33,7 @@ fn library_dir(server: &TestServer, name: &str) -> std::path::PathBuf {
 
 #[allow(clippy::expect_used)]
 async fn drain_workers(server: &TestServer, data_dir: &std::path::Path) {
+    let tracker = std::sync::Arc::new(ActivityTracker::new());
     let handler = IngestHandler {
         db: server.db.clone(),
         data_dir: data_dir.to_path_buf(),
@@ -40,11 +41,12 @@ async fn drain_workers(server: &TestServer, data_dir: &std::path::Path) {
         trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
         database_url: server.database_url.clone(),
         config_path: None,
+        activity: tracker.clone(),
     };
     let pool = WorkerPool::new(
         server.db.clone(),
         handler,
-        std::sync::Arc::new(ActivityTracker::new()),
+        tracker,
         512 * 1024 * 1024,
         keeppix_jobs::default_night_window(),
         std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

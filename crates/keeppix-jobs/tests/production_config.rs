@@ -24,6 +24,7 @@ fn production_ingest_handler(db: keeppix_db::Db, data_dir: PathBuf) -> IngestHan
         trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
         database_url: String::new(),
         config_path: None,
+        activity: std::sync::Arc::new(keeppix_jobs::ActivityTracker::new()),
     }
 }
 

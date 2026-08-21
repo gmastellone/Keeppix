@@ -95,6 +95,7 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
     keeppix_jobs::regions::recover_interrupted_downloads(&db)
         .await
         .context("interrupted region download repair")?;
+    let tracker = std::sync::Arc::new(keeppix_jobs::ActivityTracker::new());
     let handler = keeppix_jobs::IngestHandler {
         db: db.clone(),
         data_dir: config.data_dir.clone(),
@@ -102,6 +103,7 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
         trash_retention_days: config.trash_retention_days,
         database_url: config.database_url.clone(),
         config_path: Some(config_path),
+        activity: tracker.clone(),
     };
     let night = keeppix_jobs::default_night_window();
     let workers = keeppix_jobs::worker_count(
@@ -109,7 +111,6 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
             .map(std::num::NonZero::get)
             .unwrap_or(2),
     );
-    let tracker = std::sync::Arc::new(keeppix_jobs::ActivityTracker::new());
     let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     for _ in 0..workers {
         // ponytail: each worker has its own 512 MiB RamGate. Share one Arc

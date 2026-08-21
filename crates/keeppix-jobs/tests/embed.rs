@@ -98,7 +98,9 @@ async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
     fs::write(lib_a.join("a.jpg"), b"not-a-jpeg").unwrap();
     fs::write(lib_b.join("b.jpg"), b"not-a-jpeg").unwrap();
 
-    let outcome = embed_job::run(test.db(), &data_dir, 16).await.unwrap();
+    let outcome = embed_job::run(test.db(), &data_dir, 16, || true)
+        .await
+        .unwrap();
     assert!(
         outcome.embedded >= 2,
         "expected a batch of both assets, got {outcome:?}"
@@ -111,7 +113,9 @@ async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
         assert_eq!(row.embedding.len(), 512);
     }
 
-    let again = embed_job::run(test.db(), &data_dir, 16).await.unwrap();
+    let again = embed_job::run(test.db(), &data_dir, 16, || true)
+        .await
+        .unwrap();
     assert_eq!(
         again.embedded, 0,
         "stesso model_version non deve ricalcolare: {again:?}"
@@ -191,7 +195,9 @@ async fn embed_job_skips_culling_subtree_entirely() {
         derive_job::run(test.db(), &data_dir, hash).await.unwrap();
     }
 
-    let outcome = embed_job::run(test.db(), &data_dir, 32).await.unwrap();
+    let outcome = embed_job::run(test.db(), &data_dir, 32, || true)
+        .await
+        .unwrap();
     assert_eq!(
         outcome.embedded, 1,
         "solo keep.jpg fuori dal culling: {outcome:?}"
@@ -224,6 +230,106 @@ async fn embed_job_skips_culling_subtree_entirely() {
             "{name} nel culling non deve avere embedding"
         );
     }
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn one_run_drains_multiple_batches_without_requeueing() {
+    if keeppix_media::first_complete_model_dir().is_none() {
+        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+        return;
+    }
+
+    let test = TestDb::start_with_vector().await;
+    let admin = harness::seed_admin(&test).await;
+    let root = std::env::temp_dir().join(format!("kpx-emb-win-{}", uuid::Uuid::now_v7()));
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).unwrap();
+
+    // Cinque foto, lotto da 2 → tre giri interni; un solo `run` deve
+    // svuotare la coda senza riaccodare backfill (sessione viva per finestra).
+    for i in 0..5 {
+        let lib = root.join(format!("lib-{i}"));
+        let _ = ingest_until_thumb(&test, admin, &lib, &data_dir, &format!("{i}.jpg")).await;
+    }
+
+    let outcome = embed_job::run(test.db(), &data_dir, 2, || true)
+        .await
+        .unwrap();
+    assert_eq!(
+        outcome.embedded, 5,
+        "una finestra deve drenare tutti i pending a lotti piccoli: {outcome:?}"
+    );
+
+    let backfill: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM jobs WHERE dedup_key = 'embed_assets:backfill' \
+         AND status IN ('pending', 'running')",
+    )
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        backfill, 0,
+        "coda vuota → nessun riaccodo backfill; riaccodare ricaricherebbe il modello"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn pause_between_batches_stops_and_requeues_backfill() {
+    if keeppix_media::first_complete_model_dir().is_none() {
+        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+        return;
+    }
+
+    let test = TestDb::start_with_vector().await;
+    let admin = harness::seed_admin(&test).await;
+    let root = std::env::temp_dir().join(format!("kpx-emb-pause-{}", uuid::Uuid::now_v7()));
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).unwrap();
+
+    for i in 0..5 {
+        let lib = root.join(format!("lib-{i}"));
+        let _ = ingest_until_thumb(&test, admin, &lib, &data_dir, &format!("{i}.jpg")).await;
+    }
+
+    let batches_after = std::sync::atomic::AtomicU32::new(0);
+    let outcome = embed_job::run(test.db(), &data_dir, 2, || {
+        // Chiamato fra un lotto e l'altro: al primo check la vista riprende.
+        batches_after.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        false
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        outcome.embedded, 2,
+        "la pausa fra lotti deve fermare dopo il primo lotto da 2: {outcome:?}"
+    );
+    assert_eq!(
+        batches_after.load(std::sync::atomic::Ordering::Relaxed),
+        1,
+        "il gate si valuta una volta fra il primo e il secondo lotto"
+    );
+
+    let backfill: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM jobs WHERE dedup_key = 'embed_assets:backfill' \
+         AND status IN ('pending', 'running')",
+    )
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        backfill, 1,
+        "con pending rimanenti la pausa deve riaccodare il backfill"
+    );
+
+    let remaining = EmbeddingRepo::new(test.db())
+        .list_pending(MODEL_VERSION, 32)
+        .await
+        .unwrap();
+    assert_eq!(remaining.len(), 3, "tre foto ancora da embeddare");
 
     let _ = fs::remove_dir_all(&root);
 }

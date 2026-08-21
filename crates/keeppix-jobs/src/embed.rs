@@ -4,9 +4,13 @@
 //! `keeppix-media` fa l'inferenza a lotto, poi si persiste. Gli originali
 //! non vengono mai decodificati.
 //!
-//! La sessione ONNX vive **solo per la durata del lotto** (Task 6): si carica
-//! all'inizio di `run`, si droppa alla fine. RSS misurato al carico e al
-//! picco di inferenza (tetto duro 1 GiB).
+//! La sessione ONNX vive per l'**intera finestra di analisi** (Ruling piano:
+//! «per finestra o lotto»): si carica una volta, si processano lotti da
+//! `DEFAULT_BATCH_SIZE` (16) controllando il gate di pausa **fra** un lotto
+//! e l'altro, e si droppa quando la pausa scatta o la coda si svuota.
+//! Alzare `DEFAULT_BATCH_SIZE` non è un sostituto: il gate si valuta fra i
+//! job/lotti piccoli, altrimenti la CPU resterebbe bloccata dopo che
+//! l'utente riprende a navigare.
 
 use std::path::Path;
 
@@ -21,14 +25,16 @@ use serde_json::json;
 
 use crate::JobError;
 
-/// Dimensione di lotto di default (ammortizza il carico del modello).
+/// Dimensione di lotto di default. Piccola apposta: il gate di pausa si
+/// valuta fra un lotto e l'altro (~0.7 s a 45 ms/foto), non dopo decine di
+/// secondi di CPU satura.
 pub const DEFAULT_BATCH_SIZE: i64 = 16;
 
 /// Tetto duro RSS durante l'analisi (Task 6). Superarlo è un warning, non un
 /// abort del lotto: il modello è già stato scelto sotto questo tetto.
 pub const RSS_HARD_CEILING_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// Esito di un giro di embedding.
+/// Esito di un giro di embedding (una finestra: zero o più lotti).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbedOutcome {
     pub embedded: u32,
@@ -75,13 +81,24 @@ pub async fn schedule_backfill(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
+/// Processa i pending a lotti di `limit`, tenendo la sessione ONNX viva finché
+/// `continue_window` resta vera e ci sono foto. `continue_window` è valutata
+/// **fra** un lotto e l'altro (non durante l'inferenza). Alla pausa o a coda
+/// vuota la sessione viene droppata; si riaccoda il backfill solo se restano
+/// pending dopo una pausa.
+///
 /// # Errors
 /// Modello assente, fallimento inferenza, o errore database.
-pub async fn run(db: &Db, data_dir: &Path, limit: i64) -> Result<EmbedOutcome, JobError> {
-    let pending = EmbeddingRepo::new(db)
-        .list_pending(MODEL_VERSION, limit)
+pub async fn run(
+    db: &Db,
+    data_dir: &Path,
+    limit: i64,
+    mut continue_window: impl FnMut() -> bool,
+) -> Result<EmbedOutcome, JobError> {
+    let peek = EmbeddingRepo::new(db)
+        .list_pending(MODEL_VERSION, 1)
         .await?;
-    if pending.is_empty() {
+    if peek.is_empty() {
         return Ok(EmbedOutcome {
             embedded: 0,
             skipped_missing_thumb: 0,
@@ -94,28 +111,69 @@ pub async fn run(db: &Db, data_dir: &Path, limit: i64) -> Result<EmbedOutcome, J
         ))
     })?;
 
-    // Carica il modello una volta per lotto; Drop a fine scope libera la
-    // sessione. `rss_after_drop` verifica che VmRSS scenda dal picco verso
-    // la base (Task 2bis → Task 6): Drop di Rust non implica che l'OS
-    // riprenda subito le pagine.
+    // Una sola load per finestra. Drop a fine scope. VmRSS dopo Drop resta
+    // tipicamente ~pari ad after_load: l'allocatore ORT trattiene le pagine
+    // per la vita del processo (docs.rs/ort; onnxruntime#11627) — non cresce
+    // fra i lotti, sotto il tetto 1 GiB; accettato.
     let rss_before = current_rss_bytes();
     let (load_result, rss_after_load) = measure_rss_peak_during(|| MobileClip::load(&model_dir));
     let mut clip = load_result.map_err(JobError::Worker)?;
-    let (outcome, rss_peak_infer) =
-        embed_pending(db, data_dir, &mut clip, &pending, rss_after_load).await?;
+
+    let mut total = EmbedOutcome {
+        embedded: 0,
+        skipped_missing_thumb: 0,
+    };
+    let mut rss_peak_infer = rss_after_load;
+    let mut stopped_for_pause = false;
+    let mut batches = 0_u32;
+
+    loop {
+        let pending = EmbeddingRepo::new(db)
+            .list_pending(MODEL_VERSION, limit)
+            .await?;
+        if pending.is_empty() {
+            break;
+        }
+
+        let (outcome, peak) =
+            embed_pending(db, data_dir, &mut clip, &pending, rss_after_load).await?;
+        total.embedded = total.embedded.saturating_add(outcome.embedded);
+        total.skipped_missing_thumb = total
+            .skipped_missing_thumb
+            .saturating_add(outcome.skipped_missing_thumb);
+        if let Some(p) = peak {
+            rss_peak_infer = Some(rss_peak_infer.map_or(p, |cur| cur.max(p)));
+        }
+        batches = batches.saturating_add(1);
+
+        let full_batch = i64::try_from(pending.len()).unwrap_or(i64::MAX) >= limit;
+        if !full_batch {
+            break;
+        }
+        // Gate fra i lotti: l'utente ha ripreso a navigare → scarica e riaccoda.
+        if !continue_window() {
+            stopped_for_pause = true;
+            break;
+        }
+    }
+
     drop(clip);
     let rss_after_drop = current_rss_bytes();
     tracing::info!(
+        batches,
+        embedded = total.embedded,
+        stopped_for_pause,
         rss_before_bytes = rss_before,
         rss_after_load_bytes = rss_after_load,
         rss_peak_infer_bytes = rss_peak_infer,
         rss_after_drop_bytes = rss_after_drop,
-        "embed batch rss"
+        "embed window rss"
     );
-    // Altri pending? Un altro job Background continua il backfill senza
-    // tenere il modello in RAM tra un lotto e l'altro.
-    maybe_requeue_backfill(db).await?;
-    Ok(outcome)
+
+    if stopped_for_pause {
+        maybe_requeue_backfill(db).await?;
+    }
+    Ok(total)
 }
 
 async fn maybe_requeue_backfill(db: &Db) -> Result<(), JobError> {

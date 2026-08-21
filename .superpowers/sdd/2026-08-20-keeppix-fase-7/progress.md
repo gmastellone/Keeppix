@@ -334,3 +334,34 @@ scarico “utile” è liberare la sessione tra lotti (non tenere 370 MB × N
 lotti sovrapposti). — Costo se sbagliato: su Pi le cifre cambiano; il
 log resta la prova operativa.
 
+
+## Embed session keepalive (finestra, non lotto)
+
+Ruling: **la sessione ONNX resta viva per tutta la finestra di analisi**,
+non si ricarica ogni `DEFAULT_BATCH_SIZE` (16). Si processa a lotti di 16
+controllando `ActivityTracker::analysis_should_run` fra un lotto e l'altro;
+Drop della sessione alla pausa o a coda vuota. `DEFAULT_BATCH_SIZE` resta
+16 apposta (reattività): alzarlo terrebbe la CPU satura dopo che l'utente
+riprende a navigare. `maybe_requeue_backfill` solo se la pausa lascia
+pending. La Ruling del piano («per finestra o lotto») lo consentiva già;
+l'implementazione precedente sceglieva il lotto e pagava ~7 load/100 foto
+senza beneficio di RAM.
+
+MEASUREMENT (questo host, release/`opt-level=2`, test
+`session_keepalive_beats_reload_every_batch_for_100_photos`, NCHW sintetico,
+7 lotti × 16): **OLD** total≈6068 ms (load≈2166, infer≈3712) — **NEW**
+total≈3863 ms (load≈306, infer≈3514). Risparmio ≈2.2 s / 100 foto (~36%
+del wall clock vecchio; load 7× → 1×). Su 200k foto a ~45 ms/foto di sola
+inferenza, i ~220 ms/load × ceil(N/16) erano ~31% di overhead.
+
+Ruling: **dopo il primo lotto ~369–404 MB di `VmRSS` restano residenti nel
+processo per tutta la sua vita** (misura after_drop ≈ after_load; non cresce
+fra i lotti; sotto il tetto 1 GiB). Compromesso accettato — docs.rs/ort e
+onnxruntime#11627: l'allocatore ORT non restituisce le pagine all'OS al
+Drop della `Session`. Scaricare/ricaricare ogni 16 non liberava RAM utile;
+serviva solo a ripagare il parsing del grafo. — Costo se sbagliato: su Pi
+con poca headroom sotto 1 GiB il resident fisso resta visibile in `ps`;
+non c'è un percorso «scarica davvero» senza uscire dal processo.
+
+Embed keepalive: complete (test verdi jobs embed window/pause + media
+keepalive 100-photo; clippy -D warnings ok)
