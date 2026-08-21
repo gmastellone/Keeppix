@@ -1674,3 +1674,19 @@ un client che si aspettava un nudge a zero alla connessione non lo riceve
 
 `./scripts/test.sh` rosso su `an_offline_library_is_pushed_as_problems_changed`
 prima del fix; rieseguito verde dopo.
+
+## Phase close — verified (2026-08-21)
+
+AGENTS.md verify gate green on `fase-10` @ `749813d` (+ docs `9f28a70`):
+
+- `cd frontend && npm ci && npm run build` — ok
+- `cargo fmt --check` — ok
+- `cargo clippy --workspace --all-targets -- -D warnings` — ok
+- `python3 scripts/check-wired.py` — EXIT 0
+- `./scripts/test.sh` — EXIT 0 (after WS `problems.changed` empty-baseline fix)
+
+Fase 10 (23 task) implementata sul branch; **in attesa di review/merge
+dall'utente** (PROSEGUI §8). PR tooling non disponibile su questo repo.
+Prossimo lavoro dopo merge: **Fase 7**.
+
+Phase close: complete (verify green; merge non eseguito).
