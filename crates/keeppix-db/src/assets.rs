@@ -310,6 +310,64 @@ impl<'a> AssetRepo<'a> {
         row.map(AssetRow::into_domain).transpose()
     }
 
+    /// Come [`Self::upsert_discovered`], ma per un intero lotto in una sola
+    /// istruzione (Fase 10 Task 21): un solo giro di rete invece di uno per
+    /// file. Il trigger `assets_change_log` (`AFTER INSERT OR UPDATE ...
+    /// FOR EACH ROW`) scrive comunque una riga di `change_log` per asset —
+    /// non si perde granularità entità-per-entità richiesta dal sync
+    /// mobile (spec §2.6) — ma lo fa dentro questa singola istruzione,
+    /// senza un giro di rete per riga.
+    ///
+    /// Restituisce solo gli asset davvero cambiati (stesso filtro
+    /// `mtime`/`size_bytes` di [`Self::upsert_discovered`]): il chiamante
+    /// non deve riaccodare metadata/hash per un file fermo.
+    ///
+    /// Non prende un `AuthContext` perché la chiama lo scanner.
+    ///
+    /// # Errors
+    /// `Connection` se l'inserimento fallisce; `Corrupted` se una riga
+    /// restituita non passa la validazione di dominio.
+    pub async fn batch_upsert_discovered(&self, items: &[NewAsset]) -> Result<Vec<Asset>, DbError> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<uuid::Uuid> = items.iter().map(|_| AssetId::new().as_uuid()).collect();
+        let folder_ids: Vec<uuid::Uuid> = items.iter().map(|i| i.folder_id.as_uuid()).collect();
+        let filenames: Vec<&str> = items.iter().map(|i| i.filename.as_str()).collect();
+        let sizes: Vec<i64> = items.iter().map(|i| i.size_bytes).collect();
+        let mtimes: Vec<DateTime<Utc>> = items.iter().map(|i| i.mtime).collect();
+        let inodes: Vec<Option<i64>> = items.iter().map(|i| i.inode).collect();
+        let kinds: Vec<&str> = items.iter().map(|i| kind_str(i.kind)).collect();
+
+        let rows: Vec<AssetRow> = sqlx::query_as(&format!(
+            "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, inode, kind) \
+             SELECT * FROM UNNEST( \
+                 $1::uuid[], $2::uuid[], $3::text[], $4::bigint[], $5::timestamptz[], \
+                 $6::bigint[], $7::text[]) \
+                 AS t(id, folder_id, filename, size_bytes, mtime, inode, kind) \
+             ON CONFLICT (folder_id, filename) DO UPDATE SET \
+                size_bytes = EXCLUDED.size_bytes, \
+                mtime = EXCLUDED.mtime, \
+                inode = EXCLUDED.inode, \
+                kind = EXCLUDED.kind, \
+                updated_at = now() \
+             WHERE assets.mtime IS DISTINCT FROM EXCLUDED.mtime \
+                OR assets.size_bytes IS DISTINCT FROM EXCLUDED.size_bytes \
+             RETURNING {COLUMNS}"
+        ))
+        .bind(ids)
+        .bind(folder_ids)
+        .bind(filenames)
+        .bind(sizes)
+        .bind(mtimes)
+        .bind(inodes)
+        .bind(kinds)
+        .fetch_all(self.db.pool())
+        .await?;
+
+        rows.into_iter().map(AssetRow::into_domain).collect()
+    }
+
     /// Non prende un `AuthContext`: la chiama la pipeline di metadati.
     ///
     /// # Errors

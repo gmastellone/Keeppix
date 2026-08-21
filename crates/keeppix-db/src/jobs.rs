@@ -110,6 +110,56 @@ impl<'a> JobRepo<'a> {
         row.into_domain()
     }
 
+    /// Come [`Self::enqueue`] con `dedup_key`, ma per un intero lotto in una
+    /// sola istruzione (Fase 10 Task 21): l'esistente fa un giro di rete per
+    /// file (`INSERT` più l'eventuale `SELECT` di rilettura sul dedup);
+    /// questo ne fa uno per lotto. Il chiamante non riceve i job indietro:
+    /// lo scanner non ne ha bisogno, li ritrova già in coda con lo stesso
+    /// `dedup_key` alla prossima lettura.
+    ///
+    /// Il payload viaggia come `text[]` (JSON serializzato in Rust, poi
+    /// `::jsonb` in SQL) invece di `jsonb[]`: `serde_json::Value` non ha un
+    /// `PgHasArrayType` diretto in sqlx, mentre `text[]` è già un pattern
+    /// provato altrove in questo crate (`geo.rs`, `overrides.rs`).
+    ///
+    /// # Errors
+    /// `Connection` se l'inserimento fallisce.
+    pub async fn enqueue_many(
+        &self,
+        kind: JobKind,
+        items: &[(serde_json::Value, String)],
+        priority: JobPriority,
+    ) -> Result<(), DbError> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let kinds: Vec<&str> = items.iter().map(|_| kind.as_str()).collect();
+        let payloads: Result<Vec<String>, serde_json::Error> = items
+            .iter()
+            .map(|(payload, _)| serde_json::to_string(payload))
+            .collect();
+        let payloads = payloads.map_err(|e| DbError::Corrupted(format!("payload: {e}")))?;
+        let priorities: Vec<i16> = items.iter().map(|_| priority.as_i16()).collect();
+        let dedup_keys: Vec<&str> = items.iter().map(|(_, key)| key.as_str()).collect();
+
+        sqlx::query(
+            "INSERT INTO jobs (kind, payload, priority, dedup_key) \
+             SELECT kind, payload_text::jsonb, priority, dedup_key \
+               FROM UNNEST($1::text[], $2::text[], $3::smallint[], $4::text[]) \
+                 AS t(kind, payload_text, priority, dedup_key) \
+             ON CONFLICT (dedup_key) \
+             WHERE dedup_key IS NOT NULL AND status IN ('pending', 'running') \
+             DO NOTHING",
+        )
+        .bind(kinds)
+        .bind(payloads)
+        .bind(priorities)
+        .bind(dedup_keys)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
     /// Come [`Self::enqueue`], ma con `run_after` esplicito (ricontrollo
     /// di file ancora in arrivo senza dormire nel worker).
     ///

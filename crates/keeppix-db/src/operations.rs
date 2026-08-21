@@ -198,6 +198,38 @@ impl<'a> OperationsRepo<'a> {
         Ok(())
     }
 
+    /// Come [`Self::record_success`], ma per un intero lotto in una sola
+    /// istruzione (Fase 10 Task 21): un solo giro di rete invece di uno per
+    /// asset. No-op se il lotto è vuoto o l'operazione è già conclusa —
+    /// stesso comportamento di [`Self::record_success`].
+    ///
+    /// Pipeline interna: nessun `AuthContext`.
+    ///
+    /// # Errors
+    /// `Connection` su errore DB.
+    pub async fn record_success_many(
+        &self,
+        id: OperationId,
+        asset_ids: &[AssetId],
+    ) -> Result<(), DbError> {
+        if asset_ids.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
+        sqlx::query(
+            "UPDATE operations SET \
+                 done = done + array_length($2::uuid[], 1), \
+                 succeeded_asset_ids = succeeded_asset_ids || $2::uuid[], \
+                 updated_at = now() \
+              WHERE id = $1 AND status = 'running'",
+        )
+        .bind(id.as_uuid())
+        .bind(&ids)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
     /// `true` se il chiamante ha chiesto l'annullamento. Interrogata dal
     /// worker fra un elemento e il successivo — mai dall'utente
     /// direttamente, quindi nessun `AuthContext`.
