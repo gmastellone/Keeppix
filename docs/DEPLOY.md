@@ -53,19 +53,25 @@ avviato, perché appartiene al profilo `bundled` che qui non è passato a
 ### pgvector (ricerca semantica e tag automatici)
 
 Il Postgres bundled (`Dockerfile.db`, profilo `bundled`) include già
-**pgvector** insieme a PostGIS. Con un Postgres esterno, installa il
-pacchetto della tua distribuzione per la major version in uso (es.
-`postgresql-17-pgvector` su Debian/Ubuntu) e, quando lo schema AI sarà
-applicato, abilita l'estensione:
+**pgvector** insieme a PostGIS. La migrazione dello schema AI abilita
+`CREATE EXTENSION vector` e crea le tabelle. Con un Postgres esterno,
+installa il pacchetto della tua distribuzione per la major version in uso
+(es. `postgresql-17-pgvector` su Debian/Ubuntu) **prima** di avviare
+Keeppix con quella migrazione; altrimenti lo schema AI non viene creato
+(la galleria parte lo stesso) e all'avvio compare un avviso con:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
+Se installi pgvector **dopo** il primo avvio (migrazione già applicata come
+no-op), riesegui il DDL dello schema AI da
+`crates/keeppix-db/migrations/0043_ai_embeddings_tags.sql` a mano, oppure
+ripristina da un backup preso con l'estensione già presente.
+
 Se l'estensione **non** è installata, Keeppix **parte lo stesso**: galleria,
-upload e il resto funzionano; le funzioni AI restano spente e all'avvio
-appare un avviso con il comando da eseguire. Non è un errore di
-configurazione bloccante.
+upload e il resto funzionano; le funzioni AI restano spente. Non è un errore
+di configurazione bloccante.
 
 Attenzione se nella stessa cartella esiste già un `.env` usato per lo
 sviluppo locale (copiato da `.env.example` per `cargo run`): Compose legge

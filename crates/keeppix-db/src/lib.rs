@@ -107,7 +107,7 @@ const LIBRARY_STORAGE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0042_operations.
+// rivede la directory. 0043_ai_embeddings_tags.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
