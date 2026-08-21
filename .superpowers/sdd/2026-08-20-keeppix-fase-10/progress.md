@@ -1250,3 +1250,105 @@ ripristinate per confermare che i nuovi test provano davvero l'emettitore e
 non solo che il socket resta vivo. `./scripts/test.sh` completo **non
 eseguito** (stesso motivo dei task precedenti).
 
+## Task 20 — La pausa automatica dell'analisi è un comportamento del server
+
+Ruling: **la soglia (4000 ms) resta un parametro passato a
+`ActivityTracker::analysis_should_run(now, idle_threshold_ms)`, non una
+costante cablata dentro la funzione** — stesso pattern già in uso per
+`default_night_window()`/`in_night_window`, che prende la finestra come
+parametro invece di leggerla da una costante interna. `DEFAULT_ANALYSIS_IDLE_MS
+= 4000` esiste come punto di partenza documentato (il documento funzionale UI
+lo dichiara «da tarare sul sistema vero»), non come unico valore possibile.
+Non ho aggiunto un campo a `keeppix-server::Config`/`KEEPPIX_ANALYSIS_IDLE_MS`:
+nessun consumatore reale esiste ancora (Fase 7), e un campo di configurazione
+senza un solo punto che lo legga sarebbe morto fino a quel momento — la
+firma a parametro è già la configurabilità richiesta; Fase 7 deciderà se le
+serve anche una variabile d'ambiente quando avrà un job da parametrizzare
+davvero. — *Costo se sbagliato:* Fase 7 dovrà aggiungere quel campo di
+config comunque; costo di una riga, non di un redesign.
+
+Ruling: **il segnale è un secondo campo su `ActivityTracker`
+(`last_viewport_unix_ms`), non un tipo nuovo separato.** — `ActivityTracker`
+è già l'unico punto di ingresso dell'attività per i worker (`WorkerPool`,
+`main.rs`), ed è già condiviso via `Arc` fra API e job. Un secondo tipo
+avrebbe significato un secondo `Arc` da infilare ovunque per un concetto
+gemello. La risoluzione è in millisecondi (non secondi come
+`last_auth_unix`) perché una soglia di 4000 ms sarebbe altrimenti quantizzata
+a passi di un secondo — misurabile nei test solo per multipli di 1000 ms,
+il che avrebbe reso `analysis_resumes_exactly_at_the_idle_threshold`
+(3999 ms ancora in pausa, 4000 ms ripreso) impossibile da esprimere
+correttamente. — *Costo se sbagliato:* nessuno osservato; è puro
+dimensionamento del tipo di storage.
+
+Ruling: **il gate (`analysis_should_run`) resta indipendente da
+`current_profile()`/`EnergyProfile`, non un `AND` con la regola dei 5
+minuti.** — `current_profile` blocca *tutto* il lavoro Background finché
+non sono passati 5 minuti dall'ultima richiesta autenticata qualsiasi
+(non solo di navigazione): durante una sessione di scorrimento attivo,
+quella regola già impedisce ai job Background ordinari di girare, e lo fa
+con una finestra pensata per lavoro pesante che non deve competere con
+l'uso interattivo in generale (backup, cleanup, retry). Il piano di Fase 7
+(`2026-08-20-keeppix-fase-7.md`, Task 6) chiede due cose *separate* per
+l'analisi: priorità `Background` **e** «pausa automatica, soglia 4000 ms
+dall'ultima attività, configurabile» — se la seconda fosse un `AND` con la
+prima, la ripresa richiederebbe il *massimo* dei due tempi (fino a 5
+minuti), non i 4 secondi promessi all'utente nel documento funzionale
+(*"riprende 4 secondi dopo l'ultimo cambio di vista"*). Le due regole
+restano quindi disponibili come **due leve indipendenti**: Fase 7 deciderà
+se il proprio ciclo di analisi le combina (entrambe devono valere) o se
+solo la seconda governa la ripresa (la prima resta per la classe di
+priorità nella coda). Non ho scelto per loro conto: cablare oggi
+`analysis_should_run` dentro `WorkerPool::step()` — che è condiviso da
+*tutti* i job a priorità `Background` (backup, cleanup, retry_derives,
+tmp_cleanup, hash, regions, watch, xmp) — avrebbe imposto una pausa di
+navigazione di 4 secondi anche a lavoro che non ha nulla a che fare con
+l'analisi IA, un comportamento non richiesto dal brief e potenzialmente
+sorprendente per chi già si affida al comportamento attuale di quei job.
+— *Costo se sbagliato:* quando Fase 7 scriverà lo scheduler dell'analisi
+(Task 6 del piano Fase 7) dovrà scegliere esplicitamente come comporre le
+due regole; il costo è una decisione rimandata, non un comportamento
+sbagliato già spedito.
+
+Ruling: **i due livelli (`AnalysisLevel::Full`/`Reduced`, 42/260 ms per
+foto) sono un tipo puro e testato, non cablati a nessun job — come
+richiesto dal brief quando "un job di analisi reale non esiste".** Fase 7
+non esiste in questo branch (`docs/superpowers/plans/
+2026-08-20-keeppix-fase-7.md` è un piano scritto *prima* che Fase 10
+esistesse, per sua stessa nota). Non c'è quindi alcun consumo reale da
+misurare per "il throughput differisce misurabilmente" richiesto dalla
+verifica del brief: i numeri sono gli obiettivi dichiarati dal documento
+funzionale UI (§57), non una misura di questo task. Il test
+`reduced_level_is_documented_as_about_six_times_slower_than_full` verifica
+solo che i due valori restino quelli dichiarati e nel rapporto atteso — è
+una prova di configurazione, non di prestazioni. — *Costo se sbagliato:*
+quando Fase 7 misura sul proprio hardware/modello, i due numeri cambiano
+qui in un solo posto; nessuna logica dipende dal loro valore assoluto.
+
+Ruling: **`POST /viewport` avvisa il gate anche con `hashes: []`.** — Il
+prototipo aggiorna `lastNavAt` a ogni navigazione, non solo quando ci sono
+foto nuove da promuovere: uno scroll che resta sui bucket già visibili è
+comunque una navigazione, e non deve far ripartire l'analisi solo perché
+quella pagina non ha portato hash nuovi da promuovere. Verificato **rosso**
+disabilitando la chiamata al gancio (mutazione manuale, poi ripristinata):
+il test
+`a_viewport_call_notifies_the_analysis_pause_gate_even_with_no_visible_hashes`
+falliva come previsto. — *Costo se sbagliato:* nessuno osservato; è la
+lettura letterale del comportamento voluto.
+
+Task 20: complete (commits 82b2f66 feat(jobs) + f5316fb feat(api); tests
+green: `keeppix-jobs` profile.rs 12/12 [+5 nuovi: pausa immediata dopo un
+cambio di vista, ripresa esatta alla soglia, nessuna pausa se non è mai
+arrivato un cambio di vista, la soglia è un parametro del chiamante non una
+costante cablata, `Reduced` ~6× `Full`]; `keeppix-api` viewport.rs 3/3 [+1
+nuovo: `POST /viewport` avvisa il gate anche con `hashes: []`, osservato
+**rosso** disabilitando temporaneamente la chiamata al gancio prima di
+ripristinarla]. `cargo fmt --check` e `cargo clippy --workspace
+--all-targets -- -D warnings` verdi su tutto il workspace; `cargo build
+--workspace --all-targets` verde. Riverificati senza regressioni:
+`keeppix-api` auth.rs 28/28 (tocca `state.rs`), openapi.rs 7/7 (nessuna
+modifica di superficie: `POST /viewport` esisteva già, cambia solo un
+gancio interno); `keeppix-server` config.rs 8/8 + embed.rs 5/5 (tocca
+`main.rs`). `./scripts/test.sh` completo **non eseguito** (stesso motivo
+dei task precedenti: costerebbe l'intera suite); eseguiti i test dei
+moduli toccati più le suite di non-regressione elencate sopra.
+
