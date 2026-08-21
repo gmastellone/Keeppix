@@ -419,6 +419,29 @@ duplicato in keeppix-db (no dipendenza media).
 
 Task 10: complete (test tag/category/semantic search verdi)
 
+Ruling: **`AlbumRepo::refresh` e `GeoRepo::clusters` passavano `None` come
+`semantic_vis`** — un `SearchNode::Semantic` dentro una regola d'album
+dinamico o un filtro mappa avrebbe scelto i K vicini su *tutti* gli
+embedding del DB (subquery `TRUE`), non solo su quelli visibili al
+chiamante — esattamente il bug che il commento in `SearchRepo::run` avvisa
+di evitare («K fra i visibili, non K globali poi filtrati»). Fix: entrambi
+ora costruiscono un secondo `VisibilityScope::filter` con alias `vf`/`va`
+sugli stessi param ($1..$3 in `albums.rs`, $8..$10 in `geo.rs`, già
+riservati al filtro esterno) e lo passano come `semantic_vis`. — Costo se
+non fosse stato corretto: un album dinamico con regola `Semantic` avrebbe
+potuto restare vuoto (o mostrare solo asset dell'owner) quando i K vicini
+globali erano tutti fuori dal suo perimetro di visibilità.
+
+Ruling: **aggiunto test end-to-end HTTP per `Semantic`**
+(`keeppix-api/tests/search.rs::semantic_search_finds_the_asset_embedded_with_the_same_text`,
+skip se il modello non è scaricato) e un test di coerenza
+(`keeppix-api/tests/model_version.rs`) che verifica
+`keeppix_db::MODEL_VERSION == keeppix_media::MODEL_VERSION` — la
+duplicazione della costante (per il vincolo `deny.toml`) è un rischio di
+drift silenzioso altrimenti invisibile a qualsiasi test esistente. — Costo
+se sbagliato: nessuno finché le due costanti restano allineate a mano;
+il test fallisce nel momento esatto in cui divergono.
+
 ## Task 11 — Indice vettoriale
 
 MEASUREMENT (questo host, N=200k, K=50, cosine):
@@ -433,3 +456,24 @@ HNSW costa più RAM su Pi 8 GB. — Costo se sbagliato: recall IVFFlat
 con probes bassi; alzare probes o passare a HNSW se il campo lo chiede.
 
 Task 11: complete (migrazione 0045, test scale_embeddings verde)
+
+## Task 13 — Documenti e debiti / chiusura fase
+
+Ruling: **`get_json` già fuori dai rinvii** — commento in
+`wired-exceptions.txt` (pagato Fase 6 `transcode` + Fase 7 `extra.ai`);
+`check-wired.py` verde senza eccezione. Rotte `/tags*` restano rinvio
+fase-11 (UI). — Costo se sbagliato: nessuno se la 11 non le consuma;
+eccezioni da togliere quando arrivano i componenti Vue.
+
+Ruling: **documenti di ripresa puntano a Fase 8** (CONTINUE, PROSEGUI,
+superpowers/README, README feature row). Fase 7 chiusa sul branch
+`fase-7`, non ancora su `main`. — Costo se sbagliato: un agente parte
+sulla 7 già fatta; il ledger e CONTINUE lo correggono.
+
+Debiti lasciati espliciti (non in scope Task 13):
+- SearchRepo Semantic ~1.3–1.4 s @ 200k (CTE top-K, non HNSW)
+- `suggestions.changed` WS non implementato
+- ~369 MB ORT VmRSS residente dopo il primo load di finestra
+- Tag suggest in `SearchRepo::suggest` ancora senza fonte tag ricca
+
+Task 13: complete (docs + wired/deny verdi; gate full sotto)
