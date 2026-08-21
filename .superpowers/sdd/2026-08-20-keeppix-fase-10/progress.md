@@ -1480,3 +1480,88 @@ corsa e costerebbe l'intera suite del workspace); eseguiti invece
 keeppix-server` per intero, oltre alla misura isolata via `git worktree`
 sul commit precedente per il numero "prima" della batch insert.
 
+## Task 22 — La pipeline di derivati sa decodificare solo JPEG
+
+Ruling: **HEIF/HEIC passa da `heif-convert` (CLI di `libheif-examples`) in
+sandbox, non da `libheif-rs`.** Il brief suggeriva `libheif-rs`, ma quel
+binding collega `libheif` in processo — esattamente ciò che il ruling del
+piano vieta ("i nuovi decoder passano dallo stesso sandbox degli altri, non
+ne sono esenti"). `heif-convert` è lo stesso schema già in uso per
+`dcraw_emu`/`ffmpeg`: un binario esterno invocato con `sandbox::run` e
+`RLIMIT_AS`/`RLIMIT_CPU`. Costa il round-trip per due file temporanei
+(`heif-convert` legge/scrive solo file reali, non stdin/stdout — verificato
+con `-o -` che fallisce con "Unknown file type in -" contro libheif 1.17) e
+un secondo passaggio nel decoder PNG per il file di uscita — nessuna
+dipendenza C nuova collegata in processo, la stessa cosa. — *Costo se
+sbagliato:* un decoder in processo per il formato con la storia di CVE più
+recente dei quattro, scoperto in produzione da un HEIC malformato invece che
+in review.
+
+Ruling: **il PNG di uscita di `heif-convert` per un HEIC 10 bit è 16 bit per
+canale** (confermato con `heif-info` su `sample10.heic`: `bit depth: 10`, e
+il PNG intermedio letto con `png::Decoder` senza `STRIP_16` mostra
+`BitDepth::Sixteen`), non 8 bit come un HEIC Main comune. Il decoder PNG
+scritto per questo task normalizza sempre a 8 bit/canale
+(`Transformations::normalize_to_color8`), quindi il 10 bit sopravvive fino a
+lì e viene poi ridotto come tutto il resto della pipeline (che è comunque
+RGB8 fino a WebP). — *Costo se sbagliato:* un HEIC 10 bit reale avrebbe
+prodotto errore o colori sbagliati senza che nessun test lo notasse; il
+fixture `sample10.heic` è un file reale generato con `heif-enc -b 10`, non
+un'assunzione.
+
+Ruling: **GIF resta debito differito, non toccato da questo task.**
+`detect_kind` classifica anche GIF come `AssetKind::Image`, ma il brief
+elenca solo PNG/TIFF/WebP/HEIF da implementare — GIF non è nella lista.
+Stesso sintomo di prima di questo task (`DeriveError::Decode` silenzioso per
+ogni GIF caricato in libreria) resta per GIF finché non viene aperto un task
+dedicato. — *Costo se sbagliato:* nessuno rispetto a oggi; non è una
+regressione introdotta qui, è lo stesso difetto pre-esistente ristretto a un
+formato in meno.
+
+Difetto osservato, non di questo task (annotato, non toccato): la CI di
+questo task installa `libheif-plugin-libde265` per `ubuntu-latest`, ma
+`heif_convert_available()` (come `dcraw_emu_available`/`ffprobe_available`
+prima di esso) verifica solo che `heif-convert --version` abbia successo, e
+quel comando **non** carica i plugin di codec — confermato puntando
+`LIBHEIF_PLUGIN_PATH` a una directory vuota: `--version` resta a exit 0,
+mentre decodificare una vera HEIC fallisce con "Unsupported codec". Se il
+pacchetto plugin manca su un host, i test HEIF non saltano in modo pulito:
+falliscono con un errore di decodifica. Non un problema per questo task (il
+plugin è installato sia qui che nella CI aggiornata), ma
+`heif_convert_available()` sarebbe più corretto se tentasse una decodifica
+reale invece di un semplice `--version` — debito annotato, non risolto qui
+per non allargare la superficie del task.
+
+Task 22: complete (commits 3b373bf feat(media) decoder multi-formato +
+c63041d test(media) fixture PNG/TIFF/WebP/HEIF + 7ed1341 feat(docker)
+libheif nel runtime + 11000fa ci libheif per i test; tests green:
+`keeppix-media` derive_formats.rs 11/11 [nuovo file: PNG/TIFF/WebP/HEIF
+8 bit/HEIF 10 bit producono thumb+preview validi, la stessa variante
+malformata di ciascun formato fallisce con `DeriveError::Decode` senza
+lasciare derivati parziali, `heif-convert` su input corrotto ritorna sotto
+20s (guardia anti-hang sul sandbox `RLIMIT_CPU`), byte non riconosciuti
+falliscono senza passare da `kind::detect_kind`], nessuna regressione sul
+resto di `keeppix-media` (derive.rs, raw.rs, video.rs, xmp.rs, walk.rs,
+tutte le altre suite verdi). `heif-convert` era già installato su questa
+macchina (`libheif-examples` 1.17.6 + `libheif-plugin-libde265`/`-x265`/
+`-aomdec`/`-aomenc`), quindi `heif_8bit_source_produces_thumb_and_preview` e
+`heif_10bit_source_produces_thumb_and_preview` hanno **eseguito davvero**,
+non saltato per assenza del binario — la conferma del 10 bit richiesta dal
+brief è quindi osservata, non presunta. `cargo fmt --check`, `cargo clippy
+--workspace --all-targets -- -D warnings` e `cargo build --workspace
+--all-targets` verdi. `cargo deny check` verde (`advisories ok, bans ok,
+licenses ok, sources ok`); solo warning informativi per due entry duplicate
+di `zune-core`/`zune-jpeg` (0.4.x da `zune-jpeg` diretto, 0.5.x da `tiff`),
+non un errore — `cargo deny` non ha una regola che lo vieti, e sono la
+stessa libreria in due major diverse, non due dipendenze in conflitto
+architetturale. `./scripts/test.sh` completo **non eseguito** (stesso
+motivo dei task precedenti); eseguito invece `cargo test -p keeppix-media
+--all-targets` per intero (nessuna regressione) oltre alla suite dedicata.
+Dockerfile validato eseguendo a mano, dentro un container
+`debian:bookworm-slim`, gli stessi comandi dello stage `heif` (l'ambiente
+manca del plugin `docker buildx`, quindi non è stato possibile un
+`docker build --target heif` reale) — non un test end-to-end dell'immagine
+completa, ma sufficiente a confermare che `apt-get install
+libheif-examples` e la raccolta delle librerie con `ldd` funzionano come
+scritto.
+
