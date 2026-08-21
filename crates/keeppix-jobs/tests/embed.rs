@@ -79,9 +79,7 @@ async fn ingest_until_thumb(
 #[tokio::test]
 async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
     if keeppix_media::first_complete_model_dir().is_none() {
-        eprintln!(
-            "skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)"
-        );
+        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
         return;
     }
 
@@ -125,9 +123,7 @@ async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
 #[tokio::test]
 async fn embed_job_skips_culling_subtree_entirely() {
     if keeppix_media::first_complete_model_dir().is_none() {
-        eprintln!(
-            "skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)"
-        );
+        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
         return;
     }
 
