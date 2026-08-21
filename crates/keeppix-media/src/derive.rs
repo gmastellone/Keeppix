@@ -281,6 +281,17 @@ fn is_heif_ftyp(after_ftyp: &[u8]) -> bool {
 ///
 /// # Errors
 /// Formato non riconosciuto, file corrotto, o immagine oltre 200 MP.
+pub fn decode_to_rgb8(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
+    decode_source(bytes)
+}
+
+/// Decodifica byte di formato non noto a priori in RGB8 interleaved. Ogni
+/// ramo controlla `MAX_PIXELS` sulle sole dimensioni (header) prima di
+/// decodificare i pixel, per non pagare il costo di un decode completo su
+/// un file che verrà comunque rifiutato.
+///
+/// # Errors
+/// Formato non riconosciuto, file corrotto, o immagine oltre 200 MP.
 fn decode_source(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     match sniff_source_format(bytes) {
         Some(SourceFormat::Jpeg) => decode_jpeg(bytes),
@@ -305,9 +316,24 @@ fn decode_jpeg(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     if u64::from(width).saturating_mul(u64::from(height)) > MAX_PIXELS {
         return Err(DeriveError::TooManyPixels);
     }
-    let rgb = decoder
+    let pixels = decoder
         .decode()
         .map_err(|e| DeriveError::Decode(e.to_string()))?;
+    let expected_rgb = (width as usize)
+        .saturating_mul(height as usize)
+        .saturating_mul(3);
+    let expected_gray = (width as usize).saturating_mul(height as usize);
+    let rgb = if pixels.len() == expected_rgb {
+        pixels
+    } else if pixels.len() == expected_gray {
+        // JPEG a un solo componente: espandi a RGB interleaved.
+        gray8_to_rgb8(&pixels)
+    } else {
+        return Err(DeriveError::Decode(format!(
+            "jpeg: unexpected buffer length {} for {width}x{height}",
+            pixels.len()
+        )));
+    };
     Ok((rgb, width, height))
 }
 

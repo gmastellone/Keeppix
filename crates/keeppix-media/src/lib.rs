@@ -1,6 +1,7 @@
 //! Elaborazione dei file. Nessun database, nessuna rete, nessuno stato.
 
 pub mod ai;
+pub mod clip;
 pub mod derive;
 pub mod exif;
 pub mod gpx;
@@ -8,6 +9,7 @@ pub mod hash;
 pub mod kind;
 pub mod probe;
 pub mod raw;
+pub mod retrieval;
 pub mod sandbox;
 pub mod transcode;
 pub mod video;
@@ -16,10 +18,10 @@ pub mod xmp;
 
 pub use derive::{
     DEFAULT_FULL_CACHE_BYTES, DEFAULT_WEBP_METHOD, DEFAULT_WEBP_QUALITY, DERIVATIVE_VERSION,
-    DeriveError, DeriveResult, PREVIEW_LONG_SIDE, derivative_paths, derive_from_bytes,
-    derive_from_rgb, derive_jpeg, embedded_usable_as_full, enforce_full_cache_cap,
-    ensure_full_from_bytes, ensure_full_from_rgb, full_derivative_path, heif_convert_available,
-    set_webp_method, set_webp_quality,
+    DeriveError, DeriveResult, PREVIEW_LONG_SIDE, decode_to_rgb8, derivative_paths,
+    derive_from_bytes, derive_from_rgb, derive_jpeg, embedded_usable_as_full,
+    enforce_full_cache_cap, ensure_full_from_bytes, ensure_full_from_rgb, full_derivative_path,
+    heif_convert_available, set_webp_method, set_webp_quality,
 };
 pub use exif::read_exif;
 pub use hash::hash_file;
