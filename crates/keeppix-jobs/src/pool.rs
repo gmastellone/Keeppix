@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::JobError;
 use crate::dispatch::JobHandler;
-use crate::profile::ActivityTracker;
+use crate::profile::{ActivityTracker, DEFAULT_ANALYSIS_IDLE_MS, max_claimable_priority};
 
 /// Semaforo pesato in KiB. Un job che stima più della capienza prende tutta
 /// la capienza e aspetta da solo — non fa cadere il processo.
@@ -75,10 +75,15 @@ impl<H: JobHandler> WorkerPool<H> {
     /// # Errors
     /// Errori di database o del gate; gli errori dell'handler diventano `fail`.
     pub async fn step(&self) -> Result<bool, JobError> {
+        let now = Utc::now();
         let paused = self.paused.load(std::sync::atomic::Ordering::Relaxed);
-        let profile = self.tracker.current_profile(Utc::now(), self.night, paused);
+        let profile = self.tracker.current_profile(now, self.night, paused);
+        let analysis_ok = self
+            .tracker
+            .analysis_should_run(now, DEFAULT_ANALYSIS_IDLE_MS);
+        let max_priority = max_claimable_priority(profile, analysis_ok);
         let Some(job) = JobRepo::new(&self.db)
-            .claim(self.worker_id, profile.max_priority())
+            .claim(self.worker_id, max_priority)
             .await?
         else {
             return Ok(false);

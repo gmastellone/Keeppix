@@ -42,29 +42,47 @@ pub fn default_night_window() -> (NaiveTime, NaiveTime) {
 /// `ActivityTracker::analysis_should_run`.
 pub const DEFAULT_ANALYSIS_IDLE_MS: u64 = 4000;
 
-/// I due livelli di velocità dell'analisi IA (Fase 7). Non esiste ancora un
-/// job reale che li consumi: i tempi per foto sono gli obiettivi dichiarati
-/// dal documento funzionale, che Fase 7 misurerà sul proprio hardware e
-/// modello. Vive qui (non in Fase 7) perché la soglia di pausa e i livelli
-/// sono la stessa decisione di prodotto — «quanto costa, e quanto in fretta
-/// ci si ferma quando qualcuno naviga».
+/// I tre livelli di velocità dell'analisi IA (Fase 7 Task 6). I millisecondi
+/// per foto sono **misurati** sul MobileCLIP2-S2 via ort (Task 2 / 2bis), non
+/// gli obiettivi provvisori della Fase 10. `Off` spegne l'analisi (pgvector
+/// assente, RAM insufficiente, o scelta dell'operatore).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnalysisLevel {
     Full,
     Reduced,
+    Off,
 }
 
 impl AnalysisLevel {
-    /// Tempo target per foto, in millisecondi. `Reduced` è ~6× più lento di
-    /// `Full` — la stessa coda residua viene dichiarata all'utente come
-    /// proporzionalmente più lunga (documento funzionale UI).
+    /// Tempo misurato per foto, in millisecondi. `None` se l'analisi è spenta.
+    ///
+    /// `Full` ≈ 45 ms (vision MobileCLIP2-S2, Task 2bis). `Reduced` ≈ 6×
+    /// (`Full`), come dichiarato dal documento funzionale UI.
     #[must_use]
-    pub const fn ms_per_photo(self) -> u64 {
+    pub const fn ms_per_photo(self) -> Option<u64> {
         match self {
-            Self::Full => 42,
-            Self::Reduced => 260,
+            Self::Full => Some(45),
+            Self::Reduced => Some(270),
+            Self::Off => None,
         }
     }
+
+    #[must_use]
+    pub const fn is_enabled(self) -> bool {
+        !matches!(self, Self::Off)
+    }
+}
+
+/// Priorità massima reclamabile dai worker, tenendo conto della pausa
+/// automatica dell'analisi (viewport fresco → niente `Background`, quindi
+/// niente `EmbedAssets` di backfill).
+#[must_use]
+pub fn max_claimable_priority(profile: EnergyProfile, analysis_should_run: bool) -> JobPriority {
+    let max = profile.max_priority();
+    if analysis_should_run || max < JobPriority::Background {
+        return max;
+    }
+    JobPriority::Visible
 }
 
 #[must_use]

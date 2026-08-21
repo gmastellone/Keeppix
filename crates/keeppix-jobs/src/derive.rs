@@ -30,6 +30,8 @@ pub async fn run(db: &Db, data_dir: &std::path::Path, hash: [u8; 32]) -> Result<
     assets
         .set_thumbhash_for_hash(&hash, &result.thumbhash)
         .await?;
+    // Foto nuova (o ricalcolo derive): accoda un lotto AI ad alta priorità.
+    crate::embed::enqueue_after_ingest(db).await?;
     Ok(())
 }
 

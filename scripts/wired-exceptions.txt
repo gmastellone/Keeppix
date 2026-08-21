@@ -25,12 +25,6 @@ fn extract_poster fase-11
 route /health ops
 route /api/openapi.json ci
 
-# Fase 7 — measure_rss_peak_during: helper per il tetto RSS < 1 GB. Il
-# consumatore di produzione è lo scheduler di analisi (Task 6), che misura
-# prima/picco/dopo di ogni lotto EmbedAssets. Fino ad allora solo i test
-# di keeppix-media lo chiamano.
-fn measure_rss_peak_during fase-7
-
 # Fase 10 — superficie API per l'interfaccia: i consumatori sono le 70
 # schermate della Fase 11 (tranche A/B subito dopo la 10).
 route /bootstrap fase-11

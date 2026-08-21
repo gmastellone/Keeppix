@@ -224,3 +224,28 @@ a runtime, pesi via script. Skip evita panic locali senza models/; il
 download in CI fa girare i test per davvero. — Costo se sbagliato: ~150–
 300 MB su cache Actions + un fetch HF al miss.
 
+
+## Task 6 — Scheduler dell'analisi
+
+Ruling: **`AnalysisLevel::{Full,Reduced,Off}` con ms misurati (45 / 270 /
+None).** — Task 2bis: vision ≈ 43–44 ms → Full=45; Reduced=6× (doc UI).
+`Off` spegne l'analisi (pgvector assente / scelta operatore). — Costo se
+sbagliato: stime ETA leggermente off su Pi; si ricalibrano dal probe.
+
+Ruling: **`max_claimable_priority` + `analysis_should_run` nel WorkerPool.**
+— Viewport fresco (≤4000 ms) cap a `Visible`: i job `Background`
+(`EmbedAssets` backfill) non partono; Visible/High sì. — Costo se sbagliato:
+qualche job Background non-AI resta in pausa con l'analisi (accettabile:
+sono già Background).
+
+Ruling: **ingest → `enqueue_after_ingest` (High, dedup); boot →
+`schedule_backfill` (Background); re-queue a fine lotto.** — Foto nuove
+non aspettano la notte; il modello resta caricato solo per il lotto
+(`measure_rss_peak_during` su load + infer). — Costo se sbagliato: coda
+High troppo aggressiva sotto carico WebDAV; mitigazione = dedup + batch.
+
+MEASUREMENT (Task 2bis, riusata): peak RSS infer ≈ 413–423 MB ≪ 1 GiB
+ceiling. Il job logga `rss_after_load_bytes` / `rss_peak_infer_bytes`.
+
+Task 6: complete
+
