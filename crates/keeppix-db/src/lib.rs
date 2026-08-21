@@ -1,6 +1,7 @@
 //! Accesso al database. È l'unico crate del workspace che contiene SQL.
 
 pub mod albums;
+pub mod asset_tags;
 pub mod assets;
 pub mod audit;
 pub mod backup;
@@ -42,6 +43,7 @@ pub mod users;
 pub mod visibility;
 
 pub use albums::{Album, AlbumAsset, AlbumPatch, AlbumRefresh, AlbumRepo, NewAlbum};
+pub use asset_tags::{AssetTagRepo, TAG_MATCH_BAND};
 pub use assets::{AssetRepo, DirectPutOutcome};
 pub use audit::{AuditEntry, AuditRepo};
 pub use backup::{
