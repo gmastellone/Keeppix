@@ -1,12 +1,14 @@
 //! CRUD del vocabolario condiviso di tag e categorie (Fase 7 Task 7).
 //!
 //! Creare o modificare un **tag** (non una categoria) ricalcola solo
-//! l'embedding testuale di quel tag — le foto non si toccano.
+//! l'embedding testuale di quel tag — le foto non si toccano. Se l'embedding
+//! è presente, Task 8 abbina subito le foto già indicizzate (`propose_for_tag`).
+//! Cambiare solo soglia/colore/parent non rivaluta.
 #![allow(clippy::missing_errors_doc)]
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use keeppix_db::{NewTag, TagPatch, TagRepo};
+use keeppix_db::{AssetTagRepo, NewTag, TagPatch, TagRepo};
 use keeppix_domain::{TagId, TagKind};
 use keeppix_media::{MODEL_VERSION, MobileClip, first_complete_model_dir};
 use serde::{Deserialize, Serialize};
@@ -169,6 +171,11 @@ pub async fn create(
             },
         )
         .await?;
+    // Task 8: un tag appena creato con embedding abbina subito le foto già
+    // indicizzate (una query, nessuna re-inferenza sulle immagini).
+    if tag.has_embedding {
+        AssetTagRepo::new(&state.db).propose_for_tag(tag.id).await?;
+    }
     Ok((StatusCode::CREATED, Json(TagView::from(&tag))))
 }
 
@@ -273,6 +280,10 @@ pub async fn patch(
         (None, None)
     };
 
+    // Solo un cambio di testo (name/prompt) rivaluta: threshold/color/parent
+    // da soli NON rematchano — la soglia governa le analisi future.
+    let rematch = matches!(embedding, Some(Some(_)));
+
     let tag = repo
         .update(
             &ctx,
@@ -288,6 +299,9 @@ pub async fn patch(
             },
         )
         .await?;
+    if rematch {
+        AssetTagRepo::new(&state.db).propose_for_tag(tag.id).await?;
+    }
     Ok(Json(TagView::from(&tag)))
 }
 
