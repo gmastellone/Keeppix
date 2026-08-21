@@ -331,6 +331,9 @@ impl<'a> GeoRepo<'a> {
         let search = self.validate_scope(ctx, map_scope).await?;
         let visibility = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = visibility.filter("f.path", "f.library_id", "a.id", 8);
+        // Stessi $8,$9,$10 riusati nella subquery Semantic (spec §4.2: K fra i
+        // visibili, non K globali poi filtrati).
+        let semantic_vis = visibility.filter("vf.path", "vf.library_id", "va.id", 8);
         let mut next_param = 11_usize;
         let (search_clause, search_binds) = match search {
             Some(search) => compile_for_sql(
@@ -339,7 +342,7 @@ impl<'a> GeoRepo<'a> {
                 0,
                 "COALESCE(o.location, a.location)",
                 ctx.user_id().map(|id| id.as_uuid()),
-                None,
+                Some(semantic_vis.sql()),
             )?,
             None => ("TRUE".to_owned(), Vec::new()),
         };

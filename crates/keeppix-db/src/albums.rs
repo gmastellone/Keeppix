@@ -503,6 +503,9 @@ impl<'a> AlbumRepo<'a> {
 
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        // Stessi $1,$2,$3 riusati nella subquery Semantic (spec §4.2: K fra i
+        // visibili di questo owner, non K globali poi filtrati).
+        let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
         let mut param = 4_usize;
         let (clause, binds) = compile_for_sql(
             &rule,
@@ -510,7 +513,7 @@ impl<'a> AlbumRepo<'a> {
             0,
             "a.location",
             Some(actor.as_uuid()),
-            None,
+            Some(semantic_vis.sql()),
         )?;
         let sql = format!(
             "SELECT a.id AS id FROM assets a \
