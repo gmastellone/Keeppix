@@ -504,8 +504,14 @@ impl<'a> AlbumRepo<'a> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let mut param = 4_usize;
-        let (clause, binds) =
-            compile_for_sql(&rule, &mut param, 0, "a.location", Some(actor.as_uuid()))?;
+        let (clause, binds) = compile_for_sql(
+            &rule,
+            &mut param,
+            0,
+            "a.location",
+            Some(actor.as_uuid()),
+            None,
+        )?;
         let sql = format!(
             "SELECT a.id AS id FROM assets a \
              JOIN folders f ON f.id = a.folder_id \

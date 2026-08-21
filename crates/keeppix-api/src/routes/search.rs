@@ -3,6 +3,7 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use keeppix_db::{FlagRepo, SearchNode, SearchRepo, Suggestion, SuggestionKind};
 use keeppix_domain::AssetId;
+use keeppix_media::{MobileClip, first_complete_model_dir};
 use serde::{Deserialize, Serialize};
 
 use crate::extract::{Auth, SessionNotShare};
@@ -122,8 +123,10 @@ pub async fn run(
         None | Some("") => None,
         Some(raw) => Some(parse_cursor(raw)?),
     };
+    let mut ast = body.ast;
+    prepare_semantic_embeddings(&mut ast).await?;
     let assets = SearchRepo::new(&state.db)
-        .run(&ctx, &body.ast, cursor, body.limit.unwrap_or(200))
+        .run(&ctx, &ast, cursor, body.limit.unwrap_or(200))
         .await?;
     let limit = body.limit.unwrap_or(200).clamp(1, 200);
     let filled = i64::try_from(assets.len()).unwrap_or(i64::MAX) >= limit;
@@ -139,6 +142,55 @@ pub async fn run(
             .collect(),
         next_cursor,
     }))
+}
+
+/// Riempie `SearchNode::Semantic.embedding` via `MobileCLIP`. Il crate db non
+/// conosce ort: l'inferenza testuale resta al confine HTTP.
+async fn prepare_semantic_embeddings(node: &mut SearchNode) -> Result<(), Problem> {
+    match node {
+        SearchNode::And { args } | SearchNode::Or { args } => {
+            for arg in args {
+                Box::pin(prepare_semantic_embeddings(arg)).await?;
+            }
+        }
+        SearchNode::Not { arg } => Box::pin(prepare_semantic_embeddings(arg)).await?,
+        SearchNode::Semantic {
+            query, embedding, ..
+        } if embedding.is_none() => {
+            *embedding = Some(embed_search_query(query).await?);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn embed_search_query(text: &str) -> Result<Vec<f32>, Problem> {
+    let Some(model_dir) = first_complete_model_dir() else {
+        return Err(Problem::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ai-unavailable",
+            "Semantic search requires the MobileCLIP model on disk",
+        ));
+    };
+    let text = text.to_owned();
+    tokio::task::spawn_blocking(move || -> Result<Vec<f32>, String> {
+        let mut clip = MobileClip::load(&model_dir)?;
+        clip.embed_text(&text)
+    })
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "semantic embed task join failed");
+        Problem::internal()
+    })?
+    .map_err(|e| {
+        tracing::error!(error = %e, "semantic text embedding failed");
+        Problem::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ai-unavailable",
+            "Text embedding failed",
+        )
+        .with_detail(e)
+    })
 }
 
 /// # Errors

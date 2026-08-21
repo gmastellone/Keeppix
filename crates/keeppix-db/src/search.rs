@@ -5,6 +5,7 @@ use keeppix_domain::AuthContext;
 use serde::{Deserialize, Serialize};
 
 use crate::assets::A_COLUMNS;
+use crate::embeddings::vector_literal;
 use crate::stacks::{
     AssetStackRow, AssetWithStack, STACK_BADGE_COLUMNS_SQL, STACK_BADGE_JOIN_SQL,
     STACK_PRIMARY_ONLY_SQL,
@@ -108,6 +109,23 @@ pub enum SearchNode {
     Place {
         id: i64,
     },
+    /// Tag confermato su `asset_tags` (Fase 7). Solo `state='confirmed'`.
+    Tag {
+        id: uuid::Uuid,
+    },
+    /// Categoria: qualsiasi tag figlio (`tags.parent_id`) confermato sull'asset.
+    Category {
+        id: uuid::Uuid,
+    },
+    /// Vicini CLIP: membership nei K più simili (visibili), risultati ancora
+    /// ordinati per data. `embedding` è riempito dal layer API (db non conosce
+    /// ort); assente → `Conflict` in compile.
+    Semantic {
+        query: String,
+        limit: u32,
+        #[serde(skip)]
+        embedding: Option<Vec<f32>>,
+    },
 }
 
 pub(crate) enum SearchBind {
@@ -140,6 +158,9 @@ impl<'a> SearchRepo<'a> {
         let limit = limit.clamp(1, 200);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        // Stessi $1,$2,$3 riusati nella subquery Semantic (spec §4.2: K fra i
+        // visibili, non K globali poi filtrati).
+        let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
         let mut param = 4_usize;
         let (clause, binds) = compile_for_sql(
             ast,
@@ -147,6 +168,7 @@ impl<'a> SearchRepo<'a> {
             0,
             "a.location",
             ctx.user_id().map(|u| u.as_uuid()),
+            Some(semantic_vis.sql()),
         )?;
         let time_p = next(&mut param);
         let id_p = next(&mut param);
@@ -666,26 +688,34 @@ fn bind_one<'q>(
 /// un `AuthContext` senza utente (link pubblico) fa fallire quei due nodi con
 /// `Forbidden` invece di produrre un confronto silenziosamente vuoto — non
 /// hanno senso senza un utente che vota.
+///
+/// `semantic_vis` è la clausola di visibilità che riusa `$1,$2,$3` con alias
+/// `vf`/`va` (generata da `VisibilityScope::filter` in `run`). `None` →
+/// `TRUE` dentro la subquery (album/mappa dove lo scope esterno basta).
 pub(crate) fn compile_for_sql(
     node: &SearchNode,
     param: &mut usize,
     depth: usize,
     gps_sql: &str,
     user_id: Option<uuid::Uuid>,
+    semantic_vis: Option<&str>,
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     if depth > 16 {
         return Err(DbError::Conflict("search too nested".to_owned()));
     }
     match node {
         SearchNode::And { args } if args.is_empty() => Ok(("TRUE".to_owned(), Vec::new())),
-        SearchNode::And { args } => join(args, " AND ", param, depth, gps_sql, user_id),
+        SearchNode::And { args } => {
+            join(args, " AND ", param, depth, gps_sql, user_id, semantic_vis)
+        }
         SearchNode::Or { args } if args.is_empty() => Ok(("FALSE".to_owned(), Vec::new())),
-        SearchNode::Or { args } => join(args, " OR ", param, depth, gps_sql, user_id),
+        SearchNode::Or { args } => join(args, " OR ", param, depth, gps_sql, user_id, semantic_vis),
         SearchNode::Not { arg } => {
-            let (inner, binds) = compile_for_sql(arg, param, depth + 1, gps_sql, user_id)?;
+            let (inner, binds) =
+                compile_for_sql(arg, param, depth + 1, gps_sql, user_id, semantic_vis)?;
             Ok((format!("NOT COALESCE(({inner}), FALSE)"), binds))
         }
-        leaf => compile_leaf(leaf, param, gps_sql, user_id),
+        leaf => compile_leaf(leaf, param, gps_sql, user_id, semantic_vis),
     }
 }
 
@@ -699,6 +729,7 @@ fn compile_leaf(
     param: &mut usize,
     gps_sql: &str,
     user_id: Option<uuid::Uuid>,
+    semantic_vis: Option<&str>,
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     match node {
         SearchNode::And { .. } | SearchNode::Or { .. } | SearchNode::Not { .. } => {
@@ -765,7 +796,7 @@ fn compile_leaf(
             ))
         }
         SearchNode::HasGps => Ok((format!("{gps_sql} IS NOT NULL"), Vec::new())),
-        axis => compile_search_axis(axis, param, user_id),
+        axis => compile_search_axis(axis, param, user_id, semantic_vis),
     }
 }
 
@@ -776,6 +807,7 @@ fn compile_search_axis(
     node: &SearchNode,
     param: &mut usize,
     user_id: Option<uuid::Uuid>,
+    semantic_vis: Option<&str>,
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     match node {
         SearchNode::And { .. }
@@ -872,6 +904,81 @@ fn compile_search_axis(
             let p = next(param);
             Ok((format!("a.place_id = ${p}"), vec![SearchBind::I64(*id)]))
         }
+        fase7 => compile_fase7_axis(fase7, param, semantic_vis),
+    }
+}
+
+/// Tag / Category / Semantic (Fase 7 Task 10) — separate per il tetto clippy.
+fn compile_fase7_axis(
+    node: &SearchNode,
+    param: &mut usize,
+    semantic_vis: Option<&str>,
+) -> Result<(String, Vec<SearchBind>), DbError> {
+    match node {
+        SearchNode::Tag { id } => {
+            let p = next(param);
+            Ok((
+                format!(
+                    "EXISTS (SELECT 1 FROM asset_tags atag \
+                     WHERE atag.asset_id = a.id AND atag.tag_id = ${p} \
+                       AND atag.state = 'confirmed')"
+                ),
+                vec![SearchBind::Uuid(*id)],
+            ))
+        }
+        SearchNode::Category { id } => {
+            let p = next(param);
+            Ok((
+                format!(
+                    "EXISTS (SELECT 1 FROM asset_tags atag \
+                     JOIN tags tcat ON tcat.id = atag.tag_id \
+                     WHERE atag.asset_id = a.id AND tcat.parent_id = ${p} \
+                       AND atag.state = 'confirmed')"
+                ),
+                vec![SearchBind::Uuid(*id)],
+            ))
+        }
+        SearchNode::Semantic {
+            limit, embedding, ..
+        } => {
+            let Some(emb) = embedding.as_ref() else {
+                return Err(DbError::Conflict(
+                    "semantic embedding missing (API must embed query text)".to_owned(),
+                ));
+            };
+            if emb.len() != 512 {
+                return Err(DbError::Conflict(format!(
+                    "semantic embedding must be 512-d, got {}",
+                    emb.len()
+                )));
+            }
+            let k = i32::try_from((*limit).clamp(1, 500)).unwrap_or(500);
+            let vis = semantic_vis.unwrap_or("TRUE");
+            let mv_p = next(param);
+            let vec_p = next(param);
+            let k_p = next(param);
+            Ok((
+                format!(
+                    "a.id IN ( \
+                       SELECT ae.asset_id \
+                       FROM asset_embeddings ae \
+                       JOIN assets va ON va.id = ae.asset_id \
+                       JOIN folders vf ON vf.id = va.folder_id \
+                       WHERE ae.model_version = ${mv_p} \
+                         AND va.status = 'indexed' \
+                         AND ({vis}) \
+                       ORDER BY ae.embedding <=> ${vec_p}::vector \
+                       LIMIT ${k_p} \
+                     )"
+                ),
+                vec![
+                    SearchBind::Text(crate::embeddings::MODEL_VERSION.to_owned()),
+                    SearchBind::Text(vector_literal(emb)),
+                    SearchBind::I32(k),
+                ],
+            ))
+        }
+        _ => unreachable!("compile_fase7_axis only for Tag/Category/Semantic"),
     }
 }
 
@@ -911,11 +1018,12 @@ fn join(
     depth: usize,
     gps_sql: &str,
     user_id: Option<uuid::Uuid>,
+    semantic_vis: Option<&str>,
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     let mut parts = Vec::new();
     let mut binds = Vec::new();
     for arg in args {
-        let (sql, b) = compile_for_sql(arg, param, depth + 1, gps_sql, user_id)?;
+        let (sql, b) = compile_for_sql(arg, param, depth + 1, gps_sql, user_id, semantic_vis)?;
         parts.push(format!("({sql})"));
         binds.extend(b);
     }

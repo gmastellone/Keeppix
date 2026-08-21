@@ -54,7 +54,10 @@ pub use changes::{CHANGE_LOG_PAGE, ChangeLogRepo, ChangePage};
 pub use credentials::AppPasswordRepo;
 pub use dav_locks::DavLockRepo;
 pub use duplicates::{DuplicateGroup, DuplicateRepo};
-pub use embeddings::{AssetEmbedding, EmbeddingRepo, PendingEmbedding};
+pub use embeddings::{
+    AssetEmbedding, EmbeddingRepo, MODEL_VERSION, MODEL_VERSION as EMBEDDING_MODEL_VERSION,
+    PendingEmbedding,
+};
 pub use error::DbError;
 pub use flags::FlagRepo;
 pub use folders::FolderRepo;
