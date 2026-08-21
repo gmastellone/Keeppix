@@ -16,6 +16,8 @@ blake3 = "1"
 libc = "0.2"
 serde.workspace = true
 zune-jpeg = "0.4"
+png = { version = "0.18", default-features = false }
+tiff = { version = "0.11", default-features = false, features = ["deflate", "lzw", "jpeg"] }
 fast_image_resize = "5"
 # Binding a libwebp: l'encoder lossless di `image-webp` (VP8L) produceva
 # ~1,54 MB/foto. Si fissa 0.3.1, non `*`: è una dipendenza C.
@@ -23,9 +25,12 @@ webp = { version = "0.3.1", default-features = false }
 thumbhash = "0.1"
 quick-xml = { workspace = true }
 filetime = "0.2"
+# HEIF/HEIC gira solo fuori processo (`heif-convert`, stesso binding della
+# libreria C di libheif del task RAW): serve un file reale in ingresso e in
+# uscita, non uno stream — la libreria non legge/scrive da pipe.
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"
 # Confronto nel test di budget: il lossless "odierno" (VP8L) contro cui
 # il lossy deve stare sotto 1/3. Non è nel binario di produzione.
 image-webp = "0.2"
