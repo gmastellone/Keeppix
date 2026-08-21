@@ -453,28 +453,38 @@ pub async fn scan_status(
         keeppix_domain::LibraryStatus::Active => "active",
         keeppix_domain::LibraryStatus::Offline => "offline",
     };
-    let phase = if library.status == keeppix_domain::LibraryStatus::Offline {
-        "offline".to_owned()
-    } else {
-        match job.as_ref().map(|j| j.status) {
-            Some(keeppix_domain::JobStatus::Pending | keeppix_domain::JobStatus::Running) => {
-                "discovering".to_owned()
-            }
-            Some(keeppix_domain::JobStatus::Failed) => "failed".to_owned(),
-            _ => "idle".to_owned(),
-        }
-    };
+    let phase = scan_phase(library.status, job.as_ref().map(|j| j.status));
 
     Ok(Json(ScanStatusView {
         library_id: id.to_string(),
         library_status: library_status.to_owned(),
-        phase,
+        phase: phase.to_owned(),
         asset_count,
         job_status: job.as_ref().map(|j| j.status.as_str().to_owned()),
         last_error: job.and_then(|j| j.last_error),
         eta_seconds: None,
         last_scan_at: library.last_scan_at.map(|t| t.to_rfc3339()),
     }))
+}
+
+/// `idle` | `discovering` | `failed` | `offline` — condivisa da `GET
+/// .../scan` e dal poll `scan.progress` del WebSocket (Fase 10 Task 19), così
+/// le due superfici non possono raccontare fasi diverse per la stessa
+/// libreria.
+pub(crate) const fn scan_phase(
+    library_status: keeppix_domain::LibraryStatus,
+    job_status: Option<keeppix_domain::JobStatus>,
+) -> &'static str {
+    if matches!(library_status, keeppix_domain::LibraryStatus::Offline) {
+        return "offline";
+    }
+    match job_status {
+        Some(keeppix_domain::JobStatus::Pending | keeppix_domain::JobStatus::Running) => {
+            "discovering"
+        }
+        Some(keeppix_domain::JobStatus::Failed) => "failed",
+        _ => "idle",
+    }
 }
 
 /// Verifica di raggiungibilità del percorso di rete (§47 «Riprova
