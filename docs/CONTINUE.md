@@ -13,20 +13,25 @@ vince la spec, e annoti il ruling nel ledger.
 
 Non fare push, PR o merge se l'utente non lo chiede.
 
-## Snapshot (post Fase 10, branch `fase-10`)
+## Snapshot (post merge Fase 10)
 
-- **`main`** contiene le Fasi **0-6**, tutte mergiate (PR #3-#11).
-- **Fase 10** è **implementata** sul branch `fase-10` (23 task: BulkOutcome,
-  geometria binaria, pile, album refresh, SearchNode, sessioni, storage,
-  preferenze, preferito, bootstrap, WS events, import a lotti, decode
-  PNG/TIFF/WebP/HEIF, OpenAPI completa, …). Ledger in
+- **`main`** contiene le Fasi **0-6 e 10**, tutte mergiate. Le PR verso questo
+  repo sono rotte lato GitHub in questo momento (API e web mostrano 0 PR
+  totali nonostante le #10/#11 siano esistite) — la Fase 10 è stata mergiata
+  con un merge diretto via git, non tramite PR, dopo CI reale verde ottenuta
+  allargando `ci.yml` al push su `fase-*`.
+- **Fase 10** (23 task: BulkOutcome, geometria binaria, pile, album refresh,
+  SearchNode, sessioni, storage, preferenze, preferito, bootstrap, WS events,
+  import a lotti, decode PNG/TIFF/WebP/HEIF, OpenAPI completa, …). Ledger in
   `.superpowers/sdd/2026-08-20-keeppix-fase-10/progress.md`.
-- **Prossimo lavoro dopo il merge della 10:** Fase **7** (IA), poi 8 → 9 → 11.
+- **Prossimo lavoro:** Fase **7** (IA), poi 8 → 9 → 11 — **ma prima i piani di
+  7/8/9 vanno ripassati col codice vero della Fase 10 davanti** (sono stati
+  scritti quando la 10 non esisteva ancora): non partire senza quel ripasso.
   Ordine e decisioni aggiornate in
   [`../superpowers/PROSEGUI.md`](../superpowers/PROSEGUI.md) — **rileggerlo
-  all'inizio della Fase 11** (e all'inizio della 7).
+  all'inizio della Fase 7** (e di nuovo all'inizio della 11).
 
-**Ordine di esecuzione da qui (dopo merge 10):** `7 → 8 → 9 → 11 (in quattro tranche)`.
+**Ordine di esecuzione da qui:** `7 → 8 → 9 → 11 (in quattro tranche)`.
 
 La **10 precede la 7, la 8 e la 9** e non è un'opinione: fissa l'involucro di
 riuscita parziale, la tassonomia chiusa degli errori, `SearchNode` come unico
@@ -60,8 +65,8 @@ documento stesso.
 1. `AGENTS.md`
 2. `docs/ui/costo-beneficio-funzioni.md`, sezione «Decisioni prese» — la fonte
    che vince su tutte le altre.
-3. `docs/superpowers/plans/2026-08-18-keeppix-fase-4.md` — l'ultima fase chiusa
-   (PR #9). Utile soprattutto per la sezione iniziale «Cosa esiste già»: è il
+3. `docs/superpowers/plans/2026-08-20-keeppix-fase-10.md` — l'ultima fase
+   chiusa. Utile soprattutto per la sezione iniziale «Cosa esiste già»: è il
    modello di come si fonda un piano sul codice reale invece che sulla spec.
 4. `docs/superpowers/plans/2026-08-13-keeppix-roadmap.md` — le fasi e i
    contratti congelati.
