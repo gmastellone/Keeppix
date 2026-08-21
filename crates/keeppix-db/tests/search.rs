@@ -1070,6 +1070,100 @@ async fn semantic_filters_top_k_then_orders_by_date() {
     assert!(!hits.iter().any(|h| h.id == far));
 }
 
+/// Spec §4.2, la parte facile da sbagliare: il K dei vicini semantici va
+/// calcolato **dentro** il perimetro di visibilità, non come K globale
+/// filtrato dopo. Il privato è la corrispondenza esatta e sarebbe il K=1
+/// globale; se la visibilità venisse applicata solo dal `WHERE` esterno (e
+/// non dentro la subquery), lo stranger — che non vede `private` — otterrebbe
+/// zero risultati invece del pubblico, che è comunque un vicino valido.
+#[tokio::test]
+async fn semantic_search_selects_the_k_nearest_among_visible_assets_only() {
+    use keeppix_db::{
+        EmbeddingRepo, MODEL_VERSION, NewGrant, ObjectType, PermissionRepo, SubjectType,
+    };
+    use keeppix_domain::ObjectRole;
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let admin = ctx.user_id().unwrap();
+    let stranger = harness::seed_user(&test, admin, "estranea").await;
+
+    let root_folder = FolderRepo::new(test.db())
+        .find_by_id(&ctx, folder)
+        .await
+        .unwrap();
+    let public = FolderRepo::new(test.db())
+        .ensure_child(&root_folder, "public")
+        .await
+        .unwrap();
+    let private = FolderRepo::new(test.db())
+        .ensure_child(&root_folder, "private")
+        .await
+        .unwrap();
+    PermissionRepo::new(test.db())
+        .grant(
+            &ctx,
+            NewGrant {
+                subject: SubjectType::User,
+                subject_id: stranger.as_uuid(),
+                object: ObjectType::Folder,
+                object_id: public.id.as_uuid(),
+                role: ObjectRole::Viewer,
+                inherit: true,
+            },
+        )
+        .await
+        .unwrap();
+
+    let public_asset = index(&test, public.id, "public.jpg", AssetKind::Image, 1).await;
+    let private_asset = index(&test, private.id, "private.jpg", AssetKind::Image, 2).await;
+
+    let mut query_vector = vec![0.0_f32; 512];
+    query_vector[0] = 1.0;
+    let mut near_but_not_exact = vec![0.0_f32; 512];
+    near_but_not_exact[0] = 0.9;
+    near_but_not_exact[1] = (1.0_f32 - 0.9_f32 * 0.9_f32).sqrt();
+
+    let embeddings = EmbeddingRepo::new(test.db());
+    embeddings
+        .upsert(private_asset, &query_vector, MODEL_VERSION)
+        .await
+        .unwrap();
+    embeddings
+        .upsert(public_asset, &near_but_not_exact, MODEL_VERSION)
+        .await
+        .unwrap();
+
+    let semantic = SearchNode::Semantic {
+        query: "ignored when embedding set".into(),
+        limit: 1,
+        embedding: Some(query_vector.clone()),
+    };
+
+    let as_admin = SearchRepo::new(test.db())
+        .run(&ctx, &semantic, None, 50)
+        .await
+        .unwrap();
+    assert_eq!(as_admin.len(), 1);
+    assert_eq!(
+        as_admin[0].id, private_asset,
+        "l'admin vede tutto: il K=1 globale è il privato"
+    );
+
+    let stranger_ctx = AuthContext::user(stranger, SystemRole::User);
+    let as_stranger = SearchRepo::new(test.db())
+        .run(&stranger_ctx, &semantic, None, 50)
+        .await
+        .unwrap();
+    assert_eq!(
+        as_stranger.len(),
+        1,
+        "il K nearest va calcolato dentro il perimetro visibile: lo stranger \
+         deve vedere il pubblico, non zero risultati"
+    );
+    assert_eq!(as_stranger[0].id, public_asset);
+}
+
 #[tokio::test]
 async fn suggest_never_offers_the_tag_kind_without_a_source() {
     let test = TestDb::start().await;
