@@ -127,3 +127,31 @@ l'avvio non fallisce. — Costo se sbagliato: il pannello (Task 6) dovrà
 leggere due chiavi invece di una; banale.
 
 Task 3: complete
+
+## Task 4 — Schema AI
+
+Ruling: **migrazione `0043` condizionale su `pg_available_extensions`.** —
+`CREATE EXTENSION IF NOT EXISTS vector` + tabelle solo se il pacchetto
+pgvector è installato; altrimenti NOTICE e return. Così un Postgres esterno
+senza il pacchetto applica la migrazione come no-op (galleria parte) e
+`probe_pgvector` resta la fonte di verità per il degrade Task 3. — Costo se
+sbagliato: chi installa pgvector *dopo* il primo migrate trova la 0043 già
+«applied» senza tabelle; DEPLOY.md documenta di rieseguire il DDL a mano.
+Alternativa (CREATE EXTENSION hard) avrebbe rotto l’avvio senza pacchetto.
+
+Ruling: **niente HNSW/IVFFlat in 0043** — Task 11. Indici creati:
+`asset_embeddings_model_idx`, `tags_parent_idx`, `asset_tags_tag_idx`,
+`asset_tags_proposed_idx`.
+
+Ruling: **un solo livello di nesting `parent_id`** — vincolo applicativo,
+non CHECK: PostgreSQL non ammette subquery nei CHECK. — Costo se sbagliato:
+un bug di API potrebbe creare nipoti finché il domain non valida.
+
+Ruling: **harness `keeppix-db` → `keeppix-db:dev`, con fallback.** —
+`KEEPPIX_TEST_DATABASE_URL` si usa solo se quel server offre `vector`;
+altrimenti testcontainers su `keeppix-db:dev`. Il degrade resta in
+`TestDb::start_postgis_only` (`postgis/postgis:17-3.5`). — Costo se
+sbagliato: CI senza Docker image locale fallisce il boot del container
+(serve `docker build -f Dockerfile.db -t keeppix-db:dev .`).
+
+Task 4: complete
