@@ -76,6 +76,34 @@ RUN set -eu; \
       | xargs -r -I{} cp -L {} /staging/lib/; \
     ls -1 /staging/lib
 
+# ── libheif ───────────────────────────────────────────────────────────────
+# `heif-convert` decodifica HEIF/HEIC (8 e 10 bit, Task 22) in sandbox, mai
+# libheif in processo — stesso schema di `dcraw_emu` sopra: `keeppix-media`
+# lo invoca via `sandbox::run` con `rlimit`, mai come binding in-process.
+# Senza di esso `derive_from_bytes`/`ensure_full_from_bytes` rispondono
+# `DeriveError::Decode` per ogni HEIC caricato in libreria (iPhone e molte
+# fotocamere recenti).
+#
+# Il pacchetto `libheif1` di bookworm (1.15.1, confermato con `apt-cache
+# depends`) collega i codec (libde265/HEVC, libaom/AVIF, dav1d, x265)
+# staticamente ai propri `.so`, non con `dlopen` a plugin come le build più
+# recenti (es. Ubuntu 24.04): `ldd` sotto li vede e basta la stessa raccolta
+# usata per `dcraw_emu`, nessuna directory di plugin da gestire a parte.
+FROM debian:bookworm-slim AS heif
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libheif-examples \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    mkdir -p /staging/bin /staging/lib; \
+    cp /usr/bin/heif-convert /staging/bin/; \
+    ldd /usr/bin/heif-convert \
+      | awk '/=> \//{print $3}' \
+      | grep -Ev '/(libc|libm|libdl|librt|libpthread|libstdc\+\+|libgcc_s)\.so' \
+      | sort -u \
+      | xargs -r -I{} cp -L {} /staging/lib/; \
+    ls -1 /staging/lib
+
 # ── Runtime ───────────────────────────────────────────────────────────────
 # distroless: nessuna shell, nessun package manager, ~6 pacchetti da monitorare.
 FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
@@ -83,6 +111,8 @@ FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
 COPY --from=backend /usr/local/bin/keeppix /usr/local/bin/keeppix
 COPY --from=libraw /staging/bin/dcraw_emu /usr/bin/dcraw_emu
 COPY --from=libraw /staging/lib/ /usr/local/lib/keeppix/
+COPY --from=heif /staging/bin/heif-convert /usr/bin/heif-convert
+COPY --from=heif /staging/lib/ /usr/local/lib/keeppix/
 COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/places.csv /usr/share/keeppix/places.csv
 COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/tz_boundaries.csv /usr/share/keeppix/tz_boundaries.csv
 
