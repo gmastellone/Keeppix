@@ -10,7 +10,7 @@ use axum::http::{HeaderMap, header};
 use axum::response::Response;
 use keeppix_db::{
     AssetRepo, BackupRepo, BackupRunStatus, ChangeLogRepo, Db, JobRepo, LibraryRepo,
-    OperationsRepo, ProblemsRepo,
+    OperationsRepo, ProblemsRepo, RegionRepo,
 };
 use keeppix_domain::{AssetId, AuthContext, JobKind, LibraryId, OperationId, OperationStatus};
 use serde::Serialize;
@@ -135,6 +135,7 @@ async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
     let mut scan_seen: HashMap<LibraryId, ScanProgressKey> = HashMap::new();
     let mut problems_seen: Option<String> = None;
     let mut backup_seen: Option<(uuid::Uuid, BackupRunStatus)> = None;
+    let mut region_seen: HashMap<String, RegionProgressKey> = HashMap::new();
     let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
     let mut poll = tokio::time::interval(CHANGE_POLL);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -178,6 +179,12 @@ async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
                     break;
                 }
                 if drain_backup(&state.db, &ctx, &mut backup_seen, &mut outgoing)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                if drain_regions(&state.db, &ctx, &mut region_seen, &mut outgoing)
                     .await
                     .is_err()
                 {
@@ -499,6 +506,56 @@ async fn drain_backup(
             }
         }),
     );
+    Ok(())
+}
+
+/// `(status, downloaded_bytes, last_error)`: la chiave con cui
+/// `drain_regions` decide se una regione mappa ha davvero fatto progressi da
+/// riportare.
+type RegionProgressKey = (String, i64, Option<String>);
+
+/// Emette `region.progress` per ogni regione mappa la cui `(status,
+/// downloaded_bytes, last_error)` è cambiata dall'ultimo giro (Fase 10 Task
+/// 21). `RegionView` porta già questi campi (Fase 4 Task 4) — qui si legge
+/// la stessa `RegionRepo::list`, non un secondo stato inventato, e si
+/// costruisce il payload da quei campi. `RegionRepo::list` richiede solo un
+/// utente autenticato: le regioni mappa sono globali all'istanza, non
+/// possedute da un singolo utente.
+async fn drain_regions(
+    db: &Db,
+    ctx: &AuthContext,
+    seen: &mut HashMap<String, RegionProgressKey>,
+    q: &mut VecDeque<serde_json::Value>,
+) -> Result<(), keeppix_db::DbError> {
+    let regions = RegionRepo::new(db).list(ctx).await?;
+    let mut still_present = HashSet::with_capacity(regions.len());
+    for region in regions {
+        still_present.insert(region.id.clone());
+        let key: RegionProgressKey = (
+            region.status.as_str().to_owned(),
+            region.downloaded_bytes,
+            region.last_error.clone(),
+        );
+        if seen.get(&region.id) == Some(&key) {
+            continue;
+        }
+        seen.insert(region.id.clone(), key.clone());
+        enqueue(
+            q,
+            json!({
+                "v": 1,
+                "type": "region.progress",
+                "payload": {
+                    "region_id": region.id,
+                    "status": key.0,
+                    "downloaded_bytes": key.1,
+                    "size_bytes": region.size_bytes,
+                    "last_error": key.2,
+                }
+            }),
+        );
+    }
+    seen.retain(|id, _| still_present.contains(id));
     Ok(())
 }
 

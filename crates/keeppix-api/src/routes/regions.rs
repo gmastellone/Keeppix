@@ -30,12 +30,7 @@ impl From<MapRegion> for RegionView {
             size_bytes: region.size_bytes,
             version: region.version,
             downloaded_at: region.downloaded_at.map(|value| value.to_rfc3339()),
-            status: match region.status {
-                RegionStatus::Available => "available",
-                RegionStatus::Downloading => "downloading",
-                RegionStatus::Error => "error",
-            }
-            .to_owned(),
+            status: region.status.as_str().to_owned(),
             downloaded_bytes: region.downloaded_bytes,
             last_error: region.last_error,
             source_url: region.source_url,

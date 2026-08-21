@@ -12,6 +12,15 @@ pub enum RegionStatus {
 }
 
 impl RegionStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Available => "available",
+            Self::Downloading => "downloading",
+            Self::Error => "error",
+        }
+    }
+
     fn parse(raw: &str) -> Result<Self, DbError> {
         match raw {
             "available" => Ok(Self::Available),
