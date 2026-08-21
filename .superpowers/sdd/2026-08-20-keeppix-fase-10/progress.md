@@ -1155,6 +1155,6 @@ frammentazione serve agli accessi cellulari remoti. — *Costo se sbagliato:*
 implementare per-mese troppo presto (complessità) o troppo tardi (scroll
 impreciso su 4G remoto finché Fase 11 non lo fa).
 
-Task 18: complete (commits 230e4e8 script + 56f1b79 ledger/report; nessuna
+Task 18: complete (commits 230e4e8 script + f0ed953 ledger/report; nessuna
 modifica API/DB).
 
