@@ -1,19 +1,24 @@
 # Keeppix — vai fino alla fine
 
-**Fasi 0-6 chiuse e mergiate in `main`** (PR #3-#11, ultimo commit `b174452`). Fai `git pull` su
-`main`: c'è tutto quello che ti serve. Da qui in avanti procedi da solo, con quattro sole
-eccezioni elencate in fondo.
+**Fasi 0-6 e 10 chiuse e mergiate in `main`** (PR #3-#11 per 0-6; la Fase 10 è stata mergiata
+via merge diretto — le PR verso questo repo sono rotte lato GitHub in questo momento, l'API e la
+pagina web mostrano 0 PR totali nonostante le #10/#11 siano esistite. Finché non si risolve,
+niente PR: CI reale ottenuta allargando `ci.yml` al push su `fase-*`, merge diretto dopo verde).
+Fai `git pull` su `main`: c'è tutto quello che ti serve. Da qui in avanti procedi da solo, con
+quattro sole eccezioni elencate in fondo.
 
 ---
 
 ## 1. L'ordine, e perché è quello
 
 ```
-Fase 10 (✅ branch `fase-10`, in attesa di merge)  →  Fase 7  →  Fase 8  →  Fase 9  →  Fase 11 (A→B→C→D)
+Fase 10 (✅ chiusa e mergiata)  →  Fase 7  →  Fase 8  →  Fase 9  →  Fase 11 (A→B→C→D)
 ```
 
-**La Fase 10 è implementata** sul branch `fase-10` (23 task). Dopo il merge, **la prossima è la
-Fase 7**. Branch nuovo da `main` (dopo il merge della 10), non da un branch di fase precedente.
+**La Fase 10 è chiusa e mergiata in `main`** (23 task). **La prossima è la Fase 7 — ma prima
+leggi il §9 qui sotto: i piani di 7/8/9 sono stati scritti prima che la Fase 10 esistesse, e
+vanno ripassati col codice vero davanti prima di iniziare.** Branch nuovo da `main`, non da un
+branch di fase precedente.
 
 **La Fase 10 è andata prima della 7, 8 e 9, e non era un'opinione.** Ha fissato l'involucro di
 riuscita parziale, la tassonomia chiusa degli errori, `SearchNode` come unico modello di filtro
@@ -63,22 +68,6 @@ deve trovare.
   dettaglio nel piano). Non serve nuovo lavoro di backend: `POST /upload` accetta già
   `target_folder_id` e già distingue `created`/`skipped_duplicate`/`renamed` per file — è wiring
   del frontend su tus, già spedito in Fase 5. Fonte: `docs/ui/caricamento-nuove-foto.md`.
-
-### Decisioni aggiunte dopo la stesura di questo file — 20 agosto sera
-
-- **I RAW entrano in Keeppix solo attraverso il Culling, mai altrove.** Il Culling è un'area
-  permanentemente separata dalla libreria: scegliere una foto la sposta in `_taken/` e **lì
-  resta** — nessuna promozione automatica. Chi vuole una foto scelta nella libreria vera la
-  ricarica **manualmente**: un'azione dell'utente, non una funzione di Keeppix.
-- **L'IA esclude l'intero sottoalbero del Culling**, non solo `_taken`/`_skipped`: dato che i RAW
-  vivono solo lì, escludere tutto l'albero esclude automaticamente ogni RAW, senza filtro per
-  formato. **Non serve più** la regola "un'impronta per pila" — nella libreria non esistono pile
-  RAW+JPEG, per costruzione.
-- **Il modello IA non resta mai caricato**: si carica solo per lotto/finestra di analisi, si
-  scarica subito dopo. **Tetto duro: sotto 1 GB di RSS reale mentre gira** — un candidato che lo
-  sfora alla dimensione di lotto minima utile non si sceglie come predefinito, punto.
-- **La libreria gestisce anche PNG, TIFF, WebP-sorgente, HEIF 8/10 bit**, non solo JPEG — debito
-  reale su codice già in produzione: `derive.rs` oggi decodifica solo JPEG (Fase 10 Task 22).
 
 ### La precedenza, quando le fonti divergono
 
@@ -193,7 +182,7 @@ Fuori da questi quattro, procedi.
 
 | Fase | Piano | Task | Nota |
 |---|---|---|---|
-| 10 | `plans/2026-08-20-keeppix-fase-10.md` | 23 | Task 1 e 1bis vanno per primi, in quest'ordine |
+| 10 | `plans/2026-08-20-keeppix-fase-10.md` | 23 | ✅ chiusa e mergiata |
 | 7 | `plans/2026-08-20-keeppix-fase-7.md` | 13 | comincia **misurando**, non costruendo |
 | 8 | `plans/2026-08-20-keeppix-fase-8.md` | 11 | il **Task 1 è il test** che i volti non escano dai link pubblici — scritto prima del codice che potrebbe violarlo |
 | 9 | `plans/2026-08-20-keeppix-fase-9.md` | 11 | tocca **file veri**: chiudi le cinque convalide della rinomina prima |
