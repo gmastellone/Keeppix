@@ -94,10 +94,21 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg age zstd libheif-examples libheif-plugin-libde265
 
+      # Fase 7: lo harness di `keeppix-db` (e `provision_with_vector` in
+      # `keeppix-jobs`) richiede pgvector. Il `services.postgres` resta
+      # `postgis/postgis:17-3.5` (senza vector) per gli altri crate via
+      # `KEEPPIX_TEST_DATABASE_URL`; quando quell'URL non offre `vector`,
+      # i test AI ricadono su testcontainers `keeppix-db:dev`. Quell'immagine
+      # non è su Docker Hub — va costruita qui, altrimenti il pull 404 abortisce
+      # tutta la suite albums/embeddings.
+      - name: Build keeppix-db:dev (PostGIS + pgvector)
+        run: docker build -f Dockerfile.db -t keeppix-db:dev .
+
       # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
       # in locale i test usano testcontainers e senza quel limite parte un
-      # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres,
-      # dichiarato in `services:` e passato con `KEEPPIX_TEST_DATABASE_URL`.
+      # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres di
+      # servizio (senza vector) più, al più, un `keeppix-db:dev` condiviso
+      # per i test che richiedono pgvector.
       # Serializzare la compilazione su un runner a 4 core costava ~10 minuti
       # per una ragione che in CI non esiste.
       #
