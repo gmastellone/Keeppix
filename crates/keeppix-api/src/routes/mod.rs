@@ -13,6 +13,7 @@ pub mod libraries;
 pub mod map;
 pub mod media;
 pub mod metadata;
+pub mod operations;
 pub mod permissions;
 pub mod places;
 pub mod preferences;

@@ -188,6 +188,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
         )
         .route("/ws/ticket", axum::routing::post(routes::ws::ticket))
         .route("/ws", get(routes::ws::connect))
+        .route(
+            "/operations/{id}/cancel",
+            axum::routing::post(routes::operations::cancel),
+        )
         .route("/sync/delta", get(routes::sync::delta))
         .route("/problems", get(routes::problems::list))
         .route("/duplicates", get(routes::duplicates::list))
