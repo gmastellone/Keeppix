@@ -96,9 +96,12 @@ async fn a_new_asset_is_pushed_as_assets_upserted() {
         .unwrap()
         .unwrap();
 
-    let msg = recv_json(&mut ws).await;
+    // Non necessariamente il primissimo messaggio: con più tipi di evento
+    // sullo stesso canale (Task 19), una libreria appena creata può anche
+    // produrre `scan.progress` sullo stesso giro di poll. Un client reale
+    // filtra per `type`, non assume un ordine.
+    let msg = recv_matching(&mut ws, "assets.upserted").await;
     assert_eq!(msg["v"], 1);
-    assert_eq!(msg["type"], "assets.upserted");
     let ids = msg["payload"]["ids"].as_array().expect("ids");
     assert!(
         ids.iter()
@@ -208,6 +211,251 @@ async fn operation_progress_arrives_over_a_connection_opened_mid_scan() {
         if msg["type"] == "operation.progress" && msg["payload"]["operation_id"] == operation_id {
             assert!(msg["payload"]["done"].as_i64().unwrap() > 0);
             break;
+        }
+    }
+}
+
+/// Task 19 (Fase 10): una libreria che va offline è un problema reale
+/// (`ProblemsRepo::list`, già usato da `GET /problems`) — il WebSocket deve
+/// solo notificare che c'è qualcosa di nuovo da rileggere, non trasportare i
+/// dettagli (contratto: "canale di notifica, non fonte di verità").
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn an_offline_library_is_pushed_as_problems_changed() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+    let ctx = admin_ctx(&server).await;
+
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Braies".to_owned(),
+                owner_id: ctx.user_id().unwrap(),
+                root_path: server.photos_root.join("ws-problems"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+
+    let issued = server
+        .client
+        .post(server.url("/api/v1/ws/ticket"))
+        .send()
+        .await
+        .unwrap();
+    let ticket = issued.json::<serde_json::Value>().await.unwrap()["ticket"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ws = open_socket(&server, &ticket).await;
+    wait_until_looping(&mut ws).await;
+
+    LibraryRepo::new(&server.db)
+        .set_status(&ctx, library.id, keeppix_domain::LibraryStatus::Offline)
+        .await
+        .unwrap();
+
+    let msg = recv_matching(&mut ws, "problems.changed").await;
+    assert_eq!(msg["v"], 1);
+    assert!(msg["payload"]["count"].as_i64().unwrap() >= 1);
+}
+
+/// Task 19: un backup che finisce (`BackupRepo::complete_run`, già usato dal
+/// job reale di `keeppix-jobs::backup::run_one`) deve uscire come
+/// `backup.finished` — senza push, la pagina Impostazioni saprebbe l'esito
+/// solo ricaricando.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn a_finished_backup_run_is_pushed_as_backup_finished() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+    let _ctx = admin_ctx(&server).await;
+
+    let issued = server
+        .client
+        .post(server.url("/api/v1/ws/ticket"))
+        .send()
+        .await
+        .unwrap();
+    let ticket = issued.json::<serde_json::Value>().await.unwrap()["ticket"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ws = open_socket(&server, &ticket).await;
+    wait_until_looping(&mut ws).await;
+
+    let backups = keeppix_db::BackupRepo::new(&server.db);
+    let run = backups.start_run(None, "0.1.0").await.unwrap();
+    backups
+        .complete_run(run.id, 4096, "/tmp/keeppix-ws-test.kpxb")
+        .await
+        .unwrap();
+
+    let msg = recv_matching(&mut ws, "backup.finished").await;
+    assert_eq!(msg["payload"]["run_id"], run.id.to_string());
+    assert_eq!(msg["payload"]["status"], "ok");
+    assert_eq!(msg["payload"]["size_bytes"], 4096);
+}
+
+/// Task 19: la transcodifica video (Fase 6) scrive il proprio esito nella
+/// coda `jobs` come qualunque altro job — il poll del WebSocket lo legge da
+/// lì (`JobRepo::list_recently_done`) e lo traduce in `asset.derivative.ready`
+/// solo per gli asset visibili al chiamante.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn a_finished_video_transcode_is_pushed_as_asset_derivative_ready() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+    let (folder, _library) = seed_library_after_setup(&server).await;
+    let asset = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("clip.mp4").unwrap(),
+            size_bytes: 10,
+            mtime: chrono::Utc::now(),
+            inode: None,
+            kind: AssetKind::Video,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+    let issued = server
+        .client
+        .post(server.url("/api/v1/ws/ticket"))
+        .send()
+        .await
+        .unwrap();
+    let ticket = issued.json::<serde_json::Value>().await.unwrap()["ticket"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ws = open_socket(&server, &ticket).await;
+    wait_until_looping(&mut ws).await;
+
+    let jobs = keeppix_db::JobRepo::new(&server.db);
+    let job = jobs
+        .enqueue(
+            keeppix_domain::JobKind::TranscodeVideo,
+            json!({"asset_id": asset.id.to_string(), "save_bandwidth": false}),
+            keeppix_domain::JobPriority::Interactive,
+            Some("transcode:ws-test"),
+        )
+        .await
+        .unwrap();
+    jobs.claim(
+        uuid::Uuid::now_v7(),
+        keeppix_domain::JobPriority::Interactive,
+    )
+    .await
+    .unwrap();
+    jobs.complete(job.id).await.unwrap();
+
+    let msg = recv_matching(&mut ws, "asset.derivative.ready").await;
+    assert_eq!(msg["payload"]["asset_id"], asset.id.to_string());
+}
+
+/// Task 19: `scan.progress` legge la stessa fonte già usata da `GET
+/// /libraries/{id}/scan` (`JobRepo::discover_status_for_library` +
+/// `AssetRepo::count_in_library`), non un secondo stato inventato — le due
+/// superfici non possono raccontare fasi diverse per la stessa libreria.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn a_library_scan_pushes_scan_progress() {
+    const TOTAL: usize = 10;
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let root = server.photos_root.join("ws-scan-progress");
+    std::fs::create_dir_all(&root).unwrap();
+    for n in 0..TOTAL {
+        std::fs::write(root.join(format!("{n:03}.jpg")), b"x").unwrap();
+    }
+
+    let created = server
+        .client
+        .post(server.url("/api/v1/libraries"))
+        .json(&json!({
+            "name": "WsScanProgress",
+            "root_path": root.to_string_lossy(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status(), 201);
+    let library_id = created.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let issued = server
+        .client
+        .post(server.url("/api/v1/ws/ticket"))
+        .send()
+        .await
+        .unwrap();
+    let ticket = issued.json::<serde_json::Value>().await.unwrap()["ticket"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ws = open_socket(&server, &ticket).await;
+    wait_until_looping(&mut ws).await;
+
+    let scan = server
+        .client
+        .post(server.url(&format!("/api/v1/libraries/{library_id}/scan")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(scan.status(), 202);
+
+    let _worker = harness::spawn_worker_pool(
+        server.db.clone(),
+        server.database_url.clone(),
+        server.data_dir.join("ws-scan-progress-data"),
+    );
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        assert!(remaining > Duration::ZERO, "nessun scan.progress arrivato");
+        let msg = tokio::time::timeout(remaining, recv_json(&mut ws))
+            .await
+            .expect("timeout");
+        if msg["type"] == "scan.progress" && msg["payload"]["library_id"] == library_id {
+            assert!(msg["payload"]["asset_count"].as_i64().unwrap() >= 0);
+            break;
+        }
+    }
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn admin_ctx(server: &TestServer) -> AuthContext {
+    let username = Username::parse("giovanni").unwrap();
+    let (user, _) = UserRepo::new(&server.db)
+        .find_by_username(&username)
+        .await
+        .unwrap()
+        .expect("admin");
+    AuthContext::user(user.id, SystemRole::Admin)
+}
+
+/// Legge finché non arriva un messaggio del `type` cercato, ignorando
+/// ping/pong e altri eventi (`assets.upserted` per l'inserimento della
+/// libreria stessa, `resync`, …) che possono intercalarsi sullo stesso poll.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn recv_matching(ws: &mut LiveSocket, kind: &str) -> serde_json::Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        assert!(remaining > Duration::ZERO, "timeout waiting for {kind}");
+        let msg = tokio::time::timeout(remaining, recv_json(ws))
+            .await
+            .unwrap_or_else(|_| panic!("timeout waiting for {kind}"));
+        if msg["type"] == kind {
+            return msg;
         }
     }
 }
