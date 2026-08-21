@@ -26,6 +26,8 @@ pub enum JobKind {
     CleanupIdempotency,
     VacuumAnalyze,
     IntegrityScrub,
+    /// Fase 7: calcolo embeddings CLIP a lotto dalle miniature.
+    EmbedAssets,
 }
 
 impl JobKind {
@@ -52,6 +54,7 @@ impl JobKind {
             Self::CleanupIdempotency => "cleanup_idempotency",
             Self::VacuumAnalyze => "vacuum_analyze",
             Self::IntegrityScrub => "integrity_scrub",
+            Self::EmbedAssets => "embed_assets",
         }
     }
 
@@ -79,6 +82,7 @@ impl JobKind {
             "cleanup_idempotency" => Ok(Self::CleanupIdempotency),
             "vacuum_analyze" => Ok(Self::VacuumAnalyze),
             "integrity_scrub" => Ok(Self::IntegrityScrub),
+            "embed_assets" => Ok(Self::EmbedAssets),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
     }
@@ -188,9 +192,18 @@ mod tests {
             JobKind::CleanupIdempotency,
             JobKind::VacuumAnalyze,
             JobKind::IntegrityScrub,
+            JobKind::EmbedAssets,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
         }
+    }
+
+    #[test]
+    fn embed_assets_kind_round_trips() {
+        assert_eq!(
+            JobKind::parse("embed_assets").expect("known kind"),
+            JobKind::EmbedAssets
+        );
     }
 
     #[test]
