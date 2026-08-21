@@ -11,7 +11,7 @@
 use std::path::Path;
 
 use chrono::Utc;
-use keeppix_db::{Db, EmbeddingRepo, JobRepo, PendingEmbedding};
+use keeppix_db::{AssetTagRepo, Db, EmbeddingRepo, JobRepo, PendingEmbedding};
 use keeppix_domain::{JobKind, JobPriority};
 use keeppix_media::{
     MODEL_VERSION, MobileClip, current_rss_bytes, decode_to_rgb8, derivative_paths,
@@ -187,9 +187,17 @@ async fn embed_pending(
 
     let repo = EmbeddingRepo::new(db);
     let mut embedded = 0_u32;
+    let mut embedded_ids = Vec::with_capacity(prepared.len());
     for ((item, _), emb) in prepared.into_iter().zip(embeddings) {
         repo.upsert(item.asset_id, &emb, MODEL_VERSION).await?;
+        embedded_ids.push(item.asset_id);
         embedded = embedded.saturating_add(1);
+    }
+
+    if !embedded_ids.is_empty() {
+        AssetTagRepo::new(db)
+            .propose_for_assets(&embedded_ids)
+            .await?;
     }
 
     Ok((
