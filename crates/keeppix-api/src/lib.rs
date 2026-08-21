@@ -365,6 +365,7 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/permissions/{id}",
             axum::routing::patch(routes::permissions::patch).delete(routes::permissions::revoke),
         )
+        .route("/shared-with-me", get(routes::permissions::shared_with_me))
         .route(
             "/share/links",
             get(routes::share::list_links).post(routes::share::create_link),
