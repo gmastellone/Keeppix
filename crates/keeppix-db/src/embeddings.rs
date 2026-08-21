@@ -170,7 +170,9 @@ impl<'a> EmbeddingRepo<'a> {
     }
 }
 
-pub(crate) fn vector_literal(embedding: &[f32]) -> String {
+/// Forma testuale `[f,f,…]` accettata da pgvector (`$n::vector`).
+#[must_use]
+pub fn vector_literal(embedding: &[f32]) -> String {
     let mut out = String::with_capacity(embedding.len() * 8 + 2);
     out.push('[');
     for (i, v) in embedding.iter().enumerate() {

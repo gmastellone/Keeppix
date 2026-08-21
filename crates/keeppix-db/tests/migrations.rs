@@ -102,6 +102,7 @@ async fn performance_indexes_exist() {
         "tags_parent_idx",
         "asset_tags_tag_idx",
         "asset_tags_proposed_idx",
+        "asset_embeddings_ivfflat_idx",
     ] {
         assert!(
             indexes.contains(&expected.to_owned()),
@@ -110,10 +111,8 @@ async fn performance_indexes_exist() {
     }
 
     assert!(
-        !indexes
-            .iter()
-            .any(|i| i.contains("hnsw") || i.contains("ivfflat")),
-        "l'indice vettoriale è Task 11: non deve esistere ancora, got {indexes:?}"
+        !indexes.iter().any(|i| i.contains("hnsw")),
+        "HNSW non spedito: IVFFlat basta (Task 11), got {indexes:?}"
     );
 }
 

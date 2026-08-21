@@ -959,7 +959,7 @@ fn compile_fase7_axis(
             let k_p = next(param);
             Ok((
                 format!(
-                    "a.id IN ( \
+                    "a.id = ANY (ARRAY( \
                        SELECT ae.asset_id \
                        FROM asset_embeddings ae \
                        JOIN assets va ON va.id = ae.asset_id \
@@ -969,7 +969,7 @@ fn compile_fase7_axis(
                          AND ({vis}) \
                        ORDER BY ae.embedding <=> ${vec_p}::vector \
                        LIMIT ${k_p} \
-                     )"
+                     ))"
                 ),
                 vec![
                     SearchBind::Text(crate::embeddings::MODEL_VERSION.to_owned()),
