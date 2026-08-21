@@ -217,8 +217,14 @@ pub fn spawn_worker_pool(
                 return;
             }
             if !pool.step().await.expect("step") {
+                // Solo job già reclamabili: i `pending` con `run_after` nel
+                // futuro (retry con backoff) non tengono vivo il worker —
+                // altrimenti un lotto di derive fallite su fixture invalide
+                // fa scadere i test di cancel (20s) mentre il pool gira a vuoto.
                 let pending: i64 = sqlx::query_scalar(
-                    "SELECT count(*) FROM jobs WHERE status IN ('pending','running')",
+                    "SELECT count(*) FROM jobs \
+                     WHERE status = 'running' \
+                        OR (status = 'pending' AND run_after <= now())",
                 )
                 .fetch_one(db.pool())
                 .await

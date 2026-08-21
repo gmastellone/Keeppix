@@ -134,10 +134,14 @@ fn ingest_pool(server: &TestServer) -> WorkerPool<IngestHandler> {
 
 #[allow(clippy::expect_used)]
 async fn pending_jobs(server: &TestServer) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM jobs WHERE status IN ('pending','running')")
-        .fetch_one(server.db.pool())
-        .await
-        .expect("pending jobs")
+    sqlx::query_scalar(
+        "SELECT count(*) FROM jobs \
+         WHERE status = 'running' \
+            OR (status = 'pending' AND run_after <= now())",
+    )
+    .fetch_one(server.db.pool())
+    .await
+    .expect("pending jobs")
 }
 
 #[allow(clippy::expect_used)]
