@@ -249,3 +249,10 @@ ceiling. Il job logga `rss_after_load_bytes` / `rss_peak_infer_bytes`.
 
 Task 6: complete
 
+
+Ruling: **harness worker esce quando non ci sono job *reclamabili*.** —
+`pending` con `run_after` nel futuro (retry backoff) non tiene vivo il
+JoinHandle: altrimenti cancel-scan scade a 20s. Derive accoda embed solo
+se i pesi CLIP ci sono. — Costo se sbagliato: un test che aspetta i retry
+dovrebbe fare sleep esplicito; oggi nessuno lo fa.
+

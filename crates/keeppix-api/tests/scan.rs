@@ -57,7 +57,9 @@ async fn drain_workers(server: &TestServer, data_dir: &std::path::Path) {
         );
         if !pool.step().await.expect("step") {
             let pending: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM jobs WHERE status IN ('pending','running')",
+                "SELECT count(*) FROM jobs \
+                 WHERE status = 'running' \
+                    OR (status = 'pending' AND run_after <= now())",
             )
             .fetch_one(server.db.pool())
             .await

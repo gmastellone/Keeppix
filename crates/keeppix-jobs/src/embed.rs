@@ -53,11 +53,16 @@ pub async fn enqueue_after_ingest(db: &Db) -> Result<(), JobError> {
 }
 
 /// Accoda il backfill a priorità `Background` (si ferma da solo quando la
-/// galleria è in uso — `EnergyProfile` + pausa viewport Task 6).
+/// galleria è in uso — `EnergyProfile` + pausa viewport Task 6). No-op se i
+/// pesi CLIP non sono sul disco: altrimenti la coda si riempie di job che
+/// falliscono e vanno in retry.
 ///
 /// # Errors
 /// Database.
 pub async fn schedule_backfill(db: &Db) -> Result<(), JobError> {
+    if first_complete_model_dir().is_none() {
+        return Ok(());
+    }
     JobRepo::new(db)
         .enqueue_after(
             JobKind::EmbedAssets,
