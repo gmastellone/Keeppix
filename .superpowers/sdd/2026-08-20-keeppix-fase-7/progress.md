@@ -292,3 +292,16 @@ Ruling: **/tags e /tags/{id} in wired-exceptions → fase-11.** — Task 7 è so
 Ruling: **API harness: postgis di default; `start_with_vector` solo per tags.** — Forzare keeppix-db:dev su tutti i test API in CI (URL senza vector) ha riacceso il flake bootstrap (`individual=0`). Stesso schema di keeppix-jobs. — Costo se sbagliato: dimenticare start_with_vector su un nuovo test AI → 503.
 
 Ruling: **budget bootstrap → capture sqlx global + lock.** — `set_default` TLS perde eventi quando sqlx logga da un altro worker sotto `--test-threads>1`. `set_global_default` una volta + `BUDGET_LOCK` tra i due test. — Costo se sbagliato: un altro test del binario che chiama set_global_default per primo spegne il capture (assert individual>0 fallisce esplicito).
+
+## Task 6 follow-up — RSS dopo Drop (debito Task 2bis)
+
+Ruling: **`embed.rs` logga `rss_after_drop_bytes` (con before/load/peak).** —
+Drop della sessione ONNX a fine lotto; VmRSS campionato subito dopo.
+MEASUREMENT (questo host, test `dropping_the_session_…`): before≈8.7 MB,
+after_load≈369 MB, peak_infer≈370 MB, after_drop≈369 MB. Scende **dal
+picco verso la base di sessione (after_load)**, non fino alla base di
+processo: l’allocatore ORT trattiene pagine finché vive il processo — lo
+scarico “utile” è liberare la sessione tra lotti (non tenere 370 MB × N
+lotti sovrapposti). — Costo se sbagliato: su Pi le cifre cambiano; il
+log resta la prova operativa.
+

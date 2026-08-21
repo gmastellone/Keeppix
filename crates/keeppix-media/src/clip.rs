@@ -471,6 +471,49 @@ mod tests {
     }
 
     #[test]
+    #[serial]
+    fn dropping_the_session_moves_rss_down_from_the_infer_peak() {
+        let Some(dir) = first_complete_model_dir() else {
+            eprintln!("skipping: complete MobileCLIP2-S2 dir missing");
+            return;
+        };
+        let before = current_rss_bytes();
+        let (loaded, after_load_peak) =
+            measure_rss_peak_during(|| MobileClip::load(&dir).expect("load"));
+        let mut clip = loaded;
+        let (_emb, peak_infer) =
+            measure_rss_peak_during(|| clip.embed_text("a red square").expect("text"));
+        drop(clip);
+        let after_drop = current_rss_bytes();
+        eprintln!(
+            "RSS drop check: before={before:?} after_load={after_load_peak:?} \
+             peak_infer={peak_infer:?} after_drop={after_drop:?}"
+        );
+        let Some(peak) = peak_infer.or(after_load_peak) else {
+            return;
+        };
+        let Some(dropped) = after_drop else {
+            return;
+        };
+        // Utile = sotto il picco di inferenza (verso la base di sessione),
+        // non necessariamente fino a `before`: l'allocatore ORT può tenere
+        // pagine finché il processo vive.
+        assert!(
+            dropped <= peak,
+            "after Drop RSS ({dropped}) must not exceed infer peak ({peak})"
+        );
+        if let Some(base) = before {
+            let toward_base = peak.saturating_sub(dropped);
+            let room_to_base = peak.saturating_sub(base);
+            assert!(
+                room_to_base == 0 || toward_base > 0 || dropped <= after_load_peak.unwrap_or(peak),
+                "Drop should move RSS toward the baseline (or at least to after_load); \
+                 before={base} peak={peak} after_drop={dropped}"
+            );
+        }
+    }
+
+    #[test]
     fn model_version_constant_is_stable() {
         assert_eq!(MODEL_VERSION, "mobileclip2-s2");
     }

@@ -17,8 +17,8 @@ pub mod walk;
 pub mod xmp;
 
 pub use clip::{
-    MODEL_VERSION, MobileClip, first_complete_model_dir, measure_rss_peak_during,
-    model_dir_candidates,
+    MODEL_VERSION, MobileClip, current_rss_bytes, first_complete_model_dir,
+    measure_rss_peak_during, model_dir_candidates,
 };
 pub use derive::{
     DEFAULT_FULL_CACHE_BYTES, DEFAULT_WEBP_METHOD, DEFAULT_WEBP_QUALITY, DERIVATIVE_VERSION,
