@@ -120,12 +120,18 @@ indici della specifica — **tranne quello vettoriale**, vedi Task 11.
 5. Mai ricalcolare ciò che ha già un'impronta con lo stesso `model_version`.
 
 ### Task 6 — Lo scheduler dell'analisi
+**Non si parte da zero**: `crates/keeppix-jobs/src/profile.rs` ha già `EnergyProfile`,
+`ActivityTracker::analysis_should_run` (soglia 4000 ms, testata) e un `AnalysisLevel` segnaposto
+(`Full`/`Reduced`) con `ms_per_photo()` provvisori (42/260 ms) messi lì apposta dalla Fase 10 in
+attesa di questo task. Il compito è **riusare e aggiornare** quel file con i numeri veri del
+Task 1, non ricostruire lo scheduler. `default_night_window()` è già **2:00–7:00** (allineato
+alla Fase 10 Task 21, con test `default_night_window_matches_the_promise_made_in_the_ui`): non
+c'è più disallineamento da correggere.
 - Priorità `Background`: non parte mentre qualcuno naviga.
 - **Pausa automatica**, soglia **4000 ms** dall'ultima attività (Fase 10 Task 20), configurabile.
-- Finestra notturna a piena velocità. **Attenzione:** `default_night_window()` è 2:00–6:00 ma
-  l'interfaccia promette 2:00–7:00 — vanno allineate, e vince l'interfaccia salvo ragioni.
+- Finestra notturna a piena velocità (già corretta, vedi sopra).
 - I tre livelli **Piena / Ridotta / Spenta**, con i tempi **misurati** dal Task 1 mostrati
-  all'utente.
+  all'utente, al posto dei valori provvisori di `AnalysisLevel`.
 
 **Ruling: i livelli si presentano con i numeri veri, non come «livello di IA».** —
 *«Analisi completa: ~2 ore, poi qualche minuto al giorno»* è una scelta informata; un'etichetta
@@ -177,13 +183,32 @@ Conferma e rifiuto, singoli e **in blocco** («Conferma tutte» / «Rifiuta tutt
 Le azioni di massa usano **l'involucro di riuscita parziale della Fase 10**.
 **Il rifiuto è permanente**: una coppia rifiutata non torna mai in coda.
 
+**Collega `bootstrap`**: `BadgeCountsView.badges.revision` in
+`crates/keeppix-api/src/routes/bootstrap.rs` è già nel modello, commentato esplicitamente
+*"Proposte tag/volti in attesa (Fasi 7/8)"*, ma `compose()` lo restituisce **fisso a 0** — un
+segnaposto lasciato apposta per questo task. È un conteggio **combinato**: questa fase collega la
+propria metà (proposte di tag `state='proposed'` visibili all'utente), la Fase 8 aggiunge la
+propria (volti) allo stesso campo — non un campo separato. Senza questo il badge in sidebar resta
+morto anche a coda piena.
+
 ---
 
 ## Gruppo E — Ricerca
 
 ### Task 10 — `SearchNode`: `Tag`, `Category`, `Semantic`
-Le prime due sono filtri normali. `Semantic` calcola l'embedding della frase (una inferenza
-testuale, ~19 ms) e ordina per somiglianza.
+Le prime due sono filtri normali, stesso pattern con cui la Fase 10 ha aggiunto `Rating`,
+`Favorite`, `DateRange` e gli altri assi (nuova variante + nuovo ramo in
+`compile_search_axis`, `crates/keeppix-db/src/search.rs`).
+
+**`Semantic` non è "un filtro in più": va deciso prima di scriverlo.** `SearchRepo::run` oggi ha
+un `ORDER BY` **fisso**, `taken_at_utc DESC NULLS LAST, a.id DESC` (`search.rs:158-169`), con
+paginazione a cursore su quella stessa coppia — nessuna variante esistente tocca l'ordinamento,
+solo il `WHERE`. "Ordina per somiglianza" richiede o (a) `Semantic` filtra al sottoinsieme dei K
+più simili via una subquery/CTE e i risultati restano paginati per data **dentro** quel
+sottoinsieme — cioè "foto recenti fra le K più simili", non "le più simili per prime" — oppure
+(b) `run()` guadagna un secondo percorso che ordina per distanza invece che per tempo, con un suo
+cursore. Va scelto **prima** di scrivere il task, perché cambia la firma/il comportamento di
+`SearchRepo::run`, non solo l'enum.
 
 ### Task 11 — L'indice vettoriale, **solo se serve**
 Partire **senza indice**. Misurare la scansione lineare su 200.000 impronte con
@@ -198,8 +223,15 @@ da tenere in RAM, che su un Pi da 8 GB compete con tutto il resto.
 ## Gruppo F — Chiusura
 
 ### Task 12 — WebSocket e interfaccia
-`analysis.progress` e `suggestions.changed` (Fase 10 Task 19). Gli eventi sono **magri**: un
-segnale, non uno stato.
+**Niente evento nuovo `analysis.progress`**: la Fase 10 ha già costruito `operations`
+(`crates/keeppix-db/src/operations.rs`) apposta perché le fasi successive non inventino un
+secondo canale di stato — oggi ha una sola variante `OperationKind::LibraryScan`
+(`crates/keeppix-domain/src/operation.rs`). Il lavoro è aggiungere `OperationKind::AiAnalysis`,
+creare una riga `Operation` per lotto/finestra di analisi via `OperationsRepo::create`, e
+aggiornarla con `set_total`/`record_success_many`/`finish_done`: il polling WS già esistente
+(`drain_operations`) emette `operation.progress` da solo, senza codice nuovo lato evento.
+`suggestions.changed` resta **com'era** — è un segnale magro legittimo, stesso pattern di
+`problems.changed`/`region.progress` (ogni dominio ha il suo "è cambiato qualcosa, ricarica").
 
 ### Task 13 — Documenti e debiti
 `get_json` esce dai rinvii. Aggiornare README, CONTINUE, roadmap, `wired-exceptions.txt`.

@@ -68,9 +68,23 @@ Una funzione di repository — `AssetRepo::move_asset(ctx, asset_id,
 new_folder_id, new_filename)` — che, in una sola transazione:
 
 1. Verifica il permesso di scrittura su cartella di partenza **e** di
-   destinazione (`assert_can_edit_assets`, riuso diretto dalla Fase 3).
+   destinazione con **`FolderRepo::assert_editor(ctx, folder_id)` chiamata due
+   volte** (`crates/keeppix-db/src/folders.rs`) — non `assert_can_edit_assets`:
+   quella funzione prende `asset_ids`, risolve la cartella **corrente**
+   dell'asset via join, e non ha modo di verificare una cartella di
+   destinazione che può essere vuota (es. un `_taken/` appena creato). Stesso
+   pattern già usato per uno spostamento a due cartelle in
+   `crates/keeppix-api/src/dav/write.rs` (`src_id`/`dst_parent_id`).
 2. Verifica che `(new_folder_id, new_filename)` non collida con un asset
-   esistente (stesso vincolo `UNIQUE` già in schema).
+   esistente (stesso vincolo `UNIQUE` già in schema). **Attenzione:** questo
+   controllo è a livello DB, non filesystem — `rename()` su POSIX sovrascrive
+   silenziosamente un file già presente a quel percorso ma non ancora
+   tracciato da Keeppix (non ancora scansionato, nascosto, creato da un altro
+   processo fra il controllo e lo spostamento). "Non si sovrascrive mai" è
+   quindi best-effort contro ciò che Keeppix conosce, non una garanzia atomica
+   di filesystem — va scritto esplicitamente, o va specificata una primitiva
+   di move senza sovrascrittura (es. `open` con `O_EXCL` su un link temporaneo
+   prima del `rename`).
 3. Sposta il file fisico (`rename()` — stesso filesystem, quindi atomico e
    istantaneo anche su file da 100 MB, identico principio dei temporanei
    della Fase 5).

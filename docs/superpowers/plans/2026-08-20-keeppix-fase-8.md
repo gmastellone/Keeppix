@@ -57,6 +57,15 @@ l'indice su `person_id`), `person_separations` (con `CHECK (person_a < person_b)
 4. I volti troppo piccoli **restano non riconosciuti**, di proposito: un'attribuzione sbagliata
    costa all'utente più di un volto mancato, perché va trovata e corretta a mano.
 
+**Registrare la passata come `operations` (Fase 10), non lasciarla senza avanzamento/cancel.**
+`OperationKind` (`crates/keeppix-domain/src/operation.rs`) ha oggi una sola variante,
+`LibraryScan`, pensata apposta per crescere: aggiungere una variante per il rilevamento volti,
+creare una riga via `OperationsRepo::create` per la passata su tutta la libreria, aggiornarla con
+`record_success_many`/`finish_done`. Il polling WS esistente (`drain_operations`) emette
+`operation.progress` da solo — nessun evento nuovo, stesso pattern richiesto alla Fase 7 per la
+sua finestra di analisi. Senza questo, un amministratore che lancia il rilevamento su una
+libreria intera non ha modo di vederne l'avanzamento né di annullarlo.
+
 ### Task 5 — Raggruppamento incrementale
 **Non** un raggruppamento globale rifatto da capo a ogni ondata: distruggerebbe le correzioni
 manuali. I volti nuovi si agganciano ai gruppi esistenti; solo ciò che non si aggancia forma
@@ -84,6 +93,19 @@ si aspetti un annullamento.
 Stessa forma della coda tag (SP-10). Tre esiti: conferma, nuova persona, **«non è un volto»**
 (falso positivo permanente). Azioni in blocco con l'involucro di riuscita parziale.
 
+**`BulkOutcome`/`BulkFailure` (Fase 10, `crates/keeppix-api/src/bulk.rs`) sono tipizzati su
+`AssetId`**, non generici — confermato su tutti gli 8 punti in cui sono usati oggi. Le azioni in
+blocco su questa coda lavorano su persone/volti, non su asset: serve un tipo gemello (es.
+`BulkOutcome<PersonId>`/`BulkOutcome<FaceId>`, o un piccolo refactor generico di `bulk.rs`) che
+riusi la stessa forma e la stessa tassonomia di `FailureReason` — tenendo conto che
+`FailureReason::FileMissing` non ha senso qui (`Unknown`/`PermissionDenied`/`Timeout` bastano).
+
+**Il conteggio di questa coda alimenta `BootstrapResponse.badges.revision`**
+(`crates/keeppix-api/src/routes/bootstrap.rs`), lo stesso campo che la Fase 7 collega al
+conteggio delle proposte di tag — il commento nel codice dice apposta *"Proposte tag/volti in
+attesa (Fasi 7/8)"*: è un conteggio combinato, questa fase aggiunge la propria metà, non un
+campo separato.
+
 ---
 
 ## Gruppo D — Chiusura
@@ -95,6 +117,11 @@ Stessa forma della coda tag (SP-10). Tre esiti: conferma, nuova persona, **«non
 Due comandi **distinti**, e la differenza va rispettata: **spegnere** il riconoscimento smette di
 calcolare e conserva i dati; **«Elimina tutti i dati dei volti»** li cancella. È la risposta alla
 domanda aperta n.6.
+
+**L'interruttore è per libreria** (spec §7): `crates/keeppix-db/src/preferences.rs` è per
+utente, con una lista chiusa di chiavi che rifiuta campi sconosciuti — non è il posto giusto. Il
+precedente reale è `libraries.scan_enabled: bool` (`crates/keeppix-db/src/libraries.rs`): una
+nuova colonna sulla stessa riga, stesso pattern, non una voce di preferenze utente.
 
 ### Task 11 — WebSocket, documenti, e il test del Task 1 che ora deve passare
 `suggestions.changed` include i volti. Il test della regola dei link pubblici **deve essere
