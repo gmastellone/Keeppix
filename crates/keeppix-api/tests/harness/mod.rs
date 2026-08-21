@@ -31,6 +31,7 @@ pub struct TestServer {
     /// Radice allowlist per `KEEPPIX_LIBRARY_ROOTS` nei test (sotto `data_dir`).
     pub photos_root: std::path::PathBuf,
     pub auth_pings: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    pub viewport_pings: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub base_url: String,
     pub client: reqwest::Client,
 }
@@ -111,6 +112,8 @@ async fn boot(
     std::fs::create_dir_all(&photos_root).expect("photos_root");
     let auth_pings = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let ping = auth_pings.clone();
+    let viewport_pings = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let viewport_ping = viewport_pings.clone();
     let watchers =
         keeppix_jobs::watch::LibraryWatchers::new(db.clone(), std::time::Duration::from_millis(80));
     let state = configure(
@@ -120,6 +123,9 @@ async fn boot(
             .with_library_watchers(watchers)
             .with_on_authenticated(std::sync::Arc::new(move || {
                 ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }))
+            .with_on_viewport_activity(std::sync::Arc::new(move || {
+                viewport_ping.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             })),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -146,6 +152,7 @@ async fn boot(
         data_dir,
         photos_root,
         auth_pings,
+        viewport_pings,
         base_url: format!("http://{addr}"),
         client,
     }
