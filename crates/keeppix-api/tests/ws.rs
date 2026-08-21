@@ -120,7 +120,10 @@ async fn a_new_asset_is_pushed_as_assets_upserted() {
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn operation_progress_arrives_over_a_connection_opened_mid_scan() {
-    const TOTAL: usize = 40;
+    // Fase 10 Task 21: la scrittura del discover è a lotti multi-riga da
+    // `PRODUCTION_BATCH_SIZE` file — con meno file del lotto intero l'intera
+    // scansione si scrive in una sola istruzione, senza finestra "a metà".
+    const TOTAL: usize = 5 * keeppix_jobs::PRODUCTION_BATCH_SIZE;
     let server = TestServer::start().await;
     setup(&server).await;
 
@@ -429,6 +432,60 @@ async fn a_library_scan_pushes_scan_progress() {
             break;
         }
     }
+}
+
+/// Task 21: `RegionView` porta già `downloaded_bytes`, `status` e
+/// `last_error` (Task 4/Fase 4) ma l'avanzamento del download di una mappa
+/// non era mai spinto — l'unica strada per saperlo era interrogare `GET
+/// /regions` a intervalli. Stessa fonte di verità (`RegionRepo`), non un
+/// secondo stato inventato.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn a_region_download_progress_is_pushed_as_region_progress() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+    let ctx = admin_ctx(&server).await;
+
+    let regions = keeppix_db::RegionRepo::new(&server.db);
+    let region = regions
+        .begin_download(
+            &ctx,
+            keeppix_db::NewMapRegion {
+                id: "alto-adige".to_owned(),
+                label: "Alto Adige".to_owned(),
+                size_bytes: 1000,
+                version: "1".to_owned(),
+                source_url: "https://example.com/alto-adige.pmtiles".to_owned(),
+                checksum_sha256: "ab".repeat(32),
+            },
+        )
+        .await
+        .unwrap();
+
+    let issued = server
+        .client
+        .post(server.url("/api/v1/ws/ticket"))
+        .send()
+        .await
+        .unwrap();
+    let ticket = issued.json::<serde_json::Value>().await.unwrap()["ticket"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ws = open_socket(&server, &ticket).await;
+    wait_until_looping(&mut ws).await;
+
+    regions
+        .record_progress(&region.id, region.download_generation, 400)
+        .await
+        .unwrap();
+
+    let msg = recv_matching(&mut ws, "region.progress").await;
+    assert_eq!(msg["payload"]["region_id"], "alto-adige");
+    assert_eq!(msg["payload"]["status"], "downloading");
+    assert_eq!(msg["payload"]["downloaded_bytes"], 400);
+    assert_eq!(msg["payload"]["size_bytes"], 1000);
+    assert!(msg["payload"]["last_error"].is_null());
 }
 
 #[allow(clippy::unwrap_used, clippy::expect_used)]
