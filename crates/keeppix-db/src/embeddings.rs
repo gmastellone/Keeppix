@@ -99,7 +99,7 @@ impl<'a> EmbeddingRepo<'a> {
                 embedding.len()
             )));
         }
-        let literal = vector_literal(embedding);
+        let literal = crate::embeddings::vector_literal(embedding);
         sqlx::query(
             "INSERT INTO asset_embeddings (asset_id, embedding, model_version) \
              VALUES ($1, $2::vector, $3) \
@@ -140,7 +140,7 @@ impl<'a> EmbeddingRepo<'a> {
     }
 }
 
-fn vector_literal(embedding: &[f32]) -> String {
+pub(crate) fn vector_literal(embedding: &[f32]) -> String {
     let mut out = String::with_capacity(embedding.len() * 8 + 2);
     out.push('[');
     for (i, v) in embedding.iter().enumerate() {
