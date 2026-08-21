@@ -9,13 +9,17 @@
 mod harness;
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
 use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 use harness::TestDb;
-use keeppix_db::{FlagRepo, LibraryRepo, OverrideRepo};
+use keeppix_db::{
+    FlagRepo, JobRepo, LibraryRepo, OverrideRepo, ProblemLanguage, ProblemSeverity, ProblemsRepo,
+};
 use keeppix_domain::{
-    AssetFlags, AssetId, AuthContext, GeoPoint, NewLibrary, OverridePatch, Pick, Rating, SystemRole,
+    AssetFlags, AssetId, AuthContext, GeoPoint, JobKind, JobPriority, NewLibrary, OverridePatch,
+    Pick, Rating, SystemRole,
 };
 use keeppix_jobs::{discover, xmp as xmp_job};
 
@@ -102,6 +106,7 @@ async fn applying_an_override_writes_the_owners_rating_and_pick_to_a_new_sidecar
                 rating: Some(Rating::parse(4).unwrap()),
                 pick: Pick::Pick,
                 color_label: None,
+                favorite: false,
             },
         )
         .await
@@ -153,6 +158,158 @@ async fn applying_an_override_writes_the_owners_rating_and_pick_to_a_new_sidecar
     );
 
     let _ = fs::remove_dir_all(&seeded.root);
+}
+
+/// Task 13 (Fase 10): il fallimento deve portare un marcatore stabile
+/// (`permission-denied:`) e non un testo libero — è da lì che
+/// `ProblemsRepo::composed` riconosce la natura "sidecar XMP non
+/// scrivibile" senza dover interpretare il messaggio di `io::Error`.
+#[tokio::test]
+async fn a_read_only_folder_fails_with_a_stable_permission_denied_marker() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let seeded = seed_asset(&test, &ctx, "blocked.jpg").await;
+
+    OverrideRepo::new(test.db())
+        .apply(
+            &ctx,
+            seeded.asset_id,
+            &OverridePatch {
+                description: Some(Some("Non dovrebbe mai arrivare al disco".to_owned())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let mut perms = fs::metadata(&seeded.root).unwrap().permissions();
+    perms.set_mode(0o555);
+    fs::set_permissions(&seeded.root, perms).expect("chmod sola lettura");
+
+    let result = xmp_job::run(test.db()).await;
+
+    let mut restored = fs::metadata(&seeded.root).unwrap().permissions();
+    restored.set_mode(0o755);
+    fs::set_permissions(&seeded.root, restored).expect("ripristino permessi");
+
+    let error = result.expect_err("una cartella di sola lettura deve far fallire il job");
+    let message = error.to_string();
+    assert!(
+        message.contains(&seeded.asset_id.to_string()) && message.contains("permission-denied:"),
+        "il messaggio deve portare l'id e il marcatore stabile: {message}"
+    );
+
+    let _ = fs::remove_dir_all(&seeded.root);
+}
+
+/// Verifica richiesta dal brief del Task 13: una cartella resa non
+/// scrivibile con `chmod` deve produrre, in `/problems`, un problema
+/// composto con la gravità, il testo e l'azione corretti — non solo un
+/// `jobs.last_error` grezzo.
+#[tokio::test]
+async fn a_readonly_folder_surfaces_as_a_composed_sidecar_problem() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let root = std::env::temp_dir().join(format!("kpx-xmp-problem-{}", uuid::Uuid::now_v7()));
+    let subdir = root.join("Chioggia");
+    fs::create_dir_all(&subdir).unwrap();
+    fs::write(subdir.join("blocked.jpg"), b"not a real image").unwrap();
+
+    let library = LibraryRepo::new(test.db())
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Rete".to_owned(),
+                owner_id: admin,
+                root_path: root.clone(),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    discover::run(test.db(), library.id, Duration::ZERO)
+        .await
+        .unwrap();
+
+    let asset_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM assets")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    let asset_id = AssetId::from_uuid(asset_id);
+
+    OverrideRepo::new(test.db())
+        .apply(
+            &ctx,
+            asset_id,
+            &OverridePatch {
+                description: Some(Some("Non deve mai arrivare al disco".to_owned())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let jobs = JobRepo::new(test.db());
+    let job = jobs
+        .enqueue(
+            JobKind::WriteSidecar,
+            serde_json::json!({}),
+            JobPriority::Background,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let mut perms = fs::metadata(&subdir).unwrap().permissions();
+    perms.set_mode(0o555);
+    fs::set_permissions(&subdir, perms).expect("chmod sola lettura");
+
+    let result = xmp_job::run(test.db()).await;
+
+    let mut restored = fs::metadata(&subdir).unwrap().permissions();
+    restored.set_mode(0o755);
+    fs::set_permissions(&subdir, restored).expect("ripristino permessi");
+
+    let error = result.expect_err("una cartella di sola lettura deve far fallire il job");
+    sqlx::query("UPDATE jobs SET status = 'failed', last_error = $2 WHERE id = $1")
+        .bind(job.id)
+        .bind(error.to_string())
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    let problems = ProblemsRepo::new(test.db())
+        .composed(&ctx, ProblemLanguage::It)
+        .await
+        .unwrap();
+
+    let problem = problems
+        .iter()
+        .find(|p| p.title.to_lowercase().contains("sidecar"))
+        .expect("il fallimento di permessi deve comparire come problema composto");
+    assert_eq!(problem.severity, ProblemSeverity::Warning);
+    assert!(
+        problem.description.contains("Chioggia"),
+        "{}",
+        problem.description
+    );
+    assert!(
+        problem
+            .description
+            .to_lowercase()
+            .contains("permessi di scrittura"),
+        "{}",
+        problem.description
+    );
+    assert!(
+        !problem.actions.is_empty(),
+        "deve proporre almeno un'azione (\"Vedi i file\"/\"Ignora\")"
+    );
+
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[tokio::test]

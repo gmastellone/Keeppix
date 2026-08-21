@@ -14,6 +14,7 @@ use keeppix_domain::{
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::bulk::BulkOutcome;
 use crate::extract::Auth;
 use crate::json::Json;
 use crate::problem::Problem;
@@ -140,12 +141,6 @@ pub struct BatchShiftRequest {
     pub hours: i32,
 }
 
-#[derive(Serialize, utoipa::ToSchema)]
-pub struct BatchView {
-    #[schema(value_type = String)]
-    pub batch_id: BatchId,
-}
-
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct RecalculateTimezonesRequest {
     #[schema(value_type = String)]
@@ -176,8 +171,13 @@ pub struct TimezonePreviewView {
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct TimezoneApplyView {
     pub changed_count: usize,
+    /// Kept for additive `/api/v1` compatibility; same value as
+    /// [`BulkOutcome::batch_id`].
     #[schema(value_type = Option<String>)]
     pub batch_id: Option<BatchId>,
+    #[schema(value_type = Vec<String>)]
+    pub succeeded: Vec<AssetId>,
+    pub failed: Vec<crate::bulk::BulkFailure>,
 }
 
 /// # Errors
@@ -235,7 +235,8 @@ pub async fn apply(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se anche un solo asset non è visibile.
+/// `401` se non autenticato; gli asset non modificabili finiscono in
+/// `failed` invece di abortire il lotto.
 #[utoipa::path(
     post,
     path = "/api/v1/metadata/batch",
@@ -245,17 +246,16 @@ pub async fn apply(
     security(("session_cookie" = [])),
     request_body = BatchApplyRequest,
     responses(
-        (status = 200, description = "Stesso patch applicato a ogni asset, annullabile", body = BatchView),
+        (status = 200, description = "Esito per asset; batch_id annullabile sui riusciti", body = BulkOutcome),
         (status = 400, description = "batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Un asset non è visibile", body = Problem)
+        (status = 401, description = "Non autenticato", body = Problem)
     )
 )]
 pub async fn apply_batch(
     State(state): State<AppState>,
     Auth(ctx): Auth,
     Json(body): Json<BatchApplyRequest>,
-) -> Result<Json<BatchView>, Problem> {
+) -> Result<Json<BulkOutcome>, Problem> {
     crate::batch::reject_oversized_batch(&body.asset_ids)?;
     let mut patch = body.patch.into_domain();
     let source = match (&patch.location, &patch.place_id) {
@@ -269,17 +269,21 @@ pub async fn apply_batch(
         _ => None,
     };
     let repo = OverrideRepo::new(&state.db);
-    let batch_id = if let Some(source) = source {
-        repo.apply_location_batch(&ctx, &body.asset_ids, &patch, source)
+    let (batch_id, succeeded, failed) = if let Some(source) = source {
+        repo.apply_location_batch_partial(&ctx, &body.asset_ids, &patch, source)
             .await?
     } else {
-        repo.apply_batch(&ctx, &body.asset_ids, &patch).await?
+        repo.apply_batch_partial(&ctx, &body.asset_ids, &patch)
+            .await?
     };
-    Ok(Json(BatchView { batch_id }))
+    Ok(Json(BulkOutcome::from_partition(
+        succeeded, &failed, batch_id,
+    )))
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se anche un solo asset non è visibile.
+/// `401` se non autenticato; gli asset non modificabili finiscono in
+/// `failed` invece di abortire il lotto.
 #[utoipa::path(
     post,
     path = "/api/v1/metadata/batch/shift-taken-at",
@@ -289,22 +293,23 @@ pub async fn apply_batch(
     security(("session_cookie" = [])),
     request_body = BatchShiftRequest,
     responses(
-        (status = 200, description = "taken_at spostato di N ore per ogni asset, annullabile", body = BatchView),
+        (status = 200, description = "Esito per asset; batch_id annullabile sui riusciti", body = BulkOutcome),
         (status = 400, description = "batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Un asset non è visibile", body = Problem)
+        (status = 401, description = "Non autenticato", body = Problem)
     )
 )]
 pub async fn shift_taken_at(
     State(state): State<AppState>,
     Auth(ctx): Auth,
     Json(body): Json<BatchShiftRequest>,
-) -> Result<Json<BatchView>, Problem> {
+) -> Result<Json<BulkOutcome>, Problem> {
     crate::batch::reject_oversized_batch(&body.asset_ids)?;
-    let batch_id = OverrideRepo::new(&state.db)
-        .shift_taken_at(&ctx, &body.asset_ids, body.hours)
+    let (batch_id, succeeded, failed) = OverrideRepo::new(&state.db)
+        .shift_taken_at_partial(&ctx, &body.asset_ids, body.hours)
         .await?;
-    Ok(Json(BatchView { batch_id }))
+    Ok(Json(BulkOutcome::from_partition(
+        succeeded, &failed, batch_id,
+    )))
 }
 
 /// # Errors
@@ -387,13 +392,15 @@ pub async fn apply_timezones(
             "A valid preview token is required before applying timezone changes",
         ));
     }
-    let applied = keeppix_jobs::geotag::RecalculateTimezones::new(&state.db)
+    let (applied, succeeded) = keeppix_jobs::geotag::RecalculateTimezones::new(&state.db)
         .apply(&ctx, body.library_id)
         .await
         .map_err(geotag_problem)?;
     Ok(Json(TimezoneApplyView {
         changed_count: applied.changed_count,
         batch_id: applied.batch_id,
+        succeeded,
+        failed: Vec::new(),
     }))
 }
 

@@ -68,6 +68,9 @@ pub struct User {
     pub locale: Option<String>,
     pub created_at: DateTime<Utc>,
     pub disabled_at: Option<DateTime<Utc>>,
+    /// Quando l'hash della password è stato scritto per l'ultima volta.
+    /// Alla creazione coincide con `created_at` (spec §61 «Ultima modifica»).
+    pub password_changed_at: DateTime<Utc>,
 }
 
 impl User {
@@ -127,6 +130,7 @@ mod tests {
             locale: None,
             created_at: Utc::now(),
             disabled_at: None,
+            password_changed_at: Utc::now(),
         };
         assert!(user.is_active());
     }
@@ -143,6 +147,7 @@ mod tests {
             locale: None,
             created_at: Utc::now(),
             disabled_at: Some(Utc::now()),
+            password_changed_at: Utc::now(),
         };
         assert!(!user.is_active());
     }

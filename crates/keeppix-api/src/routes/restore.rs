@@ -79,6 +79,21 @@ pub struct RestorePreview {
 ///
 /// # Errors
 /// `401`/`403`/`400`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/restore/inspect",
+    tag = "restore",
+    operation_id = "restore_inspect",
+    summary = "Inspect a backup archive without restoring it",
+    security(("session_cookie" = [])),
+    request_body = InspectRequest,
+    responses(
+        (status = 200, description = "Manifest letto (eventualmente respinto)", body = InspectResponse),
+        (status = 400, description = "Archivio illeggibile o passphrase errata", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo admin", body = Problem)
+    )
+)]
 pub async fn inspect(
     AdminAuth(_ctx): AdminAuth,
     Json(body): Json<InspectRequest>,
@@ -116,6 +131,21 @@ pub async fn inspect(
 ///
 /// # Errors
 /// `401`/`403`/`400`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/restore",
+    tag = "restore",
+    operation_id = "restore_restore",
+    summary = "Restore from a backup archive",
+    security(("session_cookie" = [])),
+    request_body = RestoreRequest,
+    responses(
+        (status = 200, description = "Componenti ripristinati (o simulati, se dry_run)", body = RestorePreview),
+        (status = 400, description = "Archivio illeggibile, troppo nuovo, o ripristino fallito", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo admin", body = Problem)
+    )
+)]
 #[allow(clippy::too_many_lines)]
 pub async fn restore(
     State(state): State<AppState>,

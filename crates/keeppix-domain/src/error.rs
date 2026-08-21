@@ -24,4 +24,8 @@ pub enum DomainError {
     InvalidPick(String),
     #[error("invalid disk action: {0}")]
     InvalidDiskAction(String),
+    #[error("invalid operation kind: {0}")]
+    InvalidOperationKind(String),
+    #[error("invalid operation status: {0}")]
+    InvalidOperationStatus(String),
 }

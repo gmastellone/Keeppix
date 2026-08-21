@@ -2,7 +2,7 @@ mod harness;
 
 use chrono::{TimeZone, Timelike, Utc};
 use harness::{TestServer, client_headers};
-use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, UserRepo};
+use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo, StackRepo, UserRepo};
 use keeppix_domain::{
     AssetKind, AssetName, AuthContext, FolderId, GeoPoint, NewAsset, NewLibrary, NewUser, Password,
     SystemRole, Username, hash_password,
@@ -445,6 +445,460 @@ async fn probing_someone_elses_library_buckets_is_forbidden() {
     assert_eq!(response.status(), 403);
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["type"], "keeppix/forbidden");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_geometry_requires_auth() {
+    let server = TestServer::start().await;
+    let response = server
+        .client
+        .get(server.url("/api/v1/timeline/geometry"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/unauthenticated");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_geometry_returns_ordered_binary_records() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    // Più vecchio -> più recente: la geometria deve uscire come la timeline,
+    // taken_at DESC, id DESC.
+    index_photo_sized(&server, folder, "old.jpg", 2024, 7, 1, 100, 50).await;
+    index_photo_sized(&server, folder, "new.jpg", 2024, 8, 1, 6000, 4000).await;
+
+    let response = server
+        .client
+        .get(server.url("/api/v1/timeline/geometry"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "application/octet-stream"
+    );
+    assert!(response.headers().get("etag").is_some());
+    let body = response.bytes().await.unwrap();
+    let records = decode_geometry(&body);
+    assert_eq!(records.len(), 2);
+    // record 0 = new.jpg (più recente)
+    assert_eq!(records[0], (6000, 4000, 2024 * 12 + 8));
+    assert_eq!(records[1], (100, 50, 2024 * 12 + 7));
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_geometry_encodes_missing_dimensions_as_zero() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    let assets = AssetRepo::new(&server.db);
+    let unsized_asset = assets
+        .upsert_discovered(keeppix_domain::NewAsset {
+            folder_id: folder,
+            filename: keeppix_domain::AssetName::parse("unsized.jpg").unwrap(),
+            size_bytes: 10,
+            mtime: Utc.with_ymd_and_hms(2024, 7, 1, 12, 0, 0).unwrap(),
+            inode: Some(1),
+            kind: keeppix_domain::AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query(
+        "UPDATE assets SET status = 'indexed', taken_at_utc = $2, width = NULL, height = NULL \
+         WHERE id = $1",
+    )
+    .bind(unsized_asset.id.as_uuid())
+    .bind(Utc.with_ymd_and_hms(2024, 7, 1, 12, 0, 0).unwrap())
+    .execute(server.db.pool())
+    .await
+    .unwrap();
+
+    let response = server
+        .client
+        .get(server.url("/api/v1/timeline/geometry"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body = response.bytes().await.unwrap();
+    let records = decode_geometry(&body);
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        records[0],
+        (0, 0, 2024 * 12 + 7),
+        "un asset non ancora dimensionato entra con w=0,h=0, non viene escluso"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_geometry_returns_304_on_matching_if_none_match() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo_sized(&server, folder, "a.jpg", 2024, 7, 1, 100, 50).await;
+
+    let first = server
+        .client
+        .get(server.url("/api/v1/timeline/geometry"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 200);
+    let etag = first
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    let second = server
+        .client
+        .get(server.url("/api/v1/timeline/geometry"))
+        .header("If-None-Match", etag)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), 304);
+    let body = second.bytes().await.unwrap();
+    assert!(body.is_empty());
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_geometry_count_matches_bucket_counts() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo_sized(&server, folder, "a.jpg", 2024, 7, 2, 100, 50).await;
+    index_photo_sized(&server, folder, "b.jpg", 2024, 8, 3, 100, 50).await;
+    index_photo_sized(&server, folder, "c.jpg", 2024, 8, 4, 100, 50).await;
+
+    let buckets: serde_json::Value = server
+        .client
+        .get(server.url("/api/v1/timeline/buckets"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let bucket_total: i64 = buckets
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["count"].as_i64().unwrap())
+        .sum();
+
+    let geometry_response = server
+        .client
+        .get(server.url("/api/v1/timeline/geometry"))
+        .send()
+        .await
+        .unwrap();
+    let body = geometry_response.bytes().await.unwrap();
+    let records = decode_geometry(&body);
+    assert_eq!(records.len(), usize::try_from(bucket_total).unwrap());
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_collapses_a_raw_jpeg_stack_into_one_tile_with_a_badge() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    let taken = Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap();
+    let assets = AssetRepo::new(&server.db);
+    let raw = assets
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("DSC_0042.ARW").unwrap(),
+            size_bytes: 1000,
+            mtime: taken,
+            inode: Some(1),
+            kind: AssetKind::RawImage,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assets.set_indexed(raw.id, taken, 6000, 4000).await.unwrap();
+    let jpeg = assets
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("DSC_0042.JPG").unwrap(),
+            size_bytes: 500,
+            mtime: taken,
+            inode: Some(2),
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assets
+        .set_indexed(jpeg.id, taken, 6000, 4000)
+        .await
+        .unwrap();
+    StackRepo::new(&server.db)
+        .regroup_folder(folder)
+        .await
+        .unwrap();
+
+    let page = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    let body: serde_json::Value = page.json().await.unwrap();
+    let items = body["assets"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "raw+jpeg stack must collapse to one tile");
+    assert_eq!(items[0]["id"], raw.id.to_string(), "raw is the primary");
+    assert_eq!(items[0]["stack_size"], 2);
+    assert_eq!(items[0]["raw_kind"], "raw+jpeg");
+
+    let buckets: serde_json::Value = server
+        .client
+        .get(server.url("/api/v1/timeline/buckets"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        buckets[0]["count"], 1,
+        "buckets must count stacks, not files"
+    );
+
+    let geometry_response = server
+        .client
+        .get(server.url("/api/v1/timeline/geometry"))
+        .send()
+        .await
+        .unwrap();
+    let geo_body = geometry_response.bytes().await.unwrap();
+    let records = decode_geometry(&geo_body);
+    assert_eq!(records.len(), 1, "geometry must also collapse the stack");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_reports_stack_size_one_for_an_unstacked_asset() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "lone.jpg", 2024, 6, 1).await;
+
+    let page = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    let body: serde_json::Value = page.json().await.unwrap();
+    let items = body["assets"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["stack_size"], 1);
+    assert_eq!(items[0]["raw_kind"], "jpeg");
+    assert_eq!(
+        items[0]["favorite"], false,
+        "un asset mai votato non è preferito"
+    );
+}
+
+/// `AssetView` è condiviso, ma `favorite` è per chiamante (Task 10 fase-10):
+/// la timeline deve risolverlo dal set del chiamante, non lasciarlo sempre
+/// `false`.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_page_resolves_the_callers_favorite_on_each_tile() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "loved.jpg", 2024, 6, 1).await;
+    index_photo(&server, folder, "plain.jpg", 2024, 6, 2).await;
+
+    let before = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let items = before["assets"].as_array().unwrap();
+    let loved_id = items.iter().find(|a| a["filename"] == "loved.jpg").unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(items.iter().all(|a| a["favorite"] == false));
+
+    server
+        .client
+        .put(server.url(&format!("/api/v1/assets/{loved_id}/flags")))
+        .json(&json!({ "rating": null, "pick": "none", "color_label": null, "favorite": true }))
+        .send()
+        .await
+        .unwrap();
+
+    let after = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let after_items = after["assets"].as_array().unwrap();
+    for item in after_items {
+        let expected = item["id"] == loved_id;
+        assert_eq!(
+            item["favorite"], expected,
+            "solo l'asset marcato preferito deve tornare favorite=true"
+        );
+    }
+}
+
+/// `GET /assets/{id}` (pannello informazioni del lightbox, spec fase-10
+/// §7bis.1) deve anch'esso risolvere `favorite` del chiamante, non solo la
+/// pagina della timeline.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn get_single_asset_resolves_the_callers_favorite() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "solo.jpg", 2024, 6, 1).await;
+    let page = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let asset_id = page["assets"][0]["id"].as_str().unwrap().to_owned();
+
+    let before = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset_id}")))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(before["favorite"], false);
+
+    server
+        .client
+        .put(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
+        .json(&json!({ "rating": null, "pick": "none", "color_label": null, "favorite": true }))
+        .send()
+        .await
+        .unwrap();
+
+    let after = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset_id}")))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(after["favorite"], true);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn probing_someone_elses_library_geometry_is_forbidden() {
+    let server = TestServer::start().await;
+    let (_, library) = seed_library(&server).await;
+    seed_user(&server, "luca").await;
+
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .default_headers(client_headers())
+        .build()
+        .unwrap();
+    let login = client
+        .post(server.url("/api/v1/auth/login"))
+        .json(&json!({
+            "username": "luca",
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200);
+
+    let response = client
+        .get(server.url(&format!("/api/v1/timeline/geometry?library={library}")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/forbidden");
+}
+
+/// Decodifica il formato binario di `/timeline/geometry`: intestazione da 8
+/// byte (versione, conteggio) poi record da 6 byte (w, h, month), tutto LE.
+#[allow(clippy::unwrap_used)]
+fn decode_geometry(body: &[u8]) -> Vec<(u16, u16, u16)> {
+    assert!(body.len() >= 8, "intestazione da 8 byte assente");
+    let version = u32::from_le_bytes(body[0..4].try_into().unwrap());
+    assert_eq!(version, 1, "versione del formato binario");
+    let count = u32::from_le_bytes(body[4..8].try_into().unwrap()) as usize;
+    assert_eq!(body.len(), 8 + count * 6);
+    (0..count)
+        .map(|i| {
+            let base = 8 + i * 6;
+            let w = u16::from_le_bytes(body[base..base + 2].try_into().unwrap());
+            let h = u16::from_le_bytes(body[base + 2..base + 4].try_into().unwrap());
+            let m = u16::from_le_bytes(body[base + 4..base + 6].try_into().unwrap());
+            (w, h, m)
+        })
+        .collect()
+}
+
+#[allow(clippy::unwrap_used, clippy::too_many_arguments)]
+async fn index_photo_sized(
+    server: &TestServer,
+    folder: FolderId,
+    name: &str,
+    y: i32,
+    m: u32,
+    d: u32,
+    width: i32,
+    height: i32,
+) {
+    let assets = AssetRepo::new(&server.db);
+    let taken = Utc.with_ymd_and_hms(y, m, d, 12, 0, 0).unwrap();
+    let a = assets
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse(name).unwrap(),
+            size_bytes: 10,
+            mtime: taken,
+            inode: Some(1),
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assets
+        .set_indexed(a.id, taken, width, height)
+        .await
+        .unwrap();
 }
 
 #[allow(clippy::unwrap_used, clippy::expect_used)]

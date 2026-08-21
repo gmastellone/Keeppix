@@ -5,10 +5,11 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use keeppix_db::{AlbumPatch, AlbumRepo, NewAlbum};
+use keeppix_db::{AlbumPatch, AlbumRepo, NewAlbum, SearchNode};
 use keeppix_domain::{AlbumId, AssetId};
 use serde::{Deserialize, Serialize};
 
+use crate::bulk::BulkOutcome;
 use crate::extract::Auth;
 use crate::json::Json;
 use crate::problem::Problem;
@@ -25,6 +26,21 @@ pub struct AlbumView {
     pub cover_asset_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Presente se l'album può essere aggiornato con `POST .../refresh`
+    /// (Task 5: nessun album dinamico, solo un filtro che si rilancia
+    /// quando lo chiede l'utente).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Object>)]
+    pub rule: Option<SearchNode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_run_at: Option<DateTime<Utc>>,
+    pub is_shared: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_tint: Option<String>,
+    pub monochrome: bool,
+    // Task 11: niente conteggio membri per riga in `GET /albums` — resta una
+    // lettura banale su `album_assets` solo quando serve (es. pagina album),
+    // non un aggregato accanto a ogni voce dell'elenco.
 }
 
 impl AlbumView {
@@ -37,6 +53,11 @@ impl AlbumView {
             cover_asset_id: album.cover_asset_id.map(|id| id.to_string()),
             created_at: album.created_at,
             updated_at: album.updated_at,
+            rule: album.rule,
+            rule_run_at: album.rule_run_at,
+            is_shared: album.is_shared,
+            cover_tint: album.cover_tint,
+            monochrome: album.monochrome,
         }
     }
 }
@@ -55,6 +76,11 @@ pub struct CreateAlbumBody {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    /// Filtro con cui l'album nasce (spec §5.2). `None` per un album
+    /// puramente manuale, che non può poi essere aggiornato via `refresh`.
+    #[serde(default)]
+    #[schema(value_type = Option<Object>)]
+    pub rule: Option<SearchNode>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -97,6 +123,7 @@ pub async fn create(
             NewAlbum {
                 name: body.name,
                 description: body.description,
+                rule: body.rule,
             },
         )
         .await?;
@@ -348,4 +375,44 @@ pub async fn list_assets(
             })
             .collect(),
     ))
+}
+
+/// Rilancia la `rule` con cui l'album è nato (Task 5, «Aggiorna album»
+/// invece di un album dinamico): `succeeded` elenca sia gli asset **entrati**
+/// sia quelli **usciti** da `album_assets` in questa esecuzione — sono le
+/// due facce della stessa mutazione riuscita, non due categorie distinte.
+/// `failed` resta vuoto oggi: il refresh è un diff calcolato lato server sugli
+/// asset già visibili al chiamante, non un'operazione per-id che possa
+/// negare un singolo elemento.
+///
+/// # Errors
+/// `401` se non autenticato; `403` se non owner/admin dell'album; `400` se
+/// l'album non ha una `rule` da rilanciare.
+#[utoipa::path(
+    post,
+    path = "/api/v1/albums/{id}/refresh",
+    tag = "albums",
+    operation_id = "albums_refresh",
+    summary = "Refresh an album's rule-based membership",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id dell'album")),
+    responses(
+        (status = 200, description = "Foto aggiunte e rimosse (involucro di riuscita parziale)", body = BulkOutcome),
+        (status = 400, description = "L'album non ha una rule da rilanciare", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non owner/admin", body = Problem),
+    )
+)]
+pub async fn refresh(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(id): Path<AlbumId>,
+) -> Result<Json<BulkOutcome>, Problem> {
+    let refresh = AlbumRepo::new(&state.db)
+        .refresh(&ctx, id)
+        .await?
+        .ok_or_else(|| Problem::bad_request("album-has-no-rule", "Album has no rule to refresh"))?;
+    let mut succeeded = refresh.added;
+    succeeded.extend(refresh.removed);
+    Ok(Json(BulkOutcome::from_partition(succeeded, &[], None)))
 }

@@ -440,3 +440,116 @@ async fn gpx_import_interpolates_and_uses_the_default_five_minute_tolerance() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+/// Spec §3: un target altrui in `copy-location` non abortisce il lotto —
+/// finisce in `failed` con `permission-denied`, gli altri target restano.
+#[tokio::test]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn copy_location_reports_partial_success_for_a_foreign_target() {
+    let server = TestServer::start().await;
+    let admin = setup_admin(&server).await;
+    let mario = create_user(&server, admin, "mario").await;
+    let admin_root = temp_root("copy-partial-admin");
+    let mario_root = temp_root("copy-partial-mario");
+    let admin_folder = ensure_folder(&server, admin, admin, &admin_root).await;
+    let mario_folder = ensure_folder(&server, admin, mario, &mario_root).await;
+    let taken_at = Utc.with_ymd_and_hms(2026, 8, 18, 10, 0, 0).unwrap();
+    let source = seed_asset(&server, mario_folder, &mario_root, "source.jpg", taken_at).await;
+    let mine = seed_asset(&server, mario_folder, &mario_root, "mine.jpg", taken_at).await;
+    let foreign = seed_asset(&server, admin_folder, &admin_root, "foreign.jpg", taken_at).await;
+    AssetRepo::new(&server.db)
+        .set_exif_location(
+            source,
+            GeoPoint {
+                lat: 41.9,
+                lon: 12.5,
+            },
+        )
+        .await
+        .unwrap();
+    login(&server, "mario").await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/metadata/batch/copy-location"))
+        .json(&json!({
+            "source_asset_id": source.to_string(),
+            "target_asset_ids": [mine.to_string(), foreign.to_string()]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["succeeded"], json!([mine.to_string()]));
+    assert_eq!(body["failed"][0]["id"], foreign.to_string());
+    assert_eq!(body["failed"][0]["reason"], "permission-denied");
+    assert!(body["batch_id"].is_string());
+
+    let copied = effective(&server, mine).await;
+    assert_eq!(copied["location"]["lat"], 41.9);
+
+    let _ = fs::remove_dir_all(admin_root);
+    let _ = fs::remove_dir_all(mario_root);
+}
+
+/// Spec §3: un asset altrui in `import-gpx` finisce in `failed`, gli abbinati
+/// restano in `succeeded` sotto un unico `batch_id`.
+#[tokio::test]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn gpx_import_reports_partial_success_when_one_asset_is_foreign() {
+    let server = TestServer::start().await;
+    let admin = setup_admin(&server).await;
+    let mario = create_user(&server, admin, "mario").await;
+    let admin_root = temp_root("gpx-partial-admin");
+    let mario_root = temp_root("gpx-partial-mario");
+    let admin_folder = ensure_folder(&server, admin, admin, &admin_root).await;
+    let mario_folder = ensure_folder(&server, admin, mario, &mario_root).await;
+    let mine = seed_asset(
+        &server,
+        mario_folder,
+        &mario_root,
+        "mine.jpg",
+        Utc.with_ymd_and_hms(2026, 8, 18, 10, 5, 0).unwrap(),
+    )
+    .await;
+    let foreign = seed_asset(
+        &server,
+        admin_folder,
+        &admin_root,
+        "foreign.jpg",
+        Utc.with_ymd_and_hms(2026, 8, 18, 10, 5, 0).unwrap(),
+    )
+    .await;
+    let gpx = r#"<?xml version="1.0"?>
+        <gpx version="1.1" creator="keeppix-test">
+          <trk><trkseg>
+            <trkpt lat="40.0" lon="8.0"><time>2026-08-18T10:00:00Z</time></trkpt>
+            <trkpt lat="50.0" lon="18.0"><time>2026-08-18T10:10:00Z</time></trkpt>
+          </trkseg></trk>
+        </gpx>"#;
+    login(&server, "mario").await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/metadata/batch/import-gpx"))
+        .json(&json!({
+            "asset_ids": [mine.to_string(), foreign.to_string()],
+            "gpx": gpx
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["succeeded"], json!([mine.to_string()]));
+    assert_eq!(body["failed"][0]["id"], foreign.to_string());
+    assert_eq!(body["failed"][0]["reason"], "permission-denied");
+    assert!(body["batch_id"].is_string());
+
+    let mine_meta = effective(&server, mine).await;
+    assert_eq!(mine_meta["location"]["lat"], 45.0);
+
+    let _ = fs::remove_dir_all(admin_root);
+    let _ = fs::remove_dir_all(mario_root);
+}

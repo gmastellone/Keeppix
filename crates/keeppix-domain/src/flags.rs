@@ -65,11 +65,17 @@ impl Pick {
 }
 
 /// Flag di culling di **un** utente su un asset.
+///
+/// `favorite` è un asse **indipendente** da `pick` (spec fase-10 §7bis.1):
+/// non è un riuso di `Pick::Pick` con un altro nome. Scartare uno scatto nel
+/// culling (`pick = Reject`) non tocca `favorite`, e viceversa — sono due
+/// colonne separate, senza logica che le accoppi.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssetFlags {
     pub rating: Option<Rating>,
     pub pick: Pick,
     pub color_label: Option<String>,
+    pub favorite: bool,
 }
 
 #[cfg(test)]
@@ -108,5 +114,6 @@ mod tests {
         assert_eq!(flags.rating, None);
         assert_eq!(flags.pick, Pick::None);
         assert_eq!(flags.color_label, None);
+        assert!(!flags.favorite);
     }
 }

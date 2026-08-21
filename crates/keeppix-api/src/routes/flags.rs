@@ -10,6 +10,7 @@ use keeppix_db::FlagRepo;
 use keeppix_domain::{AssetFlags, AssetId, Pick, Rating};
 use serde::{Deserialize, Serialize};
 
+use crate::bulk::BulkOutcome;
 use crate::extract::Auth;
 use crate::json::Json;
 use crate::problem::Problem;
@@ -24,6 +25,11 @@ pub struct AssetFlagsBody {
     #[schema(value_type = String, example = "pick")]
     pub pick: Pick,
     pub color_label: Option<String>,
+    /// «Preferito» (spec fase-10 §7bis.1): asse indipendente da `pick`, non
+    /// un suo alias. `false` se assente in scrittura, come gli altri campi
+    /// di questo corpo — è un rimpiazzo completo del voto, non una patch.
+    #[serde(default)]
+    pub favorite: bool,
 }
 
 impl AssetFlagsBody {
@@ -36,6 +42,7 @@ impl AssetFlagsBody {
             rating,
             pick: self.pick,
             color_label: self.color_label,
+            favorite: self.favorite,
         })
     }
 
@@ -44,6 +51,7 @@ impl AssetFlagsBody {
             rating: flags.rating.map(Rating::value),
             pick: flags.pick,
             color_label: flags.color_label,
+            favorite: flags.favorite,
         }
     }
 }
@@ -112,8 +120,7 @@ pub async fn set(
 }
 
 /// # Errors
-/// `400` se `rating` supera 5; `401` se non autenticato; `403` se anche un
-/// solo asset non è visibile.
+/// `400` se `rating` supera 5; `401` se non autenticato.
 #[utoipa::path(
     post,
     path = "/api/v1/flags/batch",
@@ -123,21 +130,20 @@ pub async fn set(
     security(("session_cookie" = [])),
     request_body = BatchFlagsRequest,
     responses(
-        (status = 204, description = "Stessi flag applicati a ogni asset"),
+        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
         (status = 400, description = "rating fuori range o batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Un asset non è visibile", body = Problem)
+        (status = 401, description = "Non autenticato", body = Problem)
     )
 )]
 pub async fn batch_set(
     State(state): State<AppState>,
     Auth(ctx): Auth,
     Json(body): Json<BatchFlagsRequest>,
-) -> Result<StatusCode, Problem> {
+) -> Result<Json<BulkOutcome>, Problem> {
     crate::batch::reject_oversized_batch(&body.asset_ids)?;
     let flags = body.flags.into_domain()?;
-    FlagRepo::new(&state.db)
-        .batch_set(&ctx, &body.asset_ids, &flags)
+    let (succeeded, failed) = FlagRepo::new(&state.db)
+        .batch_set_partial(&ctx, &body.asset_ids, &flags)
         .await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(BulkOutcome::from_partition(succeeded, &failed, None)))
 }

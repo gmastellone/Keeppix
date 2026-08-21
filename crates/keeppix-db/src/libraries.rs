@@ -2,7 +2,15 @@ use std::path::PathBuf;
 
 use keeppix_domain::{AuthContext, Library, LibraryId, LibraryStatus, NewLibrary, UserId};
 
+use crate::uploads;
 use crate::{Db, DbError};
+
+/// Spazio libero e totale sul volume di una libreria.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LibraryStorage {
+    pub free_bytes: u64,
+    pub total_bytes: u64,
+}
 
 pub struct LibraryRepo<'a> {
     db: &'a Db,
@@ -125,6 +133,56 @@ impl<'a> LibraryRepo<'a> {
             None if ctx.is_admin() => Err(DbError::NotFound),
             None | Some(_) => Err(DbError::Forbidden),
         }
+    }
+
+    /// Spazio libero e totale sul volume della libreria. Il risultato è in
+    /// cache per 60 secondi: la sidebar lo chiede a ogni caricamento e
+    /// `statvfs` su un volume di rete non è gratis.
+    ///
+    /// # Errors
+    /// `Forbidden` se la libreria non è visibile (anche se l'id non esiste).
+    /// `NotFound` solo a un admin su id assente. `Io` se `statvfs` fallisce.
+    pub async fn storage(
+        &self,
+        ctx: &AuthContext,
+        id: LibraryId,
+    ) -> Result<LibraryStorage, DbError> {
+        let library = self.find_by_id(ctx, id).await?;
+        let cache = self.db.library_storage_cache();
+        if let Some(cached) = cache.get(&id.as_uuid()).await {
+            return Ok(cached);
+        }
+        let (free_bytes, total_bytes) = uploads::disk_usage(&library.root_path)?;
+        let usage = LibraryStorage {
+            free_bytes,
+            total_bytes,
+        };
+        cache.insert(id.as_uuid(), usage).await;
+        Ok(usage)
+    }
+
+    /// Verifica di raggiungibilità su richiesta (§47 «Riprova connessione»):
+    /// un semplice `is_dir` sul `root_path`, che porta lo stesso costo dello
+    /// `stat` già fatto da `discover::run` ad ogni scansione — nessuna nuova
+    /// primitiva di I/O. Aggiorna lo stato solo se cambia, così una libreria
+    /// già `active` sondata di nuovo non genera un `UPDATE` a vuoto.
+    ///
+    /// # Errors
+    /// `Forbidden` se la libreria non è visibile (anche se l'id non esiste).
+    /// `NotFound` solo a un admin su id assente.
+    pub async fn probe(&self, ctx: &AuthContext, id: LibraryId) -> Result<Library, DbError> {
+        let library = self.find_by_id(ctx, id).await?;
+        let reachable = library.root_path.is_dir();
+        let status = if reachable {
+            LibraryStatus::Active
+        } else {
+            LibraryStatus::Offline
+        };
+        if status == library.status {
+            return Ok(library);
+        }
+        self.set_status(ctx, id, status).await?;
+        self.find_by_id(ctx, id).await
     }
 
     /// # Errors

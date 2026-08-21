@@ -34,6 +34,64 @@ async fn enqueue_is_idempotent_on_dedup_key() {
     assert_eq!(first.id, second.id);
 }
 
+/// Fase 10 Task 21: un solo giro di rete per un intero lotto invece di uno
+/// per file.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn enqueue_many_inserts_every_item() {
+    let test = TestDb::start().await;
+    let repo = JobRepo::new(test.db());
+
+    let items = vec![
+        (json!({"asset_id": "a"}), "meta:a".to_owned()),
+        (json!({"asset_id": "b"}), "meta:b".to_owned()),
+        (json!({"asset_id": "c"}), "meta:c".to_owned()),
+    ];
+    repo.enqueue_many(JobKind::ExtractMetadata, &items, JobPriority::Background)
+        .await
+        .unwrap();
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM jobs WHERE kind = 'extract_metadata' AND status = 'pending'",
+    )
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    assert_eq!(count, 3);
+}
+
+/// Come `enqueue`: un `dedup_key` già in coda `pending`/`running` non deve
+/// produrre una seconda riga, nemmeno dentro lo stesso lotto.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn enqueue_many_respects_dedup_key_against_existing_rows() {
+    let test = TestDb::start().await;
+    let repo = JobRepo::new(test.db());
+    repo.enqueue(
+        JobKind::ExtractMetadata,
+        json!({"asset_id": "a"}),
+        JobPriority::Background,
+        Some("meta:a"),
+    )
+    .await
+    .unwrap();
+
+    let items = vec![
+        (json!({"asset_id": "a"}), "meta:a".to_owned()),
+        (json!({"asset_id": "b"}), "meta:b".to_owned()),
+    ];
+    repo.enqueue_many(JobKind::ExtractMetadata, &items, JobPriority::Background)
+        .await
+        .unwrap();
+
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'extract_metadata'")
+            .fetch_one(test.db().pool())
+            .await
+            .unwrap();
+    assert_eq!(count, 2, "meta:a non deve duplicarsi");
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn claim_skips_a_locked_row() {
@@ -275,6 +333,58 @@ async fn promote_raises_pending_jobs() {
         .unwrap()
         .unwrap();
     assert_eq!(claimed.priority, JobPriority::Visible);
+}
+
+/// Fase 10 Task 19: `asset.derivative.ready` sul WebSocket legge da qui —
+/// solo i job **nuovi** dopo il cursore, mai quelli già `done` prima che il
+/// cursore fosse fissato (altrimenti un client che si connette ora rivede
+/// transcodifiche finite ore prima).
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn list_recently_done_skips_jobs_finished_before_the_cursor() {
+    let test = TestDb::start().await;
+    let repo = JobRepo::new(test.db());
+    let old = repo
+        .enqueue(
+            JobKind::TranscodeVideo,
+            json!({"asset_id": "old"}),
+            JobPriority::Background,
+            Some("transcode:old"),
+        )
+        .await
+        .unwrap();
+    let claimed = repo
+        .claim(Uuid::now_v7(), JobPriority::Background)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(claimed.id, old.id);
+    repo.complete(old.id).await.unwrap();
+
+    let cursor = repo.max_done_id(JobKind::TranscodeVideo).await.unwrap();
+    assert_eq!(cursor, old.id);
+
+    let fresh = repo
+        .enqueue(
+            JobKind::TranscodeVideo,
+            json!({"asset_id": "fresh"}),
+            JobPriority::Background,
+            Some("transcode:fresh"),
+        )
+        .await
+        .unwrap();
+    repo.claim(Uuid::now_v7(), JobPriority::Background)
+        .await
+        .unwrap();
+    repo.complete(fresh.id).await.unwrap();
+
+    let recent = repo
+        .list_recently_done(JobKind::TranscodeVideo, cursor, 50)
+        .await
+        .unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].id, fresh.id);
+    assert_eq!(recent[0].payload["asset_id"], "fresh");
 }
 
 #[tokio::test]

@@ -5,8 +5,8 @@ mod harness;
 use chrono::{TimeZone, Utc};
 use harness::TestDb;
 use keeppix_db::{
-    AssetRepo, DbError, FolderRepo, GroupRepo, LibraryRepo, ObjectType, PermissionRepo, SearchNode,
-    SearchRepo, SubjectType, TimelineRepo,
+    AlbumRepo, AssetRepo, DbError, FolderRepo, GroupRepo, LibraryRepo, NewAlbum, ObjectType,
+    PermissionRepo, SearchNode, SearchRepo, SubjectType, TimelineRepo,
 };
 use keeppix_domain::{
     AssetId, AssetKind, AssetName, AssetStatus, AuthContext, Folder, FolderId, GroupId, LibraryId,
@@ -77,6 +77,30 @@ async fn grant_folder(
                 object_id: folder.as_uuid(),
                 role,
                 inherit,
+            },
+        )
+        .await
+        .unwrap();
+}
+
+async fn grant_album(
+    test: &TestDb,
+    granter: UserId,
+    subject: SubjectType,
+    subject_id: uuid::Uuid,
+    album: uuid::Uuid,
+    role: ObjectRole,
+) {
+    PermissionRepo::new(test.db())
+        .grant(
+            &AuthContext::user(granter, SystemRole::Admin),
+            keeppix_db::NewGrant {
+                subject,
+                subject_id,
+                object: ObjectType::Album,
+                object_id: album,
+                role,
+                inherit: true,
             },
         )
         .await
@@ -695,4 +719,211 @@ async fn explain_uses_names_and_folder_paths_not_uuids() {
     ] {
         assert!(!looks_like_uuid(s), "uuid al posto del nome: {s}");
     }
+}
+
+#[tokio::test]
+async fn shared_with_me_lists_a_directly_granted_folder() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/nas/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["Vacanze"])
+        .await
+        .unwrap();
+    index_photo(&test, folder.id, "a.jpg").await;
+    grant_folder(
+        &test,
+        admin,
+        SubjectType::User,
+        mario.as_uuid(),
+        folder.id,
+        ObjectRole::Viewer,
+        true,
+    )
+    .await;
+
+    let ctx = AuthContext::user(mario, SystemRole::User);
+    let items = PermissionRepo::new(test.db())
+        .list_shared_with_me(&ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(items.len(), 1);
+    let item = &items[0];
+    assert_eq!(item.object_type, "folder");
+    assert_eq!(item.object_id, folder.id.as_uuid());
+    assert_eq!(item.name, "Vacanze");
+    assert_eq!(item.owner_name, "Giovanni");
+    assert_eq!(item.role, ObjectRole::Viewer);
+    assert_eq!(item.item_count, 1);
+    assert_eq!(
+        item.via_group, None,
+        "un permesso diretto non ha origine di gruppo"
+    );
+}
+
+/// Il punto centrale del task: un oggetto arrivato solo da un gruppo deve
+/// comparire — non solo quelli condivisi direttamente — con l'origine
+/// dell'ereditarietà (il nome del gruppo), non uno stato indistinguibile da
+/// un permesso diretto.
+#[tokio::test]
+async fn shared_with_me_shows_the_group_origin_not_only_direct_grants() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let anna = harness::seed_user(&test, admin, "anna").await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/nas/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["Chioggia"])
+        .await
+        .unwrap();
+    index_photo(&test, folder.id, "a.jpg").await;
+    index_photo(&test, folder.id, "b.jpg").await;
+
+    let famiglia = insert_group(&test, "Famiglia", admin).await;
+    add_member(&test, admin, famiglia, anna).await;
+    grant_folder(
+        &test,
+        admin,
+        SubjectType::Group,
+        famiglia.as_uuid(),
+        folder.id,
+        ObjectRole::Viewer,
+        true,
+    )
+    .await;
+
+    let ctx = AuthContext::user(anna, SystemRole::User);
+    let items = PermissionRepo::new(test.db())
+        .list_shared_with_me(&ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].via_group.as_deref(), Some("Famiglia"));
+    assert_eq!(items[0].item_count, 2);
+}
+
+#[tokio::test]
+async fn shared_with_me_lists_albums_with_member_count() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/nas/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["Vacanze"])
+        .await
+        .unwrap();
+    index_photo(&test, folder.id, "a.jpg").await;
+    let asset = AssetRepo::new(test.db())
+        .find_by_folder(&AuthContext::user(admin, SystemRole::Admin), folder.id)
+        .await
+        .unwrap()
+        .remove(0);
+
+    let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
+    let album = AlbumRepo::new(test.db())
+        .create(
+            &admin_ctx,
+            NewAlbum {
+                name: "Migliori scatti".to_owned(),
+                description: String::new(),
+                rule: None,
+            },
+        )
+        .await
+        .unwrap();
+    AlbumRepo::new(test.db())
+        .add_asset(&admin_ctx, album.id, asset.id)
+        .await
+        .unwrap();
+    grant_album(
+        &test,
+        admin,
+        SubjectType::User,
+        mario.as_uuid(),
+        album.id.as_uuid(),
+        ObjectRole::Editor,
+    )
+    .await;
+
+    let ctx = AuthContext::user(mario, SystemRole::User);
+    let items = PermissionRepo::new(test.db())
+        .list_shared_with_me(&ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].object_type, "album");
+    assert_eq!(items[0].name, "Migliori scatti");
+    assert_eq!(items[0].role, ObjectRole::Editor);
+    assert_eq!(items[0].item_count, 1);
+}
+
+#[tokio::test]
+async fn shared_with_me_never_lists_objects_the_user_cannot_see() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/nas/foto").await;
+    FolderRepo::new(test.db())
+        .ensure_path(library, &["Privato"])
+        .await
+        .unwrap();
+
+    let ctx = AuthContext::user(mario, SystemRole::User);
+    let items = PermissionRepo::new(test.db())
+        .list_shared_with_me(&ctx)
+        .await
+        .unwrap();
+
+    assert!(items.is_empty());
+}
+
+/// Diretto e via-gruppo sullo stesso oggetto: una sola riga, ruolo più alto,
+/// e l'origine mostrata è quella diretta perché l'utente ha comunque un
+/// permesso a titolo personale.
+#[tokio::test]
+async fn shared_with_me_collapses_direct_and_group_grants_on_the_same_object() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario").await;
+    let library = seed_library(&test, admin, "Foto", "/mnt/nas/foto").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["Studio"])
+        .await
+        .unwrap();
+
+    let famiglia = insert_group(&test, "Famiglia", admin).await;
+    add_member(&test, admin, famiglia, mario).await;
+    grant_folder(
+        &test,
+        admin,
+        SubjectType::Group,
+        famiglia.as_uuid(),
+        folder.id,
+        ObjectRole::Viewer,
+        true,
+    )
+    .await;
+    grant_folder(
+        &test,
+        admin,
+        SubjectType::User,
+        mario.as_uuid(),
+        folder.id,
+        ObjectRole::Editor,
+        true,
+    )
+    .await;
+
+    let ctx = AuthContext::user(mario, SystemRole::User);
+    let items = PermissionRepo::new(test.db())
+        .list_shared_with_me(&ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].role, ObjectRole::Editor);
+    assert_eq!(items[0].via_group, None);
 }

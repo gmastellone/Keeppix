@@ -99,9 +99,6 @@ async function remove(id: string) {
         >
           <div>
             <span class="font-medium">{{ album.name }}</span>
-            <span class="ml-2 text-sm text-content-muted">
-              {{ t('albums.assetCount', { count: album.asset_count }) }}
-            </span>
           </div>
           <button
             class="text-sm text-danger underline"

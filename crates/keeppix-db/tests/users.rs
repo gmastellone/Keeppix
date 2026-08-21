@@ -181,6 +181,47 @@ async fn unknown_id_is_not_found() {
     assert!(matches!(missing, Err(keeppix_db::DbError::NotFound)));
 }
 
+/// §61 mostra "Ultima modifica" della password: al momento della creazione
+/// non c'è ancora stato un cambio, quindi il valore iniziale è la creazione
+/// stessa, non `NULL` né un'epoca arbitraria.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn password_changed_at_starts_equal_to_created_at() {
+    let test = TestDb::start().await;
+    let repo = UserRepo::new(test.db());
+    let admin = repo
+        .create_bootstrap_admin(new_user("giovanni", SystemRole::Admin))
+        .await
+        .unwrap();
+
+    assert_eq!(admin.password_changed_at, admin.created_at);
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn changing_the_password_hash_bumps_password_changed_at() {
+    let test = TestDb::start().await;
+    let repo = UserRepo::new(test.db());
+    let admin = repo
+        .create_bootstrap_admin(new_user("giovanni", SystemRole::Admin))
+        .await
+        .unwrap();
+    let ctx = AuthContext::user(admin.id, SystemRole::Admin);
+    let original = admin.password_changed_at;
+
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    let password = Password::parse("a different password entirely").unwrap();
+    repo.set_password_hash(&ctx, admin.id, hash_password(&password).unwrap().as_str())
+        .await
+        .unwrap();
+
+    let reloaded = repo.find_by_id(&ctx, admin.id).await.unwrap();
+    assert!(
+        reloaded.password_changed_at > original,
+        "il cambio password deve aggiornare password_changed_at"
+    );
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn two_test_databases_are_isolated() {

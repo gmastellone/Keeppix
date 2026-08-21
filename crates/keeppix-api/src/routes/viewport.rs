@@ -37,6 +37,12 @@ pub async fn promote(
     Auth(ctx): Auth,
     Json(body): Json<ViewportRequest>,
 ) -> Result<StatusCode, Problem> {
+    // Un cambio di vista è un cambio di vista anche se non ci sono job da
+    // promuovere — la pausa automatica dell'analisi (Task 20) deve vederlo
+    // comunque, non solo quando il body porta hash validi.
+    if let Some(hook) = &state.on_viewport_activity {
+        hook();
+    }
     let keys: Vec<String> = body
         .hashes
         .into_iter()

@@ -2,12 +2,13 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use keeppix_db::{Db, JobRepo, LibraryRepo};
-use keeppix_domain::{JobKind, JobPriority, LibraryId};
+use keeppix_domain::{JobKind, JobPriority, LibraryId, OperationId};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::JobError;
+use crate::discover;
 
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_secs(2);
 pub const DEFAULT_POLL: Duration = Duration::from_secs(15 * 60);
@@ -59,6 +60,38 @@ pub async fn enqueue_rescan(db: &Db, library_id: LibraryId) -> Result<(), JobErr
         )
         .await?;
     Ok(())
+}
+
+/// Come [`enqueue_rescan`], ma porta un `operation_id` (Fase 10 Task 16) da
+/// far avanzare via `operations` mentre la scansione procede.
+///
+/// Condivide la stessa `dedup_key` di [`enqueue_rescan`]: se una scansione
+/// per questa libreria è già `pending`/`running` (accodata dal watcher o da
+/// una richiesta precedente), quella vince e il payload restituito non porta
+/// il nostro `operation_id`. Ritorna `true` solo se il job accodato è
+/// davvero quello che segue la nostra operazione — il chiamante deve
+/// chiudere l'operazione, non lasciarla `running` per sempre senza che
+/// nessun job la faccia avanzare.
+///
+/// # Errors
+/// Database.
+pub async fn enqueue_rescan_with_operation(
+    db: &Db,
+    library_id: LibraryId,
+    operation_id: OperationId,
+) -> Result<bool, JobError> {
+    let job = JobRepo::new(db)
+        .enqueue(
+            JobKind::DiscoverLibrary,
+            serde_json::json!({
+                "library_id": library_id.to_string(),
+                "operation_id": operation_id.to_string(),
+            }),
+            JobPriority::Background,
+            Some(&format!("discover:{library_id}")),
+        )
+        .await?;
+    Ok(discover::operation_id_from_payload(&job.payload) == Some(operation_id))
 }
 
 /// Registro dei watcher attivi: le librerie create dopo il boot devono

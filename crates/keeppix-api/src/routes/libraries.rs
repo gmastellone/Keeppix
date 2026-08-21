@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
-use keeppix_db::LibraryRepo;
-use keeppix_domain::{Library, LibraryId, NewLibrary};
+use keeppix_db::{JobRepo, LibraryRepo, OperationsRepo};
+use keeppix_domain::{JobStatus, Library, LibraryId, NewLibrary, OperationKind};
 use serde::{Deserialize, Serialize};
 
 use crate::extract::{AdminAuth, Auth};
@@ -304,6 +304,12 @@ pub async fn preview(
 pub struct ScanAccepted {
     pub library_id: String,
     pub status: String,
+    /// Presente solo quando **questa** richiesta è quella che segue
+    /// davvero il job accodato (Fase 10 Task 16): se una scansione per la
+    /// stessa libreria era già `pending`/`running` — accodata dal watcher o
+    /// da una richiesta precedente — quella vince per via della `dedup_key`
+    /// condivisa, e questa risposta non ha un'operazione propria da offrire.
+    pub operation_id: Option<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -320,7 +326,25 @@ pub struct ScanStatusView {
     pub last_scan_at: Option<String>,
 }
 
-/// Accoda `DiscoverLibrary` (idempotente via `dedup_key`).
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct LibraryStorageView {
+    pub free_bytes: u64,
+    pub total_bytes: u64,
+}
+
+impl From<keeppix_db::LibraryStorage> for LibraryStorageView {
+    fn from(usage: keeppix_db::LibraryStorage) -> Self {
+        Self {
+            free_bytes: usage.free_bytes,
+            total_bytes: usage.total_bytes,
+        }
+    }
+}
+
+/// Accoda `DiscoverLibrary` (idempotente via `dedup_key`) e, quando questa
+/// richiesta è quella che ottiene davvero il job, apre un'operazione
+/// tracciata (Fase 10 Task 16): avanzamento sul WebSocket, annullamento via
+/// `POST /operations/{id}/cancel`.
 ///
 /// # Errors
 /// Visibilità come `get`; errori di coda → 503.
@@ -344,17 +368,52 @@ pub async fn start_scan(
     AxumPath(id): AxumPath<LibraryId>,
 ) -> Result<(StatusCode, Json<ScanAccepted>), Problem> {
     LibraryRepo::new(&state.db).find_by_id(&ctx, id).await?;
-    keeppix_jobs::watch::enqueue_rescan(&state.db, id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "enqueue discover");
-            Problem::service_unavailable()
-        })?;
+
+    // Non creiamo un'operazione se una scansione per questa libreria è già
+    // `pending`/`running`: la stessa `dedup_key` di `enqueue_rescan` la
+    // farebbe comunque collassare su quel job (Ruling Task 16, vedi
+    // `enqueue_rescan_with_operation`), e crearne una che nessun job farà
+    // avanzare lascerebbe un'operazione "running" per sempre.
+    let already_in_flight = JobRepo::new(&state.db)
+        .discover_status_for_library(id)
+        .await?
+        .is_some_and(|job| matches!(job.status, JobStatus::Pending | JobStatus::Running));
+
+    let operation_id = if already_in_flight {
+        None
+    } else {
+        let operation = OperationsRepo::new(&state.db)
+            .create(&ctx, OperationKind::LibraryScan)
+            .await?;
+        let attached =
+            keeppix_jobs::watch::enqueue_rescan_with_operation(&state.db, id, operation.id)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, "enqueue discover");
+                    Problem::service_unavailable()
+                })?;
+        if attached {
+            Some(operation.id)
+        } else {
+            // Raro: un'altra richiesta ha vinto la corsa fra il controllo
+            // sopra e questo accodamento. La nostra operazione non sarà mai
+            // fatta avanzare da nessun job: la chiudiamo qui invece di
+            // lasciarla `running` all'infinito, con l'involucro parziale
+            // onestamente vuoto (nulla è stato applicato da questa
+            // richiesta).
+            OperationsRepo::new(&state.db)
+                .finish_cancelled(operation.id)
+                .await?;
+            None
+        }
+    };
+
     Ok((
         StatusCode::ACCEPTED,
         Json(ScanAccepted {
             library_id: id.to_string(),
             status: "accepted".to_owned(),
+            operation_id: operation_id.map(|o| o.to_string()),
         }),
     ))
 }
@@ -394,26 +453,93 @@ pub async fn scan_status(
         keeppix_domain::LibraryStatus::Active => "active",
         keeppix_domain::LibraryStatus::Offline => "offline",
     };
-    let phase = if library.status == keeppix_domain::LibraryStatus::Offline {
-        "offline".to_owned()
-    } else {
-        match job.as_ref().map(|j| j.status) {
-            Some(keeppix_domain::JobStatus::Pending | keeppix_domain::JobStatus::Running) => {
-                "discovering".to_owned()
-            }
-            Some(keeppix_domain::JobStatus::Failed) => "failed".to_owned(),
-            _ => "idle".to_owned(),
-        }
-    };
+    let phase = scan_phase(library.status, job.as_ref().map(|j| j.status));
 
     Ok(Json(ScanStatusView {
         library_id: id.to_string(),
         library_status: library_status.to_owned(),
-        phase,
+        phase: phase.to_owned(),
         asset_count,
         job_status: job.as_ref().map(|j| j.status.as_str().to_owned()),
         last_error: job.and_then(|j| j.last_error),
         eta_seconds: None,
         last_scan_at: library.last_scan_at.map(|t| t.to_rfc3339()),
     }))
+}
+
+/// `idle` | `discovering` | `failed` | `offline` — condivisa da `GET
+/// .../scan` e dal poll `scan.progress` del WebSocket (Fase 10 Task 19), così
+/// le due superfici non possono raccontare fasi diverse per la stessa
+/// libreria.
+pub(crate) const fn scan_phase(
+    library_status: keeppix_domain::LibraryStatus,
+    job_status: Option<keeppix_domain::JobStatus>,
+) -> &'static str {
+    if matches!(library_status, keeppix_domain::LibraryStatus::Offline) {
+        return "offline";
+    }
+    match job_status {
+        Some(keeppix_domain::JobStatus::Pending | keeppix_domain::JobStatus::Running) => {
+            "discovering"
+        }
+        Some(keeppix_domain::JobStatus::Failed) => "failed",
+        _ => "idle",
+    }
+}
+
+/// Verifica di raggiungibilità del percorso di rete (§47 «Riprova
+/// connessione»): aggiorna lo stato e restituisce la libreria come sta ora,
+/// così la UI può far scomparire il problema senza un secondo giro.
+///
+/// # Errors
+/// Visibilità come `get`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/libraries/{id}/probe",
+    tag = "libraries",
+    operation_id = "libraries_probe",
+    summary = "Retry reaching a library's root path",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della libreria")),
+    responses(
+        (status = 200, description = "Esito della verifica", body = LibraryView),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non visibile", body = Problem)
+    )
+)]
+pub async fn probe(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    AxumPath(id): AxumPath<LibraryId>,
+) -> Result<Json<LibraryView>, Problem> {
+    let library = LibraryRepo::new(&state.db).probe(&ctx, id).await?;
+    Ok(Json(LibraryView::from_library(&library)))
+}
+
+/// Spazio libero e totale sul volume della libreria. Il valore è in cache
+/// breve (60 s): la sidebar lo chiede a ogni caricamento.
+///
+/// # Errors
+/// Visibilità come `get`; `503` se `statvfs` fallisce in modo irrecuperabile.
+#[utoipa::path(
+    get,
+    path = "/api/v1/libraries/{id}/storage",
+    tag = "libraries",
+    operation_id = "libraries_storage",
+    summary = "Get library disk usage",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della libreria")),
+    responses(
+        (status = 200, description = "Spazio libero e totale", body = LibraryStorageView),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non visibile", body = Problem)
+    )
+)]
+pub async fn storage(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    AxumPath(id): AxumPath<LibraryId>,
+) -> Result<Json<LibraryStorageView>, Problem> {
+    let usage = LibraryRepo::new(&state.db).storage(&ctx, id).await?;
+    Ok(Json(LibraryStorageView::from(usage)))
 }

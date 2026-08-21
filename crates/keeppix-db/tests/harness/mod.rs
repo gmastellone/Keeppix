@@ -3,14 +3,22 @@
 //! Il container Postgres è uno per processo: il costo del boot si paga una
 //! volta, l'isolamento resta un `CREATE DATABASE` per test.
 
+#![allow(dead_code, clippy::expect_used)]
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use keeppix_db::Db;
+use sqlx::ConnectOptions;
+use sqlx::postgres::PgConnectOptions;
 use sqlx::{Connection as _, PgConnection};
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 use tokio::sync::OnceCell;
+use tracing::Subscriber;
+use tracing_subscriber::Layer;
+use tracing_subscriber::prelude::*;
 
 pub struct TestDb {
     db: Db,
@@ -44,6 +52,81 @@ impl TestDb {
     pub const fn db(&self) -> &Db {
         &self.db
     }
+
+    /// Database con `log_statements` attivo e un layer che cattura le query
+    /// emesse da sqlx — per i test che devono asserire l'assenza di aggregati.
+    ///
+    /// # Panics
+    /// Come [`Self::start`].
+    #[allow(clippy::expect_used)]
+    pub async fn start_traced() -> (
+        Self,
+        Arc<Mutex<Vec<String>>>,
+        tracing::subscriber::DefaultGuard,
+    ) {
+        let provisioned = provision().await;
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let layer = SqlCapture(captured.clone());
+        let subscriber = tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::new("sqlx=debug"))
+            .with(layer);
+        let guard = tracing::subscriber::set_default(subscriber);
+
+        let options = PgConnectOptions::from_str(&provisioned.url)
+            .expect("url")
+            .log_statements(tracing::log::LevelFilter::Debug);
+        let db = Db::connect_with(options, 5)
+            .await
+            .expect("connessione tracciata");
+        db.migrate().await.expect("migrazioni");
+
+        (
+            Self {
+                db,
+                admin_url: provisioned.admin_url,
+                db_name: provisioned.name,
+            },
+            captured,
+            guard,
+        )
+    }
+}
+
+struct SqlCapture(Arc<Mutex<Vec<String>>>);
+
+impl<S> Layer<S> for SqlCapture
+where
+    S: Subscriber,
+{
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        if !event.metadata().target().starts_with("sqlx::query") {
+            return;
+        }
+        let mut visitor = SqlFieldVisitor(String::new());
+        event.record(&mut visitor);
+        if !visitor.0.is_empty() {
+            self.0.lock().expect("lock").push(visitor.0);
+        }
+    }
+}
+
+struct SqlFieldVisitor(String);
+
+impl tracing::field::Visit for SqlFieldVisitor {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "db.statement" || field.name() == "summary" {
+            if !self.0.is_empty() {
+                self.0.push(' ');
+            }
+            self.0.push_str(value);
+        }
+    }
+
+    fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
 }
 
 impl Drop for TestDb {

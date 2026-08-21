@@ -36,6 +36,29 @@ async fn seed_library(test: &TestDb, root: &std::path::Path) -> keeppix_domain::
 }
 
 #[tokio::test]
+async fn discover_schedules_vacuum_analyze_after_scan() {
+    let test = TestDb::start().await;
+    let root = std::env::temp_dir().join(format!("kpx-vac-{}", uuid::Uuid::now_v7()));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("foto.jpg"), b"jpeg-bytes").unwrap();
+    let library = seed_library(&test, &root).await;
+
+    discover::run(test.db(), library.id, Duration::ZERO)
+        .await
+        .unwrap();
+
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM jobs \
+         WHERE kind = 'vacuum_analyze' AND dedup_key = 'vacuum_analyze'",
+    )
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    let _ = fs::remove_dir_all(&root);
+    assert_eq!(n, 1, "a completed scan must enqueue VACUUM ANALYZE");
+}
+
+#[tokio::test]
 async fn discover_indexes_photos_and_skips_junk() {
     let test = TestDb::start().await;
     let root = std::env::temp_dir().join(format!("kpx-disc-{}", uuid::Uuid::now_v7()));

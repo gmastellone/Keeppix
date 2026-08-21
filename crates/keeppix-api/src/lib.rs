@@ -14,6 +14,7 @@ pub mod routes;
 pub mod state;
 
 pub mod batch;
+pub mod bulk;
 
 pub use extract::{AdminAuth, Auth, SESSION_COOKIE, SessionNotShare, SessionOrShare, ShareAuth};
 pub use json::Json;
@@ -140,6 +141,7 @@ fn api_routes(state: AppState) -> Router<AppState> {
         .route("/auth/refresh", axum::routing::post(routes::auth::refresh))
         .route("/auth/logout", axum::routing::post(routes::auth::logout))
         .route("/auth/me", get(routes::auth::me))
+        .route("/bootstrap", get(routes::bootstrap::get))
         .route(
             "/auth/totp",
             get(routes::totp::status).delete(routes::totp::disable),
@@ -154,6 +156,7 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::totp::regenerate_recovery),
         )
         .route("/timeline/buckets", get(routes::timeline::buckets))
+        .route("/timeline/geometry", get(routes::timeline::geometry))
         .route("/timeline", get(routes::timeline::page))
         .route("/folders/tree", get(routes::folders::tree))
         .route("/folders/{id}/children", get(routes::folders::children))
@@ -186,6 +189,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
         )
         .route("/ws/ticket", axum::routing::post(routes::ws::ticket))
         .route("/ws", get(routes::ws::connect))
+        .route(
+            "/operations/{id}/cancel",
+            axum::routing::post(routes::operations::cancel),
+        )
         .route("/sync/delta", get(routes::sync::delta))
         .route("/problems", get(routes::problems::list))
         .route("/duplicates", get(routes::duplicates::list))
@@ -211,6 +218,11 @@ fn api_routes(state: AppState) -> Router<AppState> {
         .route(
             "/libraries/{id}/scan",
             get(routes::libraries::scan_status).post(routes::libraries::start_scan),
+        )
+        .route("/libraries/{id}/storage", get(routes::libraries::storage))
+        .route(
+            "/libraries/{id}/probe",
+            axum::routing::post(routes::libraries::probe),
         )
         .route(
             "/groups",
@@ -238,12 +250,25 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::put(routes::users::set_home).delete(routes::users::delete_home),
         )
         .route(
+            "/users/me/preferences",
+            get(routes::preferences::get).patch(routes::preferences::patch),
+        )
+        .route(
             "/users/me/app-passwords",
             axum::routing::post(routes::credentials::create).get(routes::credentials::list),
         )
         .route(
             "/users/me/app-passwords/{id}",
             axum::routing::delete(routes::credentials::revoke),
+        )
+        .route("/users/me/sessions", get(routes::sessions::list))
+        .route(
+            "/users/me/sessions/revoke-others",
+            axum::routing::post(routes::sessions::revoke_others),
+        )
+        .route(
+            "/users/me/sessions/{id}",
+            axum::routing::delete(routes::sessions::revoke),
         )
         .route("/users/{id}", axum::routing::patch(routes::users::patch))
         .route(
@@ -261,6 +286,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
         .route(
             "/assets/{id}/restore",
             axum::routing::post(routes::trash::restore),
+        )
+        .route(
+            "/assets/batch/delete",
+            axum::routing::post(routes::trash::batch_delete),
         )
         .route(
             "/assets/{id}/stack/primary",
@@ -329,6 +358,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::patch(routes::albums::reorder_asset),
         )
         .route(
+            "/albums/{id}/refresh",
+            axum::routing::post(routes::albums::refresh),
+        )
+        .route(
             "/permissions",
             get(routes::permissions::list).post(routes::permissions::grant),
         )
@@ -337,6 +370,7 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/permissions/{id}",
             axum::routing::patch(routes::permissions::patch).delete(routes::permissions::revoke),
         )
+        .route("/shared-with-me", get(routes::permissions::shared_with_me))
         .route(
             "/share/links",
             get(routes::share::list_links).post(routes::share::create_link),

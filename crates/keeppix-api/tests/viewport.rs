@@ -59,6 +59,28 @@ async fn an_authenticated_request_notifies_the_activity_tracker() {
     );
 }
 
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn a_viewport_call_notifies_the_analysis_pause_gate_even_with_no_visible_hashes() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+    assert_eq!(server.viewport_pings.load(Ordering::Relaxed), 0);
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/viewport"))
+        .json(&serde_json::json!({ "hashes": [] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+    assert!(
+        server.viewport_pings.load(Ordering::Relaxed) >= 1,
+        "POST /viewport must notify the idle gate — a navigation with nothing new to \
+         promote is still a navigation, so the server-side analysis pause must see it"
+    );
+}
+
 #[allow(clippy::unwrap_used)]
 async fn setup(server: &TestServer) {
     server
