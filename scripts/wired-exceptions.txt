@@ -44,6 +44,21 @@ fn set_culling_root fase-9
 # presi/scartati/da vedere. Consumatore: la schermata Culling di Fase 11,
 # che elenca i lotti prima di aprirne uno.
 fn list_lots fase-9
+# set_pick (culling.rs, Task 4): scegliere/scartare/annullare dentro un
+# lotto, con lo spostamento fisico che accompagna il flag. check-wired.py
+# la vede erroneamente "wired" per lo stesso motivo di move_asset sopra —
+# conta anche le menzioni testuali nei commenti di documentazione (in
+# culling.rs, folders.rs::find_with_library, e i nomi dei moduli di test),
+# non solo le chiamate reali: `grep -rn '\.set_pick(' crates` conferma zero
+# call-site di produzione, tutti gli 11 reali sono nei test di questo
+# stesso task. Consumatore: i pulsanti "Scelta"/"Scarta" della schermata
+# Culling di Fase 11.
+fn set_pick fase-9
+# empty_skipped (culling.rs, Task 4): "Svuota scartati" — cancellazione
+# definitiva del contenuto di `_skipped` in un lotto. check-wired.py la
+# segnala correttamente (nessun falso positivo qui). Consumatore: il
+# pulsante omonimo, con conferma, nella stessa schermata Culling di Fase 11.
+fn empty_skipped fase-9
 route /health ops
 route /api/openapi.json ci
 

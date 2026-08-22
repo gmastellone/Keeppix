@@ -266,6 +266,24 @@ impl<'a> FolderRepo<'a> {
         Ok(self.visible(ctx, id).await?.0)
     }
 
+    /// Come `find_by_id`, più la libreria che la contiene — stesso cancello
+    /// di visibilità, non quello più stretto owner/admin di
+    /// `LibraryRepo::find_by_id`. Serve a `CullingRepo::set_pick` (Fase 9
+    /// Task 4) per leggere `culling_root_folder_id` senza restringere a
+    /// owner/admin chi può impostare scelto/scartato: quel permesso resta
+    /// quello di sempre (visibilità), lo spostamento fisico dentro un lotto
+    /// lo stringe da sé tramite `AssetRepo::move_asset`.
+    ///
+    /// # Errors
+    /// Come `find_by_id`.
+    pub async fn find_with_library(
+        &self,
+        ctx: &AuthContext,
+        id: FolderId,
+    ) -> Result<(Folder, Library), DbError> {
+        self.visible(ctx, id).await
+    }
+
     /// Permesso di scrittura sulla cartella: owner della libreria, admin,
     /// oppure `editor` esplicito via `PermissionRepo::effective_role` — lo
     /// stesso cancello di `move_subtree` e di `UploadSessionRepo::create`,
