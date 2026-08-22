@@ -13,19 +13,19 @@ vince la spec, e annoti il ruling nel ledger.
 
 Non fare push, PR o merge se l'utente non lo chiede.
 
-## Snapshot (post Fase 7 sul branch `fase-7`)
+## Snapshot (post merge Fase 7)
 
-- **`main`** contiene le Fasi **0-6 e 10**, tutte mergiate. Le PR verso questo
-  repo sono rotte lato GitHub in questo momento (API e web mostrano 0 PR
-  totali nonostante le #10/#11 siano esistite) — merge diretti via git dopo CI
-  reale verde su `fase-*` (workflow allargato al push su quei branch).
-- **Fase 7** è implementata sul branch **`fase-7`** (CLIP/pgvector, tag +
-  proposte, SearchNode Tag/Category/Semantic, IVFFlat, `AiAnalysis`, review
-  queue API). Ledger in
+- **`main`** contiene le Fasi **0-6, 10 e 7**, tutte mergiate. Le PR verso
+  questo repo sono rotte lato GitHub in questo momento (API e web mostrano 0
+  PR totali nonostante le #10/#11 siano esistite) — merge diretti via git
+  dopo CI reale verde su `fase-*` (workflow allargato al push su quei
+  branch).
+- **Fase 7** (CLIP/pgvector, tag + proposte, SearchNode Tag/Category/Semantic,
+  IVFFlat, `AiAnalysis`, review queue API). Ledger in
   `.superpowers/sdd/2026-08-20-keeppix-fase-7/progress.md`. UI coda di
   revisione / pagina Tag → Fase 11.
-- **Fase 10** (già su `main`): BulkOutcome, geometria, pile, SearchNode base,
-  sessioni, bootstrap, WS, decode PNG/TIFF/WebP/HEIF, OpenAPI, …
+- **Fase 10**: BulkOutcome, geometria, pile, SearchNode base, sessioni,
+  bootstrap, WS, decode PNG/TIFF/WebP/HEIF, OpenAPI, …
 - **Prossimo lavoro:** Fase **8** (volti), poi 9 → 11. Prima di partire, i
   piani di 8/9 vanno ripassati col codice vero di 10+7 davanti. Ordine e
   decisioni in [`../superpowers/PROSEGUI.md`](../superpowers/PROSEGUI.md) —
