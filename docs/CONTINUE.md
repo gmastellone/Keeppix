@@ -26,29 +26,39 @@ Non fare push, PR o merge se l'utente non lo chiede.
   revisione / pagina Tag → Fase 11.
 - **Fase 10**: BulkOutcome, geometria, pile, SearchNode base, sessioni,
   bootstrap, WS, decode PNG/TIFF/WebP/HEIF, OpenAPI, …
-- **Fase 8** (volti): riconoscimento facciale locale SCRFD+ArcFace,
+- **Fase 8** (volti): riconoscimento facciale locale (pipeline scritta per
+  SCRFD+ArcFace; **emendata il 22 agosto a YuNet+SFace** — vedi sotto),
   raggruppamento incrementale, persone/gruppi, coda di revisione,
   interruttore per libreria + cancellazione dati, `SearchNode::Person/
   PersonGroup/PersonCount`, `suggestions.changed` via WS. Ledger in
   `.superpowers/sdd/2026-08-20-keeppix-fase-8/progress.md` — include cinque
   difetti reali trovati e corretti dalla CI durante la chiusura (`cargo
   test --workspace` non ha `--no-fail-fast`, quindi ogni push ha rivelato
-  un solo nuovo difetto alla volta: cinque cicli push→CI→fix). Limite
-  dichiarato: nessuna misura reale di inferenza SCRFD/ArcFace ottenuta
-  (nessuna fonte di pesi ONNX verificata raggiungibile) — serve una
-  decisione umana su quale checkpoint usare. UI persone/coda volti →
-  Fase 11.
+  un solo nuovo difetto alla volta: cinque cicli push→CI→fix). Il limite
+  dichiarato ("nessuna misura reale di inferenza, nessuna fonte pesi
+  verificata") è stato **risolto il 22 agosto**: i modelli diventano
+  YuNet+SFace (OpenCV Zoo, MIT/Apache) — la decisione umana c'è stata,
+  fonti e sha256 in `superpowers/plans/2026-08-22-keeppix-modelli-ai.md`
+  (Task A, da eseguire prima di chiudere la roadmap). UI persone/coda
+  volti → Fase 11.
+- **Modelli IA e licenze (22 agosto):** i pesi MobileCLIP2 e InsightFace
+  sono research-only — verificato sui testi di licenza. Debito tracciato:
+  YuNet+SFace per i volti (prima della chiusura), OpenCLIP XLM-R int8
+  potato IT/EN per gli embedding (dopo la Fase 11, benchmark doppio già
+  fatto). Piano completo con numeri e vincoli (solo IT/EN; niente Python
+  a runtime, ottimizzazioni in Rust; il codice sostituito si elimina):
+  `superpowers/plans/2026-08-22-keeppix-modelli-ai.md`.
 - **Prossimo lavoro:** Fase **9** (organizzazione: culling, rinomina di
-  massa), poi 11. Prima di partire, il piano di 9 va ripassato col codice
-  vero di 10+7+8 davanti. Ordine e decisioni in
-  [`../superpowers/PROSEGUI.md`](../superpowers/PROSEGUI.md) —
+  massa), poi 11, poi i Task A e B del piano modelli IA. Prima di partire,
+  il piano di 9 va ripassato col codice vero di 10+7+8 davanti. Ordine e
+  decisioni in [`../superpowers/PROSEGUI.md`](../superpowers/PROSEGUI.md) —
   **rileggerlo all'inizio della Fase 9** (e di nuovo all'inizio della 11).
   Fase 9 tocca file veri dell'utente: fermarsi prima della prima
   rinomina/spostamento reale (su dati di test si procede liberi), e
   scrivere nel ledger un riepilogo esplicito di sicurezza sul filesystem
   prima di chiudere la fase.
 
-**Ordine di esecuzione da qui:** `9 → 11 (in quattro tranche)`.
+**Ordine di esecuzione da qui:** `9 → 11 (quattro tranche) → modelli IA (A: volti, B: CLIP)`.
 
 La **10 ha preceduto la 7, la 8 e la 9** di proposito: involucro di riuscita
 parziale, tassonomia errori, `SearchNode`, eventi WebSocket. La **7** ha

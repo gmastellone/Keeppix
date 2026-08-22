@@ -66,6 +66,24 @@ deve trovare.
   `target_folder_id` e già distingue `created`/`skipped_duplicate`/`renamed` per file — è wiring
   del frontend su tus, già spedito in Fase 5. Fonte: `docs/ui/caricamento-nuove-foto.md`.
 
+### Decisioni aggiunte il 22 agosto — modelli IA, licenze, ottimizzazione
+
+- **I pesi MobileCLIP2 e InsightFace sono research-only** (verificato sui testi di licenza
+  reali): incompatibili con la doppia licenza commerciale. È un **debito aperto e tracciato**,
+  non un blocco: piano completo, benchmark e sha256 in
+  [`plans/2026-08-22-keeppix-modelli-ai.md`](plans/2026-08-22-keeppix-modelli-ai.md).
+- **Volti: YuNet + SFace** (OpenCV Zoo, MIT/Apache, ~9,5 MB totali) al posto di SCRFD/ArcFace —
+  da fare **prima di chiudere la roadmap** (Task A del piano): la pipeline volti non ha mai
+  girato contro pesi veri, questo la fa girare per la prima volta.
+- **Embedding: OpenCLIP XLM-R ViT-B-32 int8, potato a SOLO IT/EN**, al posto di MobileCLIP2 —
+  **dopo la Fase 11** (Task B del piano). Deciso su doppio benchmark: qualità pari o migliore
+  (IT 0.95/MRR 0.975, EN 1.00), visual ~2,7× più leggero (271 MB di picco contro 744, stesso
+  harness) e ~4× più veloce (22,7 ms/foto contro 95,7). Embed dim resta 512: nessuna migrazione.
+- **Regole trasversali, valgono per entrambi i task e da qui in avanti**: niente Python a
+  runtime — solo negli script di export/download offline; ottimizzazioni e misure si fanno in
+  Rust nel crate `ort`; **il codice sostituito si elimina, non si commenta** — niente pesi,
+  script, costanti o riferimenti al modello vecchio lasciati in giro.
+
 ### La precedenza, quando le fonti divergono
 
 **decisioni → prototipo → documento funzionale → analisi gap.**
