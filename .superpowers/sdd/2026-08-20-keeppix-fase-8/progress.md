@@ -527,3 +527,59 @@ face_privacy/persons/openapi/libraries (3+11+8+14, tutti verdi).
 -- -D warnings`: puliti.
 
 ## Task 10: complete
+
+## Task 11 — WebSocket, documenti, e il test del Task 1 che ora deve passare
+
+`crates/keeppix-api/src/routes/ws.rs`: `suggestions.changed` — la Fase 10
+(Task 19) aveva lasciato l'evento dichiarato ma non cablato,
+esplicitamente per questa ragione: *"nessun codice di Fase 7/8 esiste da
+cui leggerlo"* (Ruling Fase 10). Ora Fase 7 (tag) e Fase 8 (volti)
+esistono entrambe, quindi `drain_suggestions` (nuovo) somma
+`AssetTagRepo::count_proposed_visible` + `FaceRepo::count_proposed_visible`
+— **la stessa identica somma** già usata dal badge `bootstrap.badges.revision`,
+un solo canale perché il badge è già un conteggio combinato tag+volti, non
+due badge distinti. Stesso disegno "magro" di `problems.changed`: il
+numero viaggia come comodità, il contratto resta "ricarica il contatore"
+(Ruling Fase 10 Task 19: "portare il numero resta ammesso come comodità,
+mai come garanzia"), e stessa guardia "prima connessione a zero non
+emette" per non gareggiare col Ping di apertura.
+
+Ruling: **`socket_loop` supera il tetto di 100 righe di clippy con
+l'ottavo `drain_*` — `#[allow(clippy::too_many_lines)]`, non un
+refactor.** La funzione è un elenco piatto e ripetitivo di "prova a
+leggere una fonte, esci se il socket è morto"; fattorizzarlo
+richiederebbe chiusure eterogenee (ogni `drain_*` porta un tipo di stato
+"visto" diverso: `HashMap`, `Option<String>`, `Option<i64>`, ...) solo per
+stare sotto un limite di stile — esattamente l'astrazione-per-il-linter
+che AGENTS.md scoraggia. Altre 9 funzioni nel codebase usano già lo stesso
+`#[allow]` per lo stesso motivo. — *Costo se sbagliato*: nessuno, è pura
+leggibilità.
+
+**Test**: `a_proposed_face_is_pushed_as_suggestions_changed`
+(`crates/keeppix-api/tests/ws.rs`) — stesso schema di
+`an_offline_library_is_pushed_as_problems_changed` (apre il socket,
+propone un volto via repository, aspetta l'evento). 10/10 verdi in
+`ws.rs` (9 preesistenti + 1 nuovo).
+
+**Il test del Task 1 (`face_privacy.rs`) resta verde** — riverificato qui
+come condizione di chiusura esplicita del piano, non solo alle chiusure
+intermedie di Task 6/8/10 già registrate sopra: 3/3 (`a_shared_folder_never_exposes_face_or_person_data`,
+`a_shared_single_asset_never_exposes_face_or_person_data`,
+`the_scanner_itself_catches_a_planted_leak`). Ispezione diretta di
+`crates/keeppix-api/src/routes/share.rs`: zero occorrenze di
+`face`/`Face`/`person`/`Person` in tutto il file — le rotte pubbliche non
+toccano quei dati per costruzione, non solo perché il test non li trova.
+
+Documenti: `docs/api/openapi.json` già tenuto sincrono a ogni task (Task
+6/7/8/10 lo hanno rigenerato via `UPDATE_OPENAPI=1 cargo test`, non a
+mano). Nessun altro documento di prodotto (README, `docs/CONTINUE.md`) va
+toccato qui: si aggiornano al momento del merge, stesso schema delle
+chiusure di Fase 7/10.
+
+Suite riverificate un'ultima volta in blocco:
+`cargo test -p keeppix-api --test face_privacy --test persons --test
+openapi --test libraries --test ws` → 46/46 verdi. `cargo fmt --all --
+--check` e `cargo clippy --workspace --all-targets -- -D warnings`:
+puliti. `python3 scripts/check-wired.py`: pulito.
+
+## Task 11: complete — Fase 8 pronta per la verifica di chiusura (PROSEGUI.md §10)
