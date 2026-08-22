@@ -1,13 +1,18 @@
-//! Il motore delle formule di rinomina (Fase 9 Task 6, spec UI §62 "Dialog
+//! Il motore delle formule di rinomina (Fase 9 Task 6-7, spec UI §62 "Dialog
 //! 'Rinomina con formula'"). Puro: nessuna lettura da disco o database — le
-//! quattro fasi successive del Gruppo C (Task 7-9) collegano questo motore a
-//! collisioni vere, ambiti, e allo spostamento fisico.
+//! fasi successive del Gruppo C (Task 8-9) collegano questo motore a
+//! collisioni vere sul database, ambiti, e allo spostamento fisico.
 //!
-//! La logica segue esattamente `computeRenamedFilename`/`renameSlug` del
-//! prototipo (spec §62.3b), non un'interpretazione: i sei segnaposto, la
-//! sanificazione, e il fallback a schema vuoto sono lo stesso comportamento,
-//! bug del prototipo compresi (i separatori orfani intorno a un valore
-//! mancante non vengono ripuliti — è il difetto 2 che il Task 7 chiude).
+//! I sei segnaposto e il fallback a schema vuoto seguono esattamente
+//! `computeRenamedFilename`/`renameSlug` del prototipo (spec §62.3b). **Tre
+//! dei cinque difetti che la spec elenca esplicitamente per il prototipo**
+//! (§62.3d, Task 7 del piano) sono chiusi qui, non riprodotti: separatori
+//! orfani intorno a un valore mancante, caratteri illegali del filesystem
+//! oltre ai tre che il prototipo già sostituiva, e nessun limite di
+//! lunghezza. Gli altri due (collisione verificata anche fuori dal gruppo
+//! selezionato; `"Applica"` davvero disabilitato) non sono logica pura —
+//! il primo è Task 8/9 in `keeppix-db` (serve il database), il secondo è
+//! comportamento di interfaccia, Fase 11.
 
 use chrono::NaiveDate;
 
@@ -43,9 +48,19 @@ pub fn resolve_place_label(
         .map(str::to_owned)
 }
 
-/// Ricompone il nome file secondo lo schema (spec §62.3b, punti 1-6).
-/// Nessuna validazione bloccante: qualunque schema produce un risultato,
-/// mai un errore — la spec è esplicita ("qualunque testo è accettato").
+/// Limite reale di `NAME_MAX` su ext4 e sulla maggior parte dei filesystem
+/// POSIX (byte, non caratteri) — non una cifra scelta a caso: è il vincolo
+/// del filesystem stesso, verificato dal Task 7 (piano: "nessun controllo
+/// sulla lunghezza massima" era il quarto difetto elencato dalla spec).
+const MAX_FILENAME_BYTES: usize = 255;
+
+/// Ricompone il nome file secondo lo schema (spec §62.3b, punti 1-6), poi
+/// applica le tre correzioni del Task 7 (§62.3d) che il prototipo non ha:
+/// separatori orfani ripuliti, l'intero insieme dei caratteri illegali del
+/// filesystem sostituito (non solo `/\:`), lunghezza mai oltre
+/// [`MAX_FILENAME_BYTES`]. Nessuna validazione bloccante: qualunque schema
+/// produce un risultato, mai un errore — la spec è esplicita ("qualunque
+/// testo è accettato").
 ///
 /// `index` è 1-based (spec: "l'indice nell'elenco attivo + 1"): chi chiama
 /// passa già `posizione_nell_elenco + 1`, non un indice 0-based.
@@ -57,17 +72,80 @@ pub fn render_filename(
     current_filename: &str,
 ) -> String {
     let (stem, extension) = split_extension(current_filename);
+    let extension = extension.map(str::to_uppercase);
     let substituted = substitute_placeholders(schema, values, index);
-    let sanitized = sanitize(&substituted);
+    let collapsed = collapse_orphan_separators(&substituted);
+    let sanitized = sanitize(&collapsed);
     let base = if sanitized.is_empty() {
         stem.to_owned()
     } else {
         sanitized
     };
+    let base = cap_length(&base, extension.as_deref());
     match extension {
-        Some(ext) => format!("{base}.{}", ext.to_uppercase()),
+        Some(ext) => format!("{base}.{ext}"),
         None => base,
     }
+}
+
+/// I caratteri considerati "separatore" ai fini della pulizia orfani —
+/// esattamente quelli che uno schema tipico usa fra segnaposto (`_`, `-`,
+/// spazio, `.`). Una run di due o più, in qualunque combinazione fra loro,
+/// è per costruzione l'effetto di un valore mancante fra due segnaposto
+/// adiacenti, mai un'intenzione dell'utente: nessuno schema reale ha
+/// bisogno di `__` letterale. — *Costo se sbagliato:* uno schema che
+/// contenesse davvero due separatori di fila apposta li vedrebbe
+/// compattati a uno; nessun caso reale osservato che lo richieda.
+const ORPHAN_SEPARATORS: &[char] = &['_', '-', ' ', '.'];
+
+/// Chiude il difetto 2 della spec (§62.3d): comprime ogni sequenza di due o
+/// più caratteri-separatore consecutivi in uno solo, poi rifila
+/// separatori orfani ai bordi (un segnaposto vuoto in testa o in coda allo
+/// schema lascia un solo separatore isolato, non una run — il rifilo ai
+/// bordi lo cattura comunque).
+fn collapse_orphan_separators(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        out.push(c);
+        if ORPHAN_SEPARATORS.contains(&c) {
+            while chars
+                .peek()
+                .is_some_and(|next| ORPHAN_SEPARATORS.contains(next))
+            {
+                chars.next();
+            }
+        }
+    }
+    out.trim_matches(ORPHAN_SEPARATORS).to_owned()
+}
+
+/// Chiude il difetto 4 della spec (§62.3d): tronca `base` così che
+/// `base + "." + ESTENSIONE` non superi mai [`MAX_FILENAME_BYTES`] byte —
+/// l'estensione non si tronca mai, solo la parte calcolata dallo schema.
+/// Rifila di nuovo i separatori orfani dopo il taglio: troncare a metà uno
+/// schema può lasciare un separatore esposto in coda (`"nome-"`), lo stesso
+/// difetto che [`collapse_orphan_separators`] chiude altrove.
+fn cap_length(base: &str, extension: Option<&str>) -> String {
+    let ext_len = extension.map_or(0, |ext| 1 + ext.len());
+    let budget = MAX_FILENAME_BYTES.saturating_sub(ext_len);
+    truncate_to_byte_budget(base, budget)
+        .trim_end_matches(ORPHAN_SEPARATORS)
+        .to_owned()
+}
+
+/// Il prefisso più lungo di `s` che sta in `budget` byte, tagliato su un
+/// confine di carattere valido — mai a metà di un carattere UTF-8
+/// multi-byte.
+fn truncate_to_byte_budget(s: &str, budget: usize) -> &str {
+    if s.len() <= budget {
+        return s;
+    }
+    let mut end = budget;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 /// L'estensione (tutto dopo l'ultimo punto) e lo stem (tutto prima). Nessuna
@@ -169,16 +247,17 @@ fn slug(value: &str) -> String {
     collapse_whitespace(value.trim().chars().filter(|&c| c != '.' && c != ','), '-')
 }
 
-/// Sanificazione finale (spec §62.3b punto 4), applicata all'intera stringa
-/// dopo la sostituzione dei segnaposto, non ai singoli valori: `/`, `\`, `:`
-/// diventano `-`; ogni sequenza di spazi bianchi diventa **un solo spazio**
-/// (non un trattino: regola diversa da [`slug`], verificato riga per riga
-/// contro la spec); il risultato è rifilato ai bordi. Deliberatamente **non**
-/// filtra `*`, `?`, `"`, `<`, `>`, `|` — la spec lo dichiara esplicitamente
-/// un limite del prototipo, e chiuderlo è il Task 7, non questo.
+/// Sanificazione finale, applicata all'intera stringa dopo la sostituzione
+/// dei segnaposto, non ai singoli valori. Il prototipo (spec §62.3b punto 4)
+/// sostituiva solo `/`, `\`, `:`; il Task 7 (spec §62.3d, difetto 3) chiude
+/// il resto dell'elenco esplicito della spec — `*`, `?`, `"`, `<`, `>`, `|` —
+/// con la stessa regola invece di lasciarli passare. Ogni sequenza di spazi
+/// bianchi diventa **un solo spazio** (non un trattino: regola diversa da
+/// [`slug`], verificato riga per riga contro la spec); il risultato è
+/// rifilato ai bordi.
 fn sanitize(value: &str) -> String {
     let replaced = value.chars().map(|c| match c {
-        '/' | '\\' | ':' => '-',
+        '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
         other => other,
     });
     collapse_whitespace(replaced, ' ').trim().to_owned()
@@ -259,15 +338,39 @@ mod tests {
     }
 
     #[test]
-    fn missing_value_disappears_but_orphans_the_separators() {
+    fn missing_value_disappears_without_orphaning_the_separators() {
+        // Il prototipo (spec §62.3b) produrrebbe "2026-08-14__001": il
+        // Task 7 (spec §62.3d, difetto 2) chiude esattamente questo caso.
         let mut v = values();
         v.place = None;
         let got = render_filename("{data}_{luogo}_{n:3}", &v, 1, "a.jpg");
-        assert_eq!(
-            got, "2026-08-14__001.JPG",
-            "difetto noto del prototipo (spec §62.3b): due trattini bassi di fila, \
-             il Task 7 lo chiude"
-        );
+        assert_eq!(got, "2026-08-14_001.JPG");
+    }
+
+    #[test]
+    fn a_missing_value_at_the_very_start_leaves_no_leading_separator() {
+        let mut v = values();
+        v.place = None;
+        let got = render_filename("{luogo}_{data}", &v, 1, "a.jpg");
+        assert_eq!(got, "2026-08-14.JPG");
+    }
+
+    #[test]
+    fn mixed_separator_characters_around_a_missing_value_still_collapse() {
+        let mut v = values();
+        v.place = None;
+        let got = render_filename("{data}-_ .{luogo}{n:2}", &v, 5, "a.jpg");
+        assert_eq!(got, "2026-08-14-05.JPG");
+    }
+
+    #[test]
+    fn a_genuine_double_separator_in_the_schema_is_still_collapsed() {
+        // Compromesso deliberato (Ruling nel ledger di Fase 9, Task 7): non
+        // si distingue un separatore doppio scritto apposta da uno lasciato
+        // orfano da un valore mancante — nessuno schema reale ha bisogno di
+        // `__` letterale.
+        let got = render_filename("IMG__{n:3}", &values(), 1, "a.jpg");
+        assert_eq!(got, "IMG_001.JPG");
     }
 
     #[test]
@@ -317,13 +420,41 @@ mod tests {
     }
 
     #[test]
-    fn other_illegal_filesystem_characters_are_deliberately_left_alone() {
-        // Spec §62.3d: "non sono filtrati altri caratteri problematici (*,
-        // ?, ", <, >, |)" — limite noto del prototipo, chiuso dal Task 7.
+    fn the_remaining_illegal_filesystem_characters_are_now_sanitized_too() {
+        // Spec §62.3d, difetto 3: il prototipo non filtrava *, ?, ", <, >,
+        // | oltre a /\: — il Task 7 li chiude con la stessa regola.
         let mut v = values();
         v.title = Some("A*B?C\"D<E>F|G".to_owned());
         let got = render_filename("{titolo}", &v, 1, "a.jpg");
-        assert_eq!(got, "A*B?C\"D<E>F|G.JPG");
+        assert_eq!(got, "A-B-C-D-E-F-G.JPG");
+    }
+
+    #[test]
+    fn the_result_never_exceeds_the_filesystem_name_limit() {
+        let mut v = values();
+        v.title = Some("x".repeat(500));
+        let got = render_filename("{titolo}", &v, 1, "a.jpg");
+        assert!(
+            got.len() <= 255,
+            "255 byte è NAME_MAX su ext4 e la maggior parte dei filesystem POSIX: {}",
+            got.len()
+        );
+        assert_eq!(
+            got.rsplit_once('.').map(|(_, ext)| ext),
+            Some("JPG"),
+            "l'estensione non si tronca mai: {got}"
+        );
+    }
+
+    #[test]
+    fn truncation_does_not_leave_a_trailing_separator() {
+        // Il budget per la base è 251 byte (255 - ".JPG"): un valore che
+        // mette un separatore esattamente al byte 251 non deve lasciarlo
+        // esposto in coda dopo il taglio.
+        let mut v = values();
+        v.title = Some(format!("{}_{}", "x".repeat(250), "y".repeat(10)));
+        let got = render_filename("{titolo}", &v, 1, "a.jpg");
+        assert_eq!(got, format!("{}.JPG", "x".repeat(250)));
     }
 
     #[test]
