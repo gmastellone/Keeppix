@@ -14,6 +14,18 @@ use keeppix_domain::{AssetId, AuthContext, Face, FaceBBox, FaceId, PersonId, Use
 use crate::visibility::VisibilityScope;
 use crate::{AssetRepo, Db, DbError};
 
+/// Allineato a `keeppix_media::face::MODEL_VERSION`. Duplicato qui perché
+/// `keeppix-db` non può dipendere da `keeppix-media` (`deny.toml`) — stessa
+/// ragione di `EmbeddingRepo::MODEL_VERSION` per Fase 7.
+pub const MODEL_VERSION: &str = "scrfd-500mf+arcface";
+
+/// Candidato al rilevamento: ha `content_hash` (quindi può avere miniatura).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingFaceScan {
+    pub asset_id: AssetId,
+    pub content_hash: [u8; 32],
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct FaceRow {
     id: uuid::Uuid,
@@ -455,5 +467,107 @@ impl<'a> FaceRepo<'a> {
         .fetch_one(self.db.pool())
         .await?;
         Ok(count)
+    }
+
+    /// Asset immagine con hash, non ancora passati al rilevatore per
+    /// `model_version`, fuori dal sottoalbero Culling, in una libreria con
+    /// `faces_enabled`. Stesso pattern di `EmbeddingRepo::list_pending`
+    /// (Fase 7), con `asset_face_scans` al posto di `asset_embeddings` come
+    /// marcatore — un asset senza volti produce zero righe in `faces`, che
+    /// da solo non basta a dire "già analizzato". Non prende `AuthContext`:
+    /// pipeline di sistema.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce (o se lo schema volti non esiste).
+    pub async fn list_pending_scan(
+        &self,
+        model_version: &str,
+        limit: i64,
+    ) -> Result<Vec<PendingFaceScan>, DbError> {
+        let rows: Vec<(uuid::Uuid, Vec<u8>)> = sqlx::query_as(
+            "SELECT a.id, a.content_hash \
+             FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             JOIN libraries l ON l.id = f.library_id \
+             LEFT JOIN folders cull ON cull.id = l.culling_root_folder_id \
+             WHERE a.content_hash IS NOT NULL \
+               AND a.kind = 'image' \
+               AND l.faces_enabled \
+               AND (cull.path IS NULL OR NOT (f.path <@ cull.path)) \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM asset_face_scans s \
+                   WHERE s.asset_id = a.id AND s.model_version = $1 \
+               ) \
+             ORDER BY a.id \
+             LIMIT $2",
+        )
+        .bind(model_version)
+        .bind(limit)
+        .fetch_all(self.db.pool())
+        .await?;
+
+        rows.into_iter()
+            .map(|(id, hash)| {
+                let content_hash: [u8; 32] = hash
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| DbError::Corrupted(format!("content_hash len {}", hash.len())))?;
+                Ok(PendingFaceScan {
+                    asset_id: AssetId::from_uuid(id),
+                    content_hash,
+                })
+            })
+            .collect()
+    }
+
+    /// Quanti asset immagine (fuori culling, libreria con `faces_enabled`)
+    /// restano da passare al rilevatore per `model_version`.
+    ///
+    /// # Errors
+    /// `Connection` / schema volti assente.
+    pub async fn count_pending_scan(&self, model_version: &str) -> Result<i64, DbError> {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*)::bigint \
+             FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             JOIN libraries l ON l.id = f.library_id \
+             LEFT JOIN folders cull ON cull.id = l.culling_root_folder_id \
+             WHERE a.content_hash IS NOT NULL \
+               AND a.kind = 'image' \
+               AND l.faces_enabled \
+               AND (cull.path IS NULL OR NOT (f.path <@ cull.path)) \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM asset_face_scans s \
+                   WHERE s.asset_id = a.id AND s.model_version = $1 \
+               )",
+        )
+        .bind(model_version)
+        .fetch_one(self.db.pool())
+        .await?;
+        Ok(n)
+    }
+
+    /// Registra che `asset_id` è stato passato al rilevatore, con o senza
+    /// volti trovati — il marcatore che rende `list_pending_scan` corretto
+    /// anche per una foto senza nessun volto. Non prende `AuthContext`:
+    /// pipeline.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn mark_scanned(
+        &self,
+        asset_id: AssetId,
+        model_version: &str,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO asset_face_scans (asset_id, model_version) VALUES ($1, $2) \
+             ON CONFLICT (asset_id) DO UPDATE SET \
+               model_version = EXCLUDED.model_version, scanned_at = now()",
+        )
+        .bind(asset_id.as_uuid())
+        .bind(model_version)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
     }
 }

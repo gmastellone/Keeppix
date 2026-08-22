@@ -22,6 +22,9 @@ pub struct LibraryView {
     pub owner_id: String,
     pub root_path: String,
     pub scan_enabled: bool,
+    /// Interruttore del riconoscimento facciale per questa libreria (Fase 8
+    /// Task 10).
+    pub faces_enabled: bool,
     pub exclude_patterns: Vec<String>,
     pub status: String,
     pub last_scan_at: Option<String>,
@@ -36,6 +39,7 @@ impl LibraryView {
             owner_id: lib.owner_id.to_string(),
             root_path: lib.root_path.to_string_lossy().into_owned(),
             scan_enabled: lib.scan_enabled,
+            faces_enabled: lib.faces_enabled,
             exclude_patterns: lib.exclude_patterns.clone(),
             status: match lib.status {
                 keeppix_domain::LibraryStatus::Active => "active".to_owned(),
@@ -59,6 +63,7 @@ pub struct CreateLibraryRequest {
 pub struct PatchLibraryRequest {
     pub name: Option<String>,
     pub scan_enabled: Option<bool>,
+    pub faces_enabled: Option<bool>,
     pub exclude_patterns: Option<Vec<String>>,
 }
 
@@ -226,6 +231,7 @@ pub async fn patch(
             id,
             body.name.as_deref(),
             body.scan_enabled,
+            body.faces_enabled,
             body.exclude_patterns.as_deref(),
         )
         .await?;
