@@ -1,0 +1,459 @@
+//! Volti rilevati (Fase 8 Task 3/4). [`Self::insert_detected`] non prende
+//! `AuthContext`: è la pipeline di rilevamento, come [`crate::EmbeddingRepo`]
+//! per la Fase 7 — non un'azione utente.
+//!
+//! Le decisioni umane ([`Self::assign`], [`Self::reject`],
+//! [`Self::confirm_proposal`]) **prendono** `AuthContext`: un utente non deve
+//! poter agire (né apprendere l'esistenza) su un volto di un asset che non
+//! vede. Una volta assegnato a mano (`assigned_by` impostato), un volto non
+//! viene mai più toccato dal raggruppamento automatico (spec §4.3).
+
+use chrono::{DateTime, Utc};
+use keeppix_domain::{AssetId, AuthContext, Face, FaceBBox, FaceId, PersonId, UserId};
+
+use crate::visibility::VisibilityScope;
+use crate::{AssetRepo, Db, DbError};
+
+#[derive(Debug, sqlx::FromRow)]
+struct FaceRow {
+    id: uuid::Uuid,
+    asset_id: uuid::Uuid,
+    bbox_x: f32,
+    bbox_y: f32,
+    bbox_w: f32,
+    bbox_h: f32,
+    landmarks: Option<serde_json::Value>,
+    detect_score: f32,
+    quality: Option<f32>,
+    person_id: Option<uuid::Uuid>,
+    assigned_by: Option<uuid::Uuid>,
+    assigned_at: Option<DateTime<Utc>>,
+    rejected_at: Option<DateTime<Utc>>,
+    proposed_person_id: Option<uuid::Uuid>,
+    proposed_score: Option<f32>,
+    model_version: String,
+    created_at: DateTime<Utc>,
+}
+
+impl FaceRow {
+    fn into_domain(self) -> Face {
+        Face {
+            id: FaceId::from_uuid(self.id),
+            asset_id: AssetId::from_uuid(self.asset_id),
+            bbox: FaceBBox {
+                x: self.bbox_x,
+                y: self.bbox_y,
+                w: self.bbox_w,
+                h: self.bbox_h,
+            },
+            landmarks: self.landmarks,
+            detect_score: self.detect_score,
+            quality: self.quality,
+            person_id: self.person_id.map(PersonId::from_uuid),
+            assigned_by: self.assigned_by.map(UserId::from_uuid),
+            assigned_at: self.assigned_at,
+            rejected_at: self.rejected_at,
+            proposed_person_id: self.proposed_person_id.map(PersonId::from_uuid),
+            proposed_score: self.proposed_score,
+            model_version: self.model_version,
+            created_at: self.created_at,
+        }
+    }
+}
+
+const COLUMNS: &str = "id, asset_id, bbox_x, bbox_y, bbox_w, bbox_h, landmarks, detect_score, \
+                       quality, person_id, assigned_by, assigned_at, rejected_at, \
+                       proposed_person_id, proposed_score, model_version, created_at";
+
+/// Input di un volto appena rilevato, prima di ogni raggruppamento. Non
+/// include `person_id`: l'assegnazione arriva dopo, dal raggruppamento
+/// incrementale o da un umano.
+#[derive(Debug, Clone)]
+pub struct NewDetectedFace {
+    pub asset_id: AssetId,
+    pub bbox: FaceBBox,
+    pub landmarks: Option<serde_json::Value>,
+    pub embedding: Option<Vec<f32>>,
+    pub detect_score: f32,
+    pub quality: Option<f32>,
+    pub model_version: String,
+}
+
+pub struct FaceRepo<'a> {
+    db: &'a Db,
+}
+
+impl<'a> FaceRepo<'a> {
+    #[must_use]
+    pub const fn new(db: &'a Db) -> Self {
+        Self { db }
+    }
+
+    /// Inserisce un volto appena rilevato, senza persona. Pipeline interna:
+    /// nessun `AuthContext`.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce (o se lo schema volti non esiste).
+    pub async fn insert_detected(&self, new: NewDetectedFace) -> Result<Face, DbError> {
+        let embedding_literal = new
+            .embedding
+            .as_deref()
+            .map(crate::embeddings::vector_literal);
+        let row: FaceRow = sqlx::query_as(&format!(
+            "INSERT INTO faces (id, asset_id, bbox_x, bbox_y, bbox_w, bbox_h, landmarks, \
+                                 embedding, detect_score, quality, model_version) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, $9, $10, $11) \
+             RETURNING {COLUMNS}"
+        ))
+        .bind(FaceId::new().as_uuid())
+        .bind(new.asset_id.as_uuid())
+        .bind(new.bbox.x)
+        .bind(new.bbox.y)
+        .bind(new.bbox.w)
+        .bind(new.bbox.h)
+        .bind(&new.landmarks)
+        .bind(embedding_literal)
+        .bind(new.detect_score)
+        .bind(new.quality)
+        .bind(&new.model_version)
+        .fetch_one(self.db.pool())
+        .await?;
+        Ok(row.into_domain())
+    }
+
+    /// Volti di un asset, riquadri compresi — pannello dettagli foto. Esclude
+    /// i falsi positivi rifiutati.
+    ///
+    /// # Errors
+    /// `Forbidden` se l'asset non è visibile al chiamante.
+    pub async fn list_for_asset(
+        &self,
+        ctx: &AuthContext,
+        asset_id: AssetId,
+    ) -> Result<Vec<Face>, DbError> {
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+        let rows: Vec<FaceRow> = sqlx::query_as(&format!(
+            "SELECT {COLUMNS} FROM faces \
+              WHERE asset_id = $1 AND rejected_at IS NULL \
+              ORDER BY bbox_x"
+        ))
+        .bind(asset_id.as_uuid())
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows.into_iter().map(FaceRow::into_domain).collect())
+    }
+
+    /// Non prende `AuthContext`: la chiama il raggruppamento incrementale
+    /// (pipeline di sistema), non un utente.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn find_by_id_for_pipeline(&self, id: FaceId) -> Result<Option<Face>, DbError> {
+        let row: Option<FaceRow> =
+            sqlx::query_as(&format!("SELECT {COLUMNS} FROM faces WHERE id = $1"))
+                .bind(id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
+        Ok(row.map(FaceRow::into_domain))
+    }
+
+    /// Assegna automaticamente un volto a una persona (raggruppamento
+    /// incrementale): NON tocca `assigned_by`/`assigned_at`, che restano
+    /// riservati alla decisione umana. Non prende `AuthContext`: pipeline.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn auto_assign(&self, face_id: FaceId, person_id: PersonId) -> Result<(), DbError> {
+        let old_person = self.person_of(face_id).await?;
+        sqlx::query(
+            "UPDATE faces SET person_id = $2, proposed_person_id = NULL, proposed_score = NULL \
+              WHERE id = $1 AND assigned_by IS NULL",
+        )
+        .bind(face_id.as_uuid())
+        .bind(person_id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        self.recompute_affected_centroids(old_person, Some(person_id))
+            .await
+    }
+
+    async fn person_of(&self, face_id: FaceId) -> Result<Option<PersonId>, DbError> {
+        let row: Option<(Option<uuid::Uuid>,)> =
+            sqlx::query_as("SELECT person_id FROM faces WHERE id = $1")
+                .bind(face_id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
+        Ok(row.and_then(|(id,)| id).map(PersonId::from_uuid))
+    }
+
+    /// Ricalcola i centroidi delle persone toccate da un cambio di
+    /// composizione — un volto che entra in una persona, o ne esce, cambia
+    /// la media dei suoi embedding confermati. Non fallisce se
+    /// `PersonRepo::recompute_centroid` viene chiamato due volte sulla
+    /// stessa persona (idempotente: rilegge sempre `faces` da capo).
+    async fn recompute_affected_centroids(
+        &self,
+        old_person: Option<PersonId>,
+        new_person: Option<PersonId>,
+    ) -> Result<(), DbError> {
+        let person_repo = crate::PersonRepo::new(self.db);
+        if let Some(id) = old_person {
+            person_repo.recompute_centroid(id).await?;
+        }
+        if let Some(id) = new_person
+            && Some(id) != old_person
+        {
+            person_repo.recompute_centroid(id).await?;
+        }
+        Ok(())
+    }
+
+    /// Propone (senza assegnare) un volto a una persona: distanza dubbia dal
+    /// centroide più vicino (spec §4.1). Va in coda di revisione (Task 8).
+    /// Non prende `AuthContext`: pipeline.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn propose(
+        &self,
+        face_id: FaceId,
+        person_id: PersonId,
+        score: f32,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE faces SET proposed_person_id = $2, proposed_score = $3 \
+              WHERE id = $1 AND assigned_by IS NULL AND person_id IS NULL",
+        )
+        .bind(face_id.as_uuid())
+        .bind(person_id.as_uuid())
+        .bind(score)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Assegnazione manuale, dal pannello dettagli di una foto o dalla coda
+    /// di revisione: imposta `assigned_by`/`assigned_at`, e da qui in poi il
+    /// volto non viene più toccato dal raggruppamento automatico.
+    ///
+    /// # Errors
+    /// `Forbidden` se l'asset del volto non è visibile al chiamante (o senza
+    /// utente autenticato — un link pubblico non decide mai sui volti).
+    /// `NotFound` se il volto non esiste.
+    pub async fn assign(
+        &self,
+        ctx: &AuthContext,
+        face_id: FaceId,
+        person_id: PersonId,
+    ) -> Result<(), DbError> {
+        let Some(user_id) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+        self.assert_face_visible(ctx, face_id).await?;
+        let old_person = self.person_of(face_id).await?;
+
+        let result = sqlx::query(
+            "UPDATE faces SET person_id = $2, assigned_by = $3, assigned_at = now(), \
+                               rejected_at = NULL, proposed_person_id = NULL, proposed_score = NULL \
+              WHERE id = $1",
+        )
+        .bind(face_id.as_uuid())
+        .bind(person_id.as_uuid())
+        .bind(user_id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        self.recompute_affected_centroids(old_person, Some(person_id))
+            .await
+    }
+
+    /// «Non è un volto»: falso positivo permanente. Sparisce dalla revisione
+    /// e non viene mai riproposto da una rianalisi successiva.
+    ///
+    /// # Errors
+    /// Come [`Self::assign`].
+    pub async fn reject(&self, ctx: &AuthContext, face_id: FaceId) -> Result<(), DbError> {
+        let Some(user_id) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+        self.assert_face_visible(ctx, face_id).await?;
+        let old_person = self.person_of(face_id).await?;
+
+        let result = sqlx::query(
+            "UPDATE faces SET rejected_at = now(), assigned_by = $2, assigned_at = now(), \
+                               person_id = NULL, proposed_person_id = NULL, proposed_score = NULL \
+              WHERE id = $1",
+        )
+        .bind(face_id.as_uuid())
+        .bind(user_id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        self.recompute_affected_centroids(old_person, None).await
+    }
+
+    async fn assert_face_visible(&self, ctx: &AuthContext, face_id: FaceId) -> Result<(), DbError> {
+        let asset_id: Option<uuid::Uuid> =
+            sqlx::query_scalar("SELECT asset_id FROM faces WHERE id = $1")
+                .bind(face_id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
+        let Some(asset_id) = asset_id else {
+            return Err(DbError::NotFound);
+        };
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, &[AssetId::from_uuid(asset_id)])
+            .await
+    }
+
+    /// Volti candidati per il raggruppamento incrementale (Task 5): con
+    /// impronta calcolata, non ancora legati a una persona, non rifiutati.
+    /// Non prende `AuthContext`: pipeline di sistema.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn list_unassigned_with_embedding(
+        &self,
+        model_version: &str,
+        limit: i64,
+    ) -> Result<Vec<Face>, DbError> {
+        let rows: Vec<FaceRow> = sqlx::query_as(&format!(
+            "SELECT {COLUMNS} FROM faces \
+              WHERE person_id IS NULL AND rejected_at IS NULL AND assigned_by IS NULL \
+                AND embedding IS NOT NULL AND model_version = $1 \
+              ORDER BY created_at \
+              LIMIT $2"
+        ))
+        .bind(model_version)
+        .bind(limit)
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows.into_iter().map(FaceRow::into_domain).collect())
+    }
+
+    /// L'embedding di un volto, per il confronto col centroide di una
+    /// persona candidata (Task 5). Non prende `AuthContext`: pipeline.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn embedding_of(&self, face_id: FaceId) -> Result<Option<Vec<f32>>, DbError> {
+        let raw: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT embedding::text FROM faces WHERE id = $1")
+                .bind(face_id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
+        raw.and_then(|(text,)| text)
+            .map(|text| crate::embeddings::parse_vector_text(&text))
+            .transpose()
+    }
+
+    /// Volti proposti (assegnazione dubbia, in attesa di revisione umana),
+    /// filtrati sulla visibilità del chiamante — coda di revisione (Task 8),
+    /// stessa forma della coda tag (SP-10).
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente autenticato.
+    pub async fn list_proposed(&self, ctx: &AuthContext) -> Result<Vec<Face>, DbError> {
+        if ctx.user_id().is_none() {
+            return Err(DbError::Forbidden);
+        }
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let columns: Vec<String> = COLUMNS.split(", ").map(|c| format!("fa.{c}")).collect();
+        let rows: Vec<FaceRow> = sqlx::query_as(&format!(
+            "SELECT {} FROM faces fa \
+             JOIN assets a ON a.id = fa.asset_id \
+             JOIN folders f ON f.id = a.folder_id \
+             WHERE fa.proposed_person_id IS NOT NULL AND fa.person_id IS NULL \
+               AND fa.rejected_at IS NULL AND {} \
+             ORDER BY fa.proposed_score DESC NULLS LAST, fa.id",
+            columns.join(", "),
+            filter.sql()
+        ))
+        .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows.into_iter().map(FaceRow::into_domain).collect())
+    }
+
+    /// Conferma una proposta: assegna il volto alla persona proposta, come
+    /// se fosse una decisione umana diretta (Task 8, esito «conferma»).
+    ///
+    /// # Errors
+    /// `Forbidden`/`NotFound` come [`Self::assign`]. `Conflict` se il volto
+    /// non ha (più) una proposta in attesa.
+    pub async fn confirm_proposal(
+        &self,
+        ctx: &AuthContext,
+        face_id: FaceId,
+    ) -> Result<(), DbError> {
+        let Some(user_id) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+        self.assert_face_visible(ctx, face_id).await?;
+
+        let target: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "SELECT proposed_person_id FROM faces \
+              WHERE id = $1 AND proposed_person_id IS NOT NULL AND person_id IS NULL",
+        )
+        .bind(face_id.as_uuid())
+        .fetch_optional(self.db.pool())
+        .await?;
+        let Some((person_id,)) = target else {
+            return Err(DbError::Conflict("face has no pending proposal".to_owned()));
+        };
+
+        sqlx::query(
+            "UPDATE faces SET person_id = $2, assigned_by = $3, assigned_at = now(), \
+                               proposed_person_id = NULL, proposed_score = NULL \
+              WHERE id = $1",
+        )
+        .bind(face_id.as_uuid())
+        .bind(person_id)
+        .bind(user_id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        self.recompute_affected_centroids(None, Some(PersonId::from_uuid(person_id)))
+            .await
+    }
+
+    /// Numero di volti proposti visibili al chiamante — la metà "volti" del
+    /// badge combinato `bootstrap.badges.revision` (Fase 7 ha già la metà
+    /// "tag": stesso campo, non uno nuovo).
+    ///
+    /// # Errors
+    /// `Connection` in caso di errore diverso da schema assente.
+    pub async fn count_proposed_visible(&self, ctx: &AuthContext) -> Result<i64, DbError> {
+        if ctx.user_id().is_none() {
+            return Ok(0);
+        }
+        let status = crate::pgvector::probe_pgvector(self.db).await?;
+        if !status.available {
+            return Ok(0);
+        }
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let count: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM faces fa \
+             JOIN assets a ON a.id = fa.asset_id \
+             JOIN folders f ON f.id = a.folder_id \
+             WHERE fa.proposed_person_id IS NOT NULL AND fa.person_id IS NULL \
+               AND fa.rejected_at IS NULL AND {}",
+            filter.sql()
+        ))
+        .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
+        .fetch_one(self.db.pool())
+        .await?;
+        Ok(count)
+    }
+}
