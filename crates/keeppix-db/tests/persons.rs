@@ -270,7 +270,23 @@ async fn separate_creates_a_new_person_and_records_the_split() {
         .unwrap();
     assert_eq!(split_faces[0].person_id, Some(split_off.id));
 
-    assert!(repo.is_separated(source.id, split_off.id).await.unwrap());
+    let (lo, hi) = if source.id.as_uuid() < split_off.id.as_uuid() {
+        (source.id, split_off.id)
+    } else {
+        (split_off.id, source.id)
+    };
+    let separation: Option<(uuid::Uuid,)> = sqlx::query_as(
+        "SELECT person_a FROM person_separations WHERE person_a = $1 AND person_b = $2",
+    )
+    .bind(lo.as_uuid())
+    .bind(hi.as_uuid())
+    .fetch_optional(test.db().pool())
+    .await
+    .unwrap();
+    assert!(
+        separation.is_some(),
+        "the split must be recorded in person_separations"
+    );
     assert!(repo.has_any_separation(source.id).await.unwrap());
     assert!(repo.has_any_separation(split_off.id).await.unwrap());
 }

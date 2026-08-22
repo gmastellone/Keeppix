@@ -17,6 +17,44 @@ async fn seed_person(test: &TestDb) -> PersonId {
     PersonRepo::new(test.db()).create(None).await.unwrap().id
 }
 
+/// Stato grezzo di una riga `faces`, letto direttamente via SQL: a
+/// differenza di `FaceRepo::list_for_asset` (che esclude i rifiutati per
+/// disegno), qui i test devono poter osservare anche lo stato dopo un
+/// rifiuto.
+struct FaceState {
+    person_id: Option<uuid::Uuid>,
+    assigned_by: Option<uuid::Uuid>,
+    assigned_at: Option<chrono::DateTime<Utc>>,
+    rejected_at: Option<chrono::DateTime<Utc>>,
+    proposed_person_id: Option<uuid::Uuid>,
+}
+
+type FaceStateRow = (
+    Option<uuid::Uuid>,
+    Option<uuid::Uuid>,
+    Option<chrono::DateTime<Utc>>,
+    Option<chrono::DateTime<Utc>>,
+    Option<uuid::Uuid>,
+);
+
+async fn fetch_face_state(test: &TestDb, id: keeppix_domain::FaceId) -> FaceState {
+    let row: FaceStateRow = sqlx::query_as(
+        "SELECT person_id, assigned_by, assigned_at, rejected_at, proposed_person_id \
+         FROM faces WHERE id = $1",
+    )
+    .bind(id.as_uuid())
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    FaceState {
+        person_id: row.0,
+        assigned_by: row.1,
+        assigned_at: row.2,
+        rejected_at: row.3,
+        proposed_person_id: row.4,
+    }
+}
+
 const MODEL: &str = "scrfd-500mf+arcface";
 
 fn bbox() -> FaceBBox {
@@ -159,15 +197,11 @@ async fn manual_assignment_records_who_and_when() {
     let repo = FaceRepo::new(test.db());
     repo.assign(&ctx, face.id, person).await.unwrap();
 
-    let updated = repo
-        .find_by_id_for_pipeline(face.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(updated.person_id, Some(person));
-    assert_eq!(updated.assigned_by, Some(admin));
+    let updated = fetch_face_state(&test, face.id).await;
+    assert_eq!(updated.person_id, Some(person.as_uuid()));
+    assert_eq!(updated.assigned_by, Some(admin.as_uuid()));
     assert!(updated.assigned_at.is_some());
-    assert!(updated.is_human_assigned());
+    assert!(updated.assigned_by.is_some());
 }
 
 #[tokio::test]
@@ -184,12 +218,8 @@ async fn a_human_assigned_face_is_never_touched_by_auto_assign() {
     repo.assign(&ctx, face.id, chosen_by_human).await.unwrap();
     repo.auto_assign(face.id, auto_candidate).await.unwrap();
 
-    let updated = repo
-        .find_by_id_for_pipeline(face.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(updated.person_id, Some(chosen_by_human));
+    let updated = fetch_face_state(&test, face.id).await;
+    assert_eq!(updated.person_id, Some(chosen_by_human.as_uuid()));
 }
 
 #[tokio::test]
@@ -205,24 +235,16 @@ async fn reject_clears_any_assignment_and_is_permanent() {
     repo.assign(&ctx, face.id, person).await.unwrap();
     repo.reject(&ctx, face.id).await.unwrap();
 
-    let updated = repo
-        .find_by_id_for_pipeline(face.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(updated.is_rejected());
+    let updated = fetch_face_state(&test, face.id).await;
+    assert!(updated.rejected_at.is_some());
     assert!(updated.person_id.is_none());
 
     // Un rilevamento successivo non deve poter riassegnare un volto rifiutato
     // in automatico — resta rifiutato finché un umano non decide altrimenti.
     let other_person = seed_person(&test).await;
     repo.auto_assign(face.id, other_person).await.unwrap();
-    let still_rejected = repo
-        .find_by_id_for_pipeline(face.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(still_rejected.is_rejected());
+    let still_rejected = fetch_face_state(&test, face.id).await;
+    assert!(still_rejected.rejected_at.is_some());
 }
 
 #[tokio::test]
@@ -244,13 +266,9 @@ async fn a_proposed_face_appears_in_the_review_queue_and_confirm_assigns_it() {
     assert_eq!(repo.count_proposed_visible(&ctx).await.unwrap(), 1);
 
     repo.confirm_proposal(&ctx, face.id).await.unwrap();
-    let confirmed = repo
-        .find_by_id_for_pipeline(face.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(confirmed.person_id, Some(candidate));
-    assert_eq!(confirmed.assigned_by, Some(admin));
+    let confirmed = fetch_face_state(&test, face.id).await;
+    assert_eq!(confirmed.person_id, Some(candidate.as_uuid()));
+    assert_eq!(confirmed.assigned_by, Some(admin.as_uuid()));
     assert!(confirmed.proposed_person_id.is_none());
     assert_eq!(repo.count_proposed_visible(&ctx).await.unwrap(), 0);
 }
@@ -419,4 +437,59 @@ async fn mark_scanned_removes_the_asset_from_the_pending_queue_even_with_zero_fa
             .any(|p| p.asset_id == asset)
     );
     assert_eq!(repo.count_pending_scan(FACE_MODEL).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn confirm_all_proposed_for_person_assigns_only_that_persons_proposals() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset_a = seed_asset_in_new_library(&test, admin, "bulk-a").await;
+    let asset_b = seed_asset_in_new_library(&test, admin, "bulk-b").await;
+
+    let candidate = seed_person(&test).await;
+    let other_candidate = seed_person(&test).await;
+    let face_a = detect_face(&test, asset_a, Some(unit_axis(3))).await;
+    let face_b = detect_face(&test, asset_b, Some(unit_axis(4))).await;
+
+    let repo = FaceRepo::new(test.db());
+    repo.propose(face_a.id, candidate, 0.6).await.unwrap();
+    repo.propose(face_b.id, other_candidate, 0.6).await.unwrap();
+
+    let confirmed = repo
+        .confirm_all_proposed_for_person(&ctx, candidate)
+        .await
+        .unwrap();
+    assert_eq!(confirmed, vec![face_a.id]);
+
+    let a = fetch_face_state(&test, face_a.id).await;
+    assert_eq!(a.person_id, Some(candidate.as_uuid()));
+    let b = fetch_face_state(&test, face_b.id).await;
+    assert!(
+        b.person_id.is_none(),
+        "other candidate's proposal must be untouched"
+    );
+}
+
+#[tokio::test]
+async fn reject_all_proposed_for_person_is_permanent() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_asset_in_new_library(&test, admin, "bulk-reject").await;
+    let candidate = seed_person(&test).await;
+    let face = detect_face(&test, asset, Some(unit_axis(5))).await;
+
+    let repo = FaceRepo::new(test.db());
+    repo.propose(face.id, candidate, 0.6).await.unwrap();
+
+    let rejected = repo
+        .reject_all_proposed_for_person(&ctx, candidate)
+        .await
+        .unwrap();
+    assert_eq!(rejected, vec![face.id]);
+
+    let updated = fetch_face_state(&test, face.id).await;
+    assert!(updated.rejected_at.is_some());
+    assert!(updated.proposed_person_id.is_none());
 }
