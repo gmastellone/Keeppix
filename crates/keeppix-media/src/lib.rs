@@ -1,9 +1,11 @@
 //! Elaborazione dei file. Nessun database, nessuna rete, nessuno stato.
 
 pub mod ai;
+pub mod align;
 pub mod clip;
 pub mod derive;
 pub mod exif;
+pub mod face;
 pub mod gpx;
 pub mod hash;
 pub mod kind;
