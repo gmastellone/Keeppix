@@ -643,6 +643,198 @@
         ]
       }
     },
+    "/api/v1/assets/batch/rename": {
+      "post": {
+        "tags": [
+          "rename"
+        ],
+        "summary": "Apply a bulk rename",
+        "operationId": "rename_apply_batch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Esito per asset; batch_id annullabile sui riusciti",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenameOperationOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non visibile o non modificabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/batch/rename/preview": {
+      "post": {
+        "tags": [
+          "rename"
+        ],
+        "summary": "Preview a bulk rename",
+        "operationId": "rename_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Nomi calcolati, nulla scritto su disco o database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RenamePreviewItemView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Un asset non visibile o non modificabile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/batch/rename/{batch_id}/undo": {
+      "post": {
+        "tags": [
+          "rename"
+        ],
+        "summary": "Undo a bulk rename batch",
+        "operationId": "rename_undo_batch",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "description": "Id del batch restituito da apply",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Esito per asset ripristinato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenameOperationOutcome"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Batch non del chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/{id}": {
       "get": {
         "tags": [
@@ -12968,6 +13160,41 @@
           }
         }
       },
+      "RenameBatchRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "schema"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "schema": {
+            "type": "string",
+            "description": "Formula con segnaposto (spec §62): `{data}`, `{fotocamera}`,\n`{obiettivo}`, `{luogo}`, `{titolo}`, `{n[:D]}`."
+          }
+        }
+      },
+      "RenameOperationOutcome": {
+        "type": "object",
+        "description": "Nidificato, non appiattito su `BulkOutcome` (sicurezza `utoipa`: un\n`#[serde(flatten)]` su uno schema generato perde i nomi dei campi nel\ndocumento `OpenAPI`).",
+        "required": [
+          "operation_id",
+          "outcome"
+        ],
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/BulkOutcome"
+          }
+        }
+      },
       "RenamePersonGroupRequest": {
         "type": "object",
         "required": [
@@ -12975,6 +13202,33 @@
         ],
         "properties": {
           "name": {
+            "type": "string"
+          }
+        }
+      },
+      "RenamePreviewItemView": {
+        "type": "object",
+        "required": [
+          "asset_id",
+          "folder_id",
+          "current_name",
+          "new_name",
+          "collides"
+        ],
+        "properties": {
+          "asset_id": {
+            "type": "string"
+          },
+          "collides": {
+            "type": "boolean"
+          },
+          "current_name": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "new_name": {
             "type": "string"
           }
         }

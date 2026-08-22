@@ -10,12 +10,12 @@ use std::path::PathBuf;
 use chrono::{TimeZone, Utc};
 use harness::TestDb;
 use keeppix_db::{
-    AssetRepo, DbError, FolderRepo, LibraryRepo, NewGrant, ObjectType, PermissionRepo, RenameRepo,
-    StackRepo, SubjectType,
+    AssetRepo, DbError, FolderRepo, LibraryRepo, NewGrant, ObjectType, OperationsRepo,
+    PermissionRepo, RenameRepo, StackRepo, SubjectType,
 };
 use keeppix_domain::{
     AssetId, AssetKind, AssetName, AuthContext, LibraryId, NewAsset, NewLibrary, ObjectRole,
-    SystemRole, UserId,
+    OperationKind, OperationStatus, SystemRole, UserId,
 };
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -485,7 +485,7 @@ mod apply {
         set_title(&test, asset_id, "Tramonto").await;
 
         let outcome = RenameRepo::new(test.db())
-            .apply(&ctx, &[asset_id], "{titolo}")
+            .apply(&ctx, &[asset_id], "{titolo}", false)
             .await
             .unwrap();
 
@@ -526,7 +526,7 @@ mod apply {
         set_title(&test, raw, "Alba").await;
 
         let outcome = RenameRepo::new(test.db())
-            .apply(&ctx, &[raw], "{titolo}")
+            .apply(&ctx, &[raw], "{titolo}", false)
             .await
             .unwrap();
 
@@ -563,7 +563,7 @@ mod apply {
         let b = indexed_asset(&assets, folder.id, "b.jpg", taken_at).await;
 
         let outcome = RenameRepo::new(test.db())
-            .apply(&ctx, &[a, b], "{data}")
+            .apply(&ctx, &[a, b], "{data}", false)
             .await
             .unwrap();
 
@@ -633,7 +633,7 @@ mod apply {
         // un solo asset di sola visione basta a rifiutare l'intera chiamata,
         // prima ancora di tentare il primo move_asset.
         let result = RenameRepo::new(test.db())
-            .apply(&editor_ctx, &[a, b], "x")
+            .apply(&editor_ctx, &[a, b], "x", false)
             .await;
 
         assert!(matches!(result, Err(DbError::Forbidden)), "{result:?}");
@@ -673,11 +673,14 @@ mod undo {
         set_title(&test, asset_id, "Tramonto").await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[asset_id], "{titolo}").await.unwrap();
+        let applied = repo
+            .apply(&ctx, &[asset_id], "{titolo}", false)
+            .await
+            .unwrap();
         let batch_id = applied.batch_id.unwrap();
         assert!(root.join("2024").join("Tramonto.JPG").is_file());
 
-        let undone = repo.undo(&ctx, batch_id).await.unwrap();
+        let undone = repo.undo(&ctx, batch_id, false).await.unwrap();
 
         assert!(!undone.already_undone);
         assert_eq!(undone.restored.len(), 1);
@@ -719,10 +722,10 @@ mod undo {
         set_title(&test, raw, "Alba").await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[raw], "{titolo}").await.unwrap();
+        let applied = repo.apply(&ctx, &[raw], "{titolo}", false).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
-        let undone = repo.undo(&ctx, batch_id).await.unwrap();
+        let undone = repo.undo(&ctx, batch_id, false).await.unwrap();
 
         assert_eq!(undone.restored.len(), 2, "raw + jpeg affiancato");
         assert!(root.join("2024").join("DSC_0042.ARW").is_file());
@@ -756,12 +759,12 @@ mod undo {
         .await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[asset_id], "b").await.unwrap();
+        let applied = repo.apply(&ctx, &[asset_id], "b", false).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
-        let first = repo.undo(&ctx, batch_id).await.unwrap();
+        let first = repo.undo(&ctx, batch_id, false).await.unwrap();
         assert!(!first.already_undone);
-        let second = repo.undo(&ctx, batch_id).await.unwrap();
+        let second = repo.undo(&ctx, batch_id, false).await.unwrap();
         assert!(second.already_undone);
         assert!(second.restored.is_empty());
 
@@ -791,7 +794,7 @@ mod undo {
         .await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[asset_id], "b").await.unwrap();
+        let applied = repo.apply(&ctx, &[asset_id], "b", false).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
         // Un editor con accesso pieno all'asset, ma non è chi ha applicato
@@ -814,7 +817,7 @@ mod undo {
             .unwrap();
         let editor_ctx = AuthContext::user(editor, SystemRole::User);
 
-        let result = repo.undo(&editor_ctx, batch_id).await;
+        let result = repo.undo(&editor_ctx, batch_id, false).await;
 
         assert!(matches!(result, Err(DbError::Forbidden)), "{result:?}");
         assert!(root.join("2024").join("b.JPG").is_file(), "niente si muove");
@@ -840,7 +843,7 @@ mod undo {
         let asset_id = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[asset_id], "b").await.unwrap();
+        let applied = repo.apply(&ctx, &[asset_id], "b", false).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
         assert!(root.join("2024").join("b.JPG").is_file());
 
@@ -848,7 +851,7 @@ mod undo {
         fs::write(root.join("2024").join("a.jpg"), b"intruso").unwrap();
         let _intruder = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
 
-        let undone = repo.undo(&ctx, batch_id).await.unwrap();
+        let undone = repo.undo(&ctx, batch_id, false).await.unwrap();
 
         assert!(undone.restored.is_empty());
         assert_eq!(undone.failed.len(), 1);
@@ -869,9 +872,164 @@ mod undo {
         let ctx = AuthContext::user(admin, SystemRole::Admin);
 
         let result = RenameRepo::new(test.db())
-            .undo(&ctx, keeppix_domain::BatchId::new())
+            .undo(&ctx, keeppix_domain::BatchId::new(), false)
             .await;
 
         assert!(matches!(result, Err(DbError::NotFound)), "{result:?}");
+    }
+}
+
+mod operation_tracking {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn apply_reports_total_and_successes_then_finishes_done() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let root = temp_library_root("op-apply");
+        let library = seed_library_at(&test, admin, &root).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let folders = FolderRepo::new(test.db());
+        let assets = AssetRepo::new(test.db());
+        let operations = OperationsRepo::new(test.db());
+
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::write(root.join("2024").join("a.jpg"), b"a").unwrap();
+        fs::write(root.join("2024").join("b.jpg"), b"b").unwrap();
+        let taken_at = Utc.with_ymd_and_hms(2026, 8, 14, 0, 0, 0).unwrap();
+        let a = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
+        let b = indexed_asset(&assets, folder.id, "b.jpg", taken_at).await;
+
+        let outcome = RenameRepo::new(test.db())
+            .apply(&ctx, &[a, b], "{titolo}_{n:2}", true)
+            .await
+            .unwrap();
+        assert_eq!(outcome.renamed.len(), 2);
+        let op_id = outcome.operation_id.unwrap();
+
+        let finished = operations.find(&ctx, op_id).await.unwrap();
+        assert_eq!(finished.status, OperationStatus::Done);
+        assert_eq!(finished.total, Some(2));
+        assert_eq!(finished.done, 2);
+        assert_eq!(finished.phase, "renaming");
+        let mut succeeded = finished.succeeded.clone();
+        succeeded.sort_by_key(AssetId::as_uuid);
+        let mut expected = vec![a, b];
+        expected.sort_by_key(AssetId::as_uuid);
+        assert_eq!(succeeded, expected);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn apply_stops_partway_when_cancel_is_requested_mid_batch() {
+        // apply() crea la propria operazione internamente (Ruling sopra:
+        // mai prima dei controlli che possono far fallire la chiamata), quindi
+        // non c'è un id da annullare prima di chiamarla. Il test corre
+        // apply() su un lotto abbastanza grande da lasciare una finestra
+        // reale, e un secondo task interroga list_running finché non trova
+        // l'operazione per chiederne l'annullamento — polling, non
+        // un'attesa fissa, per non essere un test instabile.
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let root = temp_library_root("op-cancel");
+        let library = seed_library_at(&test, admin, &root).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let folders = FolderRepo::new(test.db());
+        let assets = AssetRepo::new(test.db());
+        let operations = OperationsRepo::new(test.db());
+
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        let taken_at = Utc.with_ymd_and_hms(2026, 8, 14, 0, 0, 0).unwrap();
+        let mut asset_ids = Vec::new();
+        for i in 0..200 {
+            let name = format!("a{i:03}.jpg");
+            fs::write(root.join("2024").join(&name), b"x").unwrap();
+            asset_ids.push(indexed_asset(&assets, folder.id, &name, taken_at).await);
+        }
+
+        let canceller_ctx = ctx.clone();
+        let canceller_db = test.db().clone();
+        let canceller = tokio::spawn(async move {
+            let operations = OperationsRepo::new(&canceller_db);
+            for _ in 0..200 {
+                let running = operations.list_running(&canceller_ctx).await.unwrap();
+                if let Some(op) = running.iter().find(|o| o.kind == OperationKind::BulkRename) {
+                    operations
+                        .request_cancel(&canceller_ctx, op.id)
+                        .await
+                        .unwrap();
+                    return true;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            }
+            false
+        });
+
+        let outcome = RenameRepo::new(test.db())
+            .apply(&ctx, &asset_ids, "{n:3}", true)
+            .await
+            .unwrap();
+        let found_it = canceller.await.unwrap();
+
+        assert!(
+            found_it,
+            "il canceller non ha trovato l'operazione in tempo"
+        );
+        assert!(
+            outcome.renamed.len() < asset_ids.len(),
+            "l'annullamento deve aver fermato il giro prima della fine: {} rinominati su {}",
+            outcome.renamed.len(),
+            asset_ids.len()
+        );
+        let op_id = outcome.operation_id.unwrap();
+        let finished = operations.find(&ctx, op_id).await.unwrap();
+        assert_eq!(finished.status, OperationStatus::Cancelled);
+        assert_eq!(
+            finished.done,
+            i64::try_from(outcome.renamed.len()).unwrap(),
+            "il conteggio dell'operazione e i rinominati restituiti concordano"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn undo_reports_progress_and_finishes_done() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let root = temp_library_root("op-undo");
+        let library = seed_library_at(&test, admin, &root).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let folders = FolderRepo::new(test.db());
+        let assets = AssetRepo::new(test.db());
+        let operations = OperationsRepo::new(test.db());
+
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::write(root.join("2024").join("a.jpg"), b"a").unwrap();
+        let taken_at = Utc.with_ymd_and_hms(2026, 8, 14, 0, 0, 0).unwrap();
+        let asset_id = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
+
+        let repo = RenameRepo::new(test.db());
+        let applied = repo.apply(&ctx, &[asset_id], "b", false).await.unwrap();
+        let batch_id = applied.batch_id.unwrap();
+
+        let undone = repo.undo(&ctx, batch_id, true).await.unwrap();
+        assert_eq!(undone.restored.len(), 1);
+
+        let op_id = undone.operation_id.unwrap();
+        let finished = operations.find(&ctx, op_id).await.unwrap();
+        assert_eq!(finished.status, OperationStatus::Done);
+        assert_eq!(finished.total, Some(1));
+        assert_eq!(finished.done, 1);
+        assert_eq!(finished.phase, "undoing");
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

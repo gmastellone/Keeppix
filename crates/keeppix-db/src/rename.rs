@@ -1,7 +1,24 @@
-//! Rinomina con formula (Fase 9 Task 8-9): risoluzione dei valori per
-//! asset, i tre ambiti, la co-rinomina dei file affiancati di una pila, e
-//! l'applicazione con audit per l'annullamento. Il motore vero e proprio
-//! (`render_base`/`apply_base_to_filename`) è puro, in `keeppix-domain`.
+//! Rinomina con formula (Fase 9 Task 8-10): risoluzione dei valori per
+//! asset, i tre ambiti, la co-rinomina dei file affiancati di una pila,
+//! l'applicazione con audit per l'annullamento, e l'avanzamento/annullamento
+//! di un'operazione lunga (Task 10, `OperationKind::BulkRename`). Il motore
+//! vero e proprio (`render_base`/`apply_base_to_filename`) è puro, in
+//! `keeppix-domain`.
+//!
+//! **`apply`/`undo` fanno anche da "worker" della propria operazione**
+//! (Task 10): a differenza di `LibraryScan`/`AiAnalysis`/`FaceDetection`
+//! (guidate da un job di `keeppix-jobs`, perché lente e legate a inferenza
+//! di modello), la rinomina è veloce — ogni passo è un `move_asset` — e resta
+//! sincrona dentro la richiesta HTTP. Con `track_operation: true`, `apply`/
+//! `undo` creano l'`Operation` internamente, **dopo** che tutti i controlli
+//! fallibili a monte (permessi/visibilità per `apply`; lookup/proprietà del
+//! batch per `undo`) sono già passati — così nessun `Err` precoce può
+//! lasciare un'operazione orfana bloccata su `running`. Da lì in poi
+//! interrogano `is_cancel_requested` fra un asset e il successivo e
+//! chiudono da sole lo stato finale (`finish_done`/`finish_cancelled`) —
+//! lo stesso ruolo che altrove gioca il worker in background, qui giocato
+//! dalla stessa funzione che fa il lavoro. L'id (`Option<OperationId>`) torna
+//! al chiamante dentro `RenameBatchOutcome`/`RenameUndoOutcome`.
 //!
 //! **Difetto 1 chiuso qui** (spec §62.3d, rinviato dal Task 7): la
 //! collisione è verificata contro l'intero database — anteprima e
@@ -30,13 +47,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use keeppix_domain::{
-    Asset, AssetId, AssetName, AuthContext, BatchId, FolderId, RenameValues, UserId,
-    apply_base_to_filename, render_base,
+    Asset, AssetId, AssetName, AuthContext, BatchId, FolderId, OperationId, OperationKind,
+    RenameValues, UserId, apply_base_to_filename, render_base,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{AssetRepo, Db, DbError, PermissionRepo};
+use crate::{AssetRepo, Db, DbError, OperationsRepo, PermissionRepo};
 
 /// Stato di un asset prima di un batch di rinomina, chiave = `AssetId` come
 /// testo (stesso schema di `metadata_batches.previous`,
@@ -76,6 +93,12 @@ pub struct RenameBatchOutcome {
     /// `None` se nessun asset è stato rinominato con successo — nulla da
     /// annullare, nessuna riga scritta in `rename_batches`.
     pub batch_id: Option<BatchId>,
+    /// `Some` solo se `track_operation` era `true` — creata **dopo** i
+    /// controlli che possono far fallire l'intera chiamata (permesso,
+    /// ambito), mai prima: un'operazione creata e poi mai chiusa perché la
+    /// chiamata fallisce subito dopo resterebbe `running` per sempre, orfana
+    /// sul WebSocket.
+    pub operation_id: Option<OperationId>,
     pub renamed: Vec<Asset>,
     pub failed: Vec<(AssetId, DbError)>,
 }
@@ -86,6 +109,10 @@ pub struct RenameUndoOutcome {
     /// (`OverrideRepo::undo_batch` tratta un secondo annullamento allo
     /// stesso modo: nessun lavoro da fare, non un fallimento).
     pub already_undone: bool,
+    /// Come [`RenameBatchOutcome::operation_id`] — creata dopo la verifica
+    /// di proprietà del batch, così anche il caso "già annullato" ne crea
+    /// una regolarmente chiusa subito, mai un'operazione fantasma.
+    pub operation_id: Option<OperationId>,
     pub restored: Vec<Asset>,
     pub failed: Vec<(AssetId, DbError)>,
 }
@@ -171,6 +198,19 @@ impl<'a> RenameRepo<'a> {
     /// rinominati con successo — un fallimento parziale non lascia
     /// annullabile ciò che non è mai cambiato.
     ///
+    /// `track_operation` (Task 10, `OperationKind::BulkRename`): quando
+    /// `true`, crea l'operazione **qui dentro**, dopo `compute` — mai prima
+    /// dei controlli che possono far fallire l'intera chiamata (permesso,
+    /// ambito): un'operazione creata e poi mai chiusa perché la chiamata
+    /// fallisce subito dopo resterebbe `running` per sempre, fantasma sul
+    /// WebSocket. Da lì in poi `apply` ne gioca il ruolo di worker: totale e
+    /// fase impostati prima del giro, `cancel_requested` interrogato fra un
+    /// asset e il successivo — un annullamento a metà **non** è un rollback
+    /// (Ruling Task 16, `operation.rs`): gli asset già rinominati restano
+    /// rinominati, quelli non ancora tentati restano com'erano, né riusciti
+    /// né falliti. Lo stato finale (`Done`/`Cancelled`) lo chiude questa
+    /// stessa funzione, non il chiamante.
+    ///
     /// # Errors
     /// `Forbidden` se il chiamante non è autenticato. Gli errori per
     /// singolo asset finiscono in `failed`, non propagati.
@@ -179,20 +219,44 @@ impl<'a> RenameRepo<'a> {
         ctx: &AuthContext,
         asset_ids: &[AssetId],
         schema: &str,
+        track_operation: bool,
     ) -> Result<RenameBatchOutcome, DbError> {
         let Some(actor) = ctx.user_id() else {
             return Err(DbError::Forbidden);
         };
         let items = self.compute(ctx, asset_ids, schema).await?;
 
+        let operations = OperationsRepo::new(self.db);
+        let operation_id = if track_operation {
+            let op = operations.create(ctx, OperationKind::BulkRename).await?;
+            let total = items
+                .iter()
+                .filter(|item| item.current_name != item.new_name)
+                .count();
+            let total = i64::try_from(total)
+                .map_err(|e| DbError::Corrupted(format!("rename batch total: {e}")))?;
+            operations.set_total(op.id, Some(total)).await?;
+            operations.set_phase(op.id, "renaming").await?;
+            Some(op.id)
+        } else {
+            None
+        };
+
         let assets = AssetRepo::new(self.db);
         let mut renamed = Vec::new();
         let mut failed = Vec::new();
         let mut previous: PreviousRenameState = BTreeMap::new();
+        let mut cancelled = false;
 
         for item in items {
             if item.current_name == item.new_name {
                 continue;
+            }
+            if let Some(op_id) = operation_id
+                && operations.is_cancel_requested(op_id).await?
+            {
+                cancelled = true;
+                break;
             }
             let new_filename = match AssetName::parse(&item.new_name) {
                 Ok(name) => name,
@@ -216,9 +280,20 @@ impl<'a> RenameRepo<'a> {
                             filename: item.current_name,
                         },
                     );
+                    if let Some(op_id) = operation_id {
+                        operations.record_success(op_id, item.asset_id).await?;
+                    }
                     renamed.push(asset);
                 }
                 Err(err) => failed.push((item.asset_id, err)),
+            }
+        }
+
+        if let Some(op_id) = operation_id {
+            if cancelled {
+                operations.finish_cancelled(op_id).await?;
+            } else {
+                operations.finish_done(op_id).await?;
             }
         }
 
@@ -240,6 +315,7 @@ impl<'a> RenameRepo<'a> {
 
         Ok(RenameBatchOutcome {
             batch_id,
+            operation_id,
             renamed,
             failed,
         })
@@ -270,6 +346,12 @@ impl<'a> RenameRepo<'a> {
     /// precedente (qualcun altro occupa già quel nome) finisce in `failed`
     /// senza bloccare gli altri asset del batch.
     ///
+    /// `track_operation` (Task 10): stesso ruolo di worker di
+    /// [`Self::apply`] — l'operazione si crea **qui**, dopo il controllo di
+    /// proprietà del batch, mai prima: anche il caso "già annullato" ne crea
+    /// una regolarmente, chiusa `Done` subito (nessun giro da fare), invece
+    /// di lasciarne una fantasma se la chiamata fosse fallita prima.
+    ///
     /// # Errors
     /// `NotFound`/`Forbidden` se il batch non esiste o non appartiene al
     /// chiamante (non admin). Gli errori per singolo asset finiscono in
@@ -278,6 +360,7 @@ impl<'a> RenameRepo<'a> {
         &self,
         ctx: &AuthContext,
         batch_id: BatchId,
+        track_operation: bool,
     ) -> Result<RenameUndoOutcome, DbError> {
         #[derive(sqlx::FromRow)]
         struct BatchRow {
@@ -307,10 +390,23 @@ impl<'a> RenameRepo<'a> {
             return Err(DbError::Forbidden);
         }
 
+        let operations = OperationsRepo::new(self.db);
+        let operation_id = if track_operation {
+            Some(operations.create(ctx, OperationKind::BulkRename).await?.id)
+        } else {
+            None
+        };
+
         if row.undone_at.is_some() {
             tx.commit().await?;
+            // Nessun giro da fare, ma un'operazione appena creata va
+            // comunque chiusa: altrimenti resterebbe `running` per sempre.
+            if let Some(op_id) = operation_id {
+                operations.finish_done(op_id).await?;
+            }
             return Ok(RenameUndoOutcome {
                 already_undone: true,
+                operation_id,
                 restored: Vec::new(),
                 failed: Vec::new(),
             });
@@ -333,14 +429,60 @@ impl<'a> RenameRepo<'a> {
         let previous: PreviousRenameState = serde_json::from_value(row.previous)
             .map_err(|e| crate::row::corrupted("rename_batches.previous", e))?;
 
+        if let Some(op_id) = operation_id {
+            let total = i64::try_from(previous.len())
+                .map_err(|e| DbError::Corrupted(format!("rename batch total: {e}")))?;
+            operations.set_total(op_id, Some(total)).await?;
+            operations.set_phase(op_id, "undoing").await?;
+        }
+
+        let (restored, failed, cancelled) = self
+            .restore_previous_locations(ctx, previous, &operations, operation_id)
+            .await?;
+
+        if let Some(op_id) = operation_id {
+            if cancelled {
+                operations.finish_cancelled(op_id).await?;
+            } else {
+                operations.finish_done(op_id).await?;
+            }
+        }
+
+        Ok(RenameUndoOutcome {
+            already_undone: false,
+            operation_id,
+            restored,
+            failed,
+        })
+    }
+
+    /// Il giro per-asset di [`Self::undo`]: richiamato `move_asset` "al
+    /// contrario" per ogni voce di `previous`, con lo stesso schema di
+    /// riuscita parziale e interruzione da annullamento di [`Self::apply`].
+    /// Estratto solo per stare sotto il limite di righe di clippy — nessuna
+    /// logica propria oltre a quella già descritta su `undo`.
+    async fn restore_previous_locations(
+        &self,
+        ctx: &AuthContext,
+        previous: PreviousRenameState,
+        operations: &OperationsRepo<'_>,
+        operation_id: Option<OperationId>,
+    ) -> Result<(Vec<Asset>, Vec<(AssetId, DbError)>, bool), DbError> {
         let assets = AssetRepo::new(self.db);
         let mut restored = Vec::new();
         let mut failed = Vec::new();
+        let mut cancelled = false;
         for (raw_id, location) in previous {
             let asset_id = match raw_id.parse::<Uuid>() {
                 Ok(id) => AssetId::from_uuid(id),
                 Err(_) => continue, // scritto solo da apply(): un id malformato non può esistere.
             };
+            if let Some(op_id) = operation_id
+                && operations.is_cancel_requested(op_id).await?
+            {
+                cancelled = true;
+                break;
+            }
             let filename = match AssetName::parse(&location.filename) {
                 Ok(name) => name,
                 Err(err) => {
@@ -360,16 +502,16 @@ impl<'a> RenameRepo<'a> {
                 )
                 .await
             {
-                Ok(asset) => restored.push(asset),
+                Ok(asset) => {
+                    if let Some(op_id) = operation_id {
+                        operations.record_success(op_id, asset_id).await?;
+                    }
+                    restored.push(asset);
+                }
                 Err(err) => failed.push((asset_id, err)),
             }
         }
-
-        Ok(RenameUndoOutcome {
-            already_undone: false,
-            restored,
-            failed,
-        })
+        Ok((restored, failed, cancelled))
     }
 
     /// Il calcolo condiviso da `preview`/`apply`: cancello di permesso,

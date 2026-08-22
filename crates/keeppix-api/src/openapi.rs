@@ -11,8 +11,8 @@ use crate::extract::SESSION_COOKIE;
 use crate::routes::{
     albums, audit, auth, backup, bootstrap, credentials, duplicates, faces, flags, folders, geotag,
     groups, health, libraries, map, media, metadata, operations, permissions, persons, places,
-    preferences, problems, regions, restore, search, sessions, setup, share, stacks, sync, tags,
-    timeline, totp, trash, upload, users, video, viewport, ws,
+    preferences, problems, regions, rename, restore, search, sessions, setup, share, stacks, sync,
+    tags, timeline, totp, trash, upload, users, video, viewport, ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -107,6 +107,9 @@ impl utoipa::Modify for SecurityAddon {
         metadata::preview_timezones,
         metadata::apply_timezones,
         metadata::undo_batch,
+        rename::preview,
+        rename::apply_batch,
+        rename::undo_batch,
         geotag::copy_location,
         geotag::import_gpx,
         flags::get,
@@ -275,6 +278,9 @@ impl utoipa::Modify for SecurityAddon {
         metadata::TimezoneExampleView,
         metadata::TimezonePreviewView,
         metadata::TimezoneApplyView,
+        rename::RenameBatchRequest,
+        rename::RenamePreviewItemView,
+        rename::RenameOperationOutcome,
         geotag::CopyLocationRequest,
         geotag::ImportGpxRequest,
         flags::AssetFlagsBody,

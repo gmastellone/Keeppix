@@ -1,9 +1,9 @@
-//! Operazioni lunghe sul disco (Fase 10 Task 16): la scansione di libreria è
-//! oggi il solo caso reale — la rinomina di massa (Fase 9) non esiste ancora
-//! nel codice, quindi non compare qui. **Ruling**: l'infrastruttura è
-//! generica apposta, così un futuro `OperationKind::BulkRename` si aggiunge
-//! senza toccare il protocollo (`operation_id`, avanzamento sul WebSocket,
-//! `cancel`).
+//! Operazioni lunghe sul disco (Fase 10 Task 16). **Ruling**:
+//! l'infrastruttura è generica apposta — `BulkRename` (Fase 9 Task 10) si è
+//! aggiunta come quarta variante senza toccare il protocollo (`operation_id`,
+//! avanzamento sul WebSocket, `cancel`), esattamente come previsto quando
+//! `AiAnalysis`/`FaceDetection` erano già state le prime due ad arrivare
+//! dopo `LibraryScan`.
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,13 @@ pub enum OperationKind {
     /// la libreria (culling escluso). Riusa lo stesso involucro `Operation`
     /// di `AiAnalysis`, non un sottosistema parallelo.
     FaceDetection,
+    /// Rinomina/spostamento di massa (Fase 9 Task 10): a differenza delle
+    /// altre tre, guidata **sincrona dentro la richiesta HTTP**, non da un
+    /// job di `keeppix-jobs` — ogni passo è un `move_asset`, veloce, senza
+    /// inferenza di modello, non serve sopravvivere a un riavvio del
+    /// processo. Lo stesso involucro `Operation`/WebSocket/`cancel` resta
+    /// identico: solo chi lo pilota cambia.
+    BulkRename,
 }
 
 impl OperationKind {
@@ -28,6 +35,7 @@ impl OperationKind {
             Self::LibraryScan => "library_scan",
             Self::AiAnalysis => "ai_analysis",
             Self::FaceDetection => "face_detection",
+            Self::BulkRename => "bulk_rename",
         }
     }
 
@@ -38,6 +46,7 @@ impl OperationKind {
             "library_scan" => Ok(Self::LibraryScan),
             "ai_analysis" => Ok(Self::AiAnalysis),
             "face_detection" => Ok(Self::FaceDetection),
+            "bulk_rename" => Ok(Self::BulkRename),
             other => Err(DomainError::InvalidOperationKind(other.to_owned())),
         }
     }
@@ -97,6 +106,7 @@ mod tests {
             OperationKind::LibraryScan,
             OperationKind::AiAnalysis,
             OperationKind::FaceDetection,
+            OperationKind::BulkRename,
         ] {
             assert_eq!(
                 OperationKind::parse(kind.as_str()).expect("round-trip"),
@@ -107,7 +117,7 @@ mod tests {
 
     #[test]
     fn unknown_operation_kind_is_rejected() {
-        assert!(OperationKind::parse("bulk_rename").is_err());
+        assert!(OperationKind::parse("bulk_delete").is_err());
     }
 
     #[test]
