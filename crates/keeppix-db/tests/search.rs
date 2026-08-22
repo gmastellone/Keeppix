@@ -110,6 +110,25 @@ async fn set_place(test: &TestDb, asset_id: keeppix_domain::AssetId, place_id: i
         .unwrap();
 }
 
+async fn set_pick(
+    test: &TestDb,
+    asset_id: keeppix_domain::AssetId,
+    user: keeppix_domain::UserId,
+    pick: &str,
+) {
+    sqlx::query(
+        "INSERT INTO asset_flags (asset_id, user_id, pick, updated_at) \
+         VALUES ($1, $2, $3, now()) \
+         ON CONFLICT (asset_id, user_id) DO UPDATE SET pick = EXCLUDED.pick",
+    )
+    .bind(asset_id.as_uuid())
+    .bind(user.as_uuid())
+    .bind(pick)
+    .execute(test.db().pool())
+    .await
+    .unwrap();
+}
+
 async fn set_favorite(
     test: &TestDb,
     asset_id: keeppix_domain::AssetId,
@@ -441,6 +460,153 @@ async fn favorite_filter_is_per_user_not_per_asset() {
         "il preferito di marta su plain.jpg non deve comparire nella ricerca dell'admin"
     );
     assert_eq!(found[0].id, loved);
+}
+
+#[tokio::test]
+async fn pick_filter_matches_only_the_current_users_explicit_value() {
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let admin = ctx.user_id().unwrap();
+    // Come rating/favorite: il pick di un altro utente non deve comparire
+    // nella ricerca di questo.
+    let other_user = harness::seed_user(&test, admin, "marta").await;
+    let taken = index(&test, folder, "taken.jpg", AssetKind::Image, 2).await;
+    let skipped = index(&test, folder, "skipped.jpg", AssetKind::Image, 3).await;
+    let other_users_pick = index(&test, folder, "not-mine.jpg", AssetKind::Image, 4).await;
+
+    set_pick(&test, taken, admin, "pick").await;
+    set_pick(&test, skipped, admin, "reject").await;
+    set_pick(&test, other_users_pick, other_user, "pick").await;
+
+    let picked = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Pick {
+                value: keeppix_domain::Pick::Pick,
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(picked.len(), 1);
+    assert_eq!(picked[0].id, taken);
+
+    let rejected = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Pick {
+                value: keeppix_domain::Pick::Reject,
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.len(), 1);
+    assert_eq!(rejected[0].id, skipped);
+}
+
+#[tokio::test]
+async fn pick_none_matches_both_never_flagged_and_explicitly_cleared() {
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let admin = ctx.user_id().unwrap();
+    // Mai passato da asset_flags: nessuna riga per questo utente, il modo
+    // in cui la stragrande maggioranza degli asset esiste davvero (nessun
+    // default di colonna scrive 'none' da sola).
+    let never_touched = index(&test, folder, "never-touched.jpg", AssetKind::Image, 2).await;
+    // Scelto e poi la scelta annullata (Task 4): riga esplicita pick='none'.
+    let cleared = index(&test, folder, "cleared.jpg", AssetKind::Image, 3).await;
+    set_pick(&test, cleared, admin, "none").await;
+    // Il contrario: deve restare fuori da entrambi i risultati sopra.
+    let picked = index(&test, folder, "picked.jpg", AssetKind::Image, 4).await;
+    set_pick(&test, picked, admin, "pick").await;
+
+    let found = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Pick {
+                value: keeppix_domain::Pick::None,
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+
+    let mut ids: Vec<_> = found.iter().map(|a| a.id.as_uuid()).collect();
+    ids.sort();
+    let mut expected = vec![never_touched.as_uuid(), cleared.as_uuid()];
+    expected.sort();
+    assert_eq!(
+        ids, expected,
+        "«da valutare» deve includere sia chi non ha mai avuto un flag sia \
+         chi lo ha esplicitamente annullato — mai solo il secondo"
+    );
+}
+
+/// EXPLAIN reale su una scala che rende visibile la scelta del
+/// pianificatore, stesso principio di `favorite_search_uses_the_partial_index`
+/// (con pochi asset l'indice parziale e un seq scan costano uguale). Misurato,
+/// non assunto: `asset_flags_user_pick_idx` è parziale su `pick <> 'none'`
+/// (migrazione 0012), quindi il ramo `Pick::None` (`NOT EXISTS ... IN
+/// ('pick','reject')`) non è ovvio che lo usi allo stesso modo del ramo
+/// `Pick::Pick`/`Reject` (`EXISTS ... pick = $2`).
+#[tokio::test]
+async fn pick_search_uses_the_partial_index_for_pick_and_reject() {
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let user = ctx.user_id().unwrap();
+    let pool = test.db().pool();
+
+    sqlx::query(
+        "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, kind, status, \
+                             taken_at_utc, width, height) \
+         SELECT gen_random_uuid(), $1, 'IMG_' || lpad(g::text, 6, '0') || '.jpg', \
+                200000, now(), 'image', 'indexed', now() - make_interval(mins => g), 100, 100 \
+           FROM generate_series(1, 20000) AS g",
+    )
+    .bind(folder.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO asset_flags (asset_id, user_id, pick, updated_at) \
+         SELECT a.id, $1, \
+                CASE WHEN row_number() OVER (ORDER BY a.id) % 12 = 0 THEN 'pick' \
+                     WHEN row_number() OVER (ORDER BY a.id) % 12 = 1 THEN 'reject' \
+                     ELSE 'none' END, \
+                now() \
+           FROM assets a WHERE a.folder_id = $2",
+    )
+    .bind(user.as_uuid())
+    .bind(folder.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("VACUUM ANALYZE assets, asset_flags")
+        .execute(pool)
+        .await
+        .unwrap();
+
+    let explain_pick = "EXPLAIN (FORMAT TEXT) SELECT a.id FROM assets a \
+        WHERE a.status = 'indexed' \
+          AND (EXISTS (SELECT 1 FROM asset_flags af \
+                       WHERE af.asset_id = a.id AND af.user_id = $1 AND af.pick = $2)) \
+        ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC LIMIT 200";
+    let plan: Vec<String> = sqlx::query_scalar(explain_pick)
+        .bind(user.as_uuid())
+        .bind("pick")
+        .fetch_all(pool)
+        .await
+        .unwrap();
+    let plan = plan.join("\n");
+    eprintln!("EXPLAIN pick:\n{plan}");
+    assert!(
+        plan.contains("asset_flags_user_pick_idx"),
+        "il filtro Pick::Pick deve servirsi dall'indice parziale asset_flags_user_pick_idx:\n{plan}"
+    );
 }
 
 #[tokio::test]

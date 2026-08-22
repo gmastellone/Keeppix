@@ -508,3 +508,62 @@ Verifica eseguita:
   fidarmi del pass accidentale dello strumento su `set_pick`.
 
 Task 4: complete.
+
+### Task 5 — `SearchNode::Pick`
+
+Nuova variante `SearchNode::Pick { value: Pick }` in
+`crates/keeppix-db/src/search.rs`, stesso schema per-utente di
+`Rating`/`Favorite` già esistenti (Fase 7 Task 10): `asset_flags.pick` è
+per utente (spec §4.1), non per asset. L'indice serve già —
+`asset_flags_user_pick_idx ON asset_flags (user_id, pick) WHERE pick <>
+'none'` esiste dalla migrazione 0012 (Fase 2), mai letto da una ricerca
+fino ad ora. Nessuna migrazione nuova.
+
+**Bug trovato e corretto prima di committare, non in CI**: la prima
+stesura usava un unico schema `EXISTS (... AND af.pick = $val)` per tutti
+e tre i valori, mirror diretto di `Rating`/`Favorite`. Ma quelle due
+colonne non hanno questo problema — `favorite` è booleana (falso e
+assente sono la stessa cosa per una ricerca "non preferito", che non
+esiste) e non c'è un default di colonna che scrive una riga alla
+creazione dell'asset. `pick` invece ha un caso reale: **"da valutare"**
+(`Pick::None`) deve comprendere sia gli asset con una riga esplicita
+`pick = 'none'` (Task 4: scelta annullata) **sia**, soprattutto, la
+stragrande maggioranza degli asset che non hanno mai avuto **nessuna
+riga** in `asset_flags` per questo utente (mai toccati). Il mirror
+diretto di `Rating`/`Favorite` avrebbe trovato solo il primo gruppo,
+escludendo silenziosamente tutto il resto — l'esatto contrario del
+significato di "da valutare". Corretto con un ramo dedicato:
+`Pick::None` compila a `NOT EXISTS (... AND af.pick IN ('pick',
+'reject'))` (cattura "nessuna riga" e "riga esplicita none" in un colpo
+solo), `Pick::Pick`/`Pick::Reject` restano `EXISTS (... af.pick =
+$val)`. Estratto in `compile_pick_axis` (funzione privata) non solo per
+il tetto di clippy `too_many_lines` — anche perché la logica a due rami
+merita un posto suo, non tre righe in mezzo a un `match` da nove assi.
+
+Verifica eseguita (misurata, non assunta — coerente col mandato "il
+default è super-ottimizzato, con la misura come prova"):
+- `cargo test -p keeppix-db --test search` → 31/31 verdi, incluse tre
+  nuove: `pick_filter_matches_only_the_current_users_explicit_value`
+  (isolamento per utente, stesso principio di rating/favorite),
+  `pick_none_matches_both_never_flagged_and_explicitly_cleared`
+  (verifica diretta del bug sopra: un asset mai toccato e uno con
+  `pick='none'` esplicito compaiono entrambi, un asset con `pick='pick'`
+  resta fuori), `pick_search_uses_the_partial_index_for_pick_and_reject`
+  (`EXPLAIN` reale su 20k asset, stesso principio di
+  `favorite_search_uses_the_partial_index`: conferma che
+  `asset_flags_user_pick_idx` viene davvero usato dal pianificatore per
+  il ramo `Pick`/`Reject`, non assunto dalla forma della query).
+- `cargo fmt --all --check` → pulito su tutto il workspace.
+- `cargo clippy --workspace --all-targets -- -D warnings` → pulito su
+  tutto il workspace (7 crate) dopo l'estrazione di `compile_pick_axis`
+  (la prima stesura, con i due rami inline in `compile_search_axis`,
+  sforava `too_many_lines` di 27 righe; estrarre anche `Rating` in una
+  singola espressione `let sql = ...` ha risparmiato le ultime 3 righe
+  necessarie).
+- `python3 scripts/check-wired.py` → verde senza eccezioni nuove:
+  `SearchNode::Pick` è una variante di un enum pubblico, non una
+  funzione — fuori dallo scope del controllo — e `compile_pick_axis` è
+  privata.
+
+Task 5: complete. Chiude il Gruppo B (Tasks 1-5) della fase.
+
