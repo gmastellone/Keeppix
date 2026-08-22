@@ -272,7 +272,7 @@ async fn an_offline_library_is_pushed_as_problems_changed() {
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn a_proposed_face_is_pushed_as_suggestions_changed() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup(&server).await;
     let (folder, _library) = seed_library_after_setup(&server).await;
 
