@@ -1,21 +1,21 @@
 # Keeppix — vai fino alla fine
 
-**Fasi 0-6 e 10 chiuse e mergiate in `main`**; **Fase 7 chiusa sul branch `fase-7`** (PR #3-#11
-per 0-6; merge diretti via git dove le PR GitHub erano rotte; CI su push `fase-*`). Fai
-`git pull` su `main` e, per l'IA, checkout `fase-7` o mergiala. Da qui in avanti procedi da
-solo, con quattro sole eccezioni elencate in fondo.
+**Fasi 0-6, 10 e 7 chiuse e mergiate in `main`** (PR #3-#11 per 0-6; merge diretti via git dove
+le PR GitHub erano rotte, CI reale ottenuta con push su `fase-*`). Fai `git pull` su `main`: c'è
+tutto quello che ti serve, IA compresa. Da qui in avanti procedi da solo, con quattro sole
+eccezioni elencate in fondo.
 
 ---
 
 ## 1. L'ordine, e perché è quello
 
 ```
-Fase 10 (✅ main)  →  Fase 7 (✅ branch fase-7)  →  Fase 8  →  Fase 9  →  Fase 11 (A→B→C→D)
+Fase 10 (✅ main)  →  Fase 7 (✅ main)  →  Fase 8  →  Fase 9  →  Fase 11 (A→B→C→D)
 ```
 
-**La Fase 7 è chiusa sul branch `fase-7`.** **La prossima è la Fase 8 — ma prima leggi il §9:
-i piani di 8/9 vanno ripassati col codice vero di 10+7 davanti.** Branch nuovo da `main` (o da
-`fase-7` dopo il merge), non da un branch di fase precedente non ancora allineato.
+**La Fase 7 è chiusa e mergiata in `main`.** **La prossima è la Fase 8 — ma prima leggi il §9:
+i piani di 8/9 vanno ripassati col codice vero di 10+7 davanti.** Branch nuovo da `main`, non da
+un branch di fase precedente.
 
 **La Fase 10 è andata prima della 7, 8 e 9, e non era un'opinione.** Ha fissato l'involucro di
 riuscita parziale, la tassonomia chiusa degli errori, `SearchNode` come unico modello di filtro
@@ -180,7 +180,7 @@ Fuori da questi quattro, procedi.
 | Fase | Piano | Task | Nota |
 |---|---|---|---|
 | 10 | `plans/2026-08-20-keeppix-fase-10.md` | 23 | ✅ chiusa e mergiata |
-| 7 | `plans/2026-08-20-keeppix-fase-7.md` | 13 | ✅ chiusa sul branch `fase-7` (UI review → 11) |
+| 7 | `plans/2026-08-20-keeppix-fase-7.md` | 13 | ✅ chiusa e mergiata (UI review → 11) |
 | 8 | `plans/2026-08-20-keeppix-fase-8.md` | 11 | il **Task 1 è il test** che i volti non escano dai link pubblici — scritto prima del codice che potrebbe violarlo |
 | 9 | `plans/2026-08-20-keeppix-fase-9.md` | 11 | tocca **file veri**: chiudi le cinque convalide della rinomina prima |
 | 11 | `plans/2026-08-20-keeppix-fase-11.md` | 18 | **Task 5bis** (ottimizzazioni client) va letto **prima** di scrivere la prima schermata: cambia la struttura del codice |
