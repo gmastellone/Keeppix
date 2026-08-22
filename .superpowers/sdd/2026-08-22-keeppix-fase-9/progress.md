@@ -395,3 +395,116 @@ Verifica eseguita (locale, workspace intero sbloccato da questo punto in poi):
   schermata Culling di Fase 11).
 
 Task 3: complete.
+
+### Task 4 — Scegliere/scartare sposta il file
+
+`CullingRepo::set_pick(ctx, asset_id, pick)` e `CullingRepo::empty_skipped
+(ctx, lot_folder_id)`, in `crates/keeppix-db/src/culling.rs` accanto a
+`list_lots`.
+
+Ruling: **il permesso non è un cancello unico per l'intera chiamata.**
+Fuori da un lotto il flag resta impostabile da chiunque veda l'asset — lo
+stesso permesso di oggi (`FlagRepo::set`), invariato dalla spec (§2.6:
+"fuori da un lotto la valutazione resta solo un flag, come oggi"). Dentro
+un lotto lo spostamento fisico passa da `AssetRepo::move_asset` (Task 1),
+che pretende `editor` su entrambe le cartelle per conto proprio: se il
+chiamante non lo è, l'intera chiamata fallisce con `Forbidden` **prima**
+di toccare il flag — verificato con un test dedicato
+(`without_editor_rights_the_call_is_forbidden_and_the_flag_is_untouched`)
+che confronta i flag prima/dopo un tentativo fallito e li trova identici.
+— Costo se sbagliato (cancello unico troppo largo): un viewer fuori dal
+lotto perderebbe la possibilità di flaggare che ha oggi. Troppo stretto:
+un editor dentro un lotto non potrebbe più scegliere/scartare, l'intera
+feature del Task diventerebbe inutilizzabile per chiunque non sia owner.
+
+Ruling: **come leggere `culling_root_folder_id` senza il cancello
+owner/admin di `LibraryRepo::find_by_id`.** `list_lots` (Task 3) lo
+risolve passando dalla libreria, owner/admin per costruzione — corretto lì
+perché l'intero elenco lotti è owner/admin per la spec. Qui però lo
+spostamento fisico deve restare disponibile a un editor condiviso (vedi
+sopra), quindi serve un percorso di lettura visibilità-gated, non
+owner-gated. Nuovo `FolderRepo::find_with_library(ctx, id) ->
+(Folder, Library)`, wrapper pubblico del metodo privato `visible` già
+usato da `assert_editor`/`find_by_id` — stesso cancello di sempre, nessuna
+query nuova, nessun aggiramento del sistema di permessi. `set_pick` lo usa
+sull'asset per ottenere la cartella corrente **e** la libreria in una
+sola chiamata, senza mai passare da `LibraryRepo::find_by_id`.
+
+Risoluzione del contesto di culling (`culling_lot_of`, funzione privata):
+un asset è "dentro un lotto" se e solo se la sua cartella è un discendente
+diretto della radice designata a due livelli esatti — o è essa stessa
+figlia della radice (in attesa), o è marcata `culling_role` **e** sua
+madre è figlia della radice (già in `_taken`/`_skipped`). Qualunque altra
+cartella, compresa la radice stessa, restituisce "fuori dal culling":
+deliberatamente conservativo, riconosce solo la struttura esatta che i
+Task 2/3 costruiscono, mai per nome.
+
+**Bug trovato e corretto prima di committare, non in CI**: la prima stesura
+chiamava `FolderRepo::ensure_culling_child` (solo riga DB, nessuna
+directory) per _taken/_skipped e poi `AssetRepo::move_asset`, che fa
+`rename()` per davvero e non crea directory di destinazione (verificato
+leggendo `move_asset` stesso — nessuna `create_dir_all` al suo interno,
+stesso pattern degli altri test `move_asset` di Task 1 che devono creare
+la cartella di destinazione a mano prima di chiamarlo). In produzione
+`_taken`/`_skipped` sono creati per la prima volta dal culling stesso, non
+scoperti da uno scan — quindi la prima scelta dentro un lotto avrebbe
+sempre fallito con `DbError::Io` (directory inesistente). Corretto con
+`provision_culling_child` (funzione privata): crea la directory sul disco
+**prima** della riga — stesso ordine invertito di `dav::write::mkcol`
+(Fase 5 Task 7, la stessa identica scelta per lo stesso identico motivo:
+un `INSERT` riuscito con una `create_dir_all` fallita dopo lascerebbe una
+riga fantasma senza cartella corrispondente, il rovescio silenzioso è
+peggio) — con rollback best-effort della sola directory creata da questa
+chiamata se l'`INSERT` fallisce. Nessun repository di `keeppix-db` tocca
+il filesystem per creare cartelle salvo dove l'operazione è già fisica di
+natura (`TrashRepo`, `UploadSessionRepo`) — spostare un file in una
+cartella che potrebbe non essere mai esistita prima d'ora è esattamente
+quel caso, non un'eccezione alla regola.
+
+Ordine spostamento-poi-flag (non il contrario): un fallimento del
+`move_asset` (permesso, collisione di nome, `Io`) lascia il flag intatto
+invece di raccontare uno spostamento mai avvenuto.
+
+`empty_skipped` riusa `TrashRepo::choose` con `DiskAction::Purged` invece
+di duplicarne la logica — stesso cancello owner/admin ("un editor non può
+distruggere file", spec §4.2), stesso ordine riga-poi-file, stesso audit
+in `trash_entries`. Verificato con un test dedicato
+(`an_editor_who_is_not_the_owner_cannot_purge`) che un editor condiviso
+riceve `Forbidden` e il file resta al suo posto.
+
+Verifica eseguita:
+- `cargo build -p keeppix-db` → pulito.
+- `cargo fmt --all --check` → pulito su tutto il workspace dopo un
+  `cargo fmt --all` (differenze solo di formattazione, wrapping di
+  espressioni lunghe).
+- `cargo clippy --workspace --all-targets -- -D warnings` → pulito su
+  tutto il workspace (7 crate).
+- `cargo test -p keeppix-db --test culling` → 16/16 verdi (8 di Task 3 +
+  8 nuovi: fuori-lotto solo flag, scegli sposta in `_taken`, scarta sposta
+  in `_skipped`, cambio idea `_skipped`→`_taken`, annulla torna nel lotto,
+  `Forbidden` senza editor con flag intatto, `empty_skipped` purga solo
+  gli scartati e lascia intatti gli scelti, `Forbidden` a un editor non
+  owner su `empty_skipped`).
+- `cargo test -p keeppix-db` (l'intera suite, 7XX+ test su ~50 file,
+  liberato spazio disco con `rm -rf target/debug/incremental` — 9.5G,
+  l'allowance del sandbox si era esaurita a metà corsa) → verde ovunque
+  tranne 2 test pre-esistenti in `pgvector.rs`
+  (`persist_pgvector_status_survives_a_reload`,
+  `postgis_only_image_reports_vector_unavailable`): richiedono un
+  container Docker (`testcontainers`, immagine PostGIS-only) e questo
+  sandbox non ha un demone Docker attivo (`/var/run/docker.sock` assente,
+  `service docker start` fallisce su `ulimit: Operation not permitted`,
+  un vincolo del sandbox stesso). Diff zero su `pgvector.rs`/`pgvector.rs`
+  sorgente rispetto a `origin/main` — non una regressione di questo task,
+  stessa categoria del difetto locale-solo di `trash.rs` già documentato
+  ai Task 1-2 (CI ha un demone Docker vero, questi due passeranno lì).
+- `python3 scripts/check-wired.py` → rosso al primo giro su `empty_skipped`
+  (correttamente — nessun chiamante ancora). `set_pick` non segnalato dal
+  tool nonostante zero chiamate di produzione reali (`grep -rn
+  '\.set_pick(' crates` conferma: tutti gli 11 call-site reali sono nei
+  test di questo task) — stesso falso positivo di `move_asset` (Task 1):
+  `count_ident` conta anche le menzioni testuali nei commenti di
+  documentazione. Aggiunta un'eccezione esplicita per entrambe invece di
+  fidarmi del pass accidentale dello strumento su `set_pick`.
+
+Task 4: complete.
