@@ -569,3 +569,109 @@ cleanup `cargo clean` 47.5 GiB). Completa il gate AGENTS.md oltre la CI
 già verde su `efd5287`. — Costo se sbagliato: nessuno; conferma indipendente.
 
 Task 13 / Fase 7: chiusa (commit ledger + CI success su codice; test.sh locale ok).
+
+## Task 14 (fuori roadmap, dopo Fase 8) — pagato il debito «CTE top-K»
+
+Il debito dichiarato in Task 11 sopra (riga 450: *"SearchRepo Semantic
+completo resta ≈1.3–1.4 s @ 200k — debito: partire dalla CTE top-K
+invece di filtrare la heap"*) è rimasto aperto per due fasi (8 e parte
+della 9-non-ancora-iniziata) finché non ha smesso di essere solo un
+numero nel ledger: il 22 agosto 2026, sul commit di chiusura Fase 8
+(`d5f3085` su `main`), `scale_embeddings.rs::vector_search_stays_interactive_with_ivfflat`
+ha fallito in CI per la terza volta in giornata (due volte durante la
+verifica di chiusura Fase 8 — vedi ledger Fase 8 — una volta su questo
+commit). Non trattato come rumore una terza volta di fila: root-causato
+per davvero, non solo rilanciato.
+
+Ruling: **`SearchRepo::run` ora dirama fra `run_plain` (comportamento
+invariato: `a.id = ANY(ARRAY(top-K))` come filtro `WHERE`) e
+`run_semantic_hoisted` (nuovo)** quando `find_hoistable_semantic` trova
+**esattamente un** nodo `Semantic` raggiungibile solo attraverso `And`
+(mai `Or`/`Not`: lì forzare un `JOIN` cambierebbe il significato
+booleano, non solo il piano). Nel path nuovo la CTE `topk` materializza
+i ≤500 candidati IVFFlat e li **guida** nel join verso
+`assets`/`folders`/`asset_exif` (Nested Loop su al più 500 lookup),
+invece che farli filtrare come predicato su una scansione ordinata per
+`taken_at_utc` (il piano che il planner sceglieva prima quando i
+candidati sono radi in quell'ordine — il costo nascosto dietro
+l'1,3–1,4s). `semantic_query_params` estrae la validazione
+embedding/limit condivisa da entrambi i path (stesso errore, stesso
+clamp di K, un solo posto). `substitute_with_true` clona l'AST
+sostituendo (per identità di puntatore) il nodo issato con un `And`
+vuoto, che compila già a `TRUE` — nessuna nuova variante di
+`SearchNode` solo per questo marcatore. — Costo se sbagliato: un
+`Semantic` dentro un `Or`/`Not` finisse comunque issato
+produrrebbe risultati mancanti o in eccesso; mitigato da
+`find_hoistable_semantic` che recursisce **solo** attraverso `And`, e
+da `semantic_search_selects_the_k_nearest_among_visible_assets_only`/
+`semantic_filters_top_k_then_orders_by_date` (verificati verdi dopo la
+modifica) che coprono esattamente la semantica K-fra-i-visibili che un
+bug qui romperebbe per primo.
+
+Ruling: **`WITH topk AS MATERIALIZED (...)`, non un `WITH` semplice.**
+— Prima misura del fix (senza `MATERIALIZED`): lo stesso SQL alternava
+piani buoni (~170ms) e ricaduti (~2100ms) fra run identiche sullo
+stesso fixture da 200k — da Postgres 12 il planner può inlineare una
+CTE non referenziata più volte, ricreando esattamente il piano che
+questa funzione esiste per evitare. `MATERIALIZED` è una barriera di
+ottimizzazione esplicita, non un'euristica. — Costo se rimosso per
+errore in futuro: la stessa intermittenza tornerebbe silenziosamente,
+un piano buono su due circa.
+
+Ruling: **`scale_embeddings.rs::seed_scale_fixture` ora chiama
+`ANALYZE assets` oltre ad `ANALYZE asset_embeddings`.** — Anche con
+`MATERIALIZED`, il fix da solo non bastava: `assets` passa da 0 a
+200.000 righe in un solo `INSERT` senza mai essere analizzata, quindi
+il planner sceglie il piano del join `topk`↔`assets` sulle statistiche
+di prima dell'inserimento (o assenti). `scale_200k.rs` — stesso crate,
+stessa tabella riempita allo stesso modo — chiama già `ANALYZE assets`
+per lo stesso motivo da prima di questa sessione; mancava solo qui.
+Verificato causale, non presunto: rimuovendo `MATERIALIZED` e tenendo
+solo `ANALYZE assets` è rimasto stabile (5 run locali consecutive,
+170–220ms); un'ipotesi cade prima di scriverla nel ledger come causa
+unica. — Costo se rimosso: la stessa intermittenza da statistiche
+stantie tornerebbe, non necessariamente riprodotta al primo tentativo
+locale (dipende da timing di autovacuum).
+
+Ruling: **budget di `elapsed_ms` in `scale_embeddings.rs` riportato da
+2000ms a 800ms** — misurato dopo il fix, non scelto per far passare la
+CI di oggi: 5 run locali consecutive, `elapsed_ms` 170–190ms contro
+`raw_ms` 174–220ms (overhead di join a una cifra di millisecondi o
+meno, spesso zero). 800ms lascia ~4× margine sul tipico locale ed è
+comunque ampio anche se la sola scansione grezza toccasse il rumore di
+CI più alto osservato finora (~650ms, unrelato a questo fix — vedi
+budget separato `raw_elapsed < 500ms`, non toccato). Il vecchio 2000ms
+non verificava più nulla di specifico da quando esisteva solo il filtro
+post-hoc: qualunque piano, anche quello pessimo, restava sotto 2s salvo
+rumore estremo. — Costo se il margine è comunque troppo stretto per un
+runner CI particolarmente rumoroso: un rerun mirato via `rerun_failed_jobs`
+con verifica `git diff` (protocollo già stabilito in questa sessione per
+`budgets.rs`/`scale_200k.rs`) prima di considerare un nuovo aumento — mai
+un aumento silenzioso senza rimisurare.
+
+Verifica eseguita (locale, `KEEPPIX_TEST_DATABASE_URL` verso Postgres 16
+con pgvector 0.6.0 installato, non testcontainers):
+- `cargo check -p keeppix-db` → pulito.
+- `cargo fmt --check -p keeppix-db` → pulito.
+- `cargo clippy -p keeppix-db --all-targets -- -D warnings` → pulito.
+- `cargo test -p keeppix-db --test search` → 28/28 verdi (inclusi i tre
+  test `Semantic` esistenti e i tre `Person*` di Fase 8, nessuna
+  regressione di visibilità).
+- `cargo test -p keeppix-db --test albums --test geo` → 11+15 verdi
+  (entrambi passano `Semantic` a `SearchRepo::run` dentro le regole
+  dinamiche — path invariato, `semantic_vis` proprio riusato).
+- `cargo test -p keeppix-db --test scale_embeddings` → verde 5 volte
+  di fila dopo il fix (170–220ms), rosso 2 volte di fila prima (2050–2150ms
+  con `MATERIALIZED` ma senza `ANALYZE assets`) — non una singola misura
+  felice.
+- `python3 scripts/check-wired.py` → verde.
+- `keeppix-api`/`keeppix-jobs` non compilabili in locale in questa
+  sessione (download dei binari `ort` bloccato dal proxy dell'ambiente,
+  stesso limite già noto dalle fasi precedenti) — `SearchRepo::run` ha
+  firma invariata (stessi parametri, stesso tipo di ritorno), quindi
+  nessun sito chiamante in `keeppix-api` richiede modifiche; verifica
+  reale affidata a CI su questo push.
+
+Non ancora chiuso qui, verificato in CI dopo il push: CI reale verde
+sul commit pushato (non solo locale) prima di considerare il debito
+davvero pagato.
