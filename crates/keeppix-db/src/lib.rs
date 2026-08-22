@@ -11,6 +11,7 @@ pub mod dav_locks;
 pub mod duplicates;
 pub mod embeddings;
 pub mod error;
+pub mod faces;
 pub mod flags;
 pub mod folders;
 pub mod geo;
@@ -23,6 +24,8 @@ pub mod libraries;
 pub mod operations;
 pub mod overrides;
 pub mod permissions;
+pub mod person_groups;
+pub mod persons;
 pub mod pgvector;
 pub mod places;
 pub mod preferences;
@@ -59,6 +62,7 @@ pub use embeddings::{
     PendingEmbedding, vector_literal,
 };
 pub use error::DbError;
+pub use faces::{FaceRepo, NewDetectedFace};
 pub use flags::FlagRepo;
 pub use folders::FolderRepo;
 pub use geo::{
@@ -80,6 +84,8 @@ pub use permissions::{
     ExplainResult, NewGrant, ObjectType, PermissionGrantView, PermissionRepo, SharedWithMeItem,
     SubjectType,
 };
+pub use person_groups::{NewPersonGroup, PersonGroupRepo};
+pub use persons::{PersonRepo, PersonSummary};
 pub use pgvector::{ENABLE_VECTOR_SQL, PgVectorStatus, persist_pgvector_status, probe_pgvector};
 pub use places::PlaceRepo;
 pub use preferences::{

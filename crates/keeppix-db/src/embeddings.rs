@@ -185,7 +185,9 @@ pub fn vector_literal(embedding: &[f32]) -> String {
     out
 }
 
-fn parse_vector_text(text: &str) -> Result<Vec<f32>, DbError> {
+/// `pub(crate)`: riusata da [`crate::faces`] per leggere `faces.embedding`
+/// con lo stesso formato testuale.
+pub(crate) fn parse_vector_text(text: &str) -> Result<Vec<f32>, DbError> {
     let trimmed = text.trim();
     let inner = trimmed
         .strip_prefix('[')
