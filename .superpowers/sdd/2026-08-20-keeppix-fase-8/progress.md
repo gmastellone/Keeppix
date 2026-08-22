@@ -406,3 +406,55 @@ estratto in un `type` alias invece di essere inline — `clippy::type_complexity
 sul tuple letterale; un commento `///` che era scivolato per sbaglio da
 `run()` sopra `STRAGGLER_BATCH_LIMIT` durante l'inserimento del fix
 straggler, lasciando `run()` senza `# Errors` — spostato al posto giusto).
+
+## Gruppo D — Task 9: `SearchNode::Person`/`PersonGroup`/`PersonCount`
+
+`crates/keeppix-db/src/search.rs`: tre varianti nuove sull'AST esistente
+(non un motore a parte — stesso approccio di Fase 7 Task 10 per
+`Tag`/`Category`/`Semantic`), compilate da una nuova `compile_fase8_axis`
+(stessa ragione di `compile_fase7_axis`: restare sotto il tetto di righe
+per funzione di clippy).
+
+- `Person { id }` → `EXISTS` su `faces.person_id = id`. Basta questa sola
+  condizione: `FaceRepo::reject` pulisce `person_id` insieme a
+  `rejected_at`, quindi un volto rifiutato non ha mai `person_id`
+  valorizzato — non serve escludere esplicitamente i rifiutati come fa
+  `list_for_asset` a livello applicativo.
+- `PersonGroup { id }` → stesso `EXISTS`, con un `JOIN
+  person_group_members` — "almeno una persona del gruppo" (spec §6).
+- `PersonCount { cmp, value }` → `COUNT(DISTINCT fc.person_id)` sui volti
+  dell'asset, non `COUNT(*)` sui volti: due volti della stessa persona
+  nella stessa foto contano una volta sola. Riusa `IsoCmp`/`cmp_op`, stesso
+  pattern di `Rating`/`Iso`.
+
+Nessuna delle tre richiede una propria clausola di visibilità: `a` (la
+tabella `assets` della query esterna) è già filtrata da `VisibilityScope`
+in `run`, la stessa assunzione già usata da `Tag`/`Category`. Ruling:
+**`compile_fase8_axis` resta `Result`-returning con
+`#[allow(clippy::unnecessary_wraps)]`**, anche se nessuno dei tre nodi
+fallisce mai — la firma uniforme con le funzioni sorelle (`compile_fase7_axis`,
+`compile_search_axis`) evita di spezzare la simmetria del dispatch, dove il
+chiamante propaga sempre con `?`. — *Costo se sbagliato*: nessuno, è solo
+una scelta di stile.
+
+Nessuna route/`SearchRequest` da toccare: `SearchRequest.ast` è già
+documentato in OpenAPI come `#[schema(value_type = Object)]` (l'intero AST
+non è enumerato per variante), quindi aggiungere varianti a `SearchNode`
+non tocca `openapi.rs`/`docs/api/openapi.json` — verificato, non assunto.
+
+**Test**: 3 nuovi in `crates/keeppix-db/tests/search.rs`
+(`person_filter_matches_only_assigned_faces`,
+`person_group_filter_matches_any_member`,
+`person_count_filter_counts_distinct_persons_not_faces`), stesso stile dei
+test `tag_filter_matches_only_confirmed_assignments`/
+`category_filter_matches_confirmed_child_tags` già presenti. 28/28 verdi
+in `search.rs` (25 preesistenti + 3 nuovi). `check-wired.py`: pulito (il
+compilatore dell'AST è già raggiunto da `SearchRepo::run`, produzione
+reale, non serve un'eccezione). `cargo fmt --all -- --check` e
+`cargo clippy --workspace --all-targets -- -D warnings`: puliti.
+
+Il chip «Persona» nel prototipo resta disabilitato fino alla Fase 11 (è
+lì che si costruisce l'interfaccia che lo userebbe) — questo task sblocca
+solo il lato server, come da piano.
+
+## Task 9: complete
