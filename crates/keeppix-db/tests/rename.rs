@@ -645,3 +645,233 @@ mod apply {
         let _ = fs::remove_dir_all(&root);
     }
 }
+
+mod undo {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn restores_the_previous_filename_on_disk_and_in_the_row() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let root = temp_library_root("undo-basic");
+        let library = seed_library_at(&test, admin, &root).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let folders = FolderRepo::new(test.db());
+        let assets = AssetRepo::new(test.db());
+
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::write(root.join("2024").join("a.jpg"), b"contenuto").unwrap();
+        let asset_id = indexed_asset(
+            &assets,
+            folder.id,
+            "a.jpg",
+            Utc.with_ymd_and_hms(2026, 8, 14, 0, 0, 0).unwrap(),
+        )
+        .await;
+        set_title(&test, asset_id, "Tramonto").await;
+
+        let repo = RenameRepo::new(test.db());
+        let applied = repo.apply(&ctx, &[asset_id], "{titolo}").await.unwrap();
+        let batch_id = applied.batch_id.unwrap();
+        assert!(root.join("2024").join("Tramonto.JPG").is_file());
+
+        let undone = repo.undo(&ctx, batch_id).await.unwrap();
+
+        assert!(!undone.already_undone);
+        assert_eq!(undone.restored.len(), 1);
+        assert!(undone.failed.is_empty());
+        assert!(root.join("2024").join("a.jpg").is_file());
+        assert_eq!(
+            fs::read(root.join("2024").join("a.jpg")).unwrap(),
+            b"contenuto"
+        );
+        assert!(!root.join("2024").join("Tramonto.JPG").exists());
+        let row = assets.find_by_id(&ctx, asset_id).await.unwrap();
+        assert_eq!(row.filename.as_str(), "a.jpg");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn restores_stack_siblings_together() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let root = temp_library_root("undo-stack");
+        let library = seed_library_at(&test, admin, &root).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let folders = FolderRepo::new(test.db());
+        let assets = AssetRepo::new(test.db());
+
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::write(root.join("2024").join("DSC_0042.ARW"), b"raw").unwrap();
+        fs::write(root.join("2024").join("DSC_0042.JPG"), b"jpeg").unwrap();
+        let taken_at = Utc.with_ymd_and_hms(2026, 8, 14, 0, 0, 0).unwrap();
+        let raw = indexed_asset(&assets, folder.id, "DSC_0042.ARW", taken_at).await;
+        let jpeg = indexed_asset(&assets, folder.id, "DSC_0042.JPG", taken_at).await;
+        StackRepo::new(test.db())
+            .regroup_folder(folder.id)
+            .await
+            .unwrap();
+        set_title(&test, raw, "Alba").await;
+
+        let repo = RenameRepo::new(test.db());
+        let applied = repo.apply(&ctx, &[raw], "{titolo}").await.unwrap();
+        let batch_id = applied.batch_id.unwrap();
+
+        let undone = repo.undo(&ctx, batch_id).await.unwrap();
+
+        assert_eq!(undone.restored.len(), 2, "raw + jpeg affiancato");
+        assert!(root.join("2024").join("DSC_0042.ARW").is_file());
+        assert!(root.join("2024").join("DSC_0042.JPG").is_file());
+        let jpeg_row = assets.find_by_id(&ctx, jpeg).await.unwrap();
+        assert_eq!(jpeg_row.filename.as_str(), "DSC_0042.JPG");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn undoing_twice_is_a_no_op_not_an_error() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let root = temp_library_root("undo-twice");
+        let library = seed_library_at(&test, admin, &root).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let folders = FolderRepo::new(test.db());
+        let assets = AssetRepo::new(test.db());
+
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::write(root.join("2024").join("a.jpg"), b"x").unwrap();
+        let asset_id = indexed_asset(
+            &assets,
+            folder.id,
+            "a.jpg",
+            Utc.with_ymd_and_hms(2026, 8, 14, 0, 0, 0).unwrap(),
+        )
+        .await;
+
+        let repo = RenameRepo::new(test.db());
+        let applied = repo.apply(&ctx, &[asset_id], "b").await.unwrap();
+        let batch_id = applied.batch_id.unwrap();
+
+        let first = repo.undo(&ctx, batch_id).await.unwrap();
+        assert!(!first.already_undone);
+        let second = repo.undo(&ctx, batch_id).await.unwrap();
+        assert!(second.already_undone);
+        assert!(second.restored.is_empty());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn only_the_actor_or_an_admin_can_undo() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let root = temp_library_root("undo-forbidden");
+        let library = seed_library_at(&test, admin, &root).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let folders = FolderRepo::new(test.db());
+        let assets = AssetRepo::new(test.db());
+
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::write(root.join("2024").join("a.jpg"), b"x").unwrap();
+        let asset_id = indexed_asset(
+            &assets,
+            folder.id,
+            "a.jpg",
+            Utc.with_ymd_and_hms(2026, 8, 14, 0, 0, 0).unwrap(),
+        )
+        .await;
+
+        let repo = RenameRepo::new(test.db());
+        let applied = repo.apply(&ctx, &[asset_id], "b").await.unwrap();
+        let batch_id = applied.batch_id.unwrap();
+
+        // Un editor con accesso pieno all'asset, ma non è chi ha applicato
+        // il batch: l'annullamento resta personale, non basta poter
+        // modificare l'asset.
+        let editor = harness::seed_user(&test, admin, "editor").await;
+        PermissionRepo::new(test.db())
+            .grant(
+                &ctx,
+                NewGrant {
+                    subject: SubjectType::User,
+                    subject_id: editor.as_uuid(),
+                    object: ObjectType::Folder,
+                    object_id: folder.id.as_uuid(),
+                    role: ObjectRole::Editor,
+                    inherit: true,
+                },
+            )
+            .await
+            .unwrap();
+        let editor_ctx = AuthContext::user(editor, SystemRole::User);
+
+        let result = repo.undo(&editor_ctx, batch_id).await;
+
+        assert!(matches!(result, Err(DbError::Forbidden)), "{result:?}");
+        assert!(root.join("2024").join("b.JPG").is_file(), "niente si muove");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn a_collision_at_the_previous_slot_fails_only_that_asset() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let root = temp_library_root("undo-collide");
+        let library = seed_library_at(&test, admin, &root).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let folders = FolderRepo::new(test.db());
+        let assets = AssetRepo::new(test.db());
+
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::write(root.join("2024").join("a.jpg"), b"a").unwrap();
+        let taken_at = Utc.with_ymd_and_hms(2026, 8, 14, 0, 0, 0).unwrap();
+        let asset_id = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
+
+        let repo = RenameRepo::new(test.db());
+        let applied = repo.apply(&ctx, &[asset_id], "b").await.unwrap();
+        let batch_id = applied.batch_id.unwrap();
+        assert!(root.join("2024").join("b.JPG").is_file());
+
+        // Qualcun altro occupa ora "a.jpg", il vecchio nome dell'asset.
+        fs::write(root.join("2024").join("a.jpg"), b"intruso").unwrap();
+        let _intruder = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
+
+        let undone = repo.undo(&ctx, batch_id).await.unwrap();
+
+        assert!(undone.restored.is_empty());
+        assert_eq!(undone.failed.len(), 1);
+        assert!(matches!(undone.failed[0].1, DbError::Collision(_)));
+        assert!(
+            root.join("2024").join("b.JPG").is_file(),
+            "il file resta dov'era, l'annullamento non ha toccato nulla"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn an_unknown_batch_is_not_found_for_an_admin() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+        let result = RenameRepo::new(test.db())
+            .undo(&ctx, keeppix_domain::BatchId::new())
+            .await;
+
+        assert!(matches!(result, Err(DbError::NotFound)), "{result:?}");
+    }
+}

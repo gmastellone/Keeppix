@@ -99,7 +99,7 @@ pub use problems::{
     ProblemSet, ProblemSeverity, ProblemsRepo,
 };
 pub use regions::{MapRegion, NewMapRegion, RegionDownloadSource, RegionRepo, RegionStatus};
-pub use rename::{RenameBatchOutcome, RenamePreviewItem, RenameRepo};
+pub use rename::{RenameBatchOutcome, RenamePreviewItem, RenameRepo, RenameUndoOutcome};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo, Suggestion, SuggestionKind};
 pub use sessions::{SessionRepo, SessionSummary};
 pub use settings::SettingsRepo;

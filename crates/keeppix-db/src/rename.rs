@@ -27,15 +27,29 @@
 //! `{luogo}` vuoto invece del nome del lotto — non un difetto silenzioso,
 //! dichiarato qui.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use keeppix_domain::{
-    Asset, AssetId, AssetName, AuthContext, BatchId, FolderId, RenameValues,
+    Asset, AssetId, AssetName, AuthContext, BatchId, FolderId, RenameValues, UserId,
     apply_base_to_filename, render_base,
 };
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{AssetRepo, Db, DbError, PermissionRepo};
+
+/// Stato di un asset prima di un batch di rinomina, chiave = `AssetId` come
+/// testo (stesso schema di `metadata_batches.previous`,
+/// `overrides.rs::PreviousBatch` — un `BTreeMap` chiavi-stringa, non un
+/// `HashMap<Uuid, _>`, perché `serde_json` richiede chiavi di oggetto
+/// testuali).
+type PreviousRenameState = BTreeMap<String, PreviousLocation>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PreviousLocation {
+    folder_id: Uuid,
+    filename: String,
+}
 
 pub struct RenameRepo<'a> {
     db: &'a Db,
@@ -63,6 +77,16 @@ pub struct RenameBatchOutcome {
     /// annullare, nessuna riga scritta in `rename_batches`.
     pub batch_id: Option<BatchId>,
     pub renamed: Vec<Asset>,
+    pub failed: Vec<(AssetId, DbError)>,
+}
+
+#[derive(Debug)]
+pub struct RenameUndoOutcome {
+    /// `true` se il batch era già stato annullato — non un errore
+    /// (`OverrideRepo::undo_batch` tratta un secondo annullamento allo
+    /// stesso modo: nessun lavoro da fare, non un fallimento).
+    pub already_undone: bool,
+    pub restored: Vec<Asset>,
     pub failed: Vec<(AssetId, DbError)>,
 }
 
@@ -164,7 +188,7 @@ impl<'a> RenameRepo<'a> {
         let assets = AssetRepo::new(self.db);
         let mut renamed = Vec::new();
         let mut failed = Vec::new();
-        let mut previous = serde_json::Map::new();
+        let mut previous: PreviousRenameState = BTreeMap::new();
 
         for item in items {
             if item.current_name == item.new_name {
@@ -187,10 +211,10 @@ impl<'a> RenameRepo<'a> {
                 Ok(asset) => {
                     previous.insert(
                         item.asset_id.to_string(),
-                        serde_json::json!({
-                            "folder_id": item.folder_id.as_uuid(),
-                            "filename": item.current_name,
-                        }),
+                        PreviousLocation {
+                            folder_id: item.folder_id.as_uuid(),
+                            filename: item.current_name,
+                        },
                     );
                     renamed.push(asset);
                 }
@@ -205,7 +229,10 @@ impl<'a> RenameRepo<'a> {
             sqlx::query("INSERT INTO rename_batches (id, actor_id, previous) VALUES ($1, $2, $3)")
                 .bind(id.as_uuid())
                 .bind(actor.as_uuid())
-                .bind(serde_json::Value::Object(previous))
+                .bind(
+                    serde_json::to_value(&previous)
+                        .map_err(|e| DbError::Corrupted(format!("rename batch state: {e}")))?,
+                )
                 .execute(self.db.pool())
                 .await?;
             Some(id)
@@ -214,6 +241,133 @@ impl<'a> RenameRepo<'a> {
         Ok(RenameBatchOutcome {
             batch_id,
             renamed,
+            failed,
+        })
+    }
+
+    /// Annulla un batch di rinomina (Task 9): richiama
+    /// [`crate::AssetRepo::move_asset`] "al contrario" per ogni asset
+    /// registrato — non un semplice ripristino di colonna come
+    /// `OverrideRepo::undo_batch`, perché `filename`/`folder_id` vivono su
+    /// `assets` e servono spostamenti fisici veri, non righe da riscrivere.
+    ///
+    /// **Nessuna guardia "già sincronizzato"** equivalente a quella XMP di
+    /// `OverrideRepo::undo_batch` (`xmp_written_at >= applied_at`): quella
+    /// esiste perché un job asincrono può consumare il valore del batch
+    /// prima dell'annullamento — per la rinomina non c'è un consumatore
+    /// asincrono paragonabile, lo spostamento fisico è l'intero effetto,
+    /// avvenuto sincrono al momento di `apply`. Un tentativo di guardia
+    /// analoga su `assets.updated_at > applied_at` è stato scartato: quella
+    /// colonna viene toccata da operazioni senza alcun rapporto con il nome
+    /// (stato di scansione, `thumbhash`, `stack_id`, `location_source`...),
+    /// quindi bloccherebbe l'annullamento per motivi quasi sempre estranei
+    /// al file. Se l'asset è stato rinominato di nuovo da allora,
+    /// `move_asset` lo sposta comunque indietro al nome di `previous` — lo
+    /// stesso comportamento di annullare un passo qualunque di una
+    /// cronologia lineare, indipendente da cosa sia successo dopo.
+    ///
+    /// Riuscita parziale come [`Self::apply`]: una collisione al percorso
+    /// precedente (qualcun altro occupa già quel nome) finisce in `failed`
+    /// senza bloccare gli altri asset del batch.
+    ///
+    /// # Errors
+    /// `NotFound`/`Forbidden` se il batch non esiste o non appartiene al
+    /// chiamante (non admin). Gli errori per singolo asset finiscono in
+    /// `failed`, non propagati.
+    pub async fn undo(
+        &self,
+        ctx: &AuthContext,
+        batch_id: BatchId,
+    ) -> Result<RenameUndoOutcome, DbError> {
+        #[derive(sqlx::FromRow)]
+        struct BatchRow {
+            actor_id: Uuid,
+            undone_at: Option<chrono::DateTime<chrono::Utc>>,
+            previous: serde_json::Value,
+        }
+
+        let mut tx = self.db.pool().begin().await?;
+        let row: Option<BatchRow> = sqlx::query_as(
+            "SELECT actor_id, undone_at, previous FROM rename_batches WHERE id = $1 FOR UPDATE",
+        )
+        .bind(batch_id.as_uuid())
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(row) = row else {
+            return Err(if ctx.is_admin() {
+                DbError::NotFound
+            } else {
+                DbError::Forbidden
+            });
+        };
+
+        let owner = UserId::from_uuid(row.actor_id);
+        if !ctx.is_admin() && Some(owner) != ctx.user_id() {
+            return Err(DbError::Forbidden);
+        }
+
+        if row.undone_at.is_some() {
+            tx.commit().await?;
+            return Ok(RenameUndoOutcome {
+                already_undone: true,
+                restored: Vec::new(),
+                failed: Vec::new(),
+            });
+        }
+
+        // Marca annullato subito, prima di qualunque move_asset: un secondo
+        // undo concorrente sullo stesso batch trova già undone_at
+        // valorizzato invece di rientrare in corsa con questo. Lo
+        // spostamento fisico che segue non è più protetto dal lock di riga
+        // (move_asset apre una connessione propria, non nidificabile in
+        // questa transazione) — accettabile: il rischio che resta è lo
+        // stesso di apply(), una collisione al momento della scrittura, già
+        // gestita per-asset in `failed`.
+        sqlx::query("UPDATE rename_batches SET undone_at = now() WHERE id = $1")
+            .bind(batch_id.as_uuid())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+
+        let previous: PreviousRenameState = serde_json::from_value(row.previous)
+            .map_err(|e| crate::row::corrupted("rename_batches.previous", e))?;
+
+        let assets = AssetRepo::new(self.db);
+        let mut restored = Vec::new();
+        let mut failed = Vec::new();
+        for (raw_id, location) in previous {
+            let asset_id = match raw_id.parse::<Uuid>() {
+                Ok(id) => AssetId::from_uuid(id),
+                Err(_) => continue, // scritto solo da apply(): un id malformato non può esistere.
+            };
+            let filename = match AssetName::parse(&location.filename) {
+                Ok(name) => name,
+                Err(err) => {
+                    failed.push((
+                        asset_id,
+                        DbError::Conflict(format!("stored filename is invalid: {err}")),
+                    ));
+                    continue;
+                }
+            };
+            match assets
+                .move_asset(
+                    ctx,
+                    asset_id,
+                    FolderId::from_uuid(location.folder_id),
+                    filename,
+                )
+                .await
+            {
+                Ok(asset) => restored.push(asset),
+                Err(err) => failed.push((asset_id, err)),
+            }
+        }
+
+        Ok(RenameUndoOutcome {
+            already_undone: false,
+            restored,
             failed,
         })
     }
