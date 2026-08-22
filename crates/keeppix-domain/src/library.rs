@@ -22,6 +22,9 @@ pub struct Library {
     pub owner_id: UserId,
     pub root_path: PathBuf,
     pub scan_enabled: bool,
+    /// Interruttore del riconoscimento facciale per questa libreria (Fase 8
+    /// Task 10). Spento non rileva nulla — non "rileva ma non mostra".
+    pub faces_enabled: bool,
     pub exclude_patterns: Vec<String>,
     pub status: LibraryStatus,
     pub last_scan_at: Option<DateTime<Utc>>,

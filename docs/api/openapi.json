@@ -798,6 +798,66 @@
         ]
       }
     },
+    "/api/v1/assets/{id}/faces": {
+      "get": {
+        "tags": [
+          "faces"
+        ],
+        "summary": "List detected faces on an asset",
+        "operationId": "assets_list_faces",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Volti rilevati (esclusi i falsi positivi rifiutati)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FaceView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/{id}/flags": {
       "get": {
         "tags": [
@@ -2380,6 +2440,279 @@
           },
           "403": {
             "description": "keep non nel gruppo, o purged senza i permessi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/faces/data": {
+      "delete": {
+        "tags": [
+          "faces"
+        ],
+        "summary": "Delete all face/person data system-wide (admin only, irreversible)",
+        "description": "# Errors\n`403` per chi non è amministratore.",
+        "operationId": "faces_delete_all_data",
+        "responses": {
+          "204": {
+            "description": "Cancellato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo amministratori",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/faces/proposals": {
+      "get": {
+        "tags": [
+          "faces"
+        ],
+        "summary": "List faces pending review (proposed to a candidate person)",
+        "description": "# Errors\n`401` senza utente autenticato.",
+        "operationId": "faces_list_proposals",
+        "responses": {
+          "200": {
+            "description": "Volti proposti, visibili al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FaceView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/faces/{id}/assign": {
+      "post": {
+        "tags": [
+          "faces"
+        ],
+        "summary": "Manually assign a face to a person",
+        "description": "# Errors\n`403` se l'asset del volto non è visibile al chiamante.",
+        "operationId": "faces_assign",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id volto",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignFaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Assegnato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Volto inesistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/faces/{id}/confirm": {
+      "post": {
+        "tags": [
+          "faces"
+        ],
+        "summary": "Confirm a face's candidate person",
+        "description": "# Errors\n`403` se l'asset non è visibile; `409` se non c'è (più) una proposta in attesa.",
+        "operationId": "faces_confirm_proposal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id volto",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Confermato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nessuna proposta in attesa per questo volto",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/faces/{id}/reject": {
+      "post": {
+        "tags": [
+          "faces"
+        ],
+        "summary": "Mark a detection as not a face (permanent)",
+        "description": "# Errors\n`403` se l'asset del volto non è visibile al chiamante.",
+        "operationId": "faces_reject",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id volto",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Rifiutato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Volto inesistente",
             "content": {
               "application/json": {
                 "schema": {
@@ -5060,6 +5393,977 @@
           },
           "403": {
             "description": "Non owner/admin dell'oggetto",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/person-groups": {
+      "get": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "List person groups",
+        "operationId": "person_groups_list",
+        "responses": {
+          "200": {
+            "description": "Gruppi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PersonGroupView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Create a person group",
+        "operationId": "person_groups_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePersonGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Gruppo creato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonGroupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nome già in uso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/person-groups/{id}": {
+      "delete": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Delete a person group",
+        "operationId": "person_groups_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id gruppo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cancellato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Rename a person group",
+        "operationId": "person_groups_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id gruppo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenamePersonGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Gruppo aggiornato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonGroupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Gruppo inesistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nome già in uso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/person-groups/{id}/members": {
+      "get": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "List a group's members visible to the caller",
+        "operationId": "person_groups_list_members",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id gruppo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Id delle persone nel gruppo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/person-groups/{id}/members/{person_id}": {
+      "post": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Add a person to a group",
+        "operationId": "person_groups_add_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id gruppo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "person_id",
+            "in": "path",
+            "description": "Id persona",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Aggiunta"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Persona non visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Persona inesistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Remove a person from a group",
+        "operationId": "person_groups_remove_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id gruppo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "person_id",
+            "in": "path",
+            "description": "Id persona",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Rimossa"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/persons": {
+      "get": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "List persons visible to the caller",
+        "operationId": "persons_list",
+        "parameters": [
+          {
+            "name": "include_hidden",
+            "in": "query",
+            "description": "Include persone nascoste",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Persone visibili, con conteggio volti",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PersonView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Create a person (used for the review queue's «new person» outcome)",
+        "operationId": "persons_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePersonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Persona creata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nome già in uso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Nome non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/persons/{id}": {
+      "get": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Get a person",
+        "operationId": "persons_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id persona",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Persona",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Nessun volto visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Persona inesistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Delete a person (their faces stay, ready to be re-grouped)",
+        "description": "# Errors\nCome [`get`].",
+        "operationId": "persons_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id persona",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cancellata"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Nessun volto visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Persona inesistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Rename, hide/show, or set the cover of a person",
+        "operationId": "persons_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id persona",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchPersonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Persona aggiornata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Nessun volto visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Persona inesistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nome già in uso, o copertina non di questa persona",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/persons/{id}/merge": {
+      "post": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Merge other persons into this one",
+        "description": "# Errors\nCome [`get`], su `id` e su ogni persona assorbita.",
+        "operationId": "persons_merge",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id persona sopravvissuta",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergePersonsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Persona risultante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Nessun volto visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Persona inesistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/persons/{id}/proposals/confirm": {
+      "post": {
+        "tags": [
+          "faces"
+        ],
+        "summary": "Confirm all pending proposals for a candidate person (bulk)",
+        "description": "# Errors\n`401` senza utente autenticato.",
+        "operationId": "persons_confirm_all_proposals",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id persona candidata",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Esito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaceBulkOutcome"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/persons/{id}/proposals/reject": {
+      "post": {
+        "tags": [
+          "faces"
+        ],
+        "summary": "Reject all pending proposals for a candidate person (bulk)",
+        "description": "# Errors\n`401` senza utente autenticato.",
+        "operationId": "persons_reject_all_proposals",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id persona candidata",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Esito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaceBulkOutcome"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/persons/{id}/separate": {
+      "post": {
+        "tags": [
+          "persons"
+        ],
+        "summary": "Split faces off into a new person (not undoable)",
+        "description": "# Errors\nCome [`get`] su `id`. `409` se `face_ids` è vuoto o un volto non\nappartiene a `id`. `422` se `name` non è vuoto ma è solo spazi.",
+        "operationId": "persons_separate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id persona sorgente",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeparatePersonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Persona nuova",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Nessun volto visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Persona inesistente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nessun volto selezionato, o non appartiene alla sorgente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Nome non valido",
             "content": {
               "application/json": {
                 "schema": {
@@ -9242,6 +10546,17 @@
           }
         }
       },
+      "AssignFaceRequest": {
+        "type": "object",
+        "required": [
+          "person_id"
+        ],
+        "properties": {
+          "person_id": {
+            "type": "string"
+          }
+        }
+      },
       "AuditEntryView": {
         "type": "object",
         "description": "Voce del registro audit, con lo stesso schema di\n`keeppix_db::AuditEntry` — solo lo schema `utoipa` sta nella crate HTTP\ninvece che in `keeppix-db`, che non deve conoscere `utoipa`.",
@@ -9833,6 +11148,26 @@
           }
         }
       },
+      "CreatePersonGroupRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreatePersonRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Vuoto o assente: persona senza nome («Persona 4»). Non vuoto: nome\nvalidato, non può essere solo spazi."
+          }
+        }
+      },
       "CreateSessionRequest": {
         "type": "object",
         "required": [
@@ -10212,6 +11547,118 @@
           }
         }
       },
+      "FaceBBoxView": {
+        "type": "object",
+        "required": [
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "properties": {
+          "h": {
+            "type": "number",
+            "format": "float"
+          },
+          "w": {
+            "type": "number",
+            "format": "float"
+          },
+          "x": {
+            "type": "number",
+            "format": "float"
+          },
+          "y": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "FaceBulkFailure": {
+        "type": "object",
+        "required": [
+          "id",
+          "reason"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/FailureReason"
+          }
+        }
+      },
+      "FaceBulkOutcome": {
+        "type": "object",
+        "description": "Gemello di [`BulkOutcome`] tipizzato su [`FaceId`] — la coda di revisione\nvolti (Fase 8 Task 8) lavora su volti, non su asset. Stessa forma e\nstessa [`FailureReason`] di `BulkOutcome`: `FailureReason::FileMissing`\nnon ha senso qui (nessun percorso sul filesystem è coinvolto), ma tenerlo\nnell'enum condiviso costa meno di una seconda tassonomia — il chiamante\nsemplicemente non lo produce mai per un volto.",
+        "required": [
+          "succeeded",
+          "failed"
+        ],
+        "properties": {
+          "failed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FaceBulkFailure"
+            }
+          },
+          "succeeded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "FaceView": {
+        "type": "object",
+        "required": [
+          "id",
+          "asset_id",
+          "bbox",
+          "assigned_by_human"
+        ],
+        "properties": {
+          "asset_id": {
+            "type": "string"
+          },
+          "assigned_by_human": {
+            "type": "boolean"
+          },
+          "bbox": {
+            "$ref": "#/components/schemas/FaceBBoxView"
+          },
+          "id": {
+            "type": "string"
+          },
+          "person_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "proposed_person_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "proposed_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          }
+        }
+      },
       "FailedJobView": {
         "type": "object",
         "required": [
@@ -10562,6 +12009,7 @@
           "owner_id",
           "root_path",
           "scan_enabled",
+          "faces_enabled",
           "exclude_patterns",
           "status",
           "created_at"
@@ -10575,6 +12023,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "faces_enabled": {
+            "type": "boolean",
+            "description": "Interruttore del riconoscimento facciale per questa libreria (Fase 8\nTask 10)."
           },
           "id": {
             "type": "string"
@@ -10768,6 +12220,20 @@
           }
         }
       },
+      "MergePersonsRequest": {
+        "type": "object",
+        "required": [
+          "absorbed"
+        ],
+        "properties": {
+          "absorbed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "MetadataPatchRequest": {
         "type": "object",
         "properties": {
@@ -10941,6 +12407,12 @@
               "type": "string"
             }
           },
+          "faces_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "name": {
             "type": [
               "string",
@@ -10969,6 +12441,30 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "PatchPersonRequest": {
+        "type": "object",
+        "properties": {
+          "cover_face_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hidden": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Assente: nome invariato. Stringa vuota: cancella il nome. Stringa\nnon vuota: nuovo nome (rifiutato se solo spazi)."
           }
         }
       },
@@ -11062,6 +12558,68 @@
           },
           "subject_type": {
             "type": "string"
+          }
+        }
+      },
+      "PersonGroupView": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_by",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PersonView": {
+        "type": "object",
+        "required": [
+          "id",
+          "hidden",
+          "created_at"
+        ],
+        "properties": {
+          "cover_face_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "face_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Presente per `GET /persons` (elenco); assente per le risposte di\nsingola persona, che non pagano un secondo giro di query per il\nconteggio."
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -11409,6 +12967,17 @@
           }
         }
       },
+      "RenamePersonGroupRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "ReorderBody": {
         "type": "object",
         "required": [
@@ -11727,6 +13296,23 @@
               "null"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "SeparatePersonRequest": {
+        "type": "object",
+        "required": [
+          "face_ids"
+        ],
+        "properties": {
+          "face_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -12543,6 +14129,14 @@
     {
       "name": "tags",
       "description": "Vocabolario condiviso di tag e categorie"
+    },
+    {
+      "name": "faces",
+      "description": "Volti rilevati, coda di revisione"
+    },
+    {
+      "name": "persons",
+      "description": "Persone e gruppi di persone fotografate"
     },
     {
       "name": "groups",

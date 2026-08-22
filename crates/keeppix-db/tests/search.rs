@@ -1028,6 +1028,142 @@ async fn category_filter_matches_confirmed_child_tags() {
     assert_eq!(hits[0].id, in_cat);
 }
 
+async fn assign_face(
+    test: &TestDb,
+    ctx: &AuthContext,
+    asset_id: keeppix_domain::AssetId,
+    person: keeppix_domain::PersonId,
+) {
+    use keeppix_db::{FaceRepo, NewDetectedFace};
+    use keeppix_domain::FaceBBox;
+
+    let face = FaceRepo::new(test.db())
+        .insert_detected(NewDetectedFace {
+            asset_id,
+            bbox: FaceBBox {
+                x: 0.1,
+                y: 0.1,
+                w: 0.2,
+                h: 0.2,
+            },
+            landmarks: None,
+            embedding: None,
+            detect_score: 0.9,
+            quality: None,
+            model_version: "test".to_owned(),
+        })
+        .await
+        .unwrap();
+    FaceRepo::new(test.db())
+        .assign(ctx, face.id, person)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn person_filter_matches_only_assigned_faces() {
+    use keeppix_db::PersonRepo;
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let with_person = index(&test, folder, "with.jpg", AssetKind::Image, 1).await;
+    let _without = index(&test, folder, "without.jpg", AssetKind::Image, 2).await;
+
+    let person = PersonRepo::new(test.db()).create(None).await.unwrap();
+    assign_face(&test, &ctx, with_person, person.id).await;
+
+    let hits = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Person {
+                id: person.id.as_uuid(),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, with_person);
+}
+
+#[tokio::test]
+async fn person_group_filter_matches_any_member() {
+    use keeppix_db::{NewPersonGroup, PersonGroupRepo, PersonRepo};
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let a_photo = index(&test, folder, "a.jpg", AssetKind::Image, 1).await;
+    let b_photo = index(&test, folder, "b.jpg", AssetKind::Image, 2).await;
+    let _outside = index(&test, folder, "outside.jpg", AssetKind::Image, 3).await;
+
+    let persons = PersonRepo::new(test.db());
+    let a = persons.create(None).await.unwrap();
+    let b = persons.create(None).await.unwrap();
+    assign_face(&test, &ctx, a_photo, a.id).await;
+    assign_face(&test, &ctx, b_photo, b.id).await;
+
+    let groups = PersonGroupRepo::new(test.db());
+    let family = groups
+        .create(
+            &ctx,
+            NewPersonGroup {
+                name: "Famiglia".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    groups.add_member(&ctx, family.id, a.id).await.unwrap();
+    groups.add_member(&ctx, family.id, b.id).await.unwrap();
+
+    let hits = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::PersonGroup {
+                id: family.id.as_uuid(),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 2);
+    assert!(hits.iter().any(|a| a.id == a_photo));
+    assert!(hits.iter().any(|a| a.id == b_photo));
+}
+
+#[tokio::test]
+async fn person_count_filter_counts_distinct_persons_not_faces() {
+    use keeppix_db::{IsoCmp, PersonRepo};
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let group_photo = index(&test, folder, "group.jpg", AssetKind::Image, 1).await;
+    let solo_photo = index(&test, folder, "solo.jpg", AssetKind::Image, 2).await;
+
+    let persons = PersonRepo::new(test.db());
+    let a = persons.create(None).await.unwrap();
+    let b = persons.create(None).await.unwrap();
+    assign_face(&test, &ctx, group_photo, a.id).await;
+    assign_face(&test, &ctx, group_photo, b.id).await;
+    assign_face(&test, &ctx, solo_photo, a.id).await;
+
+    let hits = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::PersonCount {
+                cmp: IsoCmp::Gte,
+                value: 2,
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, group_photo);
+}
+
 #[tokio::test]
 async fn semantic_filters_top_k_then_orders_by_date() {
     use keeppix_db::{EmbeddingRepo, MODEL_VERSION};

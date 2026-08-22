@@ -5,7 +5,7 @@
 //! frontend decide se mostrare "Riprova" senza parsare testo libero.
 
 use keeppix_db::DbError;
-use keeppix_domain::{AssetId, BatchId};
+use keeppix_domain::{AssetId, BatchId, FaceId};
 use serde::{Deserialize, Serialize};
 
 /// Esito di un'operazione di massa: ogni elemento è una transazione a sé
@@ -91,6 +91,45 @@ impl BulkOutcome {
                 .map(|(id, error)| BulkFailure::from_db_error(*id, error))
                 .collect(),
             batch_id,
+        }
+    }
+}
+
+/// Gemello di [`BulkOutcome`] tipizzato su [`FaceId`] — la coda di revisione
+/// volti (Fase 8 Task 8) lavora su volti, non su asset. Stessa forma e
+/// stessa [`FailureReason`] di `BulkOutcome`: `FailureReason::FileMissing`
+/// non ha senso qui (nessun percorso sul filesystem è coinvolto), ma tenerlo
+/// nell'enum condiviso costa meno di una seconda tassonomia — il chiamante
+/// semplicemente non lo produce mai per un volto.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct FaceBulkOutcome {
+    #[schema(value_type = Vec<String>)]
+    pub succeeded: Vec<FaceId>,
+    pub failed: Vec<FaceBulkFailure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct FaceBulkFailure {
+    #[schema(value_type = String)]
+    pub id: FaceId,
+    pub reason: FailureReason,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+impl FaceBulkOutcome {
+    #[must_use]
+    pub fn from_partition(succeeded: Vec<FaceId>, failed: &[(FaceId, DbError)]) -> Self {
+        Self {
+            succeeded,
+            failed: failed
+                .iter()
+                .map(|(id, error)| FaceBulkFailure {
+                    id: *id,
+                    reason: FailureReason::from_db_error(error),
+                    detail: detail_for(error),
+                })
+                .collect(),
         }
     }
 }

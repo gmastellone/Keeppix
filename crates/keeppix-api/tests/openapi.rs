@@ -244,8 +244,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 149,
-        "il documento deve descrivere centoquarantanove operazioni"
+        checked, 171,
+        "il documento deve descrivere centosettantuno operazioni"
     );
 }
 
@@ -306,6 +306,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/assets/batch/delete",
             "/api/v1/assets/{id}",
             "/api/v1/assets/{id}",
+            "/api/v1/assets/{id}/faces",
             "/api/v1/assets/{id}/flags",
             "/api/v1/assets/{id}/flags",
             "/api/v1/assets/{id}/metadata",
@@ -333,6 +334,11 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/duplicates",
             "/api/v1/duplicates/{content_hash}",
             "/api/v1/duplicates/{content_hash}/resolve",
+            "/api/v1/faces/data",
+            "/api/v1/faces/proposals",
+            "/api/v1/faces/{id}/assign",
+            "/api/v1/faces/{id}/confirm",
+            "/api/v1/faces/{id}/reject",
             "/api/v1/flags/batch",
             "/api/v1/folders/tree",
             "/api/v1/folders/{id}",
@@ -374,6 +380,22 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/permissions/explain",
             "/api/v1/permissions/{id}",
             "/api/v1/permissions/{id}",
+            "/api/v1/person-groups",
+            "/api/v1/person-groups",
+            "/api/v1/person-groups/{id}",
+            "/api/v1/person-groups/{id}",
+            "/api/v1/person-groups/{id}/members",
+            "/api/v1/person-groups/{id}/members/{person_id}",
+            "/api/v1/person-groups/{id}/members/{person_id}",
+            "/api/v1/persons",
+            "/api/v1/persons",
+            "/api/v1/persons/{id}",
+            "/api/v1/persons/{id}",
+            "/api/v1/persons/{id}",
+            "/api/v1/persons/{id}/merge",
+            "/api/v1/persons/{id}/proposals/confirm",
+            "/api/v1/persons/{id}/proposals/reject",
+            "/api/v1/persons/{id}/separate",
             "/api/v1/places/reverse",
             "/api/v1/places/suggest",
             "/api/v1/problems",
@@ -432,7 +454,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/media/thumb/{hash}",
             "/media/video/{id}/hls/{file}",
             "/media/video/{id}/playback",
-            "/media/video/{id}/poster",
+            "/media/video/{id}/poster"
         ]
     );
 }
@@ -481,6 +503,7 @@ fn operation_ids_are_explicit_and_unique() {
             "assets_batch_delete",
             "assets_delete",
             "assets_get",
+            "assets_list_faces",
             "assets_restore",
             "assets_stack_get",
             "assets_stack_set_primary",
@@ -502,6 +525,11 @@ fn operation_ids_are_explicit_and_unique() {
             "duplicates_list",
             "duplicates_members",
             "duplicates_resolve",
+            "faces_assign",
+            "faces_confirm_proposal",
+            "faces_delete_all_data",
+            "faces_list_proposals",
+            "faces_reject",
             "flags_batch_set",
             "flags_get",
             "flags_set",
@@ -556,6 +584,22 @@ fn operation_ids_are_explicit_and_unique() {
             "permissions_patch",
             "permissions_revoke",
             "permissions_shared_with_me",
+            "person_groups_add_member",
+            "person_groups_create",
+            "person_groups_delete",
+            "person_groups_list",
+            "person_groups_list_members",
+            "person_groups_patch",
+            "person_groups_remove_member",
+            "persons_confirm_all_proposals",
+            "persons_create",
+            "persons_delete",
+            "persons_get",
+            "persons_list",
+            "persons_merge",
+            "persons_patch",
+            "persons_reject_all_proposals",
+            "persons_separate",
             "places_reverse",
             "places_suggest",
             "problems_list",
@@ -659,8 +703,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 149,
-        "il documento deve descrivere centoquarantanove operazioni"
+        checked, 171,
+        "il documento deve descrivere centosettantuno operazioni"
     );
 }
 

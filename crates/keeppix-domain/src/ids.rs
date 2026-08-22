@@ -65,6 +65,11 @@ id_type!(OperationId);
 // identità attraversa ogni rotazione (`SessionRepo::rotate`) senza cambiare,
 // a differenza dell'id di riga (`sessions.id`), che cambia a ogni rotazione.
 id_type!(SessionId);
+// Fase 8 (volti): `FaceId` identifica un rilevamento su UN asset, `PersonId`
+// un'identità che vive nel tempo attraverso più asset e più rilevamenti.
+id_type!(FaceId);
+id_type!(PersonId);
+id_type!(PersonGroupId);
 
 #[cfg(test)]
 mod tests {
