@@ -3,6 +3,7 @@
 pub mod backup;
 pub mod cleanup_trash;
 pub mod derive;
+pub mod detect_faces;
 pub mod discover;
 pub mod dispatch;
 pub mod embed;
