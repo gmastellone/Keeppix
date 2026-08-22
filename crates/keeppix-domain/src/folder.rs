@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::DomainError;
@@ -94,6 +95,26 @@ pub struct Folder {
     pub path: FolderPath,
     pub depth: i32,
     pub culling_role: Option<CullingRole>,
+}
+
+/// Un lotto di culling (Fase 9 Task 3, spec §2.2): la cartella di primo
+/// livello sotto la radice designata — `Vacanze 2026-07/`, non `_taken`/
+/// `_skipped`, che sono le sue due figlie speciali. I tre conteggi sono
+/// **l'unico conteggio esatto rimasto in tutta l'applicazione** (decisione
+/// del 20 agosto: gli altri cinque sono stati tolti dalle liste) perché
+/// «quante me ne restano da vedere» è letteralmente la domanda che
+/// l'utente si sta facendo mentre guarda un lotto.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CullingLot {
+    pub folder_id: FolderId,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    /// Foto ancora nella radice del lotto, non ancora scelte né scartate.
+    pub pending: i64,
+    /// Foto in `_taken`.
+    pub taken: i64,
+    /// Foto in `_skipped`.
+    pub skipped: i64,
 }
 
 #[cfg(test)]
