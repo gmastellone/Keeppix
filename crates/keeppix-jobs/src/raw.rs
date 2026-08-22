@@ -107,6 +107,9 @@ pub async fn run_with(
             assets
                 .set_thumbhash_for_hash(&hash, &result.thumbhash)
                 .await?;
+            if keeppix_media::first_complete_model_dir().is_some() {
+                crate::embed::enqueue_after_ingest(db).await?;
+            }
         }
         Ok(_) => {}
         Err(detail) => {

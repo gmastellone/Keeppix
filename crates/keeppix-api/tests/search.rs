@@ -138,6 +138,54 @@ async fn the_favorite_search_chip_finds_only_the_callers_favorites() {
     assert_eq!(found[0]["id"], loved_id);
 }
 
+/// Round-trip completo del Task 10: l'API embedda la query di testo via
+/// MobileCLIP (`keeppix-db` non conosce ort), la passa alla subquery pgvector,
+/// e il risultato torna nella pagina di ricerca. Modello deterministico:
+/// stesso testo → stesso embedding sia per il "finto asset" seminato qui sia
+/// per la query, quindi l'asset finisce nei K più vicini.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn semantic_search_finds_the_asset_embedded_with_the_same_text() {
+    let Some(model_dir) = keeppix_media::first_complete_model_dir() else {
+        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+        return;
+    };
+
+    let server = TestServer::start_with_vector().await;
+    let asset_id = seed_photo_returning_id(&server, "spiaggia.jpg").await;
+
+    let query = "spiaggia al tramonto";
+    let embedding = {
+        let model_dir = model_dir.clone();
+        let text = query.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let mut clip = keeppix_media::MobileClip::load(&model_dir).expect("load model");
+            clip.embed_text(&text).expect("embed text")
+        })
+        .await
+        .unwrap()
+    };
+    keeppix_db::EmbeddingRepo::new(&server.db)
+        .upsert(asset_id, &embedding, keeppix_db::MODEL_VERSION)
+        .await
+        .unwrap();
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/search"))
+        .json(&json!({
+            "ast": { "op": "semantic", "query": query, "limit": 5 }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let hits = body["assets"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert_eq!(hits[0]["id"], asset_id.to_string());
+}
+
 /// `/search/suggest` restituisce oggetti tipizzati (spec fase-10 §23), non
 /// più stringhe piatte: il frontend deve poter distinguere `kind` senza
 /// indovinarlo dal valore.
@@ -317,6 +365,58 @@ async fn seed_photo(server: &TestServer, name: &str) {
         )
         .await
         .unwrap();
+}
+
+/// Come [`seed_photo`], ma restituisce l'id dell'asset creato: serve al
+/// test `Semantic` per scrivere un embedding su quello specifico asset.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn seed_photo_returning_id(server: &TestServer, name: &str) -> keeppix_domain::AssetId {
+    setup(server).await;
+    let username = Username::parse("giovanni").unwrap();
+    let (user, _) = UserRepo::new(&server.db)
+        .find_by_username(&username)
+        .await
+        .unwrap()
+        .expect("admin");
+    let ctx = AuthContext::user(user.id, SystemRole::Admin);
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Foto-semantic".to_owned(),
+                owner_id: user.id,
+                root_path: std::path::PathBuf::from("/mnt/foto-semantic"),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(&server.db)
+        .ensure_path(library.id, &[])
+        .await
+        .unwrap();
+    let a = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse(name).unwrap(),
+            size_bytes: 10,
+            mtime: Utc.with_ymd_and_hms(2024, 7, 1, 0, 0, 0).unwrap(),
+            inode: Some(1),
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    AssetRepo::new(&server.db)
+        .set_indexed(
+            a.id,
+            Utc.with_ymd_and_hms(2024, 7, 1, 12, 0, 0).unwrap(),
+            1,
+            1,
+        )
+        .await
+        .unwrap();
+    a.id
 }
 
 /// Come [`seed_photo`], ma per due file nella **stessa** libreria —

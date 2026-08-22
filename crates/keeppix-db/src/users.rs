@@ -103,6 +103,24 @@ impl<'a> UserRepo<'a> {
         Ok(n)
     }
 
+    /// Primo admin attivo per `created_at`. Usato dai job di background che
+    /// devono creare un'`Operation` senza richiesta HTTP (Fase 7
+    /// `AiAnalysis`): l'avanzamento WS è visibile a quell'owner.
+    ///
+    /// # Errors
+    /// `DbError::Connection` se la query fallisce.
+    pub async fn first_admin_id(&self) -> Result<Option<UserId>, DbError> {
+        let id: Option<uuid::Uuid> = sqlx::query_scalar(
+            "SELECT id FROM users \
+             WHERE role = 'admin' AND disabled_at IS NULL \
+             ORDER BY created_at ASC \
+             LIMIT 1",
+        )
+        .fetch_optional(self.db.pool())
+        .await?;
+        Ok(id.map(UserId::from_uuid))
+    }
+
     /// Crea il primo amministratore. Unica scrittura priva di `AuthContext`,
     /// permessa solo finché la tabella è vuota.
     ///

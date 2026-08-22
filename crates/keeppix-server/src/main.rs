@@ -76,9 +76,8 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
         tracing::info!(timezones = imported, "timezone boundaries imported");
     }
 
-    if let Err(e) = keeppix_jobs::watch::persist_capabilities(&db).await {
-        tracing::warn!(error = %e, "hardware probe failed");
-    }
+    log_hardware_probe(&db).await;
+    log_pgvector_status(&db).await;
     let library_watchers = match keeppix_jobs::watch::spawn_all(
         &db,
         keeppix_jobs::watch::DEFAULT_DEBOUNCE,
@@ -96,6 +95,7 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
     keeppix_jobs::regions::recover_interrupted_downloads(&db)
         .await
         .context("interrupted region download repair")?;
+    let tracker = std::sync::Arc::new(keeppix_jobs::ActivityTracker::new());
     let handler = keeppix_jobs::IngestHandler {
         db: db.clone(),
         data_dir: config.data_dir.clone(),
@@ -103,6 +103,7 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
         trash_retention_days: config.trash_retention_days,
         database_url: config.database_url.clone(),
         config_path: Some(config_path),
+        activity: tracker.clone(),
     };
     let night = keeppix_jobs::default_night_window();
     let workers = keeppix_jobs::worker_count(
@@ -110,7 +111,6 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
             .map(std::num::NonZero::get)
             .unwrap_or(2),
     );
-    let tracker = std::sync::Arc::new(keeppix_jobs::ActivityTracker::new());
     let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     for _ in 0..workers {
         // ponytail: each worker has its own 512 MiB RamGate. Share one Arc
@@ -165,6 +165,47 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
     Ok(())
 }
 
+async fn log_hardware_probe(db: &Db) {
+    if let Err(e) = keeppix_jobs::watch::persist_capabilities(db).await {
+        tracing::warn!(error = %e, "hardware probe failed");
+        return;
+    }
+    if let Ok(Some(ai)) = keeppix_jobs::watch::load_ai_host_facts(db).await {
+        tracing::info!(
+            free_ram_bytes = ai.free_ram_bytes,
+            cpu_cores = ai.cpu_cores,
+            inference_status = %ai.inference_status,
+            "ai host probe"
+        );
+    }
+}
+
+/// Fase 7 Task 3: se pgvector manca (Postgres esterno senza l'estensione)
+/// Keeppix parte comunque; AI resta spenta e il log spiega il comando da
+/// eseguire. Una galleria non deve rifiutarsi di avviarsi per i tag.
+async fn log_pgvector_status(db: &Db) {
+    match keeppix_db::persist_pgvector_status(db).await {
+        Ok(status) if status.ai_disabled() => {
+            let message = status
+                .message
+                .as_deref()
+                .unwrap_or("pgvector is not available");
+            tracing::warn!(
+                enable_command = status.enable_command.as_deref().unwrap_or(""),
+                "{message}"
+            );
+        }
+        Ok(status) => {
+            tracing::info!(
+                available = status.available,
+                enabled = status.enabled,
+                "pgvector probe"
+            );
+        }
+        Err(e) => tracing::warn!(error = %e, "pgvector probe failed"),
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 async fn spawn_maintenance(db: Db) {
     if let Err(e) = keeppix_jobs::cleanup_trash::schedule(&db).await {
@@ -178,6 +219,9 @@ async fn spawn_maintenance(db: Db) {
     }
     if let Err(e) = keeppix_jobs::tmp_cleanup::schedule(&db).await {
         tracing::warn!(error = %e, "upload tmp cleanup could not be scheduled");
+    }
+    if let Err(e) = keeppix_jobs::embed::schedule_backfill(&db).await {
+        tracing::warn!(error = %e, "AI embed backfill could not be scheduled");
     }
     if let Err(e) = keeppix_jobs::maintenance::schedule_purge_sessions(&db).await {
         tracing::warn!(error = %e, "session purge could not be scheduled");

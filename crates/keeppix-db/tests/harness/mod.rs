@@ -90,6 +90,44 @@ impl TestDb {
             guard,
         )
     }
+
+    /// Database su `postgis/postgis:17-3.5` **senza** pgvector — percorso
+    /// degradato (Postgres esterno senza il pacchetto). Non condivide il
+    /// container di [`Self::start`].
+    ///
+    /// # Panics
+    /// Se il container non parte o le migrazioni falliscono.
+    #[allow(clippy::expect_used)]
+    pub async fn start_postgis_only() -> Self {
+        static POSTGIS_ONLY: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
+
+        let (_container, admin_url) = POSTGIS_ONLY
+            .get_or_init(|| async {
+                let container = Postgres::default()
+                    .with_tag("17-3.5")
+                    .with_name("postgis/postgis")
+                    .start()
+                    .await
+                    .expect("avvio del container PostGIS-only");
+                let port = mapped_port(&container).await;
+                let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+                (container, url)
+            })
+            .await;
+
+        let provisioned = named_database(admin_url).await;
+        let db = Db::connect(&provisioned.url, 5)
+            .await
+            .expect("connessione PostGIS-only");
+        db.migrate()
+            .await
+            .expect("migrazioni su PostGIS-only (devono riuscire senza vector)");
+        Self {
+            db,
+            admin_url: provisioned.admin_url,
+            db_name: provisioned.name,
+        }
+    }
 }
 
 struct SqlCapture(Arc<Mutex<Vec<String>>>);
@@ -190,26 +228,38 @@ pub async fn seed_user(
 
 /// Procura un database vergine.
 ///
-/// Percorso predefinito: **un** container `postgis/postgis:17-3.5` per
-/// processo, e un `CREATE DATABASE` per test. Il boot del container è la
-/// parte lenta; condividerlo è il checkpoint prestazioni della 1a.
+/// Percorso predefinito: **un** container `keeppix-db:dev` (`Dockerfile.db`:
+/// `PostGIS` + pgvector) per processo, e un `CREATE DATABASE` per test. Il boot
+/// del container è la parte lenta; condividerlo è il checkpoint prestazioni
+/// della 1a. Fase 7 Task 4: lo schema AI usa il tipo `vector`, quindi i test
+/// di questo crate girano sull'immagine bundled.
 ///
-/// Percorso alternativo, attivo **solo** se `KEEPPIX_TEST_DATABASE_URL` è
-/// impostata: si usa il server già in ascolto, stesso `CREATE DATABASE`.
+/// Se `KEEPPIX_TEST_DATABASE_URL` è impostata **e** quel server offre
+/// `vector` in `pg_available_extensions`, si usa quel server. Altrimenti si
+/// ricade su `keeppix-db:dev` (un URL senza pgvector farebbe no-op dello
+/// schema AI e i test di colonna mentirebbero).
+///
+/// Il percorso degradato (senza pacchetto pgvector) resta in
+/// [`TestDb::start_postgis_only`].
 #[allow(clippy::expect_used)]
 async fn provision() -> ProvisionedDb {
-    if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL") {
+    if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL")
+        && server_offers_vector(&server_url).await
+    {
         return named_database(&server_url).await;
     }
 
     let (_container, admin_url) = SHARED
         .get_or_init(|| async {
             let container = Postgres::default()
-                .with_tag("17-3.5")
-                .with_name("postgis/postgis")
+                .with_tag("dev")
+                .with_name("keeppix-db")
                 .start()
                 .await
-                .expect("avvio del container Postgres");
+                .expect(
+                    "avvio del container Postgres (keeppix-db:dev); \
+                     costruiscilo con: docker build -f Dockerfile.db -t keeppix-db:dev .",
+                );
             let port = mapped_port(&container).await;
             let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
             (container, url)
@@ -217,6 +267,22 @@ async fn provision() -> ProvisionedDb {
         .await;
 
     named_database(admin_url).await
+}
+
+/// `true` se il server espone l'estensione `vector` (pacchetto installato).
+#[allow(clippy::expect_used)]
+async fn server_offers_vector(server_url: &str) -> bool {
+    let Ok(mut conn) = PgConnection::connect(server_url).await else {
+        return false;
+    };
+    let offered = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap_or(false);
+    conn.close().await.ok();
+    offered
 }
 
 /// Docker Desktop a volte espone la porta un attimo dopo `start()`. Senza

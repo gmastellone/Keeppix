@@ -244,8 +244,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 139,
-        "il documento deve descrivere centotrentanove operazioni"
+        checked, 149,
+        "il documento deve descrivere centoquarantanove operazioni"
     );
 }
 
@@ -388,6 +388,16 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/share/links/{id}",
             "/api/v1/shared-with-me",
             "/api/v1/sync/delta",
+            "/api/v1/tags",
+            "/api/v1/tags",
+            "/api/v1/tags/proposals",
+            "/api/v1/tags/{id}",
+            "/api/v1/tags/{id}",
+            "/api/v1/tags/{id}",
+            "/api/v1/tags/{id}/assets/{asset_id}/confirm",
+            "/api/v1/tags/{id}/assets/{asset_id}/reject",
+            "/api/v1/tags/{id}/proposals/confirm",
+            "/api/v1/tags/{id}/proposals/reject",
             "/api/v1/timeline",
             "/api/v1/timeline/buckets",
             "/api/v1/timeline/geometry",
@@ -567,6 +577,16 @@ fn operation_ids_are_explicit_and_unique() {
             "share_public_auth",
             "share_public_info",
             "share_public_upload",
+            "tags_confirm_all_proposals",
+            "tags_confirm_proposal",
+            "tags_create",
+            "tags_delete",
+            "tags_get",
+            "tags_list",
+            "tags_list_proposals",
+            "tags_patch",
+            "tags_reject_all_proposals",
+            "tags_reject_proposal",
             "timeline_buckets",
             "timeline_geometry",
             "timeline_page",
@@ -639,8 +659,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 139,
-        "il documento deve descrivere centotrentanove operazioni"
+        checked, 149,
+        "il documento deve descrivere centoquarantanove operazioni"
     );
 }
 

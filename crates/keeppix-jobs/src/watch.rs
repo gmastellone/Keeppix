@@ -330,7 +330,9 @@ fn inotify_watches_ok() -> bool {
 }
 
 /// Scrive il probe hardware in `system_settings.capabilities`.
-/// Misura l'accelerazione video reale (Fase 6) e persiste il risultato JSON.
+/// Misura l'accelerazione video reale (Fase 6) e i fatti host AI (Fase 7:
+/// RAM, core, e da Task 2 i ms di inferenza sul modello locale) e persiste
+/// il risultato JSON.
 ///
 /// # Errors
 /// Database.
@@ -341,6 +343,27 @@ pub async fn persist_capabilities(db: &Db) -> Result<(), JobError> {
         .put_json("capabilities", &value)
         .await?;
     Ok(())
+}
+
+/// Rilegge `extra.ai` da `system_settings.capabilities` (Fase 7 Task 1).
+/// È il lettore che `get_json` doveva avere per questa fase: lo scheduler
+/// (Task 6) userà questi numeri per i livelli Piena/Ridotta/Spenta.
+///
+/// # Errors
+/// Database, o JSON corrotto.
+pub async fn load_ai_host_facts(db: &Db) -> Result<Option<keeppix_media::AiHostFacts>, JobError> {
+    let Some(value) = keeppix_db::SettingsRepo::new(db)
+        .get_json("capabilities")
+        .await?
+    else {
+        return Ok(None);
+    };
+    let Some(ai) = value.get("extra").and_then(|extra| extra.get("ai")) else {
+        return Ok(None);
+    };
+    let facts: keeppix_media::AiHostFacts = serde_json::from_value(ai.clone())
+        .map_err(|e| JobError::Worker(format!("capabilities.extra.ai: {e}")))?;
+    Ok(Some(facts))
 }
 
 #[cfg(test)]

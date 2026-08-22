@@ -97,6 +97,31 @@ impl<'a> OperationsRepo<'a> {
         row.into_domain()
     }
 
+    /// Crea un'operazione per un owner noto senza `AuthContext`. Usata dalla
+    /// finestra di analisi AI in background (nessun utente HTTP). Documentata
+    /// come eccezione: il worker sceglie l'owner (tipicamente il primo admin)
+    /// e `list_running` filtra per quel `owner_id`.
+    ///
+    /// # Errors
+    /// `Connection` su errore DB.
+    pub async fn create_for_owner(
+        &self,
+        owner: UserId,
+        kind: OperationKind,
+    ) -> Result<Operation, DbError> {
+        let id = Uuid::now_v7();
+        let row: OperationRow = sqlx::query_as(&format!(
+            "INSERT INTO operations (id, kind, owner_id) VALUES ($1, $2, $3) \
+             RETURNING {COLUMNS}"
+        ))
+        .bind(id)
+        .bind(kind.as_str())
+        .bind(owner.as_uuid())
+        .fetch_one(self.db.pool())
+        .await?;
+        row.into_domain()
+    }
+
     /// Recupera un'operazione. `Forbidden` — non `NotFound` — se non è
     /// visibile: altrimenti l'endpoint diventerebbe un oracolo di esistenza.
     ///

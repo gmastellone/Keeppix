@@ -41,6 +41,9 @@ async fn expected_tables_exist() {
         "sessions",
         "system_settings",
         "tz_boundaries",
+        "asset_embeddings",
+        "tags",
+        "asset_tags",
     ] {
         assert!(
             tables.contains(&expected.to_owned()),
@@ -95,12 +98,22 @@ async fn performance_indexes_exist() {
         "asset_flags_favorite_idx",
         "assets_taken_day_idx",
         "assets_timeline_indexed_idx",
+        "asset_embeddings_model_idx",
+        "tags_parent_idx",
+        "asset_tags_tag_idx",
+        "asset_tags_proposed_idx",
+        "asset_embeddings_ivfflat_idx",
     ] {
         assert!(
             indexes.contains(&expected.to_owned()),
             "manca l'indice {expected}"
         );
     }
+
+    assert!(
+        !indexes.iter().any(|i| i.contains("hnsw")),
+        "HNSW non spedito: IVFFlat basta (Task 11), got {indexes:?}"
+    );
 }
 
 #[tokio::test]
@@ -153,6 +166,119 @@ async fn album_refresh_columns_exist() {
             "manca la colonna albums.{expected}"
         );
     }
+}
+
+/// Fase 7 Task 4: colonne di `asset_embeddings`, `tags`, `asset_tags`.
+#[tokio::test]
+#[allow(clippy::expect_used)]
+async fn ai_schema_columns_exist() {
+    let test = TestDb::start().await;
+    let pool = test.db().pool();
+
+    let embedding_cols: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'asset_embeddings' \
+         ORDER BY column_name",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("colonne asset_embeddings");
+    for expected in ["asset_id", "computed_at", "embedding", "model_version"] {
+        assert!(
+            embedding_cols.contains(&expected.to_owned()),
+            "manca asset_embeddings.{expected}"
+        );
+    }
+
+    let tag_cols: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'tags' \
+         ORDER BY column_name",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("colonne tags");
+    for expected in [
+        "color",
+        "created_at",
+        "created_by",
+        "embedding",
+        "id",
+        "kind",
+        "model_version",
+        "name",
+        "parent_id",
+        "prompt",
+        "threshold",
+    ] {
+        assert!(
+            tag_cols.contains(&expected.to_owned()),
+            "manca tags.{expected}"
+        );
+    }
+
+    let asset_tag_cols: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'asset_tags' \
+         ORDER BY column_name",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("colonne asset_tags");
+    for expected in [
+        "asset_id",
+        "decided_at",
+        "decided_by",
+        "score",
+        "source",
+        "state",
+        "tag_id",
+    ] {
+        assert!(
+            asset_tag_cols.contains(&expected.to_owned()),
+            "manca asset_tags.{expected}"
+        );
+    }
+
+    let library_cols: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'libraries' \
+         ORDER BY column_name",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("colonne libraries");
+    assert!(
+        library_cols.contains(&"culling_root_folder_id".to_owned()),
+        "manca libraries.culling_root_folder_id (Fase 7 Task 5, inerte fino a Fase 9)"
+    );
+}
+
+/// Sull'immagine bundled la migrazione abilita `vector`; senza HNSW (Task 11).
+#[tokio::test]
+#[allow(clippy::expect_used)]
+async fn vector_extension_is_enabled_on_bundled_image() {
+    let test = TestDb::start().await;
+
+    let enabled: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')")
+            .fetch_one(test.db().pool())
+            .await
+            .expect("pg_extension");
+    assert!(
+        enabled,
+        "CREATE EXTENSION vector deve essere applicato dalla migrazione AI"
+    );
+
+    let embedding_udt: String = sqlx::query_scalar(
+        "SELECT udt_name FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'asset_embeddings' \
+           AND column_name = 'embedding'",
+    )
+    .fetch_one(test.db().pool())
+    .await
+    .expect("tipo embedding");
+    assert_eq!(embedding_udt, "vector");
 }
 
 #[tokio::test]

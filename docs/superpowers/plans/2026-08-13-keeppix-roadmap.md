@@ -318,6 +318,8 @@ cartelle, cestino, modifica in blocco, ricerche salvate, rinnovo sessione.
 
 **Chiusa quando:** su Pi 5, «tramonto con casa» risponde in meno di un secondo su libreria reale, e creare un tag nuovo lo popola **senza rianalizzare le foto**.
 
+**Stato (2026-08-21):** implementata sul branch `fase-7` (CLIP MobileCLIP2-S2 via `ort`, pgvector, tag/proposte, SearchNode Tag/Category/Semantic, IVFFlat `lists=200`, `OperationKind::AiAnalysis`). UI coda di revisione e pagina Tag restano Fase 11. Misure e ruling nel ledger `.superpowers/sdd/2026-08-20-keeppix-fase-7/progress.md`.
+
 ---
 
 ## Fase 8 — Volti

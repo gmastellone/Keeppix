@@ -33,7 +33,10 @@ services:
 
   db:
     profiles: ["bundled"]
-    image: postgis/postgis:17-3.5
+    build:
+      context: .
+      dockerfile: Dockerfile.db
+    image: keeppix-db:dev
     restart: unless-stopped
     command:
       - postgres

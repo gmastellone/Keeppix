@@ -28,4 +28,6 @@ pub enum DomainError {
     InvalidOperationKind(String),
     #[error("invalid operation status: {0}")]
     InvalidOperationStatus(String),
+    #[error("invalid tag kind: {0}")]
+    InvalidTagKind(String),
 }

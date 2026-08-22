@@ -27,6 +27,7 @@ pub mod setup;
 pub mod share;
 pub mod stacks;
 pub mod sync;
+pub mod tags;
 pub mod timeline;
 pub mod totp;
 pub mod trash;

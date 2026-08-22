@@ -5,6 +5,7 @@ pub mod cleanup_trash;
 pub mod derive;
 pub mod discover;
 pub mod dispatch;
+pub mod embed;
 pub mod error;
 pub mod geotag;
 pub mod hash;
@@ -32,7 +33,7 @@ pub use keeppix_media::{
 pub use pool::{RamGate, WorkerPool};
 pub use profile::{
     ActivityTracker, AnalysisLevel, DEFAULT_ANALYSIS_IDLE_MS, EnergyProfile, default_night_window,
-    worker_count,
+    max_claimable_priority, worker_count,
 };
 
 /// Attesa prima di riconsiderare un file che sembra ancora in arrivo.

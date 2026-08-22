@@ -22,12 +22,38 @@ async fn persist_capabilities_writes_the_measured_probe_result() {
         .unwrap()
         .expect("capabilities");
     assert_eq!(value["backend"], serde_json::json!(expected.backend));
-    assert_eq!(value["extra"], serde_json::json!({}));
+    let status = value["extra"]["ai"]["inference_status"]
+        .as_str()
+        .expect("inference_status");
+    assert!(
+        matches!(status, "ok" | "model_missing" | "failed"),
+        "persisted capabilities must keep a concrete AI probe status, got {status}"
+    );
+    assert_eq!(
+        value["extra"]["ai"]["inference_status"], expected.extra["ai"]["inference_status"],
+        "persisted status must match the live probe"
+    );
+    assert!(
+        value["extra"]["ai"]["free_ram_bytes"].as_u64().unwrap() > 0,
+        "persist_capabilities must store the AI host probe, not an empty extra"
+    );
+    assert_eq!(
+        value["extra"]["ai"]["cpu_cores"], expected.extra["ai"]["cpu_cores"],
+        "cpu_cores is stable across two probe calls in the same process"
+    );
     assert_eq!(
         value["decode_fps"].is_null(),
         expected.decode_fps.is_none(),
         "persisted capabilities must preserve whether the probe measured fps"
     );
+
+    let loaded = watch::load_ai_host_facts(test.db())
+        .await
+        .unwrap()
+        .expect("ai facts via get_json");
+    assert!(loaded.free_ram_bytes > 0);
+    assert!(loaded.cpu_cores >= 1);
+    assert_eq!(loaded.inference_status, status);
 }
 
 #[tokio::test]
