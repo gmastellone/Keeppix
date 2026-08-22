@@ -637,10 +637,138 @@ sul `check-wired.py`). Verificato con quattro run consecutive di
 `cargo test -p keeppix-api --test bootstrap` dopo il fix: 3/3 verdi ogni
 volta, nessuna variazione nel conteggio.
 
-Entrambi i difetti sono esattamente il tipo che PROSEGUI.md §10 esiste per
+I primi due difetti sono esattamente il tipo che PROSEGUI.md §10 esiste per
 intercettare prima del merge: un test verde in locale (con la variabile
 d'ambiente che punta sempre a un server con pgvector, e senza mai far
 girare `cargo test --workspace` fino in fondo per motivi di spazio disco
 del sandbox) non è la controprova che il requisito regga in produzione.
-Corretti entrambi, riverificati (suite mirate + `fmt`/`clippy`/
-`check-wired.py`), e solo a quel punto si procede al merge.
+Ogni push successivo ha rivelato il difetto *seguente* — `cargo test
+--workspace` non ha `--no-fail-fast`, quindi ogni run reale si fermava al
+primo binario che falliva, senza mai raggiungere il resto della suite.
+Cinque cicli push→CI→diagnosi→fix in totale prima di un run interamente
+verde:
+
+**3. Due test HTTP creati in questa fase aprivano il server senza lo
+schema volti.** `crates/keeppix-api/tests/face_privacy.rs` (i due test
+DB-backed) falliva con `relation "persons" does not exist` — la stessa
+causa di fondo del difetto 1 (server di default in CI senza pgvector),
+ma qui il colpevole è `TestServer::start()` invece di
+`TestServer::start_with_vector()`: il commento del harness lo dichiara
+esplicitamente ("i test che [richiedono lo schema IA] usano
+`start_with_vector`"), ma tutti i test di `face_privacy.rs`, `persons.rs`
+(Task 6/7/8) e il test nuovo di `ws.rs` (Task 11,
+`a_proposed_face_is_pushed_as_suggestions_changed`) sono stati scritti con
+`start()` semplice — mai emerso prima perché il Postgres locale di questa
+sandbox ha sempre pgvector installato, quindi `start()`/`start_with_vector()`
+si comportano identici qui. Corretti tutti e undici i punti in `persons.rs`
+più i due in `face_privacy.rs` più quello in `ws.rs`. Verificato
+riproducendo di nuovo il server senza pgvector (stesso trucco del difetto
+1); il fallback a testcontainers `keeppix-db:dev` non è verificabile in
+questa sandbox (niente Docker), ma è lo stesso meccanismo già usato con
+successo dai test IA di Fase 7 (`tags.rs`) in CI reale, non qualcosa
+inventato qui.
+
+**4. Flake preesistente di `bootstrap.rs`, root-causato invece di
+lasciato aperto.** Dopo il fix del difetto 2,
+`bootstrap_emits_no_more_queries_than_individual_repos` tornava a fallire
+in modo non deterministico (`bootstrap=8 query, singoli=7` una volta,
+verde la successiva) — esattamente il difetto già documentato nel ledger
+di Fase 10 come *"fallisce quando gira insieme all'altro test dello
+stesso binario, isolato passa sempre"*, mai chiuso allora. Causa reale:
+`global_sql_capture` installa un subscriber di tracing **process-wide**
+(necessario perché sqlx logga da un worker diverso dal task del test), e i
+due test che leggono il conteggio si serializzano su `BUDGET_LOCK` — ma il
+terzo test dello stesso file, `bootstrap_matches_individual_endpoints`,
+gira concorrente e senza lock, e le sue query HTTP possono cadere dentro
+la finestra di cattura di uno degli altri due, gonfiando il conteggio.
+Fix: `BUDGET_LOCK` anche lì. Verificato con 8 run locali consecutivi
+(prima del fix falliva in modo intermittente; dopo, 8/8 verdi), poi
+confermato di nuovo in CI reale.
+
+**5. `budgets.rs` — confermato rumore del runner, non un difetto.** La
+prima run interamente verde di `cargo test --workspace` in CI ha
+raggiunto, per la prima volta in questa fase, i test di performance
+(`timeline_page_with_ten_thousand_assets_stays_within_budget` e
+`timeline_buckets_with_ten_thousand_assets_stays_within_budget`), che
+hanno sforato il budget (368ms/300ms, 276ms/200ms). Verificato **prima**
+di trattarlo come rumore: `git diff main -- crates/keeppix-api/tests/budgets.rs
+crates/keeppix-api/src/routes/timeline.rs` — zero differenze rispetto a
+`main` su entrambi i file, quindi nulla in questa fase li tocca. Un solo
+re-run mirato (`rerun_failed_jobs`, non un nuovo push) su un runner
+diverso: verde. Non richiesto nessun fix.
+
+Tutti i difetti reali (1-4) corretti, riverificati (suite mirate +
+`fmt`/`clippy`/`check-wired.py` dopo ognuno, poi l'intera
+`cargo test --workspace` in CI verde end-to-end, tutti i 130+ binari di
+test del workspace confermati eseguiti — non solo "l'ultimo passo non ha
+fallito"), e solo a quel punto si procede al merge.
+
+## Fase 8: MERGIATA in `main`
+
+`git merge --no-ff claude/keeppix-phases-8-11-shi9fl` (commit `e50b544`),
+dopo `git merge-tree` a secco (nessun conflitto — la fase non tocca nulla
+toccato da `main` nel frattempo) e CI reale verde sul branch. Le due cose
+che il piano dichiara più importanti di tutto il resto sono state
+riverificate un'ultima volta leggendo il codice reale sul branch appena
+pushato, non il riassunto del ledger: `share.rs` — zero occorrenze di
+`face`/`person` in tutto il file; `detect_faces.rs::group_face` —
+`has_any_separation` blocca sempre l'assegnazione automatica certa prima
+di qualunque confronto di similarità.
+
+**CI sul commit di merge stesso: verde solo al terzo tentativo (run
+32574907605), non in un colpo solo — documentato per intero, non
+smussato, perché è successo sul commit che poi è rimasto su `main`.**
+Un merge può introdurre problemi che nessuna delle due CI isolate (branch
+e `main` pre-merge) avrebbe visto, quindi questa run separata non era una
+formalità: è dove sono emersi due difetti apparenti in più.
+
+- **Tentativo 1: FAILED** — `crates/keeppix-db/tests/scale_200k.rs`, due
+  test oltre budget: `two_hundred_thousand_assets_keep_timeline_and_search_within_budget`
+  (554ms contro 300ms) e `timeline_with_fifty_permissions_stays_under_budget_at_200k`
+  (331ms).
+- **Tentativo 2 (`rerun_failed_jobs`, nessun nuovo push): FAILED** — test
+  **diverso**, `crates/keeppix-db/tests/scale_embeddings.rs::vector_search_stays_interactive_with_ivfflat`:
+  la scansione IVFFlat grezza (`ORDER BY <=>` su 200.000 embedding seminati
+  nello stesso test) ha misurato 643,2ms contro un budget di 500ms.
+- **Verificato prima di trattarlo come rumore, non dopo:**
+  `git diff e50b544~2 e50b544 -- crates/keeppix-db/tests/scale_200k.rs
+  crates/keeppix-db/tests/scale_embeddings.rs crates/keeppix-api/src/routes/timeline.rs
+  crates/keeppix-db/src/timeline.rs` — **zero differenze** su tutti e
+  quattro i file rispetto a prima del merge. L'unico file toccato dalla
+  fase vicino a questo codice, `crates/keeppix-db/src/search.rs`, aggiunge
+  solo il dispatch di `SearchNode::Person/PersonGroup/PersonCount` — mai
+  esercitato dal path SQL grezzo o da `SearchNode::Semantic` che questi
+  due test misurano. `.github/workflows/ci.yml` (righe ~118-136) dichiara
+  esplicitamente che `cargo test --workspace` in CI gira **senza**
+  `--test-threads=1` (a differenza di `scripts/test.sh` in locale): più
+  binari di test colpiscono lo stesso Postgres/`keeppix-db:dev` condiviso
+  in concorrenza, per scelta — motivo strutturale, non specifico di questa
+  fase, per cui i budget in millisecondi di `scale_200k.rs` e
+  `scale_embeddings.rs` (dati da 200.000 righe, soglie strette) sono
+  intrinsecamente sensibili al rumore del runner condiviso. Due test
+  **diversi**, in due file **diversi**, entrambi senza alcuna differenza
+  introdotta da questa fase, è più coerente con rumore generico del runner
+  che con una regressione sistematica introdotta dal merge.
+- **Tentativo 3 (`rerun_failed_jobs`, nessun nuovo push): SUCCESS** — tutti
+  e 5 i job verdi, incluso `Test` (l'intera `cargo test --workspace`) e
+  `La specifica OpenAPI è aggiornata`.
+
+Ruling: **i budget di `scale_200k.rs`/`scale_embeddings.rs` sono rumore
+del runner CI condiviso, non un difetto di Fase 8** — confermato con `git
+diff` a zero su ogni file coinvolto in entrambi i tentativi falliti,
+spiegato dal modello di esecuzione concorrente che `ci.yml` stesso
+documenta, e risolto senza toccare codice o test. Costo se questo ruling
+è sbagliato: un regresso di prestazioni reale nel path vettoriale/timeline
+introdotto da questa fase passerebbe inosservato finché non degrada
+abbastanza da fallire in modo deterministico — la mitigazione è che
+questi due file restano test di scala già esistenti (non aggiunti da
+Fase 8) e li si è visti fallire isolatamente anche in fasi precedenti
+(vedi bug #5, `budgets.rs`, sopra), quindi il pattern di rumore era già
+noto prima di questo merge, non inventato per giustificare una CI rossa.
+
+Limite dichiarato e non risolto (Task 2): nessuna misura reale di
+inferenza SCRFD/ArcFace su hardware vero — nessuna fonte verificata di
+pesi ONNX raggiungibile da questa sessione. `ASSIGN_SIMILARITY`/
+`PROPOSE_SIMILARITY` restano stime ragionate, non calibrate. Serve una
+decisione umana su quale checkpoint usare prima che questi numeri possano
+dirsi affidabili.
