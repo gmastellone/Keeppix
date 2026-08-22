@@ -143,12 +143,12 @@ impl FaceBulkOutcome {
 
 fn detail_for(error: &DbError) -> Option<String> {
     match error {
-        DbError::Io(message)
+        DbError::Connection(error) => Some(error.to_string()),
+        DbError::Migration(message)
+        | DbError::Io(message)
         | DbError::Conflict(message)
         | DbError::Corrupted(message)
         | DbError::Collision(message) => Some(message.clone()),
-        DbError::Connection(error) => Some(error.to_string()),
-        DbError::Migration(message) => Some(message.clone()),
         DbError::Forbidden | DbError::NotFound | DbError::InsufficientStorage | DbError::Gone => {
             None
         }
