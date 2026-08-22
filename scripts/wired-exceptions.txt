@@ -59,6 +59,17 @@ fn set_pick fase-9
 # segnala correttamente (nessun falso positivo qui). Consumatore: il
 # pulsante omonimo, con conferma, nella stessa schermata Culling di Fase 11.
 fn empty_skipped fase-9
+# render_filename / resolve_place_label (keeppix-domain/src/rename.rs, Task
+# 6): il motore puro delle formule di rinomina. check-wired.py non li segnala
+# — falso positivo, stesso motivo di move_asset (Task 1): count_ident conta
+# le menzioni testuali nei commenti di documentazione (il modulo ne parla
+# diffusamente, incluso un link `[`resolve_place_label`]`), non solo le
+# chiamate reali. `grep -rn 'render_filename(\|resolve_place_label('
+# crates --include=*.rs` conferma zero call-site fuori da rename.rs stesso e
+# dal suo modulo di test. Consumatori reali: Task 7 (le cinque convalide,
+# che orchestrano il motore su un batch vero) e Task 8 (i tre ambiti).
+fn render_filename fase-9
+fn resolve_place_label fase-9
 route /health ops
 route /api/openapi.json ci
 
