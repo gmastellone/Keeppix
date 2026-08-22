@@ -583,3 +583,64 @@ openapi --test libraries --test ws` → 46/46 verdi. `cargo fmt --all --
 puliti. `python3 scripts/check-wired.py`: pulito.
 
 ## Task 11: complete — Fase 8 pronta per la verifica di chiusura (PROSEGUI.md §10)
+
+## Verifica di chiusura (PROSEGUI.md §10) — due difetti reali trovati dalla CI vera
+
+Push del branch su `origin/fase-8` (oltre al branch di lavoro designato)
+per ottenere CI reale: `.github/workflows/ci.yml` fa scattare i job solo su
+push a `main`/`fase-*` (le PR di questo repo sono rotte lato GitHub,
+commento nel file), quindi è l'unico modo per avere un giudizio CI prima
+del merge — stesso meccanismo già usato per Fase 7/10. Due run reali,
+entrambe rosse, **entrambe difetti veri**, non rumore:
+
+**1. `libraries.faces_enabled` dentro il blocco gated da pgvector.**
+`crates/keeppix-api/tests/albums.rs::refresh_returns_added_ids_as_succeeded_bulk_outcome`
+falliva con `column "faces_enabled" does not exist`. Causa: il servizio
+Postgres di default in CI (`postgis/postgis:17-3.5`, usato dai crate che
+non hanno bisogno di IA) non ha pgvector **di proposito** — commento
+esplicito in `ci.yml`: "resta senza vector per gli altri crate... quando
+quell'URL non offre vector, i test AI ricadono su testcontainers
+keeppix-db:dev". La migrazione 0046 mette `ALTER TABLE libraries ADD
+COLUMN faces_enabled` **dentro** `DO $faces$ ... END $faces$`, che va in
+no-op senza pgvector — ma `LibraryRepo` (core, non IA-gated) legge/scrive
+quella colonna incondizionatamente in ogni `INSERT`/`SELECT` su
+`libraries`. Fix: spostata `ALTER TABLE` fuori dal blocco, sempre
+eseguita — stesso pattern di `scan_enabled`. Verificato **riproducendo il
+bug in locale**: nascosto `vector.control` a livello di server (spostato
+il file, non solo disabilitato per-db), creato un database senza pgvector
+disponibile, rieseguito `cargo test -p keeppix-api --test albums` contro
+quel server — falliva con lo stesso identico errore prima del fix, passa
+dopo. `vector.control` ripristinato subito dopo.
+
+**2. `bootstrap.rs`: il test del budget di query non contava la metà
+"volti" del badge.** `bootstrap_emits_no_more_queries_than_individual_repos`
+e `bootstrap_query_budget_still_holds_after_http_bootstrap_round_trip`
+fallivano con `bootstrap=9 query, singoli=7: deve essere ≤` (deterministico,
+non flaky — confermato con quattro run identici in fila). Causa: il Task 8
+di questa fase ha aggiunto `FaceRepo::count_proposed_visible` a
+`bootstrap::compose` (la metà "volti" del badge `revision`, accanto alla
+metà "tag" già presente da Fase 7), ma **non** ha aggiornato
+`load_individual_repos` nel test — che calcola il budget "quante query fa
+`compose` rispetto alla somma dei singoli repository" — per contare anche
+quella chiamata. `FaceRepo::count_proposed_visible` da sola costa 2-3
+query (`probe_pgvector` + `VisibilityScope::resolve` + il conteggio),
+tutte non contabilizzate sul lato "singoli". Fix: aggiunta la stessa
+chiamata `FaceRepo::new(db).count_proposed_visible(ctx)` in
+`load_individual_repos`, commento speculare a quello già presente per
+`AssetTagRepo` (Fase 7 Task 9). Non è il difetto preesistente/flaky già
+noto dal ledger di Fase 10 (quello si manifestava solo quando i due test
+giravano insieme nello stesso binario ed era nato prima che Fase 7/8
+esistessero) — è un gap nuovo, introdotto da questa fase, mai emerso prima
+perché nessuna run precedente di `cargo test --workspace` in CI era
+arrivata fin lì (le run precedenti si fermavano prima, sul difetto n.1 o
+sul `check-wired.py`). Verificato con quattro run consecutive di
+`cargo test -p keeppix-api --test bootstrap` dopo il fix: 3/3 verdi ogni
+volta, nessuna variazione nel conteggio.
+
+Entrambi i difetti sono esattamente il tipo che PROSEGUI.md §10 esiste per
+intercettare prima del merge: un test verde in locale (con la variabile
+d'ambiente che punta sempre a un server con pgvector, e senza mai far
+girare `cargo test --workspace` fino in fondo per motivi di spazio disco
+del sandbox) non è la controprova che il requisito regga in produzione.
+Corretti entrambi, riverificati (suite mirate + `fmt`/`clippy`/
+`check-wired.py`), e solo a quel punto si procede al merge.
