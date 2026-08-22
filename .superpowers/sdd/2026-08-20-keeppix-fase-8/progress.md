@@ -213,3 +213,93 @@ toccano volti/persone.
 
 ## Task 1: complete (schema+repo+test, commit su `fase-8`, 24+3 test verdi)
 ## Task 3: complete (stesso commit)
+
+## Task 2 — Modelli e misura: SBLOCCATO parzialmente, misura reale NON ottenuta
+
+Ambiente sbloccato: `ort` collegato a `libonnxruntime.so` locale (pip
+onnxruntime, vedi "Ambiente" in cima) — `cargo check/test/clippy` girano su
+`keeppix-media`/`keeppix-jobs`/`keeppix-api`/`keeppix-server` in questa
+sandbox, cosa non scontata (senza il workaround falliscono identico anche su
+`main`, confermato).
+
+`crates/keeppix-media/src/align.rs`: allineamento per similarità 2D
+(rotazione+scala uniforme, mai riflessione) via proiezione ai minimi
+quadrati su numeri complessi — soluzione chiusa esatta per una trasformazione
+a 4 gradi di libertà, non una SVD generica. 9 test (traslazione/rotazione/
+scala note, immunità a riflessione, warp bilineare).
+
+`crates/keeppix-media/src/face.rs`: `FaceModels::load` (`detect.onnx` +
+`embed.onnx` sotto `models/scrfd-arcface/`), `detect()` (decodifica SCRFD a
+3 stride, output letti per **nome** — `score_{8,16,32}`/`bbox_{8,16,32}`/
+`kps_{8,16,32}` — non per indice posizionale, così un export con ordine
+diverso fallisce in modo esplicito), `embed_face()`/`embed_aligned()`
+(`ArcFace`, **non** L2-normalizzato dalla funzione: la normalizzazione non
+serve prima di `pgvector`, che calcola la distanza coseno sui vettori grezzi
+— vedi Task 5). 15 test sulla parte pura (anchor, `distance2bbox`/`kps`,
+NMS, letterbox) — nessuno tocca `ort`.
+
+**Limite non risolto, da segnalare esplicitamente**: a differenza di
+MobileCLIP2-S2 (Fase 7), per SCRFD/ArcFace **non esiste in questo
+repository uno script di download né una fonte verificata di pesi ONNX
+reali** (`scripts/download-mobileclip2-s2.sh` ha un URL HuggingFace preciso,
+scelto e verificato durante la Fase 7; qui non c'è l'equivalente). Non ho
+inventato/indovinato un URL di un export SCRFD/`ArcFace` da terzi senza
+poterlo verificare — sarebbe più rischioso di lasciare il gap dichiarato.
+**Conseguenza**: la misura reale richiesta da Task 2 ("misurare su hardware
+vero, mettere il numero nel ledger") **non è stata ottenuta, né qui né
+sarebbe ottenuta in CI** (CI non ha uno script equivalente a
+`download-mobileclip2-s2.sh` per i volti). `ASSIGN_SIMILARITY`/
+`PROPOSE_SIMILARITY` in `detect_faces.rs` (Task 5) sono stime di partenza
+ragionevoli per una similarità coseno `ArcFace`, non calibrate su dati
+reali — dichiarato nei commenti del codice. **Serve una decisione umana**:
+quale checkpoint SCRFD-500MF/`ArcFace` ONNX usare, e uno
+`scripts/download-scrfd-arcface.sh` equivalente — fuori da quello che questo
+agente può decidere in autonomia senza rete verificabile.
+
+Osservazione collaterale (non un difetto introdotto qui): il test Fase 7
+`embed_job::backfill_schedule_is_background_and_deduped`
+(`crates/keeppix-jobs/tests/embed.rs`) non ha la guardia
+`first_complete_model_dir().is_none() → skip` che hanno gli altri test dello
+stesso file, quindi **fallisce in questa sandbox** (pesi CLIP assenti) pur
+passando in CI (che li scarica). Non toccato: fuori dallo scope di Fase 8,
+e "non sistemare codice fuori dal task corrente" (AGENTS.md).
+
+## Task 2: parziale — codice e misura-quando-presente pronti; numero reale non ottenibile qui
+
+## Task 4/5 — Rilevamento + raggruppamento incrementale
+
+`crates/keeppix-jobs/src/detect_faces.rs`, `JobKind::DetectFaces`,
+`OperationKind::FaceDetection`. Stesso scheletro di `embed.rs`: una sessione
+ONNX per finestra, lotti da `DEFAULT_BATCH_SIZE=16`, gate di pausa fra un
+lotto e l'altro, `Operation` con progress/cancel.
+
+Pipeline per asset: rilevamento sulla miniatura 240px → per ogni volto
+abbastanza grande (`MIN_FACE_SIZE_REL = 0.03` del lato corto — sotto,
+**volutamente non riconosciuto**, spec Task 4 punto 4), impronta sulla
+preview 2048px → `FaceRepo::insert_detected` → raggruppamento incrementale
+→ `FaceRepo::mark_scanned` sempre, anche a zero volti o su fallimento
+(miniatura assente, decodifica fallita): un asset irraggiungibile non deve
+bloccare la coda, stesso spirito di `embed::ThumbLoadError::Missing`.
+
+Ruling: **`PersonRepo::nearest_centroid` usa un k-NN pgvector su
+`persons.centroid`** (non su `faces.embedding`, che pure ha l'indice
+IVFFlat): il numero di persone è tipicamente ordini di grandezza sotto il
+numero di volti, quindi una scansione sequenziale delle persone è già
+veloce e non serve un secondo indice per questa query — l'IVFFlat su
+`faces.embedding` resta per un eventuale «trova volti simili» futuro, non
+consumato da questa fase. — *Costo se sbagliato*: con centinaia di migliaia
+di persone (scenario non realistico per una libreria personale) servirebbe
+un indice anche lì.
+
+Ruling (già in `detect_faces.rs`): una persona con almeno una separazione
+registrata non riceve mai un'assegnazione automatica certa — sempre
+proposta. Vedi commento nel codice per il perché (evitare un secondo
+confronto pgvector per volto).
+
+9 test in `crates/keeppix-jobs/tests/detect_faces.rs`: coda vuota senza
+richiedere pesi, errore esplicito a coda piena senza modello (lavoro non
+sparisce dalla coda), validazione `limit_from_payload`, e un test end-to-end
+che salta senza pesi reali (stesso pattern dichiarato sopra).
+
+## Task 4: complete (pipeline; misura ms reale non ottenuta, vedi Task 2)
+## Task 5: complete (raggruppamento incrementale; soglie da ricalibrare quando ci saranno pesi reali)

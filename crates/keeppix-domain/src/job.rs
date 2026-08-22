@@ -28,6 +28,9 @@ pub enum JobKind {
     IntegrityScrub,
     /// Fase 7: calcolo embeddings CLIP a lotto dalle miniature.
     EmbedAssets,
+    /// Fase 8: rilevamento SCRFD + impronta `ArcFace` + raggruppamento
+    /// incrementale a lotto.
+    DetectFaces,
 }
 
 impl JobKind {
@@ -55,6 +58,7 @@ impl JobKind {
             Self::VacuumAnalyze => "vacuum_analyze",
             Self::IntegrityScrub => "integrity_scrub",
             Self::EmbedAssets => "embed_assets",
+            Self::DetectFaces => "detect_faces",
         }
     }
 
@@ -83,6 +87,7 @@ impl JobKind {
             "vacuum_analyze" => Ok(Self::VacuumAnalyze),
             "integrity_scrub" => Ok(Self::IntegrityScrub),
             "embed_assets" => Ok(Self::EmbedAssets),
+            "detect_faces" => Ok(Self::DetectFaces),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
     }
@@ -193,6 +198,7 @@ mod tests {
             JobKind::VacuumAnalyze,
             JobKind::IntegrityScrub,
             JobKind::EmbedAssets,
+            JobKind::DetectFaces,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
         }

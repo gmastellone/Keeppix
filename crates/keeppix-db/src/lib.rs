@@ -62,7 +62,7 @@ pub use embeddings::{
     PendingEmbedding, vector_literal,
 };
 pub use error::DbError;
-pub use faces::{FaceRepo, NewDetectedFace};
+pub use faces::{FaceRepo, NewDetectedFace, PendingFaceScan};
 pub use flags::FlagRepo;
 pub use folders::FolderRepo;
 pub use geo::{

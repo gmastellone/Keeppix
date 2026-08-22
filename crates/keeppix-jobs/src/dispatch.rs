@@ -34,8 +34,9 @@ impl crate::JobHandler for IngestHandler {
         match job.kind {
             JobKind::DeriveAsset => DEFAULT_RAM_HINT,
             // DeriveRaw: demosaic out-of-process. EmbedAssets: MobileCLIP ~400 MB
-            // RSS a lotto (Task 2bis). Stesso tetto di gate.
-            JobKind::DeriveRaw | JobKind::EmbedAssets => 512 * 1024 * 1024,
+            // RSS a lotto (Task 2bis). DetectFaces: SCRFD+ArcFace, stesso
+            // ordine di grandezza di un secondo stack ort. Stesso tetto di gate.
+            JobKind::DeriveRaw | JobKind::EmbedAssets | JobKind::DetectFaces => 512 * 1024 * 1024,
             JobKind::TranscodeVideo => 1024 * 1024 * 1024,
             JobKind::BackupDump | JobKind::RestoreProof | JobKind::VacuumAnalyze => {
                 256 * 1024 * 1024
@@ -110,6 +111,15 @@ impl crate::JobHandler for IngestHandler {
                 let limit = crate::embed::limit_from_payload(&job.payload)?;
                 let activity = Arc::clone(&self.activity);
                 crate::embed::run(&self.db, &self.data_dir, limit, move || {
+                    activity.analysis_should_run(Utc::now(), DEFAULT_ANALYSIS_IDLE_MS)
+                })
+                .await
+                .map(|_| ())
+            }
+            JobKind::DetectFaces => {
+                let limit = crate::detect_faces::limit_from_payload(&job.payload)?;
+                let activity = Arc::clone(&self.activity);
+                crate::detect_faces::run(&self.db, &self.data_dir, limit, move || {
                     activity.analysis_should_run(Utc::now(), DEFAULT_ANALYSIS_IDLE_MS)
                 })
                 .await

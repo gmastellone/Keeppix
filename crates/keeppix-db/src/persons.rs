@@ -432,6 +432,33 @@ impl<'a> PersonRepo<'a> {
         Ok(found.is_some())
     }
 
+    /// Persona con il centroide più vicino (distanza coseno) a `embedding` —
+    /// il candidato del raggruppamento incrementale (Task 5, spec §4.1).
+    /// `None` se non esiste ancora nessuna persona con un centroide (prima
+    /// persona della libreria). Non prende `AuthContext`: pipeline. La
+    /// similarità restituita è `1 - distanza_coseno` — stessa convenzione di
+    /// `AssetTagRepo::propose_for_tag` per i punteggi.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce (o se lo schema volti non esiste).
+    pub async fn nearest_centroid(
+        &self,
+        embedding: &[f32],
+    ) -> Result<Option<(PersonId, f32)>, DbError> {
+        let literal = crate::embeddings::vector_literal(embedding);
+        let row: Option<(uuid::Uuid, f32)> = sqlx::query_as(
+            "SELECT id, (1.0 - (centroid <=> $1::vector))::real AS similarity \
+             FROM persons \
+             WHERE centroid IS NOT NULL \
+             ORDER BY centroid <=> $1::vector \
+             LIMIT 1",
+        )
+        .bind(&literal)
+        .fetch_optional(self.db.pool())
+        .await?;
+        Ok(row.map(|(id, similarity)| (PersonId::from_uuid(id), similarity)))
+    }
+
     /// Ricalcola il centroide come media degli embedding dei volti
     /// confermati (non rifiutati, con impronta calcolata). Non prende
     /// `AuthContext`: manutenzione interna, chiamata dopo ogni cambio di
