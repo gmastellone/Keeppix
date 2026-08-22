@@ -98,6 +98,13 @@ pub async fn schedule_backfill(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
+/// Quanti volti orfani (impronta calcolata, mai raggruppati) si ritenta a
+/// ogni finestra. Basta un lotto piccolo: se ne accumulano solo quando
+/// `group_face` fallisce a metà di una passata precedente (un volto già
+/// inserito, il confronto pgvector che segue no) — un evento raro, non un
+/// volume paragonabile alla coda principale.
+const STRAGGLER_BATCH_LIMIT: i64 = 200;
+
 /// Processa i pending a lotti di `limit`, tenendo la sessione ONNX viva
 /// finché `continue_window` resta vera e ci sono foto — stesso contratto di
 /// `embed::run`.
@@ -111,6 +118,23 @@ pub async fn run(
     mut continue_window: impl FnMut() -> bool,
 ) -> Result<DetectOutcome, JobError> {
     let faces = FaceRepo::new(db);
+
+    // Recupero: un volto con impronta calcolata ma senza persona né proposta
+    // è lo scarto di un raggruppamento incrementale fallito a metà in una
+    // passata precedente — `insert_detected` è riuscito, `group_face` subito
+    // dopo no. L'asset che lo conteneva è già segnato `scanned`
+    // (`process_pending` lo marca comunque, per non bloccare la coda su un
+    // asset irraggiungibile), quindi `list_pending_scan` non lo rivede mai
+    // più: senza questo passo resterebbe orfano per sempre. Non serve il
+    // modello ONNX qui: solo il confronto pgvector già pronto.
+    let stragglers = regroup_stragglers(db, &faces, STRAGGLER_BATCH_LIMIT).await?;
+    if stragglers > 0 {
+        tracing::info!(
+            stragglers,
+            "detect_faces: regrouped stragglers from an earlier incomplete pass"
+        );
+    }
+
     let has_pending = !faces.list_pending_scan(MODEL_VERSION, 1).await?.is_empty();
     if !has_pending {
         return Ok(DetectOutcome::default());
@@ -354,6 +378,33 @@ async fn group_face(
         }
     }
     Ok(())
+}
+
+/// Ritenta il raggruppamento dei volti orfani — vedi il commento in
+/// [`run`]. Non richiede `FaceModels`: l'impronta esiste già, serve solo il
+/// confronto pgvector di [`group_face`]. Un fallimento su un singolo volto
+/// non interrompe gli altri: resta orfano un altro giro, non blocca la
+/// finestra.
+async fn regroup_stragglers(db: &Db, faces: &FaceRepo<'_>, limit: i64) -> Result<u32, JobError> {
+    let person_repo = PersonRepo::new(db);
+    let stragglers = faces
+        .list_unassigned_with_embedding(MODEL_VERSION, limit)
+        .await?;
+    let mut regrouped = 0_u32;
+    for face in stragglers {
+        let Some(embedding) = faces.embedding_of(face.id).await? else {
+            continue;
+        };
+        match group_face(faces, &person_repo, face.id, &embedding).await {
+            Ok(()) => regrouped = regrouped.saturating_add(1),
+            Err(err) => tracing::warn!(
+                face_id = %face.id.as_uuid(),
+                error = %err,
+                "straggler regroup failed, will retry next window"
+            ),
+        }
+    }
+    Ok(regrouped)
 }
 
 /// # Errors

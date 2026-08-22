@@ -157,20 +157,6 @@ impl<'a> FaceRepo<'a> {
         Ok(rows.into_iter().map(FaceRow::into_domain).collect())
     }
 
-    /// Non prende `AuthContext`: la chiama il raggruppamento incrementale
-    /// (pipeline di sistema), non un utente.
-    ///
-    /// # Errors
-    /// `Connection` se la query fallisce.
-    pub async fn find_by_id_for_pipeline(&self, id: FaceId) -> Result<Option<Face>, DbError> {
-        let row: Option<FaceRow> =
-            sqlx::query_as(&format!("SELECT {COLUMNS} FROM faces WHERE id = $1"))
-                .bind(id.as_uuid())
-                .fetch_optional(self.db.pool())
-                .await?;
-        Ok(row.map(FaceRow::into_domain))
-    }
-
     /// Assegna automaticamente un volto a una persona (raggruppamento
     /// incrementale): NON tocca `assigned_by`/`assigned_at`, che restano
     /// riservati alla decisione umana. Non prende `AuthContext`: pipeline.
@@ -569,5 +555,91 @@ impl<'a> FaceRepo<'a> {
         .execute(self.db.pool())
         .await?;
         Ok(())
+    }
+
+    /// Conferma tutte le proposte in attesa per una persona candidata,
+    /// limitate ai volti visibili al chiamante — «conferma tutti» della
+    /// coda di revisione (Task 8), stesso pattern di
+    /// `AssetTagRepo::confirm_all_for_tag`. Restituisce i volti confermati
+    /// da questa chiamata.
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente autenticato.
+    pub async fn confirm_all_proposed_for_person(
+        &self,
+        ctx: &AuthContext,
+        person_id: PersonId,
+    ) -> Result<Vec<FaceId>, DbError> {
+        let Some(user_id) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 3);
+
+        let rows: Vec<(uuid::Uuid,)> = sqlx::query_as(&format!(
+            "UPDATE faces fa SET person_id = $1, assigned_by = $2, assigned_at = now(), \
+                                  proposed_person_id = NULL, proposed_score = NULL \
+              WHERE fa.proposed_person_id = $1 AND fa.person_id IS NULL \
+                AND EXISTS ( \
+                  SELECT 1 FROM assets a JOIN folders f ON f.id = a.folder_id \
+                   WHERE a.id = fa.asset_id AND {} \
+                ) \
+              RETURNING fa.id",
+            filter.sql()
+        ))
+        .bind(person_id.as_uuid())
+        .bind(user_id.as_uuid())
+        .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
+        .fetch_all(self.db.pool())
+        .await?;
+        let ids: Vec<FaceId> = rows
+            .into_iter()
+            .map(|(id,)| FaceId::from_uuid(id))
+            .collect();
+        self.recompute_affected_centroids(None, Some(person_id))
+            .await?;
+        Ok(ids)
+    }
+
+    /// Come [`Self::confirm_all_proposed_for_person`], ma rifiuta — «rifiuta
+    /// tutti», permanente come [`Self::reject`].
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente autenticato.
+    pub async fn reject_all_proposed_for_person(
+        &self,
+        ctx: &AuthContext,
+        person_id: PersonId,
+    ) -> Result<Vec<FaceId>, DbError> {
+        let Some(user_id) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 3);
+
+        let rows: Vec<(uuid::Uuid,)> = sqlx::query_as(&format!(
+            "UPDATE faces fa SET rejected_at = now(), assigned_by = $2, assigned_at = now(), \
+                                  person_id = NULL, proposed_person_id = NULL, proposed_score = NULL \
+              WHERE fa.proposed_person_id = $1 AND fa.person_id IS NULL \
+                AND EXISTS ( \
+                  SELECT 1 FROM assets a JOIN folders f ON f.id = a.folder_id \
+                   WHERE a.id = fa.asset_id AND {} \
+                ) \
+              RETURNING fa.id",
+            filter.sql()
+        ))
+        .bind(person_id.as_uuid())
+        .bind(user_id.as_uuid())
+        .bind(filter.bind())
+        .bind(filter.holes())
+        .bind(filter.assets())
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id,)| FaceId::from_uuid(id))
+            .collect())
     }
 }

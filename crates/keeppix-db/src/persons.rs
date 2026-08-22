@@ -391,25 +391,6 @@ impl<'a> PersonRepo<'a> {
         self.find_by_id(ctx, new_person.id).await
     }
 
-    /// `true` se le due persone sono state separate a mano — l'automatismo
-    /// non deve mai riunirle (spec §4.3). Non prende `AuthContext`: la
-    /// consulta il raggruppamento incrementale (pipeline di sistema).
-    ///
-    /// # Errors
-    /// `Connection` se la query fallisce.
-    pub async fn is_separated(&self, a: PersonId, b: PersonId) -> Result<bool, DbError> {
-        let (lo, hi) = PersonSeparation::ordered(a, b);
-        let found: Option<(uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
-            "SELECT person_a, person_b FROM person_separations \
-              WHERE person_a = $1 AND person_b = $2",
-        )
-        .bind(lo.as_uuid())
-        .bind(hi.as_uuid())
-        .fetch_optional(self.db.pool())
-        .await?;
-        Ok(found.is_some())
-    }
-
     /// `true` se questa persona compare in **almeno una** separazione — usato
     /// dal raggruppamento incrementale per decidere se un'assegnazione
     /// automatica va sempre in revisione invece che essere certa (Ruling nel
