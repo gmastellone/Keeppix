@@ -169,9 +169,59 @@ Quattro punti soltanto, quelli dove sbagliare costa più che aspettare:
 3. **Se una misura ribalta una decisione** — il probe dice che l'inferenza costa dieci volte la
    stima, l'import a lotti non migliora, il layout supera i 50 ms. Porta il numero prima di
    riprogettare intorno.
-4. **A fine fase, prima del merge.** Rivedo io, come sempre.
+4. **A fine fase, prima del merge.** Se stai lavorando con supervisione, rivede l'architetto.
+   Se stai lavorando **senza revisore esterno** (sessione autonoma), il §10 sotto è la procedura
+   che sostituisce quella revisione — non è facoltativa, è ciò che ha impedito due bug reali di
+   arrivare in `main` durante lo sviluppo di questo stesso progetto.
 
 Fuori da questi quattro, procedi.
+
+---
+
+## 10. Come si verifica una fase prima di mergiarla — nessuna scorciatoia
+
+**Un test verde non è la prova che un requisito è rispettato.** Due esempi reali, successi in
+questo stesso repo, entrambi trovati **solo** rileggendo il codice — mai fidandosi del ledger o
+della CI:
+
+- Fase 10: il commit di chiusura dichiarava `./scripts/test.sh — EXIT 0`, ma un test
+  (`bootstrap_emits_no_more_queries_than_individual_repos`) era documentato **due volte** nello
+  stesso ledger come flaky e mai risolto con un commit dedicato. La CI reale (mai girata prima
+  su quel branch) l'ha fatto fallire alla prima run vera.
+- Fase 7: il ledger diceva che il modello IA "non resta mai caricato", ma il codice lo
+  ricaricava **ogni 16 foto** invece che una volta per finestra di analisi — ~31% di tempo
+  sprecato in ricaricamenti, mai misurato perché nessuno aveva chiesto il numero.
+
+**La procedura, la stessa usata per chiudere le Fasi 10 e 7:**
+
+1. **Non verificare sul checkout in uso.** Crea un worktree di sola lettura sul branch da
+   verificare: `git worktree add <percorso-scratch> origin/fase-N --detach`. Leggi da lì, non
+   toccarlo, rimuovilo a verifica finita (`git worktree remove <percorso> --force`).
+2. **Trova le due o tre cose che il piano della fase dichiara più importanti di tutto il resto**
+   — ogni piano ne ha una sezione esplicita (vedi Fase 10 §7, Fase 7 i cinque Ruling sul
+   ciclo di vita/RAM del modello). Sono il bersaglio prioritario: verificale leggendo
+   l'implementazione reale — file e riga — non il riassunto che ne fa il ledger.
+3. **Ogni numero nel ledger deve avere una fonte**: un log/output reale incollato, non una stima.
+   Se un numero manca dove il piano lo richiede esplicitamente, è un buco, non un dettaglio.
+4. **Leggi la cronologia CI del branch** (`gh run list --branch fase-N`), non solo l'ultima run.
+   Fallimenti reali seguiti da correzioni sostanziali (non un timeout rilassato a caso, non un
+   warning silenziato) sono un segnale positivo, non negativo — vuol dire che la CI ha trovato
+   qualcosa di vero. Un rustfmt/clippy isolato non richiede scrutinio ulteriore; un test di
+   comportamento sì.
+5. **Controlla `scripts/wired-exceptions.txt`**: ogni nuova voce deve avere un rinvio a una fase
+   futura reale con un motivo, non una scusa per zittire `check-wired.py` su codice morto.
+6. **Se la fase precedente ha introdotto una convenzione** (l'involucro `BulkOutcome`, la
+   tabella `operations`, `SearchNode`), controlla che questa fase la riusi invece di reinventarla
+   — è esattamente il tipo di errore che il ripasso dei piani 7/8/9 contro la Fase 10 ha corretto
+   nove volte prima ancora di scrivere codice.
+7. **Solo a questo punto**: `git merge-tree $(git merge-base main origin/fase-N) main
+   origin/fase-N` per un controllo conflitti a secco, poi `git merge --no-ff`, push, e conferma
+   che la CI sia verde **anche sul commit di merge risultante su `main`**, non solo sul branch —
+   non è la stessa cosa, un merge può introdurre conflitti risolti male che nessuna delle due CI
+   isolate avrebbe visto.
+
+Se qualcosa non torna a uno di questi punti, il costo di scriverlo nel ledger e sistemarlo prima
+del merge è sempre più basso del costo di scoprirlo dopo, mergiato in `main`.
 
 ---
 
