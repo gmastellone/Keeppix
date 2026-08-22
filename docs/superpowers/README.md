@@ -99,6 +99,7 @@ Sei file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 
 | [`plans/2026-08-20-keeppix-fase-8.md`](plans/2026-08-20-keeppix-fase-8.md) | ⬜ scritto — 11 task; il **primo** è il test che garantisce che i volti non escano dai link pubblici |
 | [`plans/2026-08-20-keeppix-fase-9.md`](plans/2026-08-20-keeppix-fase-9.md) | ⬜ scritto — 11 task; è la fase che tocca **file veri sul disco** |
 | [`plans/2026-08-20-keeppix-fase-11.md`](plans/2026-08-20-keeppix-fase-11.md) | ⬜ scritto — 18 task in quattro tranche che seguono le fasi da cui dipendono |
+| [`plans/2026-08-22-keeppix-modelli-ai.md`](plans/2026-08-22-keeppix-modelli-ai.md) | ⬜ deciso e misurato — i pesi MobileCLIP2/InsightFace sono research-only: Task A volti YuNet+SFace (prima della chiusura), Task B OpenCLIP XLM-R int8 potato IT/EN (dopo la 11); benchmark doppio già eseguito, sha256 verificati |
 
 **Tutti i piani sono scritti.** Fasi 0-6 e 10 chiuse su `main`. Fase 7 chiusa
 sul branch `fase-7` (in attesa di merge). L'ordine di esecuzione da qui è
