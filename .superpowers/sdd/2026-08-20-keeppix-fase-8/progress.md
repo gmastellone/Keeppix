@@ -458,3 +458,72 @@ lì che si costruisce l'interfaccia che lo userebbe) — questo task sblocca
 solo il lato server, come da piano.
 
 ## Task 9: complete
+
+## Task 10 — Interruttore e cancellazione (la parte che mancava)
+
+L'interruttore per libreria (`libraries.faces_enabled`, `PATCH
+/libraries/{id}`) era già stato chiuso in un commit precedente insieme allo
+schema (Task 3): colonna sulla stessa riga di `scan_enabled`, stesso
+pattern, `list_pending_scan` lo rispetta. Qui si chiude la seconda metà
+distinta dalla spec §7/domanda aperta n.6: **«Elimina tutti i dati dei
+volti»**, un comando separato ed esplicito che cancella invece di
+sospendere.
+
+`FaceRepo::delete_all_data` (nuovo, `crates/keeppix-db/src/faces.rs`):
+`DELETE FROM person_groups` (cascata su `person_group_members`), poi
+`DELETE FROM persons` (cascata su `person_separations`, `SET NULL` su
+`faces.person_id`/`proposed_person_id`), poi `DELETE FROM faces`
+(embedding compresi), poi `DELETE FROM asset_face_scans` — dentro una
+transazione, per non lasciare uno stato a metà se una delle quattro
+cancellazioni fallisce.
+
+Ruling: **azione globale, non per libreria** — a differenza
+dell'interruttore, che la spec dichiara esplicitamente "per ogni
+libreria". `PersonRepo::nearest_centroid` (Task 5) non ha mai filtrato per
+libreria: una persona può avere volti in librerie diverse, quindi non
+esiste un confine di libreria pulito per "cancella i dati di questa
+persona" — cancellarla parzialmente (solo i volti di una libreria)
+lascerebbe la persona in uno stato incoerente (centroide calcolato su
+volti in parte spariti). La spec stessa non usa mai "di questa libreria"
+per questo comando, a differenza del punto sopra sull'interruttore. —
+*Costo se sbagliato*: se in futuro serve una cancellazione per libreria,
+va decisa la semantica per le persone cross-libreria (dividerle? Lasciarle
+intatte?) — non ovvio, rimandato a quando servirà davvero.
+
+Ruling: **azzera anche `asset_face_scans`, non solo `faces`/`persons`/
+`person_groups`** — la spec §7 dice "faccia piazza pulita di faces,
+persons e gruppi" senza menzionare la tabella di tracciamento della Task
+4/5, ma lasciarla intatta creerebbe uno stato peggiore del previsto: ogni
+asset resterebbe segnato "già scansionato" per sempre, quindi una libreria
+che riaccende `faces_enabled` dopo la cancellazione non ririleverebbe mai
+nulla — il comando sarebbe una cancellazione permanente anche per chi
+voleva solo "ricominciare da zero". — *Costo se sbagliato*: nessuno
+osservato, è l'interpretazione più coerente con "elimina tutti i dati" e
+non un'estensione arbitraria.
+
+Ruling: **solo amministratori** (`ctx.is_admin()`), stessa soglia di
+`LibraryRepo::delete` — altra azione distruttiva e irreversibile, e
+questa è globale (non c'è un proprietario naturale come per una libreria
+singola).
+
+Rotta: `DELETE /api/v1/faces/data` (`crates/keeppix-api/src/routes/faces.rs`,
+`delete_all_data`) — `/faces/data` invece di un bare `DELETE /faces`
+perché non esiste una collection GET su `/faces` da cui questo sarebbe la
+cancellazione naturale; il nome dice esplicitamente cosa cancella. Nessun
+body, `204` in riuscita, `403` per chi non è admin. Aggiunta a
+`openapi.rs`/`docs/api/openapi.json` (rigenerato via
+`UPDATE_OPENAPI=1 cargo test`) e a `wired-exceptions.txt` (Rinvii,
+fase-11 — stesso consumatore delle altre rotte volti/persone).
+
+**Test**: `delete_all_data_requires_an_admin` e
+`delete_all_data_wipes_faces_persons_groups_and_scan_state`
+(`crates/keeppix-db/tests/faces.rs`); `delete_all_face_data_is_admin_only_and_wipes_persons`
+end-to-end via HTTP (`crates/keeppix-api/tests/persons.rs`). Suite
+rilevanti riverificate dopo l'aggiunta: `keeppix-db` faces/persons/lib
+(19+12+altri lib, tutti verdi), `keeppix-api`
+face_privacy/persons/openapi/libraries (3+11+8+14, tutti verdi).
+`check-wired.py`: pulito dopo la voce in `wired-exceptions.txt`.
+`cargo fmt --all -- --check` e `cargo clippy --workspace --all-targets
+-- -D warnings`: puliti.
+
+## Task 10: complete

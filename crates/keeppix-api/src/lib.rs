@@ -388,6 +388,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
         .route("/assets/{id}/faces", get(routes::faces::list_for_asset))
         .route("/faces/proposals", get(routes::faces::list_proposals))
         .route(
+            "/faces/data",
+            axum::routing::delete(routes::faces::delete_all_data),
+        )
+        .route(
             "/faces/{id}/assign",
             axum::routing::post(routes::faces::assign),
         )

@@ -642,4 +642,37 @@ impl<'a> FaceRepo<'a> {
             .map(|(id,)| FaceId::from_uuid(id))
             .collect())
     }
+
+    /// «Elimina tutti i dati dei volti» (spec §7, Task 10): distinto
+    /// dall'interruttore `libraries.faces_enabled`, che smette di calcolare
+    /// ma conserva quanto già raccolto. Questo comando fa piazza pulita di
+    /// `faces` (embedding compresi), `persons`, `person_groups` — **globale**,
+    /// non per libreria: una persona può avere volti in più librerie (i
+    /// cluster non sono mai stati scoperti library-scoped, vedi
+    /// `PersonRepo::nearest_centroid`), quindi non esiste un confine di
+    /// libreria per questa azione più di quanto ne esista uno per la persona
+    /// stessa. Azzera anche `asset_face_scans`: dopo la cancellazione ogni
+    /// asset è di nuovo "mai analizzato", non "analizzato ma zero volti" —
+    /// altrimenti una libreria che riaccende `faces_enabled` non
+    /// ririleverebbe mai nulla.
+    ///
+    /// # Errors
+    /// `Forbidden` per chi non è amministratore — stessa soglia di
+    /// `LibraryRepo::delete`, altra azione distruttiva e irreversibile.
+    pub async fn delete_all_data(&self, ctx: &AuthContext) -> Result<(), DbError> {
+        if !ctx.is_admin() {
+            return Err(DbError::Forbidden);
+        }
+        let mut tx = self.db.pool().begin().await?;
+        sqlx::query("DELETE FROM person_groups")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM persons").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM faces").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM asset_face_scans")
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
 }

@@ -257,3 +257,34 @@ pub async fn reject_all_proposals(
         .await?;
     Ok(Json(FaceBulkOutcome::from_partition(rejected, &[])))
 }
+
+/// «Elimina tutti i dati dei volti» (spec §7, Task 10): distinta
+/// dall'interruttore per libreria (`PATCH /libraries/{id}`,
+/// `faces_enabled`), che smette di calcolare ma conserva quanto già
+/// raccolto. Cancella `faces` (embedding compresi), `persons`,
+/// `person_groups` — **globale**, non per libreria: i cluster di persone
+/// non sono mai stati scoperti library-scoped, quindi non esiste un confine
+/// di libreria per questa azione.
+///
+/// # Errors
+/// `403` per chi non è amministratore.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/faces/data",
+    tag = "faces",
+    operation_id = "faces_delete_all_data",
+    summary = "Delete all face/person data system-wide (admin only, irreversible)",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 204, description = "Cancellato"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Solo amministratori", body = Problem)
+    )
+)]
+pub async fn delete_all_data(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+) -> Result<StatusCode, Problem> {
+    FaceRepo::new(&state.db).delete_all_data(&ctx).await?;
+    Ok(StatusCode::NO_CONTENT)
+}

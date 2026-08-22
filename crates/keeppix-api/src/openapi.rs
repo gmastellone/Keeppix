@@ -168,6 +168,7 @@ impl utoipa::Modify for SecurityAddon {
         faces::confirm_proposal,
         faces::confirm_all_proposals,
         faces::reject_all_proposals,
+        faces::delete_all_data,
         persons::list,
         persons::create,
         persons::get,
