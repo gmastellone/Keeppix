@@ -13,9 +13,9 @@ vince la spec, e annoti il ruling nel ledger.
 
 Non fare push, PR o merge se l'utente non lo chiede.
 
-## Snapshot (post merge Fase 7)
+## Snapshot (post merge Fase 8)
 
-- **`main`** contiene le Fasi **0-6, 10 e 7**, tutte mergiate. Le PR verso
+- **`main`** contiene le Fasi **0-6, 10, 7 e 8**, tutte mergiate. Le PR verso
   questo repo sono rotte lato GitHub in questo momento (API e web mostrano 0
   PR totali nonostante le #10/#11 siano esistite) — merge diretti via git
   dopo CI reale verde su `fase-*` (workflow allargato al push su quei
@@ -26,12 +26,29 @@ Non fare push, PR o merge se l'utente non lo chiede.
   revisione / pagina Tag → Fase 11.
 - **Fase 10**: BulkOutcome, geometria, pile, SearchNode base, sessioni,
   bootstrap, WS, decode PNG/TIFF/WebP/HEIF, OpenAPI, …
-- **Prossimo lavoro:** Fase **8** (volti), poi 9 → 11. Prima di partire, i
-  piani di 8/9 vanno ripassati col codice vero di 10+7 davanti. Ordine e
-  decisioni in [`../superpowers/PROSEGUI.md`](../superpowers/PROSEGUI.md) —
-  **rileggerlo all'inizio della Fase 8** (e di nuovo all'inizio della 11).
+- **Fase 8** (volti): riconoscimento facciale locale SCRFD+ArcFace,
+  raggruppamento incrementale, persone/gruppi, coda di revisione,
+  interruttore per libreria + cancellazione dati, `SearchNode::Person/
+  PersonGroup/PersonCount`, `suggestions.changed` via WS. Ledger in
+  `.superpowers/sdd/2026-08-20-keeppix-fase-8/progress.md` — include cinque
+  difetti reali trovati e corretti dalla CI durante la chiusura (`cargo
+  test --workspace` non ha `--no-fail-fast`, quindi ogni push ha rivelato
+  un solo nuovo difetto alla volta: cinque cicli push→CI→fix). Limite
+  dichiarato: nessuna misura reale di inferenza SCRFD/ArcFace ottenuta
+  (nessuna fonte di pesi ONNX verificata raggiungibile) — serve una
+  decisione umana su quale checkpoint usare. UI persone/coda volti →
+  Fase 11.
+- **Prossimo lavoro:** Fase **9** (organizzazione: culling, rinomina di
+  massa), poi 11. Prima di partire, il piano di 9 va ripassato col codice
+  vero di 10+7+8 davanti. Ordine e decisioni in
+  [`../superpowers/PROSEGUI.md`](../superpowers/PROSEGUI.md) —
+  **rileggerlo all'inizio della Fase 9** (e di nuovo all'inizio della 11).
+  Fase 9 tocca file veri dell'utente: fermarsi prima della prima
+  rinomina/spostamento reale (su dati di test si procede liberi), e
+  scrivere nel ledger un riepilogo esplicito di sicurezza sul filesystem
+  prima di chiudere la fase.
 
-**Ordine di esecuzione da qui:** `8 → 9 → 11 (in quattro tranche)`.
+**Ordine di esecuzione da qui:** `9 → 11 (in quattro tranche)`.
 
 La **10 ha preceduto la 7, la 8 e la 9** di proposito: involucro di riuscita
 parziale, tassonomia errori, `SearchNode`, eventi WebSocket. La **7** ha
