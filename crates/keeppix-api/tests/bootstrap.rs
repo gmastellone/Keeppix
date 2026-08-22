@@ -145,8 +145,13 @@ async fn load_individual_repos(db: &Db, ctx: &AuthContext) {
             .await
             .expect("storage");
     }
-    // Task 9: metà tag del badge `revision` — stessa query di `compose`.
+    // Fase 7 Task 9: metà tag del badge `revision` — stessa query di `compose`.
     keeppix_db::AssetTagRepo::new(db)
+        .count_proposed_visible(ctx)
+        .await
+        .expect("proposed count");
+    // Fase 8 Task 8: metà volti dello stesso badge — stessa query di `compose`.
+    keeppix_db::FaceRepo::new(db)
         .count_proposed_visible(ctx)
         .await
         .expect("proposed count");
