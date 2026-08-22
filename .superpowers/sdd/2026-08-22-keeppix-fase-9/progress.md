@@ -567,3 +567,102 @@ default è super-ottimizzato, con la misura come prova"):
 
 Task 5: complete. Chiude il Gruppo B (Tasks 1-5) della fase.
 
+## Gruppo C — La rinomina
+
+Il piano la introduce così: *"È la parte del prototipo con più conseguenze
+sul disco e le convalide più deboli. Il documento funzionale ne elenca
+cinque difetti espliciti. Vanno chiusi tutti prima di toccare file veri."*
+Il documento funzionale (`docs/ui/documento-funzionale-ui.md` §62, "Dialog
+'Rinomina con formula'") è la fonte autorevole per la sintassi esatta —
+il blurb del piano di Fase 9 ("Segnaposto: {data}, {fotocamera}, {luogo},
+{titolo}, {prog:03}, {ext}") è una sintesi imprecisa: elenca `{ext}` come
+segnaposto e omette `{obiettivo}`, mentre §62.3b è chiaro ed esplicito —
+sei pastiglie (Data/Fotocamera/**Obiettivo**/Luogo/Titolo/Numero) e
+**l'estensione non fa mai parte dello schema**, riattaccata sempre alla
+fine in maiuscolo. Seguito §62, non il blurb, in ogni punto in cui
+divergono — è la fonte con la sintassi esatta, i nomi delle funzioni del
+prototipo, e i numeri di riga citati.
+
+### Task 6 — Il motore delle formule
+
+Nuovo modulo `crates/keeppix-domain/src/rename.rs` — non `keeppix-db`:
+`render_filename`/`resolve_place_label` sono pura manipolazione di
+stringhe, senza lettura da disco o database, quindi appartengono al
+crate che non conosce SQL, testabili senza `TestDb`. Le fasi successive
+del Gruppo C (Task 7-9, in `keeppix-db`) collegano questo motore a
+collisioni vere, ambiti, e allo spostamento fisico via `move_asset`
+(Task 1).
+
+`RenameValues { date, camera, lens, place, title }` — valori già
+risolti e **non slugificati**: la slugificazione è responsabilità di
+`render_filename`, non di chi costruisce i valori. `place` è già il
+risultato di `resolve_place_label(photo_position, folder_position,
+lot_name)`, la precedenza esplicita del piano ("posizione della foto →
+posizione della cartella → nome del lotto → niente") — pura, le tre
+candidate arrivano già lette dal chiamante (Task 7/8, che sa come
+procurarsele dal database).
+
+`render_filename(schema, values, index, current_filename)` implementa
+`computeRenamedFilename`/`renameSlug` del prototipo punto per punto (spec
+§62.3b, 1-6): estensione sempre maiuscola e mai parte dello schema;
+sostituzione letterale dei cinque segnaposto testuali (regex `\{(data|
+fotocamera|obiettivo|luogo|titolo)\}` nel prototipo, qui una scansione
+lineare a mano — l'insieme di segnaposto è fisso e piccolo, non serve
+aggiungere `regex` a un crate che oggi non ne ha per il parsing di
+testo); un segnaposto scritto male o inesistente (`{iso}`, `{Data}`
+maiuscolo) resta letterale, non è un errore; contatore `\{n(?::(\d+))?\}`
+1-based, riusabile più volte nello stesso schema; sanificazione finale
+(`/`, `\`, `:` → `-`, spazi bianchi compressi a **uno spazio**, rifilato
+ai bordi — deliberatamente non filtra `*?"<>|`, limite dichiarato del
+prototipo che il Task 7 chiude); fallback al nome attuale senza
+estensione se lo schema è vuoto o sanifica a niente.
+
+Ruling: **`slug()` e la sanificazione finale sono due funzioni diverse
+con regole diverse, non la stessa applicata due volte.** `slug()`
+(applicata solo a fotocamera/obiettivo/luogo/titolo, mai a `{data}`)
+elimina `.`/`,` e comprime gli spazi in un **trattino**; la
+sanificazione finale (applicata all'intera stringa assemblata) non
+elimina nulla, sostituisce `/\:`, e comprime gli spazi in **uno
+spazio**. Confuse la prima stesura del test
+`a_schema_that_sanitizes_to_nothing_also_falls_back` (assumeva che
+`/`/`\` sparissero, mentre diventano `-`: il test è stato corretto per
+riflettere la regola vera invece di piegare l'implementazione a
+un'assunzione sbagliata) — verificato riga per riga contro §62.3b prima
+di correggere, non a naso. — Costo se confuse in produzione: un titolo
+con una virgola diventerebbe un nome con un trattino basso invece che
+sparire pulito, o viceversa — piccolo ma visibile su ogni foto rinominata
+che tocca quel campo.
+
+Verifica eseguita:
+- `cargo test -p keeppix-domain rename` → 19/19 verdi: lo schema di
+  default della spec (`{data}_{luogo}_{n:3}` → esempio esatto del
+  documento), estensione mai nello schema e sempre maiuscola, segnaposto
+  malformato/inesistente lasciato letterale, contatore con e senza
+  riempimento e ripetuto più volte, valore mancante che lascia
+  separatori orfani (bug noto del prototipo, verificato che questo
+  motore lo riproduce fedelmente — chiuderlo è il Task 7, non questo),
+  schema vuoto e schema-che-sanifica-a-niente entrambi in fallback,
+  `slug()` che elimina punti/virgole e comprime a trattino, `{data}` non
+  slugificata, caratteri vietati del filesystem sostituiti da `-` nello
+  schema e nei valori, gli altri caratteri illegali (`*?"<>|`)
+  deliberatamente lasciati intatti, nome senza estensione senza punto
+  finale spurio, le quattro combinazioni di `resolve_place_label`.
+- `cargo test -p keeppix-domain` (l'intera suite) → 87/87 verdi, nessuna
+  regressione sul resto del crate.
+- `cargo fmt --all --check` → pulito su tutto il workspace.
+- `cargo clippy --workspace --all-targets -- -D warnings` → due errori
+  reali sulla prima stesura (`clippy::expect_used` su uno `.expect()`
+  raggiungibile solo in teoria dentro il loop di scansione — riscritto
+  come `while let Some(ch) = rest.chars().next()` invece di scartare
+  l'avviso con un'eccezione; `clippy::type_complexity` sulla tabella dei
+  segnaposto testuali — estratto un alias `type FieldLookup`), poi pulito
+  su tutto il workspace (7 crate).
+- `python3 scripts/check-wired.py` → verde senza segnalare
+  `render_filename`/`resolve_place_label` nonostante zero chiamanti reali
+  fuori da `rename.rs` (verificato con `grep`) — stesso falso positivo di
+  `move_asset` (Task 1, menzioni testuali nei commenti di documentazione).
+  Aggiunta un'eccezione esplicita per entrambe invece di fidarmi del pass
+  accidentale.
+
+Task 6: complete.
+
