@@ -7,6 +7,7 @@ pub mod audit;
 pub mod backup;
 pub mod changes;
 pub mod credentials;
+pub mod culling;
 pub mod dav_locks;
 pub mod duplicates;
 pub mod embeddings;
@@ -55,6 +56,7 @@ pub use backup::{
 };
 pub use changes::{CHANGE_LOG_PAGE, ChangeLogRepo, ChangePage};
 pub use credentials::AppPasswordRepo;
+pub use culling::CullingRepo;
 pub use dav_locks::DavLockRepo;
 pub use duplicates::{DuplicateGroup, DuplicateRepo};
 pub use embeddings::{

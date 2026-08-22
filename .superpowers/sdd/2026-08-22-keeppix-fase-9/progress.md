@@ -342,3 +342,56 @@ verde sul branch, non solo test locali.
 
 Non ancora mergiato in `main` — resta sul branch `fase-9` finché la fase
 non è completa (§10 PROSEGUI.md si applica a fine fase, non a ogni task).
+
+### Task 3 — I lotti
+
+Nuovo modulo `crates/keeppix-db/src/culling.rs` (`CullingRepo`), non
+aggiunto a `folders.rs`/`libraries.rs`: la query attraversa entrambi i
+domini (radice designata sta su `libraries`, lotti e ruoli su `folders`),
+e i Task 4/5 aggiungeranno spostamento fisico e integrazione con la
+ricerca nello stesso file — un posto dedicato invece di far crescere due
+repository che non se ne occupano concettualmente.
+
+`CullingLot` (dominio): `folder_id`, `name`, `created_at`, `pending`,
+`taken`, `skipped`. `list_lots(ctx, library_id)`:
+- vuoto se `libraries.culling_root_folder_id` è `NULL` (spec §2.6: senza
+  radice designata, nessun comportamento nuovo forzato);
+- altrimenti i figli diretti della radice, più recenti prima, con tre
+  sottoquery indipendenti per lotto (non `JOIN` + `COUNT(DISTINCT ..)`:
+  con tre `LEFT JOIN` — radice/`_taken`/`_skipped` — il prodotto
+  cartesiano fra i tre insiemi di asset avrebbe gonfiato le righe
+  intermedie; "economico" nel piano vuol dire per-lotto, non
+  "una query sola a ogni costo") che contano solo `assets.status =
+  'indexed'` (coerente col resto dell'app: `discovered`/`offline`/
+  `error`/`trashed` non sono foto vere agli occhi dell'utente).
+
+Ruling: **ambito owner/admin, non lo scope di visibilità generale delle
+cartelle.** `LibraryRepo::find_by_id` (che risolve
+`culling_root_folder_id`) è owner-o-admin per costruzione — non l'ho
+aggirato con una query diretta per dare visibilità più larga. La spec
+descrive il culling come un flusso personale del proprietario (narrazione
+in prima persona in tutto il §0, nessuna menzione di condivisione
+dell'area con un editor). Verificato con un test dedicato
+(`only_the_owner_or_admin_can_list_lots`): un editor con permesso
+esplicito sulla cartella radice del culling riceve comunque `Forbidden`.
+— Costo se sbagliato: se in futuro emergerà un bisogno reale di condividere
+un lotto con un editor (es. un partner di viaggio che aiuta a scegliere),
+va deciso allora con un requisito vero davanti, non anticipato ora
+indovinando — allargare lo scope è un cambiamento a basso rischio quando
+succede, restringerlo dopo che qualcuno ci ha fatto affidamento non lo è.
+
+Verifica eseguita (locale, workspace intero sbloccato da questo punto in poi):
+- `cargo check -p keeppix-domain -p keeppix-db` → pulito.
+- `cargo fmt --all --check` → pulito su tutto il workspace.
+- `cargo clippy --workspace --all-targets -- -D warnings` → pulito su
+  tutto il workspace (7 crate, non solo `keeppix-db`).
+- `cargo test -p keeppix-db --test culling` → 8/8 verdi (vuoto senza
+  radice, conteggi esatti per lotto, un asset non ancora `indexed` non
+  conta, `Forbidden` per un editor non-owner, ordine per data decrescente).
+- `cargo test -p keeppix-db --test folders --test libraries` → 22/22 +
+  16/16 verdi, nessuna regressione.
+- `python3 scripts/check-wired.py` → rosso al primo giro su `list_lots`
+  (correttamente), verde dopo l'eccezione (`fase-9`, consumatore la
+  schermata Culling di Fase 11).
+
+Task 3: complete.

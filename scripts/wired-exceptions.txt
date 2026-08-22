@@ -40,6 +40,10 @@ fn move_asset fase-9
 # dei due ancora scritto.
 fn ensure_culling_child fase-9
 fn set_culling_root fase-9
+# list_lots (culling.rs, Task 3): la lista dei lotti con i conteggi
+# presi/scartati/da vedere. Consumatore: la schermata Culling di Fase 11,
+# che elenca i lotti prima di aprirne uno.
+fn list_lots fase-9
 route /health ops
 route /api/openapi.json ci
 
