@@ -303,3 +303,106 @@ che salta senza pesi reali (stesso pattern dichiarato sopra).
 
 ## Task 4: complete (pipeline; misura ms reale non ottenuta, vedi Task 2)
 ## Task 5: complete (raggruppamento incrementale; soglie da ricalibrare quando ci saranno pesi reali)
+
+## Gruppo B/C — Task 6/7/8: API pannello foto, CRUD persone/gruppi, coda di revisione
+
+`crates/keeppix-api/src/routes/faces.rs` (Task 6/8): `GET /assets/{id}/faces`,
+`POST /faces/{id}/assign|reject`, `GET /faces/proposals`,
+`POST /faces/{id}/confirm`, `POST /persons/{id}/proposals/confirm|reject`
+(azioni in blocco — «conferma/rifiuta tutti» per una persona candidata,
+involucro `FaceBulkOutcome` nuovo in `bulk.rs`, stesso disegno di
+`BulkOutcome` già usato per i tag ma non generico su di esso: `BulkOutcome`
+è tipizzato su `AssetId` in 10 punti già esistenti, un refactor a generico
+avrebbe toccato codice fuori scope per un guadagno solo cosmetico qui).
+
+`crates/keeppix-api/src/routes/persons.rs` (Task 6/7): CRUD persone
+(`list`/`create`/`get`/`patch`/`delete`), `merge`/`separate`, CRUD gruppi di
+persone e membership — 15 route in più. `PersonView` ha `face_count`
+opzionale: presente in `GET /persons` (via `PersonSummary`, un giro di
+query in più già pagato dal repository), assente nelle risposte di singola
+persona per non pagarlo due volte.
+
+Ruling: **«nuova persona» dalla coda di revisione non ha una route
+dedicata** — il client fa `POST /persons` (nome vuoto o dato) poi
+`POST /faces/{id}/assign` con l'id ottenuto. Una route unica
+`POST /faces/{id}/assign-new-person` risparmierebbe un giro di rete alla UI
+Fase 11, ma introdurrebbe un secondo percorso per la stessa operazione
+(creare+assegnare) che il resto dell'API non ha in nessun altro punto —
+tag e cartelle seguono lo stesso pattern «crea, poi referenzia». — *Costo
+se sbagliato*: un giro di rete in più lato client, nessun costo lato
+server/dati.
+
+`crates/keeppix-api/src/routes/bootstrap.rs`: il badge `revision` ora somma
+`AssetTagRepo::count_proposed_visible` (Fase 7) e
+`FaceRepo::count_proposed_visible` (qui) — stesso contratto "quante cose
+aspettano una decisione dell'utente" della Fase 7, un solo numero invece di
+due badge separati (la spec non distingue "proposte tag" da "proposte
+volti" nel badge globale).
+
+**Test**: `crates/keeppix-api/tests/persons.rs`, 10 test end-to-end via
+router reale (CRUD, merge, separate, coda di revisione, badge, 403/422).
+`face_privacy.rs` (Task 1) resta 3/3 verde dopo queste route — verificato
+di nuovo qui, non solo alla chiusura (Task 11 lo riverifica un'ultima
+volta). `openapi.rs`: 8/8 verdi dopo aver aggiornato i due array
+hardcoded (paths, operation_ids) e il conteggio totale via lo script di
+rigenerazione della suite stessa (`UPDATE_OPENAPI=1 cargo test`), non a
+mano.
+
+## Task 6: complete (pannello dettagli foto: elenco/assegna/rifiuta)
+## Task 7: complete (CRUD persone/gruppi, merge/separate)
+## Task 8: complete (coda di revisione, azioni in blocco, badge bootstrap)
+
+## Bonifica `scripts/check-wired.py` dopo Task 6/7/8
+
+Il guardiano ha segnalato 4 funzioni morte e 14 route senza consumatore
+frontend. Le 14 route sono attese (Fase 11 le consuma, vedi
+`scripts/wired-exceptions.txt` — voce nuova, stessa forma delle voci
+`/tags*` già lì per lo stesso motivo in Fase 7). Le 4 funzioni erano un
+segnale reale, non falso positivo:
+
+Ruling: **`embedding_of`/`list_unassigned_with_embedding` non erano morte
+per errore di scope — indicavano un buco di correttezza vero.**
+`FaceRepo::mark_scanned` viene chiamato incondizionatamente per ogni asset
+(anche quando `group_face` fallisce a metà: un volto già inserito con
+un'impronta calcolata, ma mai confrontato via pgvector e mai assegnato/
+proposto) — un volto così resta orfano per sempre, perché il prossimo giro
+di `process_pending` non lo rivede più (l'asset non è più "in coda", lo
+scan è segnato fatto). Corretto aggiungendo
+`detect_faces::regroup_stragglers`, chiamato all'inizio di `run()`: rilegge
+i volti con impronta ma senza `person_id`/`proposed_person_id` (tramite le
+due funzioni che il guardiano segnalava) e li fa ripassare da
+`group_face`. Lotto piccolo (`STRAGGLER_BATCH_LIMIT = 200`): l'evento è
+raro (solo un fallimento a metà pipeline), non un volume paragonabile alla
+coda principale. — *Costo se sbagliato*: senza questo fix, un volto
+orfano non compare mai né come assegnato né in coda di revisione — invisibile,
+non solo lento; con `STRAGGLER_BATCH_LIMIT` troppo basso, si accumula un
+arretrato che si smaltisce in più finestre invece che in una sola (mai un
+dato perso, solo più lento a comparire).
+
+Ruling: **`find_by_id_for_pipeline` (`faces.rs`) e `is_separated`
+(`persons.rs`) rimossi, non messi in `wired-exceptions.txt`.** — Nessun
+consumatore legittimo a breve termine: l'unico uso plausibile di
+`find_by_id_for_pipeline` sarebbe stata una route HTTP, ma bypassa
+`assert_face_visible`/`AuthContext` per costruzione (il nome dice "pipeline",
+cioè pensata per codice interno senza contesto utente) — usarla in una
+route violerebbe l'invariante "ogni metodo repository esposto a HTTP
+verifica la visibilità" (AGENTS.md). `is_separated` non aveva alcun
+chiamante nemmeno ipotizzabile: `has_any_separation` (usato da Task 5) fa
+lo stesso lavoro con un nome più preciso (booleano "è mai stata separata",
+non "è separata da chi"). Riscritti 9 punti di test (8 in `faces.rs` via un
+nuovo helper `fetch_face_state`/SQL grezzo, 1 in `persons.rs`) per leggere
+lo stato via SQL diretto invece che tramite queste funzioni — i test
+restano equivalenti (stessa asserzione, stessa colonna), solo il percorso
+per leggerla cambia. — *Costo se sbagliato*: se in futuro serve davvero un
+"leggi un volto per id senza contesto utente" lato pipeline, va reintrodotta
+con quel nome e quel confine chiaro, non resuscitata con lo stesso nome
+generico che invitava all'uso sbagliato.
+
+`python3 scripts/check-wired.py`: pulito dopo questi due interventi + le
+voci nuove in `wired-exceptions.txt`. `cargo fmt --all -- --check`: pulito.
+`cargo clippy --workspace --all-targets -- -D warnings`: pulito (due errori
+nuovi risolti in questo giro: un tipo di riga SQL a 5 colonne in un test
+estratto in un `type` alias invece di essere inline — `clippy::type_complexity`
+sul tuple letterale; un commento `///` che era scivolato per sbaglio da
+`run()` sopra `STRAGGLER_BATCH_LIMIT` durante l'inserimento del fix
+straggler, lasciando `run()` senza `# Errors` — spostato al posto giusto).
