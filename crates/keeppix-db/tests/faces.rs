@@ -289,3 +289,134 @@ async fn only_faces_with_an_embedding_are_grouping_candidates() {
     let embedding = repo.embedding_of(with_embedding.id).await.unwrap();
     assert_eq!(embedding, Some(unit_axis(2)));
 }
+
+async fn seed_hashed_asset(
+    test: &TestDb,
+    folder: FolderId,
+    filename: &str,
+    hash: [u8; 32],
+) -> AssetId {
+    let asset = keeppix_db::AssetRepo::new(test.db())
+        .upsert_discovered(discovered(folder, filename))
+        .await
+        .unwrap()
+        .unwrap();
+    keeppix_db::AssetRepo::new(test.db())
+        .set_hash(asset.id, hash)
+        .await
+        .unwrap();
+    asset.id
+}
+
+const FACE_MODEL: &str = "scrfd-500mf+arcface";
+
+#[tokio::test]
+async fn list_pending_scan_excludes_the_entire_culling_subtree() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let library = seed_library(&test, admin, "/mnt/face-cull").await;
+    let library_folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["album"])
+        .await
+        .unwrap();
+    let cull_root = FolderRepo::new(test.db())
+        .ensure_path(library, &["Culling"])
+        .await
+        .unwrap();
+    let cull_child = FolderRepo::new(test.db())
+        .ensure_path(library, &["Culling", "_taken"])
+        .await
+        .unwrap();
+
+    sqlx::query("UPDATE libraries SET culling_root_folder_id = $1 WHERE id = $2")
+        .bind(cull_root.id.as_uuid())
+        .bind(library.as_uuid())
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    let keep = seed_hashed_asset(&test, library_folder.id, "keep.jpg", [0x33; 32]).await;
+    let in_root = seed_hashed_asset(&test, cull_root.id, "in-root.jpg", [0x44; 32]).await;
+    let in_taken = seed_hashed_asset(&test, cull_child.id, "taken.jpg", [0x55; 32]).await;
+
+    let batch = FaceRepo::new(test.db())
+        .list_pending_scan(FACE_MODEL, 100)
+        .await
+        .unwrap();
+    let ids: Vec<_> = batch.iter().map(|p| p.asset_id).collect();
+    assert!(ids.contains(&keep), "fuori dal culling deve restare");
+    assert!(!ids.contains(&in_root), "radice culling esclusa per intero");
+    assert!(
+        !ids.contains(&in_taken),
+        "sottoalbero culling escluso via path <@"
+    );
+}
+
+#[tokio::test]
+async fn list_pending_scan_respects_faces_enabled() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let library = seed_library(&test, admin, "/mnt/face-toggle").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["a"])
+        .await
+        .unwrap();
+    let asset = seed_hashed_asset(&test, folder.id, "a.jpg", [0x66; 32]).await;
+
+    let repo = FaceRepo::new(test.db());
+    assert!(
+        repo.list_pending_scan(FACE_MODEL, 100)
+            .await
+            .unwrap()
+            .iter()
+            .any(|p| p.asset_id == asset)
+    );
+
+    keeppix_db::LibraryRepo::new(test.db())
+        .update(&ctx, library, None, None, Some(false), None)
+        .await
+        .unwrap();
+    assert!(
+        !repo
+            .list_pending_scan(FACE_MODEL, 100)
+            .await
+            .unwrap()
+            .iter()
+            .any(|p| p.asset_id == asset)
+    );
+}
+
+#[tokio::test]
+async fn mark_scanned_removes_the_asset_from_the_pending_queue_even_with_zero_faces() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let library = seed_library(&test, admin, "/mnt/zero-faces").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["a"])
+        .await
+        .unwrap();
+    let asset = seed_hashed_asset(&test, folder.id, "a.jpg", [0x11; 32]).await;
+
+    let repo = FaceRepo::new(test.db());
+    assert!(
+        repo.list_pending_scan(FACE_MODEL, 100)
+            .await
+            .unwrap()
+            .iter()
+            .any(|p| p.asset_id == asset)
+    );
+
+    // Nessun volto trovato — comunque va segnato come analizzato.
+    repo.mark_scanned(asset, FACE_MODEL).await.unwrap();
+
+    assert!(
+        !repo
+            .list_pending_scan(FACE_MODEL, 100)
+            .await
+            .unwrap()
+            .iter()
+            .any(|p| p.asset_id == asset)
+    );
+    assert_eq!(repo.count_pending_scan(FACE_MODEL).await.unwrap(), 0);
+}
