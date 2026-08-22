@@ -857,3 +857,80 @@ Verifica eseguita:
 
 Task 8: complete.
 
+### Task 9 — Annullare
+
+`RenameRepo::undo(ctx, batch_id)`, stesso file. Il piano è esplicito:
+*"Non è un drop-in del `undo` esistente. `metadata_batches`/
+`OverridesRepo::undo_batch` opera solo su colonne di `asset_overrides` —
+`filename`/`folder_id` vivono sulla tabella `assets`, e `restore_previous`
+non tocca il filesystem: scrive/cancella righe, non sposta file."* Riusa
+il **concetto** di `metadata_batches` (stesso schema di riga:
+`actor_id`/`applied_at`/`undone_at`/`previous jsonb`, stesso cancello
+`FOR UPDATE` + controllo proprietario + idempotenza su un secondo
+annullamento), non il codice: il ramo che effettivamente ripristina
+richiama `AssetRepo::move_asset` "al contrario" per ogni asset del batch,
+non un `UPDATE` di colonna.
+
+Ruling: **nessuna guardia "già sincronizzato" equivalente a quella XMP**
+(`xmp_written_at >= applied_at`) — il piano chiedeva esplicitamente di
+verificare se servisse. Analisi: quella guardia esiste perché un job
+*asincrono* (lo scrittore dei sidecar) può consumare il valore del batch
+prima che l'utente lo annulli — un vero consumatore esterno con cui fare
+i conti. La rinomina non ha un consumatore paragonabile: lo spostamento
+fisico **è** l'intero effetto, avvenuto sincrono dentro `apply` stesso,
+nessun job successivo che lo "fissa". Ho anche scartato un candidato
+concreto (`assets.updated_at > applied_at`, lo stesso pattern usato per
+rilevare "toccato da allora") dopo aver verificato con `grep` che quella
+colonna viene aggiornata da operazioni senza alcun rapporto col nome
+(stato di scansione, `thumbhash`, `stack_id`, `location_source`,
+cestino...) — una guardia su quel campo avrebbe bloccato l'annullamento
+quasi sempre per un motivo estraneo al file, un falso positivo
+sistematico peggiore di nessuna guardia. Se l'asset è stato rinominato di
+nuovo nel frattempo, `move_asset` lo sposta comunque indietro al nome
+registrato — lo stesso comportamento di annullare un passo qualunque di
+una cronologia lineare, senza riguardo per cosa sia successo dopo (una
+collisione al percorso di destinazione resta comunque per-asset in
+`failed`, non un blocco totale). — *Costo se la scelta di non avere
+guardia è sbagliata:* un annullamento tardivo potrebbe "riportare
+indietro" un nome che nel frattempo aveva un senso nuovo — rischio
+giudicato accettabile perché l'annullamento resta un'azione personale
+dell'utente sul proprio batch recente, non un processo differito.
+
+Tipo condiviso `PreviousRenameState = BTreeMap<String, PreviousLocation>`
+(chiave `AssetId` come testo, come `overrides.rs::PreviousBatch` — JSON
+richiede chiavi di oggetto testuali) usato sia da `apply` per scrivere
+`rename_batches.previous`, sia da `undo` per rileggerlo: stesso schema in
+entrambe le direzioni, non due formati indipendenti da tenere
+sincronizzati a mano.
+
+Riuscita parziale come `apply`: annota `undone_at` **prima** di iterare
+gli asset (non dopo, e non dentro la stessa transazione dei
+`move_asset`, che aprono connessioni proprie non annidabili in quella
+transazione) — un secondo annullamento concorrente sullo stesso batch
+trova già il campo valorizzato invece di rientrare in corsa. Ogni
+`move_asset` fallito (tipicamente una collisione al vecchio percorso,
+occupato da qualcun altro nel frattempo) finisce in `failed` senza
+bloccare gli altri asset del batch.
+
+Verifica eseguita:
+- `cargo test -p keeppix-db --test rename` → 22/22 verdi (i 16 di Task 8
+  + 6 nuovi: ripristino reale su disco e riga, pila ripristinata insieme,
+  doppio annullamento idempotente non un errore, solo l'autore o un admin
+  possono annullare — un editor con pieno accesso all'asset non basta,
+  collisione al vecchio percorso fallisce solo quell'asset senza toccare
+  nulla, batch inesistente `NotFound` per un admin).
+- `cargo test -p keeppix-db --test overrides --test migrations` → 23+13
+  verdi, nessuna regressione sul pattern gemello che questo task ha
+  riusato concettualmente.
+- `cargo fmt --all --check` → pulito su tutto il workspace.
+- `cargo clippy --workspace --all-targets -- -D warnings` → pulito al
+  primo colpo su tutto il workspace (7 crate) — nessun errore da
+  correggere questa volta.
+- `python3 scripts/check-wired.py` → verde senza segnalare
+  `RenameRepo::undo` nonostante zero chiamanti reali (verificato con
+  `grep`) — stesso genere di falso positivo di `preview`/`apply` (Task
+  8). Aggiunta un'eccezione esplicita invece di fidarmi del pass
+  accidentale.
+
+Task 9: complete. Chiude il Gruppo C (Tasks 6-9) della fase.
+

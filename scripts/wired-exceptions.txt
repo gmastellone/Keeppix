@@ -66,6 +66,12 @@ fn set_pick fase-9
 # risultato in BulkOutcome/BulkFailure (stesso involucro della Fase 10).
 fn preview fase-9
 fn apply fase-9
+# RenameRepo::undo (rename.rs, Task 9): annulla un batch di rinomina.
+# check-wired.py non la segnala nonostante zero chiamanti reali (`grep -rn
+# '\.undo(' crates`, solo i test) — stesso genere di falso positivo di
+# preview/apply sopra. Consumatore reale: lo stesso endpoint di rinomina di
+# massa del Task 10, il pulsante "Annulla" del toast dopo l'applicazione.
+fn undo fase-9
 # empty_skipped (culling.rs, Task 4): "Svuota scartati" — cancellazione
 # definitiva del contenuto di `_skipped` in un lotto. check-wired.py la
 # segnala correttamente (nessun falso positivo qui). Consumatore: il
