@@ -96,8 +96,11 @@ impl tracing::field::Visit for SqlFieldVisitor {
 
 /// Capture sqlx **process-wide**: `set_default` (TLS) perde gli eventi quando
 /// sqlx logga da un worker diverso dal task del test (CI parallela →
-/// `individual=0`). `set_global_default` una volta per binario; i budget test
-/// si serializzano su `BUDGET_LOCK`.
+/// `individual=0`). `set_global_default` una volta per binario; **tutti e
+/// tre** i test di questo file si serializzano su `BUDGET_LOCK` — non solo
+/// i due che leggono il conteggio, perché la cattura è globale: le query
+/// HTTP di un terzo test in esecuzione concorrente finirebbero comunque
+/// nella stessa finestra di cattura.
 fn global_sql_capture() -> Arc<Mutex<Vec<String>>> {
     static CAPTURE: std::sync::OnceLock<Arc<Mutex<Vec<String>>>> = std::sync::OnceLock::new();
     static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
@@ -167,6 +170,15 @@ async fn load_bootstrap_repos(db: &Db, ctx: &AuthContext) {
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn bootstrap_matches_individual_endpoints() {
+    // Non tocca il budget di query, ma `global_sql_capture` è **process-wide**
+    // (serve perché sqlx logga da un worker diverso dal task del test in CI
+    // parallela): senza serializzarsi anche qui, le query HTTP di questo test
+    // possono cadere dentro la finestra di cattura di uno degli altri due
+    // test dello stesso binario, gonfiando `bootstrap`/`individual` in modo
+    // non deterministico — esattamente il difetto preesistente segnalato nel
+    // ledger di Fase 10 ("fallisce quando gira insieme all'altro test,
+    // isolato passa sempre").
+    let _serial = BUDGET_LOCK.lock().await;
     let server = TestServer::start().await;
     let admin = setup_admin(&server).await;
     let library_id = seed_library(&server, admin).await;
