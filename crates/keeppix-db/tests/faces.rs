@@ -493,3 +493,72 @@ async fn reject_all_proposed_for_person_is_permanent() {
     assert!(updated.rejected_at.is_some());
     assert!(updated.proposed_person_id.is_none());
 }
+
+#[tokio::test]
+async fn delete_all_data_requires_an_admin() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let outsider = harness::seed_user(&test, admin, "plain").await;
+    let ctx = AuthContext::user(outsider, SystemRole::User);
+
+    let err = FaceRepo::new(test.db())
+        .delete_all_data(&ctx)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, keeppix_db::DbError::Forbidden));
+}
+
+#[tokio::test]
+async fn delete_all_data_wipes_faces_persons_groups_and_scan_state() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_asset_in_new_library(&test, admin, "wipe").await;
+
+    let person = seed_person(&test).await;
+    let face = detect_face(&test, asset, Some(unit_axis(3))).await;
+    FaceRepo::new(test.db())
+        .assign(&ctx, face.id, person)
+        .await
+        .unwrap();
+    FaceRepo::new(test.db())
+        .mark_scanned(asset, MODEL)
+        .await
+        .unwrap();
+    let group = keeppix_db::PersonGroupRepo::new(test.db())
+        .create(
+            &ctx,
+            keeppix_db::NewPersonGroup {
+                name: "Famiglia".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+
+    FaceRepo::new(test.db())
+        .delete_all_data(&ctx)
+        .await
+        .unwrap();
+
+    let faces_left: i64 = sqlx::query_scalar("SELECT count(*) FROM faces")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    let persons_left: i64 = sqlx::query_scalar("SELECT count(*) FROM persons")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    let groups_left: i64 = sqlx::query_scalar("SELECT count(*) FROM person_groups")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    let scans_left: i64 = sqlx::query_scalar("SELECT count(*) FROM asset_face_scans")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap();
+    assert_eq!(faces_left, 0);
+    assert_eq!(persons_left, 0);
+    assert_eq!(groups_left, 0);
+    assert_eq!(scans_left, 0, "wiped scan state so re-detection can happen");
+    let _ = (face.id, person, group.id);
+}

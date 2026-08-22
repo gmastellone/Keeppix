@@ -545,3 +545,40 @@ async fn person_group_crud_and_membership() {
         .unwrap();
     assert_eq!(del.status(), 204);
 }
+
+#[tokio::test]
+async fn delete_all_face_data_is_admin_only_and_wipes_persons() {
+    let server = TestServer::start().await;
+    setup_admin(&server).await;
+    let asset = seed_scanned_asset(&server, "delete-all").await;
+    let person = PersonRepo::new(&server.db).create(None).await.unwrap();
+    seed_confirmed_face(&server, asset, person.id).await;
+
+    create_user(&server, "plain", "correct horse battery staple").await;
+    let plain_client = login_as(&server, "plain", "correct horse battery staple").await;
+    let denied = plain_client
+        .delete(server.url("/api/v1/faces/data"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+
+    let ok = server
+        .client
+        .delete(server.url("/api/v1/faces/data"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 204);
+
+    let list: Value = server
+        .client
+        .get(server.url("/api/v1/persons"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(list.as_array().unwrap().is_empty());
+}

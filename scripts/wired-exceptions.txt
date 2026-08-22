@@ -71,6 +71,11 @@ route /person-groups fase-11
 route /person-groups/{id} fase-11
 route /person-groups/{id}/members fase-11
 route /person-groups/{id}/members/{person_id} fase-11
+# Task 10: "Elimina tutti i dati dei volti" — l'interruttore per libreria
+# (faces_enabled, già su /libraries/{id}) resta distinto da questa purga
+# globale e irreversibile; il pulsante che la invoca è nella stessa UI
+# Fase 11 delle voci sopra.
+route /faces/data fase-11
 
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore

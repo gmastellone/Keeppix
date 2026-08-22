@@ -2456,6 +2456,46 @@
         ]
       }
     },
+    "/api/v1/faces/data": {
+      "delete": {
+        "tags": [
+          "faces"
+        ],
+        "summary": "Delete all face/person data system-wide (admin only, irreversible)",
+        "description": "# Errors\n`403` per chi non è amministratore.",
+        "operationId": "faces_delete_all_data",
+        "responses": {
+          "204": {
+            "description": "Cancellato"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo amministratori",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/faces/proposals": {
       "get": {
         "tags": [

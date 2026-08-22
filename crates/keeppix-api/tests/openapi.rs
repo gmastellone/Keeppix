@@ -244,8 +244,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 170,
-        "il documento deve descrivere centosettanta operazioni"
+        checked, 171,
+        "il documento deve descrivere centosettantuno operazioni"
     );
 }
 
@@ -334,6 +334,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/duplicates",
             "/api/v1/duplicates/{content_hash}",
             "/api/v1/duplicates/{content_hash}/resolve",
+            "/api/v1/faces/data",
             "/api/v1/faces/proposals",
             "/api/v1/faces/{id}/assign",
             "/api/v1/faces/{id}/confirm",
@@ -526,6 +527,7 @@ fn operation_ids_are_explicit_and_unique() {
             "duplicates_resolve",
             "faces_assign",
             "faces_confirm_proposal",
+            "faces_delete_all_data",
             "faces_list_proposals",
             "faces_reject",
             "flags_batch_set",
@@ -701,8 +703,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 170,
-        "il documento deve descrivere centosettanta operazioni"
+        checked, 171,
+        "il documento deve descrivere centosettantuno operazioni"
     );
 }
 
