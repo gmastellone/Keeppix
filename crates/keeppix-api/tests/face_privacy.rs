@@ -146,7 +146,7 @@ async fn seed_asset_with_confirmed_face(server: &TestServer) -> (AssetId, String
 
 #[tokio::test]
 async fn a_shared_folder_never_exposes_face_or_person_data() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let (_, folder_id) = seed_asset_with_confirmed_face(&server).await;
 
@@ -190,7 +190,7 @@ async fn a_shared_folder_never_exposes_face_or_person_data() {
 
 #[tokio::test]
 async fn a_shared_single_asset_never_exposes_face_or_person_data() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let (asset_id, _) = seed_asset_with_confirmed_face(&server).await;
 

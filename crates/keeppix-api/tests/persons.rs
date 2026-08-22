@@ -104,7 +104,7 @@ async fn seed_confirmed_face(
 
 #[tokio::test]
 async fn create_get_and_list_a_person() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let asset = seed_scanned_asset(&server, "cgl").await;
 
@@ -158,7 +158,7 @@ async fn create_get_and_list_a_person() {
 
 #[tokio::test]
 async fn blank_name_is_rejected_with_422() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
 
     let resp = server
@@ -173,7 +173,7 @@ async fn blank_name_is_rejected_with_422() {
 
 #[tokio::test]
 async fn patch_renames_hides_and_sets_cover() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let asset = seed_scanned_asset(&server, "patch").await;
 
@@ -197,7 +197,7 @@ async fn patch_renames_hides_and_sets_cover() {
 
 #[tokio::test]
 async fn a_person_invisible_to_an_outsider_returns_403() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let asset = seed_scanned_asset(&server, "outsider").await;
     let person = PersonRepo::new(&server.db).create(None).await.unwrap();
@@ -226,7 +226,7 @@ async fn a_person_invisible_to_an_outsider_returns_403() {
 
 #[tokio::test]
 async fn merge_reassigns_faces_into_the_survivor() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let asset_a = seed_scanned_asset(&server, "merge-a").await;
     let asset_b = seed_scanned_asset(&server, "merge-b").await;
@@ -271,7 +271,7 @@ async fn merge_reassigns_faces_into_the_survivor() {
 
 #[tokio::test]
 async fn separate_creates_a_new_person_via_http() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let asset = seed_scanned_asset(&server, "separate").await;
 
@@ -298,7 +298,7 @@ async fn separate_creates_a_new_person_via_http() {
 
 #[tokio::test]
 async fn review_queue_confirm_and_reject_via_http() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let admin = admin_id(&server).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
@@ -400,7 +400,7 @@ async fn review_queue_confirm_and_reject_via_http() {
 
 #[tokio::test]
 async fn assets_list_faces_and_manual_reject() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let asset = seed_scanned_asset(&server, "list-faces").await;
     let person = PersonRepo::new(&server.db).create(None).await.unwrap();
@@ -443,7 +443,7 @@ async fn assets_list_faces_and_manual_reject() {
 
 #[tokio::test]
 async fn bootstrap_badge_counts_pending_face_proposals() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let asset = seed_scanned_asset(&server, "badge").await;
     let candidate = PersonRepo::new(&server.db).create(None).await.unwrap();
@@ -485,7 +485,7 @@ async fn bootstrap_badge_counts_pending_face_proposals() {
 
 #[tokio::test]
 async fn person_group_crud_and_membership() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let asset = seed_scanned_asset(&server, "group").await;
     let person = PersonRepo::new(&server.db).create(None).await.unwrap();
@@ -548,7 +548,7 @@ async fn person_group_crud_and_membership() {
 
 #[tokio::test]
 async fn delete_all_face_data_is_admin_only_and_wipes_persons() {
-    let server = TestServer::start().await;
+    let server = TestServer::start_with_vector().await;
     setup_admin(&server).await;
     let asset = seed_scanned_asset(&server, "delete-all").await;
     let person = PersonRepo::new(&server.db).create(None).await.unwrap();
