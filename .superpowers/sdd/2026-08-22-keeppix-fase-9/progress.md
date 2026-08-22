@@ -751,3 +751,109 @@ volta in questa fase che una sequenza di push consecutivi passa CI al
 primo colpo, segno che la verifica locale a workspace intero (sbloccata
 dai Task 1-2) ora coincide davvero con quello che CI controlla.
 
+### Task 8 — I tre ambiti, e la co-rinomina delle pile
+
+Nuovo modulo `crates/keeppix-db/src/rename.rs` (`RenameRepo`): collega il
+motore puro del Task 6-7 al database — risoluzione dei valori per asset,
+espansione automatica delle pile, e il controllo delle collisioni contro
+l'intero database (difetto 1 della spec, rinviato dal Task 7 perché
+serviva esattamente l'elenco di asset che questo modulo è il primo ad
+avere).
+
+Nuova migrazione `0049_rename_batches.sql`: stessa forma di
+`metadata_batches` (migrazione 0012, Task 9 del piano lo chiede
+esplicitamente — "stesso batch_id, stesso audit"), tabella separata
+perché la forma di `previous` è diversa (per asset: `{folder_id,
+filename}`, non colonne di `asset_overrides`).
+
+**Ambito reso esplicito (la correzione che il piano chiede)**: `preview`/
+`apply` ricevono sempre un `&[AssetId]` già risolto — questo modulo non
+enumera mai da sé "tutta la cartella" o "tutto il lotto". Il bug del
+prototipo ("Rinomina cartella…" rinomina solo le foto passate dai filtri
+attivi, mentre il sottotitolo dichiara tutta la cartella) non può
+ripresentarsi qui per costruzione: non c'è un percorso implicito da
+cartella/lotto a elenco di asset dentro `RenameRepo` che possa
+silenziosamente restringersi. La responsabilità di dichiarare l'ambito
+esatto (e il testo coerente con esso) resta a chi chiama — Task 10/11.
+
+**Le pile si rinominano insieme**: `compute()` espande ogni asset passato
+al suo intero stack (`StackRepo`/`assets.stack_id`, Fase 2) anche se il
+chiamante ne ha passato solo un membro — il RAW e il JPEG affiancati
+prendono sempre la stessa base, ciascuno con la propria estensione
+([`render_base`]/[`apply_base_to_filename`] del Task 6-7, non due
+`render_filename` indipendenti che potrebbero divergere). Il contatore
+`{n}` conta **pile**, non file: una pila di due occupa un solo slot
+dell'indice, verificato con un test dedicato.
+
+Ruling: **il permesso resta un cancello unico per l'intera chiamata**
+(`assert_can_edit_assets` su tutto l'ambito prima di tentare qualunque
+`move_asset`), non una tolleranza per-asset come
+`OverrideRepo::apply_batch_partial`. Le **collisioni**, invece, restano
+per-asset in `failed`: sono note per natura solo al momento della
+scrittura (una corsa, o due voci del gruppo destinate allo stesso nome),
+mentre un problema di permesso su un membro dell'ambito scelto
+dall'utente non ha un buon motivo per lasciare rinominata solo metà del
+gruppo. — Costo se sbagliato (tolleranza troppo larga sul permesso): un
+gruppo scelto insieme dall'utente finirebbe rinominato a metà per un
+problema su un solo file, un risultato più confuso di un rifiuto secco.
+
+**Rinvio dichiarato, non un debito nascosto**: `resolve_place_label`
+(Task 6) prevede tre candidate in ordine di precedenza — posizione della
+foto, posizione della cartella, nome del lotto. Solo la prima è wired in
+questo commit (`assets.place_id`/`asset_overrides.place_id` → catalogo
+`places`). Verificato con `grep`/lettura delle migrazioni: **non esiste
+alcuna colonna di posizione sulle cartelle** nello schema di Keeppix
+oggi — il concetto compare nel documento funzionale (§4744, "il luogo si
+eredita dalla cartella") ma non ha mai avuto una controparte nel
+database reale, quindi non è stato inventato qui senza un requisito
+concreto davanti. Il nome del lotto (terza candidata) userebbe la stessa
+logica di `culling_lot_of` (privata in `culling.rs`) — non duplicata qui
+per un caso che oggi vale solo per una foto senza posizione propria
+dentro un lotto appena importato e non ancora geotaggato. Entrambe le
+righe restano nel codice pronte a ricevere un valore reale quando (e se)
+arriverà un requisito concreto per l'una o l'altra.
+
+Verifica eseguita:
+- `cargo test -p keeppix-db --test rename` → 16/16 verdi: ambito singola
+  foto/selezione (ordine dell'array, non di creazione), pile espanse e
+  contate come un solo slot, luogo risolto dal catalogo, camera/obiettivo
+  dall'exif con la slugificazione applicata anche a un punto interno
+  (`f/2.8` → `f-28`, verificato non `f-2.8`: `slug()` elimina i punti,
+  non li preserva), collisione dentro il gruppo, collisione **fuori** dal
+  gruppo (difetto 1), un nome invariato non è mai una collisione con se
+  stesso, un viewer non può nemmeno vedere l'anteprima, applicazione
+  reale su file veri con la pila spostata insieme, collisione interna
+  che fallisce parzialmente senza registrare nulla per l'annullamento, un
+  solo asset non modificabile nell'ambito rifiuta l'intera chiamata prima
+  di toccare qualunque file.
+  Due errori di dati nei primi tentativi di test, corretti dopo aver
+  riletto la spec invece di piegare l'implementazione: un'estensione
+  minuscola nel file "esistente" del test di collisione non poteva mai
+  collidere col nome calcolato (sempre maiuscolo per costruzione, spec
+  §62.3b punto 1) — corretto seminando il file di test con l'estensione
+  maiuscola vera, non l'implementazione.
+- `cargo test -p keeppix-db --test assets --test folders --test stacks
+  --test culling --test migrations` → 22+24+9+16+13 verdi, nessuna
+  regressione sul resto del crate.
+- `cargo fmt --all --check` → pulito su tutto il workspace.
+- `cargo clippy --workspace --all-targets -- -D warnings` → tre errori
+  reali sulla prima stesura (`single_match_else` su un `match` a due
+  rami rispetto a un solo pattern non banale — riscritto `if let`/`else`;
+  due `items_after_statements` sulle `struct Row` locali dentro le
+  funzioni di query — issate a livello di modulo come
+  `AssetLookupRow`/`ValuesRow`, condivise dove la forma coincideva), poi
+  cinque `unwrap_used`/`expect_used` sugli helper del file di test senza
+  l'attributo (dimenticato, non un'eccezione voluta) — poi pulito su
+  tutto il workspace (7 crate).
+- `python3 scripts/check-wired.py` → verde senza segnalare
+  `RenameRepo::preview`/`apply` nonostante zero chiamanti reali
+  (verificato con `grep -rn RenameRepo crates`, solo il modulo stesso, il
+  suo re-export, e i test) — stavolta non per menzioni nei commenti, ma
+  perché `preview`/`apply` sono nomi generici condivisi con funzioni
+  reali altrove nel codebase (`TimezoneChangePreview`,
+  `OverrideRepo::apply`); `count_ident` conta l'identificatore ovunque
+  compaia, non la funzione specifica. Aggiunta un'eccezione esplicita per
+  entrambe invece di fidarmi del pass accidentale.
+
+Task 8: complete.
+

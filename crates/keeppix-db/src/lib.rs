@@ -32,6 +32,7 @@ pub mod places;
 pub mod preferences;
 pub mod problems;
 pub mod regions;
+pub mod rename;
 mod row;
 pub mod search;
 pub mod sessions;
@@ -98,6 +99,7 @@ pub use problems::{
     ProblemSet, ProblemSeverity, ProblemsRepo,
 };
 pub use regions::{MapRegion, NewMapRegion, RegionDownloadSource, RegionRepo, RegionStatus};
+pub use rename::{RenameBatchOutcome, RenamePreviewItem, RenameRepo};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo, Suggestion, SuggestionKind};
 pub use sessions::{SessionRepo, SessionSummary};
 pub use settings::SettingsRepo;
@@ -124,7 +126,8 @@ const LIBRARY_STORAGE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0043_ai_embeddings_tags; 0044_culling_root_folder.
+// rivede la directory. 0043_ai_embeddings_tags; 0044_culling_root_folder;
+// 0049_rename_batches.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
