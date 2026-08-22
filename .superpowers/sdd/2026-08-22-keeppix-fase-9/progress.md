@@ -252,3 +252,78 @@ cambio di comportamento: `Migration` unito al gruppo
 `Io|Conflict|Corrupted|Collision`. Verificato solo con `cargo fmt --check
 -p keeppix-api` (sintassi) in questa sessione — la vera verifica è la CI
 sul prossimo push, non dichiarata chiusa qui prima di vederla verde.
+
+## Sblocco: `keeppix-api`/`keeppix-media`/`keeppix-jobs` compilano in locale
+
+Il commit del fix `Lint` sopra è passato in CI (confermato: job `backend`,
+step `Lint` verde), ma lo step `Test` successivo è andato rosso su
+`openapi_snapshot_matches_the_committed_file` — un secondo difetto reale
+che il limite "`keeppix-api` non compila in locale" non poteva far vedere
+prima del push, esattamente come temuto.
+
+A quel punto, invece di continuare a fidarmi ciecamente di CI per ogni
+`keeppix-api`/`keeppix-media`/`keeppix-jobs`, ho cercato uno sblocco reale:
+`/root/ort-lib/libonnxruntime.so*` era già presente nell'ambiente (non
+scaricato da me). Il build script di `ort-sys` (`build/main.rs`,
+`build/vars.rs`) legge `ORT_LIB_PATH`/`ORT_LIB_LOCATION` per linkare contro
+un onnxruntime di sistema invece di scaricare i binari precompilati — non
+documentato nel `Cargo.toml` del progetto, trovato leggendo il sorgente
+del crate in `~/.cargo/registry/src`. Con:
+
+```
+export ORT_LIB_PATH=/root/ort-lib
+export ORT_PREFER_DYNAMIC_LINK=1
+export LD_LIBRARY_PATH=/root/ort-lib:$LD_LIBRARY_PATH
+```
+
+`cargo check -p keeppix-api` compila per la prima volta in questa sessione
+(prima falliva sempre al download di `ort-sys`, bloccato dal proxy
+dell'ambiente). Verificato poi con l'intera suite dei comandi di CI:
+
+- `cargo fmt --all --check` → pulito.
+- `cargo clippy --workspace --all-targets -- -D warnings` → pulito
+  (tutti e 7 i crate del workspace, non solo `keeppix-db`).
+- `python3 scripts/check-wired.py` → verde.
+
+Ruling: **questo sblocco vale per il resto della sessione** (Fase 9, Fase
+11, e i Task A/B modelli IA che toccano `keeppix-media` per davvero) — non
+più solo `cargo check -p keeppix-db`, ma i comandi di CI reali sull'intero
+workspace prima di ogni push, da ora in poi. — Costo se l'ambiente perde
+`/root/ort-lib` in una sessione futura (container ricreato): si torna al
+limite precedente, documentato di nuovo, nessun danno.
+
+Con lo sblocco, rigenerato `docs/api/openapi.json`
+(`UPDATE_OPENAPI=1 cargo test -p keeppix-api --test openapi
+openapi_snapshot_matches_the_committed_file`) e verificato il diff a mano
+prima di committarlo, come il test stesso richiede esplicitamente
+("non rigenerarlo per far tornare verde il test... guarda che cosa è
+cambiato e decidi"): una sola riga, `"collision"` aggiunta all'enum
+`FailureReason` nello schema — esattamente e solo l'aggiunta additiva
+attesa da `DbError::Collision`/Task 1, coerente col contratto "solo
+aggiunte entro `/api/v1`" dichiarato dallo spec OpenAPI stesso. Nessun
+altro campo di Fase 9 (`Folder.culling_role`,
+`Library.culling_root_folder_id`) compare nello schema — corretto, non
+sono ancora esposti da nessuna vista API (debito dichiarato per Task 4/8/
+Fase 11, non un'omissione).
+
+Verifica aggiuntiva con lo sblocco (locale, stesso Postgres):
+- `cargo test -p keeppix-api --test openapi` → 8/8 verdi (incluso lo
+  snapshot rigenerato).
+- `cargo test -p keeppix-api --test scan` → 8/8 verdi (operazioni di
+  massa/`BulkOutcome`, area più vicina a `bulk.rs` toccato in questa
+  fase).
+- `cargo test -p keeppix-api --test libraries --test problems` → 14/14 +
+  4/4 verdi (`problems.rs` esercita `From<DbError> for Problem`, la
+  mappatura che ho modificato per `Collision`).
+- `cargo test -p keeppix-api --test trash` → 5/6: un fallimento reale ma
+  **non causato da questa sessione** —
+  `batch_delete_partial_success_when_the_trash_folder_is_not_writable`
+  simula un `EACCES` con `chmod 0o555` su una cartella, ma questo sandbox
+  esegue i test come `root` (`whoami` → `root`), che ignora i bit dei
+  permessi Unix per costruzione del kernel — la scrittura riesce dove il
+  test si aspetta che fallisca. Verificato **prima** di liquidarlo come
+  ambientale: `git diff origin/main..HEAD -- crates/keeppix-api/tests/trash.rs
+  crates/keeppix-db/src/trash.rs` → zero differenze su entrambi i file in
+  tutta questa sessione. Nessun fix necessario né possibile in locale;
+  CI gira come utente `runner` non privilegiato su GitHub Actions, dove il
+  test funziona come previsto (era già verde prima di questa fase).
