@@ -13,6 +13,25 @@
 -- prima stesura della spec fase-8-volti.md §3) — stessa ragione di
 -- 0045_asset_embeddings_ivfflat.sql, build e RAM più leggeri sul Pi 8 GB
 -- bersaglio. Vedi Ruling nel ledger di fase.
+--
+-- `libraries.faces_enabled` **non** è dentro il blocco gated da pgvector qui
+-- sotto, a differenza di tutto il resto: `LibraryRepo` (core, non IA) legge
+-- e scrive questa colonna incondizionatamente in ogni INSERT/SELECT su
+-- `libraries` (stesso `COLUMNS` usato da ogni libreria, non solo quelle con
+-- riconoscimento facciale). Lasciarla nel blocco `DO $faces$` — che va in
+-- no-op quando pgvector manca — romperebbe `LibraryRepo::create` ovunque,
+-- non solo quando serve il resto dello schema volti: esattamente il difetto
+-- che la CI reale ha trovato (server Postgres di test intenzionalmente
+-- senza `vector` per i crate che non ne hanno bisogno — `.github/workflows/ci.yml`
+-- — con `refresh_returns_added_ids_as_succeeded_bulk_outcome` di
+-- `keeppix-api/tests/albums.rs` che falliva su "column faces_enabled does
+-- not exist" creando una libreria). Interruttore per libreria (Task 10):
+-- spento non rileva nulla, non "rileva ma non mostra". Stesso pattern di
+-- `scan_enabled` (0004_libraries_folders.sql), non una voce di preferenze
+-- utente — e per lo stesso motivo va aggiunta come `scan_enabled`, sempre,
+-- non condizionata a IA disponibile.
+ALTER TABLE libraries
+    ADD COLUMN IF NOT EXISTS faces_enabled boolean NOT NULL DEFAULT true;
 
 DO $faces$
 BEGIN
@@ -25,12 +44,6 @@ BEGIN
     END IF;
 
     CREATE EXTENSION IF NOT EXISTS vector;
-
-    -- Interruttore per libreria (Task 10): spento non rileva nulla, non
-    -- "rileva ma non mostra". Stesso pattern di `scan_enabled`
-    -- (0004_libraries_folders.sql), non una voce di preferenze utente.
-    ALTER TABLE libraries
-        ADD COLUMN IF NOT EXISTS faces_enabled boolean NOT NULL DEFAULT true;
 
     -- Una persona. Il nome è opzionale: «Persona 4» con 37 foto è già utile.
     CREATE TABLE IF NOT EXISTS persons (
