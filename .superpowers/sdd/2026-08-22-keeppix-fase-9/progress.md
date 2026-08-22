@@ -741,3 +741,13 @@ Verifica eseguita:
 
 Task 7 (parte pura): complete. Il difetto 1 si chiude insieme al Task 8.
 
+### CI reale verde su `fase-9` (Task 3-7)
+
+Confermato via `mcp__github__actions_list` dopo l'attesa dei job Test
+(~25-30 min ciascuno): tutti e cinque i push da Task 3 a Task 7
+(`684b5ca`, `6c056d1`, `c5b0476`, `cee4e28`, `8a32035`) sono
+`completed`/`success`. Nessun fix reattivo necessario stavolta — la prima
+volta in questa fase che una sequenza di push consecutivi passa CI al
+primo colpo, segno che la verifica locale a workspace intero (sbloccata
+dai Task 1-2) ora coincide davvero con quello che CI controlla.
+
