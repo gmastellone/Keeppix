@@ -11689,6 +11689,7 @@
           "permission-denied",
           "file-missing",
           "timeout",
+          "collision",
           "unknown"
         ]
       },
