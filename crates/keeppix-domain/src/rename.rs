@@ -1,7 +1,11 @@
 //! Il motore delle formule di rinomina (Fase 9 Task 6-7, spec UI §62 "Dialog
-//! 'Rinomina con formula'"). Puro: nessuna lettura da disco o database — le
-//! fasi successive del Gruppo C (Task 8-9) collegano questo motore a
+//! 'Rinomina con formula'"). Puro: nessuna lettura da disco o database —
+//! `crates/keeppix-db/src/rename.rs` (Task 8-9) collega questo motore a
 //! collisioni vere sul database, ambiti, e allo spostamento fisico.
+//! [`render_base`]/[`apply_base_to_filename`] esistono separati da
+//! [`render_filename`] proprio per il Task 8: i file affiancati di una
+//! pila (RAW + JPEG) prendono la stessa base, ciascuno con la propria
+//! estensione.
 //!
 //! I sei segnaposto e il fallback a schema vuoto seguono esattamente
 //! `computeRenamedFilename`/`renameSlug` del prototipo (spec §62.3b). **Tre
@@ -64,6 +68,11 @@ const MAX_FILENAME_BYTES: usize = 255;
 ///
 /// `index` è 1-based (spec: "l'indice nell'elenco attivo + 1"): chi chiama
 /// passa già `posizione_nell_elenco + 1`, non un indice 0-based.
+///
+/// Scompone in [`render_base`] + [`apply_base_to_filename`] per il caso
+/// del Task 8 (i file affiancati di una pila prendono lo stesso nome): la
+/// base va calcolata **una volta per pila**, non una volta per file, poi
+/// riattaccata all'estensione — diversa — di ciascun file affiancato.
 #[must_use]
 pub fn render_filename(
     schema: &str,
@@ -71,15 +80,35 @@ pub fn render_filename(
     index: usize,
     current_filename: &str,
 ) -> String {
-    let (stem, extension) = split_extension(current_filename);
-    let extension = extension.map(str::to_uppercase);
+    let base = render_base(schema, values, index);
+    apply_base_to_filename(&base, current_filename)
+}
+
+/// La parte calcolata dallo schema (spec §62.3b punti 2-5: segnaposto,
+/// contatore, pulizia separatori orfani, sanificazione), **senza**
+/// estensione — chi ha bisogno di applicare la stessa base a più file con
+/// estensioni diverse (Task 8: RAW e JPEG di una pila) chiama questa una
+/// volta sola, poi [`apply_base_to_filename`] per ciascun file.
+#[must_use]
+pub fn render_base(schema: &str, values: &RenameValues, index: usize) -> String {
     let substituted = substitute_placeholders(schema, values, index);
     let collapsed = collapse_orphan_separators(&substituted);
-    let sanitized = sanitize(&collapsed);
-    let base = if sanitized.is_empty() {
+    sanitize(&collapsed)
+}
+
+/// Applica una base già calcolata (da [`render_base`]) al nome attuale di
+/// **un** file: fallback al nome attuale senza estensione se la base è
+/// vuota, taglio a [`MAX_FILENAME_BYTES`], estensione del file — la sua,
+/// non quella di un altro membro della stessa pila — riattaccata in
+/// maiuscolo.
+#[must_use]
+pub fn apply_base_to_filename(computed_base: &str, current_filename: &str) -> String {
+    let (stem, extension) = split_extension(current_filename);
+    let extension = extension.map(str::to_uppercase);
+    let base = if computed_base.is_empty() {
         stem.to_owned()
     } else {
-        sanitized
+        computed_base.to_owned()
     };
     let base = cap_length(&base, extension.as_deref());
     match extension {
@@ -461,6 +490,26 @@ mod tests {
     fn a_file_with_no_extension_produces_no_trailing_dot() {
         let got = render_filename("{titolo}", &values(), 1, "README");
         assert_eq!(got, "Tramonto");
+    }
+
+    #[test]
+    fn render_filename_is_render_base_plus_apply_base_composed() {
+        let got_direct = render_filename("{data}_{titolo}_{n:3}", &values(), 4, "DSC08421.arw");
+        let base = render_base("{data}_{titolo}_{n:3}", &values(), 4);
+        let got_composed = apply_base_to_filename(&base, "DSC08421.arw");
+        assert_eq!(got_direct, got_composed);
+    }
+
+    #[test]
+    fn stack_siblings_share_the_same_base_with_their_own_extension() {
+        // Task 8: RAW e JPEG di una stessa pila prendono lo stesso nome —
+        // una sola render_base per la pila, un apply_base_to_filename per
+        // ciascun file affiancato.
+        let base = render_base("{data}_{titolo}_{n:3}", &values(), 1);
+        let raw = apply_base_to_filename(&base, "DSC08421.arw");
+        let jpeg = apply_base_to_filename(&base, "DSC08421.jpg");
+        assert_eq!(raw, "2026-08-14_Tramonto_001.ARW");
+        assert_eq!(jpeg, "2026-08-14_Tramonto_001.JPG");
     }
 
     mod resolve_place_label {

@@ -42,7 +42,9 @@ pub use operation::{OperationKind, OperationStatus};
 pub use overrides::{EffectiveMetadata, GeoPoint, OverridePatch};
 pub use password::{Password, PasswordHash, hash_password, verify_password};
 pub use permission::ObjectRole;
-pub use rename::{RenameValues, render_filename, resolve_place_label};
+pub use rename::{
+    RenameValues, apply_base_to_filename, render_base, render_filename, resolve_place_label,
+};
 pub use tag::TagKind;
 pub use token::{SessionToken, ShareToken};
 pub use trash::{DiskAction, TrashEntry};

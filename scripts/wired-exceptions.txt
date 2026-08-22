@@ -54,6 +54,18 @@ fn list_lots fase-9
 # stesso task. Consumatore: i pulsanti "Scelta"/"Scarta" della schermata
 # Culling di Fase 11.
 fn set_pick fase-9
+# RenameRepo::preview / RenameRepo::apply (rename.rs, Task 8): calcolo dei
+# nomi risultanti e applicazione reale con audit per l'annullamento.
+# check-wired.py non li segnala, ma `preview`/`apply` sono nomi generici
+# condivisi con altre funzioni reali del codebase (es. TimezoneChangePreview,
+# OverrideRepo::apply) — count_ident conta l'identificatore testuale ovunque
+# appaia, non la funzione specifica. `grep -rn 'RenameRepo' crates` conferma:
+# nessun uso fuori da rename.rs stesso, il suo re-export in lib.rs, e i test
+# di questo task. Consumatore reale: l'endpoint di rinomina di massa del
+# Task 10 di questa stessa fase ("Operazioni lunghe"), che avvolge il
+# risultato in BulkOutcome/BulkFailure (stesso involucro della Fase 10).
+fn preview fase-9
+fn apply fase-9
 # empty_skipped (culling.rs, Task 4): "Svuota scartati" — cancellazione
 # definitiva del contenuto di `_skipped` in un lotto. check-wired.py la
 # segnala correttamente (nessun falso positivo qui). Consumatore: il
