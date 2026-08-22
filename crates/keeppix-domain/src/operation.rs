@@ -15,6 +15,10 @@ pub enum OperationKind {
     LibraryScan,
     /// Finestra di analisi CLIP (Fase 7 Task 12): embedding + abbinamento tag.
     AiAnalysis,
+    /// Passata di rilevamento/riconoscimento volti (Fase 8 Task 4) su tutta
+    /// la libreria (culling escluso). Riusa lo stesso involucro `Operation`
+    /// di `AiAnalysis`, non un sottosistema parallelo.
+    FaceDetection,
 }
 
 impl OperationKind {
@@ -23,6 +27,7 @@ impl OperationKind {
         match self {
             Self::LibraryScan => "library_scan",
             Self::AiAnalysis => "ai_analysis",
+            Self::FaceDetection => "face_detection",
         }
     }
 
@@ -32,6 +37,7 @@ impl OperationKind {
         match raw {
             "library_scan" => Ok(Self::LibraryScan),
             "ai_analysis" => Ok(Self::AiAnalysis),
+            "face_detection" => Ok(Self::FaceDetection),
             other => Err(DomainError::InvalidOperationKind(other.to_owned())),
         }
     }
@@ -87,14 +93,16 @@ mod tests {
 
     #[test]
     fn operation_kind_round_trips() {
-        assert_eq!(
-            OperationKind::parse(OperationKind::LibraryScan.as_str()).expect("round-trip"),
-            OperationKind::LibraryScan
-        );
-        assert_eq!(
-            OperationKind::parse(OperationKind::AiAnalysis.as_str()).expect("round-trip"),
-            OperationKind::AiAnalysis
-        );
+        for kind in [
+            OperationKind::LibraryScan,
+            OperationKind::AiAnalysis,
+            OperationKind::FaceDetection,
+        ] {
+            assert_eq!(
+                OperationKind::parse(kind.as_str()).expect("round-trip"),
+                kind
+            );
+        }
     }
 
     #[test]

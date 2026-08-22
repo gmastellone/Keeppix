@@ -53,6 +53,30 @@ route /tags/{id}/proposals/reject fase-11
 route /tags/{id}/assets/{asset_id}/confirm fase-11
 route /tags/{id}/assets/{asset_id}/reject fase-11
 
+# Fase 8 — volti/persone: API pronta (assegnazione, coda di revisione,
+# gruppi, merge/separazione); i consumatori sono le schermate "Persone" e
+# la coda di revisione volti della Fase 11, stessa forma delle proposte tag
+# sopra.
+route /faces/proposals fase-11
+route /faces/{id}/assign fase-11
+route /faces/{id}/reject fase-11
+route /faces/{id}/confirm fase-11
+route /persons fase-11
+route /persons/{id} fase-11
+route /persons/{id}/merge fase-11
+route /persons/{id}/separate fase-11
+route /persons/{id}/proposals/confirm fase-11
+route /persons/{id}/proposals/reject fase-11
+route /person-groups fase-11
+route /person-groups/{id} fase-11
+route /person-groups/{id}/members fase-11
+route /person-groups/{id}/members/{person_id} fase-11
+# Task 10: "Elimina tutti i dati dei volti" — l'interruttore per libreria
+# (faces_enabled, già su /libraries/{id}) resta distinto da questa purga
+# globale e irreversibile; il pulsante che la invoca è nella stessa UI
+# Fase 11 delle voci sopra.
+route /faces/data fase-11
+
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore
 # =============================================================================

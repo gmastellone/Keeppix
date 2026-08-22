@@ -126,6 +126,24 @@ pub enum SearchNode {
         #[serde(skip)]
         embedding: Option<Vec<f32>>,
     },
+    /// Il chip «Persona» (Fase 8 Task 9): foto in cui compare un volto
+    /// assegnato a questa persona (`faces.person_id`, mai proposto/rifiutato
+    /// — vedi `Faces::reject`, che pulisce `person_id` insieme a
+    /// `rejected_at`, quindi la sola condizione `person_id = id` basta).
+    Person {
+        id: uuid::Uuid,
+    },
+    /// Foto in cui compare **almeno una** persona del gruppo (spec §6).
+    PersonGroup {
+        id: uuid::Uuid,
+    },
+    /// «Foto con almeno N persone» — conta le persone distinte assegnate
+    /// sull'asset, non i volti (due volti della stessa persona nella stessa
+    /// foto non ne fanno due).
+    PersonCount {
+        cmp: IsoCmp,
+        value: i32,
+    },
 }
 
 pub(crate) enum SearchBind {
@@ -904,6 +922,9 @@ fn compile_search_axis(
             let p = next(param);
             Ok((format!("a.place_id = ${p}"), vec![SearchBind::I64(*id)]))
         }
+        fase8 @ (SearchNode::Person { .. }
+        | SearchNode::PersonGroup { .. }
+        | SearchNode::PersonCount { .. }) => compile_fase8_axis(fase8, param),
         fase7 => compile_fase7_axis(fase7, param, semantic_vis),
     }
 }
@@ -979,6 +1000,56 @@ fn compile_fase7_axis(
             ))
         }
         _ => unreachable!("compile_fase7_axis only for Tag/Category/Semantic"),
+    }
+}
+
+/// Person / `PersonGroup` / `PersonCount` (Fase 8 Task 9) — separate per lo
+/// stesso motivo delle funzioni sopra. Nessuna richiede una visibilità
+/// propria: `a` è già filtrata da `VisibilityScope` in `run`, stessa
+/// assunzione di `compile_fase7_axis` per `Tag`/`Category`.
+///
+/// Nessuno di questi tre nodi fallisce mai (a differenza di `Day`/`Month`
+/// nella funzione sorella), ma la firma resta `Result` per uniformità col
+/// resto del dispatch — lo stesso punto di chiamata gestisce tutti gli assi
+/// con `?`, un `Result` in meno qui romperebbe quella simmetria.
+#[allow(clippy::unnecessary_wraps)]
+fn compile_fase8_axis(
+    node: &SearchNode,
+    param: &mut usize,
+) -> Result<(String, Vec<SearchBind>), DbError> {
+    match node {
+        SearchNode::Person { id } => {
+            let p = next(param);
+            Ok((
+                format!(
+                    "EXISTS (SELECT 1 FROM faces fc WHERE fc.asset_id = a.id AND fc.person_id = ${p})"
+                ),
+                vec![SearchBind::Uuid(*id)],
+            ))
+        }
+        SearchNode::PersonGroup { id } => {
+            let p = next(param);
+            Ok((
+                format!(
+                    "EXISTS (SELECT 1 FROM faces fc \
+                     JOIN person_group_members pgm ON pgm.person_id = fc.person_id \
+                     WHERE fc.asset_id = a.id AND pgm.group_id = ${p})"
+                ),
+                vec![SearchBind::Uuid(*id)],
+            ))
+        }
+        SearchNode::PersonCount { cmp, value } => {
+            let op = cmp_op(*cmp);
+            let p = next(param);
+            Ok((
+                format!(
+                    "(SELECT COUNT(DISTINCT fc.person_id) FROM faces fc \
+                     WHERE fc.asset_id = a.id AND fc.person_id IS NOT NULL) {op} ${p}"
+                ),
+                vec![SearchBind::I32(*value)],
+            ))
+        }
+        _ => unreachable!("compile_fase8_axis only for Person/PersonGroup/PersonCount"),
     }
 }
 

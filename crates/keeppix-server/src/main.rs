@@ -223,6 +223,9 @@ async fn spawn_maintenance(db: Db) {
     if let Err(e) = keeppix_jobs::embed::schedule_backfill(&db).await {
         tracing::warn!(error = %e, "AI embed backfill could not be scheduled");
     }
+    if let Err(e) = keeppix_jobs::detect_faces::schedule_backfill(&db).await {
+        tracing::warn!(error = %e, "face detection backfill could not be scheduled");
+    }
     if let Err(e) = keeppix_jobs::maintenance::schedule_purge_sessions(&db).await {
         tracing::warn!(error = %e, "session purge could not be scheduled");
     }

@@ -23,6 +23,7 @@ struct LibraryRow {
     owner_id: uuid::Uuid,
     root_path: String,
     scan_enabled: bool,
+    faces_enabled: bool,
     exclude_patterns: Vec<String>,
     status: String,
     last_scan_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -42,6 +43,7 @@ impl LibraryRow {
             owner_id: UserId::from_uuid(self.owner_id),
             root_path: PathBuf::from(self.root_path),
             scan_enabled: self.scan_enabled,
+            faces_enabled: self.faces_enabled,
             exclude_patterns: self.exclude_patterns,
             status,
             last_scan_at: self.last_scan_at,
@@ -57,8 +59,8 @@ const fn status_str(status: LibraryStatus) -> &'static str {
     }
 }
 
-const COLUMNS: &str = "id, name, owner_id, root_path, scan_enabled, exclude_patterns, \
-                       status, last_scan_at, created_at";
+const COLUMNS: &str = "id, name, owner_id, root_path, scan_enabled, faces_enabled, \
+                       exclude_patterns, status, last_scan_at, created_at";
 
 impl<'a> LibraryRepo<'a> {
     #[must_use]
@@ -266,7 +268,7 @@ impl<'a> LibraryRepo<'a> {
         Ok(())
     }
 
-    /// Aggiorna nome, `scan_enabled` e/o `exclude_patterns`.
+    /// Aggiorna nome, `scan_enabled`, `faces_enabled` e/o `exclude_patterns`.
     ///
     /// # Errors
     /// `Forbidden` se il chiamante non può vedere la libreria (anche se l'id
@@ -277,6 +279,7 @@ impl<'a> LibraryRepo<'a> {
         id: LibraryId,
         name: Option<&str>,
         scan_enabled: Option<bool>,
+        faces_enabled: Option<bool>,
         exclude_patterns: Option<&[String]>,
     ) -> Result<Library, DbError> {
         self.find_by_id(ctx, id).await?;
@@ -285,7 +288,8 @@ impl<'a> LibraryRepo<'a> {
             "UPDATE libraries SET \
                 name = COALESCE($2, name), \
                 scan_enabled = COALESCE($3, scan_enabled), \
-                exclude_patterns = COALESCE($4, exclude_patterns), \
+                faces_enabled = COALESCE($4, faces_enabled), \
+                exclude_patterns = COALESCE($5, exclude_patterns), \
                 updated_at = now() \
               WHERE id = $1 \
               RETURNING {COLUMNS}"
@@ -293,6 +297,7 @@ impl<'a> LibraryRepo<'a> {
         .bind(id.as_uuid())
         .bind(name)
         .bind(scan_enabled)
+        .bind(faces_enabled)
         .bind(exclude_patterns)
         .fetch_one(self.db.pool())
         .await?;
