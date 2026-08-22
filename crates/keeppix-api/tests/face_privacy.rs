@@ -18,7 +18,10 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use harness::TestServer;
-use journey::{create_library, create_share_link_from, scan_and_wait, setup_admin, share_client, tiny_fixture_path};
+use journey::{
+    create_library, create_share_link_from, scan_and_wait, setup_admin, share_client,
+    tiny_fixture_path,
+};
 use keeppix_db::{FaceRepo, NewDetectedFace, PersonRepo};
 use keeppix_domain::{AssetId, AuthContext, FaceBBox, PersonName, SystemRole, UserId};
 use serde_json::Value;
@@ -119,7 +122,12 @@ async fn seed_asset_with_confirmed_face(server: &TestServer) -> (AssetId, String
     let face = FaceRepo::new(&server.db)
         .insert_detected(NewDetectedFace {
             asset_id,
-            bbox: FaceBBox { x: 0.2, y: 0.2, w: 0.3, h: 0.3 },
+            bbox: FaceBBox {
+                x: 0.2,
+                y: 0.2,
+                w: 0.3,
+                h: 0.3,
+            },
             landmarks: Some(serde_json::json!({"left_eye": [10.0, 12.0]})),
             embedding: None,
             detect_score: 0.99,
@@ -172,7 +180,11 @@ async fn a_shared_folder_never_exposes_face_or_person_data() {
         .json()
         .await
         .unwrap();
-    assert_eq!(assets["assets"].as_array().unwrap().len(), 1, "sanity: the seeded asset must be present");
+    assert_eq!(
+        assets["assets"].as_array().unwrap().len(),
+        1,
+        "sanity: the seeded asset must be present"
+    );
     assert_no_face_leak(&assets);
 }
 
@@ -201,7 +213,11 @@ async fn a_shared_single_asset_never_exposes_face_or_person_data() {
         .json()
         .await
         .unwrap();
-    assert_eq!(assets["assets"].as_array().unwrap().len(), 1, "sanity: the seeded asset must be present");
+    assert_eq!(
+        assets["assets"].as_array().unwrap().len(),
+        1,
+        "sanity: the seeded asset must be present"
+    );
     assert_no_face_leak(&assets);
 }
 
