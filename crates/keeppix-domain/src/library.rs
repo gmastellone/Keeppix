@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{LibraryId, UserId};
+use crate::ids::{FolderId, LibraryId, UserId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -26,6 +26,12 @@ pub struct Library {
     /// Task 10). Spento non rileva nulla — non "rileva ma non mostra".
     pub faces_enabled: bool,
     pub exclude_patterns: Vec<String>,
+    /// Radice del culling a cartelle (Fase 9 Task 2), `NULL` finché il
+    /// proprietario non ne designa una nelle impostazioni della libreria.
+    /// Colonna esistente dalla migrazione 0044 (Fase 7 Task 5, che la legge
+    /// per escludere il sottoalbero dall'analisi IA) — mai esposta sul
+    /// dominio finché questa fase non ne aveva bisogno per davvero.
+    pub culling_root_folder_id: Option<FolderId>,
     pub status: LibraryStatus,
     pub last_scan_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,

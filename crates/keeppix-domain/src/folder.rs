@@ -59,6 +59,31 @@ impl FolderPath {
     }
 }
 
+/// Ruolo speciale di una cartella dentro un lotto di culling (Fase 9 Task
+/// 2, spec §2.2/§2.7). `NULL` (cioè `None`) per ogni cartella normale,
+/// incluse le radici dei lotti stesse (`Vacanze 2026-07/`): solo le due
+/// sottocartelle che il culling crea e gestisce da sé portano un ruolo.
+///
+/// **È una colonna, non il nome della cartella** (Ruling nel ledger di
+/// fase): riconoscere `_taken`/`_skipped` dal nome renderebbe magica una
+/// cartella chiamata così per caso, e romperebbe tutto se rinominata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CullingRole {
+    Taken,
+    Skipped,
+}
+
+impl CullingRole {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Taken => "taken",
+            Self::Skipped => "skipped",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Folder {
     pub id: FolderId,
@@ -68,6 +93,7 @@ pub struct Folder {
     pub name: String,
     pub path: FolderPath,
     pub depth: i32,
+    pub culling_role: Option<CullingRole>,
 }
 
 #[cfg(test)]
