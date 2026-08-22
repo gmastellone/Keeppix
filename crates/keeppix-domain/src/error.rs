@@ -30,4 +30,6 @@ pub enum DomainError {
     InvalidOperationStatus(String),
     #[error("invalid tag kind: {0}")]
     InvalidTagKind(String),
+    #[error("person name cannot be blank")]
+    BlankPersonName,
 }

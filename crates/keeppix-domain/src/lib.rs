@@ -5,6 +5,7 @@ pub mod auth;
 pub mod credential;
 pub mod error;
 pub mod exif;
+pub mod face;
 pub mod flags;
 pub mod folder;
 pub mod geo;
@@ -26,12 +27,13 @@ pub use auth::{Actor, AuthContext, ShareLinkParams};
 pub use credential::{AppPasswordId, AppPasswordSecret, AppPasswordSummary};
 pub use error::DomainError;
 pub use exif::ExifData;
+pub use face::{Face, FaceBBox, Person, PersonGroup, PersonName, PersonSeparation};
 pub use flags::{AssetFlags, Pick, Rating};
 pub use folder::{Folder, FolderPath};
 pub use geo::Place;
 pub use ids::{
-    AlbumId, AssetId, BatchId, FolderId, GroupId, LibraryId, OperationId, SessionId, StackId,
-    TagId, TrashEntryId, UploadSessionId, UserId,
+    AlbumId, AssetId, BatchId, FaceId, FolderId, GroupId, LibraryId, OperationId, PersonGroupId,
+    PersonId, SessionId, StackId, TagId, TrashEntryId, UploadSessionId, UserId,
 };
 pub use job::{Job, JobKind, JobPriority, JobStatus};
 pub use library::{Library, LibraryStatus, NewLibrary};
