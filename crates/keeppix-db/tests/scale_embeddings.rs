@@ -62,6 +62,17 @@ async fn seed_scale_fixture(test: &TestDb, folder_id: uuid::Uuid) {
     .unwrap();
     eprintln!("seeded {N} embeddings in {:?}", seed_emb.elapsed());
 
+    // `assets` appena riempita da 0 a 200k righe in un solo INSERT: senza un
+    // `ANALYZE` esplicito le sue statistiche restano quelle di prima
+    // dell'inserimento (o assenti), e il planner sceglie il piano del join
+    // `topk`/`assets` alla cieca — a volte quello giusto (nested loop sui
+    // ≤500 id della CTE), a volte no, in modo intermittente fra run
+    // identiche. `scale_200k.rs` lo fa già per lo stesso motivo sulla stessa
+    // tabella; qui mancava.
+    sqlx::query("ANALYZE assets")
+        .execute(test.db().pool())
+        .await
+        .unwrap();
     sqlx::query("ANALYZE asset_embeddings")
         .execute(test.db().pool())
         .await
@@ -170,14 +181,25 @@ async fn vector_search_stays_interactive_with_ivfflat() {
 
     assert_eq!(hits.len(), K as usize);
     // Task 11 decide sull'indice: il raw `ORDER BY <=>` deve stare sotto
-    // budget. Il path SearchRepo completo (join stack/exif/visibilità su
-    // 200k heap) è un costo separato — ledger come debito se resta alto.
+    // budget.
     assert!(
         raw_elapsed < Duration::from_millis(500),
         "raw vector scan {raw_ms:.1} ms should be interactive with IVFFlat"
     );
+    // Debito Fase 7 pagato (Task 14): la CTE `topk` guida il join invece di
+    // filtrare la heap ordinata per `taken_at_utc` — `elapsed_ms` ora segue
+    // `raw_ms` da vicino invece di restare fisso a ≈1,3–1,4s indipendentemente
+    // da esso (misurato: 5 run locali consecutive, 170–190ms di path
+    // completo contro 174–220ms di scansione grezza, overhead di join a due
+    // cifre di millisecondi o meno). Budget riportato da 2000ms — così largo
+    // da non verificare più nulla di specifico da quando esisteva solo il
+    // filtro post-hoc — a 800ms: margine reale (~4× il tipico locale, e
+    // ancora ampio anche se la sola scansione grezza arrivasse al rumore di
+    // CI più alto osservato finora, ~650ms), non il minimo per far passare
+    // la CI di oggi.
     assert!(
-        elapsed < Duration::from_millis(2000),
-        "SearchRepo semantic {elapsed:?} regresses beyond 2s soft budget"
+        elapsed < Duration::from_millis(800),
+        "SearchRepo semantic {elapsed:?} (raw {raw_ms:.1} ms) regresses beyond the 800ms budget \
+         — the topk CTE should keep elapsed close to raw, not ~1.3-1.4s regardless of it"
     );
 }

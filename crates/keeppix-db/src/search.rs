@@ -164,6 +164,13 @@ impl<'a> SearchRepo<'a> {
     /// Restituisce solo il primario di ogni pila (Task 3, come la
     /// timeline): un RAW+JPEG impilato è un risultato, non due.
     ///
+    /// Se l'AST richiede `Semantic` a livello globale (raggiungibile solo
+    /// attraverso `And`, mai `Or`/`Not` — [`find_hoistable_semantic`]),
+    /// delega a [`Self::run_semantic_hoisted`]: il top-K CTE guida il join
+    /// invece di essere un filtro applicato dopo. Debito ledger Fase 7
+    /// (`SearchRepo Semantic ~1.3–1.4s @ 200k — partire dalla CTE top-K
+    /// invece di filtrare la heap`), chiuso qui.
+    ///
     /// # Errors
     /// `Conflict` se l'AST è troppo profondo; `Connection` se la query fallisce.
     pub async fn run(
@@ -175,6 +182,28 @@ impl<'a> SearchRepo<'a> {
     ) -> Result<Vec<AssetWithStack>, DbError> {
         let limit = limit.clamp(1, 200);
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        match find_hoistable_semantic(ast).as_slice() {
+            [node] => {
+                self.run_semantic_hoisted(ctx, ast, node, cursor, limit, &scope)
+                    .await
+            }
+            _ => self.run_plain(ctx, ast, cursor, limit, &scope).await,
+        }
+    }
+
+    /// Percorso invariato pre-Task-14: `Semantic` (se presente) resta un
+    /// filtro `a.id = ANY(ARRAY(top-K))` applicato al `WHERE` — usato solo
+    /// quando [`find_hoistable_semantic`] non trova esattamente un nodo
+    /// `Semantic` AND-richiesto (nessuno, sotto `Or`/`Not`, o più di uno):
+    /// casi in cui forzare il `JOIN` dalla CTE non sarebbe corretto.
+    async fn run_plain(
+        &self,
+        ctx: &AuthContext,
+        ast: &SearchNode,
+        cursor: Option<(DateTime<Utc>, keeppix_domain::AssetId)>,
+        limit: i64,
+        scope: &VisibilityScope,
+    ) -> Result<Vec<AssetWithStack>, DbError> {
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         // Stessi $1,$2,$3 riusati nella subquery Semantic (spec §4.2: K fra i
         // visibili, non K globali poi filtrati).
@@ -213,6 +242,116 @@ impl<'a> SearchRepo<'a> {
             .bind(filter.bind())
             .bind(filter.holes())
             .bind(filter.assets());
+        for b in &binds {
+            q = bind_one(q, b);
+        }
+        let rows: Vec<AssetStackRow> = q
+            .bind(cursor_time)
+            .bind(cursor_id)
+            .bind(limit)
+            .fetch_all(self.db.pool())
+            .await?;
+        rows.into_iter().map(AssetStackRow::into_domain).collect()
+    }
+
+    /// Task 14 (debito ledger Fase 7): `semantic_node` è AND-richiesto in
+    /// ogni riga del risultato, quindi la sua condizione di appartenenza può
+    /// diventare un `JOIN` invece di un filtro post-hoc. La CTE `topk`
+    /// materializza al più 500 id (stessa query `IVFFlat` di prima, invariata:
+    /// `ORDER BY <=> LIMIT k`), poi `assets`/`folders`/`asset_exif` si
+    /// uniscono **su quei soli id** — un Nested Loop con al più 500 lookup
+    /// per indice, non una scansione che testa l'appartenenza riga per riga
+    /// nell'ordine di `taken_at_utc` finché non trova `limit` corrispondenze
+    /// (il piano che il planner sceglieva con `a.id = ANY(ARRAY(...))`
+    /// applicato dopo, quando gli id del top-K sono radi in quell'ordine).
+    /// L'`ORDER BY`/`LIMIT` finale ordina solo quei ≤500 candidati, non
+    /// l'intero storico visibile.
+    ///
+    /// `ast` con `semantic_node` sostituito da un `And` vuoto (→ `TRUE`,
+    /// [`substitute_with_true`]) resta comunque compilato per intero: gli
+    /// altri assi AND-ati (`Tag`, `Camera`, …) restano filtri sul `WHERE`
+    /// come sempre, solo `Semantic` cambia meccanismo.
+    async fn run_semantic_hoisted(
+        &self,
+        ctx: &AuthContext,
+        ast: &SearchNode,
+        semantic_node: &SearchNode,
+        cursor: Option<(DateTime<Utc>, keeppix_domain::AssetId)>,
+        limit: i64,
+        scope: &VisibilityScope,
+    ) -> Result<Vec<AssetWithStack>, DbError> {
+        let SearchNode::Semantic {
+            limit: k_limit,
+            embedding,
+            ..
+        } = semantic_node
+        else {
+            unreachable!("find_hoistable_semantic restituisce solo nodi Semantic")
+        };
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
+        let mut param = 4_usize;
+        let (mv_p, vec_p, k_p, cte_binds) =
+            semantic_query_params(*k_limit, embedding.as_ref(), &mut param)?;
+        let modified = substitute_with_true(ast, std::ptr::from_ref(semantic_node));
+        let (clause, binds) = compile_for_sql(
+            &modified,
+            &mut param,
+            0,
+            "a.location",
+            ctx.user_id().map(|u| u.as_uuid()),
+            Some(semantic_vis.sql()),
+        )?;
+        let time_p = next(&mut param);
+        let id_p = next(&mut param);
+        let limit_p = next(&mut param);
+        let (cursor_time, cursor_id) = match cursor {
+            Some((t, id)) => (Some(t), Some(id.as_uuid())),
+            None => (None, None),
+        };
+        let semantic_vis_sql = semantic_vis.sql();
+        let filter_sql = filter.sql();
+        // `MATERIALIZED`, non un semplice `WITH`: da Postgres 12 in poi il
+        // planner può linearizzare («inlinare») una CTE non referenziata più
+        // volte dentro la query esterna quando sembra più economico — che
+        // qui ricrea esattamente il piano che questa funzione esiste per
+        // evitare (scansione per `taken_at_utc` con test di appartenenza
+        // riga per riga). Misurato: senza `MATERIALIZED`, lo stesso identico
+        // SQL alternava piani buoni (~170ms) e ricaduti (~2100ms) fra run
+        // successive sullo stesso fixture da 200k — non un caso limite, un
+        // difetto che una singola misura felice avrebbe nascosto.
+        let sql = format!(
+            "WITH topk AS MATERIALIZED ( \
+               SELECT ae.asset_id \
+               FROM asset_embeddings ae \
+               JOIN assets va ON va.id = ae.asset_id \
+               JOIN folders vf ON vf.id = va.folder_id \
+               WHERE ae.model_version = ${mv_p} \
+                 AND va.status = 'indexed' \
+                 AND ({semantic_vis_sql}) \
+               ORDER BY ae.embedding <=> ${vec_p}::vector \
+               LIMIT ${k_p} \
+             ) \
+             SELECT {A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL} FROM topk \
+             JOIN assets a ON a.id = topk.asset_id \
+             JOIN folders f ON f.id = a.folder_id \
+             LEFT JOIN asset_exif e ON e.asset_id = a.id \
+             {STACK_BADGE_JOIN_SQL} \
+             WHERE {filter_sql} AND a.status = 'indexed' AND ({clause}) \
+               AND (${time_p}::timestamptz IS NULL \
+                    OR a.taken_at_utc < ${time_p} \
+                    OR (a.taken_at_utc = ${time_p} AND a.id < ${id_p})) \
+               AND {STACK_PRIMARY_ONLY_SQL} \
+             ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC \
+             LIMIT ${limit_p}"
+        );
+        let mut q = sqlx::query_as::<_, AssetStackRow>(&sql)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets());
+        for b in &cte_binds {
+            q = bind_one(q, b);
+        }
         for b in &binds {
             q = bind_one(q, b);
         }
@@ -962,22 +1101,9 @@ fn compile_fase7_axis(
         SearchNode::Semantic {
             limit, embedding, ..
         } => {
-            let Some(emb) = embedding.as_ref() else {
-                return Err(DbError::Conflict(
-                    "semantic embedding missing (API must embed query text)".to_owned(),
-                ));
-            };
-            if emb.len() != 512 {
-                return Err(DbError::Conflict(format!(
-                    "semantic embedding must be 512-d, got {}",
-                    emb.len()
-                )));
-            }
-            let k = i32::try_from((*limit).clamp(1, 500)).unwrap_or(500);
+            let (mv_p, vec_p, k_p, binds) =
+                semantic_query_params(*limit, embedding.as_ref(), param)?;
             let vis = semantic_vis.unwrap_or("TRUE");
-            let mv_p = next(param);
-            let vec_p = next(param);
-            let k_p = next(param);
             Ok((
                 format!(
                     "a.id = ANY (ARRAY( \
@@ -992,14 +1118,93 @@ fn compile_fase7_axis(
                        LIMIT ${k_p} \
                      ))"
                 ),
-                vec![
-                    SearchBind::Text(crate::embeddings::MODEL_VERSION.to_owned()),
-                    SearchBind::Text(vector_literal(emb)),
-                    SearchBind::I32(k),
-                ],
+                binds,
             ))
         }
         _ => unreachable!("compile_fase7_axis only for Tag/Category/Semantic"),
+    }
+}
+
+/// Valida `embedding`/`limit` e riserva i tre parametri (`$mv`, `$vec`,
+/// `$k`) della subquery `IVFFlat` — condivisa fra il vecchio path
+/// `a.id = ANY(ARRAY(...))` (sopra) e la CTE `topk` di
+/// [`SearchRepo::run_semantic_hoisted`] (Task 14): stessa validazione,
+/// stesso clamp di K, un solo posto — i due path non possono divergere in
+/// silenzio su un errore o su quanti candidati il top-K considera.
+fn semantic_query_params(
+    limit: u32,
+    embedding: Option<&Vec<f32>>,
+    param: &mut usize,
+) -> Result<(usize, usize, usize, Vec<SearchBind>), DbError> {
+    let Some(emb) = embedding else {
+        return Err(DbError::Conflict(
+            "semantic embedding missing (API must embed query text)".to_owned(),
+        ));
+    };
+    if emb.len() != 512 {
+        return Err(DbError::Conflict(format!(
+            "semantic embedding must be 512-d, got {}",
+            emb.len()
+        )));
+    }
+    let k = i32::try_from(limit.clamp(1, 500)).unwrap_or(500);
+    let mv_p = next(param);
+    let vec_p = next(param);
+    let k_p = next(param);
+    Ok((
+        mv_p,
+        vec_p,
+        k_p,
+        vec![
+            SearchBind::Text(crate::embeddings::MODEL_VERSION.to_owned()),
+            SearchBind::Text(vector_literal(emb)),
+            SearchBind::I32(k),
+        ],
+    ))
+}
+
+/// Nodi `Semantic` garantiti presenti in ogni riga del risultato:
+/// raggiungibili solo attraverso una catena di `And` (mai `Or`/`Not`, che
+/// invertono o allentano il vincolo — forzare un `JOIN` lì sarebbe
+/// scorretto, non solo subottimale). [`SearchRepo::run`] usa il CTE
+/// ([`SearchRepo::run_semantic_hoisted`]) solo quando questa funzione trova
+/// **esattamente un** nodo così; altrimenti (zero, o più di uno) ricade sul
+/// vecchio `a.id = ANY(ARRAY(...))` via `run_plain`.
+fn find_hoistable_semantic(node: &SearchNode) -> Vec<&SearchNode> {
+    match node {
+        SearchNode::And { args } => args.iter().flat_map(find_hoistable_semantic).collect(),
+        SearchNode::Semantic { .. } => vec![node],
+        _ => Vec::new(),
+    }
+}
+
+/// Clona l'AST sostituendo (per identità di puntatore, non di valore: due
+/// nodi `Semantic` con campi identici non devono confondersi) `target` con
+/// un `And` vuoto — che [`compile_for_sql`] compila già a `TRUE`. Niente
+/// nuova variante di `SearchNode` solo per questo marcatore: la vera
+/// condizione di appartenenza al top-K arriva dal `JOIN` con la CTE
+/// `topk`, non da questa clausola.
+fn substitute_with_true(node: &SearchNode, target: *const SearchNode) -> SearchNode {
+    if std::ptr::eq(node, target) {
+        return SearchNode::And { args: Vec::new() };
+    }
+    match node {
+        SearchNode::And { args } => SearchNode::And {
+            args: args
+                .iter()
+                .map(|a| substitute_with_true(a, target))
+                .collect(),
+        },
+        SearchNode::Or { args } => SearchNode::Or {
+            args: args
+                .iter()
+                .map(|a| substitute_with_true(a, target))
+                .collect(),
+        },
+        SearchNode::Not { arg } => SearchNode::Not {
+            arg: Box::new(substitute_with_true(arg, target)),
+        },
+        other => other.clone(),
     }
 }
 
