@@ -666,3 +666,78 @@ Verifica eseguita:
 
 Task 6: complete.
 
+### Task 7 — Le cinque convalide (parte pura: 2, 3, 4)
+
+Il piano elenca cinque difetti espliciti del prototipo (§62.3d). Tre sono
+pura logica di stringa e chiudono qui, nello stesso `rename.rs`, non in un
+wrapper separato: modificare `render_filename` in place, non tenere in
+vita per sempre due motori paralleli (uno fedele al prototipo con i bug,
+uno corretto) — il codice sostituito va cancellato, non commentato o
+lasciato accanto (regola trasversale del mandato). I test del Task 6 che
+documentavano il comportamento **buggy** del prototipo sono stati
+aggiornati per asserire il comportamento **corretto**, non lasciati a
+sé stessi ad asserire un difetto ormai chiuso.
+
+1. **Separatori orfani** (difetto 2): `collapse_orphan_separators`, nuovo
+   passo fra la sostituzione e la sanificazione finale. Comprime ogni run
+   di due o più caratteri fra `_`/`-`/spazio/`.` (in qualunque
+   combinazione) in uno solo, poi rifila gli stessi caratteri ai bordi
+   (cattura anche il caso di un singolo separatore isolato in testa o in
+   coda, non solo le run). `{data}_{luogo}_{n:3}` con luogo mancante
+   produce ora `2026-08-14_001`, non più `2026-08-14__001`.
+   Ruling: **non si distingue un separatore doppio scritto apposta da uno
+   lasciato orfano da un valore mancante** — la scansione lavora sul testo
+   assemblato, senza tracciare quali intervalli vengono da un segnaposto
+   vuoto. Nessuno schema reale ha bisogno di `__` letterale, quindi il
+   compromesso è a costo pressoché nullo. — *Costo se sbagliato:* uno
+   schema con un doppio separatore intenzionale lo vedrebbe compattato a
+   uno; nessun caso reale osservato che lo richieda.
+2. **Sanificazione completa** (difetto 3): l'insieme di caratteri
+   sostituiti con `-` in `sanitize()` si estende da `/\:`  (quello che il
+   prototipo già faceva) a `*?"<>|` — l'elenco esplicito che la spec
+   dichiara come limite del prototipo, chiuso con la stessa regola.
+3. **Limite di lunghezza** (difetto 4): `MAX_FILENAME_BYTES = 255`, il
+   vero `NAME_MAX` di ext4 e della maggior parte dei filesystem POSIX —
+   non una cifra scelta per far passare un test. `cap_length` tronca solo
+   la base calcolata dallo schema, mai l'estensione, su un confine di
+   carattere UTF-8 valido, e rifila di nuovo un separatore orfano lasciato
+   esposto dal taglio (stesso `ORPHAN_SEPARATORS` del punto 1).
+4. **Estensione sempre presente** (difetto "4" del dialog nel Task 7, non
+   della spec §62.3d — la spec lo elenca come vincolo del dialog, non del
+   motore): già garantito per costruzione da `render_filename` fin dal
+   Task 6 (l'estensione si riattacca sempre, mai parte dello schema).
+   Nessun codice nuovo necessario, verificato con un test esplicito
+   invece di darlo per scontato senza controllo.
+
+**Deliberatamente non qui, in questo commit:**
+- **Difetto 1** (collisione verificata anche fuori dal gruppo selezionato,
+  contro il disco/database reale): richiede l'elenco di asset su cui
+  operare, che è esattamente ciò che il Task 8 (i tre ambiti) risolve.
+  Costruire il controllo delle collisioni prima di avere quell'elenco
+  significherebbe costruire la stessa infrastruttura due volte — rinviato
+  al Task 8, non un debito dimenticato: la sequenza Task 7→8 del piano lo
+  permette perché il piano stesso lista le convalide (7) prima degli
+  ambiti (8) senza dire che debbano finire nello stesso commit.
+- **Difetto 5** (`"Applica"` davvero disabilitato): comportamento di
+  interfaccia (`opacity:.4`, `pointer-events:none`, `aria-disabled`), non
+  logica di backend — Fase 11.
+
+Verifica eseguita:
+- `cargo test -p keeppix-domain rename` → 24/24 verdi (i 19 di Task 6,
+  2 aggiornati per il fix, 5 nuovi: separatore orfano in testa allo
+  schema, separatori misti che collassano comunque, un doppio separatore
+  intenzionale comunque compattato — Ruling sopra —, il risultato non
+  supera mai 255 byte con l'estensione intatta, il taglio non lascia un
+  separatore esposto in coda).
+- `cargo test -p keeppix-domain` (l'intera suite) → 92/92 verdi.
+- `cargo fmt --all --check` → pulito su tutto il workspace.
+- `cargo clippy --workspace --all-targets -- -D warnings` → un errore
+  reale (`clippy::case_sensitive_file_extension_comparisons` su un
+  `.ends_with(".JPG")` in un test — riscritto con `rsplit_once('.')`),
+  poi pulito su tutto il workspace (7 crate).
+- `python3 scripts/check-wired.py` → verde, nessuna eccezione nuova
+  (stesse due di Task 6, `render_filename`/`resolve_place_label`, ancora
+  valide: la firma non è cambiata, solo il corpo).
+
+Task 7 (parte pura): complete. Il difetto 1 si chiude insieme al Task 8.
+
