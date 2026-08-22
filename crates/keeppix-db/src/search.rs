@@ -1,7 +1,7 @@
 //! Ricerca da AST JSON. La stringa utente non entra mai nell'SQL: solo bind.
 
 use chrono::{DateTime, NaiveDate, Utc};
-use keeppix_domain::AuthContext;
+use keeppix_domain::{AuthContext, Pick};
 use serde::{Deserialize, Serialize};
 
 use crate::assets::A_COLUMNS;
@@ -75,6 +75,15 @@ pub enum SearchNode {
     /// (migrazione 0037) — il resto del concetto (scrittura, `AssetView`,
     /// `AssetFlags` di dominio) resta del Task 10, che la userà già pronta.
     Favorite,
+    /// Stato di culling dell'utente che esegue la ricerca (Fase 9 Task 5),
+    /// stesso schema per-utente di `Rating`/`Favorite`: `asset_flags.pick`
+    /// esiste dalla Fase 2 (migrazione 0012, indice già pronto su
+    /// `(user_id, pick)`), letto qui per la prima volta da una ricerca —
+    /// filtrare per cartella **e** stato è ciò che permette di ripulire un
+    /// lotto dopo averlo lavorato.
+    Pick {
+        value: Pick,
+    },
     /// Intervallo esplicito, entrambi gli estremi inclusi.
     DateRange {
         from: DateTime<Utc>,
@@ -983,14 +992,11 @@ fn compile_search_axis(
             let op = cmp_op(*cmp);
             let uid_p = next(param);
             let val_p = next(param);
-            Ok((
-                format!(
-                    "EXISTS (SELECT 1 FROM asset_flags af \
-                     WHERE af.asset_id = a.id AND af.user_id = ${uid_p} \
-                       AND af.rating {op} ${val_p})"
-                ),
-                vec![SearchBind::Uuid(user), SearchBind::I32(*value)],
-            ))
+            let sql = format!(
+                "EXISTS (SELECT 1 FROM asset_flags af \
+                 WHERE af.asset_id = a.id AND af.user_id = ${uid_p} AND af.rating {op} ${val_p})"
+            );
+            Ok((sql, vec![SearchBind::Uuid(user), SearchBind::I32(*value)]))
         }
         SearchNode::Favorite => {
             let user = user_id.ok_or(DbError::Forbidden)?;
@@ -1003,6 +1009,7 @@ fn compile_search_axis(
                 vec![SearchBind::Uuid(user)],
             ))
         }
+        SearchNode::Pick { value } => compile_pick_axis(*value, param, user_id),
         SearchNode::DateRange { from, to } => {
             let p1 = next(param);
             let p2 = next(param);
@@ -1065,6 +1072,48 @@ fn compile_search_axis(
         | SearchNode::PersonGroup { .. }
         | SearchNode::PersonCount { .. }) => compile_fase8_axis(fase8, param),
         fase7 => compile_fase7_axis(fase7, param, semantic_vis),
+    }
+}
+
+/// `SearchNode::Pick` (Fase 9 Task 5) — separata da `compile_search_axis` per
+/// lo stesso tetto clippy, non per un motivo concettuale: `Pick::None` non è
+/// "il valore letterale `'none'` in una riga esistente". La maggioranza
+/// degli asset non ha mai avuto una riga scritta in `asset_flags` per questo
+/// utente (nessun default di colonna, "mai valutato" = nessuna riga). Un
+/// `EXISTS ... pick = 'none'` identico al ramo `Pick`/`Reject` troverebbe
+/// solo gli asset esplicitamente riportati a `None` da `set_pick` (Task 4),
+/// escludendo silenziosamente tutti quelli mai toccati — l'esatto opposto di
+/// "da valutare". `NOT EXISTS` su `pick IN ('pick', 'reject')` cattura
+/// entrambi i casi in un colpo solo.
+fn compile_pick_axis(
+    value: Pick,
+    param: &mut usize,
+    user_id: Option<uuid::Uuid>,
+) -> Result<(String, Vec<SearchBind>), DbError> {
+    let user = user_id.ok_or(DbError::Forbidden)?;
+    let uid_p = next(param);
+    match value {
+        Pick::None => Ok((
+            format!(
+                "NOT EXISTS (SELECT 1 FROM asset_flags af \
+                 WHERE af.asset_id = a.id AND af.user_id = ${uid_p} \
+                   AND af.pick IN ('pick', 'reject'))"
+            ),
+            vec![SearchBind::Uuid(user)],
+        )),
+        Pick::Pick | Pick::Reject => {
+            let val_p = next(param);
+            Ok((
+                format!(
+                    "EXISTS (SELECT 1 FROM asset_flags af \
+                     WHERE af.asset_id = a.id AND af.user_id = ${uid_p} AND af.pick = ${val_p})"
+                ),
+                vec![
+                    SearchBind::Uuid(user),
+                    SearchBind::Text(value.as_str().to_owned()),
+                ],
+            ))
+        }
     }
 }
 
