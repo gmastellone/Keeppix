@@ -272,7 +272,7 @@ impl From<DbError> for Problem {
         match err {
             DbError::NotFound => Self::not_found(),
             DbError::Forbidden => Self::forbidden(),
-            DbError::Conflict(msg) => {
+            DbError::Conflict(msg) | DbError::Collision(msg) => {
                 Self::new(StatusCode::CONFLICT, "conflict", "Conflict").with_detail(msg)
             }
             DbError::Connection(e) => {

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use keeppix_domain::{
@@ -836,6 +836,115 @@ impl<'a> AssetRepo<'a> {
         }
     }
 
+    /// Sposta un asset in modo sicuro (Fase 9 Task 1): identità preservata.
+    /// `asset_flags`/`asset_overrides`/`asset_tags`/`faces` sono chiavi
+    /// esterne su `asset_id`, mai su `folder_id`/`filename` — un `UPDATE`
+    /// sulla riga **esistente** (stesso id) le mantiene collegate senza
+    /// copiare nulla, a differenza di `moves.rs::after_hash`
+    /// (`crates/keeppix-jobs`) che crea una riga nuova e ne perde la
+    /// maggior parte perché è un riconoscimento *a posteriori*, non uno
+    /// spostamento diretto.
+    ///
+    /// **Ordine deliberato: il file fisico si sposta prima, la riga dopo —
+    /// l'opposto della convenzione già in uso in `TrashRepo::choose`
+    /// (`crates/keeppix-db/src/trash.rs`, riga-poi-`rename()`).** Non è
+    /// un'incoerenza fra le due funzioni: il cestino sposta verso un posto
+    /// secondario che l'utente visita di rado, quindi un file orfano lì è
+    /// un fastidio recuperabile con un retry; un asset spostato da questa
+    /// funzione resta invece visibile ovunque nell'app (timeline, ricerca,
+    /// album) finché non lo si vede spostare — una riga che punta a un
+    /// percorso inesistente sarebbe silenziosa e invisibile lì. Un file
+    /// fisico "in più" senza riga corrispondente, al contrario, lo ritrova
+    /// la prossima scansione (reindicizzato come asset nuovo — perde
+    /// `asset_flags`/`asset_overrides` solo in **questo** scenario di
+    /// fallimento a metà, mai nel percorso normale). Il caso peggiore è
+    /// recuperabile: è il ruling esplicito del piano di fase
+    /// (`docs/superpowers/plans/2026-08-20-keeppix-fase-9.md`, Task 1).
+    ///
+    /// # Errors
+    /// `Forbidden` se il chiamante non è editor sulla cartella di partenza o
+    /// su quella di destinazione (`FolderRepo::assert_editor`, chiamata due
+    /// volte — non `PermissionRepo::assert_can_edit_assets`, che risolve
+    /// solo la cartella *corrente* di un asset esistente via join e non ha
+    /// modo di verificare una destinazione arbitraria, magari appena creata
+    /// e ancora vuota). `NotFound`/`Forbidden` come `find_by_id` se l'asset
+    /// non esiste o non è visibile. `Collision` se `(new_folder_id,
+    /// new_filename)` è già occupato da un altro asset — verifica
+    /// **best-effort** contro ciò che Keeppix conosce (spec §1.2), non una
+    /// garanzia atomica di filesystem: un file non ancora tracciato allo
+    /// stesso percorso può comunque essere sovrascritto da `rename()` fra
+    /// il controllo e lo spostamento. `Io` se il `rename()` fisico fallisce.
+    pub async fn move_asset(
+        &self,
+        ctx: &AuthContext,
+        asset_id: AssetId,
+        new_folder_id: FolderId,
+        new_filename: AssetName,
+    ) -> Result<Asset, DbError> {
+        let folders = FolderRepo::new(self.db);
+        let asset = self.find_by_id(ctx, asset_id).await?;
+        folders.assert_editor(ctx, asset.folder_id).await?;
+        folders.assert_editor(ctx, new_folder_id).await?;
+
+        let no_op = asset.folder_id == new_folder_id && asset.filename == new_filename;
+        if no_op {
+            return Ok(asset);
+        }
+
+        let collision: Option<uuid::Uuid> = sqlx::query_scalar(
+            "SELECT id FROM assets WHERE folder_id = $1 AND filename = $2 AND id <> $3",
+        )
+        .bind(new_folder_id.as_uuid())
+        .bind(new_filename.as_str())
+        .bind(asset_id.as_uuid())
+        .fetch_optional(self.db.pool())
+        .await?;
+        if collision.is_some() {
+            return Err(DbError::Collision(format!(
+                "{} already exists in the destination folder",
+                new_filename.as_str()
+            )));
+        }
+
+        let old_path = folders
+            .absolute_path(ctx, asset.folder_id)
+            .await?
+            .join(asset.filename.as_str());
+        let new_path = folders
+            .absolute_path(ctx, new_folder_id)
+            .await?
+            .join(new_filename.as_str());
+
+        if tokio::fs::symlink_metadata(&new_path).await.is_ok() {
+            return Err(DbError::Collision(format!(
+                "{} already exists on disk",
+                new_path.display()
+            )));
+        }
+        tokio::fs::rename(&old_path, &new_path).await.map_err(|e| {
+            DbError::Io(format!(
+                "moving {} to {}: {e}",
+                old_path.display(),
+                new_path.display()
+            ))
+        })?;
+        move_sidecar_best_effort(&old_path, &new_path).await;
+
+        let mut tx = self.db.pool().begin().await?;
+        sqlx::query(
+            "UPDATE assets SET folder_id = $1, filename = $2, updated_at = now() WHERE id = $3",
+        )
+        .bind(new_folder_id.as_uuid())
+        .bind(new_filename.as_str())
+        .bind(asset_id.as_uuid())
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| map_move_collision(e, new_filename.as_str()))?;
+        tx.commit().await?;
+
+        self.find_by_id(ctx, asset_id).await
+    }
+
     /// Copia gli EXIF originali su un nuovo asset. `ON CONFLICT DO NOTHING`.
     ///
     /// Non prende un `AuthContext`: la chiama il rilevatore di spostamenti.
@@ -856,4 +965,65 @@ impl<'a> AssetRepo<'a> {
         .await?;
         Ok(())
     }
+}
+
+/// `23505` su `assets_folder_filename_key` durante `UPDATE` (raro: la
+/// `SELECT` di `move_asset` già controlla la stessa collisione prima, ma una
+/// scrittura concorrente fra le due può ancora colpire il vincolo — questo
+/// è il gate che la intercetta davvero) → `Collision`, non il generico
+/// `Conflict` di `crate::uploads::map_unique_violation` (stessa colonna,
+/// controparte per `ingest_direct`): la tassonomia delle operazioni di
+/// massa (`FailureReason`, `crates/keeppix-api/src/bulk.rs`) deve poter
+/// distinguere "il nome collide" da "qualcos'altro non torna" senza
+/// analizzare il testo del messaggio.
+fn map_move_collision(err: sqlx::Error, new_filename: &str) -> DbError {
+    if let sqlx::Error::Database(ref db_err) = err
+        && db_err.code().as_deref() == Some("23505")
+    {
+        return DbError::Collision(format!(
+            "{new_filename} already exists in the destination folder"
+        ));
+    }
+    DbError::Connection(err)
+}
+
+/// `IMG_1234.ARW` → `IMG_1234.ARW.xmp`, stessa convenzione di
+/// `keeppix_jobs::xmp::sidecar_path_for` — duplicata qui, non importata:
+/// `keeppix-db` sta sotto `keeppix-jobs` nel grafo delle dipendenze
+/// (`keeppix-domain → keeppix-db → keeppix-media → keeppix-jobs`), quindi
+/// non può dipenderne. Il sidecar è un **export** derivato da
+/// `asset_overrides`/`asset_flags` (vedi `OverridesRepo::pending_sidecars`,
+/// `mark_sidecar_written`), non la fonte di verità: se questo spostamento
+/// fallisce, non si blocca `move_asset` (il file principale è già spostato
+/// con successo a questo punto) — resta un `.xmp` orfano al vecchio
+/// percorso, che il prossimo giro dello sweep dei sidecar riscrive da zero
+/// alla posizione corretta la prossima volta che `asset_overrides` cambia.
+/// Costo se il file non cambia mai più dopo questo spostamento: il sidecar
+/// resta orfano finché qualcuno non lo pulisce a mano — accettabile perché
+/// il dato vero (le colonne) non si è mosso, solo l'export.
+async fn move_sidecar_best_effort(old_asset_path: &Path, new_asset_path: &Path) {
+    let old_sidecar = sidecar_path_for(old_asset_path);
+    if tokio::fs::symlink_metadata(&old_sidecar).await.is_err() {
+        return;
+    }
+    let new_sidecar = sidecar_path_for(new_asset_path);
+    if let Err(e) = tokio::fs::rename(&old_sidecar, &new_sidecar).await {
+        tracing::warn!(
+            error = %e,
+            old = %old_sidecar.display(),
+            new = %new_sidecar.display(),
+            "move_asset: the asset moved but its .xmp sidecar did not; \
+             the next sidecar sweep will rewrite it at the new path"
+        );
+    }
+}
+
+fn sidecar_path_for(asset_path: &Path) -> PathBuf {
+    let mut name = asset_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_owned();
+    name.push_str(".xmp");
+    asset_path.with_file_name(name)
 }

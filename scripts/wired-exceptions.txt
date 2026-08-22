@@ -22,6 +22,16 @@
 # funzionale dichiara "l'intero disegno assume fotografie". Arriva con la UI
 # video minima decisa il 20 agosto 2026 (vedi costo-beneficio-funzioni.md).
 fn extract_poster fase-11
+# move_asset (assets.rs, Fase 9 Task 1): la primitiva di spostamento sicuro.
+# check-wired.py la vede erroneamente "wired" — count_ident conta anche le
+# menzioni testuali nei commenti di documentazione (in assets.rs stesso ed
+# error.rs), non solo le chiamate reali: verificato con
+# `grep -rn '\.move_asset(' crates` che gli unici sei call-site sono nei test
+# di questo stesso task, zero in codice di produzione. Eccezione esplicita
+# invece di lasciare che il falso negativo dello strumento nasconda il vero
+# stato — i consumatori arrivano con il Task 4 (Scegliere/Scartare nel
+# culling) e il Task 8 (motore di rinomina) della stessa fase.
+fn move_asset fase-9
 route /health ops
 route /api/openapi.json ci
 
