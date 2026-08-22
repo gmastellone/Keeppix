@@ -265,6 +265,75 @@ async fn an_offline_library_is_pushed_as_problems_changed() {
     assert!(msg["payload"]["count"].as_i64().unwrap() >= 1);
 }
 
+/// Fase 10 Task 19 lasciava `suggestions.changed` scablato — "nessun codice
+/// di Fase 7/8 esiste da cui leggerlo". Ora che Fase 8 esiste (proposte di
+/// volti), l'emettitore è cablato: la stessa somma tag+volti del badge
+/// `bootstrap.badges.revision`.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn a_proposed_face_is_pushed_as_suggestions_changed() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+    let (folder, _library) = seed_library_after_setup(&server).await;
+
+    let asset = keeppix_db::AssetRepo::new(&server.db)
+        .upsert_discovered(keeppix_domain::NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("suggestions.jpg").unwrap(),
+            size_bytes: 10,
+            mtime: chrono::Utc::now(),
+            inode: Some(1),
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+    let person = keeppix_db::PersonRepo::new(&server.db)
+        .create(None)
+        .await
+        .unwrap();
+    let face = keeppix_db::FaceRepo::new(&server.db)
+        .insert_detected(keeppix_db::NewDetectedFace {
+            asset_id: asset.id,
+            bbox: keeppix_domain::FaceBBox {
+                x: 0.1,
+                y: 0.1,
+                w: 0.2,
+                h: 0.2,
+            },
+            landmarks: None,
+            embedding: None,
+            detect_score: 0.9,
+            quality: Some(0.5),
+            model_version: "scrfd-500mf+arcface".to_owned(),
+        })
+        .await
+        .unwrap();
+
+    let issued = server
+        .client
+        .post(server.url("/api/v1/ws/ticket"))
+        .send()
+        .await
+        .unwrap();
+    let ticket = issued.json::<serde_json::Value>().await.unwrap()["ticket"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ws = open_socket(&server, &ticket).await;
+    wait_until_looping(&mut ws).await;
+
+    keeppix_db::FaceRepo::new(&server.db)
+        .propose(face.id, person.id, 0.6)
+        .await
+        .unwrap();
+
+    let msg = recv_matching(&mut ws, "suggestions.changed").await;
+    assert_eq!(msg["v"], 1);
+    assert!(msg["payload"]["count"].as_i64().unwrap() >= 1);
+}
+
 /// Task 19: un backup che finisce (`BackupRepo::complete_run`, già usato dal
 /// job reale di `keeppix-jobs::backup::run_one`) deve uscire come
 /// `backup.finished` — senza push, la pagina Impostazioni saprebbe l'esito

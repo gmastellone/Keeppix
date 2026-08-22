@@ -9,8 +9,8 @@ use axum::http::request::Parts;
 use axum::http::{HeaderMap, header};
 use axum::response::Response;
 use keeppix_db::{
-    AssetRepo, BackupRepo, BackupRunStatus, ChangeLogRepo, Db, JobRepo, LibraryRepo,
-    OperationsRepo, ProblemsRepo, RegionRepo,
+    AssetRepo, AssetTagRepo, BackupRepo, BackupRunStatus, ChangeLogRepo, Db, FaceRepo, JobRepo,
+    LibraryRepo, OperationsRepo, ProblemsRepo, RegionRepo,
 };
 use keeppix_domain::{AssetId, AuthContext, JobKind, LibraryId, OperationId, OperationStatus};
 use serde::Serialize;
@@ -111,6 +111,12 @@ pub async fn connect(
 
 const CHANGE_POLL: Duration = Duration::from_secs(1);
 
+// Un `drain_*` in più (Fase 8: `suggestions.changed`) ha superato il tetto
+// di 100 righe — la funzione resta un elenco piatto di "prova a leggere una
+// fonte, esci se il socket è morto", niente da fattorizzare senza inventare
+// un'astrazione (chiusure eterogenee per stato "visto" di tipo diverso) solo
+// per stare sotto il limite.
+#[allow(clippy::too_many_lines)]
 async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
     let Ok(mut cursor) = ChangeLogRepo::new(&state.db).head_seq(&ctx).await else {
         return;
@@ -136,6 +142,7 @@ async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
     let mut problems_seen: Option<String> = None;
     let mut backup_seen: Option<(uuid::Uuid, BackupRunStatus)> = None;
     let mut region_seen: HashMap<String, RegionProgressKey> = HashMap::new();
+    let mut suggestions_seen: Option<i64> = None;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
     let mut poll = tokio::time::interval(CHANGE_POLL);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -185,6 +192,12 @@ async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
                     break;
                 }
                 if drain_regions(&state.db, &ctx, &mut region_seen, &mut outgoing)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                if drain_suggestions(&state.db, &ctx, &mut suggestions_seen, &mut outgoing)
                     .await
                     .is_err()
                 {
@@ -430,6 +443,47 @@ fn problems_signature(set: &keeppix_db::ProblemSet) -> String {
         jobs.join(","),
         assets.join(",")
     )
+}
+
+/// Emette `suggestions.changed` — il badge Revisione (Fase 10 Task 19,
+/// lasciato scablato allora: "nessun codice di Fase 7/8 esiste da cui
+/// leggerlo"). Ora esiste: stessa somma tag+volti di `GET /bootstrap`
+/// (`AssetTagRepo::count_proposed_visible` + `FaceRepo::count_proposed_visible`),
+/// un solo canale perché il badge è già un conteggio combinato, non due.
+///
+/// Come `problems.changed`, il numero viaggia come comodità (il contratto
+/// resta "ricarica il contatore", il client non deve fidarsi del valore per
+/// decidere se è cambiato — vedi Ruling Fase 10 Task 19: "portare il numero
+/// resta ammesso come comodità, mai come garanzia"). Stessa guardia
+/// "prima connessione a zero non emette" di `drain_problems`, per lo stesso
+/// motivo: un `count: 0` in coda alla prima connessione gareggerebbe con il
+/// Ping di apertura.
+async fn drain_suggestions(
+    db: &Db,
+    ctx: &AuthContext,
+    seen: &mut Option<i64>,
+    q: &mut VecDeque<serde_json::Value>,
+) -> Result<(), keeppix_db::DbError> {
+    let tag_count = AssetTagRepo::new(db).count_proposed_visible(ctx).await?;
+    let face_count = FaceRepo::new(db).count_proposed_visible(ctx).await?;
+    let count = tag_count.saturating_add(face_count);
+    if *seen == Some(count) {
+        return Ok(());
+    }
+    let first_empty_baseline = seen.is_none() && count == 0;
+    *seen = Some(count);
+    if first_empty_baseline {
+        return Ok(());
+    }
+    enqueue(
+        q,
+        json!({
+            "v": 1,
+            "type": "suggestions.changed",
+            "payload": { "count": count }
+        }),
+    );
+    Ok(())
 }
 
 /// Emette `asset.derivative.ready` per ogni `TranscodeVideo` concluso dopo
