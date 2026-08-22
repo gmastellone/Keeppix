@@ -32,6 +32,14 @@ fn extract_poster fase-11
 # stato — i consumatori arrivano con il Task 4 (Scegliere/Scartare nel
 # culling) e il Task 8 (motore di rinomina) della stessa fase.
 fn move_asset fase-9
+# ensure_culling_child (folders.rs) e set_culling_root (libraries.rs), Fase 9
+# Task 2: creano/marcano le sottocartelle _taken/_skipped e designano la
+# radice del culling. Consumatori: Task 4 (Scegliere/Scartare sposta il
+# file dentro un lotto — chiama ensure_culling_child) e le impostazioni
+# della libreria in Fase 11 (chiamano set_culling_root dall'API). Nessuno
+# dei due ancora scritto.
+fn ensure_culling_child fase-9
+fn set_culling_root fase-9
 route /health ops
 route /api/openapi.json ci
 

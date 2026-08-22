@@ -29,7 +29,7 @@ pub use error::DomainError;
 pub use exif::ExifData;
 pub use face::{Face, FaceBBox, Person, PersonGroup, PersonName, PersonSeparation};
 pub use flags::{AssetFlags, Pick, Rating};
-pub use folder::{Folder, FolderPath};
+pub use folder::{CullingRole, Folder, FolderPath};
 pub use geo::Place;
 pub use ids::{
     AlbumId, AssetId, BatchId, FaceId, FolderId, GroupId, LibraryId, OperationId, PersonGroupId,

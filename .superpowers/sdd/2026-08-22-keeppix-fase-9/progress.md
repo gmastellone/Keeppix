@@ -157,3 +157,79 @@ Task 1: complete. `FailureReason::Collision` (Task 1 richiesto dal piano
 prima del Task 10) già aggiunta insieme, non rimandata.
 
 ## Gruppo B — Il culling a cartelle
+
+### Task 2 — Cartella radice e ruoli
+
+Migrazione `0048_culling_role.sql`: `folders.culling_role text CHECK (IN
+('taken','skipped'))` + indice parziale. `libraries.culling_root_folder_id`
+**non ricreata** — esiste già dalla 0044 (Fase 7 Task 5), riusata; il suo
+commento stesso lo anticipava ("Fase 9 riusa questa colonna, non la
+ricrea").
+
+`keeppix_domain::CullingRole` (`Taken`/`Skipped`, `as_str`), campo
+`Folder.culling_role: Option<CullingRole>` e
+`Library.culling_root_folder_id: Option<FolderId>` — quest'ultimo non era
+mai stato esposto sul dominio prima d'ora (letto solo via JOIN grezzo in
+`embeddings.rs`/`faces.rs` per l'esclusione IA).
+
+`FolderRepo::ensure_culling_child(parent, role)` — come `ensure_child`, ma
+marca `_taken`/`_skipped` col ruolo giusto invece che lasciarlo `NULL`.
+
+Ruling: **auto-guarigione se la cartella esiste già senza ruolo.** — Se un
+utente ha già una cartella chiamata `_taken` per conto suo dentro un lotto
+di culling (prima di usare mai la funzione), `ON CONFLICT DO NOTHING`
+lascerebbe quella riga col ruolo `NULL` per sempre — esattamente il difetto
+che "il ruolo è una colonna, non il nome" vuole evitare, capovolto: una
+cartella che *dovrebbe* essere speciale che non lo diventa mai. Un secondo
+`UPDATE ... WHERE culling_role IS NULL` dopo l'`INSERT` ignorato la marca
+comunque. — Costo se sbagliato: nessuno nuovo, è un miglioramento rispetto
+a lasciare la lacuna; verificato con un test dedicato
+(`ensure_culling_child_heals_a_role_missing_folder`).
+
+`LibraryRepo::set_culling_root(ctx, id, folder_id: Option<FolderId>)` —
+**non** un parametro aggiunto al generico `update()` (che oggi è aperto a
+chiunque veda la libreria, non solo al proprietario — verificato leggendo
+`routes/libraries.rs::patch`, nessun controllo di ownership oltre
+`find_by_id`). Metodo dedicato con **owner-o-admin esplicito**, perché la
+radice del culling decide dove finiscono fisicamente le foto scelte/
+scartate e cosa l'IA esclude, non è una preferenza di visualizzazione come
+`scan_enabled`/`faces_enabled`. Valida anche che la cartella designata
+appartenga alla stessa libreria (`Conflict` altrimenti) — spec §2.6 non lo
+dice esplicitamente ma è l'unica lettura sensata di "una cartella già
+esistente" nel contesto di "questa libreria".
+
+Ruling: **`set_culling_root` accetta solo "imposta" (`Some`) e "rimuovi"
+(`None`) — non un terzo stato "non toccare".** A differenza di `update()`
+(dove `None` sui suoi parametri significa "lascia invariato", pattern
+`COALESCE`), qui `None` significa esplicitamente "nessuna radice": la
+spec §2.6 descrive solo l'impostazione, non un caso d'uso per lasciare
+invariato *questo specifico campo* mentre si cambia altro sulla libreria —
+e comunque non condivide la stessa chiamata di `update()`, quindi non c'è
+ambiguità da risolvere. — Costo se sbagliato: nessuno finché nessun
+chiamante ha bisogno di un "non toccare" a metà di un'altra scrittura;
+aggiungere allora, non ora, un `Option<Option<FolderId>>` più esplicito.
+
+Route HTTP non wired in questo task: la designazione della radice arriva
+dalle impostazioni della libreria in Fase 11 (schermata dedicata) — coerente
+col piano, che per il Task 2 elenca solo lo schema, non l'endpoint.
+
+Verifica eseguita (stesso ambiente locale di Task 1):
+- `cargo check -p keeppix-domain -p keeppix-db` → pulito.
+- `cargo fmt --check -p keeppix-db -p keeppix-domain` → pulito.
+- `cargo clippy -p keeppix-db -p keeppix-domain --all-targets -- -D warnings` → pulito.
+- `cargo test -p keeppix-db --test folders` → 22/22 verdi (16 esistenti +
+  6 nuovi: `_taken`/`_skipped` marcate correttamente, idempotenza,
+  auto-guarigione, owner può designare e rimuovere, un editor non-owner
+  respinto con `Forbidden`, una cartella di un'altra libreria respinta con
+  `Conflict`).
+- `cargo test -p keeppix-db --test libraries` → 16/16 verdi (nessuna
+  regressione: `Library` con un campo in più non rompe `into_domain` né i
+  costruttori letterali altrove — verificato con `grep` che nessun altro
+  crate costruisce `Folder{}`/`Library{}` per valore, solo via i repo).
+- `python3 scripts/check-wired.py` → rosso al primo giro (correttamente,
+  stavolta — nessun falso positivo da commenti), verde dopo aver aggiunto
+  `ensure_culling_child fase-9` e `set_culling_root fase-9` a
+  `wired-exceptions.txt` con i consumatori futuri (Task 4, impostazioni
+  Fase 11).
+
+Task 2: complete.
