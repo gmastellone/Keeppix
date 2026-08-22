@@ -233,3 +233,22 @@ Verifica eseguita (stesso ambiente locale di Task 1):
   Fase 11).
 
 Task 2: complete.
+
+## CI reale ha trovato un difetto nel commit del Task 1
+
+Push del Task 1 (`7524a1e`) su `origin/fase-9`: CI rossa sul job `backend`,
+step `Lint` (`cargo clippy --workspace --all-targets -- -D warnings`) —
+esattamente il gate che `keeppix-api` non potevo verificare in locale in
+questa sessione (download dei binari `ort` bloccato dal proxy). Confermato
+il rischio che avevo segnalato esplicitamente nel commit del Task 1 invece
+di ignorarlo.
+
+`clippy::match_same_arms` su `detail_for` (`crates/keeppix-api/src/bulk.rs`):
+il mio nuovo braccio `DbError::Collision(message) => Some(message.clone())`
+aveva lo stesso corpo del braccio preesistente
+`DbError::Migration(message) => Some(message.clone())`, separato da esso —
+clippy chiede di unirli nello stesso pattern `|`. Fix meccanico, nessun
+cambio di comportamento: `Migration` unito al gruppo
+`Io|Conflict|Corrupted|Collision`. Verificato solo con `cargo fmt --check
+-p keeppix-api` (sintassi) in questa sessione — la vera verifica è la CI
+sul prossimo push, non dichiarata chiusa qui prima di vederla verde.
