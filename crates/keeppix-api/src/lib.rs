@@ -385,6 +385,64 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/tags/{id}/assets/{asset_id}/reject",
             axum::routing::post(routes::tags::reject_proposal),
         )
+        .route("/assets/{id}/faces", get(routes::faces::list_for_asset))
+        .route("/faces/proposals", get(routes::faces::list_proposals))
+        .route(
+            "/faces/{id}/assign",
+            axum::routing::post(routes::faces::assign),
+        )
+        .route(
+            "/faces/{id}/reject",
+            axum::routing::post(routes::faces::reject),
+        )
+        .route(
+            "/faces/{id}/confirm",
+            axum::routing::post(routes::faces::confirm_proposal),
+        )
+        .route(
+            "/persons",
+            get(routes::persons::list).post(routes::persons::create),
+        )
+        .route(
+            "/persons/{id}",
+            get(routes::persons::get)
+                .patch(routes::persons::patch)
+                .delete(routes::persons::delete),
+        )
+        .route(
+            "/persons/{id}/merge",
+            axum::routing::post(routes::persons::merge),
+        )
+        .route(
+            "/persons/{id}/separate",
+            axum::routing::post(routes::persons::separate),
+        )
+        .route(
+            "/persons/{id}/proposals/confirm",
+            axum::routing::post(routes::faces::confirm_all_proposals),
+        )
+        .route(
+            "/persons/{id}/proposals/reject",
+            axum::routing::post(routes::faces::reject_all_proposals),
+        )
+        .route(
+            "/person-groups",
+            get(routes::persons::list_groups).post(routes::persons::create_group),
+        )
+        .route(
+            "/person-groups/{id}",
+            axum::routing::patch(routes::persons::patch_group)
+                .delete(routes::persons::delete_group),
+        )
+        .route(
+            "/person-groups/{id}/members",
+            get(routes::persons::list_group_members),
+        )
+        .route(
+            "/person-groups/{id}/members/{person_id}",
+            axum::routing::post(routes::persons::add_group_member)
+                .delete(routes::persons::remove_group_member),
+        )
         .route(
             "/permissions",
             get(routes::permissions::list).post(routes::permissions::grant),

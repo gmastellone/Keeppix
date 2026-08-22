@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use axum::extract::{Query, State};
-use keeppix_db::{AssetTagRepo, Db, FolderRepo, LibraryRepo, PreferencesRepo, UserRepo};
+use keeppix_db::{AssetTagRepo, Db, FaceRepo, FolderRepo, LibraryRepo, PreferencesRepo, UserRepo};
 use keeppix_domain::AuthContext;
 use serde::{Deserialize, Serialize};
 
@@ -77,9 +77,12 @@ pub async fn compose(
 
     // Fase 7 Task 9: metà "tag" del badge. `count_proposed_visible` non
     // propaga l'assenza di pgvector (torna 0) — il bootstrap non deve mai
-    // fallire per una feature IA opzionale (Task 3 ruling). Fase 8
-    // aggiungerà la metà "volti" sullo stesso campo.
-    let revision = AssetTagRepo::new(db).count_proposed_visible(ctx).await?;
+    // fallire per una feature IA opzionale (Task 3 ruling). Fase 8 Task 8
+    // aggiunge la metà "volti" sullo stesso campo, stessa garanzia (non
+    // propaga l'assenza di pgvector — vedi `FaceRepo::count_proposed_visible`).
+    let tag_revision = AssetTagRepo::new(db).count_proposed_visible(ctx).await?;
+    let face_revision = FaceRepo::new(db).count_proposed_visible(ctx).await?;
+    let revision = tag_revision.saturating_add(face_revision);
 
     Ok(BootstrapResponse {
         user: UserView::new(&user, server_name),
