@@ -53,6 +53,7 @@ async fn ingest_fixture_indexes_three_jpegs() {
         .await
         .unwrap();
 
+    let tracker = std::sync::Arc::new(ActivityTracker::new());
     let handler = IngestHandler {
         db: test.db().clone(),
         data_dir: data_dir.clone(),
@@ -60,12 +61,13 @@ async fn ingest_fixture_indexes_three_jpegs() {
         trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
         database_url: test.database_url().to_owned(),
         config_path: None,
+        activity: tracker.clone(),
     };
     let night = keeppix_jobs::default_night_window();
     let pool = WorkerPool::new(
         test.db().clone(),
         handler,
-        std::sync::Arc::new(ActivityTracker::new()),
+        tracker,
         512 * 1024 * 1024,
         night,
         std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

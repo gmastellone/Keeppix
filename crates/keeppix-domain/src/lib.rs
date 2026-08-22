@@ -15,6 +15,7 @@ pub mod operation;
 pub mod overrides;
 pub mod password;
 pub mod permission;
+pub mod tag;
 pub mod token;
 pub mod trash;
 pub mod upload;
@@ -30,7 +31,7 @@ pub use folder::{Folder, FolderPath};
 pub use geo::Place;
 pub use ids::{
     AlbumId, AssetId, BatchId, FolderId, GroupId, LibraryId, OperationId, SessionId, StackId,
-    TrashEntryId, UploadSessionId, UserId,
+    TagId, TrashEntryId, UploadSessionId, UserId,
 };
 pub use job::{Job, JobKind, JobPriority, JobStatus};
 pub use library::{Library, LibraryStatus, NewLibrary};
@@ -38,6 +39,7 @@ pub use operation::{OperationKind, OperationStatus};
 pub use overrides::{EffectiveMetadata, GeoPoint, OverridePatch};
 pub use password::{Password, PasswordHash, hash_password, verify_password};
 pub use permission::ObjectRole;
+pub use tag::TagKind;
 pub use token::{SessionToken, ShareToken};
 pub use trash::{DiskAction, TrashEntry};
 pub use upload::{ChunkChecksum, CollisionOutcome, UploadOwner, UploadSession};

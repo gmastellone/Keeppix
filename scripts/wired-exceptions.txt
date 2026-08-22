@@ -40,6 +40,19 @@ route /shared-with-me fase-11
 # stato via WS operation.progress e cancel, non chiama set_phase direttamente.
 fn set_phase fase-11
 
+# Fase 7 Task 7 — CRUD tag/categorie: API pronta; la pagina "Tag e categorie"
+# (e la coda di revisione) è UI Fase 11. Matching/coda = Task 8–9 stesso
+# branch, ma i consumatori HTTP restano i componenti Vue della 11.
+route /tags fase-11
+route /tags/{id} fase-11
+# Fase 7 Task 9 — coda di revisione delle proposte IA: stessa UI Fase 11
+# di /tags e /tags/{id} qui sopra.
+route /tags/proposals fase-11
+route /tags/{id}/proposals/confirm fase-11
+route /tags/{id}/proposals/reject fase-11
+route /tags/{id}/assets/{asset_id}/confirm fase-11
+route /tags/{id}/assets/{asset_id}/reject fase-11
+
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore
 # =============================================================================
@@ -49,13 +62,12 @@ fn set_phase fase-11
 # Fase 10 ha chiuso senza collegarlo: debito non rivendicato.
 fn ping non-rivendicata
 
-# origine fase-1a. get_json: il primo lettore vero è la Fase 7, che rilegge
-# le capacità hardware misurate dal probe per decidere se e quanto inferire.
+# origine fase-1a. get_json: pagato — `transcode.rs` rilegge `capabilities`
+# (Fase 6) e Fase 7 Task 1 estende quel JSON con `extra.ai`. Non è più un rinvio.
 # ensure_child (folders.rs): crea UNA sottocartella sotto un genitore — la
 # stessa firma di cui la Fase 9 ha bisogno per creare le sottocartelle
 # _taken/_skipped di un lotto di culling (folders.culling_role).
 fn ensure_child fase-9
-fn get_json fase-7
 
 # origine fase-1b. count_by_status / set_status: contano/impostano lo stato di
 # scansione di una libreria. L'evento `scan.progress` (Fase 10) li espone in

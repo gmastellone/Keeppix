@@ -94,34 +94,38 @@ impl tracing::field::Visit for SqlFieldVisitor {
     fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
 }
 
-/// Installa un subscriber che cattura `sqlx::query` **solo su questo thread**.
-///
-/// `tracing::subscriber::set_default` è thread-local: su un runtime multi-thread
-/// un `.await` può riprendere il task su un altro worker e le query spariscono
-/// dal capture (conteggio a zero). I test che usano questo helper devono quindi
-/// girare con `#[tokio::test(flavor = "current_thread")]`.
-#[allow(clippy::expect_used)]
-async fn traced_db(
-    url: &str,
-) -> (
-    Db,
-    Arc<Mutex<Vec<String>>>,
-    tracing::subscriber::DefaultGuard,
-) {
-    let captured = Arc::new(Mutex::new(Vec::new()));
-    let layer = SqlCapture(captured.clone());
-    let subscriber = tracing_subscriber::Registry::default()
-        .with(tracing_subscriber::EnvFilter::new("sqlx=debug"))
-        .with(layer);
-    let guard = tracing::subscriber::set_default(subscriber);
+/// Capture sqlx **process-wide**: `set_default` (TLS) perde gli eventi quando
+/// sqlx logga da un worker diverso dal task del test (CI parallela →
+/// `individual=0`). `set_global_default` una volta per binario; i budget test
+/// si serializzano su `BUDGET_LOCK`.
+fn global_sql_capture() -> Arc<Mutex<Vec<String>>> {
+    static CAPTURE: std::sync::OnceLock<Arc<Mutex<Vec<String>>>> = std::sync::OnceLock::new();
+    static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    let captured = CAPTURE
+        .get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+        .clone();
+    INIT.get_or_init(|| {
+        let subscriber = tracing_subscriber::Registry::default()
+            .with(tracing_subscriber::EnvFilter::new("sqlx=debug"))
+            .with(SqlCapture(captured.clone()));
+        // Ok se un altro test ha già installato un global: in quel caso il
+        // capture non riceve nulla e l'assert individual>0 fallisce in modo
+        // esplicito — meglio di un falso verde.
+        let _ = tracing::subscriber::set_global_default(subscriber);
+    });
+    captured
+}
 
+#[allow(clippy::expect_used)]
+async fn traced_db(url: &str) -> (Db, Arc<Mutex<Vec<String>>>) {
+    let captured = global_sql_capture();
     let options = PgConnectOptions::from_str(url)
         .expect("url")
         .log_statements(tracing::log::LevelFilter::Debug);
     let db = Db::connect_with(options, 5)
         .await
         .expect("connessione tracciata");
-    (db, captured, guard)
+    (db, captured)
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -141,6 +145,11 @@ async fn load_individual_repos(db: &Db, ctx: &AuthContext) {
             .await
             .expect("storage");
     }
+    // Task 9: metà tag del badge `revision` — stessa query di `compose`.
+    keeppix_db::AssetTagRepo::new(db)
+        .count_proposed_visible(ctx)
+        .await
+        .expect("proposed count");
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -212,13 +221,7 @@ async fn bootstrap_matches_individual_endpoints() {
 }
 
 /// Budget di query di `compose`: deve restare ≤ alla somma dei repo singoli.
-///
-/// `flavor = "current_thread"` isola il subscriber di `traced_db` (TLS): senza
-/// di esso, sullo stesso binario di `bootstrap_matches_individual_endpoints` il
-/// capture poteva tornare vuoto dopo un round-trip HTTP che scalda il runtime
-/// multi-thread — fallimento annotato nel ledger di Task 19/21, non un flake
-/// da ignorare.
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn bootstrap_emits_no_more_queries_than_individual_repos() {
     let server = TestServer::start().await;
@@ -229,10 +232,8 @@ async fn bootstrap_emits_no_more_queries_than_individual_repos() {
     assert_bootstrap_query_budget(&server.database_url, &ctx).await;
 }
 
-/// Stesso budget **dopo** un giro HTTP come `bootstrap_matches_*`: prova che
-/// l'ordine nel binario non spezza più il capture (regressione del difetto
-/// Task 19/21).
-#[tokio::test(flavor = "current_thread")]
+/// Stesso budget **dopo** un giro HTTP come `bootstrap_matches_*`.
+#[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn bootstrap_query_budget_still_holds_after_http_bootstrap_round_trip() {
     let server = TestServer::start().await;
@@ -255,7 +256,9 @@ async fn bootstrap_query_budget_still_holds_after_http_bootstrap_round_trip() {
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn assert_bootstrap_query_budget(database_url: &str, ctx: &AuthContext) {
-    let (db, captured, _guard) = traced_db(database_url).await;
+    let _serial = BUDGET_LOCK.lock().await;
+
+    let (db, captured) = traced_db(database_url).await;
 
     captured.lock().expect("lock").clear();
     load_individual_repos(&db, ctx).await;
@@ -267,10 +270,12 @@ async fn assert_bootstrap_query_budget(database_url: &str, ctx: &AuthContext) {
 
     assert!(
         individual > 0,
-        "il test deve catturare query dai singoli repository (individual=0: subscriber TLS perso?)"
+        "il test deve catturare query dai singoli repository (individual=0: subscriber assente?)"
     );
     assert!(
         bootstrap <= individual,
         "bootstrap={bootstrap} query, singoli={individual}: deve essere ≤"
     );
 }
+
+static BUDGET_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

@@ -94,16 +94,15 @@ Sei file in [`../ui/`](../ui/), che insieme sono la fonte di verità della Fase 
 | [`plans/2026-08-18-keeppix-fase-4.md`](plans/2026-08-18-keeppix-fase-4.md) | ✅ completato e mergiato (PR #9) — GPS all'ingest, GeoNames, cluster mappa, fusi orari, PMTiles offline, geofence «casa» |
 | [`plans/2026-08-19-keeppix-fase-5.md`](plans/2026-08-19-keeppix-fase-5.md) | ✅ completato e mergiato (PR #10) — upload tus riprendibile, WebDAV, app-password |
 | [`plans/2026-08-19-keeppix-fase-6.md`](plans/2026-08-19-keeppix-fase-6.md) | ✅ completato e mergiato (PR #11) — video, backup, TOTP, PWA, sync/delta, client API generati |
-| [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ✅ completato e mergiato — merge diretto via git (le PR verso questo repo sono rotte lato GitHub, vedi `PROSEGUI.md`), CI reale verde su `fase-10` prima del merge — **prossima fase: 7** |
-| [`plans/2026-08-20-keeppix-fase-7.md`](plans/2026-08-20-keeppix-fase-7.md) | ⬜ scritto — 14 task; comincia **misurando** l'inferenza sull'hardware vero |
+| [`plans/2026-08-20-keeppix-fase-10.md`](plans/2026-08-20-keeppix-fase-10.md) | ✅ completato e mergiato — merge diretto via git (le PR verso questo repo sono rotte lato GitHub, vedi `PROSEGUI.md`), CI reale verde su `fase-10` prima del merge |
+| [`plans/2026-08-20-keeppix-fase-7.md`](plans/2026-08-20-keeppix-fase-7.md) | ✅ completato sul branch `fase-7` — CLIP/pgvector, tag + proposte, SearchNode Tag/Category/Semantic, IVFFlat, `AiAnalysis`; UI review queue → Fase 11 — **prossima fase: 8** |
 | [`plans/2026-08-20-keeppix-fase-8.md`](plans/2026-08-20-keeppix-fase-8.md) | ⬜ scritto — 11 task; il **primo** è il test che garantisce che i volti non escano dai link pubblici |
 | [`plans/2026-08-20-keeppix-fase-9.md`](plans/2026-08-20-keeppix-fase-9.md) | ⬜ scritto — 11 task; è la fase che tocca **file veri sul disco** |
 | [`plans/2026-08-20-keeppix-fase-11.md`](plans/2026-08-20-keeppix-fase-11.md) | ⬜ scritto — 18 task in quattro tranche che seguono le fasi da cui dipendono |
 
-**Tutti i piani sono scritti.** Fasi 0-6 chiuse su `main`. Fase 10 implementata
-sul branch `fase-10` (in attesa di merge). L'ordine di esecuzione da qui è
-`7 → 8 → 9 → 11 (A→B→C→D)` dopo il merge della 10; il perché sta nel grafo
-delle dipendenze del roadmap.
+**Tutti i piani sono scritti.** Fasi 0-6 e 10 chiuse su `main`. Fase 7 chiusa
+sul branch `fase-7` (in attesa di merge). L'ordine di esecuzione da qui è
+`8 → 9 → 11 (A→B→C→D)`; il perché sta nel grafo delle dipendenze del roadmap.
 
 ## Consegne
 

@@ -18,6 +18,7 @@ use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 use tokio::sync::OnceCell;
 
 static SHARED: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
+static SHARED_VECTOR: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
 
 pub struct TestServer {
     // `Some` solo sul percorso stoppable (il test 503). Il container
@@ -42,6 +43,14 @@ impl TestServer {
     #[allow(clippy::expect_used)]
     pub async fn start() -> Self {
         boot(None, provision().await, |state| state).await
+    }
+
+    /// Come [`Self::start`], ma su Postgres con pgvector (`keeppix-db:dev` o
+    /// un `KEEPPIX_TEST_DATABASE_URL` che lo offre). I test AI (`/tags`, …)
+    /// devono usarlo: lo schema `0043` è un no-op senza `vector`.
+    #[allow(clippy::expect_used)]
+    pub async fn start_with_vector() -> Self {
+        boot(None, provision_with_vector().await, |state| state).await
     }
 
     /// Come [`Self::start`], con uno stato già modificato (demosaic finto,
@@ -195,6 +204,7 @@ pub fn spawn_worker_pool(
     data_dir: std::path::PathBuf,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        let tracker = std::sync::Arc::new(keeppix_jobs::ActivityTracker::new());
         let handler = keeppix_jobs::IngestHandler {
             db: db.clone(),
             data_dir,
@@ -202,11 +212,12 @@ pub fn spawn_worker_pool(
             trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
             database_url,
             config_path: None,
+            activity: tracker.clone(),
         };
         let pool = keeppix_jobs::WorkerPool::new(
             db.clone(),
             handler,
-            std::sync::Arc::new(keeppix_jobs::ActivityTracker::new()),
+            tracker,
             512 * 1024 * 1024,
             keeppix_jobs::default_night_window(),
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -217,8 +228,14 @@ pub fn spawn_worker_pool(
                 return;
             }
             if !pool.step().await.expect("step") {
+                // Solo job già reclamabili: i `pending` con `run_after` nel
+                // futuro (retry con backoff) non tengono vivo il worker —
+                // altrimenti un lotto di derive fallite su fixture invalide
+                // fa scadere i test di cancel (20s) mentre il pool gira a vuoto.
                 let pending: i64 = sqlx::query_scalar(
-                    "SELECT count(*) FROM jobs WHERE status IN ('pending','running')",
+                    "SELECT count(*) FROM jobs \
+                     WHERE status = 'running' \
+                        OR (status = 'pending' AND run_after <= now())",
                 )
                 .fetch_one(db.pool())
                 .await
@@ -238,7 +255,11 @@ pub fn spawn_worker_pool(
 pub use keeppix_test_support::assert_security_headers;
 
 /// Procura un database vergine. Un container per processo, un `CREATE
-/// DATABASE` per test — allineato a `crates/keeppix-db/tests/harness/mod.rs`.
+/// DATABASE` per test — allineato a `crates/keeppix-jobs/tests/harness/mod.rs`.
+///
+/// Default: `postgis/postgis:17-3.5` (o `KEEPPIX_TEST_DATABASE_URL` in CI).
+/// Lo schema AI è un no-op senza `vector`; i test che lo richiedono usano
+/// [`TestServer::start_with_vector`].
 #[allow(clippy::expect_used)]
 async fn provision() -> ProvisionedDb {
     if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL") {
@@ -258,6 +279,50 @@ async fn provision() -> ProvisionedDb {
         })
         .await;
     named_database(admin_url).await
+}
+
+/// Postgres con pgvector per i test AI (Fase 7). Stesso contratto di
+/// `keeppix-jobs::tests::harness::provision_with_vector`.
+#[allow(clippy::expect_used)]
+async fn provision_with_vector() -> ProvisionedDb {
+    if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL")
+        && server_offers_vector(&server_url).await
+    {
+        return named_database(&server_url).await;
+    }
+    let (_container, admin_url) = SHARED_VECTOR
+        .get_or_init(|| async {
+            let container = Postgres::default()
+                .with_tag("dev")
+                .with_name("keeppix-db")
+                .start()
+                .await
+                .expect(
+                    "avvio del container Postgres (keeppix-db:dev); \
+                     costruiscilo con: docker build -f Dockerfile.db -t keeppix-db:dev .",
+                );
+            let port = mapped_port(&container).await;
+            let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+            (container, url)
+        })
+        .await;
+    named_database(admin_url).await
+}
+
+/// `true` se il server espone l'estensione `vector` (pacchetto installato).
+#[allow(clippy::expect_used)]
+async fn server_offers_vector(server_url: &str) -> bool {
+    let Ok(mut conn) = PgConnection::connect(server_url).await else {
+        return false;
+    };
+    let offered = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap_or(false);
+    conn.close().await.ok();
+    offered
 }
 
 #[allow(clippy::expect_used)]

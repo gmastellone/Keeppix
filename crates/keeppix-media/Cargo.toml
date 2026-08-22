@@ -29,6 +29,11 @@ filetime = "0.2"
 # libreria C di libheif del task RAW): serve un file reale in ingresso e in
 # uscita, non uno stream — la libreria non legge/scrive da pipe.
 tempfile = "3"
+# Runtime ONNX (Fase 7 Task 2). Tract gira il modello in isolamento ma
+# `libm = 0.2.11` di tract-data collide con crypto-primes (russh) in workspace.
+ort = { version = "2.0.0-rc.10", default-features = false, features = ["std", "download-binaries", "tls-rustls"] }
+# Tokenizer CLIP BPE (Fase 7 Task 2bis): stesso `tokenizer.json` del modello ONNX.
+tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
 
 [dev-dependencies]
 # Confronto nel test di budget: il lossless "odierno" (VP8L) contro cui

@@ -80,7 +80,7 @@ rewriting the UI three times.
 | GPS extraction, reverse geocoding, offline maps (PMTiles), timezone correction | ✅ shipped |
 | WebDAV, resumable (tus) upload | ✅ shipped |
 | Video transcoding, encrypted backup/restore, TOTP 2FA, installable PWA | ✅ shipped |
-| Semantic search, AI tag matching (CLIP embeddings, pgvector) | 🚧 planned — spec + plan written |
+| Semantic search, AI tag matching (CLIP embeddings, pgvector) | ✅ shipped (backend on `fase-7`; review-queue UI in Fase 11) |
 | Face recognition & clustering (opt-in, never on public links) | 🚧 planned — spec + plan written |
 | Physical folder-based culling, safe rename-by-formula | 🚧 planned — spec + plan written |
 | Redesigned interface | 🚧 planned — spec + plan written |

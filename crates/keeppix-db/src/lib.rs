@@ -1,6 +1,7 @@
 //! Accesso al database. È l'unico crate del workspace che contiene SQL.
 
 pub mod albums;
+pub mod asset_tags;
 pub mod assets;
 pub mod audit;
 pub mod backup;
@@ -8,6 +9,7 @@ pub mod changes;
 pub mod credentials;
 pub mod dav_locks;
 pub mod duplicates;
+pub mod embeddings;
 pub mod error;
 pub mod flags;
 pub mod folders;
@@ -21,6 +23,7 @@ pub mod libraries;
 pub mod operations;
 pub mod overrides;
 pub mod permissions;
+pub mod pgvector;
 pub mod places;
 pub mod preferences;
 pub mod problems;
@@ -31,6 +34,7 @@ pub mod sessions;
 pub mod settings;
 pub mod share_links;
 pub mod stacks;
+pub mod tags;
 pub mod timeline;
 pub mod totp;
 pub mod trash;
@@ -39,6 +43,7 @@ pub mod users;
 pub mod visibility;
 
 pub use albums::{Album, AlbumAsset, AlbumPatch, AlbumRefresh, AlbumRepo, NewAlbum};
+pub use asset_tags::{AssetTagRepo, ProposalView, TAG_MATCH_BAND};
 pub use assets::{AssetRepo, DirectPutOutcome};
 pub use audit::{AuditEntry, AuditRepo};
 pub use backup::{
@@ -49,6 +54,10 @@ pub use changes::{CHANGE_LOG_PAGE, ChangeLogRepo, ChangePage};
 pub use credentials::AppPasswordRepo;
 pub use dav_locks::DavLockRepo;
 pub use duplicates::{DuplicateGroup, DuplicateRepo};
+pub use embeddings::{
+    AssetEmbedding, EmbeddingRepo, MODEL_VERSION, MODEL_VERSION as EMBEDDING_MODEL_VERSION,
+    PendingEmbedding, vector_literal,
+};
 pub use error::DbError;
 pub use flags::FlagRepo;
 pub use folders::FolderRepo;
@@ -71,6 +80,7 @@ pub use permissions::{
     ExplainResult, NewGrant, ObjectType, PermissionGrantView, PermissionRepo, SharedWithMeItem,
     SubjectType,
 };
+pub use pgvector::{ENABLE_VECTOR_SQL, PgVectorStatus, persist_pgvector_status, probe_pgvector};
 pub use places::PlaceRepo;
 pub use preferences::{
     GridDensity, NotificationPreferences, PreferencesPatchError, PreferencesRepo, UserPreferences,
@@ -85,6 +95,7 @@ pub use sessions::{SessionRepo, SessionSummary};
 pub use settings::SettingsRepo;
 pub use share_links::{NewShareLink, ShareLinkRepo, ShareLinkRow};
 pub use stacks::{AssetWithStack, StackBadge, StackDetails, StackMember, StackRepo};
+pub use tags::{NewTag, TagPatch, TagRepo, TagView};
 pub use timeline::{Geometry, GeometryRecord, GeometryStamp, MonthBucket, TimelineRepo};
 pub use totp::{TotpConfirmed, TotpRepo, TotpSetup, TotpStatus};
 pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
@@ -105,7 +116,7 @@ const LIBRARY_STORAGE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 // sqlx::migrate! incorpora i file a compile time: toccare questo modulo
 // quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0042_operations.
+// rivede la directory. 0043_ai_embeddings_tags; 0044_culling_root_folder.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]

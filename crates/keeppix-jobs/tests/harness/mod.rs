@@ -3,6 +3,8 @@
 //! Il container Postgres è uno per processo: il costo del boot si paga una
 //! volta, l'isolamento resta un `CREATE DATABASE` per test.
 
+#![allow(dead_code)]
+
 use std::time::Duration;
 
 use keeppix_db::Db;
@@ -21,6 +23,7 @@ pub struct TestDb {
 }
 
 static SHARED: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
+static SHARED_VECTOR: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
 
 impl TestDb {
     /// # Panics
@@ -33,6 +36,23 @@ impl TestDb {
         let db = Db::connect(&provisioned.url, 5).await.expect("connessione");
         db.migrate().await.expect("migrazioni");
 
+        Self {
+            db,
+            database_url: provisioned.url,
+            admin_url: provisioned.admin_url,
+            db_name: provisioned.name,
+        }
+    }
+
+    /// Postgres con pgvector (`keeppix-db:dev`) per i test AI (Fase 7 Task 5+).
+    ///
+    /// # Panics
+    /// Se l'immagine non parte o le migrazioni falliscono.
+    #[allow(clippy::expect_used, dead_code)]
+    pub async fn start_with_vector() -> Self {
+        let provisioned = provision_with_vector().await;
+        let db = Db::connect(&provisioned.url, 5).await.expect("connessione");
+        db.migrate().await.expect("migrazioni");
         Self {
             db,
             database_url: provisioned.url,
@@ -119,6 +139,11 @@ pub async fn seed_user(
 /// processo, e un `CREATE DATABASE` per test. Il boot del container è la
 /// parte lenta; condividerlo è il checkpoint prestazioni della 1a.
 ///
+/// Fase 7: i test di questo crate restano su `PostGIS` senza pgvector.
+/// Lo schema AI (`0043`) è un no-op se `vector` non è installabile, quindi
+/// migrate non fallisce. Compose bundled costruisce `Dockerfile.db`
+/// (`PostGIS` + pgvector); i test di schema AI vivono in `keeppix-db`.
+///
 /// Percorso alternativo, attivo **solo** se `KEEPPIX_TEST_DATABASE_URL` è
 /// impostata: si usa il server già in ascolto, stesso `CREATE DATABASE`.
 #[allow(clippy::expect_used)]
@@ -142,6 +167,51 @@ async fn provision() -> ProvisionedDb {
         .await;
 
     named_database(admin_url).await
+}
+
+/// Come [`provision`], ma su `keeppix-db:dev` (`PostGIS` + pgvector) per i test
+/// che scrivono `asset_embeddings`.
+#[allow(clippy::expect_used)]
+async fn provision_with_vector() -> ProvisionedDb {
+    if let Ok(server_url) = std::env::var("KEEPPIX_TEST_DATABASE_URL")
+        && server_offers_vector(&server_url).await
+    {
+        return named_database(&server_url).await;
+    }
+
+    let (_container, admin_url) = SHARED_VECTOR
+        .get_or_init(|| async {
+            let container = Postgres::default()
+                .with_tag("dev")
+                .with_name("keeppix-db")
+                .start()
+                .await
+                .expect(
+                    "avvio del container Postgres (keeppix-db:dev); \
+                     costruiscilo con: docker build -f Dockerfile.db -t keeppix-db:dev .",
+                );
+            let port = mapped_port(&container).await;
+            let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+            (container, url)
+        })
+        .await;
+
+    named_database(admin_url).await
+}
+
+#[allow(clippy::expect_used)]
+async fn server_offers_vector(server_url: &str) -> bool {
+    let Ok(mut conn) = PgConnection::connect(server_url).await else {
+        return false;
+    };
+    let offered = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap_or(false);
+    conn.close().await.ok();
+    offered
 }
 
 /// Docker Desktop a volte espone la porta un attimo dopo `start()`. Senza

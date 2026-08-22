@@ -114,6 +114,7 @@ pub async fn start_scan(server: &TestServer, library_id: &str) {
 }
 
 fn ingest_pool(server: &TestServer) -> WorkerPool<IngestHandler> {
+    let tracker = std::sync::Arc::new(ActivityTracker::new());
     let handler = IngestHandler {
         db: server.db.clone(),
         data_dir: server.data_dir.clone(),
@@ -121,11 +122,12 @@ fn ingest_pool(server: &TestServer) -> WorkerPool<IngestHandler> {
         trash_retention_days: keeppix_db::TRASH_RETENTION_DAYS,
         database_url: server.database_url.clone(),
         config_path: None,
+        activity: tracker.clone(),
     };
     WorkerPool::new(
         server.db.clone(),
         handler,
-        std::sync::Arc::new(ActivityTracker::new()),
+        tracker,
         512 * 1024 * 1024,
         keeppix_jobs::default_night_window(),
         std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -134,10 +136,14 @@ fn ingest_pool(server: &TestServer) -> WorkerPool<IngestHandler> {
 
 #[allow(clippy::expect_used)]
 async fn pending_jobs(server: &TestServer) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM jobs WHERE status IN ('pending','running')")
-        .fetch_one(server.db.pool())
-        .await
-        .expect("pending jobs")
+    sqlx::query_scalar(
+        "SELECT count(*) FROM jobs \
+         WHERE status = 'running' \
+            OR (status = 'pending' AND run_after <= now())",
+    )
+    .fetch_one(server.db.pool())
+    .await
+    .expect("pending jobs")
 }
 
 #[allow(clippy::expect_used)]

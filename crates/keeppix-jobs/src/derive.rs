@@ -30,6 +30,11 @@ pub async fn run(db: &Db, data_dir: &std::path::Path, hash: [u8; 32]) -> Result<
     assets
         .set_thumbhash_for_hash(&hash, &result.thumbhash)
         .await?;
+    // Foto nuova (o ricalcolo derive): accoda un lotto AI ad alta priorità,
+    // solo se i pesi CLIP sono presenti — altrimenti retry inutili in coda.
+    if keeppix_media::first_complete_model_dir().is_some() {
+        crate::embed::enqueue_after_ingest(db).await?;
+    }
     Ok(())
 }
 
