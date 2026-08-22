@@ -54,24 +54,6 @@ fn list_lots fase-9
 # stesso task. Consumatore: i pulsanti "Scelta"/"Scarta" della schermata
 # Culling di Fase 11.
 fn set_pick fase-9
-# RenameRepo::preview / RenameRepo::apply (rename.rs, Task 8): calcolo dei
-# nomi risultanti e applicazione reale con audit per l'annullamento.
-# check-wired.py non li segnala, ma `preview`/`apply` sono nomi generici
-# condivisi con altre funzioni reali del codebase (es. TimezoneChangePreview,
-# OverrideRepo::apply) — count_ident conta l'identificatore testuale ovunque
-# appaia, non la funzione specifica. `grep -rn 'RenameRepo' crates` conferma:
-# nessun uso fuori da rename.rs stesso, il suo re-export in lib.rs, e i test
-# di questo task. Consumatore reale: l'endpoint di rinomina di massa del
-# Task 10 di questa stessa fase ("Operazioni lunghe"), che avvolge il
-# risultato in BulkOutcome/BulkFailure (stesso involucro della Fase 10).
-fn preview fase-9
-fn apply fase-9
-# RenameRepo::undo (rename.rs, Task 9): annulla un batch di rinomina.
-# check-wired.py non la segnala nonostante zero chiamanti reali (`grep -rn
-# '\.undo(' crates`, solo i test) — stesso genere di falso positivo di
-# preview/apply sopra. Consumatore reale: lo stesso endpoint di rinomina di
-# massa del Task 10, il pulsante "Annulla" del toast dopo l'applicazione.
-fn undo fase-9
 # empty_skipped (culling.rs, Task 4): "Svuota scartati" — cancellazione
 # definitiva del contenuto di `_skipped` in un lotto. check-wired.py la
 # segnala correttamente (nessun falso positivo qui). Consumatore: il
@@ -102,6 +84,14 @@ route /users/me/sessions/revoke-others fase-11
 route /users/me/sessions/{id} fase-11
 route /assets/batch/delete fase-11
 route /shared-with-me fase-11
+# Rinomina con formula in blocco (Fase 9 Task 10): API pronta, montata su
+# RenameRepo::preview/apply/undo (rename.rs) — nessun falso positivo qui,
+# check-wired.py la segnala correttamente. Consumatore: la schermata di
+# rinomina di massa della Fase 11, stessa forma delle altre rotte batch qui
+# sopra.
+route /assets/batch/rename/preview fase-11
+route /assets/batch/rename fase-11
+route /assets/batch/rename/{batch_id}/undo fase-11
 # set_phase: avanzamento operazioni lunghe (Task 16); il frontend legge lo
 # stato via WS operation.progress e cancel, non chiama set_phase direttamente.
 fn set_phase fase-11

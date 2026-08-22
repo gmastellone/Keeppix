@@ -934,3 +934,109 @@ Verifica eseguita:
 
 Task 9: complete. Chiude il Gruppo C (Tasks 6-9) della fase.
 
+### Task 10 — Operazioni lunghe (avanzamento/annullamento) e la superficie API
+
+`OperationKind` guadagna una quarta variante, `BulkRename`, riusando
+l'involucro `Operation`/`operation.progress`/`cancel` già in piedi per
+`LibraryScan`/`AiAnalysis`/`FaceDetection` (Fase 10 Task 16) — nessuna
+modifica al protocollo, come il modulo doc di `operation.rs` prevedeva
+già. Verifica preliminare: una ricerca dedicata ha trovato che il piano
+e lo stesso commento di modulo erano superati (`AiAnalysis`/
+`FaceDetection` erano già arrivate in Fase 7/8), evitando di scrivere
+Task 10 sull'assunto sbagliato "unica variante esistente".
+
+**Ruling — chi crea l'`Operation`, e quando.** Il primo disegno faceva
+creare l'operazione al chiamante, che ne passava l'id come
+`Option<OperationId>` a `apply`/`undo`. Scartato prima di scrivere i
+test: se `compute()` (per `apply`) o il controllo di proprietà del batch
+(per `undo`) falliscono con un `Err` *dopo* che il chiamante ha già
+creato l'operazione ma *prima* che `apply`/`undo` la chiudano,
+l'operazione resta bloccata su `running` per sempre — fantasma sul
+`WebSocket`, senza che nessuno possa più chiuderla. Fix: `apply`/`undo`
+prendono un `track_operation: bool` e creano l'`Operation` **al loro
+interno**, solo dopo che tutti i controlli fallibili a monte sono già
+passati (permesso/ambito per `apply`; lookup/proprietà del batch per
+`undo`) — un errore precoce non arriva mai a crearla. Un secondo caso
+dello stesso difetto, più sottile, è stato preso nel ramo "già
+annullato" di `undo`: anche lì un'operazione appena creata va chiusa
+`Done` subito (nessun giro da fare), non lasciata `running`. L'id torna
+al chiamante dentro i nuovi campi `operation_id: Option<OperationId>` su
+`RenameBatchOutcome`/`RenameUndoOutcome`.
+
+Da lì, `apply`/`undo` fanno anche da "worker" della propria operazione —
+diversamente da `LibraryScan`/`AiAnalysis`/`FaceDetection`, guidate da un
+job di `keeppix-jobs`: la rinomina è sincrona dentro la richiesta HTTP
+(ogni passo è un `move_asset`, veloce, nessuna inferenza di modello).
+Totale e fase impostati prima del giro (`"renaming"`/`"undoing"`),
+`is_cancel_requested` interrogato fra un asset e il successivo,
+`finish_done`/`finish_cancelled` chiuso dalla stessa funzione — nessun
+worker esterno. **Ruling (già scritto in `operation.rs`, confermato qui
+per `BulkRename`): annullare a metà è una riuscita parziale, non un
+rollback** — gli asset già rinominati/ripristinati restano tali, il giro
+si ferma al prossimo elemento.
+
+Superficie API (il chiamante reale, non solo i test): `crates/keeppix-
+api/src/routes/rename.rs`, tre rotte sincrone nello stesso stile di
+`metadata::apply_batch` — `POST /assets/batch/rename/preview`, `POST
+/assets/batch/rename`, `POST /assets/batch/rename/{batch_id}/undo`.
+`apply`/`undo` sono chiamate sempre con `track_operation = true`: è la
+rotta HTTP il primo vero consumatore di `OperationKind::BulkRename`,
+quindi `RenameOperationOutcome.operation_id` è `OperationId` non
+opzionale nella risposta, non `Option`. Risposta annidata
+(`{ operation_id, outcome: BulkOutcome }`), non appiattita — un
+`#[serde(flatten)]` su uno schema generato perde i nomi dei campi nel
+documento `OpenAPI`. Wiring completo: router (`lib.rs`), documento
+(`openapi.rs`, `paths`+`components(schemas(...))`), i cinque test che
+`tests/openapi.rs` tiene sincronizzati a mano con il documento generato
+(conteggio operazioni 171→174, elenco `operation_id`, elenco dei path con
+`security`, snapshot committato `docs/api/openapi.json` rigenerato con
+`UPDATE_OPENAPI=1` — cambiamento voluto e additivo, tre operazioni in
+più sotto `/api/v1`, nessuna esistente toccata).
+
+Pulizia di `scripts/wired-exceptions.txt`: le tre righe `fn preview/apply/
+undo fase-9` (falsi positivi di `count_ident` documentati nei Task 8/9)
+sono state rimosse — ora hanno un vero chiamante di produzione. Le tre
+nuove rotte HTTP restano senza consumatore fino alla Fase 11 (nessuna
+schermata di rinomina ancora disegnata): aggiunte come rinvio esplicito
+verso `fase-11`, stessa forma delle altre rotte batch già in coda lì
+(`/assets/batch/delete`, `/shared-with-me`, ...).
+
+Verifica eseguita:
+- `cargo test -p keeppix-db --test rename` → 25/25 verdi (i 19 di Task
+  8/9 + 6 nuovi sotto `operation_tracking`: totale/fasi/successi/`Done`
+  su un `apply` tracciato, lo stesso su `undo`, e un test di
+  concorrenza reale — 200 asset, un task `tokio::spawn` che interroga
+  `list_running` fino a trovare l'operazione `BulkRename` e la annulla
+  mentre `apply` è ancora in corso sul task principale — che verifica
+  `renamed.len() < asset_ids.len()` e `OperationStatus::Cancelled` con
+  `done` concorde al conteggio restituito).
+- `cargo test -p keeppix-api --test rename` (nuovo file) → 4/4 verdi:
+  anteprima che non tocca il disco, applica+traccia un'operazione
+  `Done`+annulla via HTTP, una collisione reale nota solo alla scrittura
+  (Ruling già in `rename.rs`: il gruppo si processa in ordine, il primo
+  vince il nome, il secondo trova già il posto occupato e fallisce con
+  `collision` — non un doppio rifiuto preventivo sul flag `collides`),
+  lotto sopra il tetto duro rifiutato con `400 batch-too-large`.
+- `cargo test -p keeppix-api --test openapi` → 8/8 verdi dopo aver
+  aggiornato i cinque punti che il documento tiene sincronizzati a mano
+  (sopra).
+- `cargo fmt --all --check` → pulito su tutto il workspace.
+- `cargo clippy --workspace --all-targets -- -D warnings` → quattro
+  avvisi reali corretti prima del verde: due cast `usize→i64` senza
+  controllo (`i64::try_from` con errore verso `DbError::Corrupted`,
+  stesso pattern già in uso in `places.rs`), un ordine dei campi del
+  costruttore diverso dalla definizione dello struct, e `undo` sopra le
+  100 righe — risolto estraendo `restore_previous_locations` (il giro
+  per-asset del ripristino) in un metodo privato dedicato, senza
+  cambiare il comportamento.
+- `python3 scripts/check-wired.py` → verde: le tre righe di eccezione
+  rimosse per `preview`/`apply`/`undo` non servivano più (consumatore
+  reale), le tre rotte HTTP aggiunte come rinvio esplicito a `fase-11`.
+
+Debiti dichiarati: nessuno nuovo. Le tre rotte non hanno ancora un
+consumatore frontend — atteso, è lavoro di Fase 11, già registrato in
+`wired-exceptions.txt` invece di lasciato implicito.
+
+Task 10: complete. Chiude il Gruppo D insieme al Task 11 (Documenti e la
+prova che conta), ancora da fare.
+

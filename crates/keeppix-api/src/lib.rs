@@ -331,6 +331,18 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::metadata::undo_batch),
         )
         .route(
+            "/assets/batch/rename/preview",
+            axum::routing::post(routes::rename::preview),
+        )
+        .route(
+            "/assets/batch/rename",
+            axum::routing::post(routes::rename::apply_batch),
+        )
+        .route(
+            "/assets/batch/rename/{batch_id}/undo",
+            axum::routing::post(routes::rename::undo_batch),
+        )
+        .route(
             "/assets/{id}/flags",
             get(routes::flags::get).put(routes::flags::set),
         )

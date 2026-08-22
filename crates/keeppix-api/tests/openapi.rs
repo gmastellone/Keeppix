@@ -244,8 +244,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 171,
-        "il documento deve descrivere centosettantuno operazioni"
+        checked, 174,
+        "il documento deve descrivere centosettantaquattro operazioni"
     );
 }
 
@@ -304,6 +304,9 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/albums/{id}/assets/{asset_id}/position",
             "/api/v1/albums/{id}/refresh",
             "/api/v1/assets/batch/delete",
+            "/api/v1/assets/batch/rename",
+            "/api/v1/assets/batch/rename/preview",
+            "/api/v1/assets/batch/rename/{batch_id}/undo",
             "/api/v1/assets/{id}",
             "/api/v1/assets/{id}",
             "/api/v1/assets/{id}/faces",
@@ -603,6 +606,9 @@ fn operation_ids_are_explicit_and_unique() {
             "places_reverse",
             "places_suggest",
             "problems_list",
+            "rename_apply_batch",
+            "rename_preview",
+            "rename_undo_batch",
             "restore_inspect",
             "restore_restore",
             "saved_searches_create",
@@ -703,8 +709,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 171,
-        "il documento deve descrivere centosettantuno operazioni"
+        checked, 174,
+        "il documento deve descrivere centosettantaquattro operazioni"
     );
 }
 
