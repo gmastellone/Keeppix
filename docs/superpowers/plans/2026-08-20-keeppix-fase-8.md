@@ -35,9 +35,11 @@ Il test va scritto nel **Task 1**, prima del codice che potrebbe violarlo.
 Scrivere il test descritto sopra. Fallirà per assenza di volti: va bene, deve esistere prima.
 
 ### Task 2 — Modelli e misura
-SCRFD (rilevamento) e ArcFace (impronta), via il crate `face_id` — stesso autore e stesso stack
-`ort` di quello della Fase 7. **Misurare su hardware vero** come nel Task 1 della Fase 7, e
-mettere il numero nel ledger.
+**Emendamento 22 agosto: YuNet (rilevamento) e SFace (impronta)**, non SCRFD/ArcFace — i pesi
+InsightFace sono research-only, incompatibili con la doppia licenza commerciale. Fonti, sha256
+e dettagli in `plans/2026-08-22-keeppix-modelli-ai.md` (Task A). Stesso stack `ort` della
+Fase 7. **Misurare su hardware vero** come nel Task 1 della Fase 7, e mettere il numero nel
+ledger.
 
 ### Task 3 — Schema
 `faces` (bbox in coordinate **relative**, `rejected_at` per i falsi positivi, `assigned_by` /

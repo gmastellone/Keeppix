@@ -24,11 +24,23 @@ fase propria. Il resto è la parte facile.
 
 ---
 
+> **⚠️ Emendamento 22 agosto 2026 — i modelli cambiano: YuNet + SFace, non
+> SCRFD + ArcFace.** I pesi InsightFace (SCRFD/ArcFace) sono licenziati
+> *solo per ricerca non commerciale* — incompatibile con la doppia licenza
+> commerciale di Keeppix. Decisione dell'utente: **YuNet** (rilevamento,
+> MIT) + **SFace** (identità, Apache 2.0) dall'OpenCV Zoo — ~9,5 MB totali,
+> sha256 e piano completo in
+> [`../plans/2026-08-22-keeppix-modelli-ai.md`](../plans/2026-08-22-keeppix-modelli-ai.md)
+> (Task A). La struttura della pipeline sotto resta valida (rileva →
+> allinea → impronta 512-d); cambiano i modelli e i dettagli di
+> decodifica/allineamento. Dove questo documento dice SCRFD/ArcFace,
+> leggere YuNet/SFace.
+
 ## 2. La pipeline
 
 ```
-foto ──► SCRFD ──► N riquadri + 5 punti ──► allineamento ──► ArcFace ──► N vettori 512
-         (rileva)      (occhi, naso, bocca)   (Umeyama, 112×112)  (identità)
+foto ──► YuNet ──► N riquadri + 5 punti ──► allineamento ──► SFace ──► N vettori
+         (rileva)      (occhi, naso, bocca)   (posa canonica)   (identità)
                                                                         │
                                                                         ▼
                                               assegnazione incrementale a una persona
@@ -36,12 +48,15 @@ foto ──► SCRFD ──► N riquadri + 5 punti ──► allineamento ─�
 
 ### 2.1 I modelli
 
-- **Rilevamento: SCRFD**, variante **500MF** — progettata per hardware limitato.
-  Restituisce riquadro, confidenza e cinque punti di riferimento.
+- **Rilevamento: YuNet** (OpenCV Zoo, int8, ~100 KB) — leggerissimo, pensato
+  per CPU. Restituisce riquadro, confidenza e cinque punti di riferimento.
+  *(Superseded: SCRFD-500MF — pesi research-only, vedi emendamento sopra.)*
 - **Allineamento: Umeyama** sui cinque punti, verso una posa canonica 112×112.
   Non è un dettaglio: un volto storto produce un embedding peggiore, e la qualità
   del raggruppamento dipende quasi tutta da qui.
-- **Identità: ArcFace**, 512 dimensioni — lo standard di fatto.
+- **Identità: SFace** (OpenCV Zoo, int8, ~9,4 MB, ≈99,3% sul benchmark
+  standard di verifica) — MobileFaceNet addestrato con SFace loss.
+  *(Superseded: ArcFace — pesi research-only, vedi emendamento sopra.)*
 
 Il crate [`face_id`](https://docs.rs/face_id/latest/face_id/) incapsula tutte e
 tre le fasi (stesso autore e stessa base `ort` del crate CLIP della Fase 7:
