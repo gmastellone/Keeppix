@@ -327,3 +327,18 @@ Verifica aggiuntiva con lo sblocco (locale, stesso Postgres):
   tutta questa sessione. Nessun fix necessario né possibile in locale;
   CI gira come utente `runner` non privilegiato su GitHub Actions, dove il
   test funziona come previsto (era già verde prima di questa fase).
+
+## CI reale verde sul branch `fase-9` (Tasks 1-2)
+
+Run `32588634367` (commit `23cd1b4`, terzo tentativo dopo i due difetti
+sopra) — tutti e 5 i job verdi, incluso `backend`/`Test` (l'intera `cargo
+test --workspace`, ~25 min — quindi anche
+`batch_delete_partial_success_when_the_trash_folder_is_not_writable`
+verde per davvero su CI, come previsto: conferma indipendente che il
+fallimento locale era solo l'utente `root` di questo sandbox) e
+`La specifica OpenAPI è aggiornata`. Tasks 1-2 chiusi: primitiva
+`move_asset`, schema/dominio culling root+ruoli, entrambi con CI reale
+verde sul branch, non solo test locali.
+
+Non ancora mergiato in `main` — resta sul branch `fase-9` finché la fase
+non è completa (§10 PROSEGUI.md si applica a fine fase, non a ogni task).
