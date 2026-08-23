@@ -2511,3 +2511,69 @@ Verifica eseguita:
 - `npm run build` → bundle iniziale **117.178/153.600** byte gzip,
   invariato: `classify.ts` non è ancora importato da nessun
   consumatore reale (arriva nel prossimo sotto-passo).
+
+### `stores/upload.ts` — motore esteso (2/N)
+
+Documento §5 (destinazione) e §6.4 (comandi di coda), verificati riga
+per riga contro il motore reale, non riscritto: `addFiles`,
+`pump`, `runUpload` (upload a blocchi, ripresa, pre-check) restano
+intatti.
+
+**`stickyDestination`** (nuovo, `computed`): la sessione non conclusa
+con una cartella già assegnata, se esiste — implementa da sola la
+regola 3 del §5 ("non si ridirigono file già partiti"). `addFiles`
+ora accetta un `explicitFolderId` opzionale (`null` di default): se
+assente, ricade su `stickyDestination`. Copre le regole 1 e 3;
+la regola 1 (contesto esplicito di cartella) resta **oggi
+irraggiungibile** — nessuna vista porta un "dentro una cartella"
+osservabile, stesso debito già dichiarato nel Task 6 per la timeline
+filtrata — quindi in pratica ogni caricamento passa sempre da
+`stickyDestination` o resta `null` in attesa del chip.
+
+**`setDestination(folderId)`** (nuovo): assegna la cartella a ogni
+sessione ancora "queued" senza una, poi avvia la coda — l'azione che
+sblocca lo "stato che blocca" del §5, il principio da cui parte
+l'intero documento (§1: "il difetto tecnico diventa la spina dorsale
+dell'interfaccia").
+
+**`pauseAll`/`resumeAll`/`cancelAll`** (nuovi, §6.4): comandi di coda,
+distinti dai `pause(id)`/`resume(id)` per singola sessione già
+esistenti. `cancelAll` non può interrompere un `fetch()` già in volo
+(nessun `AbortController` in `api/upload.ts`, dichiarato nel commento
+del codice, non nascosto) — ferma solo il prossimo blocco tramite un
+insieme di id marcati, controllato a ogni giro del ciclo in
+`runUpload`. "Azzera la destinazione" (§6.4) non è un'azione a parte:
+è una conseguenza di svuotare `sessions`, da cui `stickyDestination`
+torna da sola a `null`.
+
+**Bug reale trovato rileggendo il documento**, non nel codice nuovo:
+`removeCompleted()` filtrava via solo `done` e `skipped`, non
+`error` — il documento dice esplicitamente "Rimuove concluse, saltate
+**ed errate**" (§6.4). Con anche un solo caricamento in errore in
+coda, "a coda vuota il pannello si chiude da solo" non si sarebbe mai
+verificato. Corretto.
+
+**Riorganizzazione dei test**: i cinque test del motore vivevano dentro
+`UploadPanel.spec.ts` (nome fuorviante, non testava solo il
+componente). Spostati in un nuovo `stores/upload.spec.ts` — non
+duplicati — insieme ai test nuovi; `UploadPanel.spec.ts` ora testa
+solo il componente.
+
+Verifica eseguita:
+- `stores/upload.spec.ts` (nuovo, 5 test spostati + 9 nuovi) → 14/14
+  verdi: precedenza 1 assente per costruzione (nessun contesto);
+  `setDestination` assegna e avvia; un file aggiunto a coda in corso
+  eredita la destinazione (regola 3); un file aggiunto a coda
+  **conclusa** non eredita una destinazione stantia (regola 2);
+  `pauseAll`/`resumeAll` (incluso il caso "File perso a un refresh" già
+  noto per `resume()` singolo); `cancelAll` svuota la coda e la
+  destinazione torna `null` da sola; `removeCompleted` rimuove anche
+  le sessioni in errore (il bug corretto sopra).
+- `UploadPanel.spec.ts` (ridotto al solo test del componente) → 1/1
+  verde.
+- `npx vitest run` (suite intera) → 65 file, 446/446 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file toccati → pulito.
+- `npm run build` → bundle iniziale **117.173/153.600** byte gzip,
+  sostanzialmente invariato: `stores/upload.ts` resta dietro
+  `UploadPanel.vue`, ancora un `defineAsyncComponent` in `App.vue`.
