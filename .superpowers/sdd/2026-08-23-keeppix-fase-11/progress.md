@@ -414,3 +414,70 @@ Debiti dichiarati: tredici componenti del Task 2 restano da scrivere
 `SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
 `DeleteDialog`, `ConfirmDialog`, `SegmentedControl`, `NavGroup`,
 `LoadingSkeleton`).
+
+### ConfirmDialog (SP-5) e DeleteDialog (SP-18)
+
+Sesto e settimo componente del Task 2, presi insieme: entrambi si
+costruiscono **sopra** `Dialog.vue`, non lo reimplementano — esattamente
+il punto del piano ("i ventiquattro dialog... si costruiscono sopra due
+soli componenti"). Comportamento verificato riga per riga contro le due
+funzioni vanilla-JS del prototipo, non assunto dal nome:
+
+- **`ConfirmDialog`** — `openConfirmDialog` (righe 6361-6385 del
+  mockup): titolo, sottotitolo, un bottone di conferma rosso
+  (`confirmLabel`, tipicamente distruttivo) e "Annulla". Il fuoco
+  iniziale va su **"Annulla"**, non sulla conferma — passato a `Dialog`
+  via `initialFocus`, la stessa prop e la stessa eccezione deliberata
+  già implementata e testata per `DeleteDialog` sotto.
+- **`DeleteDialog`** — `openDeleteDialogGeneric` (righe 4135-4164): la
+  scelta a tre vie per eliminare (rimuovi dall'indice / cestino /
+  disco), testo fisso di premessa ("Keeppix chiede sempre come
+  procedere..."), terza opzione in rosso. Il fuoco iniziale va sulla
+  **prima** opzione (rimuovi dall'indice, la meno distruttiva) — non
+  "la prima tabbable per caso", una scelta esplicita via `initialFocus`
+  che il piano vincola.
+
+Entrambi emettono un evento (`confirm` / `choose`) invece di accettare
+un callback come il prototipo vanilla-JS: idiomatico Vue, non una
+libertà presa a caso. Nuova chiave `ui.dialog.cancel` ("Annulla"/
+"Cancel", condivisa dai due) e namespace `ui.deleteDialog.*` (premessa
++ tre coppie etichetta/dettaglio, testo preso parola per parola dal
+prototipo, non riassunto).
+
+**Bug trovato scrivendo i test, non nei componenti**: la prima stesura
+montava ciascun dialog da solo con una prop `open` statica. `open` è
+una prop v-model **obbligatoria**: `defineModel` la sincronizza solo se
+un genitore reattivo la riscrive davvero dall'esterno in risposta
+all'evento emesso — una prop statica (con o senza un ascoltatore
+`onUpdate:open` a vuoto) non è quel genitore, quindi cliccare "Annulla"
+non chiudeva mai il dialog nel test (falso negativo, non un difetto del
+componente). Corretto con un componente ospite che possiede `open`
+come proprio `ref` — stesso schema già usato dal test "v-model:open"
+di `Popover.spec.ts`, esteso qui al caso in cui è il *figlio* a
+richiedere la chiusura, non il chiamante del test.
+
+**Secondo bug, stessa causa radice**: senza smontare esplicitamente
+ogni wrapper (`wrapper.unmount()` in un `afterEach`), il markup
+teletrasportato di un test restava nel vero `document.body` per il
+test successivo — che poteva trovare (e cliccare) il bottone del test
+sbagliato, dando esiti incoerenti da un tentativo all'altro. Lo stesso
+`DialogPortal` di reka-ui che rende falsi i test scritti senza questa
+accortezza in ogni componente-dialog di questa sessione.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/ConfirmDialog.spec.ts src/
+  components/ui/DeleteDialog.spec.ts` → 6/6 verdi (dopo le due
+  correzioni sopra): fuoco iniziale su "Annulla"/prima opzione, emit +
+  chiusura sulla scelta, chiusura senza emit su "Annulla".
+- `npx vitest run` (suite intera) → 172/172 verdi — compreso il test di
+  parità delle chiavi `it.json`/`en.json`.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **92.573/153.600** byte gzip
+  (script CI): nessuna schermata reale li importa ancora. Margine
+  ampio (61.027 byte).
+
+Debiti dichiarati: undici componenti del Task 2 restano da scrivere
+(`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
+`SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
+`SegmentedControl`, `NavGroup`, `LoadingSkeleton`).

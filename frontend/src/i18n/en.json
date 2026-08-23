@@ -1,11 +1,26 @@
 {
   "app": { "name": "Keeppix" },
   "ui": {
-    "dialog": { "close": "Close" },
+    "dialog": { "close": "Close", "cancel": "Cancel" },
     "toast": {
       "retry": "Retry",
       "retryRemaining": "Retry the {n} remaining",
       "partial": "{ok} of {total} completed — {n} failed."
+    },
+    "deleteDialog": {
+      "description": "Keeppix always asks how to proceed — there is no implicit default.",
+      "index": {
+        "label": "Remove from index only",
+        "hint": "The file stays on disk and will be re-indexed on the next folder scan."
+      },
+      "trash": {
+        "label": "Move to Keeppix trash",
+        "hint": "Moved to .keeppix-trash in the same library. Recoverable for 30 days."
+      },
+      "disk": {
+        "label": "Delete from disk now",
+        "hint": "Irreversible: the file is permanently deleted."
+      }
     }
   },
   "setup": {

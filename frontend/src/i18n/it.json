@@ -1,11 +1,26 @@
 {
   "app": { "name": "Keeppix" },
   "ui": {
-    "dialog": { "close": "Chiudi" },
+    "dialog": { "close": "Chiudi", "cancel": "Annulla" },
     "toast": {
       "retry": "Riprova",
       "retryRemaining": "Riprova le {n} rimaste",
       "partial": "{ok} su {total} completate — {n} non è riuscita. | {ok} su {total} completate — {n} non sono riuscite."
+    },
+    "deleteDialog": {
+      "description": "Keeppix chiede sempre come procedere — non c'è un comportamento predefinito implicito.",
+      "index": {
+        "label": "Rimuovi solo dall'indice",
+        "hint": "Il file resta sul disco, verrà re-indicizzato alla prossima scansione della cartella."
+      },
+      "trash": {
+        "label": "Sposta nel cestino di Keeppix",
+        "hint": "Spostato in .keeppix-trash nella stessa libreria. Recuperabile per 30 giorni."
+      },
+      "disk": {
+        "label": "Elimina dal disco adesso",
+        "hint": "Azione irreversibile: il file viene cancellato definitivamente."
+      }
     }
   },
   "setup": {
