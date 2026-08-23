@@ -165,4 +165,25 @@ describe('PhotoTile', () => {
     expect(wrapper.emitted('toggle-select')).toBeUndefined()
     vi.useRealTimers()
   })
+
+  it('paints the thumbhash placeholder under the real thumbnail, decorative and requestless', () => {
+    const wrapper = mount(PhotoTile, {
+      props: { ...BASE_PROPS, placeholderUrl: 'data:image/png;base64,AAA' },
+      global: { plugins: [i18n] }
+    })
+    const placeholder = wrapper.find('img[aria-hidden="true"]')
+    expect(placeholder.attributes('src')).toBe('data:image/png;base64,AAA')
+  })
+
+  it('has no placeholder image when the caller does not pass one (no thumbhash on the asset)', () => {
+    const wrapper = mount(PhotoTile, { props: BASE_PROPS, global: { plugins: [i18n] } })
+    expect(wrapper.find('img[aria-hidden="true"]').exists()).toBe(false)
+  })
+
+  it('the real thumbnail is lazy and async-decoded, off the critical rendering path', () => {
+    const wrapper = mount(PhotoTile, { props: BASE_PROPS, global: { plugins: [i18n] } })
+    const real = wrapper.find('img[src="/thumb.jpg"]')
+    expect(real.attributes('loading')).toBe('lazy')
+    expect(real.attributes('decoding')).toBe('async')
+  })
 })

@@ -61,6 +61,16 @@ describe('LruPageCache', () => {
     expect(cache.size).toBe(0)
   })
 
+  it('clear() empties the cache outright', () => {
+    const cache = new LruPageCache<string, number>(2)
+    cache.set('a', 1)
+    cache.set('b', 2)
+    cache.clear()
+    expect(cache.size).toBe(0)
+    expect(cache.has('a')).toBe(false)
+    expect(cache.has('b')).toBe(false)
+  })
+
   it('rejects a capacity below 1', () => {
     expect(() => new LruPageCache(0)).toThrow(RangeError)
   })

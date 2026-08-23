@@ -1441,3 +1441,197 @@ Debito dichiarato, invariato dal passo precedente: nessuno dei tre
 moduli (`geometry.ts`, `virtualize.ts`, `pageCache.ts`) è ancora usato
 da `TimelineView.vue`. Prossimo passo: la riscrittura della vista
 stessa, l'unico pezzo che rimane.
+
+### Terzo e ultimo passo: la riscrittura di TimelineView.vue
+
+Prima di toccare la vista, trovata in `docs/ui/keeppix-mockup.html` una
+implementazione di riferimento del meccanismo intero (`planPhotoRows`/
+`planStream`/`syncStreamWindow`/`mountPhotoStream`, righe 4564-4776,
+con tanto di commento che descrive esattamente questo task) — verificata
+come fonte per le costanti, non stimate: `GRID_GAP=6` (`justify.ts`
+usava `4`, **senza alcuna fonte** — bug reale, corretto insieme a
+questo task, non un nuovo valore inventato), `MONTH_HEAD_H=29`,
+`MONTH_GAP=26`, `STREAM_OVERSCAN=1.25`, e la formula esatta di
+`targetRowHeight`: `max(64, (larghezza - gap) / colonne / 1.3)` — la
+vista precedente usava `max(48, larghezza/densità)`, un'approssimazione
+senza fonte anch'essa corretta ora. Nuovo modulo `timeline/stream.ts`
+(`planStream`, guidato dai confini di mese della *geometria* stessa, non
+dall'elenco dei bucket — quest'ultimo alimenta solo l'etichetta del
+conteggio, con ripiego sulla lunghezza del segmento se un mese manca).
+
+Letto anche lo scrubber del mockup riga per riga (§8.3 del documento
+funzionale + mockup righe 1579-1624), non riscritto a memoria dalla
+versione precedente: due divergenze reali trovate e corrette.
+`monthAtOffset` pesava per `count` — il documento è testuale:
+"i mesi sono equidistanti sulla barra anche se uno contiene 5 foto e un
+altro 300" — riscritto come indice equidistante
+(`round(ratio*(n-1))`, la stessa formula del prototipo). Le etichette
+delle tick (`yearLabel`, che mostrava l'ANNO) sono state sostituite da
+`monthAbbrev`/`monthFull`: il prototipo usa una tabella `MONTHS`/
+`MONTHS_FULL` di stringhe italiane scritte a mano, ma l'app supporta
+IT/EN — un nome di mese è testo localizzato come ogni altro, quindi
+`Intl.DateTimeFormat(locale, {month:'short'|'long', timeZone:'UTC'})`
+al suo posto (verificato con `node -e` contro entrambe le lingue prima
+di scrivere i test: "lug"/"luglio 2026" vs "Jul"/"July 2026";
+`timeZone:'UTC'` esplicito perché altrimenti un fuso negativo potrebbe
+leggere il giorno prima del mese costruito).
+
+**Tolto, non portato avanti** (tre comportamenti dell'implementazione
+pre-Task-4 verificati contro il documento funzionale e risultati non
+canonici): il raggruppamento per giorno dentro il mese (§8: "Nessun
+raggruppamento per giorno", testuale — l'algoritmo giustificato ora
+lavora sull'intero mese, non spezzato per giornata); l'intestazione di
+mese `sticky` durante lo scroll (§8: "le `.month-head` scorrono via
+normalmente"); il filtro "Tutti/Foto/Video" — verificato che non è nel
+documento per questa schermata (§8, l'intera sezione "Cosa mostra" non
+lo nomina) né una delle sei dimensioni di SP-3 (§11: quella lista usa
+"Tipo" per RAW/JPEG, un asse completamente diverso, dedotto da
+`stackType` — non foto/video) — non uno scopo ridotto, un
+comportamento senza fonte rimosso.
+
+**Messo al lavoro, non solo costruito**: `PhotoTile` (Task 2, SP-1),
+mai importato da nessuna vista reale finora, ora è la tessera vera
+della timeline al posto del markup `<article>` scritto a mano che
+c'era prima — che non era nemmeno raggiungibile da tastiera (nessun
+`tabindex`, nessun `<button>`). Esteso con una prop `placeholderUrl`
+(nuova, con relativo test): il "primo fotogramma non scarica nessuna
+miniatura" (piano Task 4.7) richiede due `<img>` sovrapposti, che
+`PhotoTile` non aveva. `stackType`/`favorite` richiedevano due campi
+mai portati sul frontend nonostante il backend li avesse già
+(`AssetView.raw_kind`/`.favorite`) — aggiunti a `TimelineAsset` come
+campi additivi, con tutte le fixture di test esistenti aggiornate (5
+file). Il toggle preferito resta **non cablato** qui: verificato nel
+piano che "Preferiti, selezione multipla" sono esplicitamente Task 7
+(Tranche B), non Task 4 — solo la resa (`isFavorite`) è cablata,
+`@toggle-favorite` non è nemmeno ascoltato. Stesso confine per
+`selected`/`selectionMode`, sempre `false` qui.
+
+**Priorità di generazione senza `IntersectionObserver`**: il piano
+(Task 4.6) lo nomina esplicitamente come meccanismo, ma con la
+geometria già nota per ogni riga non serve osservare il DOM per sapere
+cosa è davvero visibile — la stessa matematica del virtualizzatore con
+`overscan:0` (invece del margine usato per montare le righe) dà la
+finestra vera con precisione esatta, non un'approssimazione a soglie.
+Scelta dichiarata, non un'omissione: più semplice da testare (nessun
+mock di `IntersectionObserver`) ed esatta invece che approssimata.
+
+**Fuoco perso allo smontaggio di una riga** (§66.5, punto di attenzione
+esplicito del documento — "non coperto dal prototipo"): un
+`watch(mountedRange, ...)` (flush di default `'pre'`, quindi prima che
+Vue rimuova la riga dal DOM) sposta il fuoco sul contenitore di
+scorrimento (`tabindex="-1"`, mai nell'ordine di tabulazione normale)
+se l'elemento attivo appartiene a una riga (`data-row-index`) che sta
+per uscire dall'intervallo montato.
+
+**`ResizeObserver`** al posto di `window.resize` (piano Task 4.4):
+osserva `gridEl`, ricalcola larghezza (letta da un div interno
+`contentEl`, separato dal contenitore di scorrimento apposta — vedi
+sotto) e altezza del viewport. Guardia esplicita
+`typeof ResizeObserver !== 'undefined'`, stesso trattamento già dato a
+`IntersectionObserver` nella versione precedente.
+
+**Riga fade-in** (§66.6, 0.18s, disattivata sotto
+`prefers-reduced-motion`): `--duration-tile-in` esisteva già nel Task 1
+con un commento che descriveva esattamente questo uso ("comparsa
+tessera dopo il caricamento") — evidentemente previsto in anticipo.
+Nuova classe globale `.stream-row`/`kpx-fade-in` in `style.css`, stessa
+categoria di `.spinner`/`.skel` (un'animazione per evento, non una
+`transition` di stato — fuori dalla palette del Task 1 per lo stesso
+motivo). Nessuna eccezione sotto `prefers-reduced-motion` necessaria:
+la regola generale già la disattiva, ed è pura decorazione qui — non
+l'unico segnale di un'azione in corso come lo spinner.
+
+Bug reali trovati e corretti durante la scrittura, non nei moduli puri
+già testati ma nell'integrazione:
+- **Padding e larghezza di layout**: mettere `px-4` direttamente sul
+  contenitore di scorrimento (`gridEl`) avrebbe fatto leggere
+  `clientWidth` **comprensivo** del padding orizzontale, facendo
+  traboccare le righe posizionate in assoluto oltre il bordo destro.
+  Corretto separando il contenitore di scorrimento (nessun padding, solo
+  `overflow-auto`) da un `<div>` interno col padding e da un ulteriore
+  `contentEl` misurato per la larghezza — nessuna lettura di
+  `getComputedStyle` necessaria (che in un test montato senza un vero
+  motore CSS avrebbe restituito stringhe vuote per una classe Tailwind).
+- **`ref<TimelineGeometry>` smontava l'istanza**: `vue-tsc` rifiutava
+  `planStream(geometry.value, …)` con un errore che descriveva
+  `TimelineGeometry` come un tipo strutturale senza il campo privato
+  `view` — `UnwrapRef` di Vue smonta un'istanza di classe proprietà per
+  proprietà quando è dentro un `ref()` semplice, perdendo l'identità
+  nominale. Corretto con `shallowRef`, anche semanticamente giusto: un
+  blob binario immutabile non ha bisogno di reattività profonda.
+- **`v-bind` su un oggetto possibilmente `undefined`**: passare
+  `cellProps(...)` (che può restituire `undefined` se l'asset non è
+  ancora in cache) direttamente a `v-bind` rendeva OGNI prop di
+  `PhotoTile` opzionale agli occhi di TypeScript, comprese quelle
+  obbligatorie. Corretto con `resolvedTiles(row)`, che filtra le celle
+  già risolte prima del `v-for` — nessuna tessera "vuota" da disegnare,
+  la riga resta più sparsa per un istante se il mese non è ancora
+  caricato (l'altezza è già riservata dalla geometria, nessuno
+  spostamento di layout).
+- **`currentIndex` dello scrubber azzerato dal test da tastiera**: la
+  prima versione derivava l'indice corrente da un rapporto
+  `scrollTop/(totalHeight-viewportHeight)` — quando il contenuto
+  caricato è più basso del viewport (una libreria corta; qui, nel
+  test), quel rapporto è indefinito e veniva forzato a 0 sempre, anche
+  subito dopo un salto a tastiera esplicito a un mese preciso. Non è
+  nemmeno l'inverso esatto di `jumpToMonth`, che scrolla a una
+  posizione in pixel precisa, non a un rapporto. Corretto: il mese
+  "corrente" è l'ultimo la cui intestazione ha già superato la cima del
+  viewport (derivato da `monthTop`, la stessa mappa usata da
+  `jumpToMonth`) — coerente per costruzione con qualunque salto, non
+  solo un'approssimazione che a volte coincide.
+
+Debiti dichiarati verso le Tranche successive, non scoperti ora:
+- Task 7 (Tranche B) possiede "Preferiti, selezione multipla" — qui
+  solo la resa (`isFavorite`), non l'azione.
+- La navigazione precedente/successiva del lightbox resta limitata ai
+  mesi attualmente in cache (`loadedAssets`, la concatenazione dei mesi
+  residenti in `pageCache`) — stesso limite già dichiarato prima del
+  Task 4 per l'avvio del culling, ora esplicitamente esteso anche qui:
+  al bordo di un mese caricato, "successiva" può non trovare nulla
+  anche se la foto esiste, semplicemente non è ancora in cache.
+- Un evento live (`resync`/`assets.upserted`/`assets.deleted`) fa
+  ripartire da zero sia `fetchBuckets` sia `fetchGeometry` — su una
+  libreria da 214.000 scatti quest'ultima può pesare qualche MB anche
+  quando l'`ETag` non coincide più per un singolo asset toccato. Nessun
+  numero misurato qui (richiederebbe un backend reale con quella scala),
+  quindi nessuna ottimizzazione tentata alla cieca — annotato come nota
+  architetturale aperta, non ignorato.
+
+Verifica eseguita:
+- `TimelineView.spec.ts` (riscritto per intero) → 12/12 verdi:
+  paginazione di un bucket fino a cursore esaurito (ora innescata
+  dall'intervallo montato dal virtualizzatore, non più da
+  `IntersectionObserver` su `[data-month]`); l'altezza totale scrollabile
+  combacia esattamente con `planStream` calcolato a parte con gli stessi
+  parametri (la verifica esplicita chiesta dal piano); raggruppamento
+  solo per mese (nessun `<h3>` di giorno); bbox passato a tutte e tre le
+  chiamate; apertura/chiusura/ricaricamento del lightbox via URL (Task 3,
+  ora su `PhotoTile` invece di `article`); eventi live; **virtualizzazione
+  reale**: una libreria sintetica da 2.000 scatti (40 mesi × 50) monta un
+  numero di `PhotoTile` maggiore di zero ma **minore del totale** — la
+  verifica di scala del piano applicata all'integrazione, non solo ai
+  moduli puri; scrubber raggiungibile da tastiera (`role="slider"`,
+  `tabindex="0"`, End salta all'ultimo mese e aggiorna
+  `aria-valuenow`/`aria-valuetext`).
+- `npx vitest run` (suite intera) → 53 file, 319/319 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/modificati → pulito (un warning
+  `vue/require-default-prop` su `placeholderUrl` risolto aggiungendolo a
+  `withDefaults`, non ignorato).
+- `npm run build` → bundle iniziale **94.438/153.600** byte gzip
+  (script CI). Margine ampio (59.162 byte) nonostante `PhotoTile` sia
+  ora davvero importato da una vista reale per la prima volta.
+
+## Task 4 — chiuso
+
+Tre passi, tre commit, stessa disciplina del Task 2: decoder della
+geometria + fetch binario; virtualizzatore + cache LRU; riscrittura di
+`TimelineView.vue`. Ogni numero del piano verificato riga per riga
+contro il mockup o il documento funzionale, mai assunto dal solo
+riassunto — due bug reali di vecchia data (`GRID_GAP` senza fonte,
+scrubber pesato per conteggio invece che equidistante) corretti insieme
+al task che li ha fatti emergere, non ignorati perché "non è compito
+di questo task". Debiti verso Task 5 (le tre macchine a stati) e Task 7
+(selezione multipla, preferiti, filtro rapido reale) dichiarati sopra,
+non silenziosi.

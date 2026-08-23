@@ -29,7 +29,9 @@ function photo(id: string, kind = 'image', filename = `${id}.jpg`): TimelineAsse
     taken_at_utc: '2024-07-10T12:00:00Z',
     width: 100,
     height: 100,
-    thumbhash: null
+    thumbhash: null,
+    raw_kind: null,
+    favorite: false
   }
 }
 

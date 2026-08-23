@@ -20,6 +20,11 @@ export type StackType = 'raw_jpeg' | 'raw_only' | 'jpeg'
 const props = withDefaults(
   defineProps<{
     thumbnailUrl: string
+    /** Fase 11 Task 4 (§66.9): l'anteprima sfocata da `thumbhash`, un data
+     * URL già in memoria — nessuna richiesta di rete. Dipinta subito,
+     * sotto la miniatura vera: non serve nasconderla esplicitamente al
+     * caricamento, un `<img>` opaco la copre da sola una volta arrivata. */
+    placeholderUrl?: string
     filename: string
     /** Già formattata dal chiamante (es. "12 luglio 2026") — non
      * l'anno fisso "2026" del prototipo, che è una costante di demo, non
@@ -35,7 +40,7 @@ const props = withDefaults(
      * che non deve reimplementare `matchMedia`. */
     enableLongPress?: boolean
   }>(),
-  { enableLongPress: false }
+  { enableLongPress: false, placeholderUrl: undefined }
 )
 
 const emit = defineEmits<{ open: []; 'toggle-select': []; 'toggle-favorite': [] }>()
@@ -95,9 +100,18 @@ function onOpenClick() {
     :class="selected && 'outline-[2.5px] -outline-offset-[2.5px] outline-accent'"
   >
     <img
+      v-if="placeholderUrl"
+      :src="placeholderUrl"
+      alt=""
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-0 block h-full w-full object-cover"
+    >
+    <img
       :src="thumbnailUrl"
       alt=""
-      class="pointer-events-none block h-full w-full object-cover"
+      loading="lazy"
+      decoding="async"
+      class="pointer-events-none absolute inset-0 block h-full w-full object-cover"
     >
     <button
       type="button"

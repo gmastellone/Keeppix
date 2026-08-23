@@ -17,6 +17,10 @@ export interface TimelineAsset {
   width: number | null
   height: number | null
   thumbhash: string | null
+  /** SP-15 (`AssetView.raw_kind`): `"raw"` / `"jpeg"` / `"raw+jpeg"`, `null`
+   * per un kind che non è né l'uno né l'altro (video, unknown). */
+  raw_kind: string | null
+  favorite: boolean
 }
 
 export interface TimelinePage {

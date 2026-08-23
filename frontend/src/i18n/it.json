@@ -136,13 +136,13 @@
     "move": "Sposta"
   },
   "timeline": {
-    "kind": "Tipo",
-    "kinds": { "all": "Tutti", "photo": "Foto", "video": "Video" },
     "empty": "Nessuna foto in questa libreria.",
     "densityDown": "Meno colonne",
     "densityUp": "Più colonne",
     "mapFilter": "Foto nell'area selezionata sulla mappa.",
-    "clearMapFilter": "Rimuovi area"
+    "clearMapFilter": "Rimuovi area",
+    "monthCount": "{n} scatto | {n} scatti",
+    "scrubber": "Salta a un mese"
   },
   "maps": {
     "entry": "Mappa",
