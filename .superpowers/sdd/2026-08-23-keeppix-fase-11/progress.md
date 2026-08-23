@@ -2703,3 +2703,45 @@ Verifica eseguita:
   quindi trascina con sé `stores/upload.ts` e `upload/classify.ts` nel
   chunk d'ingresso per la prima volta. Scelta dichiarata, non un
   effetto collaterale trovato dopo. Margine ancora ampio (33.595 byte).
+
+### `useUploadPicker.ts` — comando "Carica" (§3.2) e "+" mobile (§3.3) (5/N)
+
+Composable condiviso fra `AppTopbar.vue` (bottone "Carica") e
+`AppMobileHeader.vue` (bottone "+"), scritto una volta sola per
+entrambi i chiamanti invece di due copie dell'input nascosto — stesso
+principio già applicato a `nav/routeTitles.ts` (Task 6 8/N). `accept`
+esatto dell'input nascosto dal mockup (riga 1449): niente RAW —
+solo un suggerimento al sistema operativo, non applicato in modo
+uniforme dai browser, quindi `classifyFiles` resta l'unica barriera
+vera.
+
+Mobile: visibile solo su `/`, `/albums`, `/more` — le sole tre
+destinazioni reali di `MOBILE_UPLOAD_VIEWS` del mockup
+(`['foto','preferiti','album','libreria']`, riga 3286; "Preferiti"
+resta fuori, nessuna vista esiste).
+
+**Bug reale di `vue-tsc`, non del componente, trovato scrivendo
+questo passo**: legare un `ref` restituito da un composable
+(`const { inputEl } = useUploadPicker()`) con `ref="inputEl"` nel
+template compila e funziona a runtime, ma `vue-tsc` lo segnala come
+"mai letto" (`noUnusedLocals`) — la correlazione statica fra un `ref`
+di template e la sua dichiarazione sembra riconoscere solo un `ref()`
+dichiarato localmente, non uno solo ridestrutturato da una funzione.
+Corretto invertendo il controllo: `useUploadPicker(inputEl)` prende il
+`ref` come parametro, dichiarato con `ref()` in ciascun componente
+chiamante — stesso schema già usato altrove nel codebase (`gridEl` di
+`TimelineView.vue`).
+
+Verifica eseguita:
+- `useUploadPicker.spec.ts` (nuovo) → 3/3 verdi.
+- `AppTopbar.spec.ts` (esteso) → 9/9 verdi: il bottone "Carica" apre
+  l'input nascosto e una selezione reale arriva allo store.
+- `AppMobileHeader.spec.ts` (esteso) → 16/16 verdi: il "+" compare
+  solo sulle tre rotte documentate, sparisce altrove, apre l'input e
+  una selezione reale arriva allo store.
+- `npx vitest run` (suite intera) → 68 file, 474/474 verdi.
+- `npx vue-tsc -b` → pulito (il bug sopra, corretto).
+- `npx eslint` sui file toccati → pulito.
+- `npm run build` → bundle iniziale **120.694/153.600** byte gzip
+  (+689 byte: entrambi i bottoni sono nel chunk d'ingresso, come
+  `AppTopbar`/`AppMobileHeader` stessi). Margine ampio (32.906 byte).

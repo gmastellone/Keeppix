@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, RouterView, type Router } from 'vue-
 
 import { i18n } from '@/i18n'
 import { fetchSavedSearches, fetchSuggestions } from '@/api/search'
+import { useUploadStore } from '@/stores/upload'
 
 import SearchView from '@/views/SearchView.vue'
 import AppTopbar from './AppTopbar.vue'
@@ -121,5 +122,25 @@ describe('AppTopbar', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.path).toBe('/search')
+  })
+
+  it('the "Carica" button opens the hidden file picker, and a real pick reaches the upload store', async () => {
+    const { wrapper } = await mountTopbar('/')
+    const upload = useUploadStore()
+    const spy = vi.spyOn(upload, 'addFilesFromPicker').mockImplementation(async () => {})
+
+    const fileInput = wrapper.find('input[type="file"]').element as HTMLInputElement
+    const clickSpy = vi.spyOn(fileInput, 'click')
+    const uploadButton = wrapper.findAll('button').find((b) => b.text() === 'Carica')
+    expect(uploadButton?.exists()).toBe(true)
+    await uploadButton?.trigger('click')
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+
+    const picked = [new File([new Blob(['x'])], 'a.jpg')]
+    Object.defineProperty(fileInput, 'files', { value: picked, configurable: true })
+    await wrapper.find('input[type="file"]').trigger('change')
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith(picked)
   })
 })

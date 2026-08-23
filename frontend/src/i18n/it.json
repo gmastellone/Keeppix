@@ -582,6 +582,8 @@
       "subtitle": "Poi scegli in quale cartella metterle. Foto sviluppate e video: i RAW si caricano dal Culling."
     },
     "dropRejectedInCulling": "Il Culling ha un suo percorso di importazione: qui non si rilasciano file.",
+    "uploadButton": "Carica",
+    "uploadTooltip": "Carica foto o video",
     "status": {
       "queued": "In attesa…",
       "uploading": "Caricamento…",

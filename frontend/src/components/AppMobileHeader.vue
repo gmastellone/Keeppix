@@ -24,12 +24,19 @@
 // Esci — qui solo Esci, stesso ambito già dichiarato per il menu
 // account desktop di AppSidebar (Profilo e Impostazioni non hanno
 // ancora una vista, Task 14).
+//
+// `+` di caricamento (§3.3, `caricamento-nuove-foto.md`): il mockup lo
+// mostra su `['foto','preferiti','album','libreria']`
+// (`MOBILE_UPLOAD_VIEWS`, riga 3286) — qui solo `/`/`/albums`/`/more`,
+// le sole tre di quella lista con una vista reale (Preferiti non
+// esiste, stesso debito di AppSidebar/MoreView).
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import Avatar from '@/components/ui/Avatar.vue'
 import Popover from '@/components/ui/Popover.vue'
+import { UPLOAD_ACCEPT, useUploadPicker } from '@/composables/useUploadPicker'
 import { ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
 import { useSessionStore } from '@/stores/session'
 import { useShellStore } from '@/stores/shell'
@@ -39,6 +46,8 @@ const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const shell = useShellStore()
+const inputEl = ref<HTMLInputElement | null>(null)
+const { open: openPicker, onChange } = useUploadPicker(inputEl)
 
 onMounted(() => {
   if (!shell.loaded) void shell.load()
@@ -46,6 +55,7 @@ onMounted(() => {
 
 const ROOT_ROUTES = new Set(['/', '/search', '/albums', '/more'])
 const BACK_TO_FOTO = new Set(['/culling', '/batch-edit'])
+const UPLOAD_VISIBLE_ROUTES = new Set(['/', '/albums', '/more'])
 
 const showBack = computed(() => !ROOT_ROUTES.has(route.path))
 
@@ -83,6 +93,15 @@ async function signOut() {
       <span class="truncate text-[15.5px] font-bold">{{ title }}</span>
     </div>
     <div class="flex shrink-0 items-center gap-2">
+      <button
+        v-if="UPLOAD_VISIBLE_ROUTES.has(route.path)"
+        type="button"
+        class="flex h-8 w-8 items-center justify-center rounded-lg text-content-muted hover:bg-border/40"
+        :aria-label="t('upload.uploadTooltip')"
+        @click="openPicker"
+      >
+        +
+      </button>
       <RouterLink
         v-if="route.path === '/'"
         to="/culling"
@@ -119,6 +138,16 @@ async function signOut() {
           {{ t('home.logout') }}
         </button>
       </Popover>
+      <input
+        ref="inputEl"
+        type="file"
+        multiple
+        :accept="UPLOAD_ACCEPT"
+        class="hidden"
+        :aria-hidden="true"
+        tabindex="-1"
+        @change="onChange"
+      >
     </div>
   </div>
 </template>

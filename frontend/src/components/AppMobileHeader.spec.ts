@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { i18n } from '@/i18n'
 import { fetchBootstrap } from '@/api/bootstrap'
 import { useSessionStore } from '@/stores/session'
+import { useUploadStore } from '@/stores/upload'
 
 import AppMobileHeader from './AppMobileHeader.vue'
 
@@ -139,6 +140,35 @@ describe('AppMobileHeader', () => {
     const { wrapper } = await mountHeader('/')
     const cullingLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/culling')
     expect(cullingLink?.text()).toContain('7')
+  })
+
+  it.each(['/', '/albums', '/more'])('shows the "+" upload shortcut on %s', async (path) => {
+    const { wrapper } = await mountHeader(path)
+    expect(wrapper.findAll('button').some((b) => b.text() === '+')).toBe(true)
+  })
+
+  it.each(['/search', '/culling', '/trash'])('hides the "+" upload shortcut on %s — not in MOBILE_UPLOAD_VIEWS', async (path) => {
+    const { wrapper } = await mountHeader(path)
+    expect(wrapper.findAll('button').some((b) => b.text() === '+')).toBe(false)
+  })
+
+  it('the "+" button opens the hidden file picker, and a real pick reaches the upload store', async () => {
+    const { wrapper } = await mountHeader('/')
+    const upload = useUploadStore()
+    const spy = vi.spyOn(upload, 'addFilesFromPicker').mockImplementation(async () => {})
+
+    const fileInput = wrapper.find('input[type="file"]').element as HTMLInputElement
+    const clickSpy = vi.spyOn(fileInput, 'click')
+    const uploadButton = wrapper.findAll('button').find((b) => b.text() === '+')
+    await uploadButton?.trigger('click')
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+
+    const picked = [new File([new Blob(['x'])], 'a.jpg')]
+    Object.defineProperty(fileInput, 'files', { value: picked, configurable: true })
+    await wrapper.find('input[type="file"]').trigger('change')
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith(picked)
   })
 
   it('the account menu shows the real display name, and "Esci" logs out and redirects to /login', async () => {

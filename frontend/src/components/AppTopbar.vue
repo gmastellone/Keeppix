@@ -23,12 +23,12 @@
 // esistono lì. Sono destinazioni reali di questa app (aggiunte a
 // `AppSidebar` nel Task 6 4/N): meritano una briciola reale, riusando
 // `folders.title`/`users.title`/`groups.title`, non un'invenzione.
-// - Il pulsante "Carica"/"Carica qui" che il mockup mostra accanto alla
-//   ricerca (`#uploadTopBtn`, righe 1438 e 3236-3247) è deliberatamente
-//   assente: appartiene al sottosistema di caricamento (documento
-//   `caricamento-nuove-foto.md`), un blocco di lavoro a parte dichiarato
-//   nel diario — costruirlo qui senza il selettore di destinazione dietro
-//   sarebbe un pulsante finto.
+// - Il comando "Carica" (`#uploadTopBtn`, righe 1438 e 3236-3247 del
+//   mockup; documento `caricamento-nuove-foto.md` §3.2) — sempre
+//   "Carica", mai "Carica qui": nessuna vista porta oggi un
+//   `currentFolder` osservabile, stesso debito già dichiarato più
+//   volte in questo sottosistema (`UploadDropVeil.vue`, `stores/
+//   upload.ts`).
 // - L'interruttore di tema, già rimosso nel mockup stesso (commento del
 //   codice sorgente, §4.2), non esiste qui per lo stesso motivo: vive
 //   in Impostazioni (Task 14).
@@ -37,15 +37,19 @@
 // già applicata in AppSidebar): il campo di ricerca è `readonly` e nel
 // mockup risponde solo al click del mouse ("Deviazione da SP-8", §4.5).
 // Qui Invio e Spazio attivano lo stesso comportamento del click.
-import { computed, nextTick } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import Tooltip from '@/components/ui/Tooltip.vue'
+import { useUploadPicker, UPLOAD_ACCEPT } from '@/composables/useUploadPicker'
 import { ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const inputEl = ref<HTMLInputElement | null>(null)
+const { open: openPicker, onChange } = useUploadPicker(inputEl)
 
 const breadcrumbLabel = computed(() => {
   const key = ROUTE_TITLE_KEYS[route.path]
@@ -68,6 +72,16 @@ async function openSearch() {
       >{{ breadcrumbLabel }}</b>
     </div>
     <div class="flex shrink-0 items-center gap-3.5">
+      <Tooltip :label="t('upload.uploadTooltip')">
+        <button
+          type="button"
+          class="rounded-lg px-2.5 py-1.5 text-[13px] font-semibold text-content-muted hover:bg-border/40"
+          :aria-label="t('upload.uploadTooltip')"
+          @click="openPicker"
+        >
+          {{ t('upload.uploadButton') }}
+        </button>
+      </Tooltip>
       <input
         id="topSearch"
         readonly
@@ -80,6 +94,16 @@ async function openSearch() {
         @click="openSearch"
         @keydown.enter.prevent="openSearch"
         @keydown.space.prevent="openSearch"
+      >
+      <input
+        ref="inputEl"
+        type="file"
+        multiple
+        :accept="UPLOAD_ACCEPT"
+        class="hidden"
+        :aria-hidden="true"
+        tabindex="-1"
+        @change="onChange"
       >
     </div>
   </div>

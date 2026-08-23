@@ -582,6 +582,8 @@
       "subtitle": "You'll pick a folder next. Developed photos and video only — RAW files upload from Culling."
     },
     "dropRejectedInCulling": "Culling has its own import flow: you can't drop files here.",
+    "uploadButton": "Upload",
+    "uploadTooltip": "Upload photos or video",
     "status": {
       "queued": "Waiting…",
       "uploading": "Uploading…",
