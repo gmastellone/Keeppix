@@ -40,6 +40,13 @@
       "tooltip": "Select all",
       "ariaLabel": "Select everything you see"
     },
+    "photoTile": {
+      "open": "Open {label}",
+      "select": "Select {label}",
+      "addFavorite": "Add to favorites",
+      "removeFavorite": "Remove from favorites",
+      "favoriteSuffix": ", favorited"
+    },
     "quickFilter": {
       "trigger": "Filter",
       "title": "Filters",

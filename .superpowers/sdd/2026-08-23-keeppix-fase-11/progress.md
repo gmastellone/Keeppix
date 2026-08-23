@@ -960,3 +960,72 @@ Verifica eseguita:
 
 Debiti dichiarati: il resto della shell mobile (Task 3) più due
 componenti del Task 2 (`PhotoTile`, `SuggestionQueue`).
+
+### PhotoTile (SP-1 + SP-15)
+
+Diciassettesimo componente del Task 2 — il mattone di ogni vista a
+griglia (Foto, Preferiti, Album, dettaglio Persona, Cerca). Definizione
+canonica letta per intero (documento funzionale §10), non solo la riga
+del piano. *"Nient'altro"* (§10.2): niente nome file, data, stelle,
+pick/scarta, "in album" sulla tessera — quell'informazione vive solo
+nell'etichetta accessibile e nel lightbox; il componente non aggiunge
+markup oltre a quanto il documento elenca (miniatura, badge RAW,
+cerchietto, cuoricino).
+
+**Tre stop di tabulazione, in ordine**: apri → cerchietto → cuoricino
+— lo stesso ordine del markup, con `<button>` reali invece dei `<div
+role="button">` del prototipo (Invio/Spazio funzionano di serie, non
+serve ricablarli a mano come `bindActivatable`).
+
+**Bug trovato scrivendo il template, non i test**: la prima stesura
+faceva apparire cerchietto/cuoricino/badge solo al passaggio del mouse
+**sul singolo bottone**, mentre il documento (§10.7) li vuole visibili
+al passaggio su **tutta la tessera** (`.tile:hover .tile-check`, non
+`.tile-check:hover`) — corretto con un `group` sulla radice e
+`group-hover`/`group-focus-within` sui tre elementi, non l'hover
+individuale che avevo scritto per primo. Lo stesso schema copre anche
+il badge RAW, che deve **sparire** all'hover/focus (cede il posto ai
+comandi, commento del prototipo: badge e cerchietto sullo stesso
+angolo si sovrappongono).
+
+**Il cerchietto resta visibile su tutte le tessere quando la selezione
+è attiva** (`#app.selection-active` nel prototipo, righe 1142-1145),
+non solo su quella sotto il mouse — reso con la prop `selectionMode`
+già presente per decidere se mostrare il cuoricino.
+
+**Tocco prolungato** (§10.4, 500ms + vibrazione 15ms): usa
+`LONG_PRESS_THRESHOLD_MS`/`LONG_PRESS_VIBRATE_MS`, già in `design/
+tokens.ts` dal Task 1 — primo consumo reale di entrambi. **Non
+attivo di default**: una prop `enableLongPress` che il chiamante
+imposta in base al proprio `AppShell.isMobile` — questo componente non
+reimplementa `matchMedia`, lo fa già `AppShell`. Il click sintetico
+dopo il rilascio è soppresso (`suppressNextClick`), stesso
+`_suppressClick` del prototipo — testato con `vi.useFakeTimers()`:
+tocco di 500ms seleziona e sopprime il click che segue; un rilascio
+prima dei 500ms annulla il tocco prolungato e il tap normale apre
+comunque.
+
+**RAW/RAW+JPEG** (SP-15): stessa logica di `rawBadgeLabel` nel
+prototipo (riga 4095) — nessun badge per il solo JPEG. `dateLabel` è
+una prop già formattata dal chiamante, non l'anno fisso "2026" del
+prototipo (una costante di demo, non un formato da riprodurre su dati
+reali).
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/PhotoTile.spec.ts` → 10/10 verdi:
+  apre fuori selezione, seleziona invece di aprire dentro selezione,
+  etichetta accessibile con/senza suffisso preferita, badge RAW/RAW
+  +JPEG/nessuno per i tre `stackType`, cerchietto riflette lo stato ed
+  emette senza aprire, cuoricino assente durante la selezione ed
+  emette senza aprire, tocco prolungato di 500ms seleziona e sopprime
+  il click successivo, un rilascio anticipato annulla il tocco e il
+  tap normale apre, il tocco prolungato resta inerte se il chiamante
+  non lo attiva.
+- `npx vitest run` (suite intera) → 251/251 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **94.072/153.600** byte gzip
+  (script CI). Margine ampio (59.528 byte).
+
+Debiti dichiarati: il resto della shell mobile (Task 3) più un
+componente del Task 2 (`SuggestionQueue`).
