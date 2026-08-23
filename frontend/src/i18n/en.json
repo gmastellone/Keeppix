@@ -21,6 +21,9 @@
         "label": "Delete from disk now",
         "hint": "Irreversible: the file is permanently deleted."
       }
+    },
+    "loadingSkeleton": {
+      "streamLabel": "Loading photos"
     }
   },
   "setup": {

@@ -181,6 +181,9 @@ minuti prima — segnale di rumore del runner condiviso, non una
 regressione reale. Ri-lanciato il solo job fallito
 (`rerun_failed_jobs`), una volta, prima di continuare — non modificato
 il test o il codice che misura, che non appartiene a questo diff.
+**Confermato**: il ri-lancio (run `32630216744`, tentativo 2) è
+arrivato verde poco dopo, chiudendo l'ipotesi di rumore del runner —
+non una regressione reale.
 
 ### Popover (SP-14)
 
@@ -481,3 +484,56 @@ Debiti dichiarati: undici componenti del Task 2 restano da scrivere
 (`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
 `SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
 `SegmentedControl`, `NavGroup`, `LoadingSkeleton`).
+
+### LoadingSkeleton (SP-27)
+
+Ottavo componente del Task 2. Principio 1 del documento funzionale
+sugli stati di caricamento (righe 822-833 del mockup): "il caricamento
+non è mai uno spinner al centro del vuoto: è uno scheletro che ha già
+la FORMA del contenuto che sta arrivando" — non un rettangolo grigio
+generico. Due varianti, entrambe verificate riga per riga contro le
+funzioni reali del prototipo (righe 3180-3207), non riassunte:
+
+- **`grid`** (`skelGridHTML`): griglia fotografica giustificata — stessi
+  ventiquattro rapporti d'aspetto ciclici misurati sul prototipo (riga
+  3184: `1.5, 0.67, 1.5, 1.33...`), non un solo quadrato ripetuto, così
+  la griglia scheletro assomiglia davvero a una griglia fotografica.
+  `aria-hidden`: decorativa, non ha nulla da annunciare da sola.
+- **`stream`** (`streamSkeletonPlaceholderHTML`): due mesi scheletro,
+  non uno — il commento del prototipo stesso spiega perché: il ritmo
+  "titolo, griglia, titolo, griglia" fa parte di ciò che si sta
+  annunciando. Un solo `role="status"` avvolge l'intero blocco (il
+  caricamento si annuncia una volta, "Caricamento delle foto in
+  corso", non tessera per tessera) mentre le due griglie interne
+  restano `aria-hidden` — verificato con un test che conta esattamente
+  due elementi `aria-hidden`, non uno spot-check.
+
+**Lo shimmer (`.skel`/`kpx-shimmer`) vive in `style.css`, non nel
+componente**: stesso trattamento di `.spinner` per `BusyButton` — un
+loop, non una transizione di stato, categoria diversa dalla palette
+delle sette durate del Task 1. Aggiunto `--color-skel-sheen` (righe
+73/89 del mockup: bianco quasi pieno in chiaro, appena percettibile in
+scuro — due valori dichiarati dal prototipo, non un'opacità unica
+approssimata). **Nessuna eccezione sotto `prefers-reduced-motion`**, a
+differenza dello spinner: la forma dello scheletro comunica già "sta
+caricando" da sola, il blocco generale che ferma le animazioni (già in
+`style.css` dal Task 1) basta — non serve rallentare invece di
+fermare, quel bisogno è specifico dello spinner, che senza rotazione
+non comunica più nulla.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/LoadingSkeleton.spec.ts` → 3/3
+  verdi: griglia con il conteggio richiesto e `aria-hidden`, rapporti
+  d'aspetto che variano davvero (non un solo valore ripetuto), due
+  regioni interne nascoste sotto un solo `role="status"` in modalità
+  `stream`.
+- `npx vitest run` (suite intera) → 176/176 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **92.744/153.600** byte gzip
+  (script CI). Margine ampio (60.856 byte).
+
+Debiti dichiarati: dieci componenti del Task 2 restano da scrivere
+(`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
+`SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
+`SegmentedControl`, `NavGroup`).

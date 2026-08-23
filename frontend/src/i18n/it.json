@@ -21,6 +21,9 @@
         "label": "Elimina dal disco adesso",
         "hint": "Azione irreversibile: il file viene cancellato definitivamente."
       }
+    },
+    "loadingSkeleton": {
+      "streamLabel": "Caricamento delle foto in corso"
     }
   },
   "setup": {

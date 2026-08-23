@@ -27,6 +27,11 @@
      prototipo stesso, righe 69-72. */
   --color-toast-danger: #ff7a6e;
   --color-toast-warn: #ffb84d;
+  /* Il riflesso dello scheletro di caricamento (SP-27, prototipo riga 73):
+     bianco quasi pieno in tema chiaro, appena percettibile in tema scuro —
+     non un'approssimazione, il prototipo li dichiara come due valori
+     diversi, non un'opacità fissa su un colore condiviso. */
+  --color-skel-sheen: rgba(255, 255, 255, 0.9);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -41,6 +46,7 @@
     --color-border: oklch(30% 0 0);
     --color-toast-danger: #c6382f;
     --color-toast-warn: #a66200;
+    --color-skel-sheen: rgba(255, 255, 255, 0.06);
   }
 }
 
@@ -86,6 +92,25 @@ body { background: var(--color-surface); color: var(--color-content); }
 
 @keyframes kpx-spin {
   to { transform: rotate(360deg); }
+}
+
+/* Scheletro di caricamento (SP-27, prototipo righe 838-847): un blocco
+   neutro con un riflesso che scorre. Non usa --accent apposta — il
+   caricamento non deve sembrare un elemento attivo o selezionato.
+   Globale come .spinner: l'animazione è un loop, non una transizione di
+   stato, fuori dalla palette del Task 1 per lo stesso motivo. */
+.skel {
+  background: var(--color-border);
+  background-image: linear-gradient(90deg, transparent 0%, var(--color-skel-sheen) 50%, transparent 100%);
+  background-size: 260px 100%;
+  background-repeat: no-repeat;
+  animation: kpx-shimmer 1.15s linear infinite;
+  border-radius: 6px;
+}
+
+@keyframes kpx-shimmer {
+  0% { background-position: -260px 0; }
+  100% { background-position: 260px 0; }
 }
 
 /* Rispetta chi ha ridotto le animazioni a livello di sistema. */
