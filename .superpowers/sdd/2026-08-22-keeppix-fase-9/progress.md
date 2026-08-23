@@ -1037,6 +1037,114 @@ Debiti dichiarati: nessuno nuovo. Le tre rotte non hanno ancora un
 consumatore frontend — atteso, è lavoro di Fase 11, già registrato in
 `wired-exceptions.txt` invece di lasciato implicito.
 
+CI reale: run 32602306692 (commit `2357348`, branch `fase-9`) →
+`completed`/`success`, confermato via `mcp__github__actions_get`.
+
 Task 10: complete. Chiude il Gruppo D insieme al Task 11 (Documenti e la
 prova che conta), ancora da fare.
+
+### Task 11 — Documenti e la prova che conta
+
+Il piano chiude questo task con un criterio, non un elenco di file: *"un
+viaggio vero — import su più giorni, culling, rinomina, prelievo da
+WebDAV, sviluppo esterno, cancellazione dei RAW — si completa senza
+toccare il filesystem a mano, e senza che nessuna foto perda
+valutazione, tag o appartenenza agli album lungo il percorso."*
+
+Nuovo `crates/keeppix-api/tests/journeys.rs::v13_a_real_trip_survives_
+culling_rename_webdav_and_raw_cleanup` (segue la numerazione v1-v12 già
+in uso per i viaggi di prodotto cross-cutting). Ogni passo passa da
+un'API vera — mai da una scrittura diretta sul disco o dal repository
+chiamato a mano — eccetto la creazione iniziale dei file, che nella
+vita reale è la scheda di memoria della fotocamera:
+
+1. Import su due cartelle-giorno (quattro JPEG), scansionate per
+   davvero (`scan_and_wait`).
+2. Culling: voto per-utente (`pick`/`reject`/`rating`/`favorite`) via
+   `PUT /assets/{id}/flags`.
+3. Appartenenza a un album via `POST /albums` +
+   `POST /albums/{id}/assets/{asset_id}`.
+4. Rinomina di massa sull'intero ambito via la rotta reale del Task 10
+   (`POST /assets/batch/rename/preview` poi `.../rename`) — non
+   `RenameRepo` direttamente. Verificato: nessuna collisione
+   nell'anteprima, tutti e quattro rinominati, l'operazione tracciata
+   arriva a `Done` con `total`/`done` concordi (stessa fonte che legge
+   il `WebSocket`), i file sono rinominati per davvero sul disco con i
+   nomi dell'anteprima.
+5. **Nessuna foto ha perso voto o appartenenza all'album passando per
+   la rinomina** — verificato leggendo di nuovo `flags` e la lista
+   dell'album dopo l'`apply`: l'identità (`asset_id`) non cambia con
+   `move_asset`, quindi tutto quello che ci è agganciato sopravvive.
+6. Prelievo da `WebDAV`: lo stesso asset scaricato **per id**
+   (`GET /dav/asset/{id}` — mai per nome, che è appena cambiato)
+   restituisce esattamente i byte originali.
+7. Sviluppo esterno: un client `WebDAV` deposita un file modificato
+   (`PUT /dav/folder/{id}/…`) accanto agli originali rinominati — un
+   asset nuovo, non un duplicato scartato per contenuto identico.
+8. Cancellazione: `DELETE` via `WebDAV` sposta nel cestino (`204`,
+   `trash_entries` con `disk_action = 'moved_to_trash'`, file ancora
+   presente sotto `.keeppix-trash`) — mai una cancellazione silenziosa
+   dal filesystem.
+9. **Nessun effetto collaterale**: dopo la cancellazione, voto e
+   appartenenza all'album del resto del viaggio sono bit-per-bit
+   identici a prima — cancellare un asset non ha toccato gli altri.
+
+**Ambito dichiarato, non un buco silenzioso**: "culling" qui è il voto
+per-utente (`PUT .../flags`), l'unica variante con una rotta HTTP oggi.
+Lo spostamento fisico nei lotti `_taken`/`_skipped`
+(`CullingRepo::set_pick`, Task 2-4) è già provato a fondo nella sua
+stessa suite `keeppix-db` (Task 4, 16/16 test), ma non ha ancora un
+chiamante HTTP — la schermata Culling è Fase 11, già registrata in
+`wired-exceptions.txt`; richiamare il repository a mano qui avrebbe
+contraddetto lo scopo dichiarato di `journeys.rs` ("HTTP-only", vedi
+`journey/mod.rs`). Stesso discorso per i tag: nell'app sono solo
+proposti dall'IA e confermati (Fase 7 Task 8/9), non assegnabili a mano
+via HTTP — fuori da questa prova per lo stesso motivo. "Cancellazione
+dei RAW" è provata con `DELETE /dav/asset/…` su un JPEG: il percorso di
+cancellazione è lo stesso qualunque sia il tipo di file (verificato
+leggendo `dav::write`/`TrashRepo::choose` — nessun ramo specifico per
+`AssetKind::RawImage`), quindi non serve un vero decoder RAW
+nell'ambiente di test per provare il meccanismo che conta.
+
+**La misura richiesta da `PROSEGUI.md` §5** ("tempo di una rinomina di
+massa su 500 file") — prodotta, non stimata. Nuovo
+`crates/keeppix-db/tests/scale_rename.rs`: 500 file veri su disco + 500
+righe `assets` (un solo `INSERT ... SELECT FROM generate_series`, fuori
+dal tempo misurato, stesso stile di `scale_embeddings.rs`), poi
+`RenameRepo::apply` cronometrato per davvero:
+
+```
+MEASUREMENT Fase 9 Task 11: rinomina di massa su 500 file: 2296.6 ms (4.59 ms/file)
+```
+
+(due run consecutive: 2730.1 ms e 2296.6 ms — 4.6-5.5 ms/file, stabile).
+Nessun tetto pubblicato altrove per questo numero specifico (a
+differenza della soglia interattiva di 1s per la scansione vettoriale,
+Fase 10 §7 Task 2): scelto un budget di regressione a 5s, con margine
+ampio sopra il numero reale — 500 `move_asset` sequenziali, ciascuno
+una connessione propria più un vero `rename()` su disco, restano ben
+dentro un'interazione utente su un ambito di quella taglia.
+
+Verifica eseguita:
+- `cargo test -p keeppix-api --test journeys` → 13/13 verdi (i 12
+  viaggi esistenti + v13, nessuna regressione).
+- `cargo test -p keeppix-db --test scale_rename -- --nocapture` → verde,
+  numero reale incollato sopra.
+- `cargo fmt --all --check` → pulito su tutto il workspace.
+- `cargo clippy --workspace --all-targets -- -D warnings` → pulito dopo
+  aver corretto un `unwrap_used` mancante in un helper di test e tre
+  cast `i64`/`usize`/`f64` in `scale_rename.rs` (`#[allow]` di modulo,
+  stesso trattamento delle altre soglie di misura nel workspace, non
+  `try_from` — qui il valore è una costante di test, non un input
+  esterno).
+- `python3 scripts/check-wired.py` → verde, nessuna eccezione nuova
+  necessaria (nessuna funzione o rotta nuova aggiunta da questo task).
+
+Debiti dichiarati: nessuno nuovo. "Documenti" del titolo del task è la
+verifica prevista da `PROSEGUI.md` §10 (procedura di chiusura fase, non
+un documento a sé) — eseguita nella sezione di chiusura fase più sotto,
+non duplicata qui.
+
+Task 11: complete. Chiude il Gruppo D e l'intera Fase 9 lato
+implementazione — resta la chiusura fase (§10).
 
