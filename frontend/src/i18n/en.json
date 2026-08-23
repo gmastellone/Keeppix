@@ -40,6 +40,14 @@
       "tooltip": "Select all",
       "ariaLabel": "Select everything you see"
     },
+    "suggestionQueue": {
+      "count": "{n} suggestion | {n} suggestions",
+      "confirmAll": "Confirm all",
+      "rejectAll": "Reject all",
+      "confirm": "Confirm",
+      "reject": "Reject",
+      "aiBadge": "AI"
+    },
     "photoTile": {
       "open": "Open {label}",
       "select": "Select {label}",

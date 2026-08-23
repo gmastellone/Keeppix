@@ -1029,3 +1029,85 @@ Verifica eseguita:
 
 Debiti dichiarati: il resto della shell mobile (Task 3) più un
 componente del Task 2 (`SuggestionQueue`).
+
+### SuggestionQueue (SP-10)
+
+Diciottesimo e ultimo componente del Task 2. Letta la definizione
+canonica per intero (documento funzionale §56, "Revisione — tag"), non
+solo il rimando `renderRevisione`. Un gruppo di proposte IA per **un**
+tag o una persona, in attesa di conferma o rifiuto — mai applicate da
+sole. Nota vincolante del piano: **"tag e volti, stessa forma"**.
+
+**La forma condivisa, resa letteralmente condivisa**: un solo
+componente per entrambe le code, non due quasi identici. L'unica
+differenza reale fra i due domini (§56.6: i volti hanno un terzo
+pulsante per miniatura, "Non è un volto", a fondo `--danger` pieno —
+non uno dei due normali) è esposta come **slot con ambito**
+(`extra-actions`, con l'`id` della miniatura), non una prop specifica
+per un dominio che l'altro non condivide — verificato con un test che
+passa un pulsante finto nello slot e controlla che riceva l'id giusto.
+
+**Pallino colore solo per i tag** (§56.2: le persone non ce l'hanno) —
+prop `color?` opzionale, non renderizzata quando assente, verificato
+con due montaggi distinti (con e senza colore) invece di dedurlo dalla
+sola lettura del template.
+
+Testo esatto dal documento, non parafrasato: il nome del gruppo fra
+virgolette basse (`«Paesaggi»`, non virgolette dritte), "N proposta/e"
+con l'accordo singolare/plurale corretto (prima chiave di questo
+componente a usare il plurale nativo di vue-i18n dopo `ui.toast.*` e
+`ui.selectionBar.*`). Overlay delle azioni nascosto finché non c'è
+hover **o** `:focus-within` sulla miniatura (§56.6) — stesso schema
+`group`/`group-hover`/`group-focus-within` già usato per `PhotoTile`.
+
+**Approssimazione dichiarata**: il badge "IA" della miniatura usa
+`bg-accent/20 text-accent` (l'accento esistente a opacità ridotta), non
+un token `--accent-tint-strong` dedicato che il prototipo ha ma che non
+esiste ancora nel nostro `@theme` — stesso trattamento già usato altrove
+per tinte di sfondo derivate (es. `hover:bg-border/40` in `NavGroup`),
+non un nuovo token introdotto per un solo badge.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/SuggestionQueue.spec.ts` → 6/6
+  verdi: nome fra virgolette basse e conteggio singolare/plurale
+  corretto, pallino colore presente solo per i tag, `confirm-all`/
+  `reject-all` emessi dai pulsanti di gruppo, conferma/rifiuto di una
+  singola miniatura emette l'id giusto, una miniatura per proposta con
+  il badge "IA", lo slot `extra-actions` riceve l'id per il terzo
+  pulsante dei volti.
+- `npx vitest run` (suite intera) → 258/258 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito (dopo un `--fix` per l'ordine di un attributo).
+- `npm run build` → bundle iniziale **94.270/153.600** byte gzip
+  (script CI). Margine ampio (59.330 byte).
+
+## Task 2 — chiuso
+
+Diciotto pattern condivisi su diciotto: `Dialog`, `Popover`,
+`ToastHost`, `Tooltip`, `BusyButton`, `ConfirmDialog`, `DeleteDialog`,
+`LoadingSkeleton`, `SegmentedControl`, `NavGroup`, `ProvenanceBadge`,
+`Avatar`, `AppShell` (ambito parziale, dichiarato), `SelectionBar` +
+store, `SelectAllVisible`, `QuickFilter` (ambito parziale, dichiarato),
+`PhotoTile`, `SuggestionQueue` — più `RatingStars`, già esistente e
+riusato, non riscritto.
+
+Due debiti espliciti verso il Task 3 (router, non ancora scritto),
+dichiarati al momento di ogni commit, non scoperti ora: la shell
+mobile completa (barra a schede instradata su viste reali, titoli per
+vista, badge culling, menu account — `AppShell` chiude solo la
+commutazione desktop/mobile) e le sei dimensioni reali del filtro
+rapido (Persone/Tag/Categorie/Fotocamera/Luogo/Tipo, che dipendono da
+store non ancora costruiti — `QuickFilter` chiude solo il meccanismo
+generico e la logica di combinazione). Nessun altro debito silenzioso:
+ogni scelta di ambito è stata dichiarata nel commit e in questo ledger
+al momento in cui è stata presa.
+
+Ogni componente verificato riga per riga contro il documento funzionale
+e/o il mockup (mai il solo riassunto del piano), con un test reale per
+ogni comportamento vincolante, e con la stessa disciplina di
+verifica locale ripetuta diciotto volte: `vitest` sul file nuovo,
+`vitest` sulla suite intera, `vue-tsc -b`, `eslint`, `npm run build` +
+il ricalcolo manuale del budget del bundle con lo stesso script della
+CI. Nessuna riga di prodotto reale importa ancora questi componenti —
+il Task 3 (router) e le Tranche successive sono ciò che li metterà al
+lavoro.
