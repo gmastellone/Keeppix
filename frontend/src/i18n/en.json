@@ -572,6 +572,11 @@
     "pause": "Pause",
     "resume": "Resume",
     "progress": "{received} of {total}",
+    "destination": {
+      "label": "Destination",
+      "missing": "Choose a folder",
+      "missingHint": "Photos stay queued until you choose where to put them."
+    },
     "status": {
       "queued": "Waiting…",
       "uploading": "Uploading…",

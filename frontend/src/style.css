@@ -15,6 +15,20 @@
   --color-accent-text: #1a1005;
   --color-danger: #cc4038;
   --color-border: oklch(90% 0 0);
+  /* Sottosistema di caricamento (`docs/ui/caricamento-nuove-foto.md` §7.1):
+     hex esatti dalla tabella colori del documento, stesso principio della
+     nota qui sopra — non un'approssimazione su un token già esistente.
+     `--color-warn` è il "futuro warn" già anticipato dal commento su
+     `--color-toast-warn`, qui finalmente introdotto: il "saltato per
+     duplicato" non è un errore (`--danger`) né un successo (nessun
+     colore) — una terza natura semantica, ambra. */
+  --color-accent-tint: #fde7d6;
+  --color-warn: #a15c00;
+  --color-warn-tint: #fdf0dc;
+  --color-warn-border: #efd4a8;
+  --color-chip-bg: #f5f5f5;
+  --color-card-bg: #ffffff;
+  --color-border-strong: #dcdcdc;
   /* Verde condiviso fra "Scelta" nel culling e "In linea" nel piede utente
      (commento del prototipo, riga 242): riusato di proposito invece di
      introdurre una terza tonalità semantica. 3,4:1 su bianco — non un AA
@@ -44,6 +58,13 @@
     --color-accent-text: #1a1005;
     --color-danger: #ff6b61;
     --color-border: oklch(30% 0 0);
+    --color-accent-tint: #2c1c0e;
+    --color-warn: #f0a23c;
+    --color-warn-tint: #2e2110;
+    --color-warn-border: #4a361a;
+    --color-chip-bg: #141414;
+    --color-card-bg: #0a0a0a;
+    --color-border-strong: #2c2c2c;
     --color-toast-danger: #c6382f;
     --color-toast-warn: #a66200;
     --color-skel-sheen: rgba(255, 255, 255, 0.06);

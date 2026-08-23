@@ -2577,3 +2577,58 @@ Verifica eseguita:
 - `npm run build` → bundle iniziale **117.173/153.600** byte gzip,
   sostanzialmente invariato: `stores/upload.ts` resta dietro
   `UploadPanel.vue`, ancora un `defineAsyncComponent` in `App.vue`.
+
+### Token di colore mancanti — `style.css` (3/N)
+
+Prima di scrivere il chip destinazione: il documento (§7.1) usa
+`--accent-tint`, `--warn`/`--warn-tint`/`--warn-border`, `--chip-bg`,
+`--card-bg`, `--border-strong` — nessuno di questi esiste ancora nel
+`@theme` di questo frontend (solo `surface`/`surface-elevated`/
+`content`/`content-muted`/`accent`/`accent-text`/`danger`/`border`).
+Aggiunti con gli hex esatti della tabella del documento, chiaro e
+scuro, stesso principio già stabilito nel commento in testa al file
+("hex esatti... non un'approssimazione"). `--color-warn` è
+letteralmente il *"futuro `--warn`"* già anticipato da un commento
+esistente su `--color-toast-warn` (Fase 11 Task 1) — non una scelta
+nuova, un debito già previsto e ora saldato: il "saltato per
+duplicato" non è un errore né un successo, una terza natura
+semantica, ambra.
+
+### `DestinationChip.vue` — il chip destinazione (3/N)
+
+Documento §5, verificato riga per riga (righe 126-154) contro il
+markup e i colori esatti del prototipo.
+
+**"Nuova cartella…" (riga 139) deliberatamente assente**: il backend
+non ha una rotta per creare una cartella — verificato leggendo
+`crates/keeppix-api/src/routes/folders.rs` per intero: solo
+`tree`/`children`/`relocate`, nessun `create`. Stesso blocco già
+dichiarato per il badge "in preparazione" dei video in questo stesso
+sottosistema (1/N): costruire quella voce di menu ora significherebbe
+un pulsante che non fa nulla di reale.
+
+Riusa `shell.folders` (già caricato da `stores/shell.ts`, Task 6) per
+l'elenco — nessuna nuova chiamata API. Stato "manca la destinazione"
+(§5): chip `bg-accent-tint`/`border-accent`, valore in corsivo
+"Scegli una cartella", riga di rassicurazione sotto. `role="listbox"`
+con `aria-selected` sull'opzione attiva (§8), tramite `Popover` (Task
+2) già usato per gli altri menu dell'app.
+
+Verifica eseguita:
+- `DestinationChip.spec.ts` (nuovo) → 4/4 verdi: stato "manca" con
+  testo e classe reali; nome cartella reale una volta risolta;
+  l'elenco mostra le cartelle vere e scegliendone una chiama
+  `setDestination`; `setDestination` sblocca per davvero una sessione
+  in coda senza cartella (non solo un finto stato locale del
+  componente).
+- `npx vitest run` (suite intera) → 66 file, 451/451 verdi.
+- `npx vue-tsc -b` → un errore reale trovato e corretto: import
+  `fetchBootstrap` mai letto nel test (mockato per modulo, mai
+  referenziato per un'asserzione — a differenza di `AppSidebar.spec.ts`
+  che lo controlla).
+- `npx eslint` sui file toccati → pulito.
+- `npm run build` → bundle iniziale **117.312/153.600** byte gzip
+  (+139 byte: le nuove classi Tailwind derivate dai token aggiunti a
+  `style.css` sono scansionate dal sorgente, non dal grafo di import —
+  compaiono anche se `DestinationChip.vue` non è ancora montato da
+  nessuna parte). Margine ampio (36.288 byte).

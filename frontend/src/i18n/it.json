@@ -572,6 +572,11 @@
     "pause": "Pausa",
     "resume": "Riprendi",
     "progress": "{received} di {total}",
+    "destination": {
+      "label": "Destinazione",
+      "missing": "Scegli una cartella",
+      "missingHint": "Le foto restano in coda finché non scegli dove metterle."
+    },
     "status": {
       "queued": "In attesa…",
       "uploading": "Caricamento…",
