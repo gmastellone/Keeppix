@@ -2452,3 +2452,62 @@ blocco a parte: l'area di caricamento nuove foto
 innesco reale in uso normale, a parte il flusso PWA di condivisione,
 esso stesso bloccato — passa sempre `folderId: null` senza modo di
 cambiarlo).
+
+# Area di caricamento nuove foto
+
+`docs/ui/caricamento-nuove-foto.md`, letto per intero. "Già corretto e
+già testato" riguarda solo il **motore** di `stores/upload.ts`
+(upload rispresso a blocchi, ripresa da `localStorage`, pre-check
+degli hash) — non l'interfaccia. `UploadPanel.vue` oggi è un pannello
+generico fluttuante in basso a destra: esattamente il pattern del
+pulsante flottante che il documento dice **esplicitamente scartato**
+(§2, tre ragioni verificabili) — va ricostruito, non esteso. Mancano
+del tutto: classificazione RAW/video all'ingresso, il chip
+destinazione con le sue tre precedenze (§5), il trascinamento su
+`#app` (§3.1), il comando "Carica" in topbar (§3.2), il `+` mobile
+(§3.3), la striscia in sidebar/sopra la tab bar (§6.1), il pannello
+reale a quattro fasce (§6.2), il blocco di rifiuto RAW (§4.1).
+
+Scoperta prima di scrivere codice: `PatchChunkResult` (`api/upload.ts`)
+e la risposta di finalizzazione lato backend
+(`crates/keeppix-api/src/routes/upload.rs`, `UploadCompleteResponse`)
+non portano **nessun** segnale "in preparazione" per i video — il
+documento lo elenca fra i requisiti backend (§9.4) ma non esiste,
+verificato leggendo la rotta reale, non assunto. A differenza del
+badge Culling (Task 6, reale ma sempre zero), qui il campo non esiste
+proprio: costruire il badge "IN PREPARAZIONE" ora significherebbe
+inventare un segnale, non cablarne uno reale. Rimandato, dichiarato,
+non costruito.
+
+Piano di lavoro, un pezzo indipendente e verificabile alla volta
+(stesso ritmo del Task 6): (1) classificazione RAW/video/immagine
+all'ingresso; (2) estensione del motore per l'assegnazione della
+destinazione (oggi `targetFolderId` può restare `null` per sempre,
+nessuna interfaccia lo cambia) e i comandi di coda (pausa/riprendi/
+annulla tutto); (3) il chip destinazione; (4) il trascinamento su
+`#app`; (5) il comando "Carica" in topbar; (6) il `+` mobile; (7) la
+striscia sidebar/mobile; (8) il pannello reale a quattro fasce,
+sostituendo `UploadPanel.vue` attuale; (9) il blocco di rifiuto RAW.
+
+### `upload/classify.ts` (1/N)
+
+Documento §4, tabella delle estensioni (righe 95-102) trascritta
+esatta, non approssimata. `dng` trattato come RAW (nota esplicita del
+documento: "è un contenitore RAW a tutti gli effetti"), non come
+immagine — un errore facile da fare guardando solo il nome. Divide
+sempre il gruppo (accettati / RAW rifiutati / non supportati
+rifiutati): non rifiuta mai l'intero rilascio per la presenza di un
+RAW o un formato ignoto (§4, "Rifiutare l'intero rilascio sarebbe
+ostile").
+
+Verifica eseguita:
+- `classify.spec.ts` (nuovo) → 41/41 verdi: ogni estensione della
+  tabella (9 immagine, 3 video, 25 RAW) più `.dng` esplicito, un
+  formato ignoto, nessuna estensione, e la garanzia che un lotto misto
+  non perde il buono per il cattivo.
+- `npx vitest run` (suite intera) → 64 file, 437/437 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi → pulito.
+- `npm run build` → bundle iniziale **117.178/153.600** byte gzip,
+  invariato: `classify.ts` non è ancora importato da nessun
+  consumatore reale (arriva nel prossimo sotto-passo).
