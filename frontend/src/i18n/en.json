@@ -30,11 +30,17 @@
       "description": "Assigned by AI, not yet confirmed by a person."
     },
     "selectionBar": {
+      "ariaLabel": "Selection actions",
       "cancel": "Cancel selection",
       "count": "{n} selected",
       "selectAll": "Select all",
       "announceSelected": "{n} photos selected",
-      "announceCleared": "Selection cleared"
+      "announceCleared": "Selection cleared",
+      "favoritesAdded": "Added to favorites.",
+      "favoritesRemoved": "Removed from favorites."
+    },
+    "favorites": {
+      "toggleError": "Could not update favorites. Try again."
     },
     "selectAllVisible": {
       "tooltip": "Select all",

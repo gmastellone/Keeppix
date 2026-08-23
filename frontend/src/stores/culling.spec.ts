@@ -6,8 +6,8 @@ import type { TimelineAsset } from '@/api/timeline'
 vi.mock('@/api/culling', () => ({
   setFlags: vi.fn(async () => null),
   deleteAsset: vi.fn(async () => null),
-  fetchFlags: vi.fn(async () => ({ rating: null, pick: 'none', color_label: null })),
-  unvotedFlags: { rating: null, pick: 'none', color_label: null }
+  fetchFlags: vi.fn(async () => ({ rating: null, pick: 'none', color_label: null, favorite: false })),
+  unvotedFlags: { rating: null, pick: 'none', color_label: null, favorite: false }
 }))
 
 const cullingApi = await import('@/api/culling')

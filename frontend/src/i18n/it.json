@@ -30,11 +30,17 @@
       "description": "Assegnato dall'intelligenza artificiale, non ancora confermato da una persona."
     },
     "selectionBar": {
+      "ariaLabel": "Azioni sulla selezione",
       "cancel": "Annulla selezione",
       "count": "{n} selezionata | {n} selezionate",
       "selectAll": "Seleziona tutte",
       "announceSelected": "{n} foto selezionata | {n} foto selezionate",
-      "announceCleared": "Selezione annullata"
+      "announceCleared": "Selezione annullata",
+      "favoritesAdded": "Aggiunti ai preferiti.",
+      "favoritesRemoved": "Rimossi dai preferiti."
+    },
+    "favorites": {
+      "toggleError": "Non è stato possibile aggiornare i preferiti. Riprova."
     },
     "selectAllVisible": {
       "tooltip": "Seleziona tutto",

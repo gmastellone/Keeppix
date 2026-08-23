@@ -17,24 +17,9 @@
 // 768px è il breakpoint `md` di Tailwind, già lo standard del progetto,
 // non un valore misurato sul prototipo. Debito dichiarato, non assunto
 // in silenzio.
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
-const isMobile = ref(false)
-let query: MediaQueryList | undefined
-
-function sync() {
-  if (query) isMobile.value = query.matches
-}
-
-onMounted(() => {
-  query = window.matchMedia('(max-width: 767px)')
-  sync()
-  query.addEventListener('change', sync)
-})
-
-onBeforeUnmount(() => {
-  query?.removeEventListener('change', sync)
-})
+const { isMobile } = useIsMobile()
 
 defineExpose({ isMobile })
 </script>

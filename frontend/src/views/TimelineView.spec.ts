@@ -5,9 +5,11 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ErrorState from '@/components/ui/ErrorState.vue'
 import PhotoTile from '@/components/ui/PhotoTile.vue'
+import SelectionBar from '@/components/ui/SelectionBar.vue'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
 import { ApiProblem } from '@/api/client'
+import { setFlags } from '@/api/culling'
 import { fetchBuckets, fetchGeometry, fetchPage, type TimelineAsset } from '@/api/timeline'
 import { startLiveEvents, type LiveMessage } from '@/api/events'
 import { planStream } from '@/timeline/stream'
@@ -24,6 +26,12 @@ vi.mock('@/api/timeline', () => ({
 
 vi.mock('@/api/events', () => ({
   startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
+}))
+
+vi.mock('@/api/culling', () => ({
+  fetchFlags: vi.fn(async () => ({ rating: null, pick: 'none', color_label: null, favorite: false })),
+  setFlags: vi.fn(async () => null),
+  unvotedFlags: { rating: null, pick: 'none', color_label: null, favorite: false }
 }))
 
 vi.mock('@/api/client', async (importOriginal) => {
@@ -84,8 +92,27 @@ function stubLayout(width: number, height: number) {
 
 let unstubLayout: () => void
 
+// jsdom non implementa `matchMedia` (a differenza di AppShell.spec.ts, che
+// lo stub esplicitamente per testare la commutazione stessa): qui basta un
+// esito fisso "non è mobile", visto che questa vista non testa quel
+// comportamento — solo evitare che `useIsMobile()` lanci al mount.
+function stubMatchMedia() {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({
+      matches: false,
+      media: '',
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }))
+  )
+}
+
 afterEach(() => {
   vi.resetAllMocks()
+  vi.unstubAllGlobals()
   unstubLayout?.()
 })
 
@@ -100,6 +127,7 @@ const testUser = {
 
 async function mountTimeline(path = '/') {
   unstubLayout = stubLayout(1200, 900)
+  stubMatchMedia()
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -395,5 +423,98 @@ describe('TimelineView error state', () => {
     const errorState = wrapper.findComponent(ErrorState)
     expect(errorState.props('nature')).toBe('file-missing')
     expect(errorState.find('button').exists()).toBe(false)
+  })
+})
+
+// Task 7 (1/N): il cuoricino (SP-1) e la selezione multipla (SP-2/SP-4)
+// cablati per davvero — prima di questa unità PhotoTile riceveva sempre
+// `:selected="false"` e `:selection-mode="false"` a prescindere.
+describe('TimelineView favorites (SP-1)', () => {
+  it('the heart button on a tile toggles the favorite flag, merging it into the current server flags', async () => {
+    const buckets = [{ month: '2024-07', count: 1 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+
+    const { wrapper } = await mountTimeline()
+    const heart = wrapper.findComponent(PhotoTile).findAll('button')[2]
+    await heart.trigger('click')
+    await flushPromises()
+
+    expect(setFlags).toHaveBeenCalledWith('a', { rating: null, pick: 'none', color_label: null, favorite: true })
+    expect(wrapper.findComponent(PhotoTile).props('isFavorite')).toBe(true)
+  })
+})
+
+describe('TimelineView selection (SP-2/SP-4)', () => {
+  it('checking a tile enters selection mode: the toolbar row is replaced by the "N selezionate" bar', async () => {
+    const buckets = [{ month: '2024-07', count: 1 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+
+    const { wrapper } = await mountTimeline()
+    expect(wrapper.findComponent(SelectionBar).props('count')).toBe(0)
+
+    await wrapper.findComponent(PhotoTile).find('[role="checkbox"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findComponent(PhotoTile).props('selected')).toBe(true)
+    expect(wrapper.findComponent(PhotoTile).props('selectionMode')).toBe(true)
+    expect(wrapper.findComponent(SelectionBar).props('count')).toBe(1)
+    // §12.2: "in selezione multipla l'intera riga è sostituita" — il
+    // pulsante di ingresso al culling sparisce insieme al resto della
+    // barra strumenti normale.
+    expect(wrapper.text()).not.toContain(String(i18n.global.t('culling.entry')))
+  })
+
+  it('clicking a tile body while selection is active toggles selection instead of opening the lightbox', async () => {
+    const buckets = [{ month: '2024-07', count: 2 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a'), photo('b')] })
+
+    const { wrapper, router } = await mountTimeline()
+    await wrapper.findComponent(PhotoTile).find('[role="checkbox"]').trigger('click')
+    await flushPromises()
+
+    const tiles = wrapper.findAllComponents(PhotoTile)
+    await tiles[1].find('button').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.photo).toBeUndefined()
+    expect(wrapper.findComponent(SelectionBar).props('count')).toBe(2)
+  })
+
+  it('"Seleziona tutto quello che vedi" (SP-4) selects every currently loaded photo', async () => {
+    const buckets = [{ month: '2024-07', count: 2 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a'), photo('b')] })
+
+    const { wrapper } = await mountTimeline()
+    await wrapper.get(`[aria-label="${String(i18n.global.t('ui.selectAllVisible.ariaLabel'))}"]`).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findComponent(SelectionBar).props('count')).toBe(2)
+    wrapper.findAllComponents(PhotoTile).forEach((tile) => expect(tile.props('selected')).toBe(true))
+  })
+
+  it('the × in the selection bar clears the selection and restores the normal toolbar', async () => {
+    const buckets = [{ month: '2024-07', count: 1 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+
+    const { wrapper } = await mountTimeline()
+    await wrapper.findComponent(PhotoTile).find('[role="checkbox"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(SelectionBar).props('count')).toBe(1)
+
+    wrapper.findComponent(SelectionBar).vm.$emit('clear')
+    await flushPromises()
+
+    expect(wrapper.findComponent(SelectionBar).props('count')).toBe(0)
+    expect(wrapper.findComponent(PhotoTile).props('selectionMode')).toBe(false)
   })
 })

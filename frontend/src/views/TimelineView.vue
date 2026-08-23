@@ -9,11 +9,16 @@ import { startLiveEvents, type LiveSocket } from '@/api/events'
 import { thumbSrc as mediaThumbSrc } from '@/api/media'
 import ErrorState from '@/components/ui/ErrorState.vue'
 import PhotoTile, { type StackType } from '@/components/ui/PhotoTile.vue'
+import SelectAllVisible from '@/components/ui/SelectAllVisible.vue'
+import SelectionBar from '@/components/ui/SelectionBar.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
 import { useScrollRestoration } from '@/composables/useScrollRestoration'
 import { useCullingStore } from '@/stores/culling'
+import { useFavoritesStore } from '@/stores/favorites'
 import { useMapsStore } from '@/stores/maps'
+import { useSelectionStore } from '@/stores/selection'
 import { classifyError } from '@/errors/classify'
 import { TimelineGeometry } from '@/timeline/geometry'
 import { clampDensity } from '@/timeline/justify'
@@ -52,6 +57,9 @@ const route = useRoute()
 const router = useRouter()
 const culling = useCullingStore()
 const maps = useMapsStore()
+const favorites = useFavoritesStore()
+const selection = useSelectionStore()
+const { isMobile } = useIsMobile()
 
 const buckets = ref<MonthBucket[]>([])
 // shallowRef, non ref: TimelineGeometry incapsula un DataView e non deve
@@ -445,7 +453,7 @@ function cellProps(month: string, cell: GridCell, priority: 'high' | 'auto') {
     placeholderUrl: placeholderFor(asset),
     filename: asset.filename,
     dateLabel: dateLabelOf(asset),
-    isFavorite: asset.favorite,
+    isFavorite: favorites.isFavorite(asset),
     stackType: stackTypeOf(asset),
     priority
   }
@@ -471,6 +479,25 @@ function resolvedTiles(row: GridRow, rowTop: number) {
   }
   return out
 }
+
+// SP-2 (§12): un solo pool di selezione, condiviso da Foto/Preferiti/Cerca/
+// Album/Persona (`stores/selection.ts`, già costruito nel Task 2) — "si
+// entra selezionando la prima foto… si esce deselezionando l'ultima",
+// implicito, nessun pulsante "Seleziona" dedicato. `selectionMode` è
+// derivato dal conteggio, non un flag separato da tenere sincronizzato.
+const selectionMode = computed(() => selection.library.selectedIds.size > 0)
+function isSelected(id: string): boolean {
+  return selection.library.selectedIds.has(id)
+}
+
+/** SP-4: "ciò che è visibile in quel momento", mai l'intera libreria
+ * sottostante. Senza un filtro rapido ancora cablato (di là da venire in
+ * questo stesso Task), "visibile" coincide con "già caricato" —
+ * `loadedAssets`, lo stesso insieme già usato da `startCulling()` con la
+ * stessa motivazione dichiarata. */
+function selectAllVisible() {
+  selection.library.selectAllVisible(loadedAssets.value.map((asset) => asset.id))
+}
 </script>
 
 <template>
@@ -478,11 +505,16 @@ function resolvedTiles(row: GridRow, rowTop: number) {
     <!-- Fase 11 Task 6 (5/N): la navigazione globale (saluto, ricerca,
          Cartelle/Mappa/Cestino/Album/Condivisioni/Utenti/Gruppi/Problemi,
          Esci) è ora in AppSidebar/AppTopbar (App.vue) — tolta da qui, non
-         duplicata. Restano solo i due controlli reali di questa vista che
-         non hanno un'altra sede: l'ingresso al culling (unico pulsante,
-         spec §4.2) e la densità (ripiego pre-Impostazioni, v. commento
-         su DENSITY_KEY). -->
-    <div class="flex items-center gap-3 border-b border-border px-4 py-3">
+         duplicata. Restano i due controlli reali di questa vista che non
+         hanno un'altra sede: l'ingresso al culling (unico pulsante, spec
+         §4.2) e la densità (ripiego pre-Impostazioni, v. commento su
+         DENSITY_KEY). "Rinomina cartella…" (§8.3, a sinistra quando è
+         aperta una cartella) non si applica ancora: questa vista non ha
+         un concetto di "cartella aperta" (debito già dichiarato). -->
+    <div
+      v-if="!selectionMode"
+      class="flex items-center gap-3 border-b border-border px-4 py-3"
+    >
       <button
         v-if="loadedAssets.length > 0"
         type="button"
@@ -492,6 +524,10 @@ function resolvedTiles(row: GridRow, rowTop: number) {
         {{ t('culling.entry') }}
       </button>
       <div class="ml-auto flex items-center gap-2">
+        <SelectAllVisible
+          :visible-count="loadedAssets.length"
+          @select-all="selectAllVisible"
+        />
         <button
           class="rounded-lg border border-border px-2 py-1"
           :aria-label="t('timeline.densityDown')"
@@ -508,6 +544,24 @@ function resolvedTiles(row: GridRow, rowTop: number) {
           +
         </button>
       </div>
+    </div>
+    <!-- SP-2 (§12.2): sostituisce l'intera riga strumenti quando la
+         selezione è attiva. I cinque pulsanti d'azione (Preferiti/Album/
+         Condividi/Modifica/Elimina) e i dialog che aprono sono la
+         prossima unità di questo stesso Task: qui solo × / conteggio /
+         "Seleziona tutte", già completi in SelectionBar.vue.
+         Mai `v-if`/`v-else` su `<SelectionBar>` stessa (commento vincolante
+         nel suo stesso file): la sua regione d'annuncio per screen reader
+         deve restare montata anche nell'istante esatto in cui la selezione
+         si azzera, altrimenti "Selezione annullata" non potrebbe mai
+         scattare — solo il padding visivo del contenitore è condizionale. -->
+    <div :class="selectionMode && 'border-b border-border px-4 py-3'">
+      <SelectionBar
+        :count="selection.library.selectedIds.size"
+        :ariaLabel="t('ui.selectionBar.ariaLabel')"
+        @clear="selection.library.clear()"
+        @select-all="selectAllVisible"
+      />
     </div>
 
     <div
@@ -573,10 +627,13 @@ function resolvedTiles(row: GridRow, rowTop: number) {
                   v-for="{ cell, props } in resolvedTiles(entry.row, entry.top)"
                   :key="cell.offsetInMonth"
                   v-bind="props"
-                  :selected="false"
-                  :selection-mode="false"
+                  :selected="isSelected(props.asset.id)"
+                  :selection-mode="selectionMode"
+                  :enable-long-press="isMobile"
                   :style="{ position: 'absolute', left: `${cell.x}px`, top: 0, width: `${cell.w}px`, height: `${cell.h}px` }"
                   @open="lightbox.open(props.asset)"
+                  @toggle-select="selection.library.toggle(props.asset.id)"
+                  @toggle-favorite="favorites.toggleOne(props.asset)"
                 />
               </template>
             </div>

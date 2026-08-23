@@ -6,12 +6,20 @@ export interface AssetFlags {
   rating: number | null
   pick: Pick
   color_label: string | null
+  /** «Preferito» (`AssetFlagsBody::favorite`, crates/keeppix-api/src/routes/flags.rs):
+   * asse indipendente da `pick`, non un suo alias — stessa distinzione già
+   * nel backend. Aggiunto qui in Task 7 perché la timeline/Preferiti/SP-2
+   * lo scrivono tramite lo stesso endpoint di rimpiazzo completo, non una
+   * patch: chi scrive `favorite` deve prima leggere gli altri tre campi,
+   * altrimenti li azzera in silenzio (`stores/favorites.ts`). */
+  favorite: boolean
 }
 
 export const unvotedFlags: Readonly<AssetFlags> = Object.freeze({
   rating: null,
   pick: 'none',
-  color_label: null
+  color_label: null,
+  favorite: false
 })
 
 export function fetchFlags(assetId: string): Promise<AssetFlags> {

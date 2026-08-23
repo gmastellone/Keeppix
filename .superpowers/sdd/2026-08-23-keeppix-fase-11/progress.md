@@ -2939,3 +2939,133 @@ Verifica eseguita:
 - `npm run build` → bundle iniziale **122.381/153.600** byte gzip
   (variazione trascurabile rispetto al passo precedente). Margine
   ampio (31.219 byte).
+
+# Task 7 — Foto/Timeline (composizione finale), Preferiti, filtro rapido,
+# selezione multipla, modifica in blocco
+
+Copre le sezioni 8-13 del documento funzionale (righe 1507-2453):
+Foto/Timeline, Preferiti, SP-1 (tile, già costruito nel Task 4), SP-3
+(filtro rapido), SP-2 (selezione multipla + barra azioni), Modifica in
+blocco. Letto per intero prima di scrivere codice.
+
+Ricognizione preliminare (importante per il piano dell'intero Task): la
+maggior parte dei pattern condivisi che questo task consuma **esiste già**
+dal Task 2 — `PhotoTile.vue` (SP-1 completo, selezione+cuoricino già
+nel componente, solo mai cablato con dati veri), `SelectionBar.vue` (SP-2,
+mai montata da nessuna vista), `stores/selection.ts` (due pool paralleli,
+libreria+culling, mai consumato), `SelectAllVisible.vue` (SP-4),
+`QuickFilter.vue` + `design/quickFilter.ts` (SP-3, generico rispetto alle
+dimensioni — dichiaratamente in attesa delle sei dimensioni reali),
+`DeleteDialog.vue` (SP-18, le tre opzioni esatte di §12), `Dialog.vue`/
+`SegmentedControl.vue`/`Avatar.vue`. Il grosso di questo Task è quindi
+**cablaggio** di primitive già verificate, non invenzione di markup nuovo
+— cambia il piano dei passi rispetto ai Task precedenti, più veloce dove
+il Task 2 ha già coperto il terreno, più lento dove serve dati reali
+(le sei dimensioni del filtro) o dialog specifici di schermata (Album,
+Condividi) che il Task 2 non copriva.
+
+Gap di backend scoperto leggendo `crates/keeppix-api/src/routes/flags.rs`
+per intero: `PUT /assets/{id}/flags` e `POST /flags/batch` sono un
+**rimpiazzo completo** del voto (commento russo del campo `favorite`
+stesso: «non una patch»), non un PATCH per singolo campo. La sola
+`TimelineAsset` letta dalla timeline **non** porta `rating`/`pick`/
+`color_label` — scrivere `favorite` da sola su un asset di cui non si
+conoscono già gli altri tre campi li azzererebbe in silenzio. Anche
+`api/culling.ts`'s `AssetFlags` (frontend) non aveva mai dichiarato
+`favorite`, nonostante il backend lo abbia da Fase 10 (`§7bis.1`) — gap
+di tipo puro, corretto qui.
+
+## Task 7 (1/N) — Il cuoricino e la selezione multipla in Timeline
+
+**Ambito**: rendere reali i due comandi che `PhotoTile` già sapeva emettere
+ma che `TimelineView` ignorava (`:selected="false"`, `:selection-mode=
+"false"` erano cablati a fisso), più SP-4 e il montaggio di
+`SelectionBar`. I cinque pulsanti d'azione della barra (Preferiti/Album/
+Condividi/Modifica/Elimina) e i dialog che aprono sono la prossima unità:
+`SelectionBar.vue` è già completa per conteggio/annulla/seleziona-tutte,
+ma le azioni restano fuori dal suo perimetro dichiarato (commento del
+file: "il chiamante li compone nello slot").
+
+`api/culling.ts`: `AssetFlags` guadagna `favorite: boolean`,
+`unvotedFlags.favorite: false` — nessun altro cambiamento, `stores/
+culling.ts` non tocca mai questo campo (il culling non ha cuoricini nel
+documento).
+
+`stores/favorites.ts` (nuovo): il cuoricino, per singolo tocco (SP-1,
+"subito, senza conferma né toast") e di gruppo (SP-2, §12.3, toast
+neutro). Ogni scrittura legge prima `fetchFlags` (fallback a
+`unvotedFlags` se anche quella fallisce, mai propagare l'errore a un
+`GET` che dovrebbe essere innocuo) e fonde `favorite` dentro — mai una
+scrittura "nuda". `overlay: Record<string,boolean>` per l'aggiornamento
+ottimistico rispetto all'istantanea di `TimelineAsset.favorite`. `setMany`
+è sequenziale (stessa motivazione già usata per `removeMany` nel culling
+store: una selezione di libreria è decine o centinaia di foto, non
+migliaia — l'ordine conta più del parallelismo) e instrada l'esito nel
+toast store già esistente (Task 2): successo pieno → il testo esatto del
+documento ("Aggiunti ai preferiti."/"Rimossi dai preferiti."); fallimento
+parziale → `toast.showPartial` con un ritentativo che copre solo gli id
+falliti (nessuna "schermata di riuscita parziale" dedicata esiste ancora
+nel frontend — non citata nel piano come già costruita altrove, debito
+dichiarato, il toast è la sola forma di riuscita-parziale disponibile
+oggi); fallimento totale → `toast.showError`.
+
+`composables/useIsMobile.ts` (nuovo): estratto da `AppShell.vue` al
+comparire del secondo consumatore (`PhotoTile`, per `enable-long-press`
+— §10.4, tap prolungato solo mobile) — stesso principio già seguito per
+`nav/routeTitles.ts` nel Task 6. `AppShell.vue` ora lo consuma invece di
+duplicare la logica `matchMedia`; comportamento identico, stesso test.
+
+`TimelineView.vue`: `PhotoTile` riceve ora `:selected`/`:selection-mode`
+reali da `selection.library` e `:is-favorite` da `favorites.isFavorite`;
+`@toggle-select`/`@toggle-favorite` cablati. `selectionMode` è derivato
+dal conteggio (`selection.library.selectedIds.size > 0`), non un flag
+separato. **Bug reale trovato e corretto prima del commit**: `store.
+library.selectedIds` letto tramite l'istanza reattiva del negozio Pinia è
+già **sballato** dal `Ref` (il negozio di setup di Pinia despacchetta i
+`ref` annidati a qualunque profondità, non solo al primo livello) —
+il primo tentativo scriveva `.value.size`/`.value.has(id)`, che avrebbe
+lanciato a runtime (`undefined.size`); confermato leggendo `selection.
+spec.ts`, che già accede senza `.value`. La riga strumenti normale
+sparisce del tutto in selezione (`v-if="!selectionMode"`) e `<SelectionBar
+/>` la sostituisce — ma **mai** dentro un proprio `v-if`/`v-else`: il
+commento vincolante nel file del componente dice che la sua regione
+d'annuncio deve restare montata anche nell'istante esatto in cui la
+selezione si azzera, altrimenti "Selezione annullata" non scatterebbe
+mai. Il contenitore attorno a `<SelectionBar>` applica il padding/bordo
+solo `:class="selectionMode && '…'"`, non un `v-if` sul componente
+stesso — stesso identico bug di montaggio è stato preso e corretto in
+questa stessa unità prima del commit (il primo tentativo usava
+`v-else`, i test su "conteggio 0 dopo l'annulla" fallivano con
+"Cannot call props on an empty VueWrapper").
+`SelectAllVisible` seleziona `loadedAssets` ("ciò che è visibile ora",
+non l'intera libreria — SP-4 §11.2 — coincide con "già caricato" finché
+il filtro rapido non esiste ancora in questa vista, stessa motivazione
+già dichiarata per `startCulling()`). "Rinomina cartella…" (§8.3)
+resta fuori: questa vista non ha un concetto di "cartella aperta"
+(debito preesistente, non nuovo di questa unità).
+
+Verifica eseguita:
+- `stores/favorites.spec.ts` (nuovo, 10 test) → verdi: lettura dei flag
+  correnti prima di scrivere, ottimismo, toggle avanti/indietro,
+  rollback su fallimento (senza toast di successo), fallback a
+  `unvotedFlags` se anche `fetchFlags` fallisce, `setMany` no-op su
+  selezione vuota, testo esatto dei due toast di gruppo (§12.3),
+  rollback selettivo + toast parziale su fallimento parziale, toast
+  d'errore secco su fallimento totale.
+- `TimelineView.spec.ts` (esteso, +6 test): cuoricino che fonde nei
+  flag correnti; check che entra in selezione e sostituisce la riga
+  strumenti; click sul corpo della tile in selezione che seleziona
+  invece di aprire il lightbox; "Seleziona tutto quello che vedi";
+  × che annulla e ripristina la riga normale.
+- `npx vitest run` (suite intera) → 70 file, 531/531 verdi.
+- `npx vue-tsc -b` → pulito dopo la correzione del binding
+  `:aria-label` → `:ariaLabel` su `<SelectionBar>` (vue-tsc non
+  camelizza un binding kebab-case quando il nome coincide con un
+  attributo ARIA nativo, anche se il componente dichiara un prop
+  proprio con quel nome — un solo avviso ESLint nuovo,
+  `vue/attribute-hyphenation`, coerente con la baseline di 142 avvisi
+  preesistenti già osservata in questa sessione, mai zero avvisi).
+- `npx eslint` sui file toccati → pulito salvo l'avviso sopra.
+- `npm run build` → bundle iniziale **122.510/153.600** byte gzip
+  (+129 byte, trascurabile — `TimelineView.vue` resta un chunk lazy
+  separato). Margine ampio (31.090 byte).
