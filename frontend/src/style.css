@@ -20,6 +20,13 @@
      introdurre una terza tonalità semantica. 3,4:1 su bianco — non un AA
      pieno per testo piccolo, solo per stati puntiformi/bordi. */
   --color-status-positive: #2e9e5b;
+  /* Il toast ha uno sfondo invertito rispetto al tema (`--color-content` su
+     `--color-surface`, mai il contrario) — i suoi filetti colorati non
+     possono quindi usare `--danger`/un futuro `--warn`: si leggerebbero
+     male su quello sfondo scuro anche in tema chiaro. Commento del
+     prototipo stesso, righe 69-72. */
+  --color-toast-danger: #ff7a6e;
+  --color-toast-warn: #ffb84d;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -32,6 +39,8 @@
     --color-accent-text: #1a1005;
     --color-danger: #ff6b61;
     --color-border: oklch(30% 0 0);
+    --color-toast-danger: #c6382f;
+    --color-toast-warn: #a66200;
   }
 }
 

@@ -1,7 +1,12 @@
 {
   "app": { "name": "Keeppix" },
   "ui": {
-    "dialog": { "close": "Close" }
+    "dialog": { "close": "Close" },
+    "toast": {
+      "retry": "Retry",
+      "retryRemaining": "Retry the {n} remaining",
+      "partial": "{ok} of {total} completed — {n} failed."
+    }
   },
   "setup": {
     "title": "Welcome to Keeppix",

@@ -3,6 +3,7 @@ import { defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import Button from '@/components/ui/Button.vue'
+import ToastHost from '@/components/ui/ToastHost.vue'
 import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
@@ -31,4 +32,5 @@ const UploadPanel = defineAsyncComponent(() => import('@/components/UploadPanel.
   </main>
   <RouterView v-else />
   <UploadPanel v-if="!session.unavailable" />
+  <ToastHost />
 </template>

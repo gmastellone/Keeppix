@@ -225,3 +225,82 @@ Debiti dichiarati: sedici componenti del Task 2 restano da scrivere
 `ToastHost`, `Tooltip`, `SuggestionQueue`, `ProvenanceBadge`, `Avatar`,
 `AppShell`, `DeleteDialog`, `ConfirmDialog`, `SegmentedControl`,
 `NavGroup`, `BusyButton`, `LoadingSkeleton`).
+
+### ToastHost (SP-6/SP-28/SP-29)
+
+Terzo componente del Task 2. A differenza di `Dialog`/`Popover` non
+avvolge una primitiva reka-ui: il prototipo lo implementa come markup e
+timer scritti a mano (`showToast`/`showErrorToast`/`showPartialToast`,
+righe 2589-2636 di `keeppix-mockup.html`), quindi qui è uno store Pinia
+(`stores/toast.ts`, la logica di tempo) più un componente di sola resa
+(`components/ui/ToastHost.vue`) — separazione già in uso nel progetto per
+stato che sopravvive a più schermate.
+
+Tre nature confermate dal prototipo: successo (`ok`, resta neutro, nessun
+filetto colorato — è il caso normale), errore e riuscita parziale
+(entrambi con un filetto colorato e una vita più lunga, perché leggere
+"cosa non ha funzionato" richiede più tempo di leggere "fatto"). Numeri,
+tutti letti dal sorgente e già presenti in `design/tokens.ts` dal Task 1
+(non ristimati qui): ritardo di comparsa `10ms`, rimozione dal DOM dopo
+`250ms`, vita `2400ms` (successo senza azione), `4200ms` (errore o
+parziale senza azione), `6500ms` quando è presente un'azione —
+indipendentemente dalla natura, come fa il prototipo (`opts.action ?
+6500 : ...`). Il passaggio del mouse su un toast con azione ferma il
+timer (`pause`/`resume` nello store); solo i toast con azione lo
+espongono, stesso comportamento del prototipo.
+
+Aggiunti a `style.css`: `--color-toast-danger`/`--color-toast-warn`
+(righe 69-72 del mockup, commento del prototipo stesso: lo sfondo del
+toast è invertito rispetto al tema — `--color-content` su
+`--color-surface`, mai il contrario — quindi i filetti non possono
+riusare `--danger`/un futuro `--warn`, illeggibili su quello sfondo
+scuro anche in tema chiaro). Aggiunte a `it.json`/`en.json`:
+`ui.toast.retry`, `ui.toast.retryRemaining` (con `{n}`),
+`ui.toast.partial` — prima chiave del progetto a usare il plurale nativo
+di vue-i18n (`'... non è riuscita. | ... non sono riuscite.'`) invece del
+solo `{n}` interpolato, perché l'italiano richiede l'accordo verbale
+(singolare/plurale), non solo il numero. Firma corretta verificata
+leggendo `@intlify/core-base/dist/core-base.d.ts` direttamente invece di
+indovinarla: `t(key, named: NamedValue, { plural: n })`, non `t(key, n,
+{ named })` (un primo tentativo sbagliato, corretto prima del commit).
+
+`ToastHost.vue` monta un solo pannello fisso (`bottom-5`,
+`left-1/2` centrato) che itera `store.toasts`; ogni toast usa `role="alert"`
+per errore/parziale (non per successo — non interrompe chi sta leggendo
+per dire "fatto") e l'azione è raggiungibile da tastiera
+(`tabindex="0"`, `@keydown.enter`/`@keydown.space`), non solo dal mouse —
+il prototipo la implementa come click soltanto. **Cablato in `App.vue`**
+(`<ToastHost />` accanto a `<UploadPanel />`, montato una volta sola,
+sempre presente): un componente scritto ma non montato da nessuna
+schermata reale sarebbe morto, non un debito accettabile per un pattern
+già pronto all'uso da chi scriverà i prossimi componenti.
+
+**Bug trovato scrivendo il test, non nello store**: la prima stesura di
+`toast.spec.ts` avanzava i timer finti sommando gli intervalli dopo il
+ritardo di comparsa (`advanceTimersByTime(10)` poi `+2399`), ma il timer
+di chiusura viene armato da `show()` al tempo `t=0`, non a `t=10` —
+l'aritmetica del test, non la logica dello store, era sbagliata (due
+asserzioni fallivano per un tempo cumulato oltre la scadenza reale).
+Corretto ricalcolando i tempi assoluti invece di ipotizzarli.
+
+Verifica eseguita:
+- `npx vitest run src/stores/toast.spec.ts` → 8/8 verdi (dopo la
+  correzione sopra): ritardo di comparsa, vita 2400/4200/6500ms per
+  natura e presenza di azione, pausa/ripresa al passaggio del mouse,
+  `runAction` chiude ed esegue il richiamo, testo italiano singolare/
+  plurale esatto per `showPartial`.
+- `npx vitest run` (suite intera) → 155/155 verdi.
+- `npx vue-tsc -b` → pulito (compresa la firma di `t()` con plurale,
+  verificata a compilazione, non solo a runtime).
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **91.900/153.600** byte gzip (stesso
+  script della CI): +1.300 byte circa rispetto a `Dialog`/`Popover`
+  perché `ToastHost` è il primo dei tre a essere davvero cablato in
+  `App.vue` — differenza attesa, non un regressione, ampio margine
+  residuo (61.700 byte).
+
+Debiti dichiarati: quindici componenti del Task 2 restano da scrivere
+(`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
+`Tooltip`, `SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
+`DeleteDialog`, `ConfirmDialog`, `SegmentedControl`, `NavGroup`,
+`BusyButton`, `LoadingSkeleton`).
