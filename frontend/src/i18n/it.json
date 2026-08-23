@@ -35,6 +35,10 @@
       "selectAll": "Seleziona tutte",
       "announceSelected": "{n} foto selezionata | {n} foto selezionate",
       "announceCleared": "Selezione annullata"
+    },
+    "selectAllVisible": {
+      "tooltip": "Seleziona tutto",
+      "ariaLabel": "Seleziona tutto quello che vedi"
     }
   },
   "setup": {

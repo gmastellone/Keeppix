@@ -849,3 +849,43 @@ Verifica eseguita:
 Debiti dichiarati: il resto della shell mobile (Task 3) più quattro
 componenti del Task 2 (`PhotoTile`, `QuickFilter`, `SelectAllVisible`,
 `SuggestionQueue`).
+
+### SelectAllVisible (SP-4)
+
+Quindicesimo componente del Task 2. Definizione canonica letta per
+intero, non solo la riga del piano: seleziona **esattamente ciò che è
+visibile in quel momento**, mai l'intera libreria sottostante — se un
+filtro rapido o una ricerca sono attivi, solo ciò che ci ricade dentro.
+Il documento distingue esplicitamente due insiemi che l'implementazione
+deve tenere separati: quello *di partenza* della vista e quello
+*effettivamente mostrato*. Questo componente non conosce nessuno dei
+due: riceve solo `visibleCount` (per decidere se mostrarsi) ed emette
+`select-all` — il vero insieme da selezionare va allo stesso
+`store.selection.*.selectAllVisible(visibleIds)` già costruito per
+SP-2, che implementa la semantica di toggle corretta.
+
+**"Scompare quando non c'è nulla, non si disabilita"** (nota
+vincolante del piano, ripresa quasi identica nel documento): nessuna
+variante disabilitata da disegnare — `v-if="visibleCount > 0"` sulla
+radice, stessa disciplina già applicata a `SelectionBar`.
+
+**Due etichette diverse, non la stessa ripetuta**: il tooltip dice
+"Seleziona tutto" (SP-7, breve, per chi vede), l'`aria-label` dice
+"Seleziona tutto quello che vedi" (documento, riga 10249-10251, **più
+esplicito** apposta per chi non vede il contesto visivo) — verificato
+con un test che controlla entrambi i testi separatamente, non un solo
+valore condiviso. Icona esatta dal prototipo (`selectAll`, riga 1509:
+un quadrato con spunta dentro), non un glifo generico.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/SelectAllVisible.spec.ts` → 4/4
+  verdi: sparisce a zero visibili, appare da almeno uno, le due
+  etichette esatte e distinte, l'evento `select-all` emesso al clic.
+- `npx vitest run` (suite intera) → 225/225 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **93.260/153.600** byte gzip
+  (script CI). Margine ampio (60.340 byte).
+
+Debiti dichiarati: il resto della shell mobile (Task 3) più tre
+componenti del Task 2 (`PhotoTile`, `QuickFilter`, `SuggestionQueue`).
