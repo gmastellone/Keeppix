@@ -835,3 +835,329 @@ async fn v12_trash_restore_returns_photo_to_timeline() {
         .sum();
     assert_eq!(count, 1);
 }
+
+fn v13_basic_auth_header(username: &str, secret: &str) -> String {
+    use base64::Engine as _;
+    let raw = format!("{username}:{secret}");
+    format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(raw)
+    )
+}
+
+#[allow(clippy::expect_used)]
+async fn v13_create_app_password(server: &TestServer, label: &str) -> String {
+    let created = server
+        .client
+        .post(server.url("/api/v1/users/me/app-passwords"))
+        .json(&json!({ "label": label }))
+        .send()
+        .await
+        .expect("create app password");
+    assert_eq!(created.status(), 201);
+    let body: serde_json::Value = created.json().await.expect("app password json");
+    body["secret"].as_str().expect("secret").to_owned()
+}
+
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn v13_asset_id_by_name(server: &TestServer, folder_id: &str, filename: &str) -> String {
+    let row: (uuid::Uuid,) =
+        sqlx::query_as("SELECT id FROM assets WHERE folder_id = $1 AND filename = $2")
+            .bind(uuid::Uuid::parse_str(folder_id).unwrap())
+            .bind(filename)
+            .fetch_one(server.db.pool())
+            .await
+            .expect("asset by name");
+    row.0.to_string()
+}
+
+#[allow(clippy::expect_used)]
+async fn v13_set_flags(server: &TestServer, asset_id: &str, body: serde_json::Value) {
+    let response = server
+        .client
+        .put(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
+        .json(&body)
+        .send()
+        .await
+        .expect("set flags");
+    assert_eq!(response.status(), 204);
+}
+
+#[allow(clippy::expect_used)]
+async fn v13_get_flags(server: &TestServer, asset_id: &str) -> serde_json::Value {
+    server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
+        .send()
+        .await
+        .expect("get flags")
+        .json()
+        .await
+        .expect("flags json")
+}
+
+#[allow(clippy::expect_used)]
+async fn v13_create_album(server: &TestServer, name: &str) -> String {
+    let response = server
+        .client
+        .post(server.url("/api/v1/albums"))
+        .json(&json!({ "name": name }))
+        .send()
+        .await
+        .expect("create album");
+    assert_eq!(response.status(), 201);
+    let body: serde_json::Value = response.json().await.expect("album json");
+    body["id"].as_str().expect("album id").to_owned()
+}
+
+#[allow(clippy::expect_used)]
+async fn v13_add_to_album(server: &TestServer, album_id: &str, asset_id: &str) {
+    let response = server
+        .client
+        .post(server.url(&format!("/api/v1/albums/{album_id}/assets/{asset_id}")))
+        .send()
+        .await
+        .expect("add to album");
+    assert_eq!(response.status(), 204);
+}
+
+#[allow(clippy::expect_used)]
+async fn v13_album_asset_ids(server: &TestServer, album_id: &str) -> Vec<String> {
+    let response = server
+        .client
+        .get(server.url(&format!("/api/v1/albums/{album_id}/assets")))
+        .send()
+        .await
+        .expect("list album assets");
+    let body: serde_json::Value = response.json().await.expect("album assets json");
+    body.as_array()
+        .expect("array")
+        .iter()
+        .map(|item| item["id"].as_str().expect("asset id").to_owned())
+        .collect()
+}
+
+/// Fase 9 Task 11 — "chiusa quando un viaggio vero (import su più giorni,
+/// culling, rinomina, prelievo da `WebDAV`, sviluppo esterno, cancellazione
+/// dei RAW) si completa senza toccare il filesystem a mano, e senza che
+/// nessuna foto perda valutazione, tag o appartenenza agli album lungo il
+/// percorso." Ogni passo qui sotto passa da un'API reale (HTTP o `WebDAV`),
+/// mai da una scrittura diretta sul disco fuori da quelle — la sola eccezione
+/// è la creazione iniziale dell'archivio sorgente, che nella vita reale è la
+/// scheda di memoria della fotocamera, non un'azione dentro Keeppix.
+///
+/// **Ambito dichiarato**: "culling" qui è il voto per-utente (`pick`/
+/// `reject`/`rating`, `PUT .../flags`) — l'unica variante di culling con una
+/// rotta HTTP oggi. Lo spostamento fisico nei lotti `_taken`/`_skipped`
+/// (`CullingRepo::set_pick`, Task 2-4) è provato a fondo nella sua stessa
+/// suite di `keeppix-db`, ma non ha ancora un chiamante HTTP (schermata
+/// Culling, Fase 11) — rifarlo qui userebbe il repository direttamente,
+/// contraddicendo lo scopo di questo file ("HTTP-only", vedi `journey/mod.rs`).
+/// Stesso discorso per i tag: nell'app sono solo proposti dall'IA e confermati
+/// (`Fase 7 Task 8/9`), non assegnabili a mano via HTTP — non rientrano in
+/// questa prova. "Cancellazione dei RAW" è provata con `DELETE /dav/asset/…`
+/// su un asset qualunque: il percorso di cancellazione è lo stesso qualunque
+/// sia il tipo del file (verificato leggendo `dav::write`/`TrashRepo::choose`
+/// — nessun ramo specifico per `AssetKind::RawImage`), quindi un secondo JPEG
+/// prova lo stesso meccanismo di un vero `.arw` senza richiedere un decoder
+/// RAW reale nell'ambiente di test.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
+async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
+    let server = TestServer::start().await;
+    let deadline = Instant::now() + Duration::from_secs(90);
+    setup_admin(&server).await;
+    let secret = v13_create_app_password(&server, "Finder").await;
+
+    // Import su più giorni: due cartelle-giorno, due JPEG ciascuna — la
+    // "scheda di memoria" della fotocamera, l'unica scrittura su disco di
+    // questo test che non passa da un'API di Keeppix.
+    let root = server
+        .photos_root
+        .join(format!("trip-{}", uuid::Uuid::now_v7().simple()));
+    let bytes = fs::read(journey::tiny_fixture_path()).unwrap();
+    for day in ["2026-08-14", "2026-08-15"] {
+        let dir = root.join(day);
+        fs::create_dir_all(&dir).unwrap();
+        for i in 0..2 {
+            fs::write(dir.join(format!("IMG_{i}.jpg")), &bytes).unwrap();
+        }
+    }
+    let library_id = create_library(&server, "Viaggio", &root).await;
+    scan_and_wait(&server, &library_id, 4, deadline).await;
+
+    let day1 = folder_id_by_name(&server, "2026-08-14").await;
+    let day2 = folder_id_by_name(&server, "2026-08-15").await;
+    let keeper = v13_asset_id_by_name(&server, &day1, "IMG_0.jpg").await;
+    let rejected = v13_asset_id_by_name(&server, &day1, "IMG_1.jpg").await;
+    let other1 = v13_asset_id_by_name(&server, &day2, "IMG_0.jpg").await;
+    let other2 = v13_asset_id_by_name(&server, &day2, "IMG_1.jpg").await;
+
+    // Culling: voto per-utente via l'API reale, prima di rinominare.
+    v13_set_flags(&server, &keeper, json!({"rating": 5, "pick": "pick"})).await;
+    v13_set_flags(&server, &rejected, json!({"pick": "reject"})).await;
+    v13_set_flags(&server, &other1, json!({"favorite": true})).await;
+
+    // Appartenenza agli album: solo i due "presi" entrano nell'album.
+    let album_id = v13_create_album(&server, "Migliori del viaggio").await;
+    v13_add_to_album(&server, &album_id, &keeper).await;
+    v13_add_to_album(&server, &album_id, &other1).await;
+
+    // Rinomina di massa sull'intero ambito (Fase 9 Task 10 — la rotta reale,
+    // non `RenameRepo` direttamente).
+    let asset_ids = vec![
+        keeper.clone(),
+        rejected.clone(),
+        other1.clone(),
+        other2.clone(),
+    ];
+    let preview: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/assets/batch/rename/preview"))
+        .json(&json!({ "asset_ids": asset_ids, "schema": "Viaggio_{n:2}" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let preview_items = preview.as_array().unwrap();
+    assert_eq!(preview_items.len(), 4);
+    assert!(
+        preview_items.iter().all(|item| item["collides"] == false),
+        "l'anteprima non deve segnalare collisioni su un ambito senza doppioni: {preview:?}"
+    );
+    let expected_names: std::collections::HashMap<String, String> = preview_items
+        .iter()
+        .map(|item| {
+            (
+                item["asset_id"].as_str().unwrap().to_owned(),
+                item["new_name"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+
+    let applied: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/assets/batch/rename"))
+        .json(&json!({ "asset_ids": asset_ids, "schema": "Viaggio_{n:2}" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(applied["outcome"]["succeeded"].as_array().unwrap().len(), 4);
+    assert!(applied["outcome"]["failed"].as_array().unwrap().is_empty());
+    let operation_id = applied["operation_id"].as_str().unwrap();
+
+    // L'operazione tracciata (Task 10) è arrivata a `Done`, non lasciata
+    // `running` — la stessa fonte di verità che il `WebSocket` legge.
+    let (op_status, op_done, op_total): (String, i64, Option<i64>) = sqlx::query_as(
+        "SELECT status, done, total FROM operations WHERE id = $1 AND kind = 'bulk_rename'",
+    )
+    .bind(uuid::Uuid::parse_str(operation_id).unwrap())
+    .fetch_one(server.db.pool())
+    .await
+    .unwrap();
+    assert_eq!(op_status, "done");
+    assert_eq!(op_done, 4);
+    assert_eq!(op_total, Some(4));
+
+    // I file sono rinominati per davvero sul disco, con i nomi
+    // dell'anteprima — non solo la riga del database.
+    assert!(
+        root.join("2026-08-14")
+            .join(&expected_names[&keeper])
+            .is_file()
+    );
+    assert!(
+        root.join("2026-08-15")
+            .join(&expected_names[&other1])
+            .is_file()
+    );
+    assert!(!root.join("2026-08-14").join("IMG_0.jpg").exists());
+
+    // Nessuna foto ha perso il voto o l'appartenenza all'album passando per
+    // la rinomina — l'identità (`asset_id`) non cambia con `move_asset`.
+    let keeper_flags = v13_get_flags(&server, &keeper).await;
+    assert_eq!(keeper_flags["rating"], 5);
+    assert_eq!(keeper_flags["pick"], "pick");
+    let rejected_flags = v13_get_flags(&server, &rejected).await;
+    assert_eq!(rejected_flags["pick"], "reject");
+    let other1_flags = v13_get_flags(&server, &other1).await;
+    assert_eq!(other1_flags["favorite"], true);
+    let mut album_members = v13_album_asset_ids(&server, &album_id).await;
+    album_members.sort();
+    let mut expected_members = vec![keeper.clone(), other1.clone()];
+    expected_members.sort();
+    assert_eq!(album_members, expected_members);
+
+    // Prelievo da WebDAV: lo stesso asset, scaricato per id (mai per nome —
+    // il nome è appena cambiato) restituisce esattamente i byte originali.
+    let auth = v13_basic_auth_header("giovanni", &secret);
+    let download = server
+        .client
+        .get(server.url(&format!("/dav/asset/{keeper}")))
+        .header("authorization", &auth)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(download.status(), 200);
+    assert_eq!(download.bytes().await.unwrap().as_ref(), bytes.as_slice());
+
+    // Sviluppo esterno: un client `WebDAV` (Lightroom, Finder, ...) deposita
+    // un file modificato accanto agli originali rinominati.
+    let mut edited_bytes = bytes.clone();
+    edited_bytes.push(0);
+    let put_response = server
+        .client
+        .put(server.url(&format!("/dav/folder/{day1}/sviluppo-esterno.jpg")))
+        .header("authorization", &auth)
+        .body(edited_bytes.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(put_response.status(), 201);
+    assert_eq!(
+        fs::read(root.join("2026-08-14").join("sviluppo-esterno.jpg")).unwrap(),
+        edited_bytes
+    );
+    drain_workers(&server, deadline).await;
+    let developed_id = v13_asset_id_by_name(&server, &day1, "sviluppo-esterno.jpg").await;
+    assert_ne!(
+        developed_id, keeper,
+        "il file depositato è un asset nuovo, non un duplicato"
+    );
+
+    // Cancellazione: `DELETE` via `WebDAV` sposta nel cestino, non cancella
+    // dal filesystem in silenzio (stesso percorso di `dav::write` per
+    // qualunque tipo di file, RAW incluso — vedi la nota sopra la funzione).
+    let delete_response = server
+        .client
+        .delete(server.url(&format!("/dav/asset/{other2}")))
+        .header("authorization", &auth)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), 204);
+    let (disk_action, trash_path): (String, Option<String>) =
+        sqlx::query_as("SELECT disk_action, trash_path FROM trash_entries WHERE asset_id = $1")
+            .bind(uuid::Uuid::parse_str(&other2).unwrap())
+            .fetch_one(server.db.pool())
+            .await
+            .unwrap();
+    assert_eq!(disk_action, "moved_to_trash");
+    assert!(std::path::Path::new(&trash_path.unwrap()).exists());
+
+    // Nessun effetto collaterale sulle altre foto: il voto, il preferito e
+    // l'album del resto del viaggio restano quelli di prima della
+    // cancellazione — cancellare uno non ha toccato gli altri.
+    let keeper_flags_after = v13_get_flags(&server, &keeper).await;
+    assert_eq!(keeper_flags_after, keeper_flags);
+    let mut album_members_after = v13_album_asset_ids(&server, &album_id).await;
+    album_members_after.sort();
+    assert_eq!(album_members_after, expected_members);
+
+    let _ = fs::remove_dir_all(&root);
+}

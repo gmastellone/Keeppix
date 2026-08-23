@@ -29,6 +29,14 @@ pub enum DbError {
     /// non ha sbagliato id.
     #[error("gone")]
     Gone,
+    /// `(folder_id, filename)` di destinazione già occupato da un altro
+    /// asset — `AssetRepo::move_asset` (Fase 9 Task 1). Distinta da
+    /// `Conflict`: un'operazione di massa deve poterla riconoscere senza
+    /// analizzare il testo del messaggio (`FailureReason::Collision`,
+    /// `crates/keeppix-api/src/bulk.rs`) — "non si sovrascrive mai" è
+    /// un'informazione strutturata, non un dettaglio per umani.
+    #[error("destination already occupied: {0}")]
+    Collision(String),
 }
 
 impl From<sqlx::migrate::MigrateError> for DbError {

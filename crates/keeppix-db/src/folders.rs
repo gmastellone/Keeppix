@@ -1,6 +1,8 @@
 use std::path::{Component, Path, PathBuf};
 
-use keeppix_domain::{AuthContext, Folder, FolderId, FolderPath, Library, LibraryId, ObjectRole};
+use keeppix_domain::{
+    AuthContext, CullingRole, Folder, FolderId, FolderPath, Library, LibraryId, ObjectRole,
+};
 use sqlx::PgConnection;
 
 use crate::visibility::VisibilityScope;
@@ -18,6 +20,7 @@ struct FolderRow {
     name: String,
     path: String,
     depth: i32,
+    culling_role: Option<String>,
 }
 
 impl FolderRow {
@@ -30,13 +33,23 @@ impl FolderRow {
             path: FolderPath::parse(&self.path)
                 .map_err(|e| crate::row::corrupted("folder path", e))?,
             depth: self.depth,
+            culling_role: parse_culling_role(self.culling_role.as_deref())?,
         })
+    }
+}
+
+fn parse_culling_role(raw: Option<&str>) -> Result<Option<CullingRole>, DbError> {
+    match raw {
+        None => Ok(None),
+        Some("taken") => Ok(Some(CullingRole::Taken)),
+        Some("skipped") => Ok(Some(CullingRole::Skipped)),
+        Some(other) => Err(crate::row::corrupted("folders.culling_role", other)),
     }
 }
 
 // `path::text` perché `ltree` non ha una decodifica sqlx: la riga porta una
 // String che `FolderPath::parse` valida.
-const COLUMNS: &str = "id, library_id, parent_id, name, path::text AS path, depth";
+const COLUMNS: &str = "id, library_id, parent_id, name, path::text AS path, depth, culling_role";
 
 async fn load(conn: &mut PgConnection, id: FolderId) -> Result<Option<Folder>, DbError> {
     let row: Option<FolderRow> =
@@ -118,6 +131,58 @@ async fn ensure_child_on(
     row.ok_or(DbError::NotFound)?.into_domain()
 }
 
+/// Come `ensure_child_on`, ma marca la cartella con `culling_role` (Fase 9
+/// Task 2): `_taken`/`_skipped` non sono riconosciute dal nome, dalla
+/// colonna. Auto-guarigione se la cartella esisteva già senza ruolo (creata
+/// a mano prima che Keeppix ne avesse bisogno come speciale, o da una
+/// versione precedente di questa funzione): l'`UPDATE` dopo l'`INSERT`
+/// ignorato la marca comunque, invece di lasciare una `_taken` che si
+/// comporta come una cartella qualunque.
+async fn ensure_culling_child_on(
+    conn: &mut PgConnection,
+    parent: &Folder,
+    name: &str,
+    role: CullingRole,
+) -> Result<Folder, DbError> {
+    sqlx::query(
+        "WITH label AS ( \
+             UPDATE libraries SET next_folder_seq = next_folder_seq + 1 \
+              WHERE id = (SELECT library_id FROM folders WHERE id = $2) \
+             RETURNING next_folder_seq - 1 AS seq \
+         ) \
+         INSERT INTO folders (id, library_id, parent_id, name, path, depth, culling_role) \
+         SELECT $1, p.library_id, p.id, $3::text, p.path || label.seq::text::ltree, p.depth + 1, $4 \
+           FROM folders p, label WHERE p.id = $2 \
+         ON CONFLICT (parent_id, name) WHERE parent_id IS NOT NULL DO NOTHING",
+    )
+    .bind(FolderId::new().as_uuid())
+    .bind(parent.id.as_uuid())
+    .bind(name)
+    .bind(role.as_str())
+    .execute(&mut *conn)
+    .await?;
+
+    sqlx::query(
+        "UPDATE folders SET culling_role = $3 \
+          WHERE parent_id = $1 AND name = $2 AND culling_role IS NULL",
+    )
+    .bind(parent.id.as_uuid())
+    .bind(name)
+    .bind(role.as_str())
+    .execute(&mut *conn)
+    .await?;
+
+    let row: Option<FolderRow> = sqlx::query_as(&format!(
+        "SELECT {COLUMNS} FROM folders WHERE parent_id = $1 AND name = $2"
+    ))
+    .bind(parent.id.as_uuid())
+    .bind(name)
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    row.ok_or(DbError::NotFound)?.into_domain()
+}
+
 impl<'a> FolderRepo<'a> {
     #[must_use]
     pub const fn new(db: &'a Db) -> Self {
@@ -147,6 +212,25 @@ impl<'a> FolderRepo<'a> {
     pub async fn ensure_child(&self, parent: &Folder, name: &str) -> Result<Folder, DbError> {
         let mut conn = self.db.pool().acquire().await?;
         ensure_child_on(&mut conn, parent, name).await
+    }
+
+    /// `_taken`/`_skipped` dentro un lotto di culling (Fase 9 Task 2),
+    /// creata se non c'è, sempre marcata dal `culling_role` giusto — mai
+    /// riconosciuta dal nome.
+    ///
+    /// # Errors
+    /// Come `ensure_child`.
+    pub async fn ensure_culling_child(
+        &self,
+        parent: &Folder,
+        role: CullingRole,
+    ) -> Result<Folder, DbError> {
+        let name = match role {
+            CullingRole::Taken => "_taken",
+            CullingRole::Skipped => "_skipped",
+        };
+        let mut conn = self.db.pool().acquire().await?;
+        ensure_culling_child_on(&mut conn, parent, name, role).await
     }
 
     /// Crea l'intera catena `relative` sotto la radice della libreria e
@@ -180,6 +264,24 @@ impl<'a> FolderRepo<'a> {
     /// `NotFound` solo a un admin che chiede un id inesistente.
     pub async fn find_by_id(&self, ctx: &AuthContext, id: FolderId) -> Result<Folder, DbError> {
         Ok(self.visible(ctx, id).await?.0)
+    }
+
+    /// Come `find_by_id`, più la libreria che la contiene — stesso cancello
+    /// di visibilità, non quello più stretto owner/admin di
+    /// `LibraryRepo::find_by_id`. Serve a `CullingRepo::set_pick` (Fase 9
+    /// Task 4) per leggere `culling_root_folder_id` senza restringere a
+    /// owner/admin chi può impostare scelto/scartato: quel permesso resta
+    /// quello di sempre (visibilità), lo spostamento fisico dentro un lotto
+    /// lo stringe da sé tramite `AssetRepo::move_asset`.
+    ///
+    /// # Errors
+    /// Come `find_by_id`.
+    pub async fn find_with_library(
+        &self,
+        ctx: &AuthContext,
+        id: FolderId,
+    ) -> Result<(Folder, Library), DbError> {
+        self.visible(ctx, id).await
     }
 
     /// Permesso di scrittura sulla cartella: owner della libreria, admin,

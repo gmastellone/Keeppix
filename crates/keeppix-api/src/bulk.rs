@@ -41,14 +41,20 @@ pub enum FailureReason {
     PermissionDenied,
     FileMissing,
     Timeout,
+    /// Destinazione di uno spostamento/rinomina già occupata da un altro
+    /// asset (Fase 9 Task 1, `DbError::Collision`) — distinta da `Unknown`:
+    /// un ambito da 500 file deve poter dire "questi si scontravano", non
+    /// solo "qualcosa non ha funzionato".
+    Collision,
     Unknown,
 }
 
 impl FailureReason {
     /// Mappa un [`DbError`] sulla natura più vicina **senza inventare**.
     /// Errori di connessione → `unreachable`; permessi / probing →
-    /// `permission-denied`; IO di file assente → `file-missing`; il resto
-    /// (Conflict, Corrupted, …) → `unknown`.
+    /// `permission-denied`; IO di file assente → `file-missing`; collisione
+    /// di nome/cartella → `collision`; il resto (Conflict, Corrupted, …) →
+    /// `unknown`.
     #[must_use]
     pub fn from_db_error(error: &DbError) -> Self {
         match error {
@@ -56,6 +62,7 @@ impl FailureReason {
             DbError::Forbidden | DbError::NotFound => Self::PermissionDenied,
             DbError::Io(message) if looks_like_missing(message) => Self::FileMissing,
             DbError::Io(message) if looks_like_permission(message) => Self::PermissionDenied,
+            DbError::Collision(_) => Self::Collision,
             DbError::Io(_)
             | DbError::Migration(_)
             | DbError::Conflict(_)
@@ -136,11 +143,12 @@ impl FaceBulkOutcome {
 
 fn detail_for(error: &DbError) -> Option<String> {
     match error {
-        DbError::Io(message) | DbError::Conflict(message) | DbError::Corrupted(message) => {
-            Some(message.clone())
-        }
         DbError::Connection(error) => Some(error.to_string()),
-        DbError::Migration(message) => Some(message.clone()),
+        DbError::Migration(message)
+        | DbError::Io(message)
+        | DbError::Conflict(message)
+        | DbError::Corrupted(message)
+        | DbError::Collision(message) => Some(message.clone()),
         DbError::Forbidden | DbError::NotFound | DbError::InsufficientStorage | DbError::Gone => {
             None
         }

@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use keeppix_domain::{AuthContext, Library, LibraryId, LibraryStatus, NewLibrary, UserId};
+use keeppix_domain::{
+    AuthContext, FolderId, Library, LibraryId, LibraryStatus, NewLibrary, UserId,
+};
 
 use crate::uploads;
 use crate::{Db, DbError};
@@ -25,6 +27,7 @@ struct LibraryRow {
     scan_enabled: bool,
     faces_enabled: bool,
     exclude_patterns: Vec<String>,
+    culling_root_folder_id: Option<uuid::Uuid>,
     status: String,
     last_scan_at: Option<chrono::DateTime<chrono::Utc>>,
     created_at: chrono::DateTime<chrono::Utc>,
@@ -45,6 +48,7 @@ impl LibraryRow {
             scan_enabled: self.scan_enabled,
             faces_enabled: self.faces_enabled,
             exclude_patterns: self.exclude_patterns,
+            culling_root_folder_id: self.culling_root_folder_id.map(FolderId::from_uuid),
             status,
             last_scan_at: self.last_scan_at,
             created_at: self.created_at,
@@ -60,7 +64,8 @@ const fn status_str(status: LibraryStatus) -> &'static str {
 }
 
 const COLUMNS: &str = "id, name, owner_id, root_path, scan_enabled, faces_enabled, \
-                       exclude_patterns, status, last_scan_at, created_at";
+                       exclude_patterns, culling_root_folder_id, status, last_scan_at, \
+                       created_at";
 
 impl<'a> LibraryRepo<'a> {
     #[must_use]
@@ -299,6 +304,57 @@ impl<'a> LibraryRepo<'a> {
         .bind(scan_enabled)
         .bind(faces_enabled)
         .bind(exclude_patterns)
+        .fetch_one(self.db.pool())
+        .await?;
+
+        row.into_domain()
+    }
+
+    /// Designa (o rimuove, con `None`) la radice del culling a cartelle
+    /// (Fase 9 Task 2, spec §2.6). A differenza di [`Self::update`] — aperto
+    /// a chiunque veda la libreria, come le altre impostazioni — qui il
+    /// permesso è **owner o admin esplicito**: la radice decide dove
+    /// finiscono fisicamente le foto scelte/scartate e cosa l'analisi IA
+    /// esclude (`libraries.culling_root_folder_id`, letta da
+    /// `embeddings.rs`/`faces.rs` dalla Fase 7), non una preferenza di
+    /// visualizzazione.
+    ///
+    /// # Errors
+    /// `Forbidden` se il chiamante non vede la libreria, o la vede ma non ne
+    /// è proprietario/admin. `Conflict` se `folder_id` non appartiene a
+    /// questa libreria.
+    pub async fn set_culling_root(
+        &self,
+        ctx: &AuthContext,
+        id: LibraryId,
+        folder_id: Option<FolderId>,
+    ) -> Result<Library, DbError> {
+        let library = self.find_by_id(ctx, id).await?;
+        if !ctx.is_admin() && ctx.user_id() != Some(library.owner_id) {
+            return Err(DbError::Forbidden);
+        }
+        if let Some(folder_id) = folder_id {
+            let belongs: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM folders WHERE id = $1 AND library_id = $2)",
+            )
+            .bind(folder_id.as_uuid())
+            .bind(id.as_uuid())
+            .fetch_one(self.db.pool())
+            .await?;
+            if !belongs {
+                return Err(DbError::Conflict(
+                    "culling root folder must belong to this library".to_owned(),
+                ));
+            }
+        }
+
+        let row: LibraryRow = sqlx::query_as(&format!(
+            "UPDATE libraries SET culling_root_folder_id = $2, updated_at = now() \
+              WHERE id = $1 \
+              RETURNING {COLUMNS}"
+        ))
+        .bind(id.as_uuid())
+        .bind(folder_id.map(|f| f.as_uuid()))
         .fetch_one(self.db.pool())
         .await?;
 

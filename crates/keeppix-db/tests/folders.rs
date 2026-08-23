@@ -2,7 +2,9 @@ mod harness;
 
 use harness::TestDb;
 use keeppix_db::{DbError, FolderRepo, LibraryRepo};
-use keeppix_domain::{AuthContext, FolderId, LibraryId, NewLibrary, SystemRole, UserId};
+use keeppix_domain::{
+    AuthContext, CullingRole, FolderId, LibraryId, NewLibrary, SystemRole, UserId,
+};
 
 #[allow(clippy::expect_used)]
 async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
@@ -350,4 +352,175 @@ async fn concurrent_ensure_child_does_not_duplicate() {
     let a = a.unwrap();
     let b = b.unwrap();
     assert_eq!(a.id, b.id, "due scan concorrenti non devono duplicare");
+}
+
+/// Fase 9 Task 2: `_taken`/`_skipped` sono riconosciute dalla colonna, non
+/// dal nome.
+mod culling_role {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn ensure_culling_child_creates_taken_and_skipped_marked_by_role() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let library = seed_library(&test, admin).await;
+        let repo = FolderRepo::new(test.db());
+        let lot = repo.ensure_path(library, &["Vacanze"]).await.unwrap();
+
+        let taken = repo
+            .ensure_culling_child(&lot, CullingRole::Taken)
+            .await
+            .unwrap();
+        let skipped = repo
+            .ensure_culling_child(&lot, CullingRole::Skipped)
+            .await
+            .unwrap();
+
+        assert_eq!(taken.name, "_taken");
+        assert_eq!(taken.culling_role, Some(CullingRole::Taken));
+        assert_eq!(skipped.name, "_skipped");
+        assert_eq!(skipped.culling_role, Some(CullingRole::Skipped));
+        assert_eq!(
+            lot.culling_role, None,
+            "la radice del lotto stesso non porta un ruolo, solo le due sottocartelle"
+        );
+
+        // Idempotente: una seconda chiamata restituisce la stessa riga, non
+        // ne crea una seconda.
+        let again = repo
+            .ensure_culling_child(&lot, CullingRole::Taken)
+            .await
+            .unwrap();
+        assert_eq!(again.id, taken.id);
+    }
+
+    /// Una cartella chiamata `_taken` creata a mano (o da una versione
+    /// precedente della funzione) prima che Keeppix la marcasse — l'
+    /// `UPDATE` di auto-guarigione dopo l'`INSERT` ignorato deve comunque
+    /// impostarne il ruolo, non lasciarla `NULL` per sempre.
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn ensure_culling_child_heals_a_role_missing_folder() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let library = seed_library(&test, admin).await;
+        let repo = FolderRepo::new(test.db());
+        let lot = repo.ensure_path(library, &["Vacanze"]).await.unwrap();
+
+        // Cartella comune, mai passata da `ensure_culling_child`: stesso
+        // nome di quella speciale, ma senza ruolo.
+        let plain = repo.ensure_child(&lot, "_taken").await.unwrap();
+        assert_eq!(plain.culling_role, None);
+
+        let healed = repo
+            .ensure_culling_child(&lot, CullingRole::Taken)
+            .await
+            .unwrap();
+
+        assert_eq!(healed.id, plain.id, "stessa riga, non una seconda");
+        assert_eq!(healed.culling_role, Some(CullingRole::Taken));
+    }
+}
+
+/// Fase 9 Task 2: `LibraryRepo::set_culling_root`.
+mod culling_root {
+    use super::*;
+    use keeppix_db::{NewGrant, ObjectType, PermissionRepo, SubjectType};
+    use keeppix_domain::ObjectRole;
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn owner_can_designate_and_then_clear_the_root() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let library = seed_library(&test, admin).await;
+        let ctx = AuthContext::user(admin, SystemRole::User);
+        let folders = FolderRepo::new(test.db());
+        let culling = folders.ensure_path(library, &["Culling"]).await.unwrap();
+
+        let updated = LibraryRepo::new(test.db())
+            .set_culling_root(&ctx, library, Some(culling.id))
+            .await
+            .unwrap();
+        assert_eq!(updated.culling_root_folder_id, Some(culling.id));
+
+        let cleared = LibraryRepo::new(test.db())
+            .set_culling_root(&ctx, library, None)
+            .await
+            .unwrap();
+        assert_eq!(cleared.culling_root_folder_id, None);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn an_editor_who_is_not_the_owner_cannot_designate_the_root() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let library = seed_library(&test, admin).await;
+        let folders = FolderRepo::new(test.db());
+        let root = folders.ensure_root(library).await.unwrap();
+        let culling = folders.ensure_path(library, &["Culling"]).await.unwrap();
+
+        let editor = harness::seed_user(&test, admin, "editor").await;
+        PermissionRepo::new(test.db())
+            .grant(
+                &AuthContext::user(admin, SystemRole::Admin),
+                NewGrant {
+                    subject: SubjectType::User,
+                    subject_id: editor.as_uuid(),
+                    object: ObjectType::Folder,
+                    object_id: root.id.as_uuid(),
+                    role: ObjectRole::Editor,
+                    inherit: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        let editor_ctx = AuthContext::user(editor, SystemRole::User);
+        let result = LibraryRepo::new(test.db())
+            .set_culling_root(&editor_ctx, library, Some(culling.id))
+            .await;
+
+        assert!(
+            matches!(result, Err(DbError::Forbidden)),
+            "solo owner/admin, un editor non basta: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn rejects_a_folder_belonging_to_another_library() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let library_a = seed_library(&test, admin).await;
+        let library_b = LibraryRepo::new(test.db())
+            .create(
+                &AuthContext::user(admin, SystemRole::Admin),
+                NewLibrary {
+                    name: "Altro".to_owned(),
+                    owner_id: admin,
+                    root_path: std::path::PathBuf::from("/mnt/altro"),
+                    exclude_patterns: vec![],
+                },
+            )
+            .await
+            .expect("seconda libreria")
+            .id;
+        let ctx = AuthContext::user(admin, SystemRole::User);
+        let folder_in_b = FolderRepo::new(test.db())
+            .ensure_path(library_b, &["Culling"])
+            .await
+            .unwrap();
+
+        let result = LibraryRepo::new(test.db())
+            .set_culling_root(&ctx, library_a, Some(folder_in_b.id))
+            .await;
+
+        assert!(
+            matches!(result, Err(DbError::Conflict(_))),
+            "una cartella di un'altra libreria non può diventare radice: {result:?}"
+        );
+    }
 }

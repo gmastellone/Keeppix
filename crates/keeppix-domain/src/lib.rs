@@ -16,6 +16,7 @@ pub mod operation;
 pub mod overrides;
 pub mod password;
 pub mod permission;
+pub mod rename;
 pub mod tag;
 pub mod token;
 pub mod trash;
@@ -29,7 +30,7 @@ pub use error::DomainError;
 pub use exif::ExifData;
 pub use face::{Face, FaceBBox, Person, PersonGroup, PersonName, PersonSeparation};
 pub use flags::{AssetFlags, Pick, Rating};
-pub use folder::{Folder, FolderPath};
+pub use folder::{CullingLot, CullingRole, Folder, FolderPath};
 pub use geo::Place;
 pub use ids::{
     AlbumId, AssetId, BatchId, FaceId, FolderId, GroupId, LibraryId, OperationId, PersonGroupId,
@@ -41,6 +42,9 @@ pub use operation::{OperationKind, OperationStatus};
 pub use overrides::{EffectiveMetadata, GeoPoint, OverridePatch};
 pub use password::{Password, PasswordHash, hash_password, verify_password};
 pub use permission::ObjectRole;
+pub use rename::{
+    RenameValues, apply_base_to_filename, render_base, render_filename, resolve_place_label,
+};
 pub use tag::TagKind;
 pub use token::{SessionToken, ShareToken};
 pub use trash::{DiskAction, TrashEntry};

@@ -22,6 +22,7 @@ pub mod places;
 pub mod preferences;
 pub mod problems;
 pub mod regions;
+pub mod rename;
 pub mod restore;
 pub mod search;
 pub mod sessions;

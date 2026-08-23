@@ -1,11 +1,17 @@
 mod harness;
 
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use chrono::{TimeZone, Utc};
 use harness::TestDb;
-use keeppix_db::{AssetRepo, DbError, FolderRepo, LibraryRepo};
+use keeppix_db::{
+    AssetRepo, DbError, FlagRepo, FolderRepo, LibraryRepo, NewGrant, ObjectType, PermissionRepo,
+    SubjectType,
+};
 use keeppix_domain::{
-    AssetId, AssetKind, AssetName, AssetStatus, AuthContext, FolderId, GeoPoint, LibraryId,
-    NewAsset, NewLibrary, SystemRole, UserId,
+    AssetFlags, AssetId, AssetKind, AssetName, AssetStatus, AuthContext, FolderId, GeoPoint,
+    LibraryId, NewAsset, NewLibrary, ObjectRole, Rating, SystemRole, UserId,
 };
 
 type LocationRow = (String, Option<f64>, Option<f64>, Option<String>);
@@ -19,6 +25,40 @@ async fn seed_library(test: &TestDb, owner: UserId, name: &str, path: &str) -> L
                 name: name.to_owned(),
                 owner_id: owner,
                 root_path: std::path::PathBuf::from(path),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .expect("libreria")
+        .id
+}
+
+/// Una radice di libreria vera sul filesystem, non `/mnt/foto`: `move_asset`
+/// fa `rename()` per davvero (stesso principio di `tests/trash.rs`), quindi
+/// serve un percorso su cui si possa scrivere.
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+fn temp_library_root(label: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "keeppix-move-{label}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("orologio di sistema")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).expect("creazione della radice di test");
+    root
+}
+
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn seed_library_at(test: &TestDb, owner: UserId, root: &Path) -> LibraryId {
+    LibraryRepo::new(test.db())
+        .create(
+            &AuthContext::user(owner, SystemRole::Admin),
+            NewLibrary {
+                name: "Foto".to_owned(),
+                owner_id: owner,
+                root_path: root.to_path_buf(),
                 exclude_patterns: vec![],
             },
         )
@@ -582,4 +622,309 @@ async fn exif_location_does_not_overwrite_any_assigned_location() {
             ),
         ]
     );
+}
+
+/// Fase 9 Task 1: la primitiva di spostamento sicuro.
+mod move_asset {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn moves_the_row_and_the_file_keeping_the_same_id() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let root = temp_library_root("basic");
+        let library = seed_library_at(&test, admin, &root).await;
+        let folders = FolderRepo::new(test.db());
+        let src = folders.ensure_path(library, &["2024"]).await.unwrap();
+        let dst = folders
+            .ensure_path(library, &["2024", "Scelte"])
+            .await
+            .unwrap();
+        fs::create_dir_all(root.join("2024").join("Scelte")).unwrap();
+        let original = root.join("2024").join("foto.jpg");
+        fs::write(&original, b"contenuto").unwrap();
+
+        let asset = AssetRepo::new(test.db())
+            .upsert_discovered(discovered(src.id, "foto.jpg", 9))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let moved = AssetRepo::new(test.db())
+            .move_asset(
+                &ctx,
+                asset.id,
+                dst.id,
+                AssetName::parse("scelta.jpg").unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(moved.id, asset.id, "stesso id, non un asset nuovo");
+        assert_eq!(moved.folder_id, dst.id);
+        assert_eq!(moved.filename.as_str(), "scelta.jpg");
+        assert!(!original.exists(), "il file non resta al vecchio percorso");
+        let new_path = root.join("2024").join("Scelte").join("scelta.jpg");
+        assert!(new_path.is_file());
+        assert_eq!(fs::read(&new_path).unwrap(), b"contenuto");
+
+        let by_id = AssetRepo::new(test.db())
+            .find_by_id(&ctx, asset.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            by_id.folder_id, dst.id,
+            "la riga esistente si aggiorna, non se ne crea una seconda"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn preserves_flags_across_the_move() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let root = temp_library_root("flags");
+        let library = seed_library_at(&test, admin, &root).await;
+        let folders = FolderRepo::new(test.db());
+        let src = folders.ensure_path(library, &["2024"]).await.unwrap();
+        let dst = folders.ensure_path(library, &["Preferite"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::create_dir_all(root.join("Preferite")).unwrap();
+        fs::write(root.join("2024").join("foto.jpg"), b"x").unwrap();
+
+        let asset = AssetRepo::new(test.db())
+            .upsert_discovered(discovered(src.id, "foto.jpg", 1))
+            .await
+            .unwrap()
+            .unwrap();
+
+        FlagRepo::new(test.db())
+            .set(
+                &ctx,
+                asset.id,
+                &AssetFlags {
+                    rating: Some(Rating::parse(5).unwrap()),
+                    favorite: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        AssetRepo::new(test.db())
+            .move_asset(
+                &ctx,
+                asset.id,
+                dst.id,
+                AssetName::parse("foto.jpg").unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let flags = FlagRepo::new(test.db()).get(&ctx, asset.id).await.unwrap();
+        assert_eq!(flags.rating, Some(Rating::parse(5).unwrap()));
+        assert!(
+            flags.favorite,
+            "asset_flags è una chiave esterna su asset_id, non su (folder_id, filename): \
+             lo spostamento non deve perderla"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn refuses_to_overwrite_an_existing_destination() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let root = temp_library_root("collision");
+        let library = seed_library_at(&test, admin, &root).await;
+        let folders = FolderRepo::new(test.db());
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::write(root.join("2024").join("a.jpg"), b"a").unwrap();
+        fs::write(root.join("2024").join("b.jpg"), b"b").unwrap();
+
+        let assets = AssetRepo::new(test.db());
+        let a = assets
+            .upsert_discovered(discovered(folder.id, "a.jpg", 1))
+            .await
+            .unwrap()
+            .unwrap();
+        assets
+            .upsert_discovered(discovered(folder.id, "b.jpg", 1))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let result = assets
+            .move_asset(&ctx, a.id, folder.id, AssetName::parse("b.jpg").unwrap())
+            .await;
+
+        assert!(
+            matches!(result, Err(DbError::Collision(_))),
+            "b.jpg esiste già nella cartella di destinazione: {result:?}"
+        );
+        assert!(
+            root.join("2024").join("a.jpg").is_file(),
+            "il file di partenza non deve spostarsi se la collisione blocca l'operazione"
+        );
+        assert_eq!(
+            fs::read(root.join("2024").join("b.jpg")).unwrap(),
+            b"b",
+            "il file di destinazione non deve essere toccato"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn requires_editor_on_the_destination_folder_not_just_the_source() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let root = temp_library_root("perm");
+        let library = seed_library_at(&test, admin, &root).await;
+        let folders = FolderRepo::new(test.db());
+        let src = folders.ensure_path(library, &["Src"]).await.unwrap();
+        let dst = folders.ensure_path(library, &["Dst"]).await.unwrap();
+        fs::create_dir_all(root.join("Src")).unwrap();
+        fs::create_dir_all(root.join("Dst")).unwrap();
+        fs::write(root.join("Src").join("foto.jpg"), b"x").unwrap();
+
+        let asset = AssetRepo::new(test.db())
+            .upsert_discovered(discovered(src.id, "foto.jpg", 1))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let editor = harness::seed_user(&test, admin, "editor-src-only").await;
+        PermissionRepo::new(test.db())
+            .grant(
+                &AuthContext::user(admin, SystemRole::Admin),
+                NewGrant {
+                    subject: SubjectType::User,
+                    subject_id: editor.as_uuid(),
+                    object: ObjectType::Folder,
+                    object_id: src.id.as_uuid(),
+                    role: ObjectRole::Editor,
+                    inherit: true,
+                },
+            )
+            .await
+            .unwrap();
+        // Deliberatamente nessuna concessione su `dst`: editor solo sulla
+        // cartella di partenza, come l'utente che ha scelto/scartato foto
+        // nel proprio culling ma non ha accesso a `_taken` altrui.
+
+        let editor_ctx = AuthContext::user(editor, SystemRole::User);
+        let result = AssetRepo::new(test.db())
+            .move_asset(
+                &editor_ctx,
+                asset.id,
+                dst.id,
+                AssetName::parse("foto.jpg").unwrap(),
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(DbError::Forbidden)),
+            "editor solo sulla sorgente non deve poter scrivere nella destinazione: {result:?}"
+        );
+        assert!(
+            root.join("Src").join("foto.jpg").is_file(),
+            "un tentativo respinto non deve toccare il file"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn moves_the_xmp_sidecar_alongside_the_asset() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let root = temp_library_root("sidecar");
+        let library = seed_library_at(&test, admin, &root).await;
+        let folders = FolderRepo::new(test.db());
+        let src = folders.ensure_path(library, &["2024"]).await.unwrap();
+        let dst = folders.ensure_path(library, &["2025"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        fs::create_dir_all(root.join("2025")).unwrap();
+        fs::write(root.join("2024").join("foto.arw"), b"raw").unwrap();
+        fs::write(root.join("2024").join("foto.arw.xmp"), b"<xmp/>").unwrap();
+
+        let asset = AssetRepo::new(test.db())
+            .upsert_discovered(discovered(src.id, "foto.arw", 3))
+            .await
+            .unwrap()
+            .unwrap();
+
+        AssetRepo::new(test.db())
+            .move_asset(
+                &ctx,
+                asset.id,
+                dst.id,
+                AssetName::parse("foto.arw").unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !root.join("2024").join("foto.arw.xmp").exists(),
+            "il sidecar non deve restare al vecchio percorso"
+        );
+        assert_eq!(
+            fs::read(root.join("2025").join("foto.arw.xmp")).unwrap(),
+            b"<xmp/>",
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn is_a_no_op_when_the_destination_equals_the_source() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let root = temp_library_root("noop");
+        let library = seed_library_at(&test, admin, &root).await;
+        let folders = FolderRepo::new(test.db());
+        let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
+        fs::create_dir_all(root.join("2024")).unwrap();
+        let path = root.join("2024").join("foto.jpg");
+        fs::write(&path, b"contenuto").unwrap();
+
+        let asset = AssetRepo::new(test.db())
+            .upsert_discovered(discovered(folder.id, "foto.jpg", 9))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let result = AssetRepo::new(test.db())
+            .move_asset(
+                &ctx,
+                asset.id,
+                folder.id,
+                AssetName::parse("foto.jpg").unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.id, asset.id);
+        assert!(
+            path.is_file(),
+            "nessun rename inutile sullo stesso percorso"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }
