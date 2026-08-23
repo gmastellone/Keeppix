@@ -576,3 +576,42 @@ Debiti dichiarati: nove componenti del Task 2 restano da scrivere
 (`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
 `SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
 `NavGroup`).
+
+### NavGroup (SP-25)
+
+Decimo componente del Task 2. Verificato riga per riga contro il
+gruppo "Manutenzione" della barra laterale (mockup, righe 134-146 per
+il CSS, 2485-2536 per la logica) — non il solo nome "NavGroup" nel
+piano. Comportamento reale, non riassunto: `maintOpen =
+state.navMaintOpen || maintActive` — il gruppo **si apre da solo**
+quando la vista corrente è una delle sue sotto-voci (`maintActive`), e
+il clic sull'interruttore alterna **solo** `navMaintOpen`, mai
+`maintActive` — quindi cliccare mentre la vista corrente è dentro il
+gruppo non lo chiude mai, l'OR resta vero comunque. Tradotto in Vue con
+un `computed` (`open = manuallyOpen || active`) invece di riprodurre lo
+stato piatto del prototipo: stessa garanzia, verificata con un test
+dedicato che clicca e controlla che il gruppo resti aperto, non solo
+che parta aperto.
+
+Freccia che ruota in `.15s` (nota vincolante del piano, già
+`--duration-arrow` nella palette del Task 1 — primo consumo reale del
+token, non un valore nuovo). `parent-active` del prototipo (il testo si
+scurisce/appesantisce quando una sotto-voce è la vista corrente, senza
+sfondo né bordino — quel trattamento resta esclusivo di "sei qui
+davvero", commento del prototipo stesso riga 141-144) reso con la prop
+`active`.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/NavGroup.spec.ts` → 4/4 verdi:
+  chiuso di default, si apre al clic con la freccia che ruota, si apre
+  da solo quando `active` è vero senza mai essere stato cliccato, non
+  si chiude cliccando mentre `active` resta vero.
+- `npx vitest run` (suite intera) → 186/186 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **92.876/153.600** byte gzip
+  (script CI). Margine ampio (60.724 byte).
+
+Debiti dichiarati: otto componenti del Task 2 restano da scrivere
+(`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
+`SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`).
