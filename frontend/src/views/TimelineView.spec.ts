@@ -3,7 +3,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
-import Button from '@/components/ui/Button.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
 import PhotoTile from '@/components/ui/PhotoTile.vue'
 import { i18n } from '@/i18n'
@@ -15,11 +14,6 @@ import { planStream } from '@/timeline/stream'
 import { TimelineGeometry } from '@/timeline/geometry'
 
 import TimelineView from './TimelineView.vue'
-
-vi.mock('@/api/auth', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/api/auth')>()
-  return { ...actual, logout: vi.fn() }
-})
 
 vi.mock('@/api/timeline', () => ({
   fetchBuckets: vi.fn(async () => []),
@@ -37,7 +31,6 @@ vi.mock('@/api/client', async (importOriginal) => {
   return { ...actual, apiFetch: vi.fn() }
 })
 
-const { logout } = await import('@/api/auth')
 const { apiFetch } = await import('@/api/client')
 
 function encodeGeometry(records: { w: number; h: number; month: number }[]): ArrayBuffer {
@@ -145,31 +138,11 @@ function photo(id: string): TimelineAsset {
   }
 }
 
-describe('TimelineView signOut', () => {
-  it('azzera lo stato e naviga a /login anche se la revoca server-side fallisce', async () => {
-    vi.mocked(logout).mockRejectedValue(new Error('network error'))
-    const { router, session, wrapper } = await mountTimeline()
-
-    await wrapper.getComponent(Button).trigger('click')
-    await flushPromises()
-
-    expect(session.user).toBeNull()
-    expect(session.logoutError).toBe(true)
-    expect(router.currentRoute.value.path).toBe('/login')
-  })
-
-  it('azzera lo stato e naviga a /login quando la revoca riesce', async () => {
-    vi.mocked(logout).mockResolvedValue(null)
-    const { router, session, wrapper } = await mountTimeline()
-
-    await wrapper.getComponent(Button).trigger('click')
-    await flushPromises()
-
-    expect(session.user).toBeNull()
-    expect(session.logoutError).toBe(false)
-    expect(router.currentRoute.value.path).toBe('/login')
-  })
-})
+// Il pulsante "Esci" non è più in questa vista (Task 6, 5/N: vive
+// nel menu account di AppSidebar, con il proprio test —
+// AppSidebar.spec.ts, "'Esci' logs out and redirects to /login").
+// `session.logout()` stesso resta testato lì, non qui: duplicarlo
+// avrebbe testato la funzione, non il componente.
 
 describe('TimelineView buckets + geometry', () => {
   it('follows next_cursor until the month is complete, once its row enters the mounted range', async () => {

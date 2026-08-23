@@ -2221,3 +2221,50 @@ esserlo, perché ogni destinazione che offrivano (incluse `/folders`,
 sotto-passo: spogliarle per davvero, una alla volta, verificando per
 ciascuna che nessuna destinazione residua venga persa. Poi la shell
 mobile, poi — separatamente — l'area di caricamento nuove foto.
+
+### `TimelineView.vue` — Task 6 (5/N): prima vista spogliata
+
+Tolti dall'intestazione improvvisata: il saluto (`home.greeting`, mai
+nel documento funzionale — solo un segnaposto di scaffolding, la
+chiave è stata rimossa da entrambi i file di traduzione perché
+rimasta senza nessun consumatore), il modulo di ricerca digitabile
+(sostituito concettualmente dalla scorciatoia sola-lettura di
+`AppTopbar`, coerente con §4: non si digita mai lì, solo in
+`SearchView`), gli otto `<RouterLink>` (Cartelle/Mappa/Cestino/Album/
+Condivisioni/Utenti/Gruppi/Problemi — tutti ora in `AppSidebar`) e il
+pulsante "Esci" (ora nel menu account di `AppSidebar`, con il proprio
+test già lì).
+
+Restano, spostati in una barra strumenti più snella (non più
+`<header>`, per non duplicare il landmark che `AppTopbar` già offre):
+l'ingresso al culling (unico pulsante, regola rigida della spec §4.2:
+niente scorciatoie sparse) e il controllo di densità. Quest'ultimo
+**non è nel documento funzionale**: la densità della griglia vive in
+Impostazioni (riga 1745, Task 14, non ancora costruito), non in un
+controllo di vista. Lasciato qui come ripiego dichiarato — toglierlo
+ora senza sostituto fisserebbe la densità a 6 per chiunque, una
+regressione reale — con un commento nel codice che lo segnala per
+quando Impostazioni esisterà davvero.
+
+Verifica eseguita:
+- `TimelineView.spec.ts` → tolti i 2 test di "Esci" (funzionalità
+  spostata, già coperta dal proprio test in `AppSidebar.spec.ts` —
+  duplicarli avrebbe testato la funzione `session.logout()`, non più
+  il componente), insieme al mock di `@/api/auth` e all'import
+  `logout`/`Button`, entrambi orfani dopo la rimozione. 14/14 verdi
+  (16 meno i 2 tolti).
+- `npx vitest run` (suite intera) → 60 file, 371/371 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file toccati → pulito.
+- `npm run build` → bundle iniziale **116.551/153.600** byte gzip
+  (invariato: `TimelineView` è un chunk lazy, non nel bundle
+  d'ingresso — il suo stesso chunk è sceso da 23,54 a 21,86 kB non
+  compresso, coerente con la rimozione di markup e logica).
+
+Debito Task 6 invariato per le altre ~8 viste (MapView, FoldersView,
+AlbumsView, SharesView, TrashView, GroupsView, BatchEditView,
+UsersView): stessa operazione da ripetere una alla volta, verificando
+per ciascuna cosa perde e cosa no (non tutte avranno lo stesso
+schema di TimelineView — es. UsersView/GroupsView potrebbero non
+avere link di navigazione affatto, solo il proprio contenuto). Poi la
+shell mobile, poi — separatamente — l'area di caricamento nuove foto.

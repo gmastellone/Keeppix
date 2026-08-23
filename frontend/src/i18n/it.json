@@ -127,7 +127,7 @@
       "signedOutOffline": "Sei uscito localmente; non siamo riusciti a confermarlo con il server (probabile problema di rete)."
     }
   },
-  "home": { "greeting": "Ciao, {name}", "logout": "Esci" },
+  "home": { "logout": "Esci" },
   "folders": {
     "entry": "Cartelle",
     "title": "Cartelle",

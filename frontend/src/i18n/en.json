@@ -127,7 +127,7 @@
       "signedOutOffline": "You were signed out locally; we couldn't confirm it with the server (likely a network issue)."
     }
   },
-  "home": { "greeting": "Hello, {name}", "logout": "Sign out" },
+  "home": { "logout": "Sign out" },
   "folders": {
     "entry": "Folders",
     "title": "Folders",

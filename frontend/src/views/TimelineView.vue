@@ -7,7 +7,6 @@ import { fetchBuckets, fetchGeometry, fetchPage, promoteViewport, type MonthBuck
 import { ApiProblem } from '@/api/client'
 import { startLiveEvents, type LiveSocket } from '@/api/events'
 import { thumbSrc as mediaThumbSrc } from '@/api/media'
-import Button from '@/components/ui/Button.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
 import PhotoTile, { type StackType } from '@/components/ui/PhotoTile.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
@@ -15,7 +14,6 @@ import { useLightboxRoute } from '@/composables/useLightboxRoute'
 import { useScrollRestoration } from '@/composables/useScrollRestoration'
 import { useCullingStore } from '@/stores/culling'
 import { useMapsStore } from '@/stores/maps'
-import { useSessionStore } from '@/stores/session'
 import { classifyError } from '@/errors/classify'
 import { TimelineGeometry } from '@/timeline/geometry'
 import { clampDensity } from '@/timeline/justify'
@@ -39,6 +37,11 @@ import { RowVirtualizer } from '@/timeline/virtualize'
 // il layout non porta il kind dello scatto, solo w/h/mese.
 
 const DENSITY_KEY = 'keeppix.density'
+// Il documento funzionale (riga 1745) mette la densità in Impostazioni
+// (Task 14, non ancora costruito), non in un controllo di vista. Il +/-
+// qui è un ripiego temporaneo pre-Task-14: rimosso quando la vista
+// Impostazioni reale esisterà, non prima — toglierlo ora senza
+// sostituto lascerebbe la densità fissa a 6 per chiunque.
 /** Fino a 50 mesi residenti, ~10.000 asset attesi (piano §4.8) — solo le
  * pagine, mai la geometria stessa, che vive fuori da questa cache e non
  * si sfratta mai. */
@@ -47,7 +50,6 @@ const PAGE_CACHE_CAPACITY = 50
 const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const session = useSessionStore()
 const culling = useCullingStore()
 const maps = useMapsStore()
 
@@ -74,7 +76,6 @@ const viewportHeight = ref(600)
 const scrollTop = ref(0)
 const empty = ref(false)
 const loadError = ref<unknown>(null)
-const query = ref('')
 const placeholders = new Map<string, string>()
 const bbox = computed(() => (typeof route.query.bbox === 'string' ? route.query.bbox : undefined))
 const errorNature = computed(() => (loadError.value ? classifyError(loadError.value) : null))
@@ -201,15 +202,6 @@ function dateLabelOf(asset: TimelineAsset): string {
   return new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'long', year: 'numeric' }).format(
     new Date(asset.taken_at_utc)
   )
-}
-
-async function signOut() {
-  await session.logout()
-  await router.push('/login')
-}
-
-async function goSearch() {
-  await router.push({ path: '/search', query: { q: query.value } })
 }
 
 async function clearMapFilter() {
@@ -483,71 +475,14 @@ function resolvedTiles(row: GridRow, rowTop: number) {
 
 <template>
   <div class="flex h-full flex-col">
-    <header class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-      <h1 class="text-lg font-semibold">
-        {{ t('home.greeting', { name: session.user?.display_name ?? '' }) }}
-      </h1>
-      <form
-        class="flex min-w-48 flex-1 gap-2"
-        @submit.prevent="goSearch"
-      >
-        <input
-          v-model="query"
-          class="w-full rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm"
-          :placeholder="t('search.placeholder')"
-          type="search"
-        >
-      </form>
-      <RouterLink
-        class="text-sm underline"
-        to="/folders"
-      >
-        {{ t('folders.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/map"
-      >
-        {{ t('maps.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/trash"
-      >
-        {{ t('trash.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/albums"
-      >
-        {{ t('albums.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/shares"
-      >
-        {{ t('shares.entry') }}
-      </RouterLink>
-      <RouterLink
-        v-if="session.user?.role === 'admin'"
-        class="text-sm underline"
-        to="/users"
-      >
-        {{ t('users.entry') }}
-      </RouterLink>
-      <RouterLink
-        v-if="session.user?.role === 'admin'"
-        class="text-sm underline"
-        to="/groups"
-      >
-        {{ t('groups.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/problems"
-      >
-        {{ t('problems.title') }}
-      </RouterLink>
+    <!-- Fase 11 Task 6 (5/N): la navigazione globale (saluto, ricerca,
+         Cartelle/Mappa/Cestino/Album/Condivisioni/Utenti/Gruppi/Problemi,
+         Esci) è ora in AppSidebar/AppTopbar (App.vue) — tolta da qui, non
+         duplicata. Restano solo i due controlli reali di questa vista che
+         non hanno un'altra sede: l'ingresso al culling (unico pulsante,
+         spec §4.2) e la densità (ripiego pre-Impostazioni, v. commento
+         su DENSITY_KEY). -->
+    <div class="flex items-center gap-3 border-b border-border px-4 py-3">
       <button
         v-if="loadedAssets.length > 0"
         type="button"
@@ -572,13 +507,8 @@ function resolvedTiles(row: GridRow, rowTop: number) {
         >
           +
         </button>
-        <div class="w-28">
-          <Button @click="signOut">
-            {{ t('home.logout') }}
-          </Button>
-        </div>
       </div>
-    </header>
+    </div>
 
     <div
       v-if="bbox"
