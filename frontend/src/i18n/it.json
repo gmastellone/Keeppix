@@ -139,7 +139,8 @@
     "foto": "Foto",
     "cerca": "Cerca",
     "libraryGroup": "Libreria",
-    "manutenzione": "Manutenzione"
+    "manutenzione": "Manutenzione",
+    "amministrazione": "Amministrazione"
   },
   "sidebar": {
     "storageLabel": "Spazio libero",

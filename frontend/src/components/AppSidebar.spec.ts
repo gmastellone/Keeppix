@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { i18n } from '@/i18n'
 import { fetchBootstrap } from '@/api/bootstrap'
+import type { User } from '@/api/auth'
 import { useSessionStore } from '@/stores/session'
 
 import AppSidebar from './AppSidebar.vue'
@@ -49,7 +50,7 @@ const testUser = {
   locale: null
 }
 
-async function mountSidebar(path = '/') {
+async function mountSidebar(path = '/', user: User = testUser) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -61,12 +62,15 @@ async function mountSidebar(path = '/') {
       { path: '/albums', component: { template: '<div />' } },
       { path: '/trash', component: { template: '<div />' } },
       { path: '/problems', component: { template: '<div />' } },
+      { path: '/folders', component: { template: '<div />' } },
+      { path: '/users', component: { template: '<div />' } },
+      { path: '/groups', component: { template: '<div />' } },
       { path: '/login', component: { template: '<div />' } }
     ]
   })
   setActivePinia(createPinia())
   const session = useSessionStore()
-  session.user = testUser
+  session.user = user
 
   await router.push(path)
   await router.isReady()
@@ -85,14 +89,37 @@ describe('AppSidebar', () => {
   })
 
   it('every nav item is a real anchor — keyboard-reachable, unlike the prototype', async () => {
-    // Montata su /trash: il gruppo "Manutenzione" si apre da solo perché
-    // contiene la vista corrente, quindi anche le sue sotto-voci sono nel DOM.
-    const { wrapper } = await mountSidebar('/trash')
+    // Montata su /users (admin): "Amministrazione" si apre da sola perché
+    // contiene la vista corrente, quindi anche le sue sotto-voci sono nel
+    // DOM. "Manutenzione" resta chiusa (nessuna sua sotto-voce è corrente).
+    const { wrapper } = await mountSidebar('/users')
     const links = wrapper.findAll('a')
-    expect(links.length).toBeGreaterThanOrEqual(8) // 5 NAV_TOP + Album + Cestino + Problemi
+    // 5 NAV_TOP + Cartelle + Album + Utenti + Gruppi (Manutenzione chiusa)
+    expect(links.length).toBeGreaterThanOrEqual(9)
     for (const link of links) {
       expect(link.element.tagName).toBe('A')
     }
+  })
+
+  it('"Cartelle" links to the real folder tree, not the flyout the mockup has and this app does not', async () => {
+    const { wrapper } = await mountSidebar()
+    const foldersLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/folders')
+    expect(foldersLink?.exists()).toBe(true)
+  })
+
+  it('"Amministrazione" (Utenti/Gruppi) shows only for an admin, and opens on its own route', async () => {
+    const { wrapper } = await mountSidebar('/groups')
+    const usersLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/users')
+    const groupsLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/groups')
+    expect(usersLink?.exists()).toBe(true)
+    expect(groupsLink?.exists()).toBe(true)
+  })
+
+  it('hides "Amministrazione" entirely for a non-admin user', async () => {
+    const regularUser = { ...testUser, role: 'user' as const }
+    const { wrapper } = await mountSidebar('/', regularUser)
+    expect(wrapper.findAll('a').some((a) => a.attributes('href') === '/users')).toBe(false)
+    expect(wrapper.findAll('a').some((a) => a.attributes('href') === '/groups')).toBe(false)
   })
 
   it('highlights the current route and no other', async () => {

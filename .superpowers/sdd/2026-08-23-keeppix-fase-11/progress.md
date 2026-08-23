@@ -2174,3 +2174,50 @@ Verifica eseguita:
   morto finché `App.vue` non le importava per davvero — ora sono nel
   chunk d'ingresso. Margine residuo ampio (37.131 byte), numero
   misurato, non stimato.
+
+### `AppSidebar.vue` — Task 6 (4/N): chiuso il vicolo cieco trovato nel passo precedente
+
+Aggiunte due voci non nel documento funzionale (dichiarate come tali,
+non spacciate per canoniche):
+
+- **"Cartelle" → `/folders`**: non è il gruppo del mockup (§2, lettera
+  d — una riga per cartella, salto diretto a una timeline filtrata),
+  che resta assente per lo stesso motivo di sempre (nessuna timeline
+  filtrata per cartella esiste). È un solo collegamento all'albero
+  cartelle reale dell'app (`FoldersView`, organizzazione/spostamento,
+  una funzione diversa da quella del mockup). Aggiunta perché
+  altrimenti, tolta l'intestazione improvvisata di `TimelineView`
+  (prossimo sotto-passo), `/folders` non sarebbe raggiungibile da
+  nessuna parte dell'interfaccia.
+- **"Amministrazione" (Utenti/Gruppi) → `/users`, `/groups`**, visibile
+  solo per `role==='admin'`: il mockup è a singolo utente, non modella
+  amministrazione multiutente — questa non è un'omissione del
+  documento funzionale, è una funzione reale del backend che il
+  documento non copre affatto. Stesso motivo di "Cartelle": unica
+  destinazione oggi è l'intestazione improvvisata che sto per togliere.
+
+Verifica eseguita:
+- `AppSidebar.spec.ts` (esteso) → 9/9 verdi (3 nuovi): "Cartelle" è un
+  vero `<a href="/folders">`; "Amministrazione" mostra Utenti e Gruppi
+  e si apre da sola sulla propria rotta; "Amministrazione" è **assente
+  del tutto** (non solo chiusa) per un utente non amministratore.
+- `npx vitest run` (suite intera) → 60 file, 373/373 verdi.
+- `npx vue-tsc -b` → un errore reale trovato e corretto: il parametro
+  opzionale `user` di `mountSidebar()` ereditava per inferenza il tipo
+  letterale esatto di `testUser` (`role: "admin"`) dal suo valore di
+  default, rifiutando poi un secondo utente con `role: "user"`.
+  Corretto tipizzando il parametro con `User` (da `api/auth`), non con
+  il tipo inferito dal default.
+- `npx eslint` sui file nuovi/modificati → pulito.
+- `npm run build` → bundle iniziale **116.568/153.600** byte gzip
+  (script CI, ricalcolato a mano). Crescita trascurabile (+99 byte:
+  due voci di menu in più, nessuna dipendenza nuova). Margine ampio
+  (37.032 byte).
+
+Debito Task 6 ora ridotto a uno solo: le ~9 viste con intestazione
+improvvisata non sono ancora state spogliate — ma ora **possono**
+esserlo, perché ogni destinazione che offrivano (incluse `/folders`,
+`/users`, `/groups`) ha una voce reale in `AppSidebar`. Prossimo
+sotto-passo: spogliarle per davvero, una alla volta, verificando per
+ciascuna che nessuna destinazione residua venga persa. Poi la shell
+mobile, poi — separatamente — l'area di caricamento nuove foto.

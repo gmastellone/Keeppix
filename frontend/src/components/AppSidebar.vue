@@ -6,22 +6,38 @@
 //
 // Ambito dichiarato: **non** tutte le voci canoniche. Costruite solo
 // quelle con una destinazione reale in questa sessione — Foto, Cerca,
-// Culling, Mappa, Condivisioni, Album, Cestino, Problemi. Tolte,
-// debito verso le Tranche che le costruiranno per davvero:
+// Culling, Mappa, Condivisioni, Album, Cartelle, Cestino, Problemi
+// (più Utenti/Gruppi per un amministratore). Tolte, debito verso le
+// Tranche che le costruiranno per davvero:
 // - "Persone" (Task 16, Tranche D) — nessuna vista Persone esiste.
 // - "Preferiti" — nessuna vista dedicata esiste ancora.
 // - Il gruppo "IA" intero — Tag e categorie/Revisione/Analisi libreria
 //   sono Task 15, Tranche C.
 // - "Duplicati" dentro "Manutenzione" — Task 13, Tranche B, non ancora
 //   fatto (Cestino e Problemi sì, esistono già).
-// - Il gruppo "Cartelle" (l'elenco piatto con salto diretto a una
-//   cartella filtrata): nessuna timeline filtrata per cartella esiste
-//   ancora (stesso debito già dichiarato nel Task 3 per le rotte di
-//   dettaglio) — costruire qui righe che non portano da nessuna parte
-//   sarebbe un link morto, non un componente parziale onesto.
 // Ogni voce qui presente è un vero <RouterLink>, quindi raggiungibile
 // da tastiera per costruzione — il prototipo non lo è (§2.5, "nessuna
 // voce della sidebar è raggiungibile da tastiera").
+//
+// Task 6 (4/N): "Cartelle" qui **non** è il gruppo del mockup (§2,
+// lettera d — una riga `.folder-item` per ogni cartella, con salto
+// diretto a una timeline filtrata): quella timeline filtrata non
+// esiste ancora, stesso debito dichiarato per le rotte di dettaglio
+// nel Task 3. È invece un unico collegamento a `/folders`
+// (`FoldersView`), l'albero cartelle reale dell'app — una funzione
+// di organizzazione (spostare foto fra cartelle) diversa da quella
+// del mockup, non modellata lì. Aggiunta qui perché rimuovere
+// l'intestazione improvvisata di `TimelineView` (Task 6, prossimo
+// sotto-passo) senza prima darle una destinazione reale in
+// `AppSidebar` la renderebbe irraggiungibile — vicolo cieco trovato
+// scrivendo quel passo, non un'aggiunta pianificata.
+//
+// "Amministrazione" (Utenti/Gruppi, solo per `role==='admin'`) non è
+// nel documento funzionale: il mockup è a singolo utente, non
+// modella l'amministrazione multiutente che il backend reale invece
+// ha. Stesso motivo di "Cartelle": erano raggiungibili solo
+// dall'intestazione improvvisata di `TimelineView`, altrimenti un
+// vicolo cieco dopo averla tolta.
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -55,11 +71,17 @@ const MAINT_ITEMS = [
   { to: '/problems', labelKey: 'problems.title' }
 ] as const
 
+const ADMIN_ITEMS = [
+  { to: '/users', labelKey: 'users.entry' },
+  { to: '/groups', labelKey: 'groups.entry' }
+] as const
+
 function isActive(to: string): boolean {
   return route.path === to
 }
 
 const maintActive = computed(() => MAINT_ITEMS.some((item) => isActive(item.to)))
+const adminActive = computed(() => ADMIN_ITEMS.some((item) => isActive(item.to)))
 
 const accountMenuOpen = ref(false)
 
@@ -143,6 +165,13 @@ const storageTotals = computed(() => {
     </p>
     <nav class="flex flex-col gap-px">
       <RouterLink
+        to="/folders"
+        class="flex items-center rounded-lg border-l-[2.5px] border-transparent px-2.5 py-2 text-sm hover:bg-border/30"
+        :class="isActive('/folders') && 'border-l-accent bg-border/30 font-semibold'"
+      >
+        {{ t('folders.entry') }}
+      </RouterLink>
+      <RouterLink
         to="/albums"
         class="flex items-center rounded-lg border-l-[2.5px] border-transparent px-2.5 py-2 text-sm hover:bg-border/30"
         :class="isActive('/albums') && 'border-l-accent bg-border/30 font-semibold'"
@@ -155,6 +184,21 @@ const storageTotals = computed(() => {
       >
         <RouterLink
           v-for="item in MAINT_ITEMS"
+          :key="item.to"
+          :to="item.to"
+          class="block rounded-lg border-l-[2.5px] border-transparent px-2.5 py-1.5 text-[13px] hover:bg-border/30"
+          :class="isActive(item.to) && 'border-l-accent bg-border/30 font-semibold'"
+        >
+          {{ t(item.labelKey) }}
+        </RouterLink>
+      </NavGroup>
+      <NavGroup
+        v-if="session.user?.role === 'admin'"
+        :label="t('nav.amministrazione')"
+        :active="adminActive"
+      >
+        <RouterLink
+          v-for="item in ADMIN_ITEMS"
           :key="item.to"
           :to="item.to"
           class="block rounded-lg border-l-[2.5px] border-transparent px-2.5 py-1.5 text-[13px] hover:bg-border/30"
