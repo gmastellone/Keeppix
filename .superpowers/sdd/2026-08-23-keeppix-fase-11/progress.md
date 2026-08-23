@@ -1635,3 +1635,148 @@ al task che li ha fatti emergere, non ignorati perché "non è compito
 di questo task". Debiti verso Task 5 (le tre macchine a stati) e Task 7
 (selezione multipla, preferiti, filtro rapido reale) dichiarati sopra,
 non silenziosi.
+
+## Task 5 — le tre macchine a stati
+
+Letti §68 (Errore), §69 (Riuscita parziale) e §70 (il pannello "Anteprima
+stati") del documento funzionale, più la §7 di
+`fase-10-api-interfaccia.md`, prima di scrivere codice. Tre fatti che
+cambiano lo scopo del task, non solo l'implementazione:
+
+- **SP-28 è già un terzo costruito.** È definito con tre forme — a piena
+  vista, in riga, messaggio temporaneo — e la terza (il toast, con le
+  durate 4,2s/6,5s per natura/azione) è già `ToastHost`+`stores/toast.ts`
+  del Task 2. Restano solo le prime due, genuinamente nuove.
+- **Il pannello "Anteprima stati" (§70) è scaffolding del prototipo,
+  esplicitamente "nel prodotto finito non esiste"** — non va costruito.
+  La sua nota finale è comunque la vera richiesta del task: "la macchina
+  a stati che c'è dietro... è invece esattamente quella che serve nel
+  prodotto vero."
+- **La tassonomia a quattro nature (`unreachable`/`permission-denied`/
+  `file-missing`/`timeout`) esiste già lato backend, ma solo per le
+  operazioni di massa** (`FailureReason`/`BulkFailure.reason`,
+  `crates/keeppix-api/src/bulk.rs`) — non per una richiesta singola come
+  `GET /timeline/buckets`. Per il caricamento di un'intera schermata non
+  esiste un campo `reason` da leggere: la natura va dedotta da
+  `ApiProblem.type`/rete, non letta da un campo che il backend non manda
+  lì. Decisione dichiarata, non assunta: `service-unavailable` (il
+  `Problem` che `DbError::Connection` produce, verificato in
+  `crates/keeppix-api/src/problem.rs`) → `unreachable`; `forbidden` →
+  `permission-denied`; `not-found` → `file-missing`; un `TypeError` di
+  `fetch()` stesso (comportamento noto della Fetch API quando la rete
+  non risponde affatto) → `unreachable`; un `AbortError` → `timeout`;
+  tutto il resto → `unknown`, onesto invece di forzare una delle quattro
+  nature note — stesso principio del quinto valore `Unknown` lato
+  backend.
+
+### `errors/classify.ts`
+
+`classifyError`/`canRetry`, pure e testate contro istanze reali di
+`ApiProblem` con gli `type` slug che il backend produce davvero
+(`service-unavailable`, `forbidden`, `not-found`, verificati alla fonte
+in `problem.rs`), non un formato inventato.
+
+### `ErrorState.vue` (piena vista) e `InlineError.vue` (in riga)
+
+Trovata in `docs/ui/keeppix-mockup.html` (righe 3150-3173) l'esatta
+implementazione di riferimento — `errorStateHTML`/`errorInlineHTML` —
+con classi CSS, dimensioni icona (34px piena vista, 17px in riga) e
+valori in pixel reali (`.err-title` 14px/700, `.err-sub` 12.5px/max-width
+380px/line-height 1.55, `.err-detail` 11.5px monospazio opacità .8),
+verificati uno per uno invece di stimati. Icona "alert" (triangolo di
+avviso) e "refresh" prese dal path SVG esatto del prototipo (righe 1489
+e 1498), non un glifo generico.
+
+Il pulsante "Riprova" **non usa `BusyButton`**, la scelta di default per
+ogni altro pulsante di questa sessione — trovato un vincolo esplicito
+che lo esclude: §68.7 dice testualmente "non ha uno stato disabilitato:
+riprovare è sempre permesso", mentre `BusyButton` esiste apposta per
+*disabilitare* durante un'azione (`:disabled="busy"`, pensato contro il
+doppio invio su un'azione di massa) — l'opposto di quanto serve qui: un
+ritentativo che si blocca non deve mai trasformarsi in un vicolo cieco,
+la cosa che l'intero pattern esiste per evitare. Un `<button>` semplice,
+senza stato occupato, non un'omissione.
+
+Bug reale trovato scrivendo i test, non nei componenti: un test che
+impostava `i18n.global.locale.value = 'en'` dentro un ciclo e lo
+ripristinava solo alla fine del proprio `it(...)` lasciava la lingua
+sbagliata per i test **di un altro file** eseguito nella stessa
+esecuzione di vitest (i moduli singleton come `i18n` non sono isolati
+per file quanto ci si aspetterebbe) — non un bug isolato al file dove
+si manifestava. Corretto adottando lo stesso schema già in uso in
+`PhotoTile.spec.ts` (`beforeEach`/`afterEach` che salva e ripristina la
+lingua precedente), non un cerotto locale.
+
+### Cablato in `TimelineView.vue`, l'unico consumatore reale finora
+
+`refreshTimeline()` non aveva **alcuna** gestione d'errore: un
+fallimento di `fetchBuckets`/`fetchGeometry` restava una promise
+rifiutata non gestita, la vista restava vuota senza spiegazione. Ora un
+fallimento sostituisce l'intera griglia con `ErrorState` (è il
+contenuto principale della schermata, non un pezzo — coerente con
+"nessuna schermata assume che i dati ci siano"), con "Riprova" che
+richiama di nuovo `refreshTimeline` (§68.4, testuale: "rimette
+l'insieme di dati in caricamento e lo richiede da capo").
+
+Debiti dichiarati, non silenziosi:
+- `InlineError.vue` non ha ancora un consumatore reale — nessuna vista
+  di questa sessione ha oggi un "pezzo mancante col resto arrivato" da
+  mostrare, stesso trattamento di 17 dei 18 componenti del Task 2 al
+  momento della loro costruzione.
+- Tre schermate pre-esistenti violano già oggi la regola "Riprova solo
+  per due nature" — `App.vue` (schermo di bootstrap, `common.unavailable`),
+  `ProblemsView.vue` e `MapView.vue` (`common.retry` incondizionato,
+  nessuna classificazione di natura) — **non riscritte qui**: sono
+  rispettivamente territorio di Task 6 (shell) e Task 10/13 (Tranche B),
+  ciascuna con la propria verifica dedicata contro il prototipo. Toccarle
+  ora avrebbe anticipato decisioni di quelle schermate senza il confronto
+  riga per riga che questa sessione ha sempre richiesto prima di
+  scrivere.
+- Nessun composable generico "stato di caricamento" (`useAsyncState` o
+  simile) costruito: `TimelineView.vue` gestisce già il proprio ciclo di
+  caricamento (Task 4) e sarebbe stata un'astrazione senza un secondo
+  consumatore reale — prematura, non giustificata dal solo principio
+  del piano.
+- Nessun meccanismo di timeout lato client aggiunto ad `apiFetch`: la
+  natura `timeout` è supportata dal classificatore ma oggi non si
+  verifica mai da sola (nessuna richiesta si autointerrompe) — una
+  funzionalità a sé, fuori dallo scopo di questo task.
+- §69 (Riuscita parziale, SP-29): il toast è già completo dal Task 2.
+  Il "ritenta solo le rimaste indietro" richiede l'involucro
+  `succeeded`/`failed` che solo le operazioni di massa restituiscono —
+  nessuna azione di massa reale è ancora cablata in questa sessione
+  (Task 7), quindi non c'è ancora nulla da collegare a quel meccanismo.
+
+Verifica eseguita:
+- `classify.spec.ts` (nuovo) → 8/8 verdi: le tre mappature dai veri
+  `type` di `Problem`, il ripiego onesto su un `type` sconosciuto, il
+  `TypeError` di rete, l'`AbortError`, e `canRetry` vero solo per le due
+  nature giuste.
+- `ErrorState.spec.ts` + `InlineError.spec.ts` (nuovi) → 17/17 verdi:
+  "Riprova" presente/assente per ciascuna delle cinque nature (la
+  verifica esplicita chiesta dal piano), l'evento `retry` emesso, il
+  testo di ogni natura non contiene mai la frase vietata "qualcosa è
+  andato storto", la riga di dettaglio tecnico compare solo se passata,
+  parità it/en per tutte e cinque le nature su entrambi i componenti.
+- `TimelineView.spec.ts` (esteso, +3 test) → 15/15 verdi: un fallimento
+  di rete classificato correttamente sostituisce la griglia con
+  `ErrorState` (con la riga di dettaglio tecnico `type · status`),
+  "Riprova" richiama `refreshTimeline` e un successivo successo fa
+  sparire l'errore mostrando la griglia vera, una natura non
+  ritentabile (`file-missing`) non mostra alcun pulsante.
+- `npx vitest run` (suite intera) → 56 file, 349/349 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/modificati → pulito.
+- `npm run build` → bundle iniziale **94.893/153.600** byte gzip
+  (script CI). Margine ampio (58.707 byte).
+
+## Task 5 — chiuso
+
+Le due forme mancanti di SP-28 (piena vista, in riga) più il
+classificatore di natura che le due condividono con la terza forma già
+esistente (il toast). Un solo consumatore reale cablato (`TimelineView`,
+l'unica vista già riscritta con un ciclo di caricamento vero) — stesso
+ritmo "costruito, non ancora ovunque messo al lavoro" del Task 2. Debiti
+verso Tranche B (le tre schermate pre-esistenti non conformi) e verso
+Task 7 (§69, in attesa di una prima azione di massa reale da collegare)
+dichiarati sopra, non silenziosi.

@@ -4,9 +4,11 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { fetchBuckets, fetchGeometry, fetchPage, promoteViewport, type MonthBucket, type TimelineAsset } from '@/api/timeline'
+import { ApiProblem } from '@/api/client'
 import { startLiveEvents, type LiveSocket } from '@/api/events'
 import { thumbSrc as mediaThumbSrc } from '@/api/media'
 import Button from '@/components/ui/Button.vue'
+import ErrorState from '@/components/ui/ErrorState.vue'
 import PhotoTile, { type StackType } from '@/components/ui/PhotoTile.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
@@ -14,6 +16,7 @@ import { useScrollRestoration } from '@/composables/useScrollRestoration'
 import { useCullingStore } from '@/stores/culling'
 import { useMapsStore } from '@/stores/maps'
 import { useSessionStore } from '@/stores/session'
+import { classifyError } from '@/errors/classify'
 import { TimelineGeometry } from '@/timeline/geometry'
 import { clampDensity } from '@/timeline/justify'
 import { LruPageCache } from '@/timeline/pageCache'
@@ -70,9 +73,17 @@ const gridWidth = ref(800)
 const viewportHeight = ref(600)
 const scrollTop = ref(0)
 const empty = ref(false)
+const loadError = ref<unknown>(null)
 const query = ref('')
 const placeholders = new Map<string, string>()
 const bbox = computed(() => (typeof route.query.bbox === 'string' ? route.query.bbox : undefined))
+const errorNature = computed(() => (loadError.value ? classifyError(loadError.value) : null))
+/** Riga tecnica facoltativa (§68.3, "per chi amministra il server") —
+ * solo quando l'errore porta davvero un `Problem` RFC 9457, non per un
+ * `TypeError` di rete generico che non ha nulla di più preciso da dire. */
+const errorDetail = computed(() =>
+  loadError.value instanceof ApiProblem ? `${loadError.value.type} · ${loadError.value.status}` : undefined
+)
 
 let promoteTimer: ReturnType<typeof setTimeout> | undefined
 let live: LiveSocket | undefined
@@ -225,22 +236,34 @@ function setDensity(next: number) {
   localStorage.setItem(DENSITY_KEY, String(density.value))
 }
 
+/**
+ * Fase 11 Task 5 (SP-28, forma a piena vista): "nessuna schermata assume
+ * che i dati ci siano". Un fallimento qui sostituisce l'intera griglia
+ * con `ErrorState` — è il contenuto principale della vista, non un
+ * pezzo — e "Riprova" richiama di nuovo questa stessa funzione (§68.4:
+ * "rimette l'insieme di dati in caricamento e lo richiede da capo").
+ */
 async function refreshTimeline() {
-  const [bucketList, geo] = await Promise.all([
-    bbox.value ? fetchBuckets(bbox.value) : fetchBuckets(),
-    fetchGeometry(bbox.value, geometryEtag.value ?? undefined)
-  ])
-  buckets.value = bucketList
-  empty.value = bucketList.length === 0
-  if (geo.buffer) {
-    geometry.value = new TimelineGeometry(geo.buffer)
+  loadError.value = null
+  try {
+    const [bucketList, geo] = await Promise.all([
+      bbox.value ? fetchBuckets(bbox.value) : fetchBuckets(),
+      fetchGeometry(bbox.value, geometryEtag.value ?? undefined)
+    ])
+    buckets.value = bucketList
+    empty.value = bucketList.length === 0
+    if (geo.buffer) {
+      geometry.value = new TimelineGeometry(geo.buffer)
+    }
+    geometryEtag.value = geo.etag
+    pageCache.clear()
+    loadingMonths.clear()
+    cacheTick.value++
+    if (gridEl.value) gridEl.value.scrollTop = 0
+    scrollTop.value = 0
+  } catch (error) {
+    loadError.value = error
   }
-  geometryEtag.value = geo.etag
-  pageCache.clear()
-  loadingMonths.clear()
-  cacheTick.value++
-  if (gridEl.value) gridEl.value.scrollTop = 0
-  scrollTop.value = 0
 }
 
 // Priorità di generazione (POST /viewport, piano Task 4.6): calcolata
@@ -562,8 +585,15 @@ function resolvedTiles(row: GridRow) {
       </button>
     </div>
 
+    <ErrorState
+      v-if="errorNature"
+      :nature="errorNature"
+      :technical-detail="errorDetail"
+      @retry="refreshTimeline"
+    />
+
     <p
-      v-if="empty"
+      v-else-if="empty"
       class="p-6 text-content-muted"
     >
       {{ t('timeline.empty') }}

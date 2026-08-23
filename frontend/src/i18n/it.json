@@ -590,5 +590,27 @@
     "language": "Lingua",
     "languageIt": "Italiano",
     "languageEn": "English"
+  },
+  "errors": {
+    "unreachable": {
+      "title": "Impossibile raggiungere il server",
+      "reassurance": "Le foto restano al sicuro: è la connessione ad aver fallito, non i file."
+    },
+    "permission-denied": {
+      "title": "Permesso negato",
+      "reassurance": "Le foto restano al sicuro: manca solo il permesso per leggerle da qui."
+    },
+    "file-missing": {
+      "title": "File non trovato",
+      "reassurance": "Il resto della libreria non è interessato: solo questo file risulta assente sul disco."
+    },
+    "timeout": {
+      "title": "La richiesta ha impiegato troppo tempo",
+      "reassurance": "Le foto restano al sicuro: la richiesta è scaduta, non ha modificato nulla."
+    },
+    "unknown": {
+      "title": "Errore imprevisto",
+      "reassurance": "Le foto restano al sicuro: il problema riguarda solo questa richiesta."
+    }
   }
 }

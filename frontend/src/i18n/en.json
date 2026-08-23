@@ -590,5 +590,27 @@
     "language": "Language",
     "languageIt": "Italiano",
     "languageEn": "English"
+  },
+  "errors": {
+    "unreachable": {
+      "title": "Can't reach the server",
+      "reassurance": "Your photos are safe: it's the connection that failed, not the files."
+    },
+    "permission-denied": {
+      "title": "Permission denied",
+      "reassurance": "Your photos are safe: this location just isn't readable from here."
+    },
+    "file-missing": {
+      "title": "File not found",
+      "reassurance": "The rest of your library is unaffected: only this file is missing from disk."
+    },
+    "timeout": {
+      "title": "The request took too long",
+      "reassurance": "Your photos are safe: the request timed out, nothing was changed."
+    },
+    "unknown": {
+      "title": "Unexpected error",
+      "reassurance": "Your photos are safe: only this request was affected."
+    }
   }
 }

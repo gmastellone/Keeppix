@@ -4,9 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import Button from '@/components/ui/Button.vue'
+import ErrorState from '@/components/ui/ErrorState.vue'
 import PhotoTile from '@/components/ui/PhotoTile.vue'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
+import { ApiProblem } from '@/api/client'
 import { fetchBuckets, fetchGeometry, fetchPage, type TimelineAsset } from '@/api/timeline'
 import { startLiveEvents, type LiveMessage } from '@/api/events'
 import { planStream } from '@/timeline/stream'
@@ -352,5 +354,50 @@ describe('TimelineView scrubber', () => {
     await slider.trigger('keydown', { key: 'End' })
     expect(slider.attributes('aria-valuenow')).toBe('2')
     expect(slider.attributes('aria-valuetext')).toContain('2024')
+  })
+})
+
+describe('TimelineView error state', () => {
+  it('shows a full-view ErrorState, classified from the failure, in place of the grid', async () => {
+    vi.mocked(fetchBuckets).mockRejectedValue(new ApiProblem('service-unavailable', 'Service temporarily unavailable', 503))
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null })
+
+    const { wrapper } = await mountTimeline()
+
+    const errorState = wrapper.findComponent(ErrorState)
+    expect(errorState.exists()).toBe(true)
+    expect(errorState.props('nature')).toBe('unreachable')
+    expect(errorState.props('technicalDetail')).toBe('service-unavailable · 503')
+    expect(wrapper.text()).not.toContain(String(i18n.global.t('timeline.empty')))
+  })
+
+  it('"Riprova" calls refreshTimeline again — a subsequent success clears the error and shows the grid', async () => {
+    vi.mocked(fetchBuckets).mockRejectedValueOnce(new ApiProblem('service-unavailable', 'unavailable', 503))
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null })
+
+    const { wrapper } = await mountTimeline()
+    expect(wrapper.findComponent(ErrorState).exists()).toBe(true)
+
+    const buckets = [{ month: '2024-07', count: 1 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [] })
+
+    await wrapper.findComponent(ErrorState).vm.$emit('retry')
+    await flushPromises()
+
+    expect(fetchBuckets).toHaveBeenCalledTimes(2)
+    expect(wrapper.findComponent(ErrorState).exists()).toBe(false)
+  })
+
+  it('a non-retryable nature (file-missing) renders no "Riprova" button inside the real view', async () => {
+    vi.mocked(fetchBuckets).mockRejectedValue(new ApiProblem('not-found', 'Resource not found', 404))
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null })
+
+    const { wrapper } = await mountTimeline()
+
+    const errorState = wrapper.findComponent(ErrorState)
+    expect(errorState.props('nature')).toBe('file-missing')
+    expect(errorState.find('button').exists()).toBe(false)
   })
 })
