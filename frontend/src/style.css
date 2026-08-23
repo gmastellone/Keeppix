@@ -64,10 +64,39 @@ body { background: var(--color-surface); color: var(--color-content); }
   --easing-standard: ease;    /* 108 casi su 111 nel prototipo */
 }
 
+/* Spinner del pulsante occupato (SP-30, prototipo righe 857-867/2638-2657):
+   geometria e rotazione continua, non uno stato che cambia una volta sola —
+   per questo la sua durata non fa parte della palette di transizioni sopra
+   (quella palette è per `transition`, non per un `animation` in loop) e vive
+   qui come classe globale, condivisa da qualunque pulsante occupato invece
+   che duplicata per componente. */
+.spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-content-muted);
+  animation: kpx-spin 0.7s linear infinite;
+}
+.spinner-sm { width: 12px; height: 12px; border-width: 2px; }
+/* Sul pulsante primario lo spinner deve leggersi sul proprio sfondo pieno,
+   non sul grigio neutro di default (prototipo, riga 867). */
+.spinner-current { border-top-color: currentColor; }
+
+@keyframes kpx-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Rispetta chi ha ridotto le animazioni a livello di sistema. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+  /* Lo spinner fa eccezione (prototipo, riga 1071): rallentato invece che
+     fermato, perché resta l'unico segnale che l'azione è ancora in corso. */
+  .spinner {
+    animation-duration: 2.4s !important;
   }
 }

@@ -348,3 +348,69 @@ scrivere (`PhotoTile`, `SelectionBar`, `QuickFilter`,
 `SelectAllVisible`, `SuggestionQueue`, `ProvenanceBadge`, `Avatar`,
 `AppShell`, `DeleteDialog`, `ConfirmDialog`, `SegmentedControl`,
 `NavGroup`, `BusyButton`, `LoadingSkeleton`).
+
+### BusyButton (SP-30)
+
+Quinto componente del Task 2. Distinto da `Button.vue` (già esistente,
+la CTA primaria a piena larghezza dei flussi di impostazione): questo è
+il `.btn` generico del prototipo (righe 290-299, 857-867, 2638-2657) —
+variante `default`/`primary`/`danger`/`ghost`, spesso icon-only, usato
+dalla barra di selezione e dalle azioni di massa. `Button.vue` non è
+stato toccato: non serve, ha già `w-full` (nessuno spostamento di
+larghezza possibile) e già usa l'attributo `disabled` nativo, che
+blocca il doppio invio più efficacemente del solo `pointer-events:none`
+del prototipo — SP-30 qui riguarda un pulsante diverso, non un difetto
+di `Button.vue`.
+
+Comportamento verificato riga per riga contro `setBtnBusy`/`.btn.is-
+busy` (non assunto dal nome "BusyButton"): occupato → `disabled` nativo
+(blocca il doppio invio, più forte del `pointer-events:none` del
+prototipo), `aria-busy="true"`, opacità `.75`, spinner. **"Perde il
+testo a favore dello spinner solo se è a sola icona, altrimenti
+affianca"** (nota vincolante del piano): implementato con una prop
+`iconOnly` — occupato e icon-only nasconde lo slot (spinner al posto
+dell'icona, non due indicatori nello spazio di un solo glifo); occupato
+e con etichetta la mantiene, lo spinner le si affianca. Sul pulsante
+`primary` lo spinner assume `currentColor` (prototipo, riga 867) invece
+del grigio neutro di default, per leggersi sul proprio sfondo pieno.
+
+**Lo spinner (`.spinner`/`kpx-spin`) vive in `style.css`, non nel
+componente**: è un'animazione che gira in loop finché il pulsante è
+occupato, categoria diversa dalla palette delle sette durate di
+transizione del Task 1 (quella è per stati che cambiano una volta
+sola) — stesso trattamento già riservato a `ANALYSIS_PULSE_MS`, una
+costante a parte, non un ottavo valore forzato nella palette. Verificato
+che lo scanner di `tokens.spec.ts` non lo veda affatto (guarda solo i
+file `.vue`, non `style.css`) prima di scegliere questa collocazione,
+non dopo essere stato bloccato da un test rosso.
+
+**Rallentato, non fermato, sotto `prefers-reduced-motion`** (prototipo,
+riga 1071: `.spinner{animation-duration:2.4s}`): il blocco generico già
+in `style.css` dal Task 1 spegne ogni animazione a `0.01ms` con
+`!important` — senza un'eccezione lo spinner sparirebbe del tutto,
+lasciando chi ha ridotto le animazioni senza alcun segnale che l'azione
+sia ancora in corso. Aggiunta una regola `.spinner{animation-duration:
+2.4s!important}` nello stesso blocco: vince sulla regola universale per
+specificità (classe contro selettore universale), non per ordine.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/BusyButton.spec.ts` → 5/5 verdi:
+  etichetta visibile e pulsante abilitato a riposo, `disabled`+`aria-
+  busy` quando occupato, etichetta e spinner coesistono quando non è
+  icon-only, l'icona sparisce a favore dello spinner quando lo è,
+  l'icona torna visibile a riposo.
+- `npx vitest run` (suite intera) → 164/164 verdi — compreso lo scanner
+  delle durate, che non segnala `.7s`/`2.4s` perché vivono in
+  `style.css`, non in un `.vue`.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **92.316/153.600** byte gzip
+  (script CI): +290 byte circa (nuove classi Tailwind con valore
+  arbitrario, stesso motivo di `Tooltip` — nessuna schermata reale lo
+  importa ancora). Margine ampio (61.284 byte).
+
+Debiti dichiarati: tredici componenti del Task 2 restano da scrivere
+(`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
+`SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
+`DeleteDialog`, `ConfirmDialog`, `SegmentedControl`, `NavGroup`,
+`LoadingSkeleton`).
