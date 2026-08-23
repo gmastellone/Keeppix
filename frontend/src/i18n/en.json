@@ -135,6 +135,16 @@
     "empty": "No folders to show.",
     "move": "Move"
   },
+  "nav": {
+    "foto": "Photos",
+    "cerca": "Search",
+    "libraryGroup": "Library",
+    "manutenzione": "Maintenance"
+  },
+  "sidebar": {
+    "storageLabel": "Free space",
+    "storageValue": "{free} of {total}"
+  },
   "timeline": {
     "empty": "No photos in this library.",
     "densityDown": "Fewer columns",

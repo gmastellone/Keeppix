@@ -1879,3 +1879,140 @@ verso le griglie non virtualizzate future.
 
 Chiude Tranche A: Task 1-5bis tutti chiusi. Prossimo: Tranche B
 (Task 6-14, le singole schermate).
+
+# Tranche B
+
+## Task 6 — Shell desktop e mobile (in corso)
+
+Task 6 copre due lavori distinti e grandi: la shell (sidebar, topbar,
+menu account, "Altro" mobile) e — separatamente, in
+`docs/ui/caricamento-nuove-foto.md` — l'intera area di caricamento
+nuove foto (tre porte d'ingresso, sei stati per file, rifiuto RAW,
+destinazione con precedenza). Trattati come unità di lavoro separate,
+non un unico commit: la shell per prima, perché ogni vista futura ci
+monta dentro.
+
+Prima di scrivere codice, due agenti Explore hanno verificato lo stato
+reale (mai assunto): quali destinazioni esistono davvero (router +
+elenco viste), cosa `AppShell`/`NavGroup`/`Avatar` (Task 2) espongono
+già, e — soprattutto — quali dati reali il backend può davvero dare
+alla sidebar. Tre scoperte che ridisegnano lo scopo di questo passo:
+
+- **Il conteggio per cartella non esiste per scelta, non per lacuna.**
+  `FolderView` (`crates/keeppix-api/src/routes/folders.rs:14-22`) ha un
+  commento esplicito: *"Task 11 (spec §7bis.2): niente `asset_count` per
+  riga — il prototipo mostrava «Urbino 556» in sidebar, ma quel
+  aggregato non entra in `/api/v1`."* Non un gap da colmare: una
+  decisione già presa in Fase 10.
+- **Il badge Culling è un vero campo del backend, `bootstrap.badges.
+  culling`, ma vale sempre 0** — commento del backend: *"Zero finché i
+  lotti non esistono nel backend"* (Task 17, Tranche D, non ancora
+  scritto). Cablarlo comunque è onesto, non un placeholder: il giorno
+  che Task 17 lo popola per davvero, questo componente non cambia di
+  una riga.
+- **Il badge Revisione (tag+volti in attesa) è invece già vero e
+  economico** — `bootstrap.badges.revision` somma
+  `AssetTagRepo::count_proposed_visible` e
+  `FaceRepo::count_proposed_visible`, entrambi sicuri a riconoscimento
+  volti spento. **Lo spazio libero/totale è vero anch'esso** —
+  `GET /api/v1/libraries/{id}/storage`, già presente anche dentro lo
+  stesso `/api/v1/bootstrap` — sostituisce il "1,4 TB su 2 TB" statico
+  del mockup con un numero reale, non un'altra costante di demo.
+
+**Ambito dichiarato per la sidebar desktop, solo le voci con una
+destinazione vera oggi:** Foto, Cerca, Culling (badge reale),
+Mappa, Condivisioni, Album, e dentro "Manutenzione" solo Cestino e
+Problemi. **Tolte, debito esplicito verso le Tranche che le
+costruiranno:**
+- **"Persone"** — Task 16, Tranche D, nessuna vista Persone esiste.
+- **"Preferiti"** — nessuna vista dedicata esiste ancora in questa
+  sessione.
+- **L'intero gruppo "IA"** (Tag e categorie/Revisione/Analisi
+  libreria) — Task 15, Tranche C.
+- **"Duplicati"** dentro Manutenzione — Task 13, Tranche B, non ancora
+  fatto (a differenza di Cestino/Problemi, già reali).
+- **Il gruppo "Cartelle"** (l'elenco piatto con salto diretto a una
+  cartella filtrata): nessuna timeline filtrata per cartella esiste
+  ancora — stesso debito già dichiarato nel Task 3 per le rotte di
+  dettaglio. Costruire righe che non portano da nessuna parte sarebbe
+  un link morto, non un ambito parziale onesto — a differenza del
+  badge Culling (dato reale, destinazione futura), qui **né** il dato
+  **né** la destinazione esistono.
+- **Menu account: solo "Esci"**, reale (`session.logout()` +
+  redirect a `/login`). "Profilo" e "Impostazioni" tolti: nessuna
+  pagina hub esiste ancora per nessuno dei due (solo sei pagine
+  tecniche sotto `/settings/*`, nessun indice) — Task 14, non ancora
+  fatto. Aggiungerli ora avrebbe inventato una convenzione di
+  instradamento che Task 14 potrebbe smentire, lo stesso principio già
+  seguito per `AppShell` col router.
+- **Lo stato "In linea"** (pallino verde) del piede utente: **omesso**,
+  non solo rimandato — non esiste alcun concetto di presenza/stato
+  online nel backend di un'app self-hosted single-tenant, a differenza
+  dello spazio libero che un endpoint reale già dà. Mostrarlo sarebbe
+  stato inventare un dato, non solo un ambito ridotto.
+
+### `api/bootstrap.ts` + `stores/shell.ts`
+
+Nuovo client per `GET /api/v1/bootstrap` (un'unica chiamata:
+cartelle, spazio per libreria, badge) e uno store Pinia a sé
+(`useShellStore`), distinto da `stores/session.ts` nonostante il
+backend chiami "bootstrap" anche il proprio giro di
+autenticazione/setup — due domande diverse ("chi sono" vs "cosa mostra
+il telaio") che condividono solo il nome.
+
+### `components/AppSidebar.vue`
+
+Verificato riga per riga contro §2 del documento funzionale (non il
+solo riassunto del piano) e contro il marchio SVG esatto del mockup
+(righe 1397-1398: anello `r=62` più pallino `r=24` in `viewBox="0 0 200
+200"`, non un'icona approssimata). Riusa `NavGroup` (Task 2, SP-25:
+"Manutenzione" si apre da solo quando contiene la vista corrente),
+`Avatar` (Task 2, SP-16) e `Popover` (Task 2, SP-14) per il menu
+account — nessuno dei tre era ancora importato da una vista reale.
+
+Ogni voce è un vero `<RouterLink>`, quindi raggiungibile da tastiera
+per costruzione — il documento (§2.5) dichiara il prototipo non
+raggiungibile ("nessuna voce della sidebar è raggiungibile da
+tastiera... `:focus-visible` è codice morto").
+
+Terza copia, non unificata, della stessa formattazione byte→testo
+leggibile già duplicata (e divergente: base 1024 in
+`UploadPanel.vue`, base 1000 in `MapsOfflineView.vue`) — debito reale
+annotato nel commento del componente, non silenzioso, ma unificarle
+tocca due viste che questo task non sta toccando.
+
+Bug reale trovato scrivendo i test, non nel componente: il menu
+account (`Popover`) è teleportato su `document.body`, fuori
+dall'albero DOM del wrapper di test — `wrapper.findAll('button')` non
+lo vede mai. Stesso schema già noto per `Dialog` (Task 2), applicato
+qui per la prima volta a `Popover`: query dirette su
+`document.body.querySelectorAll(...)`, non sul wrapper.
+
+Verifica eseguita:
+- `shell.spec.ts` (nuovo) → 2/2 verdi: stato iniziale sicuro prima del
+  caricamento, `load()` popola cartelle/spazio/badge dalla risposta
+  reale.
+- `AppSidebar.spec.ts` (nuovo) → 6/6 verdi: caricamento dei dati al
+  montaggio con il badge Culling reale; ogni voce è un vero `<a>`
+  (raggiungibile da tastiera); solo la rotta corrente è evidenziata;
+  "Manutenzione" si apre da sola sulle proprie sotto-voci; spazio
+  libero/totale reali (non un segnaposto statico); il menu account
+  mostra il nome utente vero e "Esci" disconnette e reindirizza a
+  `/login`.
+- `npx vitest run` (suite intera) → 58 file, 360/360 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/modificati → pulito (rinominato
+  `Sidebar.vue` → `AppSidebar.vue`: `vue/multi-word-component-names` è
+  disattivato solo per `components/ui/**`, non per `components/`).
+- `npm run build` → bundle iniziale **95.155/153.600** byte gzip
+  (script CI). Margine ampio (58.445 byte) — `AppSidebar` non è ancora
+  importato da `App.vue`, nessun consumatore reale ancora.
+
+Debito dichiarato, esplicito: `AppSidebar` non è ancora cablato in
+`App.vue`, e le ~9 viste con intestazione improvvisata (TimelineView,
+MapView, FoldersView, AlbumsView, SharesView, TrashView, GroupsView,
+BatchEditView, UsersView) non sono ancora state private del proprio
+markup ad-hoc. Prossimo passo di questo task: la topbar (breadcrumb +
+scorciatoia di ricerca), poi il cablaggio reale in `App.vue` con la
+rimozione dell'intestazione improvvisata da ogni vista, poi la shell
+mobile, poi — separatamente — l'area di caricamento nuove foto.

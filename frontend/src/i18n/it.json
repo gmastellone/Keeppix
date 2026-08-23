@@ -135,6 +135,16 @@
     "empty": "Nessuna cartella da mostrare.",
     "move": "Sposta"
   },
+  "nav": {
+    "foto": "Foto",
+    "cerca": "Cerca",
+    "libraryGroup": "Libreria",
+    "manutenzione": "Manutenzione"
+  },
+  "sidebar": {
+    "storageLabel": "Spazio libero",
+    "storageValue": "{free} su {total}"
+  },
   "timeline": {
     "empty": "Nessuna foto in questa libreria.",
     "densityDown": "Meno colonne",
