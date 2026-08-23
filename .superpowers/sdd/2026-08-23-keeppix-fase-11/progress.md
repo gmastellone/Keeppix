@@ -728,3 +728,60 @@ Verifica eseguita:
 Debiti dichiarati: sei componenti del Task 2 restano da scrivere
 (`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
 `SuggestionQueue`, `AppShell`).
+
+### AppShell (SP-17) — ambito parziale, dichiarato
+
+Tredicesimo componente del Task 2, **non chiuso per intero**. Letta la
+definizione canonica (documento funzionale, sezione "Shell mobile:
+header, tab bar in basso, menu account mobile", righe 948-1053): una
+shell alternativa completa — barra a quattro schede che instrada su
+`state.view` (foto/cerca/album/altro), un titolo per ciascuna delle
+diciannove viste possibili, un badge culling legato alla coda reale, un
+menu account. Tutto questo dipende dal **router**, che è il Task 3 di
+questa stessa Tranche — non ancora scritto. Cablare ora quella logica
+avrebbe voluto dire inventare convenzioni di instradamento (nomi di
+rotta, stato attivo) che il Task 3 potrebbe smentire — lo stesso rischio
+già evitato con `SegmentedControl` (l'opzione "Non modificare" lasciata
+al chiamante) e `ProvenanceBadge` (solo il marcatore, non l'intera chip).
+
+**Chiuso qui**: solo il meccanismo che il piano vincola esplicitamente
+— *"commuta per larghezza, non per interruttore"*. Il prototipo usa
+`state.device`, un interruttore manuale per la demo: `#app.device-
+mobile` è una classe statica, mai legata a una larghezza reale del
+viewport (`.frame-outer.device-mobile` ha perfino una larghezza fissa
+`390px`, la scocca del telefono per la demo, non un breakpoint).
+`AppShell.vue` usa invece un vero `window.matchMedia('(max-width:
+767px)')` con `addEventListener('change', ...)` — commuta da solo
+quando la finestra cambia dimensione, non quando qualcuno preme un
+interruttore.
+
+**Debito esplicito sulla soglia**: nessuna cifra di breakpoint esiste
+nel documento funzionale né nel mockup — verificato (`grep -i
+breakpoint`, `grep larghezza.*mobile`): il documento dice solo "sotto
+una certa larghezza", mai un numero. `768px` è il breakpoint `md` di
+Tailwind, già lo standard del progetto — non un valore misurato sul
+prototipo, che non ne ha uno. Se il Task 3 (router/screens) rivelerà un
+numero diverso più corretto, va corretto lì, non assunto qui come
+definitivo.
+
+Espone quattro slot (`sidebar`/`topbar` per desktop, `mobile-header`/
+`mobile-tabbar` per mobile, più il default per il contenuto) senza
+sapere nulla di viste o instradamento — la shell reale (Task 3) li
+popolerà.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/AppShell.spec.ts` → 3/3 verdi:
+  slot desktop sopra la soglia, slot mobile sotto, commutazione reale
+  su un evento `change` di `matchMedia` (non un flag settato a mano)
+  — `matchMedia` simulato con lo stesso schema già in uso in
+  `MapClusterLayer.spec.ts`.
+- `npx vitest run` (suite intera) → 202/202 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **92.967/153.600** byte gzip
+  (script CI) — invariato: nessuna schermata reale lo importa ancora.
+
+Debiti dichiarati: **il resto della shell mobile** (tab bar/router,
+titoli per vista, badge culling, menu account — Task 3) più cinque
+componenti del Task 2 (`PhotoTile`, `SelectionBar`, `QuickFilter`,
+`SelectAllVisible`, `SuggestionQueue`).
