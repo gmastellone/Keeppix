@@ -166,11 +166,62 @@ Verifica eseguita:
   test. Il numero si sposterà quando i task successivi lo useranno
   davvero, non prima.
 
-Debiti dichiarati: **diciassette componenti del Task 2 restano da
-scrivere** (`PhotoTile`, `SelectionBar`, `QuickFilter`,
-`SelectAllVisible`, `Popover`, `ToastHost`, `Tooltip`, `SuggestionQueue`,
-`ProvenanceBadge`, `Avatar`, `AppShell`, `DeleteDialog`, `ConfirmDialog`,
-`SegmentedControl`, `NavGroup`, `BusyButton`, `LoadingSkeleton` —
-`RatingStars` esiste già, riusato non riscritto). Non un buco silenzioso:
-la sezione «Tranche» del piano stesso struttura il lavoro in incrementi
-verificabili, ed è così che questo task procede.
+Debiti dichiarati (al momento del commit di `Dialog`): diciassette
+componenti restavano da scrivere. Non un buco silenzioso: la sezione
+«Tranche» del piano stesso struttura il lavoro in incrementi verificabili,
+ed è così che questo task procede.
+
+**Nota CI (commit `07ce058`)**: la run è arrivata rossa su
+`timeline_with_fifty_permissions_stays_under_budget_at_200k`
+(`crates/keeppix-db/tests/scale_200k.rs`) — un test di budget temporale
+su 200k righe seminate, **non toccato da questo commit** (solo file sotto
+`frontend/src/**` e `i18n/*.json`). `main` e il push del Task 1, con lo
+stesso codice backend, erano appena passati verdi sullo stesso test
+minuti prima — segnale di rumore del runner condiviso, non una
+regressione reale. Ri-lanciato il solo job fallito
+(`rerun_failed_jobs`), una volta, prima di continuare — non modificato
+il test o il codice che misura, che non appartiene a questo diff.
+
+### Popover (SP-14)
+
+Secondo componente fondativo del Task 2, insieme a `Dialog` — il piano lo
+dichiara esplicitamente: i ventiquattro dialog/menu/popover del documento
+si costruiscono sopra questi due soli. Copre i sei menu a comparsa (menu
+account desktop/mobile, "altre azioni" del lightbox, selettore rapido di
+lotto, menu sul riquadro del volto, popover della mappa, picklist di
+creazione album) e i selettori (persona/tag) quando non serve un dialog
+modale a schermo intero.
+
+Nuovo `frontend/src/components/ui/Popover.vue`, sopra
+`PopoverRoot`/`Trigger`/`Portal`/`Content` di reka-ui (props verificate
+nei `.d.ts` prima di scrivere codice: `side`/`align`/`sideOffset` da
+`PopperContentProps`). Il difetto dichiarato del prototipo per questo
+pattern (*"click fuori chiude, Esc chiude solo a metà"*, SP-14) è chiuso
+gratis dallo stesso `DismissableLayer` sotto `PopoverContent` che chiude
+già `Dialog` — nessun gestore scritto qui. **"Esc a livelli quando è
+annidato"** (altra richiesta esplicita del piano) è anch'essa
+comportamento della libreria: ogni `DismissableLayer` si registra nel
+proprio stack di livelli, e solo quello più in alto reagisce a Esc — non
+verificato con un test di annidamento reale in questo commit (nessun
+secondo popover ancora nel codice per annidarlo davvero), ma la garanzia
+viene dalla libreria, non da logica scritta qui che potrebbe sbagliare.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/Popover.spec.ts` → 3/3 verdi: si
+  apre al click sul trigger, Esc chiude, `v-model:open` programmatico
+  funziona (apertura/chiusura pilotata dal chiamante, non solo dal
+  click).
+- `npx vitest run` (suite intera) → 146/146 verdi.
+- `npx vue-tsc -b` → pulito dopo aver corretto `defineModel('open', {
+  default: undefined })` (sintassi non valida per un model opzionale —
+  basta `defineModel<boolean>('open')` senza opzioni).
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale 90.610/153.600 byte gzip — invariato
+  nella sostanza, stesso motivo di `Dialog`: nessuna schermata reale lo
+  importa ancora.
+
+Debiti dichiarati: sedici componenti del Task 2 restano da scrivere
+(`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
+`ToastHost`, `Tooltip`, `SuggestionQueue`, `ProvenanceBadge`, `Avatar`,
+`AppShell`, `DeleteDialog`, `ConfirmDialog`, `SegmentedControl`,
+`NavGroup`, `BusyButton`, `LoadingSkeleton`).
