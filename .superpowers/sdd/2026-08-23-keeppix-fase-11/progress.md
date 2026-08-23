@@ -2111,3 +2111,66 @@ markup ad-hoc. Prossimo passo: il cablaggio reale in `App.vue`
 (entrambi i componenti dentro `AppShell`, rimozione dell'intestazione
 improvvisata da ogni vista), poi la shell mobile, poi —
 separatamente — l'area di caricamento nuove foto.
+
+### `App.vue` — Task 6 (3/N): cablaggio reale in `AppShell`
+
+`AppShell` (Task 2) sostituisce finalmente il solo `<RouterView>` per
+gli utenti con una sessione valida: `#sidebar` → `AppSidebar`,
+`#topbar` → `AppTopbar`, slot di default → `<RouterView>` invariato.
+
+**Decisione presa scrivendo questo passo, non nel piano**: le ~9 viste
+con intestazione improvvisata **non** vengono ancora spogliate, a
+differenza di quanto il diario del passo precedente dava per
+scontato. Motivo trovato rileggendo `TimelineView.vue` riga per riga
+prima di toccarla: la sua intestazione ad-hoc porta a `/folders`,
+`/users` e `/groups` — tre rotte reali che **`AppSidebar` non copre**
+(l'ambito dichiarato in Task 6 1/N include Foto/Cerca/Culling/Mappa/
+Condivisioni/Album/Cestino/Problemi, non Cartelle né le due viste
+admin-only). Spogliare l'intestazione ora renderebbe quelle tre rotte
+irraggiungibili dall'interfaccia — non un'omissione dichiarata come le
+altre di questo task, ma un vicolo cieco vero. In particolare
+`/folders` (`FoldersView`, elenco cartelle reale, non la timeline
+filtrata per cartella già esclusa in Task 6 1/N) è una svista di
+scoping di quel passo: ho confuso "il gruppo Cartelle del mockup con
+salto a una timeline filtrata" (quello sì assente) con "qualunque
+modo di raggiungere la pagina Cartelle che esiste già" (quello
+avrebbe dovuto restare). Da risolvere prima di spogliare le
+intestazioni, non nascondendolo spogliandole comunque: prossimo
+sotto-passo, non questo.
+
+Shell mobile: ancora assente (stesso debito già dichiarato in Task 6
+1/N e 2/N). Sotto i 768px `AppShell` mostra solo lo slot di default —
+nessuna intestazione, nessuna barra a schede. Prima di questo commit
+non c'era comunque una vera shell mobile (le intestazioni ad-hoc non
+sono mai state responsive per design); dopo questo commit la
+differenza pratica è che sparisce anche la manciata di link diretti
+che quelle intestazioni offrivano su schermi stretti — regressione
+temporanea reale, dichiarata qui, non nascosta, e limitata a un ramo
+(`fase-11`) non ancora unito a `main`. Prossimo sotto-passo di questo
+task, non rimandato oltre.
+
+Verifica eseguita:
+- `App.spec.ts` (nuovo) → 2/2 verdi: con sessione valida, `AppSidebar`
+  (un `<a href="/culling">` vero) e `AppTopbar` (`#topSearch`) sono
+  montati per davvero e la vista instradata compare nello slot di
+  default; con `session.unavailable`, né l'uno né l'altro compaiono —
+  solo la schermata di indisponibilità.
+- Bug reale trovato scrivendo il test: montare `App` con
+  `vi.mock('@/components/UploadPanel.vue', ...)` (un oggetto grezzo
+  come sostituto) fa esplodere un errore non gestito
+  (`No "__isTeleport" export is defined on the mock`) — il resolver
+  di componenti asincroni di Vue Test Utils introspeziona lo spazio
+  dei nomi del modulo mockato per simboli interni (`__isTeleport`
+  ecc.) che un `vi.mock` con un oggetto letterale non ha. Corretto con
+  `global.stubs: { UploadPanel: true }` invece di mockare il modulo:
+  stessa cosa (l'overlay reale non viene mai montato), nessun errore.
+- `npx vitest run` (suite intera) → 60 file, 370/370 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/modificati → pulito.
+- `npm run build` → bundle iniziale **116.469/153.600** byte gzip
+  (script CI, ricalcolato a mano). Salto reale e atteso da 95.247 a
+  116.469 (+21.222 byte): `AppSidebar`/`AppTopbar` e le loro dipendenze
+  (`Avatar`, `Popover`, `NavGroup`, `stores/shell.ts`) erano codice
+  morto finché `App.vue` non le importava per davvero — ora sono nel
+  chunk d'ingresso. Margine residuo ampio (37.131 byte), numero
+  misurato, non stimato.
