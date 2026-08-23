@@ -38,6 +38,10 @@
 // ha. Stesso motivo di "Cartelle": erano raggiungibili solo
 // dall'intestazione improvvisata di `TimelineView`, altrimenti un
 // vicolo cieco dopo averla tolta.
+//
+// `UploadQueueStrip` (sottosistema di caricamento, §6.1): "nel piede
+// della sidebar, sopra 'Spazio libero'" — posizione esatta, non solo
+// "da qualche parte nel piede".
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -45,6 +49,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Avatar from '@/components/ui/Avatar.vue'
 import NavGroup from '@/components/ui/NavGroup.vue'
 import Popover from '@/components/ui/Popover.vue'
+import UploadQueueStrip from '@/components/UploadQueueStrip.vue'
 import { useSessionStore } from '@/stores/session'
 import { useShellStore } from '@/stores/shell'
 
@@ -210,6 +215,8 @@ const storageTotals = computed(() => {
     </nav>
 
     <div class="flex-1" />
+
+    <UploadQueueStrip />
 
     <div
       v-if="storageTotals"

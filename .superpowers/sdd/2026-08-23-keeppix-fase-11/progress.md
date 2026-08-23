@@ -2745,3 +2745,60 @@ Verifica eseguita:
 - `npm run build` → bundle iniziale **120.694/153.600** byte gzip
   (+689 byte: entrambi i bottoni sono nel chunk d'ingresso, come
   `AppTopbar`/`AppMobileHeader` stessi). Margine ampio (32.906 byte).
+
+### `UploadQueueStrip.vue` — la striscia della coda (§6.1) (6/N)
+
+Documento §6.1, verificato riga per riga **e** contro `renderUploadDock()`/
+`uploadCounts()`/`uploadAddFiles()` del prototipo (righe 2733-2937) per
+i dettagli che il documento non specifica — etichetta esatta, priorità,
+cosa conta come "finito".
+
+**Due scoperte reali, correggono lavoro già spinto in 4/N**, trovate
+leggendo `uploadAddFiles()` per intero prima di scrivere questo
+componente:
+- **I rifiuti sostituiscono, non si accumulano** (`state.upload.rejected
+  = (raws.length||others.length) ? {...} : null`, riga 2754): il mio
+  `addFilesFromPicker` (4/N) li accumulava fra trascinamenti successivi
+  — deciso allora senza aver ancora letto questa riga. Corretto:
+  `rejectedRaw.value = raw.map(...)` (assegnazione), non uno spread.
+- **Aggiungere file apre sempre il pannello**, anche un lotto di soli
+  rifiuti (`state.upload.open = true`, riga 2770) — `addFilesFromPicker`
+  ora imposta `panelOpen.value = true`. Conseguenza diretta: la striscia
+  **non deve mai** guardare i rifiuti per decidere se mostrarsi
+  (`renderUploadDock`, riga 2913, guarda solo `items.length`) — un lotto
+  tutto scartato resta visibile lo stesso, tramite il pannello che si è
+  aperto da solo, non tramite la striscia.
+
+Store: nuovi `needsDestination` (computed, sessione bloccata su
+"queued" senza cartella — più diretto della sola assenza di
+`stickyDestination`, che sarebbe vuota anche a coda vuota) e
+`panelOpen`/`togglePanel` (stato condiviso fra striscia e pannello,
+letto/scritto da entrambi).
+
+Componente unico per le due ancore del documento (piede sidebar
+desktop, fascia sopra la tab bar mobile — "solo una delle due esiste
+per volta"): stesso principio di `useUploadPicker.ts`, la differenza è
+dove il chiamante lo monta. Cablato in `AppSidebar.vue` (sopra "Spazio
+libero", posizione esatta) e in `App.vue`, slot `mobile-tabbar` (sopra
+`AppMobileTabbar`, non dentro).
+
+Verifica eseguita:
+- `stores/upload.spec.ts` (esteso): il test "i rifiuti si accumulano"
+  è stato riscritto in "i rifiuti sostituiscono" (verificato contro la
+  riga esatta del prototipo); nuovo test per l'apertura automatica del
+  pannello anche su un lotto tutto scartato. 23/23 verdi.
+- `UploadQueueStrip.spec.ts` (nuovo) → 7/7 verdi: assente a coda vuota
+  (nessun elemento nel DOM); assente anche con soli rifiuti (verificato
+  contro `renderUploadDock`); le quattro etichette nell'ordine di
+  priorità corretto (manca destinazione > in pausa > in corso > finito);
+  il clic apre/chiude `panelOpen` condiviso.
+- `AppSidebar.spec.ts` (esteso) → 13/13 verdi: la striscia reale compare
+  sopra "Spazio libero" con una sessione in coda.
+- `App.spec.ts` (esteso) → 5/5 verdi: la striscia compare sia su
+  desktop (dentro la sidebar) sia su mobile (sopra la tab bar).
+- `npx vitest run` (suite intera) → 69 file, 488/488 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file toccati → pulito.
+- `npm run build` → bundle iniziale **121.424/153.600** byte gzip
+  (+730 byte: la striscia è nel chunk d'ingresso, come `AppSidebar`/
+  `App.vue` stessi). Margine ampio (32.176 byte).

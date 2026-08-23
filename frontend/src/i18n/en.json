@@ -584,6 +584,13 @@
     "dropRejectedInCulling": "Culling has its own import flow: you can't drop files here.",
     "uploadButton": "Upload",
     "uploadTooltip": "Upload photos or video",
+    "dock": {
+      "needsDestination": "Choose where",
+      "paused": "Paused",
+      "uploading": "Uploading",
+      "done": "Uploaded",
+      "ariaLabel": "{label}, {finished} of {total}. Open the uploads panel"
+    },
     "status": {
       "queued": "Waiting…",
       "uploading": "Uploading…",

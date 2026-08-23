@@ -318,14 +318,52 @@ describe('addFilesFromPicker — punto d\'ingresso comune al trascinamento, "Car
     expect(store.rejectedUnsupported).toEqual(['b.txt'])
   })
 
-  it('rejections accumulate across successive drops, same as the queue does', async () => {
+  it('rejections REPLACE the previous batch\'s, they never accumulate — verified against uploadAddFiles() (mockup riga 2754)', async () => {
     vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: [] })
 
     const store = useUploadStore()
     await store.addFilesFromPicker([file('a.arw')], 'folder-1')
-    await store.addFilesFromPicker([file('b.arw')], 'folder-1')
+    expect(store.rejectedRaw).toEqual(['a.arw'])
 
-    expect(store.rejectedRaw).toEqual(['a.arw', 'b.arw'])
+    await store.addFilesFromPicker([file('b.arw')], 'folder-1')
+    expect(store.rejectedRaw).toEqual(['b.arw'])
+
+    // Un lotto tutto accettato azzera anche i rifiuti del lotto precedente.
+    await store.addFilesFromPicker([file('c.jpg')], 'folder-1')
+    expect(store.rejectedRaw).toEqual([])
+  })
+
+  it('addFilesFromPicker always opens the panel, even for an all-rejected batch — verified against uploadAddFiles() (mockup riga 2770)', async () => {
+    const store = useUploadStore()
+    expect(store.panelOpen).toBe(false)
+
+    await store.addFilesFromPicker([file('a.arw')], 'folder-1')
+    expect(store.panelOpen).toBe(true)
+  })
+})
+
+describe('striscia della coda (§6.1)', () => {
+  it('needsDestination is true only while a session is stuck queued without a folder', async () => {
+    vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
+    vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-a.jpg'] })
+
+    const store = useUploadStore()
+    expect(store.needsDestination).toBe(false)
+
+    await store.addFiles([file('a.jpg')])
+    expect(store.needsDestination).toBe(true)
+
+    store.setDestination('folder-1')
+    expect(store.needsDestination).toBe(false)
+  })
+
+  it('togglePanel flips panelOpen, shared between the strip and the panel', () => {
+    const store = useUploadStore()
+    expect(store.panelOpen).toBe(false)
+    store.togglePanel()
+    expect(store.panelOpen).toBe(true)
+    store.togglePanel()
+    expect(store.panelOpen).toBe(false)
   })
 })

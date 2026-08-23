@@ -584,6 +584,13 @@
     "dropRejectedInCulling": "Il Culling ha un suo percorso di importazione: qui non si rilasciano file.",
     "uploadButton": "Carica",
     "uploadTooltip": "Carica foto o video",
+    "dock": {
+      "needsDestination": "Scegli dove",
+      "paused": "In pausa",
+      "uploading": "Caricamento",
+      "done": "Caricate",
+      "ariaLabel": "{label}, {finished} di {total}. Apri il pannello dei caricamenti"
+    },
     "status": {
       "queued": "In attesa…",
       "uploading": "Caricamento…",

@@ -10,6 +10,7 @@ import AppTopbar from '@/components/AppTopbar.vue'
 import Button from '@/components/ui/Button.vue'
 import ToastHost from '@/components/ui/ToastHost.vue'
 import UploadDropVeil from '@/components/UploadDropVeil.vue'
+import UploadQueueStrip from '@/components/UploadQueueStrip.vue'
 import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
@@ -52,6 +53,8 @@ const UploadPanel = defineAsyncComponent(() => import('@/components/UploadPanel.
       <AppMobileHeader />
     </template>
     <template #mobile-tabbar>
+      <!-- §6.1: "una fascia sopra la tab bar" — sopra, non dentro. -->
+      <UploadQueueStrip />
       <AppMobileTabbar />
     </template>
     <RouterView />

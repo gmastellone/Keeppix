@@ -7,6 +7,7 @@ import { i18n } from '@/i18n'
 import { fetchBootstrap } from '@/api/bootstrap'
 import type { User } from '@/api/auth'
 import { useSessionStore } from '@/stores/session'
+import { useUploadStore } from '@/stores/upload'
 
 import AppSidebar from './AppSidebar.vue'
 
@@ -162,5 +163,21 @@ describe('AppSidebar', () => {
     signOutButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/login')
+  })
+
+  it('shows the real upload queue strip above "Spazio libero" once something is queued (§6.1)', async () => {
+    const { wrapper } = await mountSidebar()
+    const upload = useUploadStore()
+    upload.sessions.push({
+      id: 'a',
+      filename: 'a.jpg',
+      targetFolderId: null,
+      expectedSize: 10,
+      receivedBytes: 0,
+      status: 'queued'
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Scegli dove')
   })
 })

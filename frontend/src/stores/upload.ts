@@ -114,6 +114,24 @@ export const useUploadStore = defineStore('upload', () => {
     return active?.targetFolderId ?? null
   })
 
+  /** Striscia della coda (`caricamento-nuove-foto.md` §6.1, `needsDest`
+   * del prototipo, riga 2915): una sessione bloccata su "queued" perché
+   * senza cartella — segnale più diretto della semplice assenza di
+   * `stickyDestination`, che risulterebbe vuota anche a coda vuota. */
+  const needsDestination = computed(() =>
+    sessions.value.some((s) => s.status === 'queued' && s.targetFolderId === null)
+  )
+
+  /** Stato di apertura del pannello (§6.2): letto/scritto sia dalla
+   * striscia (`UploadQueueStrip.vue`) sia dal pulsante "Chiudi" del
+   * pannello stesso — vive qui, non in un componente, perché entrambi
+   * devono vederlo. */
+  const panelOpen = ref(false)
+
+  function togglePanel(): void {
+    panelOpen.value = !panelOpen.value
+  }
+
   function persist(): void {
     const toPersist: PersistedSession[] = sessions.value
       .filter((s) => s.status !== 'skipped' && !s.id.startsWith('local:'))
@@ -235,13 +253,24 @@ export const useUploadStore = defineStore('upload', () => {
    * diventano mai sessioni, restano solo nomi per il blocco di rifiuto.
    * "Rifiutare l'intero rilascio sarebbe ostile" (§4): solo gli accettati
    * passano da `addFiles`, il resto non blocca gli altri.
+   *
+   * Due dettagli verificati contro `uploadAddFiles()` del prototipo
+   * (righe 2733-2773), non assunti dalla sola prosa del documento:
+   * - I rifiuti **sostituiscono** quelli del lotto precedente, non si
+   *   accumulano (`state.upload.rejected = ... : null`, riga 2754) — un
+   *   nuovo trascinamento racconta solo se stesso, non la storia di
+   *   tutti quelli prima.
+   * - Aggiungere file **apre sempre il pannello** (`state.upload.open =
+   *   true`, riga 2770), anche per un lotto di soli rifiuti: è così che
+   *   il blocco di rifiuto RAW resta visibile senza dover cliccare la
+   *   striscia — la striscia stessa, infatti, si basa solo su `items`
+   *   (`sessions` qui), mai sui rifiuti (`renderUploadDock`, riga 2913).
    */
   async function addFilesFromPicker(fileList: File[], explicitFolderId: string | null = null): Promise<void> {
     const { accepted, rejectedRaw: raw, rejectedUnsupported: unsupported } = classifyFiles(fileList)
-    if (raw.length > 0) rejectedRaw.value = [...rejectedRaw.value, ...raw.map((f) => f.name)]
-    if (unsupported.length > 0) {
-      rejectedUnsupported.value = [...rejectedUnsupported.value, ...unsupported.map((f) => f.name)]
-    }
+    rejectedRaw.value = raw.map((f) => f.name)
+    rejectedUnsupported.value = unsupported.map((f) => f.name)
+    panelOpen.value = true
     await addFiles(accepted, explicitFolderId)
   }
 
@@ -479,6 +508,9 @@ export const useUploadStore = defineStore('upload', () => {
     rejectedRaw,
     rejectedUnsupported,
     stickyDestination,
+    needsDestination,
+    panelOpen,
+    togglePanel,
     initFromStorage,
     addFiles,
     addFilesFromPicker,
