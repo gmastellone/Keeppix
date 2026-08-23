@@ -1285,3 +1285,11 @@ dettaglio (cartella/album/persona/lotto di scarto) restano non
 costruite, in attesa degli store corrispondenti; `useScrollRestoration`
 non è ancora cablato in `SearchView.vue` né nelle altre viste con
 scorrimento interno che verranno toccate più avanti.
+
+Anche: nota nel ledger sulla CI rossa del commit e5bbdf9 (QuickFilter,
+run 255) — `listing_twenty_libraries_stays_within_budget` in
+`crates/keeppix-api/tests/budgets.rs` fallito a 112.6ms contro un
+budget di 100ms, stessa famiglia di rumore del timing già vista su
+07ce058 e 03a60b4, non toccata da un diff che tocca solo
+`frontend/src/{components/ui/QuickFilter.*,design/quickFilter.*,
+i18n/*.json}`. Ri-lanciato il job fallito una volta.
