@@ -1,4 +1,4 @@
-import { apiFetch } from './client'
+import { apiFetch, throwProblem } from './client'
 
 export interface MonthBucket {
   month: string
@@ -41,4 +41,33 @@ export function promoteViewport(hashes: string[]): Promise<null> {
     method: 'POST',
     body: JSON.stringify({ hashes })
   })
+}
+
+export interface GeometryResponse {
+  /** `null` su 304: il chiamante tiene la geometria già decodificata. */
+  buffer: ArrayBuffer | null
+  etag: string | null
+}
+
+/**
+ * `GET /timeline/geometry` (Fase 11 Task 4) risponde `application/
+ * octet-stream`, non JSON — non può passare da `apiFetch`. `etag`, se
+ * passato, va in `If-None-Match`: un `304` restituisce `buffer: null`
+ * invece di ri-scaricare ~4,7 MB per una vista invariata.
+ */
+export async function fetchGeometry(bbox?: string, etag?: string): Promise<GeometryResponse> {
+  const query = bbox ? `?${new URLSearchParams({ bbox })}` : ''
+  const headers: Record<string, string> = { 'x-keeppix-client': 'web' }
+  if (etag) headers['if-none-match'] = etag
+  const response = await fetch(`/api/v1/timeline/geometry${query}`, {
+    credentials: 'same-origin',
+    headers
+  })
+  if (response.status === 304) {
+    return { buffer: null, etag: etag ?? null }
+  }
+  if (!response.ok) {
+    await throwProblem(response)
+  }
+  return { buffer: await response.arrayBuffer(), etag: response.headers.get('etag') }
 }

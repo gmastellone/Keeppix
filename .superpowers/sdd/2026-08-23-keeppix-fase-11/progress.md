@@ -1293,3 +1293,86 @@ budget di 100ms, stessa famiglia di rumore del timing già vista su
 07ce058 e 03a60b4, non toccata da un diff che tocca solo
 `frontend/src/{components/ui/QuickFilter.*,design/quickFilter.*,
 i18n/*.json}`. Ri-lanciato il job fallito una volta.
+
+## Task 4 — la timeline a scala reale (in corso)
+
+"Il calcolo più delicato dell'intera fase" (piano, apertura del Task 4).
+Prima di scrivere codice, letto §66 e §8 del documento funzionale
+(non solo il riassunto del piano) più il Ruling §3 della spec
+fase-11-interfaccia.md. Tre fatti concreti trovati lì che cambiano cosa
+va scritto, non solo come:
+
+- **"Nessun raggruppamento per giorno"** (§8, testuale): le foto si
+  raggruppano solo per mese. L'implementazione pre-Fase-11 di
+  `TimelineView.vue` raggruppa invece per giorno dentro ogni mese
+  (`days`/`daysByMonth`, con un `<h3>` per giornata) — un
+  comportamento che *non* è nella definizione canonica e va tolto nella
+  riscrittura, non portato avanti.
+- **L'intestazione di mese non è appiccicata durante lo scroll** (§8:
+  "le `.month-head` scorrono via normalmente") — l'implementazione
+  attuale ha `sticky top-0` sull'`<h2>` di ogni mese, altro
+  comportamento da correggere, non da preservare.
+- Lo scrubber dei mesi del prototipo non è raggiungibile da tastiera
+  (§8.3, esplicito) — il piano lo marca come correzione voluta:
+  "Da rendere raggiungibile da tastiera, cosa che il prototipo non fa."
+
+`GET /timeline/geometry` (già costruito in Fase 10,
+`crates/keeppix-api/src/routes/timeline.rs::encode_geometry`) verificato
+alla fonte prima di scrivere il decoder, non assunto dal solo commento
+del piano: intestazione da 8 byte (versione u32, conteggio u32) + N
+record da 6 byte (w:u16, h:u16, month:u16=anno*12+mese), little-endian,
+senza id — "le tessere vere arrivano dalle pagine, nello stesso
+ordine" (commento del backend). Confermato anche l'ordinamento:
+`buckets`/`geometry`/`/timeline?bucket=` usano tutti
+`ORDER BY taken_at_utc DESC, id DESC` (o `month DESC` per i bucket) —
+lo stream di geometria e la concatenazione delle pagine sono nello
+stesso ordine per costruzione, non per convenzione da mantenere a mano.
+
+### Primo passo: il decoder della geometria + il fetch binario
+
+`timeline/geometry.ts` (nuovo): classe `TimelineGeometry` sopra un
+`DataView` grezzo — mai 214.000 oggetti `{w,h,month}` (Ruling §3 della
+spec: ~50 MB di heap contro 4,7 MB senza spazzatura). ~35 righe,
+vicino alle "~30 righe" della spec. Versione del formato verificata e
+rifiutata esplicitamente se sconosciuta (`UnsupportedGeometryFormatError`)
+invece di leggere byte a caso — lo stesso principio che il backend
+dichiara nel proprio commento su `GEOMETRY_FORMAT_VERSION`.
+
+`api/timeline.ts`: `fetchGeometry(bbox?, etag?)`, un fetch binario che
+non può passare da `apiFetch` (quella chiama sempre `.json()`).
+Refactoring minimo e condiviso: estratta da `apiFetch` la funzione
+`throwProblem(response)` che riconosce lo stesso corpo
+`application/problem+json` su errore — usata da entrambe, non
+duplicata. Supporta `If-None-Match`/`304` (il backend lo implementa
+esplicitamente per evitare di riscaricare ~4,7 MB per una vista
+invariata) restituendo `{buffer: null, etag}` al chiamante.
+
+Verifica eseguita:
+- `geometry.spec.ts` (nuovo) → 4/4 verdi: un buffer sintetico con lo
+  stesso layout esatto di `encode_geometry` (non un formato inventato)
+  decodifica conteggio e ogni campo per record, incluso un record a
+  zero (sizing non ancora arrivato, `saturating_u16`) e il tetto
+  `u16::MAX`; una versione di formato sconosciuta viene rifiutata
+  invece di essere letta.
+- `api/timeline.spec.ts` (nuovo) → 4/4 verdi: 200 restituisce buffer +
+  etag, `bbox`/`If-None-Match` passati correttamente, 304 restituisce
+  `buffer: null` senza corpo, un errore `problem+json` lancia
+  `ApiProblem` — stesso comportamento di `apiFetch` verificato allo
+  stesso modo del suo spec esistente.
+- `npx vitest run` (suite intera) → 50 file, 282/282 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/modificati → pulito.
+- `npm run build` → bundle iniziale **94.318/153.600** byte gzip
+  (script CI). Margine ampio (59.282 byte) — nessun consumatore reale
+  ancora, solo il proprio test.
+
+Debito dichiarato, non silenzioso: il decoder e il fetch non sono
+ancora usati da `TimelineView.vue`. Restano da scrivere, in ordine:
+il virtualizzatore (somme prefisse + ricerca binaria, ~120 righe),
+la cache LRU delle pagine, e la riscrittura di `TimelineView.vue`
+(raggruppamento solo per mese, niente sticky, virtualizzazione,
+`ResizeObserver`, scrubber con tastiera e sincronizzazione inversa) —
+ciascuno un passo separato con la propria verifica, stesso ritmo dei
+diciotto componenti del Task 2. Task 5 (le tre macchine a stati:
+scheletro/errore) resta esplicitamente fuori da questo task, per
+confine dichiarato dal piano stesso, non per dimenticanza.
