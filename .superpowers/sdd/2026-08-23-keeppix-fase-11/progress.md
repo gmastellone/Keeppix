@@ -663,3 +663,68 @@ Verifica eseguita:
 Debiti dichiarati: sette componenti del Task 2 restano da scrivere
 (`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
 `SuggestionQueue`, `Avatar`, `AppShell`).
+
+**Nota CI (commit `03a60b4`, ToastHost)**: la run è arrivata rossa su
+**due** test insieme in `crates/keeppix-db/tests/scale_200k.rs` —
+`two_hundred_thousand_assets_keep_timeline_and_search_within_budget`
+("conteggi mese: 619.847284ms >= 300ms") e
+`timeline_with_fifty_permissions_stays_under_budget_at_200k`
+("buckets con 50 permessi: 433.72513ms") — la stessa famiglia di test
+di budget temporale già vista rossa una volta su `07ce058` (Dialog) e
+lì confermata rumore del runner con un ri-lancio pulito. Questo commit
+non tocca `keeppix-db` (solo `frontend/src/**`, `App.vue`, `i18n/
+*.json`, `style.css`), e le **sette** push successive con lo stesso
+codice backend (Tooltip, BusyButton, ConfirmDialog/DeleteDialog,
+LoadingSkeleton, SegmentedControl, NavGroup, ProvenanceBadge) sono
+tutte passate pulite sugli stessi test — segnale ulteriore di rumore
+condiviso, non una regressione. Ri-lanciati i soli job falliti
+(`rerun_failed_jobs`), una volta, prima di continuare.
+
+### Avatar (SP-16)
+
+Dodicesimo componente del Task 2. Verificato contro `.avatar` (righe
+220-229 del mockup) e `myAvatarStyle()`/`AVATAR_COLOR_PRESETS` (righe
+7164-7183). Il commento del prototipo, non un dettaglio da indovinare:
+*"testo sempre bianco, non `--accent-text`... confermato da Giovanni:
+bianco su arancione va bene qui, trattato come elemento di marca più
+che testo da leggere a lungo"* — quindi il testo delle iniziali resta
+`#fff` fisso, mai un colore di contrasto calcolato per tema. Iniziali
+con lo stesso algoritmo del prototipo (riga 4373, non un'invenzione):
+un carattere per parola del nome, massimo due, maiuscolo.
+
+**Il colore non è deciso dal componente**: è una prop (`color?:
+string | null`, `null` = `var(--color-accent)` di default). Il
+prototipo usa due fonti diverse per lo stesso markup — `state.
+avatarColor` (preferenza dell'utente corrente, una delle otto
+`AVATAR_COLOR_PRESETS`) per l'utente corrente, `hsl(u.color,55%,45%)`
+hash-based per le altre persone in condivisione — un componente di
+sola resa non può sapere quale delle due si applica, quindi entrambe
+restano responsabilità del chiamante. **"Sincronizzato ovunque"** (nota
+vincolante del piano) è garantito dalla condivisione del componente
+stesso: stessa coppia (nome, colore) rende sempre identica ovunque sia
+montata — esattamente il ruolo che `myAvatarStyle()` già svolge nel
+prototipo con una funzione unica invece di markup duplicato per ogni
+punto (sidebar, header mobile, Profilo).
+
+Due sole dimensioni reali, non un rapporto inventato: 28px/12px
+(`.avatar` di base — footer utente, sidebar) e 56px/20px (riga 7187,
+il grande avatar di Profilo). Verificato che il rapporto fra le due non
+sia lineare (12/28 ≈ .429, 20/56 ≈ .357) prima di scegliere due
+varianti nominate (`sm`/`lg`) invece di una formula che avrebbe
+inventato un numero non presente nel prototipo.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/Avatar.spec.ts` → 8/8 verdi:
+  iniziali corrette (anche con più di due parole nel nome), colore di
+  sfondo predefinito e quello passato esplicitamente, testo sempre
+  bianco, le due dimensioni reali con le loro font-size esatte,
+  `aria-label` col nome completo.
+- `npx vitest run` (suite intera) → 198/198 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **92.967/153.600** byte gzip
+  (script CI). Margine ampio (60.633 byte).
+
+Debiti dichiarati: sei componenti del Task 2 restano da scrivere
+(`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
+`SuggestionQueue`, `AppShell`).
