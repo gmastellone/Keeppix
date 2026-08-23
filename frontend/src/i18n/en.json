@@ -1,5 +1,8 @@
 {
   "app": { "name": "Keeppix" },
+  "ui": {
+    "dialog": { "close": "Close" }
+  },
   "setup": {
     "title": "Welcome to Keeppix",
     "subtitle": "Create the administrator account to get started.",

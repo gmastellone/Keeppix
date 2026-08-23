@@ -111,3 +111,66 @@ da alcun componente reale — normale, i componenti condivisi che le
 useranno sono il Task 2, non ancora scritto.
 
 Task 1: complete.
+
+### Task 2 — I trenta pattern condivisi come componenti (in corso)
+
+Diciotto componenti nel piano; questo commit ne chiude uno solo —
+`Dialog` (SP-5) — non l'intero task. Scelto per primo perché il piano lo
+dichiara esplicitamente fondativo: *"i ventiquattro dialog, menu e popover
+del documento si costruiscono sopra due soli componenti — `Dialog` e
+`Popover` — non uno per uno."*
+
+Nuovo `frontend/src/components/ui/Dialog.vue`, sopra le primitive reali di
+`reka-ui` (`DialogRoot`/`Portal`/`Overlay`/`Content`/`Title`/`Description`/
+`Close`) — verificate leggendo i `.d.ts` del pacchetto prima di scrivere
+codice, non assunte dal nome. Due difetti dichiarati del prototipo
+(documento funzionale, "Attriti minori", 3.6: *"nei dialog il focus non è
+confinato e il click sul velo non chiude"*) sono chiusi **gratis**, non
+scritti a mano: `DialogContent` intrappola il focus di serie (variante
+modale), e `DismissableLayer` (sotto `DialogContent`) chiude già su Esc e
+su click fuori — comportamento della libreria, confermato dal test
+`Escape asks the caller to close the dialog`, non un'assunzione.
+
+**Le due eccezioni deliberate che il piano chiede di preservare** (dialog
+di eliminazione → focus sull'opzione meno distruttiva; dialog di conferma
+→ focus su "Annulla"): implementate con una prop `initialFocus?:
+HTMLElement`, intercettando l'evento `openAutoFocus` di `DialogContent`
+(`event.preventDefault()` + `.focus()` manuale) solo quando la prop è
+passata — altrimenti resta il comportamento predefinito di reka-ui (primo
+elemento tabbable). Verificato con un componente ospite reale montato nel
+DOM (`attachTo: document.body`, necessario perché `document.activeElement`
+in jsdom richiede nodi realmente allegati) che il focus atterra
+sull'elemento indicato, non sul primo bottone del contenuto.
+
+Aggiunto `ui.dialog.close` a `it.json`/`en.json` (chiave nuova, non
+esisteva un namespace `ui.*`) per l'`aria-label` del pulsante di chiusura —
+un'icona SVG inline, non un'etichetta di libreria: nessuna libreria di
+icone esiste ancora nel progetto e non ne serve una per un solo glifo "×".
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/Dialog.spec.ts` → 5/5 verdi: non
+  renderizza nulla quando chiuso, titolo/descrizione/slot quando aperto,
+  pulsante di chiusura etichettato (`aria-label="Chiudi"` in italiano,
+  verificato impostando esplicitamente la lingua del test — il runtime di
+  test parte in inglese per via di `detectLocale()`, scoperta durante lo
+  sviluppo, non assunta), Esc chiude per davvero, il focus iniziale va
+  sull'elemento passato invece che sul primo tabbable.
+- `npx vitest run` (suite intera) → 142/142 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito dopo aver corretto un nome di componente riservato
+  (`Dialog` come alias locale in un componente ospite di test — rinominato
+  `TheDialog`) e l'ordine `setup`/`template` in un componente a oggetto.
+- `npm run build` → bundle iniziale 90.596/153.600 byte gzip (stesso
+  script della CI): **`Dialog.vue` non contribuisce ancora al peso**,
+  perché nessuna schermata reale lo importa ancora — solo il suo stesso
+  test. Il numero si sposterà quando i task successivi lo useranno
+  davvero, non prima.
+
+Debiti dichiarati: **diciassette componenti del Task 2 restano da
+scrivere** (`PhotoTile`, `SelectionBar`, `QuickFilter`,
+`SelectAllVisible`, `Popover`, `ToastHost`, `Tooltip`, `SuggestionQueue`,
+`ProvenanceBadge`, `Avatar`, `AppShell`, `DeleteDialog`, `ConfirmDialog`,
+`SegmentedControl`, `NavGroup`, `BusyButton`, `LoadingSkeleton` —
+`RatingStars` esiste già, riusato non riscritto). Non un buco silenzioso:
+la sezione «Tranche» del piano stesso struttura il lavoro in incrementi
+verificabili, ed è così che questo task procede.
