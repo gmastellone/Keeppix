@@ -171,6 +171,16 @@ describe('UploadPanel — testata (§6.4)', () => {
     expect(upload.panelOpen).toBe(false)
     expect(upload.sessions).toHaveLength(1)
   })
+
+  it('Escape on the panel closes it too — §8, "Esc a livelli", secondo livello', async () => {
+    const { wrapper, upload } = await mountPanel()
+    upload.panelOpen = true
+    upload.sessions.push(session({}))
+    await flushPromises()
+
+    await wrapper.find('[role="dialog"]').trigger('keydown', { key: 'Escape' })
+    expect(upload.panelOpen).toBe(false)
+  })
 })
 
 describe('UploadPanel — righe (§6.3, i sei stati)', () => {

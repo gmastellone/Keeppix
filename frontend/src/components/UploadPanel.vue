@@ -13,6 +13,23 @@
 // Nome a una parola per il file (combacia col piano), ma il componente ha
 // comunque un nome di due parole: evita l'avviso `multi-word-component-names`
 // senza doverlo disabilitare per un componente fuori da `ui/`.
+//
+// §8 ("Esc a livelli"): la prima pressione chiude il menu della
+// destinazione, la seconda il pannello. Il menu (`Popover`, dentro
+// `DestinationChip`) chiude già da solo su Esc e ferma la
+// propagazione — comportamento della libreria (`reka-ui`,
+// `DismissableLayer`), non orchestrato a mano (stesso principio già
+// documentato in `Popover.vue`). Basta un `@keydown.escape` sulla
+// radice del pannello per il secondo livello: se il menu è aperto,
+// l'evento non arriva mai fin qui.
+//
+// Debito dichiarato: il pannello non porta il focus su di sé
+// all'apertura (nessun elemento è "attivo" finché l'utente non preme
+// Tab per la prima volta) — `@keydown.escape` funziona solo dopo,
+// perché la pressione di un tasto deve raggiungere un elemento che
+// l'ha già. Una gestione del focus più completa (spostarlo qui
+// all'apertura, restituirlo alla striscia alla chiusura) resta fuori
+// da questo passo.
 defineOptions({ name: 'UploadPanel' })
 
 import { computed } from 'vue'
@@ -195,10 +212,12 @@ const footerParts = computed(() => {
     <div
       role="dialog"
       :aria-label="t('upload.title')"
+      tabindex="-1"
       class="fixed z-50 flex flex-col overflow-hidden border border-border-strong bg-card-bg
              shadow-[0_18px_44px_rgba(0,0,0,0.28)]
              max-md:inset-x-0 max-md:bottom-0 max-md:max-h-[72vh] max-md:rounded-t-2xl
              md:bottom-3 md:left-3 md:w-[344px] md:max-h-[460px] md:rounded-xl"
+      @keydown.escape="close"
     >
       <div class="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
         <p class="flex-1 text-[13px] font-bold">

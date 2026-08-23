@@ -2915,3 +2915,27 @@ fin dall'inizio come fuori portata di questa sessione: il badge video
 "in preparazione" (nessun segnale dal backend, verificato in 1/N) e
 "Nuova cartella…" nel menu destinazione (nessuna rotta di creazione
 cartella nel backend, verificato in 3/N).
+
+## upload (7b/N) — Esc a livelli sul pannello (§8)
+
+Addendum al passo precedente: `UploadPanel.vue` non chiudeva se stesso
+con Esc, solo il popover di destinazione (che già lo fa da solo
+tramite il `DismissableLayer` di reka-ui, come da commento esistente
+in `Popover.vue`). Aggiunto `tabindex="-1"` e `@keydown.escape="close"`
+sulla radice `role="dialog"` del pannello — secondo livello della
+sequenza "Esc a livelli" del documento. Debito dichiarato nel commento
+del componente: il pannello non si autofocalizza all'apertura, quindi
+Esc funziona solo dopo che l'utente ha già spostato il focus tastiera
+su un elemento al suo interno con Tab.
+
+Verifica eseguita:
+- Nuovo test in `UploadPanel.spec.ts`: Esc sul `role="dialog"` chiude
+  il pannello (`upload.panelOpen` torna `false`).
+- `npx vitest run src/components/UploadPanel.spec.ts` → 28/28 verdi.
+- `npx vitest run` (suite intera) → 69 file, 516/516 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file toccati → pulito; whole-repo → un solo errore,
+  lo stesso preesistente di sempre (`PlayerView.vue:51`).
+- `npm run build` → bundle iniziale **122.381/153.600** byte gzip
+  (variazione trascurabile rispetto al passo precedente). Margine
+  ampio (31.219 byte).
