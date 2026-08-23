@@ -28,6 +28,13 @@
     "provenanceBadge": {
       "label": "AI",
       "description": "Assigned by AI, not yet confirmed by a person."
+    },
+    "selectionBar": {
+      "cancel": "Cancel selection",
+      "count": "{n} selected",
+      "selectAll": "Select all",
+      "announceSelected": "{n} photos selected",
+      "announceCleared": "Selection cleared"
     }
   },
   "setup": {

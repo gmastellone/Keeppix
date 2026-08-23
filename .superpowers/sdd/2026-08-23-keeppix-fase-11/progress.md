@@ -785,3 +785,67 @@ Debiti dichiarati: **il resto della shell mobile** (tab bar/router,
 titoli per vista, badge culling, menu account — Task 3) più cinque
 componenti del Task 2 (`PhotoTile`, `SelectionBar`, `QuickFilter`,
 `SelectAllVisible`, `SuggestionQueue`).
+
+### SelectionBar + store (SP-2)
+
+Quattordicesimo componente del Task 2. Letta la definizione canonica
+(documento funzionale §12, "Selezione multipla e barra azioni"), non
+solo la riga del piano. Nota vincolante: **due pool di selezione
+distinti e paralleli** — libreria (usata da Timeline/Preferiti/Cerca/
+Album/Persona) e lotto di culling, con comandi propri e senza Album/
+Elimina — *"non si parlano e non si azzerano a vicenda"*.
+
+Nuovo `stores/selection.ts`: due pool costruiti dalla stessa funzione
+(`createSelectionPool`), ma due chiusure separate — nessuno stato
+condiviso per costruzione, non un solo pool con un flag di contesto.
+Verificato con test che toccano un pool e controllano che l'altro resti
+intonso, non solo che esistano due proprietà distinte.
+`selectAllVisible(visibleIds)` implementa il toggle di gruppo del
+documento (§12.3): se tutto il visibile passato è già selezionato lo
+toglie, altrimenti lo aggiunge **senza** rimuovere selezioni fatte
+altrove — provato con un test che seleziona qualcosa fuori dal
+visibile e controlla che sopravviva.
+
+**Bug trovato prima di scrivere il markup, non durante i test**: il
+documento (§12.2) descrive la regione d'annuncio (`aria-live="polite"
+aria-atomic="true"`) come un nodo **a sé**, fuori schermo — non dentro
+`.selection-bar`. La barra stessa **sparisce del tutto** a zero
+selezionate ("a zero la modalità si spegne da sola", §12.7). Se la
+regione vivesse solo dentro il markup che sparisce, l'annuncio
+"Selezione annullata" non potrebbe mai scattare: la regione
+sparirebbe nello stesso istante in cui dovrebbe annunciare. Corretto
+prima di scrivere il template sbagliato: la radice del componente
+resta sempre montata, solo il contenuto visibile della barra si
+nasconde internamente sotto `count` — il chiamante non deve mai
+`v-if`rlo, esattamente come già fa con `ToastHost`.
+
+**Ambito dichiarato**: i pulsanti di azione restano fuori dal
+componente. La libreria ne ha cinque (Preferiti/Album/Condividi/
+Modifica/Elimina, righe 2176-2182 del mockup), il culling tre (Scelta/
+Scarta/Rinomina…, righe 5002-5004) — icone ed etichette completamente
+diverse, e Album/Condividi aprono dialog che non esistono ancora come
+componenti condivisi (selettore album, `SharePanel` non è ancora
+integrato in questo contesto). Il chiamante li compone nello slot di
+default con `Tooltip`+`BusyButton`, già pronti da questo stesso Task —
+non pulsanti reinventati una terza volta.
+
+Verifica eseguita:
+- `npx vitest run src/stores/selection.spec.ts src/components/ui/
+  SelectionBar.spec.ts` → 17/17 verdi: i due pool restano indipendenti
+  in entrambe le direzioni, `toggle`/`clear`/`selectAllVisible` con la
+  semantica esatta del documento, barra nascosta a zero selezionate ma
+  regione d'annuncio sempre montata, conteggio singolare/plurale,
+  l'etichetta "Seleziona tutte" non cambia mai, gli eventi `clear`/
+  `select-all` emessi, lo slot di default per i pulsanti del
+  chiamante, l'annuncio esatto in italiano per selezione e
+  annullamento.
+- `npx vitest run` (suite intera) → 220/220 verdi — parità `it`/`en`
+  compresa.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **93.197/153.600** byte gzip
+  (script CI). Margine ampio (60.403 byte).
+
+Debiti dichiarati: il resto della shell mobile (Task 3) più quattro
+componenti del Task 2 (`PhotoTile`, `QuickFilter`, `SelectAllVisible`,
+`SuggestionQueue`).

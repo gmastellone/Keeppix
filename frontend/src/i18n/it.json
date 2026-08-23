@@ -28,6 +28,13 @@
     "provenanceBadge": {
       "label": "IA",
       "description": "Assegnato dall'intelligenza artificiale, non ancora confermato da una persona."
+    },
+    "selectionBar": {
+      "cancel": "Annulla selezione",
+      "count": "{n} selezionata | {n} selezionate",
+      "selectAll": "Seleziona tutte",
+      "announceSelected": "{n} foto selezionata | {n} foto selezionate",
+      "announceCleared": "Selezione annullata"
     }
   },
   "setup": {
