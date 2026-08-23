@@ -24,6 +24,10 @@
     },
     "loadingSkeleton": {
       "streamLabel": "Caricamento delle foto in corso"
+    },
+    "provenanceBadge": {
+      "label": "IA",
+      "description": "Assegnato dall'intelligenza artificiale, non ancora confermato da una persona."
     }
   },
   "setup": {

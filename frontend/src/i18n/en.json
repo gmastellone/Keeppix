@@ -24,6 +24,10 @@
     },
     "loadingSkeleton": {
       "streamLabel": "Loading photos"
+    },
+    "provenanceBadge": {
+      "label": "AI",
+      "description": "Assigned by AI, not yet confirmed by a person."
     }
   },
   "setup": {

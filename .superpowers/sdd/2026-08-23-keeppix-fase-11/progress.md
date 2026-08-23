@@ -615,3 +615,51 @@ Verifica eseguita:
 Debiti dichiarati: otto componenti del Task 2 restano da scrivere
 (`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
 `SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`).
+
+### ProvenanceBadge (SP-12)
+
+Undicesimo componente del Task 2. Letta la definizione **canonica** del
+pattern, non solo la riga di tabella del piano: documento funzionale
+§59 ("Provenienza IA vs utente"), non il mockup direttamente — il
+documento è la fonte di verità qui, il mockup ne è solo l'attuazione
+in una chip specifica (`.lb-tag-chip`, righe 8718-8746). Principio:
+*"un'etichetta proposta dal riconoscimento e una messa da una persona
+non sono mai indistinguibili nell'interfaccia, in nessun punto"* — un
+principio di prodotto, non un dettaglio visivo.
+
+**Scelta di ambito, dichiarata**: il documento descrive un intero
+sistema di tre trattamenti su una chip completa (piena/attenuata con
+"IA"/tratteggiata con conferma-rifiuto) che non esiste ancora come
+componente condiviso — non è nel piano del Task 2 (né `TagChip` né
+`FaceBox` sono nella tabella dei diciotto). `ProvenanceBadge` qui è
+**solo il marcatore** ("IA", 9px, peso 700, opacità .8, righe
+8729-8734) che quei componenti futuri (chip dei tag, riquadro del
+volto, miniatura di Revisione) monteranno al proprio interno — non una
+reimplementazione anticipata dell'intera chip, che tocca stato/azioni
+non ancora progettati qui.
+
+**La decisione "confermato+umano non mostra nulla" vive nel
+componente**, non lasciata al chiamante: `origin: 'ai' | 'human'` come
+unica prop, `v-if="origin === 'ai'"` sulla radice — così "mai
+indistinguibili, in nessun punto" resta vero per costruzione anche nei
+componenti futuri che lo monteranno, invece di dipendere da ognuno
+ricordarsi il controllo. Descrizione (`aria-label`/`title`) invece del
+solo glifo "IA": una sigla di due lettere da sola non spiega cosa
+significhi a chi non conosce già la convenzione.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/ProvenanceBadge.spec.ts` → 2/2
+  verdi: non renderizza nulla per `origin: 'human'` (asserzione
+  sull'HTML letterale, non solo "non contiene IA" — nessun nodo
+  fantasma), mostra "IA" con l'`aria-label` esplicativo per `origin:
+  'ai'`.
+- `npx vitest run` (suite intera) → 189/189 verdi — parità `it`/`en`
+  compresa.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **92.953/153.600** byte gzip
+  (script CI). Margine ampio (60.647 byte).
+
+Debiti dichiarati: sette componenti del Task 2 restano da scrivere
+(`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
+`SuggestionQueue`, `Avatar`, `AppShell`).
