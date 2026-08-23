@@ -2632,3 +2632,74 @@ Verifica eseguita:
   `style.css` sono scansionate dal sorgente, non dal grafo di import —
   compaiono anche se `DestinationChip.vue` non è ancora montato da
   nessuna parte). Margine ampio (36.288 byte).
+
+### `stores/upload.ts` — `addFilesFromPicker` (4/N) e `UploadDropVeil.vue` — il trascinamento (§3.1)
+
+**Store**: nuova `addFilesFromPicker(fileList, explicitFolderId)`,
+punto d'ingresso comune a trascinamento/`Carica`/`+` mobile — divide
+con `classifyFiles` (1/N) prima di toccare la coda, accumula i nomi
+scartati in `rejectedRaw`/`rejectedUnsupported` (nuovi, transitori: mai
+persistiti, solo testo per il blocco di rifiuto del pannello — i
+`File` scartati non entrano mai in coda, non servono più).
+`cancelAll` ora svuota anche queste due liste.
+
+**`UploadDropVeil.vue`**: documento §3.1, verificato riga per riga
+**e** contro gli handler reali del prototipo (righe 3085-3103,
+7592-7627) — scoperta importante scrivendo il componente: il testo
+del documento ("messaggio dedicato" per il rifiuto in Culling)
+descrive il comportamento in modo impreciso. Nel mockup reale il velo
+mostra **sempre** lo stesso messaggio anche trascinando sopra il
+Culling; il rifiuto avviene **al rilascio**, con un toast
+(`showToast(..., {kind:'error'})`, testo esatto letto dal codice del
+prototipo, non dalla prosa del documento). Costruito secondo il
+codice reale, non la sola descrizione testuale — stessa disciplina già
+applicata più volte in questa sessione ai casi in cui mockup e
+documento non coincidono esattamente.
+
+Variante "dentro una cartella" (`Rilascia per caricare in <nome>`)
+omessa: nessuna vista porta oggi un `currentFolder` osservabile — lo
+stesso debito già dichiarato più volte, qui applicato una volta di
+più invece di scrivere un ramo morto.
+
+`AppShell.vue` (Task 2) riceve `relative` sul contenitore di
+topbar+contenuto: l'unica modifica a un primitivo condiviso in questo
+sotto-passo, necessaria perché `.drop-overlay` del mockup è
+`position:absolute;inset:0` dentro `.main` (sibling della sidebar, non
+un suo contenuto) — copre topbar e contenuto, non la sidebar, stessa
+area esatta del prototipo (`#dropOverlayHost`, righe 1433-1446 del
+mockup).
+
+Verifica eseguita:
+- `stores/upload.spec.ts` (esteso, +4 test) → 18/18 verdi:
+  `addFilesFromPicker` divide il lotto prima di mettere in coda; un
+  lotto di soli scarti non chiama nemmeno il pre-check degli hash; i
+  rifiuti si accumulano fra trascinamenti successivi, come la coda;
+  `cancelAll` li azzera.
+- `UploadDropVeil.spec.ts` (nuovo) → 7/7 verdi: invisibile a riposo
+  (nessun elemento nel DOM, non solo nascosto); compare con il testo
+  esatto solo se il trascinamento porta file veri; ignora testo/
+  immagini trascinati da un'altra scheda; `dragenter`/`dragover`
+  chiamano entrambi `preventDefault`; la profondità regge l'attraversare
+  un figlio (due `dragenter`, un solo `dragleave` non nasconde); il
+  rilascio fuori dal Culling accoda per davvero; il rilascio sul
+  Culling mostra il toast esatto e non tocca mai lo store.
+- Bug reale trovato scrivendo i test, non nel componente: i primi due
+  test su "il rilascio chiama lo store" lasciavano `addFilesFromPicker`
+  eseguire per davvero, arrivando fino a una `fetch()` reale non
+  mockata (`ERR_INVALID_URL` in Node, un errore non gestito rilevato
+  dalla suite intera anche con tutti i singoli test verdi). Corretto
+  con `vi.spyOn(...).mockImplementation(async () => {})`: questi test
+  isolano il componente, il comportamento reale dello store è già
+  coperto altrove.
+- `npx vitest run` (suite intera) → 67 file, 463/463 verdi (verificato
+  anche senza errori non gestiti, non solo test verdi).
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file toccati → pulito.
+- `npm run build` → bundle iniziale **120.005/153.600** byte gzip.
+  Salto reale e più grande dei precedenti (+2.693 byte): a differenza
+  di `UploadPanel.vue` (dietro un `defineAsyncComponent`),
+  `UploadDropVeil` è montato per davvero e subito in `App.vue` — i
+  listener devono essere vivi dall'avvio, non dietro un'interazione —
+  quindi trascina con sé `stores/upload.ts` e `upload/classify.ts` nel
+  chunk d'ingresso per la prima volta. Scelta dichiarata, non un
+  effetto collaterale trovato dopo. Margine ancora ampio (33.595 byte).

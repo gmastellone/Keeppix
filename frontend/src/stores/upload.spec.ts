@@ -265,6 +265,19 @@ describe('comandi di coda (§6.4)', () => {
     expect(store.sessions[0].targetFolderId).toBeNull()
   })
 
+  it('cancelAll also clears the rejection lists — a fresh drop starts from nothing', async () => {
+    vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
+    vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-a.jpg'] })
+    vi.mocked(uploadApi.createSession).mockReturnValue(new Promise(() => {}))
+
+    const store = useUploadStore()
+    await store.addFilesFromPicker([file('a.jpg'), file('b.arw')], 'folder-1')
+    expect(store.rejectedRaw).toEqual(['b.arw'])
+
+    store.cancelAll()
+    expect(store.rejectedRaw).toEqual([])
+  })
+
   it('removeCompleted removes done, skipped AND error sessions — §6.4 says "concluse, saltate ed errate"', () => {
     const store = useUploadStore()
     store.sessions.push(
@@ -276,5 +289,43 @@ describe('comandi di coda (§6.4)', () => {
 
     store.removeCompleted()
     expect(store.sessions.map((s) => s.id)).toEqual(['d'])
+  })
+})
+
+describe('addFilesFromPicker — punto d\'ingresso comune al trascinamento, "Carica" e il "+" mobile (§4)', () => {
+  it('classifies before queuing: RAW and unsupported files never become sessions', async () => {
+    vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
+    vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-a.jpg', 'hash-c.mp4'] })
+
+    const store = useUploadStore()
+    await store.addFilesFromPicker(
+      [file('a.jpg'), file('b.arw'), file('c.mp4'), file('d.txt')],
+      'folder-1'
+    )
+
+    expect(store.sessions.map((s) => s.filename)).toEqual(['a.jpg', 'c.mp4'])
+    expect(store.rejectedRaw).toEqual(['b.arw'])
+    expect(store.rejectedUnsupported).toEqual(['d.txt'])
+  })
+
+  it('a batch of only rejected files never calls the hash pre-check at all', async () => {
+    const store = useUploadStore()
+    await store.addFilesFromPicker([file('a.arw'), file('b.txt')], 'folder-1')
+
+    expect(uploadApi.hashFile).not.toHaveBeenCalled()
+    expect(store.sessions).toHaveLength(0)
+    expect(store.rejectedRaw).toEqual(['a.arw'])
+    expect(store.rejectedUnsupported).toEqual(['b.txt'])
+  })
+
+  it('rejections accumulate across successive drops, same as the queue does', async () => {
+    vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
+    vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: [] })
+
+    const store = useUploadStore()
+    await store.addFilesFromPicker([file('a.arw')], 'folder-1')
+    await store.addFilesFromPicker([file('b.arw')], 'folder-1')
+
+    expect(store.rejectedRaw).toEqual(['a.arw', 'b.arw'])
   })
 })

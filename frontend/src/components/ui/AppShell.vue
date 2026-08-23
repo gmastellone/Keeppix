@@ -43,7 +43,12 @@ defineExpose({ isMobile })
   <div class="flex h-full">
     <template v-if="!isMobile">
       <slot name="sidebar" />
-      <div class="flex min-w-0 flex-1 flex-col">
+      <!-- `relative`: ancora di posizionamento per il velo di rilascio del
+           sottosistema di caricamento (`UploadDropVeil.vue`, `position:
+           absolute; inset:0`) — copre topbar+contenuto, non la sidebar,
+           stessa area di `#dropOverlayHost` nel mockup (`.main`, righe
+           1433-1446 di keeppix-mockup.html). -->
+      <div class="relative flex min-w-0 flex-1 flex-col">
         <slot name="topbar" />
         <slot />
       </div>

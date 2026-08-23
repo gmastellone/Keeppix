@@ -577,6 +577,11 @@
       "missing": "Choose a folder",
       "missingHint": "Photos stay queued until you choose where to put them."
     },
+    "drop": {
+      "title": "Drop photos here",
+      "subtitle": "You'll pick a folder next. Developed photos and video only — RAW files upload from Culling."
+    },
+    "dropRejectedInCulling": "Culling has its own import flow: you can't drop files here.",
     "status": {
       "queued": "Waiting…",
       "uploading": "Uploading…",

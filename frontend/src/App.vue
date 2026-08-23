@@ -9,6 +9,7 @@ import AppSidebar from '@/components/AppSidebar.vue'
 import AppTopbar from '@/components/AppTopbar.vue'
 import Button from '@/components/ui/Button.vue'
 import ToastHost from '@/components/ui/ToastHost.vue'
+import UploadDropVeil from '@/components/UploadDropVeil.vue'
 import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
@@ -54,6 +55,11 @@ const UploadPanel = defineAsyncComponent(() => import('@/components/UploadPanel.
       <AppMobileTabbar />
     </template>
     <RouterView />
+    <!-- Porta d'ingresso principale del caricamento (§3.1): i listener
+         devono essere vivi da subito, non dietro un import differito
+         come UploadPanel — a riposo (`v-if="dragging"` dentro, sempre
+         false) non aggiunge un solo pixel visibile. -->
+    <UploadDropVeil />
   </AppShell>
   <UploadPanel v-if="!session.unavailable" />
   <ToastHost />

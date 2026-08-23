@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import * as uploadApi from '@/api/upload'
+import { classifyFiles } from '@/upload/classify'
 
 export type UploadStatus = 'queued' | 'uploading' | 'paused' | 'done' | 'error' | 'skipped'
 export type CollisionOutcome = 'created' | 'skipped_duplicate' | 'renamed'
@@ -75,6 +76,12 @@ function readStorage(): PersistedSession[] {
  */
 export const useUploadStore = defineStore('upload', () => {
   const sessions = ref<UploadSessionState[]>([])
+  /** Nomi dei file scartati all'ingresso (§4) — mai persistiti: solo il
+   * testo per il blocco di rifiuto del pannello, non i `File` stessi (non
+   * servono più, non entrano mai in coda). Si accumulano fra più
+   * trascinamenti/selezioni successive, come `sessions`. */
+  const rejectedRaw = ref<string[]>([])
+  const rejectedUnsupported = ref<string[]>([])
 
   /** File in memoria per id di sessione — mai persistiti, mai in `sessions`. */
   const files = new Map<string, File>()
@@ -219,6 +226,23 @@ export const useUploadStore = defineStore('upload', () => {
    */
   async function addSharedFiles(files: File[]): Promise<void> {
     await addFiles(files, null)
+  }
+
+  /**
+   * Punto d'ingresso comune per trascinamento (§3.1), comando "Carica"
+   * (§3.2) e `+` mobile (§3.3): divide il lotto con `classifyFiles` (§4)
+   * prima di toccare la coda — i RAW e i formati non supportati non
+   * diventano mai sessioni, restano solo nomi per il blocco di rifiuto.
+   * "Rifiutare l'intero rilascio sarebbe ostile" (§4): solo gli accettati
+   * passano da `addFiles`, il resto non blocca gli altri.
+   */
+  async function addFilesFromPicker(fileList: File[], explicitFolderId: string | null = null): Promise<void> {
+    const { accepted, rejectedRaw: raw, rejectedUnsupported: unsupported } = classifyFiles(fileList)
+    if (raw.length > 0) rejectedRaw.value = [...rejectedRaw.value, ...raw.map((f) => f.name)]
+    if (unsupported.length > 0) {
+      rejectedUnsupported.value = [...rejectedUnsupported.value, ...unsupported.map((f) => f.name)]
+    }
+    await addFiles(accepted, explicitFolderId)
   }
 
   function schedulePump(): void {
@@ -445,14 +469,19 @@ export const useUploadStore = defineStore('upload', () => {
       expectedHashes.delete(session.id)
     }
     sessions.value = []
+    rejectedRaw.value = []
+    rejectedUnsupported.value = []
     persist()
   }
 
   return {
     sessions,
+    rejectedRaw,
+    rejectedUnsupported,
     stickyDestination,
     initFromStorage,
     addFiles,
+    addFilesFromPicker,
     addSharedFiles,
     pause,
     resume,
