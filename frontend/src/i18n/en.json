@@ -1,5 +1,18 @@
 {
   "app": { "name": "Keeppix" },
+  "librarySelectionActions": {
+    "favoritesLabel": "Add to or remove from favorites",
+    "favoritesTip": "Favorites",
+    "albumLabel": "Add to album",
+    "albumTip": "Album",
+    "editLabel": "Bulk edit",
+    "editTip": "Edit",
+    "deleteLabel": "Delete selection",
+    "deleteTip": "Delete",
+    "deleteDialogTitle": "Delete {n} photos?",
+    "deleted": "{n} photo deleted. | {n} photos deleted.",
+    "deleteError": "Could not complete the deletion. Try again."
+  },
   "ui": {
     "dialog": { "close": "Close", "cancel": "Cancel" },
     "toast": {
@@ -319,6 +332,12 @@
     "empty": "No albums yet.",
     "assetCount": "{count} photos",
     "delete": "Delete"
+  },
+  "albumPicker": {
+    "title": "Add to album",
+    "subtitle": "{n} item selected — toggle an album to add or remove all of them | {n} items selected — toggle an album to add or remove all of them",
+    "done": "Done",
+    "error": "Could not update the album. Try again."
   },
   "shares": {
     "entry": "Shares",

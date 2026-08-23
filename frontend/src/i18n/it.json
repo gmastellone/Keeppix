@@ -1,5 +1,18 @@
 {
   "app": { "name": "Keeppix" },
+  "librarySelectionActions": {
+    "favoritesLabel": "Aggiungi o rimuovi dai preferiti",
+    "favoritesTip": "Preferiti",
+    "albumLabel": "Aggiungi ad album",
+    "albumTip": "Album",
+    "editLabel": "Modifica in blocco",
+    "editTip": "Modifica",
+    "deleteLabel": "Elimina selezione",
+    "deleteTip": "Elimina",
+    "deleteDialogTitle": "Eliminare {n} foto?",
+    "deleted": "{n} foto eliminata. | {n} foto eliminate.",
+    "deleteError": "Non è stato possibile completare l'eliminazione. Riprova."
+  },
   "ui": {
     "dialog": { "close": "Chiudi", "cancel": "Annulla" },
     "toast": {
@@ -319,6 +332,12 @@
     "empty": "Nessun album.",
     "assetCount": "{count} foto",
     "delete": "Elimina"
+  },
+  "albumPicker": {
+    "title": "Aggiungi ad album",
+    "subtitle": "{n} elemento selezionato — attiva/disattiva un album per aggiungere o rimuovere tutti gli elementi | {n} elementi selezionati — attiva/disattiva un album per aggiungere o rimuovere tutti gli elementi",
+    "done": "Fatto",
+    "error": "Non è stato possibile aggiornare l'album. Riprova."
   },
   "shares": {
     "entry": "Condivisioni",

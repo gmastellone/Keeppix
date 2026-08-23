@@ -12,6 +12,7 @@ import PhotoTile, { type StackType } from '@/components/ui/PhotoTile.vue'
 import SelectAllVisible from '@/components/ui/SelectAllVisible.vue'
 import SelectionBar from '@/components/ui/SelectionBar.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
+import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
 import { useScrollRestoration } from '@/composables/useScrollRestoration'
@@ -489,6 +490,9 @@ const selectionMode = computed(() => selection.library.selectedIds.size > 0)
 function isSelected(id: string): boolean {
   return selection.library.selectedIds.has(id)
 }
+const selectedAssets = computed(() =>
+  loadedAssets.value.filter((asset) => selection.library.selectedIds.has(asset.id))
+)
 
 /** SP-4: "ciò che è visibile in quel momento", mai l'intera libreria
  * sottostante. Senza un filtro rapido ancora cablato (di là da venire in
@@ -561,7 +565,9 @@ function selectAllVisible() {
         :ariaLabel="t('ui.selectionBar.ariaLabel')"
         @clear="selection.library.clear()"
         @select-all="selectAllVisible"
-      />
+      >
+        <LibrarySelectionActions :assets="selectedAssets" />
+      </SelectionBar>
     </div>
 
     <div

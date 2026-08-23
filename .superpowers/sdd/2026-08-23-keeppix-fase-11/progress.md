@@ -3069,3 +3069,116 @@ Verifica eseguita:
 - `npm run build` → bundle iniziale **122.510/153.600** byte gzip
   (+129 byte, trascurabile — `TimelineView.vue` resta un chunk lazy
   separato). Margine ampio (31.090 byte).
+
+## Task 7 (2/N) — I cinque pulsanti della barra di selezione (§12.3)
+
+**Ambito**: rendere reali quattro dei cinque pulsanti che `SelectionBar.vue`
+lasciava esplicitamente al chiamante (commento del file: "il chiamante li
+compone nello slot") — Preferiti, Album, Modifica, Elimina. Il quinto,
+Condividi, **volutamente omesso**, non uno stub: vedi il gap di backend
+sotto.
+
+**Gap di backend confermato leggendo per intero `crates/keeppix-db/src/
+share_links.rs` e `crates/keeppix-db/src/permissions.rs`**: un link di
+condivisione esiste solo per `object_type` `folder`/`album`/`asset`, e
+`asset` **conta sempre 1** (`item_counts`, commento del codice stesso: "un
+link asset conta sempre 1, senza query") — mai una selezione arbitraria di
+N foto. Le concessioni di permesso a persone già invitate (`permissions.rs`
+riga 502) coprono solo `object_type IN ('folder','album')`, di nuovo mai
+un asset singolo né una selezione. Il dialog "Condividi N elementi" del
+documento (§12.3: link pubblico + concessione a persone invitate, per una
+selezione ad hoc) **non ha alcun corrispondente possibile nel backend
+attuale**, né come link né come permesso — stessa natura di gap già
+dichiarata altrove in questa sessione (badge video "in preparazione",
+"Nuova cartella…" nel menu destinazione): niente pulsante che non farebbe
+nulla di reale, il pulsante semplicemente non esiste finché il backend non
+lo supporta.
+
+`components/AlbumPickerDialog.vue` (nuovo): interruttore di gruppo per
+album (§12.3) — "attiva/disattiva un album aggiunge o rimuove tutti gli
+elementi". Gli album dinamici del documento ("N album dinamici non
+mostrati qui") **non esistono in questo backend**: verificato leggendo
+`crates/keeppix-api/src/routes/albums.rs` per intero, nessun campo
+`kind`/`is_dynamic` da nessuna parte — confermato anche dal piano stesso
+("Gli album dinamici non esistono", decisione del 20 agosto, ambito del
+Task 12 non ancora costruito). Ogni album da `fetchAlbums()` è quindi
+"manuale" per costruzione: niente da filtrare, niente nota da mostrare.
+L'appartenenza di gruppo ("sono già tutte dentro?") si deduce da
+`fetchAlbum(id).assets`, un `fetchAlbum` per album all'apertura del
+dialog (nessun endpoint di sola-appartenenza esiste, e il numero di album
+è tipicamente piccolo — non merita un endpoint apposito solo per questo
+dialog). Aggiungere è un'unica chiamata bulk (`addAssets`); togliere è
+sequenziale, una `removeAsset` per foto (nessuna versione bulk
+dell'endpoint di rimozione esiste).
+
+`components/LibrarySelectionActions.vue` (nuovo): i quattro pulsanti reali,
+estratto come componente **proprio** (non inline in `TimelineView`) perché
+il documento stesso dichiara Preferiti come secondo consumatore già noto
+(§9.3, Preferiti: "SP-2 completa, tutti e cinque i pulsanti") — stesso
+principio già seguito per `nav/routeTitles.ts` e `useIsMobile.ts`: dedup
+proattivo quando il secondo consumatore è già certo, non speculativo.
+- **Preferiti**: toggle di gruppo via `favorites.setMany`, verso deciso da
+  "tutte le selezionate sono già preferite?" (§12.3).
+- **Album**: apre `AlbumPickerDialog`.
+- **Modifica**: `router.push('/batch-edit', {query:{ids}})` — la vista
+  reale di "Modifica multipla" (§13) è la prossima unità di questo Task;
+  la rotta esiste già (usata anche da `CullingView`).
+- **Elimina**: riusa `DeleteDialog.vue` (SP-18, già costruito nel Task 2
+  e mai consumato — la sua stessa nota di intestazione lo descrive per
+  §12, non per il culling, che ha un proprio dialog bespoke separato,
+  verificato leggendo `CullingView.vue`: non usa mai `DeleteDialog.vue`).
+  **Deviazione dichiarata dal testo letterale del documento**: §12.3 dice
+  "ogni foto selezionata riceve `pick='reject'` e la scelta di
+  smaltimento" — ma quel voto è pura contabilità del prototipo (uno stato
+  client-side che sopravvive nella demo dopo la rimozione dalla lista
+  visibile); qui l'asset smette di esistere nell'indice (o va in
+  cestino/su disco) con la sola chiamata a `deleteAsset`, e non c'è alcun
+  voto da preservare — stesso comportamento già in uso da
+  `CullingStore.removeMany`, che chiama `deleteAsset` da solo, senza un
+  voto separato prima. Cancellazione sequenziale (stesso principio già
+  usato per `removeMany`/`favorites.setMany`), toast partial-aware sullo
+  stesso modello del resto della sessione.
+
+`TimelineView.vue`: nuovo `selectedAssets` (computed, filtra
+`loadedAssets` sugli id selezionati — servono gli oggetti
+`TimelineAsset` completi, non solo gli id, sia per `favorites.setMany`
+sia per `AlbumPickerDialog`), passato come prop a
+`<LibrarySelectionActions>` dentro lo slot di `<SelectionBar>`.
+
+Verifica eseguita:
+- `AlbumPickerDialog.spec.ts` (nuovo, 5 test) → verdi: elenco completo
+  degli album; "acceso" solo quando **tutte** le selezionate sono già
+  membri (non "almeno una"); aggiunta bulk in una chiamata; rimozione
+  sequenziale foto per foto; "Fatto" chiude. **Bug reale trovato e
+  corretto prima di finire questo passo**: `watch(open, cb)` senza
+  `{immediate:true}` non caricava mai gli album quando il dialog era già
+  aperto al montaggio (il caso normale nei test, e nell'uso reale
+  quando il chiamante apre il dialog e lo monta nello stesso istante) —
+  un `watch` senza `immediate` scatta solo su un **cambiamento**
+  successivo, mai sul valore iniziale. Un secondo problema nei miei
+  stessi test, non nel componente: `wrapper.find`/`findAll` non vedono
+  mai il contenuto di `DialogPortal` (teletrasportato nel vero
+  `document.body`, fuori dal sottoalbero DOM del wrapper) — corretto
+  interrogando `document.body.querySelectorAll` direttamente, stesso
+  identico pattern già stabilito da `DeleteDialog.spec.ts`.
+- `LibrarySelectionActions.spec.ts` (nuovo, 6 test) → verdi: esattamente
+  quattro pulsanti (**nessun quinto "Condividi"**, verifica esplicita
+  dell'omissione); Preferiti aggiunge quando non tutte sono già
+  preferite, toglie quando lo sono già tutte, col testo esatto dei due
+  toast; Modifica naviga a `/batch-edit` con gli id in query; Elimina
+  applica la `DiskAction` scelta a ogni asset e azzera la selezione; il
+  toast finale ripete il testo esatto del documento ("1 foto
+  eliminata."/plurale).
+- `TimelineView.spec.ts` (+1 test): la barra di selezione porta i veri
+  oggetti `TimelineAsset` selezionati a `LibrarySelectionActions`, non
+  solo gli id.
+- `npx vitest run` (suite intera) → 72 file, 545/545 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file toccati → pulito; whole-repo → un solo errore,
+  lo stesso preesistente di sempre (`PlayerView.vue:51`); 143 avvisi
+  (+1 rispetto al passo precedente, lo stesso `vue/attribute-hyphenation`
+  già osservato, nessun avviso nuovo di categoria diversa).
+- `npm run build` → bundle iniziale **122.932/153.600** byte gzip
+  (+422 byte, trascurabile — `AlbumPickerDialog`/`LibrarySelectionActions`
+  vivono dentro il chunk lazy di `TimelineView`, non nel bundle
+  d'ingresso). Margine ampio (30.668 byte).

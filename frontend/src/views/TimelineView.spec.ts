@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import ErrorState from '@/components/ui/ErrorState.vue'
 import PhotoTile from '@/components/ui/PhotoTile.vue'
 import SelectionBar from '@/components/ui/SelectionBar.vue'
+import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
 import { ApiProblem } from '@/api/client'
@@ -516,5 +517,20 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
 
     expect(wrapper.findComponent(SelectionBar).props('count')).toBe(0)
     expect(wrapper.findComponent(PhotoTile).props('selectionMode')).toBe(false)
+  })
+
+  it('the selection bar carries the actual selected TimelineAsset objects into LibrarySelectionActions, not just ids', async () => {
+    const buckets = [{ month: '2024-07', count: 2 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a'), photo('b')] })
+
+    const { wrapper } = await mountTimeline()
+    await wrapper.findComponent(PhotoTile).find('[role="checkbox"]').trigger('click')
+    await flushPromises()
+
+    const actions = wrapper.findComponent(LibrarySelectionActions)
+    expect(actions.exists()).toBe(true)
+    expect(actions.props('assets').map((a: TimelineAsset) => a.id)).toEqual(['a'])
   })
 })
