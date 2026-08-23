@@ -1,13 +1,25 @@
 @import "tailwindcss";
 
+/* Colori di marca (Fase 11 Task 1): hex esatti letti da
+   docs/ui/keeppix-mockup.html (`--accent`/`--accent-text`/`--danger`, righe
+   64-88), non un'approssimazione oklch — sono i valori del marchio, non una
+   scelta estetica libera. Il tema scuro del prototipo li ridefinisce
+   entrambi (non solo superficie/testo): prima d'ora questo file non lo
+   faceva, quindi il tema scuro ereditava silenziosamente l'accento chiaro. */
 @theme {
   --color-surface: oklch(99% 0 0);
   --color-surface-elevated: oklch(100% 0 0);
   --color-content: oklch(20% 0 0);
   --color-content-muted: oklch(50% 0 0);
-  --color-accent: oklch(58% 0.19 258);
-  --color-danger: oklch(55% 0.20 25);
+  --color-accent: #f2812e;
+  --color-accent-text: #1a1005;
+  --color-danger: #cc4038;
   --color-border: oklch(90% 0 0);
+  /* Verde condiviso fra "Scelta" nel culling e "In linea" nel piede utente
+     (commento del prototipo, riga 242): riusato di proposito invece di
+     introdurre una terza tonalità semantica. 3,4:1 su bianco — non un AA
+     pieno per testo piccolo, solo per stati puntiformi/bordi. */
+  --color-status-positive: #2e9e5b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -16,12 +28,32 @@
     --color-surface-elevated: oklch(22% 0 0);
     --color-content: oklch(95% 0 0);
     --color-content-muted: oklch(65% 0 0);
+    --color-accent: #ff9d52;
+    --color-accent-text: #1a1005;
+    --color-danger: #ff6b61;
     --color-border: oklch(30% 0 0);
   }
 }
 
 html, body, #app { height: 100%; }
 body { background: var(--color-surface); color: var(--color-content); }
+
+/* Palette dei tempi (Fase 11 Task 1): le sole sette durate che il prototipo
+   usa, misurate riga per riga su keeppix-mockup.html — mai un numero fuori
+   da questo insieme in un componente nuovo (verificato da
+   src/design/tokens.spec.ts). Non dentro @theme: sono proprietà custom di
+   uso generale (transizioni CSS, `setTimeout`), non colori/spaziature che
+   Tailwind debba trasformare in classi utility. */
+:root {
+  --duration-xs: 100ms;       /* .1s  — dissolvenza tooltip, nessun ritardo */
+  --duration-fast: 120ms;     /* .12s — comparsa comandi tessera, 54 casi */
+  --duration-arrow: 150ms;    /* .15s — rotazione freccia dei gruppi, 14 casi */
+  --duration-tile-in: 180ms;  /* .18s — comparsa tessera dopo il caricamento */
+  --duration-base: 200ms;     /* .2s  — toast, transizioni generiche, 53 casi */
+  --duration-theme: 250ms;    /* .25s — cambio di tema, 2 casi */
+  --duration-progress: 300ms; /* .3s  — avanzamento analisi/upload */
+  --easing-standard: ease;    /* 108 casi su 111 nel prototipo */
+}
 
 /* Rispetta chi ha ridotto le animazioni a livello di sistema. */
 @media (prefers-reduced-motion: reduce) {
