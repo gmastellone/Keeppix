@@ -26,7 +26,25 @@ vi.mock('@/api/events', () => ({
   startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
 }))
 
+vi.mock('@/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/client')>()
+  return { ...actual, apiFetch: vi.fn() }
+})
+
 const { logout } = await import('@/api/auth')
+const { apiFetch } = await import('@/api/client')
+
+// jsdom non calcola un vero layout: `clientWidth` resta sempre 0, quindi la
+// griglia giustificata (che accumula finché la somma dei rapporti d'aspetto
+// riempie `gridWidth`) non produce mai una riga. Serve solo dove il test
+// deve davvero cliccare una tessera, non ovunque nel file.
+function stubGridWidth(px: number) {
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: px })
+  return () => {
+    if (original) Object.defineProperty(HTMLElement.prototype, 'clientWidth', original)
+  }
+}
 
 afterEach(() => vi.resetAllMocks())
 
@@ -152,6 +170,71 @@ describe('TimelineView bbox filter', () => {
 
     expect(fetchBuckets).toHaveBeenCalledWith('10,40,13,43')
     expect(fetchPage).toHaveBeenCalledWith('2024-07', undefined, '10,40,13,43')
+  })
+})
+
+describe('TimelineView lightbox in the URL', () => {
+  it('clicking a tile pushes ?photo= and opens the viewer', async () => {
+    const unstub = stubGridWidth(800)
+    vi.mocked(fetchBuckets).mockResolvedValue([{ month: '2024-07', count: 1 }])
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+
+    const { wrapper, router } = await mountTimeline()
+    await wrapper.find('article').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.photo).toBe('a')
+    expect(wrapper.findComponent({ name: 'AssetViewer' }).exists()).toBe(true)
+    unstub()
+  })
+
+  it('reloading on a ?photo= URL restores the viewer by loading the asset directly', async () => {
+    // Al montaggio il watcher immediato del composable scatta prima che
+    // `onMounted` carichi i bucket: `flatAssets` è sempre vuota in quel
+    // preciso istante, quindi un ricaricamento passa sempre da
+    // `maps.loadAsset` — non un difetto, la pagina non ha ancora nulla
+    // in memoria da cui pescare l'id.
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: TimelineView },
+        { path: '/login', component: { template: '<div />' } }
+      ]
+    })
+    setActivePinia(createPinia())
+    const session = useSessionStore()
+    session.user = testUser
+    session.initialised = true
+    session.ready = true
+
+    vi.mocked(fetchBuckets).mockResolvedValue([{ month: '2024-07', count: 1 }])
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+    vi.mocked(apiFetch).mockResolvedValue(photo('a'))
+
+    await router.push('/?photo=a')
+    await router.isReady()
+    const wrapper = mount(TimelineView, { global: { plugins: [router, i18n] } })
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/assets/a')
+    expect(wrapper.findComponent({ name: 'AssetViewer' }).exists()).toBe(true)
+  })
+
+  it('closing the viewer removes ?photo= from the URL', async () => {
+    const unstub = stubGridWidth(800)
+    vi.mocked(fetchBuckets).mockResolvedValue([{ month: '2024-07', count: 1 }])
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+
+    const { wrapper, router } = await mountTimeline()
+    await wrapper.find('article').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.photo).toBe('a')
+    unstub()
+
+    wrapper.findComponent({ name: 'AssetViewer' }).vm.$emit('close')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.photo).toBeUndefined()
   })
 })
 

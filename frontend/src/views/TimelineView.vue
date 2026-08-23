@@ -14,6 +14,8 @@ import { startLiveEvents, type LiveSocket } from '@/api/events'
 import { thumbSrc as mediaThumbSrc } from '@/api/media'
 import Button from '@/components/ui/Button.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
+import { useLightboxRoute } from '@/composables/useLightboxRoute'
+import { useScrollRestoration } from '@/composables/useScrollRestoration'
 import { useCullingStore } from '@/stores/culling'
 import { useMapsStore } from '@/stores/maps'
 import { useSessionStore } from '@/stores/session'
@@ -42,7 +44,6 @@ const gridEl = ref<HTMLElement | null>(null)
 const scrubY = ref<string | undefined>()
 const empty = ref(false)
 const query = ref('')
-const viewing = ref<TimelineAsset | null>(null)
 const bbox = computed(() => (typeof route.query.bbox === 'string' ? route.query.bbox : undefined))
 
 const visibleHashes = new Set<string>()
@@ -95,9 +96,25 @@ const grids = computed(() => {
 
 const flatAssets = computed(() => days.value.flatMap((d) => d.assets))
 
+// Fase 11 Task 3: la foto aperta nel visore vive nell'URL (?photo=),
+// non in un ref isolato — sopravvive a un ricaricamento e risponde al
+// tasto Indietro del browser, nessuno dei due previsti dal prototipo.
+// Dichiarato solo dopo `flatAssets`: il watcher immediato del
+// composable chiama `findLocal` in modo sincrono se `?photo=` è già
+// nell'URL al montaggio, e leggerebbe `flatAssets` prima che sia
+// inizializzata se questa riga precedesse quella sopra.
+const lightbox = useLightboxRoute<TimelineAsset>(
+  (id) => flatAssets.value.find((asset) => asset.id === id),
+  (id) => maps.loadAsset(id)
+)
+
+// Fase 11 Task 3: unico contenitore di scorrimento interno della vista
+// (§7.6 — la finestra/documento non scorre mai, vedi useScrollRestoration).
+useScrollRestoration(gridEl)
+
 function viewingNeighbour(delta: number): TimelineAsset | undefined {
   const list = flatAssets.value
-  const i = list.findIndex((a) => a.id === viewing.value?.id)
+  const i = list.findIndex((a) => a.id === lightbox.viewing.value?.id)
   if (i < 0) return undefined
   return list[i + delta]
 }
@@ -208,12 +225,11 @@ function onScrubMove(event: MouseEvent) {
 }
 
 function stepViewer(delta: number) {
-  const next = viewingNeighbour(delta)
-  if (next) viewing.value = next
+  void lightbox.step(viewingNeighbour(delta))
 }
 
-async function openViewerAsset(id: string) {
-  viewing.value = await maps.loadAsset(id)
+function openViewerAsset(id: string) {
+  void lightbox.openById(id)
 }
 
 function onScrub(event: MouseEvent) {
@@ -468,7 +484,7 @@ watch([days, density, gridWidth], () => observe())
                   width: `${cell.w}px`,
                   height: `${cell.h}px`
                 }"
-                @click="viewing = cell.asset"
+                @click="lightbox.open(cell.asset)"
               >
                 <img
                   v-if="cell.placeholder"
@@ -510,11 +526,11 @@ watch([days, density, gridWidth], () => observe())
       </aside>
     </div>
     <AssetViewer
-      v-if="viewing"
-      :asset="viewing"
+      v-if="lightbox.viewing.value"
+      :asset="lightbox.viewing.value"
       :prev="viewingNeighbour(-1)"
       :next="viewingNeighbour(1)"
-      @close="viewing = null"
+      @close="lightbox.close"
       @prev="stepViewer(-1)"
       @next="stepViewer(1)"
       @open-asset="openViewerAsset"

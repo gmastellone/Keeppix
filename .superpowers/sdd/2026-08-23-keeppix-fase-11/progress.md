@@ -1111,3 +1111,177 @@ il ricalcolo manuale del budget del bundle con lo stesso script della
 CI. Nessuna riga di prodotto reale importa ancora questi componenti —
 il Task 3 (router) e le Tranche successive sono ciò che li metterà al
 lavoro.
+
+## Task 3 — router (ambito parziale, dichiarato)
+
+Il piano nomina il Task 3 come "router: rotte per cartella/album/
+persona/lotto di scarto, deep-link della foto nel lightbox, ripristino
+scorrimento". Prima di scrivere codice ho verificato con un agente
+Explore lo stato reale del frontend: **nessuna** delle quattro rotte
+di dettaglio è oggi costruibile.
+
+- Non esiste uno store Pinia per cartelle/album/persone (solo
+  `FoldersView.vue`, un albero piatto senza vista di dettaglio per
+  singola cartella; `AlbumsView.vue` senza vista di dettaglio album).
+- Non esiste alcuna funzionalità volti nel frontend (store, vista, o
+  componente) — prerequisito del Task A, non ancora iniziato.
+- Culling non ha un concetto di "lotto" instradabile: lo store riceve
+  un elenco di risorse ad-hoc dalla vista chiamante, non un id di lotto
+  che una rotta potrebbe portare.
+
+Costruire quelle quattro rotte ora significherebbe instradare verso
+schermate che non esistono, con uno store fittizio dietro — esattamente
+il tipo di debito silenzioso vietato dal mandato. Ho quindi ristretto
+il Task 3, a questo giro, a ciò che è genuinamente costruibile con lo
+stato attuale dell'app: **deep-link della foto nel lightbox** e
+**ripristino della posizione di scorrimento**. Le quattro rotte di
+dettaglio restano un debito esplicito verso le Tranche successive
+(quando le store corrispondenti esisteranno), non un buco scoperto ora.
+
+### Deep-link della foto (`?photo=`)
+
+Il documento funzionale non descrive alcun comportamento di URL/
+cronologia per il prototipo (§7 conferma: zero deep-link, zero
+ripristino scorrimento) — è una scelta di design nuova per la
+riscrittura, non una riproduzione di un comportamento esistente.
+
+Composable nuovo `useLightboxRoute.ts`: rende `?photo=<id>` l'unica
+fonte di verità su "quale risorsa è aperta nel visore", con:
+- `open(asset)` → `router.push` (così Indietro chiude il visore);
+- `step(asset)` (scorrimento fra risorse a visore già aperto) →
+  `router.replace` (nessun affollamento della cronologia per ogni
+  freccia premuta);
+- `close()` → `router.back()` se il visore è stato aperto in questa
+  sessione via `open()` (tracciato con un flag locale), altrimenti
+  `router.replace` che toglie solo la chiave `photo` — un ricaricamento
+  o link diretto non ha una "nostra" voce di cronologia da far
+  scomparire, e `back()` lì uscirebbe dall'app.
+- un `watch(() => route.query.photo, ..., { immediate: true })` è
+  l'unico punto di sincronizzazione: cerca prima fra le risorse già
+  in memoria (`findLocal`, sincrono) poi, se assente, carica da rete
+  (`loadRemote`, asincrono) — copre sia il click su una miniatura sia
+  il ricaricamento diretto su un URL con `?photo=`.
+
+Cablato in `TimelineView.vue` (sostituendo il precedente
+`ref<TimelineAsset|null>` isolato) e in `SearchView.vue` (che non
+aveva alcun visore instradato prima), con `maps.loadAsset(id)` —
+in realtà `GET /api/v1/assets/:id`, generico nonostante il nome dello
+store, già riusato altrove — come `loadRemote` in entrambi i casi.
+
+Bug reale trovato e corretto prima che arrivasse in produzione (non
+via test, per ispezione): in `TimelineView.vue` avevo dichiarato
+`const lightbox = useLightboxRoute(...)` vicino all'inizio dello
+script, prima di `const flatAssets = computed(...)`. Poiché il watcher
+interno del composable è `immediate: true`, un `?photo=` già presente
+nell'URL al montaggio (il caso del ricaricamento) avrebbe chiamato
+`findLocal` in modo sincrono durante il `setup()`, leggendo
+`flatAssets.value` prima che fosse inizializzata → `ReferenceError`
+da temporal dead zone. Corretto spostando `lightbox` subito dopo la
+dichiarazione di `flatAssets`.
+
+Verifica eseguita:
+- `useLightboxRoute.spec.ts` (nuovo) → 7/7 verdi: `open` fa `push`,
+  `step` fa `replace`, `close` dopo un `open` in sessione fa `back`,
+  `close` senza una "nostra" voce di cronologia (avvio diretto su
+  `?photo=`) toglie solo `photo` con `replace`, il watcher immediato
+  trova la risorsa in locale quando presente e altrimenti la carica da
+  remoto, un id non raggiungibile via `findLocal` va comunque a
+  `loadRemote`.
+  Gotcha di test reale incontrato: `router.isReady()` risolve solo la
+  navigazione iniziale del router, non le `push`/`replace` successive —
+  le asserzioni vanno fatte attendendo direttamente la promise
+  restituita da `open`/`step`/`close` (per questo ora la restituiscono,
+  non più `void`); `router.back()` in particolare non si assesta entro
+  un singolo `await`+`nextTick`, serve un tick aggiuntivo
+  (`setTimeout(0)`).
+- `TimelineView.spec.ts` (esteso, +3 test) → 9/9 verdi: click apre
+  `?photo=`, ricaricamento su `?photo=` ripristina il visore via
+  `loadRemote`, chiusura toglie `photo`. Gotcha jsdom incontrato:
+  `HTMLElement.clientWidth` è sempre `0` in jsdom (nessun motore di
+  layout reale), il che affama l'algoritmo a griglia giustificata di
+  qualunque larghezza utile e produce zero righe renderizzate — nessun
+  test in questo file aveva mai cliccato una tessera reale prima.
+  Corretto con un helper `stubGridWidth(px)` che sovrascrive
+  `HTMLElement.prototype.clientWidth` via `Object.defineProperty`,
+  applicato solo dove serve cliccare una tessera vera. Una premessa
+  sbagliata scoperta e corretta in corsa: un test voleva verificare che
+  il ricaricamento riusasse la pagina già caricata senza un fetch
+  aggiuntivo, ma poiché il watcher immediato scatta prima che il
+  caricamento asincrono di `onMounted` sia completato, `findLocal` è
+  *sempre* vuoto in un ricaricamento reale con questa architettura —
+  non un bug, un fatto strutturale. Consolidato in un unico test
+  corretto che verifica che `loadRemote`/`apiFetch` **sia** chiamato.
+- `SearchView.spec.ts` (nuovo — nessuno spec esisteva prima per questa
+  vista) → 3/3 verdi: click apre `?photo=` mantenendo `?q=` coesistente,
+  ricaricamento su `?photo=` ripristina via `loadRemote`, chiusura
+  toglie `photo` mantenendo `q`.
+
+### Ripristino della posizione di scorrimento
+
+`scrollBehavior` nativo di vue-router aggiunto a `router.ts` per
+completezza, ma **da solo è un no-op totale** per questa app: `html,
+body, #app { height: 100% }` in `style.css` significa che `window`/
+`document` non scorrono mai — ogni vista gestisce una propria regione
+interna `overflow-auto`. Verificato per ispezione diretta del CSS
+prima di considerare il compito chiuso, non assunto dal solo
+aggiungere l'opzione nativa.
+
+Composable nuovo `useScrollRestoration.ts`: una `Map<string, number>`
+a livello di modulo, indicizzata per rotta (chiave di default
+`route.fullPath`, sovrascrivibile — pensata per un futuro "lotto di
+culling" dove più istanze della stessa vista potrebbero convivere sotto
+chiavi distinte). Salva su `onBeforeUnmount`, ripristina su
+`onMounted`. Non c'è `<KeepAlive>` in `router.ts`, quindi il nodo DOM
+scrollabile viene distrutto e ricreato da zero ad ogni navigazione — da
+qui la necessità di una cache esplicita per chiave invece di un
+semplice "ricordati dov'eri" sull'istanza del componente.
+
+Due bug reali trovati e corretti, il secondo con una diagnosi non
+banale:
+- Ordine di unmount di Vue: i ref del template vengono azzerati
+  **prima** che `onUnmounted` sia invocato (ordine corretto:
+  `onBeforeUnmount` → rimozione dal DOM → azzeramento dei ref →
+  `onUnmounted`) — la guardia `if (el.value)` in `save()` falliva
+  silenziosamente con `onUnmounted`. Corretto usando `onBeforeUnmount`.
+- Il test di ripristino continuava a fallire (`expected +0 to be 456`)
+  anche dopo quella correzione. Diagnosticato con logging temporaneo
+  inline (non uno script isolato fuori dalle root di vitest, tentativo
+  precedente fallito perché `/tmp` è fuori dagli `include` del
+  progetto): il fallimento non era nel composable ma nel test stesso.
+  vue-router applica una patch a `app.unmount()` per azzerare
+  `currentRoute.value` a `START_LOCATION` (rotta `/`) quando l'**ultima**
+  app che usa quel router viene smontata (pulizia interna contro le
+  perdite di memoria, vedi `installedApps` in `vue-router.cjs`). Il
+  test smontava l'intera app Vue (`first.unmount()`) e ne montava una
+  seconda con lo stesso router — un artefatto di questo stile di test,
+  non un comportamento di una SPA reale (dove `app` non viene mai
+  smontata, solo i componenti al suo interno cambiano con la
+  navigazione). Corretto ripetendo `await router.push(...)` fra i due
+  mount, per rispecchiare l'ordine reale (la rotta è già quella di
+  destinazione quando il nuovo componente monta).
+
+Cablato in `TimelineView.vue` su `gridEl`, l'unico contenitore con
+scorrimento interno sostanziale fra le viste toccate finora.
+`SearchView.vue` non ne ha uno scorrimento tanto significativo da
+giustificare il cablaggio in questo giro — lasciato per quando quella
+vista crescerà.
+
+Verifica eseguita:
+- `useScrollRestoration.spec.ts` (nuovo) → 3/3 verdi: ripristina la
+  posizione su un nuovo elemento DOM per la stessa rotta, una rotta
+  senza posizione salvata riparte dall'alto, una chiave esplicita tiene
+  posizioni distinte anche per la stessa rotta.
+- `npx vitest run` (suite intera) → 48 file, 274/274 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/modificati → pulito (solo due warning
+  attesi `vue/one-component-per-file` nello spec di
+  `useScrollRestoration`, per gli host `defineComponent` inline dei
+  test — stesso schema già accettato altrove in questa serie).
+- `npm run build` → bundle iniziale **94.303/153.600** byte gzip
+  (script CI, ricalcolo manuale identico). Margine ampio (59.297 byte).
+
+Debiti espliciti verso le Tranche successive: le quattro rotte di
+dettaglio (cartella/album/persona/lotto di scarto) restano non
+costruite, in attesa degli store corrispondenti; `useScrollRestoration`
+non è ancora cablato in `SearchView.vue` né nelle altre viste con
+scorrimento interno che verranno toccate più avanti.

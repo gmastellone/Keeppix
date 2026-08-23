@@ -10,17 +10,26 @@ import { thumbSrc } from '@/api/media'
 import { parseSearch } from '@/search/parse'
 
 import AssetViewer from '@/components/AssetViewer.vue'
+import { useLightboxRoute } from '@/composables/useLightboxRoute'
+import { useMapsStore } from '@/stores/maps'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const maps = useMapsStore()
 const q = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const assets = ref<TimelineAsset[]>([])
 const error = ref('')
-const viewing = ref<TimelineAsset | null>(null)
+// Fase 11 Task 3: la foto aperta nel visore vive nell'URL (?photo=),
+// stesso composable di TimelineView — vedi lì per il ragionamento
+// completo su push/replace/back.
+const lightbox = useLightboxRoute<TimelineAsset>(
+  (id) => assets.value.find((asset) => asset.id === id),
+  (id) => maps.loadAsset(id)
+)
 
 function neighbour(delta: number): TimelineAsset | undefined {
-  const i = assets.value.findIndex((a) => a.id === viewing.value?.id)
+  const i = assets.value.findIndex((a) => a.id === lightbox.viewing.value?.id)
   if (i < 0) return undefined
   return assets.value[i + delta]
 }
@@ -62,8 +71,7 @@ async function submit() {
 }
 
 function stepViewer(delta: number) {
-  const next = neighbour(delta)
-  if (next) viewing.value = next
+  void lightbox.step(neighbour(delta))
 }
 
 const suggestions = ref<string[]>([])
@@ -146,7 +154,7 @@ onMounted(() => {
       >
         <button
           class="block w-full"
-          @click="viewing = asset"
+          @click="lightbox.open(asset)"
         >
           <img
             v-if="asset.content_hash"
@@ -162,11 +170,11 @@ onMounted(() => {
       </li>
     </ul>
     <AssetViewer
-      v-if="viewing"
-      :asset="viewing"
+      v-if="lightbox.viewing.value"
+      :asset="lightbox.viewing.value"
       :prev="neighbour(-1)"
       :next="neighbour(1)"
-      @close="viewing = null"
+      @close="lightbox.close"
       @prev="stepViewer(-1)"
       @next="stepViewer(1)"
     />

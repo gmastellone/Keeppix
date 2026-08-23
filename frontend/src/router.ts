@@ -4,6 +4,17 @@ import { useSessionStore } from '@/stores/session'
 
 export const router = createRouter({
   history: createWebHistory(),
+  // Fase 11 Task 3: "il ripristino della posizione di scorrimento non è
+  // implementato: tornando in una sezione si riparte dall'alto" —
+  // dichiarato esplicitamente come assente nel prototipo (documento
+  // funzionale §7.6), non un comportamento da riprodurre. `savedPosition`
+  // è valorizzato da vue-router solo per una navigazione avanti/indietro
+  // nella cronologia — esattamente il caso "tornando in una vista" del
+  // piano — mai per un click che apre una nuova vista, che deve sempre
+  // ripartire dall'alto.
+  scrollBehavior(_to, _from, savedPosition) {
+    return savedPosition ?? { top: 0 }
+  },
   routes: [
     { path: '/', component: () => import('@/views/TimelineView.vue'), meta: { auth: true } },
     { path: '/folders', component: () => import('@/views/FoldersView.vue'), meta: { auth: true } },
