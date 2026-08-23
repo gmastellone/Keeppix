@@ -6,11 +6,10 @@
 //
 // Ambito dichiarato: **non** tutte le voci canoniche. Costruite solo
 // quelle con una destinazione reale in questa sessione — Foto, Cerca,
-// Culling, Mappa, Condivisioni, Album, Cartelle, Cestino, Problemi
-// (più Utenti/Gruppi per un amministratore). Tolte, debito verso le
-// Tranche che le costruiranno per davvero:
+// Culling, Mappa, Condivisioni, Preferiti (Task 7, 3/N), Album, Cartelle,
+// Cestino, Problemi (più Utenti/Gruppi per un amministratore). Tolte,
+// debito verso le Tranche che le costruiranno per davvero:
 // - "Persone" (Task 16, Tranche D) — nessuna vista Persone esiste.
-// - "Preferiti" — nessuna vista dedicata esiste ancora.
 // - Il gruppo "IA" intero — Tag e categorie/Revisione/Analisi libreria
 //   sono Task 15, Tranche C.
 // - "Duplicati" dentro "Manutenzione" — Task 13, Tranche B, non ancora
@@ -175,6 +174,13 @@ const storageTotals = computed(() => {
         :class="isActive('/folders') && 'border-l-accent bg-border/30 font-semibold'"
       >
         {{ t('folders.entry') }}
+      </RouterLink>
+      <RouterLink
+        to="/favorites"
+        class="flex items-center rounded-lg border-l-[2.5px] border-transparent px-2.5 py-2 text-sm hover:bg-border/30"
+        :class="isActive('/favorites') && 'border-l-accent bg-border/30 font-semibold'"
+      >
+        {{ t('favorites.entry') }}
       </RouterLink>
       <RouterLink
         to="/albums"

@@ -55,6 +55,10 @@
     "favorites": {
       "toggleError": "Could not update favorites. Try again."
     },
+    "filteredEmpty": {
+      "title": "No photos match the filters",
+      "subtitle": "Try widening the filters, or clear them from the panel above."
+    },
     "selectAllVisible": {
       "tooltip": "Select all",
       "ariaLabel": "Select everything you see"
@@ -152,6 +156,13 @@
     "title": "Folders",
     "empty": "No folders to show.",
     "move": "Move"
+  },
+  "favorites": {
+    "entry": "Favorites",
+    "title": "Favorites",
+    "subtitle": "{n} photos, from all folders",
+    "emptyTitle": "No favorites yet",
+    "emptySubtitle": "Tap the heart on a photo to find it here."
   },
   "nav": {
     "foto": "Photos",

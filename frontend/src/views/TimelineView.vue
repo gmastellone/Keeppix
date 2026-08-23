@@ -13,6 +13,7 @@ import SelectAllVisible from '@/components/ui/SelectAllVisible.vue'
 import SelectionBar from '@/components/ui/SelectionBar.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
 import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
+import { useDensity } from '@/composables/useDensity'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
 import { useScrollRestoration } from '@/composables/useScrollRestoration'
@@ -22,7 +23,6 @@ import { useMapsStore } from '@/stores/maps'
 import { useSelectionStore } from '@/stores/selection'
 import { classifyError } from '@/errors/classify'
 import { TimelineGeometry } from '@/timeline/geometry'
-import { clampDensity } from '@/timeline/justify'
 import { LruPageCache } from '@/timeline/pageCache'
 import { monthAbbrev, monthAtOffset, monthFull } from '@/timeline/scrubber'
 import { planStream, STREAM_OVERSCAN, type GridCell, type GridRow, type StreamRow } from '@/timeline/stream'
@@ -42,12 +42,12 @@ import { RowVirtualizer } from '@/timeline/virtualize'
 // diverso — §11), e non ha senso strutturale qui: la geometria che guida
 // il layout non porta il kind dello scatto, solo w/h/mese.
 
-const DENSITY_KEY = 'keeppix.density'
 // Il documento funzionale (riga 1745) mette la densità in Impostazioni
 // (Task 14, non ancora costruito), non in un controllo di vista. Il +/-
 // qui è un ripiego temporaneo pre-Task-14: rimosso quando la vista
 // Impostazioni reale esisterà, non prima — toglierlo ora senza
-// sostituto lascerebbe la densità fissa a 6 per chiunque.
+// sostituto lascerebbe la densità fissa a 6 per chiunque. Estratto in
+// `useDensity()` nel Task 7 (comparso il secondo consumatore, Preferiti).
 /** Fino a 50 mesi residenti, ~10.000 asset attesi (piano §4.8) — solo le
  * pagine, mai la geometria stessa, che vive fuori da questa cache e non
  * si sfratta mai. */
@@ -76,7 +76,7 @@ const loadingMonths = new Set<string>()
  * questo ref è l'unico modo per dire a Vue "qualcosa dentro è cambiato". */
 const cacheTick = ref(0)
 
-const density = ref(clampDensity(Number(localStorage.getItem(DENSITY_KEY) ?? 6)))
+const { density, setDensity } = useDensity()
 const gridEl = ref<HTMLElement | null>(null)
 const contentEl = ref<HTMLElement | null>(null)
 const scrubberEl = ref<HTMLElement | null>(null)
@@ -230,11 +230,6 @@ async function clearMapFilter() {
 async function startCulling() {
   culling.start(loadedAssets.value)
   await router.push('/culling')
-}
-
-function setDensity(next: number) {
-  density.value = clampDensity(next)
-  localStorage.setItem(DENSITY_KEY, String(density.value))
 }
 
 /**

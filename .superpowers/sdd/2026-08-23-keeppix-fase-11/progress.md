@@ -3182,3 +3182,124 @@ Verifica eseguita:
   (+422 byte, trascurabile — `AlbumPickerDialog`/`LibrarySelectionActions`
   vivono dentro il chunk lazy di `TimelineView`, non nel bundle
   d'ingresso). Margine ampio (30.668 byte).
+
+## Task 7 (3/N) — Preferiti (§9)
+
+**Scoperta chiave, prima di scrivere qualunque riga**: `runSearch` (già
+costruita nel Task 3/piano backend, `POST /api/v1/search`) supporta già
+`SearchNode::Favorite` — verificato leggendo per intero
+`crates/keeppix-db/src/search.rs` (riga 77, variante unitaria,
+`#[serde(tag="op")]` la serializza come `{op:'favorite'}` da sola). Non
+serve **nessun** cambiamento di backend per questa vista: la selezione
+delle sole foto preferite è già un filtro di ricerca pronto, mai
+consumato dal frontend finora (`api/search/parse.ts` non aveva questa
+variante nel proprio union type — aggiunta qui, un solo membro, additiva).
+Questo ha reso trattabile un lavoro che sulla carta sembrava toccare il
+backend (le sei dimensioni di SP-3, la prossima unità di questo Task,
+**quelle sì** lo toccano davvero — vedi la nota di scope sotto).
+
+**Nessun endpoint di sola geometria per una lista piatta**: a differenza
+della timeline (Task 4, `fetchGeometry`, un blob binario precalcolato per
+l'intera libreria), qui non serve — `runSearch` restituisce gli stessi
+`TimelineAsset` con `width`/`height` già inclusi, e `justify()` (Task 4,
+pura, mai legata al blob di geometria) basta da sola per il layout
+giustificato. Nessun tetto sul caricamento (§9.2, "stessa virtualizzazione
+SP-22"): tutte le pagine vengono seguite per `next_cursor` fino
+all'esaurimento al montaggio, non una alla volta per finestra visibile
+come fa invece la timeline per mese — non ce n'è bisogno, i preferiti
+sono per definizione un sottoinsieme limitato della libreria, non l'intera
+libreria.
+
+**La griglia visibile è derivata, non uno snapshot**: `visibleAssets =
+assets.filter(favorites.isFavorite)`, non l'elenco caricato al montaggio.
+Questo dà **gratis** il comportamento esatto di §9.3 ("il cuoricino qui
+toglie la foto dalla vista... senza conferma, senza toast, senza
+annulla"): lo stesso identico gestore `@toggle-favorite="favorites.
+toggleOne(...)"` già usato in Timeline, senza bisogno di un handler
+diverso qui — l'unica differenza è che questa vista **guarda** la
+sovrascrittura ottimistica dello store condiviso per decidere cosa
+disegnare, la timeline no. Stesso principio vale per il pulsante
+"Preferiti" della barra di selezione (`LibrarySelectionActions`, Task 7
+2/N, riusato tale e quale): su una selezione già tutta preferita
+(sempre vero qui) rimuove sempre, mai aggiunge — nessun codice nuovo,
+la stessa logica di gruppo del 2/N già lo fa.
+
+`composables/useDensity.ts` (nuovo): estratto da `TimelineView.vue` al
+comparire del secondo consumatore (stesso principio di `useIsMobile.ts`/
+`nav/routeTitles.ts`) — stessa chiave di `localStorage`, così cambiare
+densità in una vista la cambia anche nell'altra alla prossima visita
+(coerente con "la densità è un interruttore globale in Impostazioni",
+non un controllo per-vista, doc riga 1745).
+
+**I due stati vuoti canonici di §9.2**, entrambi reali: "Nessun preferito
+ancora" (icona cuore, **nessuna barra strumenti disegnata affatto** — non
+solo nascosta, proprio assente) quando `totalCount===0`; "Nessuna foto
+corrisponde ai filtri" quando ci sono preferiti caricati ma
+`visibleAssets` è vuoto. Quest'ultimo testo è condiviso in anticipo con
+SP-3 (Task 7, prossima unità): aggiunto sotto `ui.filteredEmpty.*`, non
+`favorites.*`, perché la Timeline lo userà identico quando il pannello
+filtri sarà cablato — stesso principio di estrazione anticipata di
+`useDensity`/`useIsMobile`. Oggi, senza filtro rapido ancora cablato su
+questa vista, l'unica causa raggiungibile è togliere il cuoricino
+all'ultima foto visibile in sessione — stessa identica situazione visiva
+("avevi delle foto, ora non ne vedi nessuna") che il pannello filtri
+produrrà più avanti, non un riuso forzato.
+
+**Navigazione**: rotta `/favorites` (inglese, come tutte le altre —
+`/folders`, `/shares`, `/trash`… **non** `/preferiti`, coerenza con la
+convenzione già in uso, non lo spagnolo/italiano dei percorsi del
+mockup). Voce "Preferiti" aggiunta in `AppSidebar.vue` (fra "Cartelle" e
+"Album", posizione esatta di §2.3, voce 8 prima di voce 9 nell'elenco
+canonico) e in `MoreView.vue` (gruppo Libreria, §9.8: "da mobile
+passando dalla tab 'Altro' → elenco Libreria → 'Preferiti'"). Aggiunta a
+`ROUTE_TITLE_KEYS` (`nav/routeTitles.ts`, Task 6 8/N) — copre sia la
+briciola desktop sia il titolo mobile con una sola riga, nessun duplicato.
+
+Verifica eseguita:
+- `search/parse.ts`: nuovo membro `{op:'favorite'}` nell'union
+  `SearchNode`, puramente additivo (nessuno switch esaustivo altrove lo
+  consuma, verificato con una ricerca sul repo).
+- `FavoritesView.spec.ts` (nuovo, 10 test) → verdi: caricamento con
+  `runSearch({op:'favorite'})` che segue `next_cursor` fino
+  all'esaurimento; sottotitolo con il conteggio totale esatto; primo
+  stato vuoto **senza alcuna barra strumenti** (nessun pulsante nel DOM,
+  non solo nascosto); secondo stato vuoto raggiunto togliendo il
+  cuoricino all'ultima foto; il cuoricino che fa sparire la tessera
+  subito; "Seleziona tutto quello che vedi" sul solo visibile;
+  selezione che entra in modalità e porta il conteggio reale;
+  lightbox che apre per `?photo=`; `ErrorState` classificato con
+  ritentativo; ricarica su evento live `assets.upserted`.
+- `useDensity.spec.ts` (nuovo, 5 test) → verdi: default 6, lettura,
+  clamp, scrittura persistita, **due chiamate indipendenti condividono
+  la stessa chiave** (verifica esplicita della sincronizzazione
+  Timeline/Preferiti).
+- `TimelineView.spec.ts` (invariato nel comportamento, verificato dopo
+  il refactor di `useDensity`) → ancora 20/20 verdi.
+- `AppSidebar.spec.ts`/`MoreView.spec.ts` (+1 test ciascuno): "Preferiti"
+  presente, posizionata correttamente prima di "Album"
+  (`AppSidebar`)/presente nell'elenco Libreria (`MoreView`).
+- `npx vitest run` (suite intera) → 74 file, 562/562 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file toccati → pulito; whole-repo → un solo errore,
+  lo stesso preesistente di sempre (`PlayerView.vue:51`); 144 avvisi
+  (+1, lo stesso `vue/attribute-hyphenation` di `:ariaLabel` già
+  osservato due volte, qui sulla stessa identica riga di `FavoritesView`
+  copiata da `TimelineView`).
+- `npm run build` → bundle iniziale **123.249/153.600** byte gzip
+  (+317 byte, trascurabile — `virtualize.ts`/`justify.ts`/`stream.ts`
+  sono ora un chunk condiviso separato fra i due chunk lazy di
+  `TimelineView`/`FavoritesView`, mai nel bundle d'ingresso, verificato
+  in `dist/assets/`). Margine ampio (30.351 byte).
+
+**Nota di scope per la prossima unità (SP-3, filtro rapido)**: a
+differenza di Preferiti, il pannello filtri **tocca davvero il
+backend**. Verificato leggendo `crates/keeppix-api/src/routes/
+timeline.rs` per intero: `AssetView` non porta fotocamera, tag
+confermati (con categoria) né volti confermati (con persona) — solo i
+campi già noti a `TimelineAsset`. Le rotte `faces.rs`/`persons.rs`/
+`tags.rs` esistono sul backend (Fase 8/Fase 9, già mersate) ma **nessun
+modulo API frontend le consuma ancora** (verificato: `frontend/src/api/`
+non ha `tags.ts`/`persons.ts`/`faces.ts`). Estendere `AssetView` per
+portare questi campi (o un endpoint di join dedicato) è lavoro di
+backend reale, non cablaggio — va scoping a parte prima di procedere,
+non improvvisato dentro questa stessa unità.

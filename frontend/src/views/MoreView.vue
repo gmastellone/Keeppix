@@ -8,10 +8,9 @@
 // desktop che usa `NavGroup`. Non riusato qui apposta.
 //
 // Ambito dichiarato: stesse destinazioni reali di AppSidebar (Task 6
-// 1/N e 4/N), non i dodici gruppi canonici del mockup. Tolte, stesso
-// motivo già dichiarato lì:
+// 1/N e 4/N; Preferiti aggiunta nel Task 7 3/N), non i dodici gruppi
+// canonici del mockup. Tolte, stesso motivo già dichiarato lì:
 // - "Persone" (Task 16) — nessuna vista esiste.
-// - "Preferiti" — nessuna vista dedicata esiste.
 // - Il gruppo "IA" intero (Tag e categorie/Revisione/Analisi libreria,
 //   Task 15).
 // - "Duplicati" (Task 13).
@@ -46,7 +45,8 @@ const session = useSessionStore()
 const LIBRARY_ITEMS = [
   { to: '/folders', labelKey: 'folders.entry' },
   { to: '/map', labelKey: 'maps.entry' },
-  { to: '/shares', labelKey: 'shares.entry' }
+  { to: '/shares', labelKey: 'shares.entry' },
+  { to: '/favorites', labelKey: 'favorites.entry' }
 ] as const
 
 const MAINT_ITEMS = [

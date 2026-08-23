@@ -108,6 +108,15 @@ describe('AppSidebar', () => {
     expect(foldersLink?.exists()).toBe(true)
   })
 
+  it('"Preferiti" (Task 7, 3/N) links to the real Favorites view, right before Album — §2.3.8', async () => {
+    const { wrapper } = await mountSidebar()
+    const links = wrapper.findAll('a').map((a) => a.attributes('href'))
+    const favIndex = links.indexOf('/favorites')
+    const albumIndex = links.indexOf('/albums')
+    expect(favIndex).toBeGreaterThan(-1)
+    expect(favIndex).toBeLessThan(albumIndex)
+  })
+
   it('"Amministrazione" (Utenti/Gruppi) shows only for an admin, and opens on its own route', async () => {
     const { wrapper } = await mountSidebar('/groups')
     const usersLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/users')

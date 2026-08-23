@@ -55,6 +55,10 @@
     "favorites": {
       "toggleError": "Non è stato possibile aggiornare i preferiti. Riprova."
     },
+    "filteredEmpty": {
+      "title": "Nessuna foto corrisponde ai filtri",
+      "subtitle": "Prova ad allargare i filtri, o cancellali dal pannello qui sopra."
+    },
     "selectAllVisible": {
       "tooltip": "Seleziona tutto",
       "ariaLabel": "Seleziona tutto quello che vedi"
@@ -152,6 +156,13 @@
     "title": "Cartelle",
     "empty": "Nessuna cartella da mostrare.",
     "move": "Sposta"
+  },
+  "favorites": {
+    "entry": "Preferiti",
+    "title": "Preferiti",
+    "subtitle": "{n} foto, da tutte le cartelle",
+    "emptyTitle": "Nessun preferito ancora",
+    "emptySubtitle": "Premi il cuore su una foto per ritrovarla qui."
   },
   "nav": {
     "foto": "Foto",

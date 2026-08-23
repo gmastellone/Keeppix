@@ -62,7 +62,7 @@ describe('MoreView', () => {
     const wrapper = await mountMore()
     const hrefs = wrapper.findAll('a').map((a) => a.attributes('href'))
     expect(hrefs).toEqual(
-      expect.arrayContaining(['/folders', '/map', '/shares', '/trash', '/problems', '/users', '/groups'])
+      expect.arrayContaining(['/folders', '/map', '/shares', '/favorites', '/trash', '/problems', '/users', '/groups'])
     )
     for (const a of wrapper.findAll('a')) {
       expect(a.element.tagName).toBe('A')

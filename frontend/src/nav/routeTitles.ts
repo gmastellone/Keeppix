@@ -6,6 +6,7 @@
 // la stessa identica stringa.
 export const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/': 'topbar.allPhotos',
+  '/favorites': 'favorites.title',
   '/search': 'nav.cerca',
   '/culling': 'culling.entry',
   '/map': 'maps.entry',

@@ -17,6 +17,7 @@ export const router = createRouter({
   },
   routes: [
     { path: '/', component: () => import('@/views/TimelineView.vue'), meta: { auth: true } },
+    { path: '/favorites', component: () => import('@/views/FavoritesView.vue'), meta: { auth: true } },
     { path: '/folders', component: () => import('@/views/FoldersView.vue'), meta: { auth: true } },
     { path: '/search', component: () => import('@/views/SearchView.vue'), meta: { auth: true } },
     { path: '/problems', component: () => import('@/views/ProblemsView.vue'), meta: { auth: true } },

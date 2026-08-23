@@ -12,6 +12,13 @@ export type SearchNode =
   | { op: 'year'; value: number }
   | { op: 'folder'; id: string }
   | { op: 'has_gps' }
+  /** `SearchNode::Favorite` nel backend (crates/keeppix-db/src/search.rs):
+   * variante unitaria, `#[serde(tag="op")]` la serializza come
+   * `{op:'favorite'}` da sola, senza altri campi. Aggiunta qui non dal
+   * parser della barra di ricerca (Task 9, non ancora costruito) ma per
+   * la vista Preferiti (Task 7): costruita a mano come AST, mai digitata
+   * dall'utente. */
+  | { op: 'favorite' }
 
 /** Parser minimo della barra di ricerca. Nessuna stringa finisce in SQL: produce solo AST. */
 export function parseSearch(input: string): SearchNode {
