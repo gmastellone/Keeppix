@@ -2368,3 +2368,87 @@ vista + pulsante culling + avatar account) e la tab bar (Foto/Cerca/
 Album/Altro), cablati in `AppShell`'s `mobile-header`/`mobile-tabbar`
 slot — a quel punto `/more` diventa raggiungibile per davvero. Poi —
 separatamente — l'area di caricamento nuove foto.
+
+### `AppMobileHeader.vue` + `AppMobileTabbar.vue` — Task 6 (8/N): chiude la shell mobile
+
+Documento funzionale §5 (righe 948-1131), verificato riga per riga.
+
+**Deduplicazione proattiva**: estratta `src/nav/routeTitles.ts`
+(`ROUTE_TITLE_KEYS`) da `AppTopbar.vue` — l'header mobile ha bisogno
+esattamente della stessa mappa rotta→titolo della briciola desktop
+(stesso identico testo per ogni rotta oggi coperta). Fatta prima di
+scrivere il secondo consumatore, non dopo: evita la stessa seconda
+copia divergente già segnalata più volte in questa sessione
+(`formatBytes` triplicata, per esempio) come debito accettato solo
+quando unificare tocca codice non correlato — qui i due consumatori
+nascono nello stesso passo, unificarli súbito non ha quel costo.
+
+**`AppMobileHeader.vue`**:
+- Titolo per rotta: la mappa condivisa, **più** `/more` → "Altro"
+  aggiunto qui soltanto. Motivo trovato leggendo il documento (§5.8):
+  *"le viste `libreria`/`cartelle` esistono solo nella shell mobile e
+  restano montate anche se si torna a Desktop — in quel caso si
+  vedono senza briciola"* — quindi `/more` **non** va nella mappa
+  condivisa (altrimenti la briciola desktop lo mostrerebbe, contro il
+  comportamento dichiarato esplicitamente per quel caso).
+- Freccia indietro (§5.3.1): dei tre rami di priorità del mockup, solo
+  due sono raggiungibili — "dettaglio album aperto" non esiste (stesso
+  debito già dichiarato più volte per la mancanza di uno stato
+  "aperto" osservabile dall'esterno della vista). Culling/BatchEdit →
+  Foto; ogni altra vista non-radice → Altro.
+- Pulsante culling: badge dal dato reale già usato da `AppSidebar`
+  (`shell.badges.culling`), visibile solo su `/`; il badge stesso
+  sparisce a conteggio zero (non l'intero pulsante).
+- Menu account: solo "Esci" (Profilo/Impostazioni non hanno vista,
+  Task 14) — stesso ambito già dichiarato per il menu desktop.
+- Nessuna icona per la freccia/il pulsante culling (testo/glifo, "←"):
+  stesso stato di fatto già dichiarato in `MoreView.vue`.
+
+**`AppMobileTabbar.vue`**: quattro schede reali (Foto/Cerca/Album/
+Altro), ordine ed etichette esatte del documento. Regola dell'"attiva"
+(§5.7) tradotta alle sole rotte reali: il documento assegna
+esplicitamente `culling`/`bulkEdit` alla scheda "Foto" (si entra in
+culling solo dal pulsante imbuto della vista Foto) — qui `/culling` e
+`/batch-edit` attivano "Foto", non "Altro"; ogni rotta della mappa
+di `MoreView.vue` attiva "Altro".
+
+**`App.vue`**: `AppMobileHeader`/`AppMobileTabbar` cablati negli slot
+`mobile-header`/`mobile-tabbar` di `AppShell`, accanto a `AppSidebar`/
+`AppTopbar` già cablate nel Task 6 (3/N). Chiude la regressione
+temporanea dichiarata lì ("sotto i 768px, nessuna intestazione, nessuna
+barra a schede") — ora entrambe le larghezze hanno un'impalcatura
+reale.
+
+Verifica eseguita:
+- `AppMobileHeader.spec.ts` (nuovo) → 9/9 verdi: titolo per rotta
+  (incluso "Altro" su `/more`, assente dalla mappa condivisa); freccia
+  assente sulle quattro radici; freccia verso `/` da culling/
+  batch-edit; freccia verso `/more` da ogni altra vista; scorciatoia
+  culling assente fuori da `/`; badge nascosto a zero, mostrato a
+  conteggio reale; menu account con nome vero e "Esci" funzionante
+  (stesso schema di query su `document.body` già noto per Popover).
+- `AppMobileTabbar.spec.ts` (nuovo) → 8/8 verdi: le quattro schede
+  esatte come veri `<a>`; una sola scheda attiva per ognuna delle
+  quattro radici; "Foto" (non "Altro") attiva su culling/batch-edit;
+  "Altro" attiva su una rotta dell'albero di `MoreView`.
+- `App.spec.ts` (esteso) → nuovo test: su viewport mobile (matchMedia
+  stubbato a `matches:true`), la tab bar (un `<a href="/more">` reale)
+  compare al posto di sidebar/topbar (`#topSearch` assente). 3/3 verdi.
+- `npx vitest run` (suite intera) → 63 file, 396/396 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/modificati → pulito.
+- `npm run build` → bundle iniziale **117.178/153.600** byte gzip.
+  Crescita reale e attesa (+617 byte da 116.561): `AppMobileHeader`/
+  `AppMobileTabbar` sono ora importati per davvero da `App.vue` (come
+  `AppSidebar`/`AppTopbar` nel Task 6 3/N), non più codice morto.
+  Margine residuo ampio (36.422 byte).
+
+**Task 6 chiuso** per la parte di impalcatura (sidebar, topbar,
+cablaggio in `App.vue`, intestazioni improvvisate tolte da tutte le
+viste, shell mobile completa). Resta, dichiarato fin dall'inizio come
+blocco a parte: l'area di caricamento nuove foto
+(`docs/ui/caricamento-nuove-foto.md`), sopra un `UploadPanel.vue`/
+`stores/upload.ts` già corretto e già testato ma oggi inerte (nessun
+innesco reale in uso normale, a parte il flusso PWA di condivisione,
+esso stesso bloccato — passa sempre `folderId: null` senza modo di
+cambiarlo).

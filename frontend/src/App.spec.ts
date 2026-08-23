@@ -42,11 +42,11 @@ afterEach(() => {
   i18n.global.locale.value = previousLocale
 })
 
-function installMatchMedia() {
+function installMatchMedia(isMobile = false) {
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({
-      matches: false,
+      matches: isMobile,
       media: '(max-width: 767px)',
       onchange: null,
       addEventListener: vi.fn(),
@@ -56,8 +56,8 @@ function installMatchMedia() {
   )
 }
 
-async function mountApp(path = '/') {
-  installMatchMedia()
+async function mountApp(path = '/', isMobile = false) {
+  installMatchMedia(isMobile)
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -67,6 +67,7 @@ async function mountApp(path = '/') {
       { path: '/map', component: { template: '<div />' } },
       { path: '/shares', component: { template: '<div />' } },
       { path: '/albums', component: { template: '<div />' } },
+      { path: '/more', component: { template: '<div />' } },
       { path: '/trash', component: { template: '<div />' } },
       { path: '/problems', component: { template: '<div />' } },
       { path: '/login', component: { template: '<div />' } }
@@ -105,6 +106,19 @@ describe('App', () => {
     expect(wrapper.findAll('a').some((a) => a.attributes('href') === '/culling')).toBe(true)
     // Il campo di scorciatoia della ricerca prova che AppTopbar è montata.
     expect(wrapper.find('#topSearch').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="home"]').text()).toBe('contenuto della vista')
+  })
+
+  it('on a mobile viewport, shows the mobile header/tabbar instead of the sidebar/topbar', async () => {
+    const { wrapper, session } = await mountApp('/', true)
+    session.user = testUser
+    session.unavailable = false
+    await flushPromises()
+
+    // La tab bar mobile ha un <a href="/more"> reale, che AppTopbar/
+    // AppSidebar non hanno mai.
+    expect(wrapper.findAll('a').some((a) => a.attributes('href') === '/more')).toBe(true)
+    expect(wrapper.find('#topSearch').exists()).toBe(false)
     expect(wrapper.find('[data-testid="home"]').text()).toBe('contenuto della vista')
   })
 

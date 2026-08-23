@@ -139,7 +139,8 @@
     "cerca": "Cerca",
     "libraryGroup": "Libreria",
     "manutenzione": "Manutenzione",
-    "amministrazione": "Amministrazione"
+    "amministrazione": "Amministrazione",
+    "more": "Altro"
   },
   "sidebar": {
     "storageLabel": "Spazio libero",
@@ -598,7 +599,8 @@
     "retry": "Riprova",
     "language": "Lingua",
     "languageIt": "Italiano",
-    "languageEn": "English"
+    "languageEn": "English",
+    "back": "Indietro"
   },
   "errors": {
     "unreachable": {

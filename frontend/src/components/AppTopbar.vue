@@ -41,27 +41,14 @@ import { computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import { ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
+
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
-const CRUMB_LABEL_KEYS: Record<string, string> = {
-  '/': 'topbar.allPhotos',
-  '/search': 'nav.cerca',
-  '/culling': 'culling.entry',
-  '/map': 'maps.entry',
-  '/shares': 'shares.entry',
-  '/albums': 'albums.entry',
-  '/trash': 'trash.entry',
-  '/problems': 'problems.title',
-  '/batch-edit': 'batchEdit.title',
-  '/folders': 'folders.title',
-  '/users': 'users.title',
-  '/groups': 'groups.title'
-}
-
 const breadcrumbLabel = computed(() => {
-  const key = CRUMB_LABEL_KEYS[route.path]
+  const key = ROUTE_TITLE_KEYS[route.path]
   return key ? t(key) : null
 })
 
