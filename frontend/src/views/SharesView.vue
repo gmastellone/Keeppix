@@ -136,17 +136,8 @@ function subjectLabel(grant: PermissionGrant): string {
 
 <template>
   <main class="mx-auto max-w-3xl p-6">
-    <p class="mb-4 text-sm">
-      <RouterLink
-        class="underline"
-        to="/"
-      >
-        {{ t('folders.back') }}
-      </RouterLink>
-    </p>
-    <h1 class="text-2xl font-semibold">
-      {{ t('shares.title') }}
-    </h1>
+    <!-- Fase 11 Task 6 (6/N): link "indietro" e titolo tolti — copre
+         AppSidebar (voce "Condivisioni") e AppTopbar (briciola "Condivisioni"). -->
     <p
       v-if="loadError"
       class="mt-6 text-content-muted"
@@ -326,16 +317,16 @@ function subjectLabel(grant: PermissionGrant): string {
             {{
               link.inherited_in
                 ? t('shares.explainLinkInherited', {
-                    subject: link.subject_name,
-                    role: link.role,
-                    on: link.granted_on_name,
-                    inherited: link.inherited_in
-                  })
+                  subject: link.subject_name,
+                  role: link.role,
+                  on: link.granted_on_name,
+                  inherited: link.inherited_in
+                })
                 : t('shares.explainLink', {
-                    subject: link.subject_name,
-                    role: link.role,
-                    on: link.granted_on_name
-                  })
+                  subject: link.subject_name,
+                  role: link.role,
+                  on: link.granted_on_name
+                })
             }}
           </li>
         </ul>

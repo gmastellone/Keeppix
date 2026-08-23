@@ -10,11 +10,19 @@
 //   <nome>`, `Culling / <nome lotto>`) non è mai raggiungibile: nessuna
 //   di queste rotte porta oggi uno stato "aperto" osservabile
 //   dall'esterno della vista (stesso debito già dichiarato in
-//   AppSidebar per il gruppo "Cartelle" — Task 13/15/16). Le rotte
-//   esistenti ma assenti dalla mappa del documento (`/folders`,
-//   `/users`, `/groups`) restano a briciola vuota: è il comportamento
-//   letterale del prototipo per le viste non mappate (`crumbs[view] ||
-//   ''`), non un'omissione.
+//   AppSidebar per il gruppo "Cartelle" — Task 13/15/16).
+//
+// Task 6 (6/N): `/folders`, `/users`, `/groups` sono entrate in questa
+// mappa — inizialmente (Task 6 2/N) restavano a briciola vuota,
+// "comportamento letterale del prototipo per le viste non mappate".
+// Quella scelta presumeva che il proprio `<h1>` di ciascuna vista
+// facesse comunque da titolo — ma spogliare quelle intestazioni
+// (Task 6, questo stesso sotto-passo) toglie anche quell'`<h1>`: senza
+// una voce qui, quelle tre pagine resterebbero **senza alcun titolo**,
+// non fedeli al comportamento del prototipo che le ignora perché non
+// esistono lì. Sono destinazioni reali di questa app (aggiunte a
+// `AppSidebar` nel Task 6 4/N): meritano una briciola reale, riusando
+// `folders.title`/`users.title`/`groups.title`, non un'invenzione.
 // - Il pulsante "Carica"/"Carica qui" che il mockup mostra accanto alla
 //   ricerca (`#uploadTopBtn`, righe 1438 e 3236-3247) è deliberatamente
 //   assente: appartiene al sottosistema di caricamento (documento
@@ -46,7 +54,10 @@ const CRUMB_LABEL_KEYS: Record<string, string> = {
   '/albums': 'albums.entry',
   '/trash': 'trash.entry',
   '/problems': 'problems.title',
-  '/batch-edit': 'batchEdit.title'
+  '/batch-edit': 'batchEdit.title',
+  '/folders': 'folders.title',
+  '/users': 'users.title',
+  '/groups': 'groups.title'
 }
 
 const breadcrumbLabel = computed(() => {

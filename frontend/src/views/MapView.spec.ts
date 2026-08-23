@@ -43,7 +43,6 @@ describe('MapView', () => {
         plugins: [createPinia(), i18n],
         mocks: { $router: { push: vi.fn() } },
         stubs: {
-          RouterLink: { template: '<a><slot /></a>' },
           AssetViewer: true,
           MapsOfflineView: true,
           MapClusterLayer: {

@@ -47,17 +47,8 @@ onMounted(() => {
 
 <template>
   <main class="mx-auto max-w-3xl p-6">
-    <p class="mb-4 text-sm">
-      <RouterLink
-        class="underline"
-        to="/"
-      >
-        {{ t('folders.back') }}
-      </RouterLink>
-    </p>
-    <h1 class="text-2xl font-semibold">
-      {{ t('batchEdit.title') }}
-    </h1>
+    <!-- Fase 11 Task 6 (6/N): link "indietro" e titolo tolti — copre
+         AppTopbar (briciola "Modifica in blocco", riusa batchEdit.title). -->
     <p class="mt-2 text-sm text-content-muted">
       {{ t('batchEdit.count', { count: assetIds.length }) }}
     </p>

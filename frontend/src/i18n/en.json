@@ -131,7 +131,6 @@
   "folders": {
     "entry": "Folders",
     "title": "Folders",
-    "back": "Photos",
     "empty": "No folders to show.",
     "move": "Move"
   },
@@ -161,8 +160,6 @@
   },
   "maps": {
     "entry": "Map",
-    "title": "Photo map",
-    "back": "Photos",
     "cluster": "{count} photos",
     "openPhoto": "Open photo",
     "drawArea": "Draw area",
@@ -310,7 +307,6 @@
   },
   "albums": {
     "entry": "Albums",
-    "title": "Albums",
     "namePlaceholder": "Album name",
     "create": "Create",
     "empty": "No albums yet.",
@@ -319,7 +315,6 @@
   },
   "shares": {
     "entry": "Shares",
-    "title": "Shares",
     "linksTitle": "Public links",
     "peopleTitle": "People and groups",
     "empty": "No shared links.",
@@ -534,7 +529,6 @@
   },
   "trash": {
     "entry": "Trash",
-    "title": "Trash",
     "empty": "Trash is empty.",
     "emptyAll": "Empty trash",
     "restore": "Restore",

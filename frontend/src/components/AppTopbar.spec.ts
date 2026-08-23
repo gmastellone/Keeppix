@@ -43,9 +43,12 @@ async function mountTopbar(path: string): Promise<{ router: Router; wrapper: Vue
       { path: '/search', component: SearchView },
       { path: '/culling', component: { template: '<div />' } },
       { path: '/albums', component: { template: '<div />' } },
-      // Rotta reale ma assente dalla mappa briciole del documento
-      // funzionale (§4.2): deve restare a briciola vuota, non un errore.
-      { path: '/folders', component: { template: '<div />' } }
+      { path: '/folders', component: { template: '<div />' } },
+      // Rotta reale ma non collegata da AppSidebar (Task 6): deve
+      // restare a briciola vuota, non un errore — a differenza di
+      // /folders, che invece una voce reale in sidebar ce l'ha (Task 6
+      // 4/N) e quindi una briciola reale (Task 6 6/N).
+      { path: '/settings/maps/offline', component: { template: '<div />' } }
     ]
   })
   setActivePinia(createPinia())
@@ -78,8 +81,13 @@ describe('AppTopbar', () => {
     expect(wrapper.find('b').text()).toBe('Culling')
   })
 
-  it('leaves the breadcrumb empty for a real route absent from the documented map', async () => {
+  it('shows the real "Cartelle" breadcrumb for /folders — not blank, unlike Task 6 (2/N)\'s first pass', async () => {
     const { wrapper } = await mountTopbar('/folders')
+    expect(wrapper.find('b').text()).toBe('Cartelle')
+  })
+
+  it('leaves the breadcrumb empty for a real route not linked from AppSidebar', async () => {
+    const { wrapper } = await mountTopbar('/settings/maps/offline')
     expect(wrapper.find('b').exists()).toBe(false)
   })
 

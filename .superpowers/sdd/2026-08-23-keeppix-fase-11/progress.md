@@ -2268,3 +2268,59 @@ per ciascuna cosa perde e cosa no (non tutte avranno lo stesso
 schema di TimelineView — es. UsersView/GroupsView potrebbero non
 avere link di navigazione affatto, solo il proprio contenuto). Poi la
 shell mobile, poi — separatamente — l'area di caricamento nuove foto.
+
+### `MapView.vue` + le 7 viste con lo schema "torna a / + h1" — Task 6 (6/N)
+
+**`MapView.vue`**: tolti il link "indietro" e l'`<h1>` (`maps.back`/
+`maps.title`, entrambe orfane dopo, rimosse da entrambi i file di
+traduzione). Resta solo il pulsante reale "Regioni offline"
+(`managingRegions`), senza un'altra sede.
+
+**`FoldersView`, `AlbumsView`, `SharesView`, `TrashView`, `GroupsView`,
+`BatchEditView`, `UsersView`**: stesso identico blocco in tutte e
+sette — `<p><RouterLink to="/">{{t('folders.back')}}</RouterLink></p>
+<h1>{{titolo}}</h1>` — verificato riga per riga per ciascuna prima di
+toccarla (nessuna nascondeva un pulsante o un'azione in più dentro
+quel blocco). Tolto ovunque; `folders.back` è rimasta orfana ovunque,
+rimossa da entrambi i file di traduzione. `albums.title`/`trash.title`/
+`shares.title` erano usate **solo** dal proprio `<h1>` ora tolto (il
+briciolo di `AppTopbar` per quelle tre riusa `.entry`, valore identico
+ma chiave diversa) — orfane, rimosse. `folders.title`/`users.title`/
+`groups.title` invece restano: le usa `AppTopbar` (v. sotto).
+
+**Scoperta scrivendo questo passo, non prevista**: `AppTopbar` (Task 6
+2/N) lasciava `/folders`, `/users`, `/groups` a briciola vuota,
+presumendo che il proprio `<h1>` di ciascuna vista facesse comunque da
+titolo. Togliendo qui quell'`<h1>`, quella scelta smetteva di reggere:
+quelle tre pagine sarebbero rimaste **senza alcun titolo visibile**, non
+fedeli al comportamento del prototipo (che le ignora perché lì non
+esistono affatto), solo un buco. Corretto **prima** di procedere:
+`AppTopbar`'s `CRUMB_LABEL_KEYS` ora include anche `/folders` →
+`folders.title`, `/users` → `users.title`, `/groups` → `groups.title` —
+stesso principio già usato per aggiungerle a `AppSidebar` nel Task 6
+4/N (destinazioni reali dell'app, non del mockup, meritano un
+trattamento reale, non il ripiego del prototipo pensato per tutt'altre
+viste).
+
+Verifica eseguita:
+- `AppTopbar.spec.ts` (esteso, 8/8 verdi): il test "briciola vuota per
+  una rotta non mappata" è stato rifatto su `/settings/maps/offline`
+  (non collegata da `AppSidebar`, resta vuota per davvero) invece di
+  `/folders` (ora ha una briciola reale, verificato con un test
+  proprio: "Cartelle", non un errore né un buco).
+- `MapView.spec.ts`, `SharesView.spec.ts`, `FoldersView.spec.ts`,
+  `UsersView.spec.ts` → verdi. `AlbumsView`, `TrashView`, `GroupsView`,
+  `BatchEditView` **non avevano spec file prima di questo passo** —
+  debito preesistente, non introdotto qui, non colmato per non
+  allargare l'ambito di questo passo oltre "togliere l'intestazione
+  improvvisata".
+- `npx vitest run` (suite intera) → 60 file, 372/372 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint .` → un warning reale trovato e corretto: rimuovere il
+  blocco in `SharesView.vue` ha spostato l'indentazione attesa del
+  markup successivo di 2 spazi (`vue/html-indent`); risolto con
+  `--fix` (solo spazi, verificato con `npx vitest run
+  SharesView.spec.ts` dopo). Un solo errore nell'intero repo, lo
+  stesso preesistente e non correlato di sempre (`PlayerView.vue:51`).
+- `npm run build` → bundle iniziale **116.514/153.600** byte gzip
+  (variazione trascurabile, tutte le viste toccate sono chunk lazy).
