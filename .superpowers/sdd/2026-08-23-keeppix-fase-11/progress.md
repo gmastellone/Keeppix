@@ -537,3 +537,42 @@ Debiti dichiarati: dieci componenti del Task 2 restano da scrivere
 (`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
 `SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
 `SegmentedControl`, `NavGroup`).
+
+### SegmentedControl (SP-24)
+
+Nono componente del Task 2. Verificato riga per riga contro
+`.seg-control`/`.seg-option` (es. righe 4441-4455 del mockup, il
+gruppo "Pick/Scarta" della modifica in blocco) e la loro unica logica
+JS, `wireSegGroup` (riga 4519): un radiogroup — `role="radiogroup"` sul
+contenitore, `role="radio"`/`aria-checked`/tabindex roving su ogni
+opzione — ma **`wireSegGroup` gestisce solo clic/Invio/Spazio**, nessuna
+freccia da nessuna parte nel prototipo. Nota vincolante esplicita del
+piano: *"roving tabindex e frecce (il prototipo non le ha)"* — qui le
+frecce sono un'aggiunta reale, verificata con un test che controlla sia
+l'evento emesso sia il fuoco reale nel DOM dopo `ArrowRight`/`ArrowLeft`
+(con avvolgimento ai capi), non trascritta dal prototipo che non le ha.
+
+**"Nei filtri della modifica in blocco include sempre 'Non modificare'"**
+(altra nota del piano) non è qualcosa che un controllo generico può
+imporre da solo: è una regola per chi *chiama* `SegmentedControl` nella
+schermata di modifica in blocco (Tranche successiva, non ancora
+scritta) — l'opzione va nell'array `options` passato, il componente
+qui si limita a rendere qualunque insieme di opzioni gli venga dato.
+Non forzata nel componente, dichiarata come debito verso il chiamante
+futuro, non dimenticata.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/SegmentedControl.spec.ts` → 4/4
+  verdi: solo l'opzione selezionata è raggiungibile da tab (roving
+  tabindex -1 sulle altre), il clic seleziona, `ArrowRight`/`ArrowLeft`
+  spostano selezione **e fuoco** avvolgendo ai capi dell'array.
+- `npx vitest run` (suite intera) → 181/181 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **92.795/153.600** byte gzip
+  (script CI). Margine ampio (60.805 byte).
+
+Debiti dichiarati: nove componenti del Task 2 restano da scrivere
+(`PhotoTile`, `SelectionBar`, `QuickFilter`, `SelectAllVisible`,
+`SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
+`NavGroup`).
