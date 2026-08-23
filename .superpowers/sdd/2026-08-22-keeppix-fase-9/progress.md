@@ -1148,3 +1148,116 @@ non duplicata qui.
 Task 11: complete. Chiude il Gruppo D e l'intera Fase 9 lato
 implementazione — resta la chiusura fase (§10).
 
+CI reale: run 32624104614 (commit `8a4fea8`, branch `fase-9`) →
+`completed`/`success`, confermato via `mcp__github__actions_get`.
+
+---
+
+## Chiusura fase — verifica `PROSEGUI.md` §10
+
+Eseguita da un worktree di sola lettura (`git worktree add
+/tmp/keeppix-fase9-verify origin/fase-9 --detach`, rimosso a verifica
+finita), leggendo il codice vero — non il riassunto che ne fa questo
+ledger.
+
+**Le cose che il piano dichiara più importanti** (Gruppo A, l'intro al
+Gruppo C, e i Ruling di Task 1/2/9), verificate riga per riga sul
+worktree:
+
+- `crates/keeppix-db/src/assets.rs::move_asset` — `tokio::fs::rename`
+  (riga ~924) precede per davvero `UPDATE assets SET folder_id =
+  ..., filename = ...` (riga ~935): il Ruling del Task 1 ("il file si
+  sposta prima, la riga si aggiorna dopo") è nel codice, non solo nel
+  commento.
+- `crates/keeppix-db/src/folders.rs`/`culling.rs` — `culling_role` è
+  una colonna tipata (`Option<CullingRole>`, `parse_culling_role`),
+  letta via `tf.culling_role = 'taken'`/`sf.culling_role = 'skipped'`
+  nelle query dei lotti: nessun confronto sul nome della cartella in
+  nessun punto del modulo.
+- `crates/keeppix-domain/src/rename.rs` — `MAX_FILENAME_BYTES = 255`,
+  `ORPHAN_SEPARATORS`/`collapse_orphan_separators` esistono per davvero
+  e sono richiamati da `render_base`: i difetti 2-4 (separatori orfani,
+  sanificazione, limite di lunghezza) sono nel motore, non solo
+  annunciati.
+- `crates/keeppix-db/src/rename.rs::flag_collisions` — la query
+  `WHERE folder_id = ANY($1) AND status <> 'trashed' AND NOT (id =
+  ANY($2))` verifica per davvero contro l'intero database, non solo
+  dentro il gruppo: il difetto 1 è chiuso nel codice.
+- `crates/keeppix-db/src/rename.rs::undo`/`restore_previous_locations`
+  — richiama `AssetRepo::move_asset` per ogni asset, non un `UPDATE`
+  di colonna: il Ruling del Task 9 ("non è un drop-in dell'`undo`
+  esistente") è rispettato.
+- `crates/keeppix-api/src/lib.rs` — le tre rotte
+  (`routes::rename::preview`/`apply_batch`/`undo_batch`) sono montate
+  per davvero; `routes/rename.rs` usa `crate::bulk::BulkOutcome`
+  (Fase 10), non un involucro nuovo — la convenzione della fase
+  precedente è riusata, non reinventata.
+
+**Numeri nel ledger, con fonte**: il tempo di rinomina di massa su 500
+file (2296.6/2730.1 ms, `scale_rename.rs`, incollato sopra), l'EXPLAIN
+su 20k asset per `SearchNode::Pick` (Task 5), tutti prodotti da un
+comando reale nel ledger, non stimati.
+
+**Cronologia CI del branch** (`mcp__github__actions_list`, 15 run,
+`fase-9`): due fallimenti reali all'inizio della fase (run 223 Task 1,
+run 224 Task 2 — entrambi `cargo clippy --workspace --all-targets`,
+l'unico gate non eseguibile in locale in questo sandbox per via dei
+binari `ort`), entrambi seguiti da un commit di correzione sostanziale
+(non un timeout rilassato, non un warning silenziato) e poi verde per
+tutti i restanti 13 push consecutivi, Task 11 compreso. Segnale
+positivo per il criterio di §10: la CI ha trovato qualcosa di vero
+all'inizio, non niente.
+
+**`scripts/wired-exceptions.txt`**: ogni voce aggiunta da questa fase
+ha un rinvio a una fase futura reale con un motivo (`fase-11` per le
+tre rotte di rinomina, `empty_skipped`, `list_lots`, le rotte
+faces/persons/tags già in coda) o è una nota di falso positivo di
+`count_ident` verificata con `grep` prima di essere scritta (mai una
+scusa per zittire lo strumento su codice morto).
+
+**Riuso delle convenzioni della fase precedente**: `BulkOutcome`/
+`BulkFailure`/`FailureReason` (Fase 10) riusati da subito (Task 1,
+`FailureReason::Collision`) e di nuovo da `routes/rename.rs` (Task 10);
+`OperationKind` esteso con una quarta variante invece di un
+sottosistema parallelo (Task 10); `SearchNode` come unico modello di
+filtro esteso con l'asse `Pick` (Task 5), non un secondo linguaggio di
+query.
+
+### Riepilogo di sicurezza sul filesystem (richiesto prima di chiudere
+la fase — è l'unica fase che tocca file veri dell'utente)
+
+- **Ordine spostamento/riga**: ogni scrittura fisica (`move_asset`,
+  quindi ogni rinomina/spostamento/annullamento/scelta di culling) fa
+  il `rename()` reale **prima** di aggiornare la riga `assets`. Un
+  fallimento a metà lascia il file spostato e la riga vecchia — la
+  scansione successiva lo ritrova, non un asset fantasma.
+- **Nessuna sovrascrittura silenziosa**: ogni destinazione è verificata
+  contro `assets` (vincolo `UNIQUE (folder_id, filename)` più, per la
+  rinomina, un controllo esplicito contro l'intero database — difetto
+  1) prima di scrivere; una collisione produce `DbError::Collision` →
+  `FailureReason::Collision` per quell'asset, mai un file perso sotto
+  un altro.
+- **Cancellazione mai diretta sul filesystem**: `DELETE` — sia
+  dall'app (`/api/v1/assets/{id}`) sia da `WebDAV`
+  (`/dav/asset/{id}`) — passa sempre da `TrashRepo::choose` con
+  `DiskAction::MovedToTrash`: il file finisce sotto `.keeppix-trash`,
+  recuperabile, mai cancellato in silenzio. Verificato di nuovo in
+  Task 11 (`v13`, `disk_action = 'moved_to_trash'` e file ancora
+  presente su disco dopo la `DELETE`).
+- **L'annullamento della rinomina ripristina il file vero**, non solo
+  la riga: `undo` richiama `move_asset` al contrario per ogni asset del
+  batch — verificato sia nella suite di `rename.rs` (Task 9) sia nel
+  viaggio reale del Task 11.
+- **Riuscita parziale, mai un blocco totale silenzioso**: un lotto di
+  500 file con una collisione al suo interno rinomina 499 file e
+  riporta il fallimento per l'unico che collide (`outcome.failed`),
+  invece di abortire l'intero lotto o, peggio, sovrascrivere qualcosa.
+- **Annullare un'operazione lunga a metà è una riuscita parziale, non
+  un rollback** (Ruling Task 16/10): ciò che è già stato scritto sul
+  disco resta lì, dichiarato in `outcome.renamed`/`succeeded` —
+  nessuno stato intermedio nascosto.
+
+Nessun difetto reale trovato in questa verifica: il codice sul branch
+pushato corrisponde a quanto dichiarato nel ledger, per ognuna delle
+voci controllate sopra.
+
