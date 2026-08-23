@@ -145,6 +145,10 @@
     "storageLabel": "Free space",
     "storageValue": "{free} of {total}"
   },
+  "topbar": {
+    "allPhotos": "All photos",
+    "searchPlaceholder": "Search by date, place, person…"
+  },
   "timeline": {
     "empty": "No photos in this library.",
     "densityDown": "Fewer columns",

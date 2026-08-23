@@ -102,6 +102,7 @@ onMounted(() => {
       @submit.prevent="submit"
     >
       <input
+        id="search-query-input"
         v-model="q"
         class="flex-1 rounded-lg border border-border bg-surface-elevated px-3 py-2"
         :placeholder="t('search.placeholder')"

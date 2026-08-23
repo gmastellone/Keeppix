@@ -2016,3 +2016,98 @@ markup ad-hoc. Prossimo passo di questo task: la topbar (breadcrumb +
 scorciatoia di ricerca), poi il cablaggio reale in `App.vue` con la
 rimozione dell'intestazione improvvisata da ogni vista, poi la shell
 mobile, poi — separatamente — l'area di caricamento nuove foto.
+
+### CI su `e97a83e` (AppSidebar): un rosso, non del componente
+
+Il job `backend` è fallito su `crates/keeppix-db/tests/scale_embeddings.rs
+:: vector_search_stays_interactive_with_ivfflat` — misurato 999.4 ms
+contro un budget di 1000 ms (`raw vector scan 999.4 ms should be
+interactive with IVFFlat`). Il commit non tocca un solo file backend
+(solo `frontend/src/{api,stores,components,i18n}`), e il margine
+(0.6 ms su 1000) è coerente con rumore del runner, non con una
+regressione. Rilanciato `rerun_failed_jobs` sullo stesso run per
+confermare prima di considerarlo un flake accertato — nessuna modifica
+al codice per un test di soglia temporale che non è nel percorso di
+questo task.
+
+### `components/AppTopbar.vue`
+
+Documento funzionale §4 ("Barra superiore / breadcrumb", righe
+830-929), verificato riga per riga, più il markup reale del mockup
+(righe 1434-1439 per lo scheletro `.topbar`, 3212-3247 per
+`renderTopbar()`).
+
+Scoperta scrivendo il componente, non assunta dal riassunto del piano:
+il markup del mockup ha **tre** elementi in `.topbar-right`
+(`#uploadTopBtn` + `#topSearch`), non i "due soli elementi" che il
+testo del documento funzionale afferma alla riga 838 — un disallineamento
+reale fra testo e codice del mockup, non un'invenzione. Il mockup HTML
+è la fonte di verità qui (stessa regola con cui questa sessione ha già
+trattato ogni altro scarto testo/codice). Il pulsante Carica resta
+comunque fuori da questo componente: appartiene al sottosistema di
+caricamento (`caricamento-nuove-foto.md`), un blocco di lavoro già
+dichiarato a parte nel diario — costruirlo ora senza il selettore di
+destinazione dietro sarebbe un pulsante finto, stesso principio già
+applicato al gruppo "Cartelle" di `AppSidebar`.
+
+Ambito delle briciole di pane: solo il segmento "corrente", per le
+sole rotte con una destinazione reale oggi (stesso elenco di
+`AppSidebar` più `/batch-edit` → riusa `batchEdit.title`, non un nuovo
+testo — il documento funzionale userebbe "Modifica multipla" ma la
+vista reale si chiama già "Modifica in blocco": divergenza
+preesistente di `BatchEditView`, non introdotta né corretta qui). Il
+segmento "genitore" del mockup (`Cartelle / <nome>`, `Album /
+<nome>`, `Culling / <nome lotto>`) non è mai raggiungibile: nessuna
+rotta oggi porta uno stato "aperto" osservabile dall'esterno della
+vista — stesso debito già dichiarato per il gruppo "Cartelle" di
+`AppSidebar` (Task 13/15/16). Le rotte reali ma assenti dalla mappa
+del documento (`/folders`, `/users`, `/groups`) restano a briciola
+vuota: comportamento letterale del prototipo per le viste non mappate
+(`crumbs[view] || ''`), verificato con un test dedicato, non
+un'omissione silenziosa.
+
+Correzione di accessibilità rispetto al prototipo (stessa politica di
+`AppSidebar`): il documento dichiara esplicitamente una deviazione da
+SP-8 alla riga 906 ("premere Invio o Spazio... non fa nulla — solo il
+click del mouse apre Cerca"). Qui Invio e Spazio attivano la
+scorciatoia di ricerca esattamente come il click.
+
+Per mettere a fuoco il campo vero di `SearchView` dopo la
+navigazione (comportamento del mockup: `setTimeout(...,0)` più
+`getElementById('cercaInput')`), aggiunto `id="search-query-input"`
+al campo reale di `SearchView.vue` — unica modifica a quel file.
+
+Bug reale trovato scrivendo il test, non nel componente: il primo
+tentativo del test "clic apre /search e mette a fuoco il campo" falliva
+sempre (`document.activeElement` restava vuoto) perché il test montava
+`AppTopbar` da solo, senza un `<RouterView>` reale — la rotta cambiava
+ma nessuna vista di destinazione compariva nel DOM da mettere a fuoco.
+Corretto montando un host `{ AppTopbar, RouterView }` insieme, non
+`AppTopbar` isolato.
+
+Verifica eseguita:
+- `AppTopbar.spec.ts` (nuovo) → 7/7 verdi: briciola in grassetto
+  corretta per due rotte diverse; briciola vuota per una rotta reale
+  ma non mappata dal documento; il campo è davvero `readonly` col
+  placeholder esatto; il click apre `/search` e mette a fuoco il campo
+  reale; Invio e Spazio fanno lo stesso (SP-8).
+- `npx vitest run` (suite intera) → 59 file, 368/368 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/modificati → pulito. Un solo errore
+  preesistente nell'intero repo (`PlayerView.vue:51`, parametro
+  `_plan` mai usato) — commit `6fab915` del 20/08, prima di questa
+  sessione, non toccato da nessun task Fase 11 finora; il job
+  `frontend` della CI non esegue affatto `npm run lint` (solo Tipi/
+  Test/Build/Budget — verificato nel workflow), quindi non l'ha mai
+  intercettato. Fuori dall'ambito di questo task: non corretto qui.
+- `npm run build` → bundle iniziale **95.247/153.600** byte gzip
+  (script CI, ricalcolato a mano). Margine ampio (58.353 byte);
+  `AppTopbar` non ancora importato da `App.vue`.
+
+Debito invariato rispetto a Task 6 (1/N): sidebar e topbar esistono ma
+nessuna delle due è ancora cablata in `App.vue`, e le ~9 viste con
+intestazione improvvisata non sono ancora state private del proprio
+markup ad-hoc. Prossimo passo: il cablaggio reale in `App.vue`
+(entrambi i componenti dentro `AppShell`, rimozione dell'intestazione
+improvvisata da ogni vista), poi la shell mobile, poi —
+separatamente — l'area di caricamento nuove foto.

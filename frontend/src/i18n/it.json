@@ -145,6 +145,10 @@
     "storageLabel": "Spazio libero",
     "storageValue": "{free} su {total}"
   },
+  "topbar": {
+    "allPhotos": "Tutte le foto",
+    "searchPlaceholder": "Cerca per data, luogo, persona…"
+  },
   "timeline": {
     "empty": "Nessuna foto in questa libreria.",
     "densityDown": "Meno colonne",
