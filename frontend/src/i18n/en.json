@@ -39,6 +39,15 @@
     "selectAllVisible": {
       "tooltip": "Select all",
       "ariaLabel": "Select everything you see"
+    },
+    "quickFilter": {
+      "trigger": "Filter",
+      "title": "Filters",
+      "clearAll": "Clear all",
+      "searchPlaceholder": "Search {n}…",
+      "noResults": "No results for \"{term}\"",
+      "resultCountFiltered": "{n} photos with these filters",
+      "resultCountTotal": "{n} photos total"
     }
   },
   "setup": {

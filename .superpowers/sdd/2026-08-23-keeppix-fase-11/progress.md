@@ -889,3 +889,74 @@ Verifica eseguita:
 
 Debiti dichiarati: il resto della shell mobile (Task 3) più tre
 componenti del Task 2 (`PhotoTile`, `QuickFilter`, `SuggestionQueue`).
+
+### QuickFilter (SP-3) — ambito parziale, dichiarato
+
+Sedicesimo componente del Task 2. Letta la definizione canonica per
+intero (documento funzionale §11): un pannello a sei sezioni di chip
+(Tipo/Persone/Tag/Categorie/Fotocamera/Luogo) che restringe la griglia
+sul momento, OR dentro una dimensione e AND fra dimensioni diverse
+(`photoMatchesBrowseFilters`).
+
+**Sopra `Popover.vue`, non una reimplementazione**: apri/chiudi per
+clic, click fuori chiude, Esc chiude — lo stesso contratto già
+garantito da reka-ui per SP-14, nessun gestore scritto qui. Il
+pulsante a imbuto **non** ha tooltip (§11.4, nota esplicita del
+documento: *"a differenza di 'Seleziona tutto', il pulsante del
+filtro non ha `data-tip`, ha solo `aria-label`"*) — niente `Tooltip`
+qui, a differenza di `SelectAllVisible`.
+
+**Ambito dichiarato**: il componente è generico rispetto alle
+dimensioni — riceve un array `{id, label, options}`, non conosce
+Persone/Tag/Categorie/Fotocamera/Luogo come concetti hardcoded. Le sei
+dimensioni reali dipendono da store che non esistono ancora in questa
+sessione (persone, tag, fotocamere, cartelle); la schermata che le
+userà davvero le costruirà dalle proprie fonti dati quando quegli
+store esisteranno — stesso principio già applicato ad `AppShell`
+(Task 3) e a `SelectionBar` (i cinque/tre pulsanti d'azione).
+
+**La logica di combinazione vive fuori dal componente**, pura e
+testabile senza un modello di foto reale: nuovo `design/quickFilter.ts`
+(`activeFilterCount`, `matchesFilters`) — ogni dimensione espone un
+`getValues(item) => string[]` (un array anche per un campo a valore
+singolo, come la fotocamera), così l'OR-dentro-la-dimensione si esprime
+allo stesso modo per campi singoli e multipli senza casi speciali; una
+dimensione disattivata (es. "Persone" a riconoscimento volti spento)
+restituisce sempre `[]`, riproducendo lo `return false` secco del
+documento senza logica dedicata nel confronto — provato con un test
+dedicato, non solo dedotto.
+
+**Comportamento del campo di ricerca** (§11.3, compare solo oltre 8
+opzioni — `BROWSE_FILTER_SEARCH_THRESHOLD`): implementato fedelmente,
+compreso *"le opzioni già selezionate restano sempre in cima e non
+vengono mai filtrate via"* — testato scrivendo un termine che non
+corrisponde più e verificando che l'opzione già scelta resti visibile,
+non dedotto dalla sola lettura del testo.
+
+**Non ancora nel Task 2** (debito esplicito, non un'omissione): la
+regola "digitare non ridisegna tutto il pannello, solo la riga di chip
+della sezione" (§11.3) è un'ottimizzazione del DOM manuale del
+prototipo — irrilevante nel modello reattivo di Vue, che ridisegna solo
+i nodi che cambiano davvero per costruzione; non c'è nulla da
+replicare qui.
+
+Verifica eseguita:
+- `npx vitest run src/design/quickFilter.spec.ts` → 6/6 verdi:
+  conteggio somma su tutte le dimensioni, OR dentro una dimensione, AND
+  fra dimensioni, dimensione disattivata come falso secco.
+- `npx vitest run src/components/ui/QuickFilter.spec.ts` → 8/8 verdi:
+  pallino assente a zero attivi e corretto quando presente, pannello
+  che si apre ed elenca le chip, clic che emette la selezione
+  aggiornata, "Cancella tutto" solo quando c'è qualcosa da cancellare,
+  campo di ricerca solo oltre 8 opzioni con il placeholder dinamico
+  esatto, selezione mai filtrata via dalla ricerca, piede che
+  distingue "totale" da "con questi filtri".
+- `npx vitest run` (suite intera) → 240/240 verdi — parità `it`/`en`
+  compresa.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **93.646/153.600** byte gzip
+  (script CI). Margine ampio (59.954 byte).
+
+Debiti dichiarati: il resto della shell mobile (Task 3) più due
+componenti del Task 2 (`PhotoTile`, `SuggestionQueue`).
