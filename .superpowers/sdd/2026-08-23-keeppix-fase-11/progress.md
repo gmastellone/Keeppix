@@ -2324,3 +2324,47 @@ Verifica eseguita:
   stesso preesistente e non correlato di sempre (`PlayerView.vue:51`).
 - `npm run build` → bundle iniziale **116.514/153.600** byte gzip
   (variazione trascurabile, tutte le viste toccate sono chunk lazy).
+
+### `MoreView.vue` — Task 6 (7/N): la pagina "Altro" (§6)
+
+Nuova vista a `/more`, elenco piatto SENZA accordion (il documento lo
+dice esplicitamente, §6.1/§6.6 — a differenza della sidebar desktop
+che usa `NavGroup`, qui non riusato apposta). Tre gruppi, stesse
+destinazioni reali di `AppSidebar` (Task 6 1/N e 4/N): Cartelle/Mappa/
+Condivisioni; Cestino/Problemi; Utenti/Gruppi solo per un
+amministratore.
+
+Scarti dal mockup dichiarati, stesso principio già stabilito per
+`AppSidebar`:
+- "Condivisi con me"/"Le mie condivisioni" come due righe (§6.3,
+  voci 5-6) collassate in una sola "Condivisioni": `SharesView` non ha
+  le due schede `state.shareTab` del mockup, è un'unica vista.
+- Il valore secondario "N cartelle" della riga "Cartelle": nessun
+  conteggio disponibile senza una chiamata dedicata solo per quel
+  numero (stesso motivo di `FolderView` senza conteggio foto).
+- La sotto-pagina "Cartelle" a card-gradiente (copertina dalla prima
+  foto, conteggio foto per cartella): non esiste; "Cartelle" porta
+  direttamente a `/folders` (l'albero reale, Task 6 4/N).
+- Persone/Preferiti/gruppo IA/Duplicati: stesso debito dichiarato in
+  `AppSidebar` (Task 16/15/13).
+- Nessuna icona: dichiarato qui esplicitamente (questo frontend non
+  ha ancora un sistema di icone — stesso stato di fatto già presente,
+  ma mai dichiarato, in `AppSidebar`).
+
+Verifica eseguita:
+- `MoreView.spec.ts` (nuovo) → 3/3 verdi: ogni riga è un vero `<a>`
+  verso una destinazione reale; "Condivisioni" è una sola riga, non
+  due; "Amministrazione" è assente del tutto per un utente non admin.
+- `npx vitest run` (suite intera) → 61 file, 376/376 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/modificati → pulito.
+- `npm run build` → bundle iniziale **116.561/153.600** byte gzip
+  (variazione trascurabile: `MoreView` è un chunk lazy, nessun link
+  verso `/more` esiste ancora da nessuna parte della shell — arriverà
+  con la tab bar mobile, prossimo sotto-passo).
+
+Prossimo sotto-passo: l'header mobile (freccia indietro + titolo per
+vista + pulsante culling + avatar account) e la tab bar (Foto/Cerca/
+Album/Altro), cablati in `AppShell`'s `mobile-header`/`mobile-tabbar`
+slot — a quel punto `/more` diventa raggiungibile per davvero. Poi —
+separatamente — l'area di caricamento nuove foto.
