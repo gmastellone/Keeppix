@@ -564,14 +564,13 @@
     "createLink": "Crea link"
   },
   "upload": {
-    "title": "Caricamenti",
-    "collapse": "Riduci",
-    "expand": "Espandi",
-    "clearCompleted": "Rimuovi completati",
+    "title": "Caricamento di nuove foto",
+    "clearCompleted": "Pulisci completate",
+    "cancelAll": "Annulla tutto",
     "retry": "Riprova",
     "pause": "Pausa",
     "resume": "Riprendi",
-    "progress": "{received} di {total}",
+    "close": "Chiudi il pannello",
     "destination": {
       "label": "Destinazione",
       "missing": "Scegli una cartella",
@@ -591,18 +590,39 @@
       "done": "Caricate",
       "ariaLabel": "{label}, {finished} di {total}. Apri il pannello dei caricamenti"
     },
-    "status": {
-      "queued": "In attesa…",
-      "uploading": "Caricamento…",
-      "paused": "In pausa",
-      "done": "Completato",
-      "error": "Non riuscito",
-      "skipped": "Già in libreria"
+    "panel": {
+      "titleNeedsDestination": "In attesa di una destinazione",
+      "titlePaused": "Caricamento in pausa",
+      "titleUploading": "Caricamento in corso",
+      "titleDone": "Caricamento completato"
+    },
+    "row": {
+      "queued": "in coda",
+      "paused": "in pausa",
+      "badgeDone": "Completato",
+      "badgeSkipped": "Saltato",
+      "badgeError": "Errore"
+    },
+    "footer": {
+      "done": "{n} caricata | {n} caricate",
+      "skipped": "{n} saltata | {n} saltate",
+      "error": "{n} non riuscita | {n} non riuscite"
+    },
+    "rejectedRaw": {
+      "title": "1 file RAW non caricato | {n} file RAW non caricati",
+      "explanation": "I RAW entrano in Keeppix dal Culling, dove li scegli prima di importarli. Da qui si caricano solo foto già sviluppate e video.",
+      "openCulling": "Apri Culling",
+      "andMore": "e un altro | e altri {n}"
+    },
+    "rejectedUnsupported": {
+      "title": "1 file di formato non supportato | {n} file di formato non supportato",
+      "explanation": "Keeppix accetta JPEG, PNG, TIFF, WebP, HEIF/HEIC e video MP4 o MOV."
     },
     "collision": {
-      "skipped_duplicate": "Già presente in libreria",
+      "skipped_duplicate": "già in libreria",
       "renamed": "Salvato come {filename}"
     },
+    "seeExisting": "Vedi quella presente",
     "errors": {
       "expired": "Questo caricamento è scaduto e non può essere ripreso.",
       "missingFile": "Seleziona di nuovo il file per riprendere questo caricamento.",

@@ -564,14 +564,13 @@
     "createLink": "Create link"
   },
   "upload": {
-    "title": "Uploads",
-    "collapse": "Collapse",
-    "expand": "Expand",
+    "title": "Uploading new photos",
     "clearCompleted": "Clear completed",
+    "cancelAll": "Cancel all",
     "retry": "Retry",
     "pause": "Pause",
     "resume": "Resume",
-    "progress": "{received} of {total}",
+    "close": "Close the panel",
     "destination": {
       "label": "Destination",
       "missing": "Choose a folder",
@@ -591,18 +590,39 @@
       "done": "Uploaded",
       "ariaLabel": "{label}, {finished} of {total}. Open the uploads panel"
     },
-    "status": {
-      "queued": "Waiting…",
-      "uploading": "Uploading…",
-      "paused": "Paused",
-      "done": "Done",
-      "error": "Failed",
-      "skipped": "Already in library"
+    "panel": {
+      "titleNeedsDestination": "Waiting for a destination",
+      "titlePaused": "Upload paused",
+      "titleUploading": "Uploading",
+      "titleDone": "Upload complete"
+    },
+    "row": {
+      "queued": "queued",
+      "paused": "paused",
+      "badgeDone": "Done",
+      "badgeSkipped": "Skipped",
+      "badgeError": "Error"
+    },
+    "footer": {
+      "done": "{n} uploaded",
+      "skipped": "{n} skipped",
+      "error": "{n} failed"
+    },
+    "rejectedRaw": {
+      "title": "1 RAW file not uploaded | {n} RAW files not uploaded",
+      "explanation": "RAW files come into Keeppix from Culling, where you pick them before importing. From here you can only upload developed photos and video.",
+      "openCulling": "Open Culling",
+      "andMore": "and one more | and {n} more"
+    },
+    "rejectedUnsupported": {
+      "title": "1 unsupported file | {n} unsupported files",
+      "explanation": "Keeppix accepts JPEG, PNG, TIFF, WebP, HEIF/HEIC, and MP4 or MOV video."
     },
     "collision": {
-      "skipped_duplicate": "Already in the library",
+      "skipped_duplicate": "already in the library",
       "renamed": "Saved as {filename}"
     },
+    "seeExisting": "See the existing one",
     "errors": {
       "expired": "This upload expired and could not be resumed.",
       "missingFile": "Select the file again to resume this upload.",

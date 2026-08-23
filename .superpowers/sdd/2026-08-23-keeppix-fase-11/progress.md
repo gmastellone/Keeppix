@@ -2802,3 +2802,116 @@ Verifica eseguita:
 - `npm run build` → bundle iniziale **121.424/153.600** byte gzip
   (+730 byte: la striscia è nel chunk d'ingresso, come `AppSidebar`/
   `App.vue` stessi). Margine ampio (32.176 byte).
+
+### `UploadPanel.vue` — il pannello reale, quattro fasce (§6.2-§6.4) (7/N)
+
+Sostituisce interamente il pannello generico fluttuante (upload 1/N-6/N
+lo annunciavano già come debito): quel pattern era esattamente il
+pulsante flottante che il documento §2 dice scartato, non uno stile
+diverso dello stesso componente. Verificato riga per riga contro
+`renderUploadPanel()`/`uploadRowHTML()`/`uploadCounts()` del prototipo
+(righe 2939-3078), non solo il riassunto testuale del documento.
+
+**Deviazione dichiarata dal prototipo, trovata scrivendo questo passo**:
+`renderUploadPanel()` (riga 2979, `if(!u.open || !u.items.length){...
+return}`) nasconde il pannello anche per un lotto **tutto scartato** —
+un rilascio di soli RAW non darebbe nessun riscontro visibile in
+quella build, in contraddizione diretta col principio che lo stesso
+documento dichiara (§4.1: "il rifiuto dei RAW non è un errore, è una
+spiegazione" — una spiegazione che va vista). Il diario di 6/N aveva
+già assunto (senza aver letto questa riga fino in fondo) che il
+pannello si aprisse comunque per i soli rifiuti — corretto qui: la
+condizione di visibilità aggiunge esplicitamente `rejectedRaw`/
+`rejectedUnsupported`, non solo `sessions`.
+
+**Bug reale trovato scrivendo i test di questo pannello**: `needsDestination`
+(store, aggiunta in 6/N) controllava solo `status==='queued'`, ma
+`pause(id)`/`pauseAll()` non controllano la cartella — una sessione
+"queued" senza cartella può restare bloccata anche su "paused", non
+solo su "queued". Corretto a `stickyDestination.value===null && qualcosa
+è ancora in sospeso` — la stessa semantica booleana di `!u.dest &&
+c.pending>0` del prototipo (riga 2915/2981), non un'approssimazione.
+
+Struttura a quattro fasce esatta del documento: testata (titolo con
+priorità `manca destinazione > in pausa > in corso > completato`,
+pausa/riprendi visibile solo quando c'è qualcosa da mettere in pausa e
+la destinazione non manca, chiudi che non tocca la coda) — fascia
+destinazione (riusa `DestinationChip`, Task 3, primo consumatore reale)
+— corpo scorrevole (blocco di rifiuto + righe) — piede (riepilogo +
+azioni).
+
+**"Vedi quella presente" è reale, non un rimando**: `useLightboxRoute`
+(Task 3, `TimelineView.vue`) risolve `?photo=<id>` anche per un asset
+non ancora caricato in pagina — carica da remoto se non lo trova in
+locale, lo stesso meccanismo pensato per "mando a un collega il link a
+questa foto". Non serviva costruire nulla di nuovo: `router.push({
+path:'/', query:{photo: existingAssetId} })` apre per davvero la copia
+già presente.
+
+Righe (§6.3): un "done" con `collision==='skipped_duplicate'` (il
+server, non il pre-check, trova il duplicato a fine caricamento) si
+presenta come "saltato" a tutti gli effetti, stesso trattamento già
+nel componente precedente. Il testo di esempio del prototipo per
+l'errore ("il server non ha risposto") è solo la sua simulazione demo
+— qui la riga mostra la ragione reale già portata dallo store
+(`session.error`, sempre una chiave i18n), più corretto della stringa
+fissa del mockup.
+
+Token di colore: `--color-danger-tint` mancava dal primo giro (upload
+3/N) — serviva solo per il badge "Errore" del pannello, non ancora
+scritto allora. Aggiunto ora con l'hex esatto della tabella §7.1.
+
+I18n: `upload.status.*` (della vecchia versione generica) rimossa,
+orfana dopo la riscrittura — sostituita da `upload.row.*`/
+`upload.panel.*`/`upload.footer.*`/`upload.rejectedRaw.*`/
+`upload.rejectedUnsupported.*`, testo esatto del documento/prototipo,
+non approssimato. `upload.collision.skipped_duplicate` corretta da
+"Già presente in libreria" a "già in libreria" (testo esatto §6.3).
+
+Verifica eseguita:
+- `UploadPanel.spec.ts` (riscritto da zero, 27 test) → verdi: visibilità
+  (assente a riposo, assente anche con `panelOpen` ma nulla da
+  mostrare, presente con una sessione, presente **anche solo con
+  rifiuti** — la deviazione dichiarata sopra, scrim mobile che chiude);
+  titolo con la priorità esatta delle quattro condizioni; testata
+  (pausa/riprendi nascosto se manca la destinazione, i comandi di coda
+  reali, chiudi che non tocca `sessions`); le sei righe (coda,
+  caricamento con barra, pausa, completato neutro, saltato ambra con
+  ragione reale, il caso "done+collision" trattato come saltato,
+  "Vedi quella presente" che naviga per davvero, errore rosso con
+  "Riprova" reale); il blocco di rifiuto RAW (conteggio e plurale
+  esatti, troncamento a quattro nomi con "e un altro"/"e altri N",
+  "Apri Culling" reale) e quello dei formati non supportati (nessun
+  pulsante lì, corretto); il piede (riepilogo con segmenti condizionali,
+  "Pulisci completate"/"Annulla tutto" reali).
+- `stores/upload.spec.ts` (esteso) → 22/22 verdi: nuovo test per il bug
+  di `needsDestination` sopra.
+- Bug reale nei miei stessi test, trovato e corretto prima di finire
+  questo passo: `formatBytes(300000)` produce "293 KB" (nessun
+  decimale sopra i 10 KB), non "293.0 KB" come avevo prima assunto
+  nell'asserzione; il selettore `button:not([aria-label])` per "Vedi
+  quella presente" trovava invece il trigger di `DestinationChip`
+  (nessun `aria-label` lì), corretto cercando per testo; la lista file
+  troncata mancava lo spazio prima di "e un altro" (il prototipo lo
+  tiene dentro `uploadAndOthers()` stessa, qui separato in modo
+  esplicito nel codice, non nella chiave i18n).
+- `npx vitest run` (suite intera) → 69 file, 515/515 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file toccati → pulito; un solo errore nell'intero
+  repo, lo stesso preesistente e non correlato di sempre
+  (`PlayerView.vue:51`).
+- `npm run build` → bundle iniziale **122.116/153.600** byte gzip
+  (+692 byte: nuove classi Tailwind scansionate dal sorgente —
+  `UploadPanel.vue` resta un chunk lazy separato, verificato in
+  `dist/assets/`, non nel bundle d'ingresso). Margine ampio
+  (31.484 byte).
+
+**Sottosistema di caricamento sostanzialmente completo**: tutte e tre
+le porte d'ingresso (trascinamento, "Carica" desktop, "+" mobile)
+classificano e accodano per davvero; la destinazione si assegna e si
+sblocca da sola; la striscia e il pannello reale mostrano lo stato
+vero della coda, i sei stati, il blocco di rifiuto. Resta, dichiarato
+fin dall'inizio come fuori portata di questa sessione: il badge video
+"in preparazione" (nessun segnale dal backend, verificato in 1/N) e
+"Nuova cartella…" nel menu destinazione (nessuna rotta di creazione
+cartella nel backend, verificato in 3/N).

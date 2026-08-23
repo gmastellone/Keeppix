@@ -344,7 +344,7 @@ describe('addFilesFromPicker — punto d\'ingresso comune al trascinamento, "Car
 })
 
 describe('striscia della coda (§6.1)', () => {
-  it('needsDestination is true only while a session is stuck queued without a folder', async () => {
+  it('needsDestination is true only while something pending has no resolved destination', async () => {
     vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-a.jpg'] })
 
@@ -356,6 +356,24 @@ describe('striscia della coda (§6.1)', () => {
 
     store.setDestination('folder-1')
     expect(store.needsDestination).toBe(false)
+  })
+
+  it('needsDestination stays true for a folder-less session paused before pump() ever picked it up — bug found writing UploadPanel.spec.ts', () => {
+    const store = useUploadStore()
+    // pause(id)/pauseAll non controllano la cartella: una sessione
+    // "queued" senza cartella può restare bloccata anche da "paused",
+    // non solo da "queued" — checking solo status==='queued' mancava
+    // questo caso reale.
+    store.sessions.push({
+      id: 'a',
+      filename: 'a.jpg',
+      targetFolderId: null,
+      expectedSize: 10,
+      receivedBytes: 0,
+      status: 'paused'
+    })
+
+    expect(store.needsDestination).toBe(true)
   })
 
   it('togglePanel flips panelOpen, shared between the strip and the panel', () => {

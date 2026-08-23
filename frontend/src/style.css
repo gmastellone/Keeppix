@@ -26,6 +26,10 @@
   --color-warn: #a15c00;
   --color-warn-tint: #fdf0dc;
   --color-warn-border: #efd4a8;
+  /* `--danger-tint` mancava dal primo giro di questi token (upload 3/N):
+     serviva solo per il badge "Errore" del pannello, non ancora scritto
+     allora. Stesso hex esatto della tabella §7.1. */
+  --color-danger-tint: #fbe4e2;
   --color-chip-bg: #f5f5f5;
   --color-card-bg: #ffffff;
   --color-border-strong: #dcdcdc;
@@ -62,6 +66,7 @@
     --color-warn: #f0a23c;
     --color-warn-tint: #2e2110;
     --color-warn-border: #4a361a;
+    --color-danger-tint: #331411;
     --color-chip-bg: #141414;
     --color-card-bg: #0a0a0a;
     --color-border-strong: #2c2c2c;

@@ -114,12 +114,18 @@ export const useUploadStore = defineStore('upload', () => {
     return active?.targetFolderId ?? null
   })
 
-  /** Striscia della coda (`caricamento-nuove-foto.md` §6.1, `needsDest`
-   * del prototipo, riga 2915): una sessione bloccata su "queued" perché
-   * senza cartella — segnale più diretto della semplice assenza di
-   * `stickyDestination`, che risulterebbe vuota anche a coda vuota. */
-  const needsDestination = computed(() =>
-    sessions.value.some((s) => s.status === 'queued' && s.targetFolderId === null)
+  /** Striscia e pannello (`caricamento-nuove-foto.md` §6.1/§6.2,
+   * `needsDest` del prototipo, riga 2915: `!u.dest && c.pending>0`) —
+   * nessuna destinazione risolta per il lotto attuale **e** qualcosa è
+   * ancora in sospeso. Non basta guardare solo le sessioni "queued": una
+   * sessione senza cartella può restare "paused" (messa in pausa prima
+   * che `pump()` la prendesse in carico, `pauseAll`/`pause` non
+   * controllano la cartella) — bug reale trovato scrivendo i test del
+   * pannello (`UploadPanel.spec.ts`), non assunto. */
+  const needsDestination = computed(
+    () =>
+      stickyDestination.value === null &&
+      sessions.value.some((s) => s.status === 'queued' || s.status === 'uploading' || s.status === 'paused')
   )
 
   /** Stato di apertura del pannello (§6.2): letto/scritto sia dalla
