@@ -1376,3 +1376,68 @@ ciascuno un passo separato con la propria verifica, stesso ritmo dei
 diciotto componenti del Task 2. Task 5 (le tre macchine a stati:
 scheletro/errore) resta esplicitamente fuori da questo task, per
 confine dichiarato dal piano stesso, non per dimenticanza.
+
+### Secondo passo: virtualizzatore + cache LRU delle pagine
+
+`timeline/virtualize.ts` (nuovo): `RowVirtualizer`, ~95 righe, senza
+dipendenze — somme prefisse delle altezze di riga in un `Float64Array`
+più ricerca binaria su `scrollTop`, esattamente la Ruling §2 della
+spec ("~120 righe, nessuna libreria"). Agnostico rispetto a cosa sia
+una riga (griglia di foto o intestazione di mese): riceve solo un
+array di altezze.
+
+Bug reale trovato scrivendo il test di confronto con una scansione
+lineare, non assunto corretto dal solo "sembra ovvio": su un confine
+esatto fra due righe (`to` uguale esattamente a un `rowTop`), la prima
+versione includeva una riga di troppo. Il motivo: `rowAtOffset(y)`
+risponde "quale riga contiene il punto `y`" con la convenzione a
+intervallo semiaperto `[top, bottom)` — su un confine esatto la
+risposta è la riga che *comincia* lì, non quella che finisce lì — ma
+usare quella riga con un `+1` come limite superiore dell'intervallo
+visibile la includeva comunque, anche se il suo intervallo non si
+sovrappone davvero a `[…, to)`. Corretto con una seconda ricerca
+binaria dedicata (`firstRowStartingAtOrAfter`) che risponde alla
+domanda giusta per un limite superiore esclusivo: la prima riga che
+*comincia* a `to` o oltre.
+
+`timeline/pageCache.ts` (nuovo): `LruPageCache<K,V>`, sopra l'ordine di
+inserimento nativo di `Map` (che `get`/`set` di una chiave esistente
+sposta in fondo) invece di una lista doppiamente concatenata scritta a
+mano — meno codice per lo stesso invariante. Tetto esplicito sul
+*numero di pagine*, non sul numero di asset (piano §4.8): la chiave
+prevista è il mese del bucket, lo stesso livello di granularità già
+usato da `assetsByBucket` in `TimelineView.vue` — non le singole
+pagine cursor-based di `/timeline?bucket=`, che quella vista già
+concatena per intero prima di considerare un mese "caricato".
+
+Verifica eseguita:
+- `virtualize.spec.ts` (nuovo) → 8/8 verdi: altezza totale corretta
+  prima di montare qualunque riga, `rowTop` come somma cumulativa,
+  intervallo visibile confrontato contro una scansione lineare per
+  sette posizioni di scroll diverse (il test che ha trovato il bug di
+  cui sopra), overscan che estende senza uscire dai limiti,
+  scorrimento oltre la fine che resta sull'ultima riga valida. Test di
+  scala del piano: 200.000 righe di altezza *variabile* (non costante,
+  per non testare un caso fortunato), il numero di righe montate resta
+  sotto una soglia esplicita (40) per cinque posizioni di scroll,
+  incluso l'inizio, la fine e tre punti intermedi.
+- `pageCache.spec.ts` (nuovo) → 8/8 verdi: memorizzazione/lettura sotto
+  il tetto, sfratto della voce meno recente al superamento del tetto,
+  `get`/un nuovo `set` sulla stessa chiave aggiornano la recency
+  (verificato che questo cambi *quale* voce viene sfrattata dopo, non
+  solo che non vada in errore), `delete` esplicito, un tetto sotto 1
+  viene rifiutato. Test di scala del piano (§4.8, "verifica che la
+  cache delle pagine non supera il tetto dopo uno scroll completo
+  simulato"): 4.000 mesi caricati in sequenza con un tetto di 50, la
+  dimensione non supera mai 50 durante l'intero scroll, e alla fine
+  contiene esattamente e solo gli ultimi 50 mesi visti.
+- `npx vitest run` (suite intera) → 52 file, 298/298 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi → pulito.
+- `npm run build` → bundle iniziale **94.318/153.600** byte gzip
+  (script CI, invariato: nessun consumatore reale ancora).
+
+Debito dichiarato, invariato dal passo precedente: nessuno dei tre
+moduli (`geometry.ts`, `virtualize.ts`, `pageCache.ts`) è ancora usato
+da `TimelineView.vue`. Prossimo passo: la riscrittura della vista
+stessa, l'unico pezzo che rimane.
