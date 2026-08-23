@@ -333,6 +333,29 @@ describe('TimelineView virtualization', () => {
     expect(mountedTiles).toBeGreaterThan(0)
     expect(mountedTiles).toBeLessThan(totalShots)
   })
+
+  it('only first-screen tiles get priority="high" — the rest stay lazy (Task 5bis)', async () => {
+    const buckets = Array.from({ length: 20 }, (_, i) => ({
+      month: `${2024 - Math.floor(i / 12)}-${String(12 - (i % 12)).padStart(2, '0')}`,
+      count: 50
+    }))
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockImplementation(async (month: string) => ({
+      assets: Array.from({ length: buckets.find((b) => b.month === month)!.count }, (_, i) => photo(`${month}-${i}`))
+    }))
+
+    const { wrapper } = await mountTimeline()
+    await flushPromises()
+
+    const tiles = wrapper.findAllComponents(PhotoTile)
+    const highPriority = tiles.filter((t) => t.props('priority') === 'high')
+    const autoPriority = tiles.filter((t) => t.props('priority') !== 'high')
+    // Con un viewport di 900px stubbato, la prima schermata non contiene
+    // l'intera libreria caricata: entrambi i gruppi devono esistere.
+    expect(highPriority.length).toBeGreaterThan(0)
+    expect(autoPriority.length).toBeGreaterThan(0)
+  })
 })
 
 describe('TimelineView scrubber', () => {

@@ -180,10 +180,21 @@ describe('PhotoTile', () => {
     expect(wrapper.find('img[aria-hidden="true"]').exists()).toBe(false)
   })
 
-  it('the real thumbnail is lazy and async-decoded, off the critical rendering path', () => {
+  it('the real thumbnail is lazy and async-decoded by default, off the critical rendering path', () => {
     const wrapper = mount(PhotoTile, { props: BASE_PROPS, global: { plugins: [i18n] } })
     const real = wrapper.find('img[src="/thumb.jpg"]')
     expect(real.attributes('loading')).toBe('lazy')
     expect(real.attributes('decoding')).toBe('async')
+    expect(real.attributes('fetchpriority')).toBeUndefined()
+  })
+
+  it('a first-screen tile (priority="high") loads eagerly with high fetch priority instead', () => {
+    const wrapper = mount(PhotoTile, {
+      props: { ...BASE_PROPS, priority: 'high' },
+      global: { plugins: [i18n] }
+    })
+    const real = wrapper.find('img[src="/thumb.jpg"]')
+    expect(real.attributes('loading')).toBe('eager')
+    expect(real.attributes('fetchpriority')).toBe('high')
   })
 })

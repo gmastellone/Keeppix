@@ -444,7 +444,7 @@ onUnmounted(() => {
   if (promoteTimer) clearTimeout(promoteTimer)
 })
 
-function cellProps(month: string, cell: GridCell) {
+function cellProps(month: string, cell: GridCell, priority: 'high' | 'auto') {
   const asset = assetFor(month, cell.offsetInMonth)
   if (!asset) return undefined
   return {
@@ -454,18 +454,27 @@ function cellProps(month: string, cell: GridCell) {
     filename: asset.filename,
     dateLabel: dateLabelOf(asset),
     isFavorite: asset.favorite,
-    stackType: stackTypeOf(asset)
+    stackType: stackTypeOf(asset),
+    priority
   }
 }
 
 /** Solo le celle il cui asset è già in cache: se il mese è mostrato ma
  * non ancora caricato (raro — `mountedMonths` avvia già il caricamento),
  * la riga resta semplicemente più vuota per un istante — l'altezza è già
- * riservata dalla geometria, nessuno spostamento di layout. */
-function resolvedTiles(row: GridRow) {
+ * riservata dalla geometria, nessuno spostamento di layout.
+ *
+ * `rowTop` decide la priorità di scaricamento (Task 5bis, tabella §5bis):
+ * una riga che ricade nella prima schermata (`rowTop < viewportHeight`)
+ * scarica la propria miniatura subito e con `fetchpriority="high"`, le
+ * altre restano pigre — non è un'approssimazione dello scroll corrente,
+ * è letteralmente cosa c'è già a schermo al primo paint.
+ */
+function resolvedTiles(row: GridRow, rowTop: number) {
+  const priority: 'high' | 'auto' = rowTop < viewportHeight.value ? 'high' : 'auto'
   const out: { cell: GridCell; props: NonNullable<ReturnType<typeof cellProps>> }[] = []
   for (const cell of row.cells) {
-    const props = cellProps(row.month, cell)
+    const props = cellProps(row.month, cell, priority)
     if (props) out.push({ cell, props })
   }
   return out
@@ -631,7 +640,7 @@ function resolvedTiles(row: GridRow) {
               </h2>
               <template v-else>
                 <PhotoTile
-                  v-for="{ cell, props } in resolvedTiles(entry.row)"
+                  v-for="{ cell, props } in resolvedTiles(entry.row, entry.top)"
                   :key="cell.offsetInMonth"
                   v-bind="props"
                   :selected="false"

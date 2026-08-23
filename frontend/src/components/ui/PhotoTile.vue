@@ -39,8 +39,14 @@ const props = withDefaults(
      * compito di `AppShell` (già costruito), non di questo componente
      * che non deve reimplementare `matchMedia`. */
     enableLongPress?: boolean
+    /** Fase 11 Task 5bis (tabella §5bis, "solo le tessere della prima
+     * schermata"): dice al browser cosa scaricare subito invece di
+     * lasciarglielo dedurre. Il chiamante decide quali tessere sono la
+     * prima schermata — questo componente non ha modo di saperlo da
+     * solo. */
+    priority?: 'high' | 'auto'
   }>(),
-  { enableLongPress: false, placeholderUrl: undefined }
+  { enableLongPress: false, placeholderUrl: undefined, priority: 'auto' }
 )
 
 const emit = defineEmits<{ open: []; 'toggle-select': []; 'toggle-favorite': [] }>()
@@ -109,8 +115,9 @@ function onOpenClick() {
     <img
       :src="thumbnailUrl"
       alt=""
-      loading="lazy"
+      :loading="priority === 'high' ? 'eager' : 'lazy'"
       decoding="async"
+      :fetchpriority="priority === 'high' ? 'high' : undefined"
       class="pointer-events-none absolute inset-0 block h-full w-full object-cover"
     >
     <button

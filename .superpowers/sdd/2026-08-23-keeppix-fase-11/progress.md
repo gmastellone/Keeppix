@@ -1780,3 +1780,102 @@ ritmo "costruito, non ancora ovunque messo al lavoro" del Task 2. Debiti
 verso Tranche B (le tre schermate pre-esistenti non conformi) e verso
 Task 7 (§69, in attesa di una prima azione di massa reale da collegare)
 dichiarati sopra, non silenziosi.
+
+## Task 5bis — le ottimizzazioni di client
+
+Non un task da zero: un controllo riga per riga della tabella del piano
+(§5bis, "Immagini" + "Scorrimento e layout") contro quello che il Task 4
+ha già costruito, prima di aggiungere altro.
+
+**Già vero per costruzione, verificato non assunto:**
+- `thumbhash` come primo fotogramma → `PhotoTile.placeholderUrl` (Task 4).
+- `IntersectionObserver` → deliberatamente sostituito dalla matematica
+  esatta del virtualizzatore (Task 4, dichiarato lì).
+- `POST /viewport` mentre si scorre → `trueVisibleHashes` (Task 4).
+- `width`/`height` espliciti → la tessera (il genitore assoluto) ha già
+  `width`/`height` in pixel dalla geometria; l'`<img>` la riempie con
+  `absolute inset-0`, quindi zero spostamento di layout esiste già per
+  costruzione, anche senza attributi `width`/`height` sull'`<img>`
+  stesso — verificato leggendo `PhotoTile.vue`, non assunto.
+- `transform: translateY`, mai `top` → `TimelineView.vue` (Task 4).
+- Layout ricalcolato solo su `ResizeObserver`/densità, mai su scroll →
+  vero per costruzione: `plan`/`virtualizer` dipendono da `gridWidth`/
+  `density`/`geometry`, non da `scrollTop`.
+- Ascoltatori passivi → il listener di scroll di `TimelineView.vue` è
+  già `{ passive: true }` (Task 4).
+- `maplibre-gl`/`hls.js` fuori dal bundle iniziale → verificato di nuovo
+  nell'output di build di ogni singolo commit di questa sessione, mai
+  nel bundle iniziale.
+
+**Misurato, non assunto — il calcolo del layout giustificato:**
+La Ruling della spec (§3) dice "è aritmetica lineare, dell'ordine delle
+decine di millisecondi... da misurare in Task 4: se supera i 50 ms,
+allora sì [serve un Web Worker]". Misurato con `planStream` reale su
+una geometria sintetica da 214.000 record (la dimensione di libreria
+citata in tutto il piano) su 240 mesi, 5 esecuzioni:
+**51,6 / 54,7 / 60,0 / 96,5 / 99,8 ms, mediana 60 ms.**
+
+Supera la soglia dichiarata dal piano stesso — su *questo* ambiente.
+Onestà dovuta: questo container di sviluppo non è l'hardware bersaglio
+dichiarato dalla spec (Raspberry Pi 5 / 8 GB), e non ho un Pi 5 su cui
+misurare — non posso dire con certezza se il numero vero sarebbe
+migliore o peggiore (un core server-grade regge spesso meglio per IPC
+di un core ARM Cortex del Pi, ma la virtualizzazione di questo
+container aggiunge un costo che un Pi bare-metal non avrebbe).
+
+**Decisione presa qui: non spostare `planStream` in un Web Worker in
+questo passo.** Non perché il numero misurato lo escluda — non lo fa,
+è ambiguo — ma perché portarlo in un worker è un cambio d'architettura
+vero (serializzazione/trasferimento dell'`ArrayBuffer`, il `computed`
+reattivo `plan` diventerebbe asincrono, tutta `TimelineView.vue` da
+ricablare) che non è giustificato costruire alla cieca su un numero
+ambiguo misurato sull'hardware sbagliato. Lasciato esplicitamente
+aperto: la decisione giusta richiede o hardware reale (un Pi 5) o
+un'indicazione di chi mantiene il progetto, non un'altra stima.
+
+**`fetchpriority="high"` per le tessere della prima schermata**
+(unica riga della tabella genuinamente non ancora coperta): nuova prop
+`priority?: 'high'|'auto'` su `PhotoTile.vue` (default `'auto'`), che
+governa insieme due attributi imparentati — `loading` (`'eager'` invece
+di `'lazy'`) e `fetchpriority` (`'high'`, altrimenti assente) — non due
+prop separate, perché nella tabella del piano sono la stessa decisione
+("solo le tessere della prima schermata") applicata a due attributi
+HTML diversi. `TimelineView.vue` decide chi è "prima schermata" da
+`rowTop < viewportHeight` — letteralmente cosa è già a schermo al primo
+paint, non un'approssimazione dello scroll corrente.
+
+`content-visibility: auto` per le griglie non virtualizzate (l'altra
+riga rimasta della tabella): nessuna vista di questa sessione ha oggi
+una griglia non virtualizzata reale da toccare (ricerca/cestino/
+duplicati usano ancora "layout diretto" per §66.8, ma nessuna è stata
+riscritta in questa Tranche) — debito dichiarato verso le schermate che
+la useranno davvero.
+
+Verifica eseguita:
+- `PhotoTile.spec.ts` (esteso, +1 test) → 14/14 verdi: `priority`
+  assente → `loading="lazy"`, nessun `fetchpriority`; `priority="high"`
+  → `loading="eager"`, `fetchpriority="high"`.
+- `TimelineView.spec.ts` (esteso, +1 test) → 16/16 verdi: su una
+  libreria sintetica più grande di uno schermo, esistono sia tessere
+  `priority="high"` (prima schermata) sia `priority` non-`"high"` (il
+  resto) — non tutte alte, non tutte pigre.
+- `npx vitest run` (suite intera) → 56 file, 351/351 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file modificati → pulito.
+- `npm run build` → bundle iniziale **94.888/153.600** byte gzip
+  (script CI). Margine ampio (58.712 byte).
+
+## Task 5bis — chiuso (con una decisione esplicitamente aperta)
+
+La tabella del piano era già per la maggior parte soddisfatta dal
+disegno del Task 4 — verificato voce per voce, non assunto. Un solo
+elemento genuinamente mancante costruito (`fetchpriority`/`loading`
+della prima schermata). Un numero misurato per la Ruling sul thread
+principale (60ms mediana su 214k record, su hardware non bersaglio) che
+CONTRADDICE l'assunzione ottimistica del piano ma non è stato seguito
+da un'azione — dichiarato apertamente come domanda non risolta, non
+insabbiato né deciso alla cieca. `content-visibility:auto` resta debito
+verso le griglie non virtualizzate future.
+
+Chiude Tranche A: Task 1-5bis tutti chiusi. Prossimo: Tranche B
+(Task 6-14, le singole schermate).
