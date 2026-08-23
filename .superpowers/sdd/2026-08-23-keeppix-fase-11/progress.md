@@ -304,3 +304,47 @@ Debiti dichiarati: quindici componenti del Task 2 restano da scrivere
 `Tooltip`, `SuggestionQueue`, `ProvenanceBadge`, `Avatar`, `AppShell`,
 `DeleteDialog`, `ConfirmDialog`, `SegmentedControl`, `NavGroup`,
 `BusyButton`, `LoadingSkeleton`).
+
+### Tooltip (SP-7)
+
+Quarto componente del Task 2. Sorgente reale verificata invece del solo
+riassunto del piano: il pattern generico `[data-tip]` del prototipo
+(`keeppix-mockup.html` righe 382-395, non lo `scrubber-tooltip` separato
+delle righe 376-380, che è un componente diverso e specifico dello
+scrubber della timeline) — transizione `opacity,transform .12s ease`,
+nessun ritardo, disattivato su mobile. Il commento del prototipo stesso
+(riga 1128, sui pulsanti icon-only della barra di selezione) è la fonte
+della regola di accessibilità: *"il significato lo porta il tooltip
+(desktop) + aria-label (sempre)"* — cioè il tooltip è decorazione, mai
+l'unica fonte del nome accessibile. Per questo `Tooltip.vue` marca la
+propria bolla `aria-hidden="true"`: chi passa da screen reader legge
+l'`aria-label` del controllo nello slot, non due volte lo stesso testo.
+
+**"Disattivato su mobile" tradotto per l'app reale**: il prototipo lo fa
+con una classe `device-mobile` calcolata a mano su `#app` (demo statica,
+nessun equivalente qui). Usato invece `@media not all and (hover: hover)
+and (pointer: fine)` — lo stesso criterio che il commento del prototipo
+descrive a parole ("niente hover sul touch"), ma verificabile dal
+motore CSS invece che da uno stato JS da tenere sincronizzato.
+
+Verifica eseguita:
+- `npx vitest run src/components/ui/Tooltip.spec.ts` → 2/2 verdi: slot e
+  testo del suggerimento presenti, bolla `aria-hidden` per non
+  duplicare l'annuncio dello screen reader.
+- `npx vitest run` (suite intera) → 158/158 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` → pulito.
+- `npm run build` → bundle iniziale **92.026/153.600** byte gzip:
+  +126 byte rispetto a `ToastHost`, nonostante nessuna schermata reale
+  importi ancora `Tooltip` — scoperta non assunta: lo scanner di
+  Tailwind guarda ogni `.vue` sotto `src/` per generare le utility CSS,
+  non il grafo degli import, quindi le classi con valore arbitrario
+  usate qui (`bottom-[calc(100%+8px)]`, `translate-y-[3px]`) finiscono
+  comunque nel CSS compilato anche a componente inutilizzato. Margine
+  ampio (61.574 byte).
+
+Debiti dichiarati: quattordici componenti del Task 2 restano da
+scrivere (`PhotoTile`, `SelectionBar`, `QuickFilter`,
+`SelectAllVisible`, `SuggestionQueue`, `ProvenanceBadge`, `Avatar`,
+`AppShell`, `DeleteDialog`, `ConfirmDialog`, `SegmentedControl`,
+`NavGroup`, `BusyButton`, `LoadingSkeleton`).
