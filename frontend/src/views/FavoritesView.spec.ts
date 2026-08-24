@@ -8,6 +8,7 @@ import { runSearch } from '@/api/library'
 import { startLiveEvents, type LiveMessage } from '@/api/events'
 import type { TimelineAsset } from '@/api/timeline'
 import PhotoTile from '@/components/ui/PhotoTile.vue'
+import QuickFilter from '@/components/ui/QuickFilter.vue'
 import SelectionBar from '@/components/ui/SelectionBar.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
 import { i18n } from '@/i18n'
@@ -42,6 +43,8 @@ vi.mock('@/api/client', async (importOriginal) => {
   return { ...actual, apiFetch: vi.fn() }
 })
 
+const { apiFetch } = await import('@/api/client')
+
 function stubLayout(width: number, height: number) {
   const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
   const heightDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
@@ -69,8 +72,14 @@ function stubMatchMedia() {
 
 let unstubLayout: () => void
 
+// Task 7 (6/N) — `useBrowseFilters` (SP-3) chiama `GET /tags`/`GET
+// /persons` via `apiFetch` a ogni montaggio: senza un esito di base,
+// `apiFetch` (resettato da `resetAllMocks()` a ogni test) tornerebbe un
+// `vi.fn()` spoglio e romperebbe `.catch()` nel composable — stesso
+// correttivo di `TimelineView.spec.ts`.
 beforeEach(() => {
   i18n.global.locale.value = 'it'
+  vi.mocked(apiFetch).mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -249,5 +258,54 @@ describe('FavoritesView lightbox and errors', () => {
     await flushPromises()
 
     expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
+  })
+})
+
+// Task 7 (6/N) — SP-3: le sei dimensioni e la loro combinazione sono già
+// testate a fondo altrove (`useBrowseFilters.spec.ts`, `design/
+// quickFilter.spec.ts`, `QuickFilter.spec.ts`) — qui solo il cablaggio
+// proprio di questa vista: il subtotale resta quello dei preferiti
+// (§9.2, "prima dei filtri"), la griglia e "Seleziona tutto" si
+// restringono a ciò che il filtro lascia passare.
+describe('FavoritesView quick filter (SP-3)', () => {
+  it('narrows the grid to the matches, without touching the subtitle count (§9.2: "prima dei filtri")', async () => {
+    vi.mocked(runSearch).mockResolvedValue({
+      assets: [{ ...photo('a'), raw_kind: 'jpeg' }, { ...photo('b'), raw_kind: 'raw' }]
+    })
+
+    const { wrapper } = await mountFavorites()
+    expect(wrapper.findAllComponents(PhotoTile).length).toBe(2)
+
+    wrapper.findComponent(QuickFilter).vm.$emit('update:selection', { type: new Set(['jpeg']) })
+    await flushPromises()
+
+    expect(wrapper.findAllComponents(PhotoTile).map((t) => t.props('filename'))).toEqual(['a.jpg'])
+    expect(wrapper.text()).toContain(String(i18n.global.t('favorites.subtitle', { n: 2 })))
+  })
+
+  it('a filter matching no favorite shows the shared "filtered empty" state', async () => {
+    vi.mocked(runSearch).mockResolvedValue({ assets: [{ ...photo('a'), raw_kind: 'jpeg' }] })
+
+    const { wrapper } = await mountFavorites()
+    wrapper.findComponent(QuickFilter).vm.$emit('update:selection', { type: new Set(['raw']) })
+    await flushPromises()
+
+    expect(wrapper.findComponent(PhotoTile).exists()).toBe(false)
+    expect(wrapper.text()).toContain(String(i18n.global.t('ui.filteredEmpty.title')))
+  })
+
+  it('"Seleziona tutto" while a filter is active selects only what the filter lets through (SP-4)', async () => {
+    vi.mocked(runSearch).mockResolvedValue({
+      assets: [{ ...photo('a'), raw_kind: 'jpeg' }, { ...photo('b'), raw_kind: 'raw' }]
+    })
+
+    const { wrapper } = await mountFavorites()
+    wrapper.findComponent(QuickFilter).vm.$emit('update:selection', { type: new Set(['jpeg']) })
+    await flushPromises()
+
+    await wrapper.get(`[aria-label="${String(i18n.global.t('ui.selectAllVisible.ariaLabel'))}"]`).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findComponent(SelectionBar).props('count')).toBe(1)
   })
 })

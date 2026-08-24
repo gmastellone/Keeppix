@@ -3505,3 +3505,110 @@ Verifica eseguita per intero:
   numero non riflette il costo finale del cablaggio — sarà
   ricontrollato quando `TimelineView.vue`/`FavoritesView.vue` lo
   importeranno davvero).
+
+## Task 7 (6/N e 7/N) — SP-3 cablato: `FlatAssetGrid.vue`, Preferiti e Timeline
+
+**Ambito**: il pezzo che mancava dopo Task 7 (5/N) — montare davvero
+`QuickFilter.vue`/`useBrowseFilters` in Preferiti e Timeline, non solo
+avere i dati pronti. Un solo punto non aveva un primitivo diretto da
+riusare, verificato leggendo il codice reale prima di scrivere, non
+presunto — riportato qui per intero come da istruzione ("fermati su
+quel pezzo preciso e dimmelo"), risolto senza inventare una forma
+nuova:
+
+**Il punto**: `planStream`/`TimelineGeometry` (Task 4) presumono
+sempre il **mese intero** — `GridCell.offsetInMonth` indicizza dentro
+un blob binario calcolato lato server su tutti gli scatti di quel
+mese, non su un sottoinsieme. Un filtro rapido attivo non ha un modo
+di "ritagliare" celle da righe pensate per un mese intero senza
+rompere la geometria che le ha generate — non è "non l'ho ancora
+vista", è strutturale: la geometria non ha un concetto di sottoinsieme
+filtrato. Il documento stesso lo conferma indirettamente: il
+contatore del piede filtro è "calcolato sulla lista **di questa
+vista**" (§11, `applyBrowseFilters(scopedList)`), esattamente il
+principio già usato per Preferiti e per il debito dichiarato di
+culling/lightbox ("quanto già caricato", non l'intera libreria) — un
+elenco piatto in memoria, non un blob di geometria.
+
+**La soluzione, senza forma nuova**: quando un filtro è attivo, la
+vista Timeline abbandona il blob di geometria e passa alla stessa
+identica griglia giustificata e virtualizzata già usata da Preferiti
+(`justify()` + `RowVirtualizer`, pure, indipendenti dalla geometria
+fin dalla loro scrittura nel Task 4) — non un secondo layout inventato
+per l'occasione. Estratta in `components/FlatAssetGrid.vue` nel
+momento in cui diventa il secondo consumatore reale (stesso principio
+già seguito per `useDensity`/`useIsMobile` in questa sessione:
+estrarre al secondo uso, non prima): Preferiti la usa sempre (mai
+avuta una geometria propria, §9), Timeline la usa solo quando
+`activeFilterCount(selezione) > 0`, altrimenti resta sul blob di
+geometria invariato.
+
+**Preferiti** (6/N): `favoriteAssets` (i preferiti, come prima) entra
+in `useBrowseFilters`, `filteredAssets` ne esce e sostituisce
+`visibleAssets` ovunque — griglia, "Seleziona tutto" (SP-4: "solo ciò
+che ricade nel filtro"), secondo stato vuoto (stesso testo
+`ui.filteredEmpty.*`, pre-condiviso da Task 7 3/N proprio per questo).
+Il sottotitolo (§9.2, "il conteggio è calcolato **prima** dei filtri")
+resta sul totale dei preferiti, non tocca `filteredAssets` — nessuna
+modifica necessaria, era già così.
+
+**Timeline** (7/N): `loadedAssets` (quanto già caricato, il limite
+dichiarato di questa vista) entra in `useBrowseFilters`;
+`displayedAssets` (= `filteredAssets` se un filtro è attivo,
+altrimenti `loadedAssets` invariato) governa `FlatAssetGrid`, "Seleziona
+tutto" e la navigazione prev/next del lightbox — quest'ultima cambiata
+apposta: prima o dopo un filtro il visualizzatore deve restare dentro
+a ciò che si vede, non risalire nell'intera libreria caricata.
+`startCulling()` resta volontariamente su `loadedAssets` intero: il
+culling non ha un concetto di "filtrato" nel documento.
+
+**Effetto collaterale sistemato, non taciuto**: `gridEl` (il
+contenitore scrollabile del blob di geometria) non è più garantito
+montato per tutta la vita del componente — un filtro attivo lo smonta
+a favore del `gridEl` interno e indipendente di `FlatAssetGrid`.
+L'`onMounted` originale allegava lo scroll-listener/`ResizeObserver`
+una tantum: sostituito con un `watch(gridEl, ..., {immediate:true,
+flush:'post'})` che segue ogni comparsa/scomparsa del nodo, non solo
+la prima — altrimenti riattivare il filtro e poi disattivarlo avrebbe
+lasciato la vista senza scroll-tracking sul blob di geometria
+"vecchio" nodo mai più aggiornato.
+
+Verifica eseguita per intero:
+- Nuovi test di cablaggio (non ripetizione della logica delle sei
+  dimensioni, già coperta da `useBrowseFilters.spec.ts`/`design/
+  quickFilter.spec.ts`/`QuickFilter.spec.ts`): 3 in
+  `FavoritesView.spec.ts` (la griglia si restringe senza toccare il
+  sottotitolo, il secondo stato vuoto condiviso, "Seleziona tutto"
+  ristretto), 3 in `TimelineView.spec.ts` (passaggio da griglia a
+  `FlatAssetGrid`, stato vuoto condiviso, "Seleziona tutto"
+  ristretto). Un fix in corsa: `PhotoTile` non ha una prop `asset`
+  (passata solo tramite `v-bind` di un oggetto più grande, mai
+  dichiarata sul componente) — un primo tentativo di asserzione via
+  `.props('asset').id` falliva con `undefined`; corretto leggendo
+  `filename` (`"a.jpg"`), l'identificativo che il componente dichiara
+  davvero.
+- Un secondo fix, più largo: `useBrowseFilters` chiama `GET /tags`/
+  `GET /persons` a **ogni** montaggio di queste due viste, non solo
+  nei nuovi test — `apiFetch`, mockato a vuoto (`vi.fn()`) in entrambi
+  gli spec e resettato da `resetAllMocks()` a ogni test, tornava
+  `undefined` invece di una Promise e rompeva `.catch()` nel
+  composable per **ogni** test già esistente di entrambi i file (30
+  `Unhandled Rejection`, non fallimenti di asserzione — da lì la
+  scoperta, non da un test rosso). Risolto con un `beforeEach` che
+  installa un default `apiFetch → []` in entrambi gli spec (un solo
+  test, il recupero di `?photo=` in `TimelineView.spec.ts`, aveva un
+  proprio esito diverso per `/api/v1/assets/a`: reso sensibile all'URL
+  invece di sovrascrivere in blocco, così tag/persone restano `[]`
+  anche lì).
+- `npx vitest run` (suite intera) → 75 file, 578/578 verdi.
+- `npx vue-tsc -b` → pulito.
+- `npx eslint` sui file nuovi/toccati e sull'intero repo → pulito
+  (i due avvisi `:ariaLabel` già accettati da Task 7 1/N, nessun
+  avviso nuovo; un solo errore preesistente su `PlayerView.vue`
+  confermato indipendente da questa unità con `git stash`).
+- `npm run build` + calcolo manuale del bundle iniziale gzip → 123.139
+  byte, sotto il budget di 153.600 — `FlatAssetGrid.vue` finisce in un
+  chunk condiviso fra le due viste ma resta comunque dietro
+  `import()` pigro (nessuna delle due è nel bundle d'ingresso),
+  confermato leggendo `dist/index.html` prima di calcolare, non
+  presunto.

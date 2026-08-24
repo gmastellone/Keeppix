@@ -1,11 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ErrorState from '@/components/ui/ErrorState.vue'
 import PhotoTile from '@/components/ui/PhotoTile.vue'
+import QuickFilter from '@/components/ui/QuickFilter.vue'
 import SelectionBar from '@/components/ui/SelectionBar.vue'
+import FlatAssetGrid from '@/components/FlatAssetGrid.vue'
 import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
@@ -110,6 +112,17 @@ function stubMatchMedia() {
     }))
   )
 }
+
+// Task 7 (7/N) — `useBrowseFilters` (SP-3) chiama `GET /tags`/`GET
+// /persons` via `apiFetch` a ogni montaggio, non solo nei test che
+// testano il filtro: senza un esito di base, `apiFetch` resettato da
+// `resetAllMocks()` tornerebbe un `vi.fn()` spoglio (`undefined`, non una
+// Promise) e romperebbe `.catch()` nel composable per ogni test di questo
+// file. I singoli test che hanno bisogno di un'altra risposta da
+// `apiFetch` (es. `GET /assets/{id}`) la sovrascrivono comunque dopo.
+beforeEach(() => {
+  vi.mocked(apiFetch).mockResolvedValue([])
+})
 
 afterEach(() => {
   vi.resetAllMocks()
@@ -259,7 +272,7 @@ describe('TimelineView lightbox in the URL', () => {
     // — non un difetto, la pagina non ha ancora nulla in memoria.
     vi.mocked(fetchBuckets).mockResolvedValue([])
     vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null })
-    vi.mocked(apiFetch).mockResolvedValue(photo('a'))
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => (url === '/api/v1/assets/a' ? photo('a') : []))
 
     const { wrapper } = await mountTimeline('/?photo=a')
 
@@ -535,5 +548,66 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
     const actions = wrapper.findComponent(LibrarySelectionActions)
     expect(actions.exists()).toBe(true)
     expect(actions.props('assets').map((a: TimelineAsset) => a.id)).toEqual(['a'])
+  })
+})
+
+// Task 7 (7/N) — SP-3: la logica delle sei dimensioni e della loro
+// combinazione è già testata a fondo altrove (`useBrowseFilters.spec.ts`,
+// `design/quickFilter.spec.ts`, `QuickFilter.spec.ts`) — qui solo il
+// cablaggio proprio di questa vista, quello che quei test non possono
+// vedere: passare da griglia a blob di geometria a `FlatAssetGrid`
+// quando un filtro è attivo, e restringere "Seleziona tutto" allo stesso
+// insieme.
+describe('TimelineView quick filter (SP-3)', () => {
+  it('activating a filter leaves the month/geometry grid for FlatAssetGrid, narrowed to the matches', async () => {
+    const buckets = [{ month: '2024-07', count: 2 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({
+      assets: [{ ...photo('a'), raw_kind: 'jpeg' }, { ...photo('b'), raw_kind: 'raw' }]
+    })
+
+    const { wrapper } = await mountTimeline()
+    expect(wrapper.findComponent(FlatAssetGrid).exists()).toBe(false)
+
+    wrapper.findComponent(QuickFilter).vm.$emit('update:selection', { type: new Set(['jpeg']) })
+    await flushPromises()
+
+    const grid = wrapper.findComponent(FlatAssetGrid)
+    expect(grid.exists()).toBe(true)
+    expect(grid.props('assets').map((a: TimelineAsset) => a.id)).toEqual(['a'])
+  })
+
+  it('a filter matching nothing shows the shared "filtered empty" state instead of any grid', async () => {
+    const buckets = [{ month: '2024-07', count: 1 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [{ ...photo('a'), raw_kind: 'jpeg' }] })
+
+    const { wrapper } = await mountTimeline()
+    wrapper.findComponent(QuickFilter).vm.$emit('update:selection', { type: new Set(['raw']) })
+    await flushPromises()
+
+    expect(wrapper.findComponent(FlatAssetGrid).exists()).toBe(false)
+    expect(wrapper.findComponent(PhotoTile).exists()).toBe(false)
+    expect(wrapper.text()).toContain(String(i18n.global.t('ui.filteredEmpty.title')))
+  })
+
+  it('"Seleziona tutto quello che vedi" while a filter is active selects only what the filter lets through (SP-4)', async () => {
+    const buckets = [{ month: '2024-07', count: 2 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchPage).mockResolvedValue({
+      assets: [{ ...photo('a'), raw_kind: 'jpeg' }, { ...photo('b'), raw_kind: 'raw' }]
+    })
+
+    const { wrapper } = await mountTimeline()
+    wrapper.findComponent(QuickFilter).vm.$emit('update:selection', { type: new Set(['jpeg']) })
+    await flushPromises()
+
+    await wrapper.get(`[aria-label="${String(i18n.global.t('ui.selectAllVisible.ariaLabel'))}"]`).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findComponent(SelectionBar).props('count')).toBe(1)
   })
 })

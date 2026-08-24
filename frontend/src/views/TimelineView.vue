@@ -7,12 +7,15 @@ import { fetchBuckets, fetchGeometry, fetchPage, promoteViewport, type MonthBuck
 import { ApiProblem } from '@/api/client'
 import { startLiveEvents, type LiveSocket } from '@/api/events'
 import { thumbSrc as mediaThumbSrc } from '@/api/media'
+import FlatAssetGrid from '@/components/FlatAssetGrid.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
 import PhotoTile, { type StackType } from '@/components/ui/PhotoTile.vue'
+import QuickFilter from '@/components/ui/QuickFilter.vue'
 import SelectAllVisible from '@/components/ui/SelectAllVisible.vue'
 import SelectionBar from '@/components/ui/SelectionBar.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
 import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
+import { useBrowseFilters } from '@/composables/useBrowseFilters'
 import { useDensity } from '@/composables/useDensity'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
@@ -22,6 +25,7 @@ import { useFavoritesStore } from '@/stores/favorites'
 import { useMapsStore } from '@/stores/maps'
 import { useSelectionStore } from '@/stores/selection'
 import { classifyError } from '@/errors/classify'
+import { activeFilterCount } from '@/design/quickFilter'
 import { TimelineGeometry } from '@/timeline/geometry'
 import { LruPageCache } from '@/timeline/pageCache'
 import { monthAbbrev, monthAtOffset, monthFull } from '@/timeline/scrubber'
@@ -168,15 +172,30 @@ const loadedAssets = computed(() => {
   return out
 })
 
+// Task 7 (7/N) — SP-3: "N è calcolato sulla lista di questa vista"
+// (§11), qui `loadedAssets` — lo stesso "quanto già caricato finora" già
+// dichiarato sopra per culling/lightbox, non un limite nuovo di questa
+// unità. Il blob di geometria server-side presume l'intero mese: un
+// filtro attivo passa a `FlatAssetGrid` (Task 7, 6/N), la stessa griglia
+// giustificata piatta già usata da Preferiti, invece di provare a
+// ritagliare celle dentro righe pensate per un mese intero.
+const { selection: filterSelection, dimensions: filterDimensions, filteredAssets } = useBrowseFilters(loadedAssets)
+const filterActive = computed(() => activeFilterCount(filterSelection.value) > 0)
+/** L'insieme "attualmente a schermo": tutto il caricato senza filtro,
+ * solo ciò che passa altrimenti — governa sia `FlatAssetGrid` sia la
+ * navigazione prev/next del lightbox, che deve restare dentro a ciò che
+ * si vede (stesso principio già di Preferiti). */
+const displayedAssets = computed(() => (filterActive.value ? filteredAssets.value : loadedAssets.value))
+
 const lightbox = useLightboxRoute<TimelineAsset>(
-  (id) => loadedAssets.value.find((asset) => asset.id === id),
+  (id) => displayedAssets.value.find((asset) => asset.id === id),
   (id) => maps.loadAsset(id)
 )
 
 useScrollRestoration(gridEl)
 
 function viewingNeighbour(delta: number): TimelineAsset | undefined {
-  const list = loadedAssets.value
+  const list = displayedAssets.value
   const i = list.findIndex((a) => a.id === lightbox.viewing.value?.id)
   if (i < 0) return undefined
   return list[i + delta]
@@ -413,16 +432,29 @@ const thumbRatio = computed(() => {
   return currentIndex.value / (buckets.value.length - 1)
 })
 
+// Task 7 (7/N): `gridEl` non è più garantito montato per tutta la vita
+// del componente — un filtro attivo (SP-3) smonta questo contenitore a
+// favore di `FlatAssetGrid` (il proprio, indipendente). Un `watch`
+// invece di un `addEventListener` una tantum in `onMounted` segue ogni
+// comparsa/scomparsa del nodo, non solo la prima.
+watch(gridEl, (el, prevEl) => {
+  prevEl?.removeEventListener('scroll', onScroll)
+  resizeObserver?.disconnect()
+  resizeObserver = undefined
+  if (el) {
+    measure()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => measure())
+      resizeObserver.observe(el)
+    }
+  }
+}, { immediate: true, flush: 'post' })
+
 onMounted(async () => {
-  measure()
   await refreshTimeline()
   await nextTick()
   measure()
-  gridEl.value?.addEventListener('scroll', onScroll, { passive: true })
-  if (typeof ResizeObserver !== 'undefined' && gridEl.value) {
-    resizeObserver = new ResizeObserver(() => measure())
-    resizeObserver.observe(gridEl.value)
-  }
   live = startLiveEvents((msg) => {
     if (msg.type === 'resync' || msg.type === 'assets.upserted' || msg.type === 'assets.deleted') {
       void refreshTimeline()
@@ -490,12 +522,13 @@ const selectedAssets = computed(() =>
 )
 
 /** SP-4: "ciò che è visibile in quel momento", mai l'intera libreria
- * sottostante. Senza un filtro rapido ancora cablato (di là da venire in
- * questo stesso Task), "visibile" coincide con "già caricato" —
- * `loadedAssets`, lo stesso insieme già usato da `startCulling()` con la
- * stessa motivazione dichiarata. */
+ * sottostante — `displayedAssets`, che si restringe da sola quando un
+ * filtro rapido (SP-3) è attivo. `startCulling()` resta volutamente su
+ * `loadedAssets` intero: il culling non ha un concetto di "filtrato",
+ * lavora sempre su tutto il caricato (nessun requisito del documento lo
+ * lega a SP-3). */
 function selectAllVisible() {
-  selection.library.selectAllVisible(loadedAssets.value.map((asset) => asset.id))
+  selection.library.selectAllVisible(displayedAssets.value.map((asset) => asset.id))
 }
 </script>
 
@@ -524,8 +557,13 @@ function selectAllVisible() {
       </button>
       <div class="ml-auto flex items-center gap-2">
         <SelectAllVisible
-          :visible-count="loadedAssets.length"
+          :visible-count="displayedAssets.length"
           @select-all="selectAllVisible"
+        />
+        <QuickFilter
+          v-model:selection="filterSelection"
+          :dimensions="filterDimensions"
+          :result-count="displayedAssets.length"
         />
         <button
           class="rounded-lg border border-border px-2 py-1"
@@ -592,6 +630,29 @@ function selectAllVisible() {
     >
       {{ t('timeline.empty') }}
     </p>
+
+    <!-- Task 7 (7/N) — SP-3: un filtro attivo esce dal terreno del blob
+         di geometria (che presume il mese intero) e passa alla griglia
+         piatta giustificata già usata da Preferiti (`FlatAssetGrid.vue`,
+         Task 7 6/N) sull'insieme filtrato — mai un ritaglio di celle
+         dentro righe pensate per un mese intero. -->
+    <div
+      v-else-if="filterActive && displayedAssets.length === 0"
+      class="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center"
+    >
+      <p class="text-sm font-semibold">
+        {{ t('ui.filteredEmpty.title') }}
+      </p>
+      <p class="text-sm text-content-muted">
+        {{ t('ui.filteredEmpty.subtitle') }}
+      </p>
+    </div>
+    <FlatAssetGrid
+      v-else-if="filterActive"
+      :assets="displayedAssets"
+      :density="density"
+      @open="lightbox.open"
+    />
 
     <div
       v-else
