@@ -6685,3 +6685,49 @@ di pre-merge di `docs/superpowers/PROSEGUI.md` §10 (verifica rigorosa
 prima di `fase-11` → `main`), poi Task A (Volti: YuNet+SFace) e Task B
 (CLIP: OpenCLIP XLM-R IT/EN) — i due task di integrazione ML che restano
 nella lista, dopo il merge.
+
+## Fix di CI — `openapi.rs`: due elenchi statici mai aggiornati dal Task 17 (1/N)
+
+**Cominciando la procedura §10, la prima cosa controllata è stata proprio
+la cronologia CI** (punto 4), non il codice — ed è stata la scelta giusta:
+il job `backend`/`Test` di `cfa64b5` è risultato **rosso**, non verde come
+assunto. Onestà sul perché l'assunzione era sbagliata: la nota di
+progresso del Task 17 (1/N) diceva esplicitamente *"Test e 'La specifica
+OpenAPI è aggiornata' ancora in corso all'ultimo controllo"* — un item
+aperto mai richiuso, perso nella compattazione del contesto fra una
+sessione e l'altra invece di essere verificato prima di continuare su
+2/N-4/N. Non un errore nuovo: un debito di verifica dichiarato e poi
+dimenticato.
+
+**Causa reale, isolata leggendo i log reali (non indovinata)**: tre
+fallimenti in `crates/keeppix-api/tests/openapi.rs` —
+`operation_ids_are_explicit_and_unique`, `security_requirements_name_a_
+declared_scheme`, `openapi_snapshot_matches_the_committed_file`. Le prime
+due leggono `<ApiDoc as utoipa::OpenApi>::openapi()` **dal codice reale**,
+non da `docs/api/openapi.json`, e la confrontano con un elenco scritto a
+mano dentro il test stesso — un secondo posto, oltre allo snapshot JSON,
+dove le quattro rotte nuove del Task 17 (`culling_list_lots`,
+`culling_set_pick`, `culling_empty_skipped`, `libraries_set_culling_root`
++ i quattro percorsi corrispondenti) andavano aggiunte, e non lo erano
+mai state — l'hand-edit di `docs/api/openapi.json` nel Task 17 (1/N) aveva
+aggiornato solo il documento, non questi due elenchi paralleli. Corretto
+inserendo le quattro voci in ordine alfabetico in entrambi gli elenchi
+(verificato con `python3` che `docs/api/openapi.json` stesso ha già
+`paths` e `components.schemas` in ordine alfabetico corretto, e che le
+quattro operazioni nuove hanno esattamente lo stesso ordine di campi
+`[tags, summary, description?, operationId, parameters, requestBody?,
+responses, security]` di operazioni già verificate da CI prima del Task
+17 — nessuna anomalia strutturale trovata lì). `cargo fmt --check --all`
+pulito (non richiede la compilazione bloccata di `ort-sys`, solo il
+parser). Push e verifica su CI reale, non ipotesi: lo snapshot byte-esatto
+non si può controllare in locale in questo sandbox.
+
+**Fallimento distinto e non mio da correggere**: la cronologia CI mostra
+anche una serie di fallimenti intermittenti di `scale_embeddings::
+vector_search_stays_interactive_with_ivfflat` (`raw vector scan 1279.2 ms
+should be interactive with IVFFlat`, budget 1000ms) — un test di
+performance su un runner condiviso, che **precede** il Task 17 di ore
+(prima occorrenza 24 agosto 15:44, il Task 17 inizia alle 20:23) e continua
+a comparire e sparire su commit che non toccano ricerca vettoriale/
+embeddings. Nessuna modifica di questo Task 17 tocca quel codice — trattato
+come flakiness ambientale pre-esistente, non un regresso da inseguire qui.
