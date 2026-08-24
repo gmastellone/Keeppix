@@ -6222,3 +6222,127 @@ budget di 153.600.
 intero.** Resta solo il Task 17 (Culling) per chiudere la Tranche D,
 poi il merge finale della Fase 11 (`PROSEGUI.md` §10), poi Task A
 (Volti: YuNet+SFace) e Task B (CLIP).
+
+## Task 17 (1/N) — Culling a lotti: terreno di backend, rotte HTTP nuove
+
+**Ruling — perché qui nascono rotte nuove, contro la regola generale
+della fase.** Ogni sotto-unità precedente di Fase 11 ha rispettato la
+regola "mai inventare una rotta o un campo backend per servire una
+schermata": la Fase 11 è disegno d'interfaccia sopra un'API già scritta
+e già passata dal processo, non un secondo giro di progettazione
+backend. Il Task 17 (Culling, §14-17/§64) è la prima eccezione, e lo è
+di proposito: la logica che serve — radice del culling
+(`LibraryRepo::set_culling_root`), lista dei lotti con conteggi
+(`CullingRepo::list_lots`), scelta/scarto con spostamento fisico
+(`CullingRepo::set_pick`), svuota scartati (`CullingRepo::empty_skipped`)
+— è **già scritta, già testata, già passata dal processo**: nasce dalla
+Fase 9 Task 2-4, con la sua stessa suite di `keeppix-db` (`crates/
+keeppix-db/tests/culling.rs`) verde da allora. `scripts/
+wired-exceptions.txt` la dava già per scontata: cinque righe "Rinvii"
+(`ensure_culling_child`, `set_culling_root`, `list_lots`, `set_pick`,
+`empty_skipped`, tutte `fase-9`) dichiaravano esplicitamente "il
+consumatore arriva con la Fase 11" prima ancora che questa fase
+iniziasse. Mancava solo lo strato HTTP che la espone — zero decisioni
+di dominio nuove, solo la cucitura. Per questo qui si scrive
+`routes/culling.rs` invece di limitarsi al frontend: è consegna di
+lavoro già fatto, non disegno di lavoro nuovo. Confermato con l'utente
+prima di procedere (non una decisione unilaterale), con tre vincoli
+espliciti sul come, rispettati tutti e tre:
+
+1. **Permesso**: nessun controllo nuovo scritto a livello di rotta.
+   Ogni handler di `routes/culling.rs` propaga `DbError` da `CullingRepo`
+   con un semplice `?`, fidandosi che il permesso giusto sia già dentro
+   il repository — `assert_editor` via `AssetRepo::move_asset` per lo
+   spostamento fisico (`set_pick`), owner/admin via
+   `LibraryRepo::find_by_id` per `list_lots`, owner/admin via
+   `TrashRepo::assert_batch_purge_authorized` per `empty_skipped`
+   (aggiunta **dentro** `CullingRepo::empty_skipped`, non nella rotta —
+   stesso principio, un solo posto dove il permesso è vero). Reinventare
+   un secondo controllo nella rotta avrebbe rischiato di raccontarne uno
+   diverso da quello che poi decide davvero.
+2. **`empty_skipped` a riuscita parziale**: cambiato il tipo di ritorno
+   da `Result<usize, DbError>` a `Result<Vec<(AssetId, Result<(),
+   DbError>)>, DbError>` — un asset il cui purge fallisce non impedisce
+   più agli altri di essere eliminati (prima, `?` dentro il ciclo
+   bloccava tutto al primo fallimento). L'**autorizzazione** però resta
+   tutto-o-niente, verificata una volta sola prima del ciclo con
+   `TrashRepo::assert_batch_purge_authorized` — stesso principio già
+   scelto per `POST /assets/batch/delete` con `purged` (Fase 10 Task 4):
+   non è "un blocco totale silenzioso", è un rifiuto esplicito prima di
+   toccare un solo file. La rotta (`POST /culling/lots/{id}/
+   empty-skipped`) traduce il vettore in `BulkOutcome::from_partition`,
+   stessa forma di ogni altra operazione di massa della Fase 10.
+3. **Test HTTP veri, non solo quelli di repository**: il buco esatto
+   trovato dalla verifica del 24 agosto — il viaggio reale del Task 11
+   di Fase 9 (`v13_a_real_trip_survives_culling_rename_webdav_and_
+   raw_cleanup`, `crates/keeppix-api/tests/journeys.rs`) copriva solo il
+   voto per-utente via `PUT .../flags`, mai lo spostamento fisico via
+   HTTP — esteso **nello stesso test**, non isolato: un quinto asset
+   (fuori dall'ambito di rinomina/WebDAV/cestino già provate sugli altri
+   quattro) prova in fondo al test la radice designata via `PATCH
+   .../culling-root`, l'elenco lotti via `GET .../culling/lots`, lo
+   spostamento fisico reale su disco di uno scarto via `POST
+   /assets/{id}/pick` (verificato con `is_file()` dentro `_skipped`, non
+   solo lo stato del database), e la cancellazione definitiva via `POST
+   .../empty-skipped` (verificato con `!exists()` dopo). Il commento
+   "Ambito dichiarato" della funzione, che documentava onestamente il
+   buco, è stato aggiornato per non restare falso.
+
+**Superficie aggiunta**: `PATCH /api/v1/libraries/{id}/culling-root`
+(rotta dedicata, non un campo su `PATCH /libraries/{id}` — quella rotta
+è aperta a chiunque veda la libreria, `set_culling_root` pretende
+owner/admin esplicito: mescolarli avrebbe reso silenziosamente più
+permissivo un campo che decide dove finiscono fisicamente i file);
+`GET /api/v1/libraries/{id}/culling/lots`; `POST /api/v1/assets/{id}/
+pick` (rotta dedicata invece di estendere `PUT .../flags` — quella resta
+il percorso caldo del voto ordinario, senza movimento fisico né ambito
+di permesso variabile); `POST /api/v1/culling/lots/{id}/empty-skipped`.
+`LibraryView` guadagna `culling_root_folder_id: Option<String>`
+(campo additivo).
+
+**`docs/api/openapi.json` aggiornato a mano**, non rigenerato da
+`cargo test` — `keeppix-api` resta bloccato in questo sandbox
+dall'accesso di rete negato a `cdn.pyke.io` (dipendenza `ort-sys`,
+verificato di nuovo in questa unità: `curl .../__agentproxy/status`
+conferma un 403 del gateway, non un problema locale). Verificato con un
+giro di andata e ritorno: `json.load` del file committato seguito da
+`json.dumps(indent=2, ensure_ascii=False) + "\n"` riproduce il file
+byte per byte — conferma che il formato replicato a mano
+(`paths`/`components.schemas` ordinati alfabeticamente, `tags` in
+ordine di dichiarazione, `description` = doc-comment dopo la prima
+riga vuota se `summary` è esplicito) è davvero quello di
+`serde_json::to_string_pretty`, non un'approssimazione. Contate le
+operazioni documentate: 180 → 184; aggiornato il numero atteso da
+`documented_operations_are_all_mounted`/`openapi_summaries_do_not_
+contain_errors_heading` in `crates/keeppix-api/tests/openapi.rs` (due
+posti, stesso numero).
+
+**`scripts/wired-exceptions.txt` aggiornato**: tolte le cinque righe
+"Rinvii" che aspettavano esattamente questo lavoro
+(`ensure_culling_child`, `set_culling_root`, `list_lots`, `set_pick`,
+`empty_skipped`, tutte `fase-9`) — hanno un chiamante di produzione
+vero ora. Aggiunte quattro righe "Rinvii" nuove per le rotte stesse
+(`fase-11`): nessuna ha ancora un consumatore frontend reale
+raggiungibile da un `.vue` (`check-wired.py` lo pretende per le rotte,
+non solo per le funzioni) — la schermata Culling (griglia lotti,
+schermo lotto aperto, selettore rapido) e il pannello impostazioni
+della radice arrivano nelle prossime sotto-unità dello stesso Task 17.
+`python3 scripts/check-wired.py` → pulito.
+
+**Verifica**: `cargo fmt --check --all` pulito (`cargo fmt` funziona
+in locale, non serve compilare le dipendenze). `cargo clippy -p
+keeppix-db --all-targets` e `cargo check -p keeppix-db --tests` puliti
+— per la prima volta in questa sessione il crate toccato compila
+davvero in locale (non serve più solo la verifica a mano), inclusi i
+due test di `crates/keeppix-db/tests/culling.rs` aggiornati per il
+nuovo tipo di ritorno di `empty_skipped`. `keeppix-api` resta bloccato
+dalla rete (vedi sopra): rotte, `openapi.rs`, `openapi.json` e
+l'estensione del viaggio HTTP verificati a mano, senza compilatore —
+stesso limite di tutto il lavoro API di questa sessione. Nessuna
+modifica frontend in questa sotto-unità: `vue-tsc`/`eslint`/`vitest`/
+`build` non pertinenti, non eseguiti.
+
+**Non ancora fatto**: nessun consumatore frontend delle quattro rotte
+nuove (deliberato, vedi Rinvii sopra) — schermata Culling (§14-17) e
+l'estensione di `RenameFormulaDialog.vue` per lotto/selezione culling
+(§62, `hasSubfolders`) restano nelle prossime sotto-unità del Task 17.

@@ -1397,6 +1397,84 @@
         ]
       }
     },
+    "/api/v1/assets/{id}/pick": {
+      "post": {
+        "tags": [
+          "culling"
+        ],
+        "summary": "Pick, reject, or clear an asset's culling vote",
+        "description": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile, o se è dentro\nun lotto e il chiamante non è editor sia della cartella di origine sia di\nquella di destinazione; `409` su collisione di nome nella cartella di\ndestinazione.",
+        "operationId": "culling_set_pick",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PickRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Asset aggiornato (folder_id nuovo se si è mosso)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile, o permesso insufficiente per lo spostamento",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Collisione di nome nella cartella di destinazione",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/{id}/restore": {
       "post": {
         "tags": [
@@ -2623,6 +2701,64 @@
           },
           "401": {
             "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/culling/lots/{id}/empty-skipped": {
+      "post": {
+        "tags": [
+          "culling"
+        ],
+        "summary": "Permanently delete every asset in a lot's _skipped folder",
+        "description": "# Errors\n`401` se non autenticato; `403` se il chiamante non può distruggere\nanche un solo asset del lotto (owner/admin richiesti).",
+        "operationId": "culling_empty_skipped",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della cartella del lotto",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non owner/admin di almeno un asset del lotto",
             "content": {
               "application/json": {
                 "schema": {
@@ -4247,6 +4383,155 @@
           },
           "403": {
             "description": "Non consentito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/libraries/{id}/culling-root": {
+      "patch": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Set or clear a library's culling root folder",
+        "description": "# Errors\n`401` se non autenticato; `403` se il chiamante vede la libreria ma non\nne è proprietario/admin; `409` se `folder_id` non appartiene a questa\nlibreria; `422` se `folder_id` non è un id leggibile.",
+        "operationId": "libraries_set_culling_root",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchCullingRootRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Libreria aggiornata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non owner/admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La cartella non appartiene a questa libreria",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Id cartella illeggibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/libraries/{id}/culling/lots": {
+      "get": {
+        "tags": [
+          "culling"
+        ],
+        "summary": "List culling lots for a library",
+        "description": "# Errors\n`401` se non autenticato; `403` se il chiamante non vede la libreria, o\nla vede ma non ne è proprietario/admin.",
+        "operationId": "culling_list_lots",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lotti, più recenti prima",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CullingLotView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non owner/admin di questa libreria",
             "content": {
               "application/json": {
                 "schema": {
@@ -12070,6 +12355,41 @@
           }
         }
       },
+      "CullingLotView": {
+        "type": "object",
+        "required": [
+          "folder_id",
+          "name",
+          "created_at",
+          "pending",
+          "taken",
+          "skipped"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "skipped": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "taken": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "DeleteAssetRequest": {
         "type": "object",
         "required": [
@@ -12807,6 +13127,13 @@
           "created_at": {
             "type": "string"
           },
+          "culling_root_folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Radice del culling a cartelle (Fase 9 Task 2, esposta via HTTP in\nFase 11 Task 17). `None` finché il proprietario non ne designa una —\nculling si comporta come oggi, nessun comportamento nuovo forzato."
+          },
           "exclude_patterns": {
             "type": "array",
             "items": {
@@ -13173,6 +13500,18 @@
           }
         }
       },
+      "PatchCullingRootRequest": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Id della cartella scelta come radice, o `null` per rimuoverla."
+          }
+        }
+      },
       "PatchGroupRequest": {
         "type": "object",
         "required": [
@@ -13409,6 +13748,18 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "PickRequest": {
+        "type": "object",
+        "required": [
+          "pick"
+        ],
+        "properties": {
+          "pick": {
+            "type": "string",
+            "example": "pick"
           }
         }
       },
@@ -15059,6 +15410,10 @@
     {
       "name": "flags",
       "description": "Voti di culling per utente: rating, pick, etichetta colore"
+    },
+    {
+      "name": "culling",
+      "description": "Lotti di culling a cartelle: elenco, scelta/scarto fisico, svuota scartati"
     },
     {
       "name": "health",

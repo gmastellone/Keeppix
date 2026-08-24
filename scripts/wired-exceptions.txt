@@ -32,33 +32,13 @@ fn extract_poster fase-11
 # stato — i consumatori arrivano con il Task 4 (Scegliere/Scartare nel
 # culling) e il Task 8 (motore di rinomina) della stessa fase.
 fn move_asset fase-9
-# ensure_culling_child (folders.rs) e set_culling_root (libraries.rs), Fase 9
-# Task 2: creano/marcano le sottocartelle _taken/_skipped e designano la
-# radice del culling. Consumatori: Task 4 (Scegliere/Scartare sposta il
-# file dentro un lotto — chiama ensure_culling_child) e le impostazioni
-# della libreria in Fase 11 (chiamano set_culling_root dall'API). Nessuno
-# dei due ancora scritto.
-fn ensure_culling_child fase-9
-fn set_culling_root fase-9
-# list_lots (culling.rs, Task 3): la lista dei lotti con i conteggi
-# presi/scartati/da vedere. Consumatore: la schermata Culling di Fase 11,
-# che elenca i lotti prima di aprirne uno.
-fn list_lots fase-9
-# set_pick (culling.rs, Task 4): scegliere/scartare/annullare dentro un
-# lotto, con lo spostamento fisico che accompagna il flag. check-wired.py
-# la vede erroneamente "wired" per lo stesso motivo di move_asset sopra —
-# conta anche le menzioni testuali nei commenti di documentazione (in
-# culling.rs, folders.rs::find_with_library, e i nomi dei moduli di test),
-# non solo le chiamate reali: `grep -rn '\.set_pick(' crates` conferma zero
-# call-site di produzione, tutti gli 11 reali sono nei test di questo
-# stesso task. Consumatore: i pulsanti "Scelta"/"Scarta" della schermata
-# Culling di Fase 11.
-fn set_pick fase-9
-# empty_skipped (culling.rs, Task 4): "Svuota scartati" — cancellazione
-# definitiva del contenuto di `_skipped` in un lotto. check-wired.py la
-# segnala correttamente (nessun falso positivo qui). Consumatore: il
-# pulsante omonimo, con conferma, nella stessa schermata Culling di Fase 11.
-fn empty_skipped fase-9
+# ensure_culling_child, set_culling_root, list_lots, set_pick, empty_skipped
+# (Fase 9 Task 2-4): tutti e cinque avevano solo consumatori di test fino a
+# Fase 11 Task 17, che ha scritto le rotte HTTP mancanti (routes/culling.rs,
+# più PATCH /libraries/{id}/culling-root) — chiamate reali di produzione ora
+# esistono per tutti e cinque, quindi l'eccezione non descrive più lo stato
+# vero e va tolta. Le rotte stesse restano in Rinvii più sotto finché la UI
+# (schermata Culling) non le consuma a sua volta.
 # render_filename / resolve_place_label (keeppix-domain/src/rename.rs, Task
 # 6): il motore puro delle formule di rinomina. check-wired.py non li segnala
 # — falso positivo, stesso motivo di move_asset (Task 1): count_ident conta
@@ -72,6 +52,17 @@ fn render_filename fase-9
 fn resolve_place_label fase-9
 route /health ops
 route /api/openapi.json ci
+
+# Culling a cartelle (Fase 11 Task 17, 1/N — terreno di backend): le quattro
+# rotte HTTP scritte contro la logica già di Fase 9 (Ruling nel ledger del 24
+# agosto spiega perché qui, eccezionalmente, nascono rotte nuove). Il
+# consumatore reale — schermata Culling (griglia lotti §14, schermo lotto
+# aperto §15, selettore rapido §16) e il pannello impostazioni per la radice
+# (§17/§64) — arriva nei sotto-task successivi dello stesso Task 17.
+route /libraries/{id}/culling-root fase-11
+route /libraries/{id}/culling/lots fase-11
+route /assets/{id}/pick fase-11
+route /culling/lots/{id}/empty-skipped fase-11
 
 # Fase 10 — superficie API per l'interfaccia: i consumatori sono le 70
 # schermate della Fase 11 (tranche A/B subito dopo la 10).

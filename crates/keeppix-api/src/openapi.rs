@@ -9,10 +9,11 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
-    albums, asset_move, audit, auth, backup, bootstrap, credentials, duplicates, faces, flags,
-    folders, geotag, groups, health, libraries, map, media, metadata, operations, permissions,
-    persons, places, preferences, problems, regions, rename, restore, search, sessions, setup,
-    share, stacks, sync, tags, timeline, totp, trash, upload, users, video, viewport, ws,
+    albums, asset_move, audit, auth, backup, bootstrap, credentials, culling, duplicates, faces,
+    flags, folders, geotag, groups, health, libraries, map, media, metadata, operations,
+    permissions, persons, places, preferences, problems, regions, rename, restore, search,
+    sessions, setup, share, stacks, sync, tags, timeline, totp, trash, upload, users, video,
+    viewport, ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -126,6 +127,10 @@ impl utoipa::Modify for SecurityAddon {
         libraries::scan_status,
         libraries::storage,
         libraries::probe,
+        libraries::set_culling_root,
+        culling::list_lots,
+        culling::pick,
+        culling::empty_skipped,
         users::list,
         users::create,
         users::patch,
@@ -306,6 +311,9 @@ impl utoipa::Modify for SecurityAddon {
         libraries::ScanAccepted,
         libraries::ScanStatusView,
         libraries::LibraryStorageView,
+        libraries::PatchCullingRootRequest,
+        culling::CullingLotView,
+        culling::PickRequest,
         users::CreateUserRequest,
         users::PatchUserRequest,
         users::ChangePasswordRequest,
@@ -399,6 +407,7 @@ impl utoipa::Modify for SecurityAddon {
         (name = "trash", description = "Cancellazione a tre opzioni e ripristino"),
         (name = "metadata", description = "Metadati effettivi ed editing in blocco"),
         (name = "flags", description = "Voti di culling per utente: rating, pick, etichetta colore"),
+        (name = "culling", description = "Lotti di culling a cartelle: elenco, scelta/scarto fisico, svuota scartati"),
         (name = "health", description = "Liveness check"),
         (name = "operations", description = "Annullamento delle operazioni lunghe"),
         (name = "albums", description = "Album virtuali: CRUD e gestione asset"),

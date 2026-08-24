@@ -5,6 +5,7 @@ pub mod auth;
 pub mod backup;
 pub mod bootstrap;
 pub mod credentials;
+pub mod culling;
 pub mod duplicates;
 pub mod faces;
 pub mod flags;

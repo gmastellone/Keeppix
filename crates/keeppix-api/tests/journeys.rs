@@ -871,6 +871,17 @@ async fn v13_asset_id_by_name(server: &TestServer, folder_id: &str, filename: &s
     row.0.to_string()
 }
 
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn v13_library_root_folder_id(server: &TestServer, library_id: &str) -> String {
+    let row: (uuid::Uuid,) =
+        sqlx::query_as("SELECT id FROM folders WHERE library_id = $1 AND parent_id IS NULL")
+            .bind(uuid::Uuid::parse_str(library_id).unwrap())
+            .fetch_one(server.db.pool())
+            .await
+            .expect("library root folder");
+    row.0.to_string()
+}
+
 #[allow(clippy::expect_used)]
 async fn v13_set_flags(server: &TestServer, asset_id: &str, body: serde_json::Value) {
     let response = server
@@ -946,13 +957,17 @@ async fn v13_album_asset_ids(server: &TestServer, album_id: &str) -> Vec<String>
 /// è la creazione iniziale dell'archivio sorgente, che nella vita reale è la
 /// scheda di memoria della fotocamera, non un'azione dentro Keeppix.
 ///
-/// **Ambito dichiarato**: "culling" qui è il voto per-utente (`pick`/
-/// `reject`/`rating`, `PUT .../flags`) — l'unica variante di culling con una
-/// rotta HTTP oggi. Lo spostamento fisico nei lotti `_taken`/`_skipped`
-/// (`CullingRepo::set_pick`, Task 2-4) è provato a fondo nella sua stessa
-/// suite di `keeppix-db`, ma non ha ancora un chiamante HTTP (schermata
-/// Culling, Fase 11) — rifarlo qui userebbe il repository direttamente,
-/// contraddicendo lo scopo di questo file ("HTTP-only", vedi `journey/mod.rs`).
+/// **Ambito dichiarato**: "culling" copre sia il voto per-utente (`pick`/
+/// `reject`/`rating`, `PUT .../flags`) sia — da Fase 11 Task 17, che ha
+/// scritto le rotte mancanti — lo spostamento fisico nei lotti
+/// `_taken`/`_skipped` (`CullingRepo::set_pick`/`list_lots`/
+/// `empty_skipped`, Fase 9 Task 2-4). Un quinto asset, fuori dall'ambito
+/// della rinomina/WebDAV/cestino già provate sugli altri quattro, chiude in
+/// fondo al test la radice designata via `PATCH .../culling-root`, l'elenco
+/// lotti, lo spostamento fisico di uno scarto e lo svuotamento definitivo —
+/// prima d'ora questo passo era provato solo dalla suite di `keeppix-db`
+/// che chiama il repository direttamente, non da una rotta HTTP reale
+/// (buco trovato dalla verifica del 24 agosto 2026).
 /// Stesso discorso per i tag: nell'app sono solo proposti dall'IA e confermati
 /// (`Fase 7 Task 8/9`), non assegnabili a mano via HTTP — non rientrano in
 /// questa prova. "Cancellazione dei RAW" è provata con `DELETE /dav/asset/…`
@@ -983,8 +998,13 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
             fs::write(dir.join(format!("IMG_{i}.jpg")), &bytes).unwrap();
         }
     }
+    // Quinto asset, dedicato al passo di culling a lotti in fondo al test
+    // (vedi "Ambito dichiarato" sopra): fuori dall'ambito di
+    // rinomina/WebDAV/cestino già provate sugli altri quattro, così
+    // aggiungerlo non tocca nessuna delle asserzioni esistenti.
+    fs::write(root.join("2026-08-15").join("IMG_2.jpg"), &bytes).unwrap();
     let library_id = create_library(&server, "Viaggio", &root).await;
-    scan_and_wait(&server, &library_id, 4, deadline).await;
+    scan_and_wait(&server, &library_id, 5, deadline).await;
 
     let day1 = folder_id_by_name(&server, "2026-08-14").await;
     let day2 = folder_id_by_name(&server, "2026-08-15").await;
@@ -992,6 +1012,7 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     let rejected = v13_asset_id_by_name(&server, &day1, "IMG_1.jpg").await;
     let other1 = v13_asset_id_by_name(&server, &day2, "IMG_0.jpg").await;
     let other2 = v13_asset_id_by_name(&server, &day2, "IMG_1.jpg").await;
+    let culling_target = v13_asset_id_by_name(&server, &day2, "IMG_2.jpg").await;
 
     // Culling: voto per-utente via l'API reale, prima di rinominare.
     v13_set_flags(&server, &keeper, json!({"rating": 5, "pick": "pick"})).await;
@@ -1158,6 +1179,103 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     let mut album_members_after = v13_album_asset_ids(&server, &album_id).await;
     album_members_after.sort();
     assert_eq!(album_members_after, expected_members);
+
+    // Culling a lotti (Fase 9 Task 2-4, rotte HTTP di Fase 11 Task 17): la
+    // radice designata fa contare le cartelle-giorno stesse come lotti,
+    // senza restrutturare la libreria (spec §2.6). Il quinto asset non è
+    // stato toccato da nessuno dei passi sopra — dedicato a questo.
+    let root_folder_id = v13_library_root_folder_id(&server, &library_id).await;
+    let updated_library: serde_json::Value = server
+        .client
+        .patch(server.url(&format!("/api/v1/libraries/{library_id}/culling-root")))
+        .json(&json!({ "folder_id": root_folder_id }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        updated_library["culling_root_folder_id"],
+        root_folder_id.clone()
+    );
+
+    let lots: serde_json::Value = server
+        .client
+        .get(server.url(&format!("/api/v1/libraries/{library_id}/culling/lots")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let lots = lots.as_array().unwrap();
+    assert_eq!(
+        lots.len(),
+        2,
+        "2026-08-14 e 2026-08-15 contano come lotti sotto la radice designata: {lots:?}"
+    );
+    let day2_lot = lots
+        .iter()
+        .find(|lot| lot["folder_id"] == day2)
+        .expect("day2 è un lotto");
+    assert_eq!(
+        day2_lot["pending"], 2,
+        "other1 e il quinto asset sono ancora in attesa in day2: {day2_lot:?}"
+    );
+
+    // Scartare dentro un lotto sposta fisicamente il file in `_skipped`, non
+    // solo il flag — la parte del Task 4 che il 24 agosto risultava ancora
+    // priva di un chiamante HTTP.
+    let picked: serde_json::Value = server
+        .client
+        .post(server.url(&format!("/api/v1/assets/{culling_target}/pick")))
+        .json(&json!({ "pick": "reject" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let new_folder_id = picked["folder_id"].as_str().unwrap().to_owned();
+    assert_ne!(
+        new_folder_id, day2,
+        "l'asset scartato dentro un lotto si sposta in _skipped, non resta nella cartella del lotto"
+    );
+    assert!(
+        root.join("2026-08-15")
+            .join("_skipped")
+            .join("IMG_2.jpg")
+            .is_file(),
+        "il file è davvero sul disco dentro _skipped"
+    );
+    let target_flags = v13_get_flags(&server, &culling_target).await;
+    assert_eq!(target_flags["pick"], "reject");
+
+    // "Svuota scartati": cancellazione definitiva, riuscita parziale
+    // (`BulkOutcome`) invece di tutto-o-niente (Ruling nel ledger del 24
+    // agosto 2026).
+    let emptied: serde_json::Value = server
+        .client
+        .post(server.url(&format!("/api/v1/culling/lots/{day2}/empty-skipped")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let succeeded = emptied["succeeded"].as_array().unwrap();
+    assert_eq!(succeeded.len(), 1, "{emptied:?}");
+    assert_eq!(succeeded[0], culling_target);
+    assert!(emptied["failed"].as_array().unwrap().is_empty());
+    assert!(
+        !root
+            .join("2026-08-15")
+            .join("_skipped")
+            .join("IMG_2.jpg")
+            .exists(),
+        "svuotare gli scartati cancella davvero il file dal disco"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }

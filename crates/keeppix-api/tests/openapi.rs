@@ -244,8 +244,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 180,
-        "il documento deve descrivere centottanta operazioni"
+        checked, 184,
+        "il documento deve descrivere centottantaquattro operazioni"
     );
 }
 
@@ -721,8 +721,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 180,
-        "il documento deve descrivere centottanta operazioni"
+        checked, 184,
+        "il documento deve descrivere centottantaquattro operazioni"
     );
 }
 

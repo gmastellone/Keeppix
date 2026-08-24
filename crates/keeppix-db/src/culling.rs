@@ -158,24 +158,39 @@ impl<'a> CullingRepo<'a> {
         assets.find_by_id(ctx, asset_id).await
     }
 
-    /// "Svuota scartati" (Task 4): elimina **definitivamente** dal disco
-    /// ogni asset oggi in `_skipped` dentro questo lotto. Riusa
-    /// `TrashRepo::choose` con `DiskAction::Purged` invece di duplicarne la
-    /// logica: stesso cancello owner/admin ("un editor non può distruggere
-    /// file"), stesso ordine riga-poi-file, stesso audit in
-    /// `trash_entries`. La conferma è responsabilità del chiamante (API/UI),
-    /// non di questo metodo — qui non c'è nulla da confermare due volte.
+    /// "Svuota scartati" (Task 4, esposto via HTTP in Fase 11 Task 17):
+    /// elimina **definitivamente** dal disco ogni asset oggi in `_skipped`
+    /// dentro questo lotto. Riusa `TrashRepo::choose` con
+    /// `DiskAction::Purged` invece di duplicarne la logica: stesso cancello
+    /// owner/admin ("un editor non può distruggere file"), stesso ordine
+    /// riga-poi-file, stesso audit in `trash_entries`. La conferma è
+    /// responsabilità del chiamante (API/UI), non di questo metodo — qui non
+    /// c'è nulla da confermare due volte.
+    ///
+    /// Riuscita **parziale**, mai un blocco totale silenzioso — stesso
+    /// principio già scritto per le operazioni di massa (Fase 9/10): un
+    /// asset il cui purge fallisce non impedisce agli altri di essere
+    /// eliminati. Il vettore restituito porta l'esito per ciascun asset,
+    /// nell'ordine stabile di `find_by_folder` (per nome file); il
+    /// chiamante HTTP lo traduce in `BulkOutcome`.
+    ///
+    /// L'**autorizzazione** resta invece tutto-o-niente, come in
+    /// `TrashRepo::batch_delete` per `Purged` (spec Fase 10 §Task 4): un
+    /// chiamante che non può distruggere anche un solo asset del lotto non
+    /// arriva a toccarne nessuno — niente file sparisce mentre la richiesta
+    /// viene rifiutata a metà.
     ///
     /// # Errors
-    /// Come `FolderRepo::find_by_id` sul lotto, poi come `TrashRepo::choose`
-    /// con `DiskAction::Purged` — al primo asset non purgabile, senza
-    /// toccare i successivi (ordine stabile: `find_by_folder` li ordina per
-    /// nome file).
+    /// Come `FolderRepo::find_by_id` sul lotto, o `ensure_culling_child` —
+    /// per l'impossibilità di risolvere il lotto stesso — poi come
+    /// `TrashRepo::assert_batch_purge_authorized` se il chiamante non è
+    /// owner/admin. I fallimenti sui singoli asset durante il purge vero e
+    /// proprio sono nel `Result` di ogni tupla restituita, non qui.
     pub async fn empty_skipped(
         &self,
         ctx: &AuthContext,
         lot_folder_id: FolderId,
-    ) -> Result<usize, DbError> {
+    ) -> Result<Vec<(AssetId, Result<(), DbError>)>, DbError> {
         let folders = FolderRepo::new(self.db);
         let assets = AssetRepo::new(self.db);
         let trash = TrashRepo::new(self.db);
@@ -185,12 +200,20 @@ impl<'a> CullingRepo<'a> {
             .ensure_culling_child(&lot, CullingRole::Skipped)
             .await?;
         let victims = assets.find_by_folder(ctx, skipped.id).await?;
+        let victim_ids: Vec<AssetId> = victims.iter().map(|a| a.id).collect();
+        trash
+            .assert_batch_purge_authorized(ctx, &victim_ids)
+            .await?;
 
-        let count = victims.len();
+        let mut results = Vec::with_capacity(victims.len());
         for victim in victims {
-            trash.choose(ctx, victim.id, DiskAction::Purged).await?;
+            let outcome = trash
+                .choose(ctx, victim.id, DiskAction::Purged)
+                .await
+                .map(|_| ());
+            results.push((victim.id, outcome));
         }
-        Ok(count)
+        Ok(results)
     }
 }
 

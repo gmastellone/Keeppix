@@ -225,6 +225,18 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::libraries::probe),
         )
         .route(
+            "/libraries/{id}/culling-root",
+            axum::routing::patch(routes::libraries::set_culling_root),
+        )
+        .route(
+            "/libraries/{id}/culling/lots",
+            get(routes::culling::list_lots),
+        )
+        .route(
+            "/culling/lots/{id}/empty-skipped",
+            axum::routing::post(routes::culling::empty_skipped),
+        )
+        .route(
             "/groups",
             get(routes::groups::list).post(routes::groups::create),
         )
@@ -349,6 +361,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
         .route(
             "/assets/{id}/flags",
             get(routes::flags::get).put(routes::flags::set),
+        )
+        .route(
+            "/assets/{id}/pick",
+            axum::routing::post(routes::culling::pick),
         )
         .route(
             "/flags/batch",
