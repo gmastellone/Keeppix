@@ -14,7 +14,7 @@
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { addAssets, fetchAlbum, fetchAlbums, removeAsset, type Album } from '@/api/albums'
+import { addAssets, fetchAlbumAssets, fetchAlbums, removeAsset, type Album } from '@/api/albums'
 import type { TimelineAsset } from '@/api/timeline'
 import { useToastStore } from '@/stores/toast'
 
@@ -28,10 +28,16 @@ const toast = useToastStore()
 
 const albums = ref<Album[]>([])
 /** Id album → insieme degli id foto già membri, per decidere il verso del
- * toggle di gruppo. Niente endpoint di "appartenenza" dedicato: si deduce
- * da `AlbumDetail.assets`, un `fetchAlbum` per album al momento
- * dell'apertura — il numero di album è tipicamente piccolo, non merita
- * un endpoint apposito solo per questo dialog. */
+ * toggle di gruppo. Niente endpoint di "appartenenza per più album"
+ * dedicato: si deduce da `GET /albums/{id}/assets`
+ * (`fetchAlbumAssets`), una chiamata per album al momento dell'apertura
+ * — il numero di album è tipicamente piccolo, non merita un endpoint
+ * apposito solo per questo dialog. Bug reale corretto in questa unità
+ * (Task 12 1/N): prima chiamava `fetchAlbum(id).assets`, un campo che
+ * `GET /albums/{id}` non ha mai restituito — l'appartenenza mostrata
+ * qui era sempre vuota in produzione, mai chiaramente sbagliata solo
+ * perché i test mockavano `fetchAlbum` con una forma sintetica che
+ * includeva `assets`. */
 const membership = ref<Record<string, Set<string>>>({})
 const pending = ref<Set<string>>(new Set())
 
@@ -40,8 +46,8 @@ async function load() {
   albums.value = list
   const entries = await Promise.all(
     list.map(async (album) => {
-      const detail = await fetchAlbum(album.id).catch(() => null)
-      return [album.id, new Set((detail?.assets ?? []).map((a) => a.id))] as const
+      const members = await fetchAlbumAssets(album.id).catch(() => [])
+      return [album.id, new Set(members.map((a) => a.id))] as const
     })
   )
   membership.value = Object.fromEntries(entries)

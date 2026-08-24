@@ -7,13 +7,13 @@ import type { TimelineAsset } from '@/api/timeline'
 import { i18n } from '@/i18n'
 
 const fetchAlbumsMock = vi.fn()
-const fetchAlbumMock = vi.fn()
+const fetchAlbumAssetsMock = vi.fn()
 const addAssetsMock = vi.fn()
 const removeAssetMock = vi.fn()
 
 vi.mock('@/api/albums', () => ({
   fetchAlbums: (...args: unknown[]) => fetchAlbumsMock(...args),
-  fetchAlbum: (...args: unknown[]) => fetchAlbumMock(...args),
+  fetchAlbumAssets: (...args: unknown[]) => fetchAlbumAssetsMock(...args),
   addAssets: (...args: unknown[]) => addAssetsMock(...args),
   removeAsset: (...args: unknown[]) => removeAssetMock(...args)
 }))
@@ -26,9 +26,23 @@ const AlbumPickerDialog = (await import('./AlbumPickerDialog.vue')).default
 // interroga `document.body` direttamente, con `tick()` invece di
 // `flushPromises()` da solo: lo `watch(open, …, {immediate:true})` che
 // avvia il caricamento degli album passa da più giri di microtask
-// (fetchAlbums → Promise.all di fetchAlbum → assegnazione reattiva), e un
-// singolo `setTimeout(0)` copre comunque tutta la catena una volta sola.
+// (fetchAlbums → Promise.all di fetchAlbumAssets → assegnazione
+// reattiva), e un singolo `setTimeout(0)` copre comunque tutta la
+// catena una volta sola.
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+function album(id: string, name: string) {
+  return {
+    id,
+    name,
+    description: '',
+    owner_id: 'u1',
+    created_at: '',
+    updated_at: '',
+    is_shared: false,
+    monochrome: false
+  }
+}
 
 function photo(id: string): TimelineAsset {
   return {
@@ -70,15 +84,16 @@ function switches(): HTMLButtonElement[] {
   return Array.from(document.body.querySelectorAll('[role="switch"]'))
 }
 
+function albumAsset(id: string) {
+  return { ...photo(id), position: 0, added_by: 'u1', added_at: '' }
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
   i18n.global.locale.value = 'it'
-  fetchAlbumsMock.mockResolvedValue([
-    { id: 'album-1', name: 'Urbino', cover_hash: null, created_at: '' },
-    { id: 'album-2', name: 'Lago di Braies', cover_hash: null, created_at: '' }
-  ])
-  fetchAlbumMock.mockImplementation(async (id: string) => ({ id, name: '', assets: [] }))
+  fetchAlbumsMock.mockResolvedValue([album('album-1', 'Urbino'), album('album-2', 'Lago di Braies')])
+  fetchAlbumAssetsMock.mockResolvedValue([])
   addAssetsMock.mockResolvedValue(null)
   removeAssetMock.mockResolvedValue(null)
 })
@@ -101,8 +116,8 @@ describe('AlbumPickerDialog', () => {
   })
 
   it('shows a row as "on" only when every selected photo is already a member — not just some', async () => {
-    fetchAlbumMock.mockImplementation(async (id: string) =>
-      id === 'album-1' ? { id, name: 'Urbino', assets: [photo('a')] } : { id, name: '', assets: [] }
+    fetchAlbumAssetsMock.mockImplementation(async (id: string) =>
+      id === 'album-1' ? [albumAsset('a')] : []
     )
     mountHost([photo('a'), photo('b')])
     await tick()
@@ -123,8 +138,8 @@ describe('AlbumPickerDialog', () => {
   })
 
   it('clicking an on row (all members) removes every selected asset one by one, then flips off — §12.3 group toggle', async () => {
-    fetchAlbumMock.mockImplementation(async (id: string) =>
-      id === 'album-1' ? { id, name: 'Urbino', assets: [photo('a'), photo('b')] } : { id, name: '', assets: [] }
+    fetchAlbumAssetsMock.mockImplementation(async (id: string) =>
+      id === 'album-1' ? [albumAsset('a'), albumAsset('b')] : []
     )
     mountHost([photo('a'), photo('b')])
     await tick()

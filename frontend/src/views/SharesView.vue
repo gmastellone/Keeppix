@@ -45,7 +45,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
-import { fetchAlbum, fetchAlbums, type Album } from '@/api/albums'
+import { fetchAlbumAssets, fetchAlbums, type Album } from '@/api/albums'
 import { isUnauthenticated } from '@/api/client'
 import { fetchAllFolders, fetchTree, type FolderView } from '@/api/folders'
 import { fetchGroups, type Group } from '@/api/groups'
@@ -250,8 +250,8 @@ async function loadSharedObjectCards() {
     Array.from(keys).map(async (key) => {
       const [type, id] = key.split(':') as ['folder' | 'album', string]
       if (type === 'album') {
-        const detail = await fetchAlbum(id).catch(() => null)
-        return { type, id, name: detail?.name ?? objectName('album', id), itemCount: detail?.assets.length ?? 0 }
+        const members = await fetchAlbumAssets(id).catch(() => [])
+        return { type, id, name: objectName('album', id), itemCount: members.length }
       }
       let count = 0
       try {

@@ -12,10 +12,11 @@
 //
 // Freccia indietro (§5.3.1): il mockup ha tre rami di priorità
 // (dettaglio album aperto → griglia Album; culling/bulkEdit → Foto;
-// altrimenti → Altro). Il primo ramo non è raggiungibile qui: nessuna
-// rotta espone oggi un "dettaglio album aperto" osservabile
-// dall'esterno della vista (stesso debito già dichiarato per
-// AppSidebar e AppTopbar, Task 3/13/15/16). Restano gli altri due.
+// altrimenti → Altro). Il primo ramo, da Task 12 (1/N), è raggiungibile:
+// `/albums/:id` è la prima rotta dinamica con un "aperto" osservabile
+// dall'esterno della vista (stesso debito dichiarato per AppSidebar,
+// Task 3/13/15/16, resta per cartelle/culling — nessuna delle due espone
+// ancora quello stato).
 //
 // Pulsante imbuto culling: badge dal dato reale già usato da
 // AppSidebar (`shell.badges.culling`), non un segnaposto.
@@ -37,7 +38,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Avatar from '@/components/ui/Avatar.vue'
 import Popover from '@/components/ui/Popover.vue'
 import { UPLOAD_ACCEPT, useUploadPicker } from '@/composables/useUploadPicker'
-import { ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
+import { activeAlbumName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
 import { useSessionStore } from '@/stores/session'
 import { useShellStore } from '@/stores/shell'
 
@@ -60,6 +61,7 @@ const UPLOAD_VISIBLE_ROUTES = new Set(['/', '/albums', '/more'])
 const showBack = computed(() => !ROOT_ROUTES.has(route.path))
 
 const title = computed(() => {
+  if (route.path.startsWith('/albums/') && activeAlbumName.value) return activeAlbumName.value
   const key = ROUTE_TITLE_KEYS[route.path]
   if (key) return t(key)
   if (route.path === '/more') return t('nav.more')
@@ -67,6 +69,10 @@ const title = computed(() => {
 })
 
 function goBack() {
+  if (route.path.startsWith('/albums/')) {
+    void router.push('/albums')
+    return
+  }
   void router.push(BACK_TO_FOTO.has(route.path) ? '/' : '/more')
 }
 

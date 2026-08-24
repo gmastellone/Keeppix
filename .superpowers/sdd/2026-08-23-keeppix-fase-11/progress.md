@@ -5052,3 +5052,102 @@ Condivisioni (la strada reale resta il dialog di selezione), le
 destinazioni delle card cartella/album (nessuna vista scoperta-da-id).
 Si prosegue con i Task 12-14 della Tranche B (Album, Manutenzione,
 Impostazioni/Profilo).
+
+## Task 12 (1/N) — Album: griglia, dettaglio, creazione minima
+
+Documento funzionale §41 ("Album — la griglia") e §42 ("Album —
+dettaglio"), verificati riga per riga (righe 6226-6480). §43
+("Creazione di un album", il filtro a 9 condizioni) è rimandato alla
+2/N: qui solo un dialog di creazione minimo, nome soltanto — vedi sotto.
+
+**Bug reale trovato e corretto nel livello dati, prima ancora della UI**:
+`fetchAlbum(id)` era tipizzato per restituire `assets`, che
+`GET /albums/{id}` (`routes::albums::get`) **non ha mai avuto** — l'elenco
+membri vive solo su `GET /albums/{id}/assets`, mai chiamato dal frontend
+fino a questa unità. `AlbumPickerDialog.vue` copriva il buco con
+`detail?.assets ?? []`: l'appartenenza mostrata dal picker "Aggiungi ad
+album" era **sempre vuota** in produzione, indipendentemente dallo stato
+reale. Corretto aggiungendo `fetchAlbumAssets(id)` (`api/albums.ts`) e
+ripuntando i tre consumatori (`AlbumPickerDialog.vue`, `SharesView.vue`
+e i rispettivi test) alla rotta vera. `Album` stesso era tipizzato con
+un campo `cover_hash` mai esistito sul backend, sostituito con
+`cover_asset_id`/`cover_tint`/`monochrome` reali (mai scritti da alcuna
+rotta — la copertina resta quindi calcolata lato client, vedi sotto).
+
+**"Automatico" (il documento lo chiama filtro "che si aggiorna da solo"
+in continuazione) non esiste sul backend reale**: un album con `rule`
+resta un insieme di membri materializzato in `album_assets`, aggiornato
+solo su richiesta (`POST /albums/{id}/refresh`, `BulkOutcome` con
+`succeeded` = concatenazione di aggiunti+rimossi, senza distinguerli —
+verificato in `routes::albums::refresh`). Conseguenza per questa unità:
+N e l'intervallo di date di ogni album (§41.2, §42.2) sono sempre
+calcolati dai membri **effettivi** restituiti da `fetchAlbumAssets`, mai
+da una ricomputazione live sul catalogo — vero sia per un album
+"dinamico" (`rule` presente) sia per uno manuale, perché sul backend
+reale entrambi hanno la stessa forma di appartenenza materializzata.
+`AlbumDetailView.vue` aggiunge un pulsante reale **"Aggiorna album"**
+(solo se `album.rule` è presente) che rilancia `POST .../refresh`: è la
+contropartita onesta dell'"Automatico" del documento, non prevista lì
+(nessuna modifica post-creazione è prevista nel mockup) ma necessaria
+qui — senza, un album dinamico non avrebbe mai modo di aggiornare la
+propria appartenenza dopo la creazione.
+
+**Copertina a gradiente calcolata lato client** (`design/albumCover.ts`,
+`albumCoverGradient(seed)`), stesso principio hash→HSL già usato da
+`avatarColorFor` (Task 11 1/N, SP-16: "hash-based, nessuna formula
+esatta nel documento oltre al vincolo") — `cover_tint`/`monochrome` non
+sono mai scritti da nessuna rotta, quindi nessun vero album "Bianco e
+nero" è possibile con dati reali, ma ogni copertina resta deterministica
+sull'id.
+
+**`<N> foto · <intervallo>`** (§41.2, §42.2) non può leggere `a.range`
+(mai esistito sul backend): `albums/range.ts`, `albumMonthRange()`,
+calcola l'intervallo dalle date scatto reali dei membri (`taken_at_utc`)
+con `monthFull()` (stesso helper dello scrubber, `Intl.DateTimeFormat`
+localizzato — non una tabella di stringhe italiane). `null` quando
+l'album non ha membri con una data nota: il chiamante sceglie fra
+`"nessuna foto ancora"` (manuale) e `"nessuna foto corrisponde"`
+(`rule` presente) — non un'unica dicitura generica.
+
+**I tre stati vuoti distinti di §42.2 restano distinti** in
+`AlbumDetailView.vue` (`emptyState`, mutuamente esclusivo): filtro
+rapido troppo stretto (riusa `ui.filteredEmpty`, stessa dicitura di
+Preferiti/Timeline), album dinamico senza corrispondenze, album manuale
+davvero vuoto — tre situazioni diverse anche se il rendering finale si
+somiglia, scelta deliberata del documento da non appiattire.
+
+**"Crea album" apre un dialog minimo, solo nome** — non la pagina di
+creazione a sé del §43 (nome, condivisione, editor di filtro a 9 campi,
+anteprima live), rimandata alla 2/N per non lasciare la griglia/il
+dettaglio senza un punto d'ingresso funzionante nel frattempo. Il
+dialog copre comunque per intero il caso "Manuale" del §43 (nome pulito
+dagli spazi, un toast se vuoto, atterraggio diretto nel dettaglio del
+nuovo album).
+
+**Prima rotta con un "aperto" osservabile dall'esterno della vista**:
+`/albums/:id` è la prima destinazione dinamica reale di questa app (i
+debiti dichiarati per `Cartelle / <nome>`/`Culling / <nome lotto>`
+restano — nessuna delle due rotte espone ancora quello stato). Tre
+punti di shell aggiornati di conseguenza, con un unico ref di modulo
+condiviso (`nav/routeTitles.ts`, `activeAlbumName` — stesso principio
+di `useDensity`, non uno store Pinia per un solo campo): la briciola
+della topbar diventa `"Album / <nome>"` con solo il nome in grassetto
+(§42.8, testuale), il titolo dell'header mobile mostra il nome
+dell'album con la freccia indietro che torna a `/albums` invece che ad
+"Altro", e sia `AppSidebar` sia `AppMobileTabbar` restano evidenziati
+su "Album" anche col dettaglio aperto.
+
+Verifica completa: `npx vitest run` → 82 file, **700/700** verdi (23
+nuovi: 3 `albumCover.spec.ts` già dalla sessione precedente, 3
+`range.spec.ts`, 7 `AlbumsView.spec.ts`, 9 `AlbumDetailView.spec.ts` +
+1 di flakiness da `attachTo: document.body` non smontato fra i test,
+corretto con un `afterEach` che smonta il wrapper — stesso principio
+già noto da `AlbumPickerDialog.spec.ts`). `npx vue-tsc -b` pulito.
+`npx eslint` sui file toccati e sull'intero repo → pulito (stesso unico
+errore preesistente su `PlayerView.vue`). `npm run build` + calcolo
+manuale del bundle iniziale gzip → 128.797 byte, sotto il budget di
+153.600.
+
+Debito dichiarato, esplicito: §43 (pagina di creazione con filtro a 9
+campi) resta per la 2/N — questa stessa estenderà `search/ast.ts` con
+`Lens`/`Rating`/`Pick`/`DateRange` per rappresentare le condizioni.

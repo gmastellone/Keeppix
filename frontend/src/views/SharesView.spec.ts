@@ -26,7 +26,7 @@ vi.mock('@/api/folders', () => ({
 
 vi.mock('@/api/albums', () => ({
   fetchAlbums: vi.fn(),
-  fetchAlbum: vi.fn()
+  fetchAlbumAssets: vi.fn()
 }))
 
 vi.mock('@/api/library', () => ({
@@ -46,7 +46,7 @@ import SharesView from './SharesView.vue'
 const { fetchShareLinks } = await import('@/api/shares')
 const { fetchPermissions, grantPermission, explainPermission, fetchSharedWithMe } = await import('@/api/permissions')
 const { fetchTree, fetchAllFolders } = await import('@/api/folders')
-const { fetchAlbums, fetchAlbum } = await import('@/api/albums')
+const { fetchAlbums, fetchAlbumAssets } = await import('@/api/albums')
 const { runSearch } = await import('@/api/library')
 const { fetchUsers } = await import('@/api/users')
 const { fetchGroups } = await import('@/api/groups')
@@ -103,7 +103,7 @@ beforeEach(() => {
   vi.mocked(fetchTree).mockResolvedValue([folder])
   vi.mocked(fetchAllFolders).mockResolvedValue([folder])
   vi.mocked(fetchAlbums).mockResolvedValue([])
-  vi.mocked(fetchAlbum).mockResolvedValue({ id: 'x', name: '', assets: [] })
+  vi.mocked(fetchAlbumAssets).mockResolvedValue([])
   vi.mocked(runSearch).mockResolvedValue({ assets: [] })
   vi.mocked(fetchUsers).mockResolvedValue([bob])
   vi.mocked(fetchGroups).mockResolvedValue([famiglia])
@@ -240,7 +240,18 @@ describe('SharesView — §29, la pagina reale', () => {
   })
 
   it('un link pubblico mostra il nome risolto dell\'oggetto e la riga riassuntiva reale', async () => {
-    vi.mocked(fetchAlbums).mockResolvedValue([{ id: 'al1', name: 'Migliori scatti 2026', cover_hash: null, created_at: '' }])
+    vi.mocked(fetchAlbums).mockResolvedValue([
+      {
+        id: 'al1',
+        name: 'Migliori scatti 2026',
+        description: '',
+        owner_id: 'u1',
+        created_at: '',
+        updated_at: '',
+        is_shared: false,
+        monochrome: false
+      }
+    ])
     vi.mocked(fetchShareLinks).mockResolvedValue([
       {
         id: 'link-1',

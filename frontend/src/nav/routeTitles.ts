@@ -4,6 +4,8 @@
 // stesso identico testo per rotta — la topbar mostra la briciola di
 // pane, l'header mobile il titolo, ma per ogni rotta oggi coperta sono
 // la stessa identica stringa.
+import { ref } from 'vue'
+
 export const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/': 'topbar.allPhotos',
   '/favorites': 'favorites.title',
@@ -19,3 +21,13 @@ export const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/users': 'users.title',
   '/groups': 'groups.title'
 }
+
+/** Nome dell'album aperto in `/albums/:id` — Task 12 (1/N). Prima rotta
+ * dinamica con un "aperto" osservabile dall'esterno della vista: i debiti
+ * dichiarati sopra per `Cartelle / <nome>`/`Culling / <nome lotto>`
+ * restano (nessuna di quelle rotte espone ancora uno stato aperto), ma
+ * per gli album ora esiste davvero — `AlbumDetailView` lo scrive al
+ * caricamento e lo azzera allo smontaggio. Ref di modulo condiviso, non
+ * uno store Pinia per un solo campo: stesso principio di `useDensity`
+ * (comparso un secondo consumatore, `AppMobileHeader`, subito). */
+export const activeAlbumName = ref<string | null>(null)

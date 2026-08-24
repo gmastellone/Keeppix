@@ -43,13 +43,20 @@ import { useRoute, useRouter } from 'vue-router'
 
 import Tooltip from '@/components/ui/Tooltip.vue'
 import { useUploadPicker, UPLOAD_ACCEPT } from '@/composables/useUploadPicker'
-import { ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
+import { activeAlbumName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const inputEl = ref<HTMLInputElement | null>(null)
 const { open: openPicker, onChange } = useUploadPicker(inputEl)
+
+// §42.8: la sola briciola con un vero segmento genitore ("Album /
+// <nome>") — le altre rotte restano a un unico segmento (vedi il
+// commento in testa al file).
+const albumBreadcrumbName = computed(() =>
+  route.path.startsWith('/albums/') ? activeAlbumName.value : null
+)
 
 const breadcrumbLabel = computed(() => {
   const key = ROUTE_TITLE_KEYS[route.path]
@@ -66,8 +73,11 @@ async function openSearch() {
 <template>
   <div class="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-5">
     <div class="min-w-0 truncate text-[14.5px] text-content-muted">
+      <template v-if="albumBreadcrumbName">
+        {{ t('albums.entry') }} / <b class="font-semibold text-content">{{ albumBreadcrumbName }}</b>
+      </template>
       <b
-        v-if="breadcrumbLabel"
+        v-else-if="breadcrumbLabel"
         class="font-semibold text-content"
       >{{ breadcrumbLabel }}</b>
     </div>

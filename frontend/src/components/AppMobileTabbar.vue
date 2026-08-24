@@ -28,7 +28,9 @@ const FOTO_ROUTES = new Set(['/', '/culling', '/batch-edit'])
 type TabId = 'foto' | 'cerca' | 'album' | 'altro'
 
 const activeTab = computed<TabId | null>(() => {
-  if (route.path === '/albums') return 'album'
+  // `/albums/:id` (Task 12 1/N): stesso principio di `AppSidebar.isActive`
+  // — il dettaglio di un album resta dentro la scheda "Album".
+  if (route.path === '/albums' || route.path.startsWith('/albums/')) return 'album'
   if (ALTRO_ROUTES.has(route.path)) return 'altro'
   if (FOTO_ROUTES.has(route.path)) return 'foto'
   if (route.path === '/search') return 'cerca'

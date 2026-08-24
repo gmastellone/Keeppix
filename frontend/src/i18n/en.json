@@ -482,11 +482,37 @@
   },
   "albums": {
     "entry": "Albums",
+    "title": "Albums",
+    "subtitle": "Curated selections across folders",
+    "createButton": "Create album",
     "namePlaceholder": "Album name",
-    "create": "Create",
-    "empty": "No albums yet.",
-    "assetCount": "{count} photos",
-    "delete": "Delete"
+    "createDialog": {
+      "title": "Create album",
+      "namePlaceholderHint": "E.g. Best shots, Sunsets, Portraits…",
+      "cancel": "Cancel",
+      "confirm": "Create",
+      "error": "Could not create the album. Try again."
+    },
+    "sharedBadge": "shared",
+    "dynamicBadge": "dynamic",
+    "dynamicBadgeTooltip": "Dynamic album: membership updates itself based on the filter",
+    "cardSubtitle": "{count} photos · {range}",
+    "noMatch": "no photos match",
+    "noPhotosYet": "no photos yet",
+    "emptyTitle": "No albums yet",
+    "emptySubtitle": "Create your first album to collect photos across folders.",
+    "backLink": "All albums",
+    "detail": {
+      "sharedSuffix": " · shared",
+      "dynamicSuffix": " · updates itself based on the filter",
+      "refresh": "Refresh album",
+      "refreshDone": "Album refreshed.",
+      "refreshError": "Could not refresh the album. Try again.",
+      "emptyDynamicTitle": "No photos match the filter",
+      "emptyDynamicSubtitle": "Go back and widen the conditions — for example switching from \"All\" to \"At least one\".",
+      "emptyManualTitle": "Empty album",
+      "emptyManualSubtitle": "Select one or more photos in Timeline, then \"Add to album\" from the selection bar."
+    }
   },
   "albumPicker": {
     "title": "Add to album",

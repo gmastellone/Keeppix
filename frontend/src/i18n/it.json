@@ -482,11 +482,37 @@
   },
   "albums": {
     "entry": "Album",
+    "title": "Album",
+    "subtitle": "Selezioni curate, trasversali alle cartelle",
+    "createButton": "Crea album",
     "namePlaceholder": "Nome dell'album",
-    "create": "Crea",
-    "empty": "Nessun album.",
-    "assetCount": "{count} foto",
-    "delete": "Elimina"
+    "createDialog": {
+      "title": "Crea album",
+      "namePlaceholderHint": "Es. Migliori scatti, Tramonti, Ritratti…",
+      "cancel": "Annulla",
+      "confirm": "Crea",
+      "error": "Non è stato possibile creare l'album. Riprova."
+    },
+    "sharedBadge": "condiviso",
+    "dynamicBadge": "dinamico",
+    "dynamicBadgeTooltip": "Album dinamico: l'appartenenza si aggiorna da sola in base al filtro",
+    "cardSubtitle": "{count} foto · {range}",
+    "noMatch": "nessuna foto corrisponde",
+    "noPhotosYet": "nessuna foto ancora",
+    "emptyTitle": "Nessun album ancora",
+    "emptySubtitle": "Crea il tuo primo album per raccogliere foto trasversalmente alle cartelle.",
+    "backLink": "Tutti gli album",
+    "detail": {
+      "sharedSuffix": " · condiviso",
+      "dynamicSuffix": " · si aggiorna da solo in base al filtro",
+      "refresh": "Aggiorna album",
+      "refreshDone": "Album aggiornato.",
+      "refreshError": "Non è stato possibile aggiornare l'album. Riprova.",
+      "emptyDynamicTitle": "Nessuna foto corrisponde al filtro",
+      "emptyDynamicSubtitle": "Torna indietro e allarga le condizioni — per esempio passando da \"Tutte\" ad \"Almeno una\".",
+      "emptyManualTitle": "Album vuoto",
+      "emptyManualSubtitle": "Seleziona una o più foto in Timeline, poi \"Aggiungi ad album\" dalla barra di selezione."
+    }
   },
   "albumPicker": {
     "title": "Aggiungi ad album",

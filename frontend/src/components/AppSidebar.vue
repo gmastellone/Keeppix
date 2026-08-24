@@ -80,7 +80,13 @@ const ADMIN_ITEMS = [
   { to: '/groups', labelKey: 'groups.entry' }
 ] as const
 
+// `/albums` resta evidenziata anche dentro il dettaglio di un album
+// (Task 12 1/N, prima rotta con figli reali: `/albums/:id`) — stessa
+// idea del mockup ("il click su Album azzera anche `state.openAlbum`",
+// §41.8), qui capovolta: si è ancora dentro la sezione Album anche col
+// dettaglio aperto.
 function isActive(to: string): boolean {
+  if (to === '/albums') return route.path === to || route.path.startsWith('/albums/')
   return route.path === to
 }
 

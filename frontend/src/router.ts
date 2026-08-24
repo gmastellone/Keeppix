@@ -68,6 +68,11 @@ export const router = createRouter({
       meta: { auth: true }
     },
     { path: '/albums', component: () => import('@/views/AlbumsView.vue'), meta: { auth: true } },
+    {
+      path: '/albums/:id',
+      component: () => import('@/views/AlbumDetailView.vue'),
+      meta: { auth: true }
+    },
     // Solo shell mobile (§6): la quarta scheda "Altro" della tab bar
     // (Task 6, prossimo sotto-passo). Nessun link diretto da nessuna
     // parte della shell desktop.
