@@ -49,7 +49,18 @@ function photo(id: string): TimelineAsset {
   }
 }
 
-async function mountSearch(initialPath = '/search') {
+/**
+ * `apiFetchImpl` di proposito parametrizzabile: `AssetViewer.vue` apre il
+ * pannello informazioni già aperto (§19.8) e carica il proprio giro di
+ * dati (`loadPanelData`) subito al montaggio, non solo al primo `i` come
+ * prima — un default a `[]` copre gli endpoint che vogliono un array
+ * (tag/album/volti/stack); il test su "?photo=" passa la propria
+ * implementazione perché deve rispondere anche a `GET /assets/{id}`.
+ */
+async function mountSearch(
+  initialPath = '/search',
+  apiFetchImpl: (path: string) => Promise<unknown> = async () => []
+) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/search', component: SearchView }]
@@ -57,6 +68,7 @@ async function mountSearch(initialPath = '/search') {
   setActivePinia(createPinia())
   vi.mocked(fetchSavedSearches).mockResolvedValue([])
   vi.mocked(fetchSuggestions).mockResolvedValue({ suggestions: [] })
+  vi.mocked(apiFetch).mockImplementation(apiFetchImpl)
 
   await router.push(initialPath)
   await router.isReady()
@@ -79,8 +91,9 @@ describe('SearchView lightbox in the URL', () => {
   })
 
   it('reloading on a ?photo= URL restores the viewer by loading the asset directly', async () => {
-    vi.mocked(apiFetch).mockResolvedValue(photo('a'))
-    const { wrapper } = await mountSearch('/search?photo=a')
+    const { wrapper } = await mountSearch('/search?photo=a', async (path) =>
+      path === '/api/v1/assets/a' ? photo('a') : []
+    )
 
     expect(apiFetch).toHaveBeenCalledWith('/api/v1/assets/a')
     expect(wrapper.findComponent({ name: 'AssetViewer' }).exists()).toBe(true)

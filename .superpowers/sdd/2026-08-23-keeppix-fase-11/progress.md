@@ -4415,3 +4415,50 @@ link cartella/lotto (nessuna rotta di risoluzione nome), "Vai alla
 persona" e "+ aggiungi" delle persone (destinazioni che non esistono
 ancora altrove nell'app — Task 16 e Task A). Il Task 8 prosegue con §21
 (integrazione culling) come ultima unità dichiarata.
+
+## Task 8 (9/N) — Il pannello informazioni parte aperto (§19.8)
+
+Bug reale trovato rileggendo §19.8 mentre ci si preparava a leggere §21
+per l'unità successiva (integrazione culling): *"Il pannello... è
+forzato aperto a ogni `openLightbox()` (e all'apertura dal culling)."*
+Dalla 2/N in poi il pannello partiva **chiuso** (`const info =
+ref(false)`) — mai notato perché ogni singolo test di
+`AssetViewer.spec.ts`, in tutte le sette unità precedenti, apriva il
+pannello esplicitamente con un `dispatchEvent(keydown 'i')` prima di
+verificare qualunque contenuto: il test compensava il difetto invece di
+scoprirlo, praticamente all'incontrario di quello che dovrebbe fare.
+
+Corretto: `info` parte `true`; `loadPanelData()` (i sette giri paralleli
+di titolo/scatto/posizione/persone/tag/album/stack) scatta da
+`onMounted`, non solo dal primo `i` o click sull'icona — `i`/l'icona
+restano il modo per chiudere e riaprire, comportamento invariato. Nuovo
+test dedicato: pannello visibile al mount senza alcuna interazione, `i`
+lo chiude, l'icona lo riapre.
+
+**Conseguenza attesa e sistemata nello stesso giro**: `loadPanelData()`
+ora scatta ad **ogni** montaggio di `AssetViewer`, non solo quando un
+test lo apre esplicitamente — tre file di test che montano il
+componente reale dentro una vista (non uno stub) avevano mock di
+`apiFetch`/`@/api/timeline`/`@/api/albums` scritti assumendo che quel
+giro non sarebbe mai scattato:
+- `SearchView.spec.ts`: un test impostava `apiFetch.mockResolvedValue(photo('a'))` **per tutte** le chiamate (non solo quella attesa) — con più chiamate reali in gioco, `fetchTags()`/`fetchTagsForAsset()` ricevevano un oggetto singolo invece di un array e `.filter()` andava in eccezione. Corretto rendendo `mountSearch()` parametrizzabile su un'implementazione di `apiFetch` (default `[]`), invece di un valore fisso globale.
+- `TimelineView.spec.ts`: `vi.mock('@/api/timeline', ...)` non includeva `fetchAsset` (aggiunta dal Task 8 3/N, dopo che questo mock era stato scritto) — Vitest lo segnalava come export mancante non silenzioso. Aggiunto, instradato sullo stesso `apiFetch` già mockato nel file.
+- `FavoritesView.spec.ts`: `vi.mock('@/api/albums', ...)` non includeva `fetchAlbumsForAsset` (aggiunta dal Task 8 7/N) — stesso errore, stessa correzione.
+
+Nessuno di questi tre era un difetto nuovo introdotto oggi: erano scritti
+correttamente per il comportamento di *allora* (pannello chiuso di
+default) e sono rimasti silenziosamente indietro ad ogni unità successiva
+che ha aggiunto un nuovo giro di rete a `loadPanelData()` — scoperti solo
+ora perché solo ora quel giro scatta sempre, non più dietro un `if
+(info.value)` che nella pratica dei test non si avverava mai.
+
+Verifica completa: `npx vue-tsc -b` pulito. `npx vitest run` → 78 file,
+637/637 verdi, **zero errori non gestiti** (contro i 10 della prima
+esecuzione dopo la modifica, prima di correggere i tre file di vista —
+un'esecuzione "verde" può nascondere `Unhandled Rejection` reali se non
+si guarda oltre il conteggio dei test, esattamente il punto di PROSEGUI.
+md §10: un test verde non basta). 35 test in `AssetViewer.spec.ts` (1
+nuovo). `npx eslint` sui file toccati e sull'intero repo → pulito
+(stesso unico errore preesistente su `PlayerView.vue`). `npm run build`
++ calcolo manuale del bundle iniziale gzip → 125.971 byte, sotto il
+budget di 153.600.

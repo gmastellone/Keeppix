@@ -18,8 +18,16 @@
 // derivata, stesso motivo per cui le miniature RAW funzionano ovunque
 // nell'app), serviva solo instradare la scelta dell'utente al membro
 // giusto dello stack (`GET /assets/{id}/stack`, Fase 10, primo consumo
-// frontend). Con questa unità §19 è costruito per intero, salvo il
-// debito dichiarato sotto (mai taciuto in nessuna delle otto unità).
+// frontend). Con la 8/N §19 è costruito per intero, salvo il debito
+// dichiarato sotto. La 9/N (questa) corregge un bug reale trovato
+// rileggendo §19.8: "il pannello esiste solo dentro il lightbox... **ed
+// è forzato aperto a ogni `openLightbox()`** (e all'apertura dal
+// culling)" — dalla 2/N in poi il pannello partiva **chiuso**, mai
+// notato perché ogni test di questo file lo apriva esplicitamente con
+// `i` prima di verificare qualunque contenuto (mascherando quindi il
+// difetto invece di scoprirlo). Corretto: `info` parte `true`,
+// `loadPanelData()` scatta da `onMounted`, non solo dal primo
+// `i`/click sull'icona.
 //
 // **Deviazione deliberata dal mockup, non un debito**: il documento
 // descrive tre stati di chip per un tag confermato — "applicato dall'IA,
@@ -146,7 +154,11 @@ const { t, locale } = useI18n()
 const maps = useMapsStore()
 const toast = useToastStore()
 
-const info = ref(false)
+/** §19.8: "forzato aperto a ogni `openLightbox()` (e all'apertura dal
+ * culling)" — non chiuso di default come nella versione precedente di
+ * questo componente. `I`/l'icona restano il modo per chiuderlo (e
+ * riaprirlo), invariati. */
+const info = ref(true)
 const moreOpen = ref(false)
 const albumDialogOpen = ref(false)
 const renameDialogOpen = ref(false)
@@ -565,7 +577,12 @@ function boxStyle(face: Face) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onKey))
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  // Il pannello parte già aperto (§19.8): il giro che prima scattava solo
+  // al primo `i`/click sull'icona deve partire subito al montaggio.
+  void loadPanelData()
+})
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 watch(
   () => props.asset.id,

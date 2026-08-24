@@ -35,7 +35,10 @@ vi.mock('@/api/albums', () => ({
   fetchAlbums: vi.fn(async () => []),
   fetchAlbum: vi.fn(async () => ({ id: 'x', name: '', assets: [] })),
   addAssets: vi.fn(async () => null),
-  removeAsset: vi.fn(async () => null)
+  removeAsset: vi.fn(async () => null),
+  // `AssetViewer.vue` (Task 8 7/N) chiama `fetchAlbumsForAsset` per la
+  // sezione ALBUM del pannello, aperto di default (§19.8, Task 8 9/N).
+  fetchAlbumsForAsset: vi.fn(async () => [])
 }))
 
 vi.mock('@/api/client', async (importOriginal) => {

@@ -214,6 +214,23 @@ describe('AssetViewer — barra superiore (§18.3)', () => {
     expect(wrapper.emitted('toggle-favorite')).toHaveLength(1)
   })
 
+  it('§19.8: the info panel starts open ("forzato aperto a ogni apertura"), and "i"/the icon close and reopen it', async () => {
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    await flushPromises()
+    expect(wrapper.find('#lbTitleInput').exists()).toBe(true)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+    expect(wrapper.find('#lbTitleInput').exists()).toBe(false)
+
+    await wrapper.get('[aria-label="Informazioni"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('#lbTitleInput').exists()).toBe(true)
+  })
+
   it('§18.5: Esc closes the ⋯ menu on the first press, the lightbox only on the second', async () => {
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
@@ -325,7 +342,6 @@ describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
       }
     })
 
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(apiFetch).toHaveBeenCalledWith('/api/v1/assets/aaaa/metadata')
@@ -352,7 +368,6 @@ describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
       }
     })
 
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await wrapper.setProps({ asset: photo('bbbb'), isFavorite: false })
     secondMetadata.resolve({ location: { lat: 45, lon: 9 } })
     await flushPromises()
@@ -403,7 +418,6 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     const input = wrapper.get('#lbTitleInput')
@@ -425,7 +439,6 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
     apiFetch.mockClear()
 
@@ -452,7 +465,6 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     await wrapper.get('[aria-label="4 stelle"]').trigger('click')
@@ -493,7 +505,6 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).toContain('Sony α7R V')
@@ -508,7 +519,6 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('Fotocamera')
@@ -551,7 +561,6 @@ describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).toContain('Nessuna posizione impostata.')
@@ -566,7 +575,6 @@ describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).toContain('41.9000, 12.5000')
@@ -584,7 +592,6 @@ describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
       },
       attachTo: document.body
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     const positionButton = wrapper.findAll('button').find((b) => b.text() === 'Modifica posizione…')
@@ -681,7 +688,6 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
       },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).toContain('Anna')
@@ -698,7 +704,6 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
       },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await vi.runAllTimersAsync()
 
     const boxSelector = '.border-accent'
@@ -733,7 +738,6 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
       attachTo: document.body
     })
     const toast = useToastStore()
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     const chip = wrapper.findAll('button').find((b) => b.text() === 'Anna')!
@@ -763,7 +767,6 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
       attachTo: document.body
     })
     const toast = useToastStore()
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     const chip = wrapper.findAll('button').find((b) => b.text() === 'Anna')!
@@ -844,7 +847,6 @@ describe('AssetViewer — sezione TAG (§19.2 righe 14-17)', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     const text = wrapper.text()
@@ -865,7 +867,6 @@ describe('AssetViewer — sezione TAG (§19.2 righe 14-17)', () => {
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
     const toast = useToastStore()
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     await wrapper.get('[aria-label="Rimuovi tag Spiaggia"]').trigger('click')
@@ -885,7 +886,6 @@ describe('AssetViewer — sezione TAG (§19.2 righe 14-17)', () => {
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
     const toast = useToastStore()
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).toContain('In attesa di conferma')
@@ -916,7 +916,6 @@ describe('AssetViewer — sezione TAG (§19.2 righe 14-17)', () => {
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } },
       attachTo: document.body
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     const addButton = wrapper.findAll('button').find((b) => b.text() === '+ aggiungi')!
@@ -941,7 +940,6 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } },
       attachTo: document.body
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).toContain('Vacanze 2024')
@@ -962,7 +960,6 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
     fetchAlbumsForAssetMock.mockClear()
 
@@ -989,7 +986,6 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
     const toast = useToastStore()
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     const downloadLink = wrapper.findAll('a').find((a) => a.text() === 'Scarica originale')!
@@ -1045,7 +1041,6 @@ describe('AssetViewer — commutatore RAW/JPEG (§19.2 riga 5)', () => {
       props: { asset: { ...photo('a'), raw_kind: 'raw+jpeg' }, isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).toContain('RAW · 62 MB')
@@ -1068,7 +1063,6 @@ describe('AssetViewer — commutatore RAW/JPEG (§19.2 riga 5)', () => {
       props: { asset: { ...photo('a'), raw_kind: 'raw', size_bytes: 62_000_000 }, isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).toContain('RAW · 62 MB · nessun JPEG associato')
@@ -1081,7 +1075,6 @@ describe('AssetViewer — commutatore RAW/JPEG (§19.2 riga 5)', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('RAW')

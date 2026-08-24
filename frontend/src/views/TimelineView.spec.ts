@@ -24,7 +24,12 @@ vi.mock('@/api/timeline', () => ({
   fetchBuckets: vi.fn(async () => []),
   fetchPage: vi.fn(async () => ({ assets: [] })),
   fetchGeometry: vi.fn(async () => ({ buffer: null, etag: null })),
-  promoteViewport: vi.fn(async () => null)
+  promoteViewport: vi.fn(async () => null),
+  // `AssetViewer.vue` (Task 8 3/N) chiama `fetchAsset` per `full_exif` —
+  // instrada sullo stesso `apiFetch` già mockato in questo file, così i
+  // test che già rispondono a `GET /assets/{id}` via `apiFetch` (per
+  // `useLightboxRoute`) coprono anche questa.
+  fetchAsset: vi.fn(async (id: string) => apiFetch(`/api/v1/assets/${id}`))
 }))
 
 vi.mock('@/api/events', () => ({
