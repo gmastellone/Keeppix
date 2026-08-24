@@ -310,6 +310,25 @@
       "favorite": "Favorites",
       "person": "Person",
       "personTitle": "Requires face recognition — see Group B"
+    },
+    "results": {
+      "title": "Results",
+      "savedTitle": "Saved searches",
+      "savedSubtitle": "\"Live\" collections: they update on their own as new matching photos arrive",
+      "foldersTitle": "Folders",
+      "foldersSubtitle": "Quick access to your trips",
+      "folderCount": "{n} photo | {n} photos",
+      "recentTitle": "Recently added",
+      "emptyTitle": "No results",
+      "emptySubtitle": "Try removing a filter, or describe the photo a different way."
+    },
+    "recap": {
+      "prefix": "Search:",
+      "freeText": "free description “{text}”",
+      "count": "{n} result | {n} results",
+      "save": "Save this search",
+      "saved": "Saved ✓",
+      "saveDisabledTitle": "Searches with a tag/country pill or the Favorites filter can't be saved (a limit of the save format)."
     }
   },
   "viewer": {

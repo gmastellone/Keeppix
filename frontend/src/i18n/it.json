@@ -310,6 +310,25 @@
       "favorite": "Preferiti",
       "person": "Persona",
       "personTitle": "Richiede riconoscimento volti — vedi Gruppo B"
+    },
+    "results": {
+      "title": "Risultati",
+      "savedTitle": "Ricerche salvate",
+      "savedSubtitle": "Raccolte \"vive\": si aggiornano da sole quando arrivano nuove foto che corrispondono",
+      "foldersTitle": "Cartelle",
+      "foldersSubtitle": "Accesso rapido ai tuoi viaggi",
+      "folderCount": "{n} foto | {n} foto",
+      "recentTitle": "Aggiunti di recente",
+      "emptyTitle": "Nessun risultato",
+      "emptySubtitle": "Prova a togliere un filtro, o descrivi la foto in un altro modo."
+    },
+    "recap": {
+      "prefix": "Ricerca:",
+      "freeText": "descrizione libera «{text}»",
+      "count": "{n} risultato | {n} risultati",
+      "save": "Salva questa ricerca",
+      "saved": "Salvata ✓",
+      "saveDisabledTitle": "Non è possibile salvare ricerche con pillole tag/paese o il filtro Preferiti (limite del formato di salvataggio)."
     }
   },
   "viewer": {

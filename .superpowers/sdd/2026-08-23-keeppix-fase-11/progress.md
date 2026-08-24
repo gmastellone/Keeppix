@@ -4692,3 +4692,103 @@ in `SearchView.spec.ts`). `npx vue-tsc -b` pulito. `npx eslint` sui
 file toccati e sull'intero repo → pulito (stesso unico errore
 preesistente su `PlayerView.vue`). `npm run build` + calcolo manuale
 del bundle iniziale gzip → 126.349 byte, sotto il budget di 153.600.
+
+## Task 9 (3/N) — Cerca: l'area risultati (§25), chiude il Task 9
+
+Letto per intero §25 prima di scrivere codice. Due fonti alimentano la
+stessa griglia (mai insieme): `assets` (ricerca vera, tutte le pagine,
+già esistente) quando `hasSearch`; `recentAssets` (una sola pagina,
+nuovo) quando non c'è ricerca — `visibleAssets` computed sceglie fra le
+due, usata ovunque (griglia, lightbox, barra di selezione).
+
+**"Aggiunti di recente" non riproduce l'algoritmo `monthDistance` del
+mockup**: lì le foto erano ordinate per distanza dal "mese corrente
+della demo" (luglio, cablato) — un surrogato che nella demo coincide con
+la vera recenza solo perché il catalogo copre un solo anno. Il backend
+reale ordina già `/search` per `taken_at_utc DESC`
+(`crates/keeppix-db/src/search.rs:246`): usata quella (il titolo della
+sezione promette "recente", non "vicino a un mese fisso"), **e** una
+sola pagina invece della paginazione esaustiva di una vera ricerca —
+più corretto e più economico insieme, non un compromesso.
+
+**Cartelle**: tre card con copertina (prima foto), nome e conteggio
+**ricorsivo reale** — `runSearch({op:'folder',id})` per cartella
+(`f.path <@ ...`, include le sottocartelle, non un conteggio a un solo
+livello), non un numero stimato. Click → `/folders`: verificato che non
+esiste, nell'app reale, alcuna "vista Foto scoperta su una cartella" da
+raggiungere (né `TimelineView.vue` ha un concetto di cartella corrente,
+né `FoldersView.vue` legge parametri di rotta) — `/folders` è la
+destinazione reale più vicina, non un salto diretto come nel documento
+ma non un link morto.
+
+**Ricerche salvate**: i chip mostrano `fetchSavedSearches()` ma **non
+sono cliccabili** — gap dichiarato, non costruito: `SearchRepo::
+saved_query` (`crates/keeppix-db/src/search.rs:504-519`, che
+interpreta `query_text` in un `SearchNode` eseguibile) esiste ma non è
+instradato da **nessuna** rotta API (verificato: zero riferimenti in
+`crates/keeppix-api`) — non c'è modo di rieseguire una ricerca salvata
+per id nel sistema reale oggi. Riparsare `query_text` a mano nel
+frontend duplicherebbe una grammatica che vive solo nel backend, e
+sbaglierebbe silenziosamente sulle ricerche con pillole tag/paese o il
+filtro Preferiti (la stessa grammatica che segue, vedi sotto, non le sa
+rappresentare): mostrare il chip com'è, senza un comportamento fasullo,
+è la scelta onesta.
+
+**"Salva questa ricerca" scrive per davvero, ma solo quando può farlo
+correttamente**: la grammatica testuale che il backend sa ancora
+interpretare (`crates/keeppix-db/src/search.rs:696-798`,
+`parse_query_text`/`value_node`, precedente alla Fase 7/9) capisce solo
+`type:`/`camera:`/`lens:`/`iso:`/`folder:`/`has:gps`/un anno nudo/testo
+libero fra virgolette — non ha mai imparato `tag:`, `country:` né una
+parola chiave per "preferiti". `serializedQuery` (computed) restituisce
+`null` — pulsante disabilitato con `title` esplicativo — quando una
+pillola è `tag`/`country` o il chip attivo è "Preferiti"; altrimenti
+costruisce la stringa reale (`camera:"Sony A7 IV" "tramonto con casa"`,
+verificato nel test) e chiama `createSavedSearch()` per davvero, con
+l'etichetta che concatena le etichette delle pillole e il testo libero
+con `" + "` (§25.3 riga 3).
+
+Riusata l'infrastruttura già esistente per le griglie a tessere
+(`FlatAssetGrid`/`SelectionBar`/`LibrarySelectionActions`/
+`useSelectionStore`, lo stesso schema di `FavoritesView.vue`) invece di
+scrivere una nuova griglia: SP-1/SP-2 vengono gratis, correttamente
+condivisi fra la griglia di scoperta e quella dei risultati (stessa
+`visibleAssets`). Niente `QuickFilter`/`SelectAllVisible`/controlli di
+densità in vista: il documento li esclude esplicitamente per questa
+pagina (§25.3: "Nel mockup non esiste in questa pagina: il pannello
+imbuto del filtro rapido... l'ordinamento... la paginazione").
+
+**Bug reale trovato e corretto durante questa unità**: `hasSearch`
+(usato da `visibleAssets`, letto sincronamente dal watcher `immediate:
+true` di `useLightboxRoute` durante il montaggio) era dichiarato molto
+più in basso nel file rispetto a `visibleAssets`/`lightbox` — un errore
+di temporal dead zone che rompeva silenziosamente il primo rendering di
+`FlatAssetGrid` (`props.assets` risultava `undefined`) ogni volta che
+il lightbox si apriva da `?photo=` al caricamento della pagina.
+Diagnosticato isolando il test che falliva sempre e solo in quel
+percorso, con una sonda `console.log` che non veniva mai raggiunta —
+prova che l'eccezione (TDZ) avveniva prima, dentro la valutazione del
+computed stesso. Corretto spostando la dichiarazione di `hasSearch`
+(e di `pills`, da cui dipende) prima di `visibleAssets`/`lightbox`, con
+un commento che spiega il perché dell'ordine — non solo un fix, un
+promemoria contro la stessa classe di errore in futuro.
+
+Verifica completa: `npx vitest run` → 77 file, **658/658** verdi (5
+nuovi in `SearchView.spec.ts`, portando il totale del file a 25; corretto
+anche `AppTopbar.spec.ts`, che monta `SearchView` per davvero e non
+aveva ancora gli stub di `matchMedia`/layout né i mock di `@/api/tags`/
+`@/api/folders` diventati necessari con questa unità). `npx vue-tsc -b`
+pulito. `npx eslint` sui file toccati e sull'intero repo → pulito
+(stesso unico errore preesistente su `PlayerView.vue`). `npm run build`
++ calcolo manuale del bundle iniziale gzip → 126.856 byte, sotto il
+budget di 153.600.
+
+**Con questa unità si chiude il Task 9** ("Cerca", §23-25) — tre
+sotto-unità: il composer a pillole, i chip del tipo file, l'area
+risultati. Debito dichiarato e non costruito, tutto con una causa
+reale citata: rieseguire una ricerca salvata (nessuna rotta backend),
+salvare ricerche con pillole tag/paese/preferiti (grammatica di
+salvataggio non estesa), saltare direttamente alla vista Foto di una
+cartella (nessuna rotta/parametro nell'app reale). Si prosegue con i
+Task 10-14 della Tranche B (Mappa, Condivisioni, Album, Manutenzione,
+Impostazioni/Profilo).

@@ -31,36 +31,34 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { runSearch } from '@/api/library'
-import { fetchAllFolders, type FolderView } from '@/api/folders'
-import { fetchSavedSearches, fetchSuggestions, type Suggestion } from '@/api/search'
+import { fetchAllFolders, fetchTree, type FolderView } from '@/api/folders'
+import { createSavedSearch, fetchSavedSearches, fetchSuggestions, type SavedSearch, type Suggestion } from '@/api/search'
 import { fetchTags, type Tag } from '@/api/tags'
 import type { TimelineAsset } from '@/api/timeline'
 import { thumbSrc } from '@/api/media'
 import type { SearchNode } from '@/search/ast'
 
 import AssetViewer from '@/components/AssetViewer.vue'
+import FlatAssetGrid from '@/components/FlatAssetGrid.vue'
+import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
+import SelectionBar from '@/components/ui/SelectionBar.vue'
+import { useDensity } from '@/composables/useDensity'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useMapsStore } from '@/stores/maps'
+import { useSelectionStore } from '@/stores/selection'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const maps = useMapsStore()
 const favorites = useFavoritesStore()
+const selection = useSelectionStore()
+const { density } = useDensity()
 
 const q = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const assets = ref<TimelineAsset[]>([])
 const error = ref('')
-
-const lightbox = useLightboxRoute<TimelineAsset>(
-  (id) => assets.value.find((asset) => asset.id === id),
-  (id) => maps.loadAsset(id)
-)
-
-function stepViewer(asset: TimelineAsset) {
-  void lightbox.step(asset)
-}
 
 // --- pillole (§24) ---
 type PillType = 'tag' | 'camera' | 'folder' | 'iso' | 'year' | 'gps' | 'country'
@@ -78,6 +76,32 @@ interface SearchPill {
 }
 
 const pills = ref<SearchPill[]>([])
+
+// Il chip da solo non conta come ricerca (§25.2). Dichiarato qui, prima di
+// `lightbox`/`visibleAssets`: il watcher immediato di `useLightboxRoute`
+// (sotto) legge `visibleAssets.value` in modo sincrono durante il setup,
+// e `visibleAssets` dipende da `hasSearch` — deve quindi esistere già a
+// quel punto, non più in basso nel file (temporal dead zone altrimenti).
+const hasSearch = computed(() => pills.value.length > 0 || q.value.trim().length > 0)
+
+// --- risultati vs scoperta (§25.2): due fonti diverse alimentano la
+// stessa griglia, mai insieme — `assets` (ricerca vera, tutte le pagine)
+// quando `hasSearch`, `recentAssets` (una sola pagina, §25.2 punto 3)
+// quando non c'è alcuna ricerca. Vedi `refresh()`/`loadRecent()`.
+const recentAssets = ref<TimelineAsset[]>([])
+const visibleAssets = computed(() => (hasSearch.value ? assets.value : recentAssets.value))
+
+const lightbox = useLightboxRoute<TimelineAsset>(
+  (id) => visibleAssets.value.find((asset) => asset.id === id),
+  (id) => maps.loadAsset(id)
+)
+
+function stepViewer(asset: TimelineAsset) {
+  void lightbox.step(asset)
+}
+
+const selectionMode = computed(() => selection.library.selectedIds.size > 0)
+const selectedAssets = computed(() => visibleAssets.value.filter((asset) => selection.library.selectedIds.has(asset.id)))
 
 function hasPill(type: PillType, value: string): boolean {
   return pills.value.some((p) => p.type === type && p.value === value)
@@ -102,7 +126,7 @@ function pillText(p: SearchPill): string {
 
 function removePill(index: number) {
   pills.value.splice(index, 1)
-  void triggerSearch()
+  void refresh()
 }
 
 function clearAll() {
@@ -110,7 +134,7 @@ function clearAll() {
   q.value = ''
   remoteSuggestions.value = []
   suggestOpen.value = false
-  void triggerSearch()
+  void refresh()
 }
 
 // --- fonti dei suggerimenti, caricate una volta al montaggio ---
@@ -220,14 +244,14 @@ function pickSuggestion(row: SearchPill) {
   q.value = ''
   remoteSuggestions.value = []
   suggestOpen.value = false
-  void triggerSearch()
+  void refresh()
   inputEl.value?.focus()
 }
 
 function onInput() {
   suggestOpen.value = true
   void loadRemoteSuggestions()
-  void triggerSearch()
+  void refresh()
 }
 
 function onFocus() {
@@ -284,7 +308,7 @@ const typeFilter = ref<TypeFilter>('all')
 
 function setTypeFilter(value: TypeFilter) {
   typeFilter.value = value
-  void triggerSearch()
+  void refresh()
 }
 
 function typeFilterNode(): SearchNode | null {
@@ -300,9 +324,24 @@ function typeFilterNode(): SearchNode | null {
   }
 }
 
-// --- risultati (§25, area completa non ancora costruita — resta la
-// griglia semplice per questa unità: rifatta nella prossima) ---
-const hasSearch = computed(() => pills.value.length > 0 || q.value.trim().length > 0)
+// --- risultati (§25) ---
+// Il chip del tipo file da solo **non** conta come ricerca (§25.2, nota:
+// "i chip del tipo file non contano come 'ricerca'") — resta lo stato di
+// scoperta anche con "RAW" attivo, ma la griglia "Aggiunti di recente"
+// che quello stato mostra è comunque filtrata (stesso `buildAst()`,
+// stessa ambiguità silenziosa del documento: "le 32 foto mostrate sono
+// comunque filtrate solo RAW, senza che nulla lo dica"). `hasSearch`
+// stesso è dichiarato molto più in alto nel file — vedi il commento lì.
+
+// §25.2 punto 3: "Ricerca: <b>Tag: Tramonti</b> + descrizione libera
+// <b>«tramonto»</b> — 12 risultati" — ogni pezzo (pillola o testo) è in
+// grassetto per conto proprio, uniti da " + " non in grassetto.
+const recapParts = computed<string[]>(() => {
+  const parts = pills.value.map((p) => pillText(p))
+  const text = q.value.trim()
+  if (text) parts.push(t('search.recap.freeText', { text }))
+  return parts
+})
 
 function buildAst(): SearchNode | null {
   const nodes: SearchNode[] = []
@@ -324,9 +363,7 @@ function buildAst(): SearchNode | null {
   return { op: 'and', args: nodes }
 }
 
-async function triggerSearch() {
-  error.value = ''
-  await router.replace({ query: { ...route.query, q: q.value || undefined } })
+async function runFullSearch() {
   const ast = buildAst()
   if (!ast) {
     assets.value = []
@@ -346,6 +383,133 @@ async function triggerSearch() {
   }
 }
 
+// §25.2 punto 3: "al massimo 32 foto" — il backend ordina già per
+// `taken_at_utc DESC` (`crates/keeppix-db/src/search.rs:246`), quindi
+// una sola pagina (200 righe di default, mai serve un cursore) basta.
+// Deviazione deliberata dal mockup: lì l'ordine era `monthDistance`
+// crescente dal "mese corrente della demo" (luglio, cablato) — un
+// surrogato che nella demo coincide con la vera recenza solo perché il
+// catalogo dimostrativo copre un solo anno. Con dati reali su più anni
+// "il mese più vicino a ora" e "le foto più recenti" divergono, e il
+// titolo della sezione ("Aggiunti di recente") promette la seconda: usata
+// quella, più corretta **e** più economica (niente paginazione esaustiva
+// dell'intera libreria solo per un widget di scoperta).
+async function loadRecent() {
+  try {
+    const ast = buildAst() ?? { op: 'and', args: [] }
+    const page = await runSearch(ast)
+    recentAssets.value = page.assets.slice(0, 32)
+  } catch {
+    recentAssets.value = []
+  }
+}
+
+async function refresh() {
+  error.value = ''
+  savedJustNow.value = false
+  await router.replace({ query: { ...route.query, q: q.value || undefined } })
+  if (hasSearch.value) {
+    await runFullSearch()
+  } else {
+    await loadRecent()
+  }
+}
+
+// --- cartelle (§25.2 punto 2) ---
+interface FolderCard {
+  folder: FolderView
+  count: number
+  coverHash: string | null
+}
+const folderCards = ref<FolderCard[]>([])
+
+async function loadFolderCards() {
+  try {
+    const roots = await fetchTree()
+    folderCards.value = await Promise.all(
+      roots.map(async (folder) => {
+        const collected: TimelineAsset[] = []
+        let cursor: string | undefined
+        do {
+          const page = await runSearch({ op: 'folder', id: folder.id }, cursor)
+          collected.push(...page.assets)
+          cursor = page.next_cursor
+        } while (cursor)
+        return { folder, count: collected.length, coverHash: collected[0]?.content_hash ?? null }
+      })
+    )
+  } catch {
+    folderCards.value = []
+  }
+}
+
+// Non c'è, nell'app reale, una "vista Foto scoperta su una cartella" da
+// raggiungere (nessuna rotta/parametro per aprire la timeline già
+// filtrata su una cartella — verificato: `TimelineView.vue` non ha alcun
+// concetto di cartella corrente, `FoldersView.vue` non legge parametri
+// di rotta). La destinazione reale più vicina è la vista Cartelle stessa,
+// da cui l'utente entra nella cartella scelta — non un salto diretto
+// come richiede il documento, ma non un link morto.
+function openFolders() {
+  void router.push('/folders')
+}
+
+// --- ricerche salvate (§25.2 punto 1, §25.3 riga 3 "Salva questa
+// ricerca") ---
+const savedSearches = ref<SavedSearch[]>([])
+const savedJustNow = ref(false)
+
+function quoteIfNeeded(value: string): string {
+  return /\s/.test(value) ? `"${value.replace(/"/g, '')}"` : value
+}
+
+// La grammatica testuale che il backend sa ancora interpretare
+// (`crates/keeppix-db/src/search.rs:696-798`, `parse_query_text`/
+// `value_node`) precede la Fase 7/9: capisce solo `type:`/`camera:`/
+// `lens:`/`iso:`/`folder:`/`has:gps`/un anno nudo a 4 cifre/testo libero
+// (fra virgolette se contiene spazi) — non ha **mai** imparato `tag:`,
+// `country:` né una parola chiave per "preferiti". Una pillola tag/paese
+// o il chip "Preferiti" non sono quindi serializzabili in `query_text`:
+// `null` qui disabilita "Salva questa ricerca" invece di scrivere una
+// ricerca salvata che, ricaricata, si comporterebbe in modo diverso da
+// quella corrente — silenziosamente sbagliata sarebbe peggio che assente.
+const serializedQuery = computed<string | null>(() => {
+  if (pills.value.some((p) => p.type === 'tag' || p.type === 'country')) return null
+  if (typeFilter.value === 'favorite') return null
+  const tokens: string[] = []
+  if (typeFilter.value === 'raw') tokens.push('type:raw_image')
+  if (typeFilter.value === 'jpeg') tokens.push('type:image')
+  for (const p of pills.value) {
+    if (p.type === 'camera') tokens.push(`camera:${quoteIfNeeded(p.value)}`)
+    else if (p.type === 'folder') tokens.push(`folder:${p.value}`)
+    else if (p.type === 'iso') tokens.push(`iso:${p.value}`)
+    else if (p.type === 'year') tokens.push(p.value)
+    else if (p.type === 'gps') tokens.push('has:gps')
+  }
+  const text = q.value.trim()
+  if (text) tokens.push(`"${text.replace(/"/g, '')}"`)
+  return tokens.join(' ')
+})
+
+const canSaveSearch = computed(() => serializedQuery.value !== null)
+
+async function saveSearch() {
+  const query = serializedQuery.value
+  if (query === null || savedJustNow.value) return
+  const name = [...pills.value.map((p) => pillText(p)), ...(q.value.trim() ? [q.value.trim()] : [])].join(' + ')
+  try {
+    const created = await createSavedSearch(name, query)
+    savedSearches.value = [...savedSearches.value, created]
+    savedJustNow.value = true
+  } catch {
+    error.value = t('search.error')
+  }
+}
+
+function selectAllVisible() {
+  selection.library.selectAllVisible(visibleAssets.value.map((asset) => asset.id))
+}
+
 onMounted(() => {
   document.addEventListener('mousedown', onDocumentMouseDown)
   void fetchTags()
@@ -358,8 +522,13 @@ onMounted(() => {
       allFolders.value = list
     })
     .catch(() => undefined)
-  void fetchSavedSearches().catch(() => undefined)
-  if (hasSearch.value) void triggerSearch()
+  void fetchSavedSearches()
+    .then((list) => {
+      savedSearches.value = list
+    })
+    .catch(() => undefined)
+  void loadFolderCards()
+  void refresh()
 })
 
 onUnmounted(() => {
@@ -525,33 +694,159 @@ onUnmounted(() => {
       {{ error }}
     </p>
 
-    <ul class="mt-4 grid grid-cols-4 gap-2">
-      <li
-        v-for="asset in assets"
-        :key="asset.id"
-      >
+    <!-- §25.2, stato "ho cercato": titolo "Risultati", riepilogo, "Salva
+         questa ricerca". Le sezioni di scoperta spariscono. -->
+    <template v-if="hasSearch">
+      <div class="mt-4 flex items-center justify-between">
+        <p class="text-[15px] font-bold">
+          {{ t('search.results.title') }}
+        </p>
         <button
-          class="block w-full"
-          @click="lightbox.open(asset)"
+          type="button"
+          class="rounded-lg border border-border px-2.5 py-1 text-[12.5px]"
+          :class="savedJustNow ? 'pointer-events-none opacity-70' : ''"
+          :disabled="!canSaveSearch"
+          :title="!canSaveSearch ? t('search.recap.saveDisabledTitle') : undefined"
+          @click="saveSearch"
         >
-          <img
-            v-if="asset.content_hash"
-            :src="thumbSrc(asset.content_hash)"
-            :alt="asset.filename"
-            class="h-32 w-full object-cover"
-          >
-          <span
-            v-else
-            class="block truncate text-sm"
-          >{{ asset.filename }}</span>
+          {{ savedJustNow ? t('search.recap.saved') : t('search.recap.save') }}
         </button>
-      </li>
-    </ul>
+      </div>
+      <p class="mt-1 text-[12.5px] text-content-muted">
+        {{ t('search.recap.prefix') }}
+        <template
+          v-for="(part, i) in recapParts"
+          :key="i"
+        ><b>{{ part }}</b><span v-if="i < recapParts.length - 1"> + </span></template>
+        — {{ t('search.recap.count', { n: assets.length }, { plural: assets.length }) }}
+      </p>
+    </template>
+
+    <!-- §25.2, stato iniziale: ricerche salvate + cartelle, solo quando
+         non c'è alcuna ricerca in corso. -->
+    <template v-else>
+      <div
+        v-if="savedSearches.length"
+        class="mt-4"
+      >
+        <p class="text-[15px] font-bold">
+          {{ t('search.results.savedTitle') }}
+        </p>
+        <p class="text-sm text-content-muted">
+          {{ t('search.results.savedSubtitle') }}
+        </p>
+        <div class="mt-2 flex flex-wrap gap-1.5">
+          <span
+            v-for="saved in savedSearches"
+            :key="saved.id"
+            class="flex items-center gap-1 rounded-full border border-border bg-chip-bg px-2.5 py-1 text-[12.5px] text-content-muted"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="11"
+              height="11"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              aria-hidden="true"
+            >
+              <circle
+                cx="11"
+                cy="11"
+                r="8"
+              />
+              <line
+                x1="21"
+                y1="21"
+                x2="16.65"
+                y2="16.65"
+              />
+            </svg>
+            {{ saved.name }}
+          </span>
+        </div>
+      </div>
+
+      <div
+        v-if="folderCards.length"
+        class="mt-4"
+      >
+        <p class="text-[15px] font-bold">
+          {{ t('search.results.foldersTitle') }}
+        </p>
+        <p class="text-sm text-content-muted">
+          {{ t('search.results.foldersSubtitle') }}
+        </p>
+        <div class="mt-2 grid grid-cols-3 gap-3">
+          <button
+            v-for="card in folderCards"
+            :key="card.folder.id"
+            type="button"
+            class="overflow-hidden rounded-lg border border-border text-left"
+            @click="openFolders"
+          >
+            <img
+              v-if="card.coverHash"
+              :src="thumbSrc(card.coverHash)"
+              alt=""
+              class="h-[88px] w-full object-cover"
+            >
+            <div
+              v-else
+              class="h-[88px] w-full bg-chip-bg"
+            />
+            <div class="px-2 py-1.5">
+              <p class="truncate text-[13.5px] font-bold">
+                {{ card.folder.name }}
+              </p>
+              <p class="text-[11.5px] text-content-muted">
+                {{ t('search.results.folderCount', { n: card.count }, { plural: card.count }) }}
+              </p>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <p class="mt-4 text-[15px] font-bold">
+        {{ t('search.results.recentTitle') }}
+      </p>
+    </template>
+
+    <SelectionBar
+      v-if="selectionMode"
+      :count="selection.library.selectedIds.size"
+      :ariaLabel="t('ui.selectionBar.ariaLabel')"
+      class="mt-2"
+      @clear="selection.library.clear()"
+      @select-all="selectAllVisible"
+    >
+      <LibrarySelectionActions :assets="selectedAssets" />
+    </SelectionBar>
+
+    <!-- §25.2, "Nessun risultato" — solo nello stato "ho cercato". -->
+    <div
+      v-if="hasSearch && assets.length === 0"
+      class="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center"
+    >
+      <p class="text-sm font-semibold">
+        {{ t('search.results.emptyTitle') }}
+      </p>
+      <p class="text-sm text-content-muted">
+        {{ t('search.results.emptySubtitle') }}
+      </p>
+    </div>
+    <FlatAssetGrid
+      v-else
+      class="mt-2"
+      :assets="visibleAssets"
+      :density="density"
+      @open="lightbox.open"
+    />
 
     <AssetViewer
       v-if="lightbox.viewing.value"
       :asset="lightbox.viewing.value"
-      :neighbors="assets"
+      :neighbors="visibleAssets"
       :is-favorite="favorites.isFavorite(lightbox.viewing.value)"
       @close="lightbox.close"
       @step="stepViewer"

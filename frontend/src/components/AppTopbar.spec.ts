@@ -16,21 +16,69 @@ vi.mock('@/api/library', () => ({
 
 vi.mock('@/api/search', () => ({
   fetchSavedSearches: vi.fn(async () => []),
-  fetchSuggestions: vi.fn(async () => ({ suggestions: [] }))
+  fetchSuggestions: vi.fn(async () => ({ suggestions: [] })),
+  createSavedSearch: vi.fn(async () => ({ id: 's1', name: '', query_text: '' }))
+}))
+
+vi.mock('@/api/tags', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/tags')>()
+  return { ...actual, fetchTags: vi.fn(async () => []) }
+})
+
+vi.mock('@/api/folders', () => ({
+  fetchAllFolders: vi.fn(async () => []),
+  fetchTree: vi.fn(async () => [])
 }))
 
 let mounted: VueWrapper | undefined
 let previousLocale: typeof i18n.global.locale.value
 
+// Task 9 (3/N, §25): l'area risultati di Cerca usa `FlatAssetGrid`, che
+// monta `useIsMobile` (`window.matchMedia`) e legge `clientWidth`/
+// `clientHeight` per il layout giustificato — nessuno dei due esiste in
+// jsdom di base. Stesso correttivo di `FavoritesView.spec.ts`/
+// `SearchView.spec.ts` stesso, necessario qui perché questo file monta
+// `SearchView` per davvero (click sulla scorciatoia di ricerca).
+function stubLayout(width: number, height: number) {
+  const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+  const heightDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: width })
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: height })
+  return () => {
+    if (widthDesc) Object.defineProperty(HTMLElement.prototype, 'clientWidth', widthDesc)
+    if (heightDesc) Object.defineProperty(HTMLElement.prototype, 'clientHeight', heightDesc)
+  }
+}
+
+function stubMatchMedia() {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({
+      matches: false,
+      media: '',
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }))
+  )
+}
+
+let unstubLayout: (() => void) | undefined
+
 beforeEach(() => {
   previousLocale = i18n.global.locale.value
   i18n.global.locale.value = 'it'
+  unstubLayout = stubLayout(1200, 900)
+  stubMatchMedia()
   vi.mocked(fetchSavedSearches).mockResolvedValue([])
   vi.mocked(fetchSuggestions).mockResolvedValue({ suggestions: [] })
 })
 
 afterEach(() => {
   vi.resetAllMocks()
+  vi.unstubAllGlobals()
+  unstubLayout?.()
   mounted?.unmount()
   mounted = undefined
   i18n.global.locale.value = previousLocale

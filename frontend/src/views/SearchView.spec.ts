@@ -7,11 +7,12 @@ import { i18n } from '@/i18n'
 import type { TimelineAsset } from '@/api/timeline'
 import type { Tag } from '@/api/tags'
 import type { FolderView } from '@/api/folders'
-import type { Suggestion } from '@/api/search'
+import type { SavedSearch, Suggestion } from '@/api/search'
 import { runSearch } from '@/api/library'
-import { fetchSavedSearches, fetchSuggestions } from '@/api/search'
+import { createSavedSearch, fetchSavedSearches, fetchSuggestions } from '@/api/search'
 import { fetchTags } from '@/api/tags'
-import { fetchAllFolders } from '@/api/folders'
+import { fetchAllFolders, fetchTree } from '@/api/folders'
+import PhotoTile from '@/components/ui/PhotoTile.vue'
 
 import SearchView from './SearchView.vue'
 
@@ -21,7 +22,8 @@ vi.mock('@/api/library', () => ({
 
 vi.mock('@/api/search', () => ({
   fetchSavedSearches: vi.fn(async () => []),
-  fetchSuggestions: vi.fn(async () => ({ suggestions: [] }))
+  fetchSuggestions: vi.fn(async () => ({ suggestions: [] })),
+  createSavedSearch: vi.fn(async (name: string, query_text: string) => ({ id: 's1', name, query_text }))
 }))
 
 vi.mock('@/api/tags', async (importOriginal) => {
@@ -30,7 +32,8 @@ vi.mock('@/api/tags', async (importOriginal) => {
 })
 
 vi.mock('@/api/folders', () => ({
-  fetchAllFolders: vi.fn(async () => [])
+  fetchAllFolders: vi.fn(async () => []),
+  fetchTree: vi.fn(async () => [])
 }))
 
 vi.mock('@/api/client', async (importOriginal) => {
@@ -40,8 +43,41 @@ vi.mock('@/api/client', async (importOriginal) => {
 
 const { apiFetch } = await import('@/api/client')
 
+// `FlatAssetGrid`/`SelectionBar` (Task 9 3/N, §25) montano `useDensity`/
+// il layout giustificato, che leggono `clientWidth`/`clientHeight` e
+// `window.matchMedia` — nessuno dei due esiste in jsdom di base. Stesso
+// correttivo di `FavoritesView.spec.ts`.
+function stubLayout(width: number, height: number) {
+  const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+  const heightDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: width })
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: height })
+  return () => {
+    if (widthDesc) Object.defineProperty(HTMLElement.prototype, 'clientWidth', widthDesc)
+    if (heightDesc) Object.defineProperty(HTMLElement.prototype, 'clientHeight', heightDesc)
+  }
+}
+
+function stubMatchMedia() {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({
+      matches: false,
+      media: '',
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }))
+  )
+}
+
+let unstubLayout: (() => void) | undefined
+
 afterEach(() => {
   vi.resetAllMocks()
+  vi.unstubAllGlobals()
+  unstubLayout?.()
   document.body.innerHTML = ''
 })
 
@@ -93,15 +129,30 @@ async function mountSearch(
     tags?: Tag[]
     folders?: FolderView[]
     suggestions?: Suggestion[]
+    searchAssets?: TimelineAsset[]
+    runSearchImpl?: (ast: { op: string }, cursor?: string) => Promise<{ assets: TimelineAsset[] }>
+    roots?: FolderView[]
+    savedSearches?: SavedSearch[]
     attachToBody?: boolean
   } = {}
 ) {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/search', component: SearchView }]
+    routes: [
+      { path: '/search', component: SearchView },
+      { path: '/folders', component: { template: '<div />' } }
+    ]
   })
   setActivePinia(createPinia())
-  vi.mocked(fetchSavedSearches).mockResolvedValue([])
+  unstubLayout = stubLayout(1200, 900)
+  stubMatchMedia()
+  if (opts.runSearchImpl) {
+    vi.mocked(runSearch).mockImplementation(opts.runSearchImpl)
+  } else {
+    vi.mocked(runSearch).mockResolvedValue({ assets: opts.searchAssets ?? [] })
+  }
+  vi.mocked(fetchTree).mockResolvedValue(opts.roots ?? [])
+  vi.mocked(fetchSavedSearches).mockResolvedValue(opts.savedSearches ?? [])
   vi.mocked(fetchSuggestions).mockResolvedValue({ suggestions: opts.suggestions ?? [] })
   vi.mocked(fetchTags).mockResolvedValue(opts.tags ?? [])
   vi.mocked(fetchAllFolders).mockResolvedValue(opts.folders ?? [])
@@ -119,10 +170,9 @@ async function mountSearch(
 
 describe('SearchView lightbox in the URL', () => {
   it('clicking a result pushes ?photo= (alongside the existing q) and opens the viewer', async () => {
-    vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a')] })
-    const { wrapper, router } = await mountSearch('/search?q=urbino')
+    const { wrapper, router } = await mountSearch('/search?q=urbino', { searchAssets: [photo('a')] })
 
-    await wrapper.find('li button').trigger('click')
+    await wrapper.findComponent(PhotoTile).find('button').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.query.photo).toBe('a')
@@ -140,9 +190,8 @@ describe('SearchView lightbox in the URL', () => {
   })
 
   it('closing the viewer removes ?photo= but keeps q', async () => {
-    vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a')] })
-    const { wrapper, router } = await mountSearch('/search?q=urbino')
-    await wrapper.find('li button').trigger('click')
+    const { wrapper, router } = await mountSearch('/search?q=urbino', { searchAssets: [photo('a')] })
+    await wrapper.findComponent(PhotoTile).find('button').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.query.photo).toBe('a')
 
@@ -245,7 +294,12 @@ describe('SearchView — §23, il composer e i suggerimenti', () => {
     await flushPromises()
 
     expect(wrapper.find('.search-pill').exists()).toBe(false)
-    expect(runSearch).not.toHaveBeenCalled()
+    // Senza più alcuna pillola/testo, `hasSearch` torna falso: non "nessuna
+    // ricerca" ma lo stato di scoperta (§25.2), che ricalcola la griglia
+    // "Aggiunti di recente" con l'AST "tutto" — una sola pagina, non il
+    // giro esaustivo di una vera ricerca.
+    expect(runSearch).toHaveBeenCalledTimes(1)
+    expect(runSearch).toHaveBeenCalledWith({ op: 'and', args: [] })
   })
 
   it('clear-all (#searchClearAll) empties pills and text together', async () => {
@@ -366,13 +420,16 @@ describe('SearchView — §23.3, i chip del tipo file', () => {
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
     const { wrapper } = await mountSearch()
 
+    // Il chip da solo non conta come "ricerca" (§25.2): resta lo stato di
+    // scoperta, quindi la chiamata passa per `loadRecent()` — una sola
+    // pagina, senza cursore — non per il giro esaustivo di una ricerca vera.
     await chip(wrapper, 'RAW')?.trigger('click')
     await flushPromises()
-    expect(runSearch).toHaveBeenLastCalledWith({ op: 'type', value: 'raw_image' }, undefined)
+    expect(runSearch).toHaveBeenLastCalledWith({ op: 'type', value: 'raw_image' })
 
     await chip(wrapper, 'JPEG')?.trigger('click')
     await flushPromises()
-    expect(runSearch).toHaveBeenLastCalledWith({ op: 'type', value: 'image' }, undefined)
+    expect(runSearch).toHaveBeenLastCalledWith({ op: 'type', value: 'image' })
   })
 
   it('"Preferiti" searches by favorite, combined in AND with a pill when both are active', async () => {
@@ -381,7 +438,7 @@ describe('SearchView — §23.3, i chip del tipo file', () => {
 
     await chip(wrapper, 'Favorites')?.trigger('click')
     await flushPromises()
-    expect(runSearch).toHaveBeenLastCalledWith({ op: 'favorite' }, undefined)
+    expect(runSearch).toHaveBeenLastCalledWith({ op: 'favorite' })
 
     await wrapper.find('#search-query-input').setValue('tram')
     await flushPromises()
@@ -397,6 +454,7 @@ describe('SearchView — §23.3, i chip del tipo file', () => {
   it('"Persona" is disabled: no click handler, native title tooltip, cannot become active', async () => {
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
     const { wrapper } = await mountSearch()
+    vi.mocked(runSearch).mockClear()
 
     const person = wrapper.findAll('span').find((el) => el.text() === 'Person')
     expect(person?.attributes('title')).toBe('Requires face recognition — see Group B')
@@ -415,5 +473,92 @@ describe('SearchView — §23.3, i chip del tipo file', () => {
     await flushPromises()
 
     expect(chip(wrapper, 'RAW')?.classes()).toContain('text-accent')
+  })
+})
+
+describe('SearchView — §25, area risultati e scoperta', () => {
+  it('the discovery state (no search) shows saved searches, folder cards with a real recursive count, and "Recently added"', async () => {
+    const { wrapper } = await mountSearch('/search', {
+      roots: [folder('f1', 'Urbino')],
+      savedSearches: [{ id: 's1', name: 'RAW · Urbino', query_text: 'type:raw_image folder:f1' }],
+      runSearchImpl: async (ast) => (ast.op === 'folder' ? { assets: [photo('a'), photo('b')] } : { assets: [photo('c')] })
+    })
+
+    expect(wrapper.text()).toContain('Recently added')
+    expect(wrapper.text()).toContain('Saved searches')
+    expect(wrapper.text()).toContain('RAW · Urbino')
+    expect(wrapper.text()).toContain('Urbino')
+    expect(wrapper.text()).toContain('2 photos')
+    expect(wrapper.findAllComponents(PhotoTile)).toHaveLength(1)
+  })
+
+  it('the results state shows "Results", the recap with each part bolded, and the result count', async () => {
+    const { wrapper } = await mountSearch('/search', { searchAssets: [photo('a')] })
+
+    await wrapper.find('#search-query-input').setValue('tramonto')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Results')
+    expect(wrapper.findAll('b').map((el) => el.text())).toContain('free description “tramonto”')
+    expect(wrapper.text()).toContain('1 result')
+  })
+
+  it('an empty result set shows the "No results" empty state, not the grid', async () => {
+    const { wrapper } = await mountSearch('/search', { searchAssets: [] })
+
+    await wrapper.find('#search-query-input').setValue('xyz123nomatch')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No results')
+    expect(wrapper.findAllComponents(PhotoTile)).toHaveLength(0)
+  })
+
+  it('"Save this search" is disabled for a tag pill, and serializes a camera pill + free text otherwise', async () => {
+    const { wrapper } = await mountSearch('/search', {
+      tags: [tag('t1', 'Tramonti')],
+      suggestions: [suggestion('camera', 'Sony A7 IV')]
+    })
+
+    await wrapper.find('#search-query-input').setValue('tram')
+    await flushPromises()
+    await wrapper.findAll('.search-suggest-row')[0].trigger('click')
+    await flushPromises()
+    let saveBtn = wrapper.findAll('button').find((el) => el.text().includes('Save this search'))
+    expect(saveBtn?.attributes('disabled')).toBeDefined()
+
+    await wrapper.find('#searchClearAll').trigger('click')
+    await flushPromises()
+
+    await wrapper.find('#search-query-input').setValue('sony')
+    await flushPromises()
+    const cameraRow = wrapper.findAll('.search-suggest-row').find((el) => el.text().includes('Sony A7 IV'))
+    await cameraRow?.trigger('click')
+    await flushPromises()
+    await wrapper.find('#search-query-input').setValue('tramonto con casa')
+    await flushPromises()
+
+    saveBtn = wrapper.findAll('button').find((el) => el.text().includes('Save this search'))
+    expect(saveBtn?.attributes('disabled')).toBeUndefined()
+    await saveBtn?.trigger('click')
+    await flushPromises()
+
+    expect(createSavedSearch).toHaveBeenCalledWith(
+      'Sony A7 IV + tramonto con casa',
+      'camera:"Sony A7 IV" "tramonto con casa"'
+    )
+    expect(wrapper.text()).toContain('Saved ✓')
+  })
+
+  it('clicking a folder card navigates to /folders — no folder-scoped timeline route exists in the real app', async () => {
+    const { wrapper, router } = await mountSearch('/search', {
+      roots: [folder('f1', 'Urbino')],
+      runSearchImpl: async (ast) => (ast.op === 'folder' ? { assets: [photo('a')] } : { assets: [] })
+    })
+
+    const card = wrapper.findAll('button').find((el) => el.text().includes('Urbino'))
+    await card?.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/folders')
   })
 })
