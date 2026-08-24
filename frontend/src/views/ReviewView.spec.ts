@@ -16,6 +16,13 @@ const rejectTagProposalMock = vi.fn()
 const confirmAllTagProposalsMock = vi.fn()
 const rejectAllTagProposalsMock = vi.fn()
 const fetchAssetMock = vi.fn()
+const fetchFaceProposalsMock = vi.fn()
+const confirmFaceProposalMock = vi.fn()
+const confirmAllFaceProposalsMock = vi.fn()
+const rejectFaceMock = vi.fn()
+const assignFaceMock = vi.fn()
+const fetchPersonsMock = vi.fn()
+const createPersonMock = vi.fn()
 
 vi.mock('@/api/tags', () => ({
   fetchTagProposals: (...args: unknown[]) => fetchTagProposalsMock(...args),
@@ -28,6 +35,19 @@ vi.mock('@/api/tags', () => ({
 
 vi.mock('@/api/timeline', () => ({
   fetchAsset: (...args: unknown[]) => fetchAssetMock(...args)
+}))
+
+vi.mock('@/api/faces', () => ({
+  fetchFaceProposals: (...args: unknown[]) => fetchFaceProposalsMock(...args),
+  confirmFaceProposal: (...args: unknown[]) => confirmFaceProposalMock(...args),
+  confirmAllFaceProposals: (...args: unknown[]) => confirmAllFaceProposalsMock(...args),
+  rejectFace: (...args: unknown[]) => rejectFaceMock(...args),
+  assignFace: (...args: unknown[]) => assignFaceMock(...args)
+}))
+
+vi.mock('@/api/persons', () => ({
+  fetchPersons: (...args: unknown[]) => fetchPersonsMock(...args),
+  createPerson: (...args: unknown[]) => createPersonMock(...args)
 }))
 
 function proposal(overrides: Partial<{
@@ -92,6 +112,13 @@ beforeEach(() => {
   rejectTagProposalMock.mockResolvedValue(null)
   confirmAllTagProposalsMock.mockResolvedValue(null)
   rejectAllTagProposalsMock.mockResolvedValue(null)
+  fetchFaceProposalsMock.mockResolvedValue([])
+  confirmFaceProposalMock.mockResolvedValue(null)
+  confirmAllFaceProposalsMock.mockResolvedValue(null)
+  rejectFaceMock.mockResolvedValue(null)
+  assignFaceMock.mockResolvedValue(null)
+  fetchPersonsMock.mockResolvedValue([])
+  createPersonMock.mockResolvedValue({ id: 'new-1', name: null, hidden: false, face_count: 0 })
 })
 
 afterEach(() => {
@@ -202,5 +229,151 @@ describe('ReviewView — §56 Revisione (coda tag)', () => {
 
     expect(wrapper.text()).toContain('«Montagne»')
     expect(wrapper.text()).not.toContain('«Tramonti»')
+  })
+})
+
+function face(overrides: Partial<{
+  id: string
+  asset_id: string
+  proposed_person_id: string | null
+  proposed_score: number | null
+}> = {}) {
+  return {
+    id: 'f1',
+    asset_id: 'a1',
+    bbox: { x: 0, y: 0, w: 1, h: 1 },
+    person_id: null,
+    proposed_person_id: 'p1',
+    proposed_score: 0.7,
+    assigned_by_human: false,
+    ...overrides
+  }
+}
+
+function person(overrides: Partial<{ id: string; name: string | null }> = {}) {
+  return { id: 'p1', name: 'Marta', hidden: false, face_count: 5, ...overrides }
+}
+
+async function switchToVolti(wrapper: VueWrapper) {
+  const voltiTab = wrapper.findAll('[role="radio"]').find((b) => b.text().startsWith('Volti'))
+  await voltiTab!.trigger('click')
+  await flushPromises()
+}
+
+describe('ReviewView — §39 Revisione (coda volti)', () => {
+  it('the tab shows the real pending count, and switching reveals the faces queue', async () => {
+    fetchFaceProposalsMock.mockResolvedValue([face({ id: 'f1' }), face({ id: 'f2' })])
+    fetchPersonsMock.mockResolvedValue([person()])
+    fetchTagProposalsMock.mockResolvedValue([])
+    const { wrapper } = await mountReview()
+
+    expect(wrapper.text()).toContain('Volti (2)')
+    await switchToVolti(wrapper)
+
+    expect(wrapper.text()).toContain('Revisione volti')
+    expect(wrapper.text()).toContain('Questi volti sembrano')
+    expect(wrapper.text()).toContain('Marta')
+    expect(wrapper.text()).toContain('2 proposte')
+  })
+
+  it('the tab label has no count when the queue is empty', async () => {
+    fetchFaceProposalsMock.mockResolvedValue([])
+    fetchTagProposalsMock.mockResolvedValue([])
+    const { wrapper } = await mountReview()
+
+    expect(wrapper.text()).toContain('Volti')
+    expect(wrapper.text()).not.toContain('Volti (')
+  })
+
+  it('"Conferma" on a single proposal calls confirmFaceProposal and removes it', async () => {
+    fetchFaceProposalsMock.mockResolvedValue([face({ id: 'f1' })])
+    fetchPersonsMock.mockResolvedValue([person()])
+    fetchTagProposalsMock.mockResolvedValue([])
+    const { wrapper } = await mountReview()
+    await switchToVolti(wrapper)
+
+    await wrapper.get('[aria-label="Conferma"]').trigger('click')
+    await flushPromises()
+
+    expect(confirmFaceProposalMock).toHaveBeenCalledWith('f1')
+    const toast = useToastStore()
+    expect(toast.toasts.some((t) => t.message === 'Volto confermato.')).toBe(true)
+  })
+
+  it('"Rifiuta" (✕) composes createPerson + assignFace — the face becomes a new unnamed person', async () => {
+    fetchFaceProposalsMock.mockResolvedValue([face({ id: 'f1' })])
+    fetchPersonsMock.mockResolvedValue([person({ name: 'Marta' })])
+    fetchTagProposalsMock.mockResolvedValue([])
+    createPersonMock.mockResolvedValue({ id: 'new-1', name: null, hidden: false, face_count: 0 })
+    const { wrapper } = await mountReview()
+    await switchToVolti(wrapper)
+
+    await wrapper.get('[aria-label="Non è Marta"]').trigger('click')
+    await flushPromises()
+
+    expect(createPersonMock).toHaveBeenCalledWith('')
+    expect(assignFaceMock).toHaveBeenCalledWith('f1', 'new-1')
+    const toast = useToastStore()
+    expect(toast.toasts.some((t) => t.message === 'Proposta rifiutata — il volto resta tra le persone senza nome.')).toBe(true)
+  })
+
+  it('"Non è un volto" calls the real permanent reject route', async () => {
+    fetchFaceProposalsMock.mockResolvedValue([face({ id: 'f1' })])
+    fetchPersonsMock.mockResolvedValue([person()])
+    fetchTagProposalsMock.mockResolvedValue([])
+    const { wrapper } = await mountReview()
+    await switchToVolti(wrapper)
+
+    await wrapper.get('[aria-label="Non è un volto"]').trigger('click')
+    await flushPromises()
+
+    expect(rejectFaceMock).toHaveBeenCalledWith('f1')
+    expect(createPersonMock).not.toHaveBeenCalled()
+  })
+
+  it('"Conferma tutte" calls the real bulk-confirm route once for the group', async () => {
+    fetchFaceProposalsMock.mockResolvedValue([face({ id: 'f1' }), face({ id: 'f2' })])
+    fetchPersonsMock.mockResolvedValue([person()])
+    fetchTagProposalsMock.mockResolvedValue([])
+    const { wrapper } = await mountReview()
+    await switchToVolti(wrapper)
+
+    const confirmAllBtn = wrapper.findAll('button').find((b) => b.text() === 'Conferma tutte')
+    await confirmAllBtn!.trigger('click')
+    await flushPromises()
+
+    expect(confirmAllFaceProposalsMock).toHaveBeenCalledWith('p1')
+    expect(wrapper.text()).toContain('Nessuna proposta in attesa')
+  })
+
+  it('"Rifiuta tutte" does NOT call the real bulk-reject route — it composes one new person per face', async () => {
+    fetchFaceProposalsMock.mockResolvedValue([face({ id: 'f1' }), face({ id: 'f2' })])
+    fetchPersonsMock.mockResolvedValue([person()])
+    fetchTagProposalsMock.mockResolvedValue([])
+    createPersonMock
+      .mockResolvedValueOnce({ id: 'new-1', name: null, hidden: false, face_count: 0 })
+      .mockResolvedValueOnce({ id: 'new-2', name: null, hidden: false, face_count: 0 })
+    const { wrapper } = await mountReview()
+    await switchToVolti(wrapper)
+
+    const rejectAllBtn = wrapper.findAll('button').find((b) => b.text() === 'Rifiuta tutte')
+    await rejectAllBtn!.trigger('click')
+    await flushPromises()
+
+    expect(createPersonMock).toHaveBeenCalledTimes(2)
+    expect(assignFaceMock).toHaveBeenCalledWith('f1', 'new-1')
+    expect(assignFaceMock).toHaveBeenCalledWith('f2', 'new-2')
+    const toast = useToastStore()
+    expect(toast.toasts.some((t) => t.message === '2 proposte rifiutate.')).toBe(true)
+  })
+
+  it('the empty state shows the exact documented copy', async () => {
+    fetchFaceProposalsMock.mockResolvedValue([])
+    fetchTagProposalsMock.mockResolvedValue([])
+    const { wrapper } = await mountReview()
+    await switchToVolti(wrapper)
+
+    expect(wrapper.text()).toContain('Nessuna proposta in attesa')
+    expect(wrapper.text()).toContain('Quando l\'IA troverà volti che sembrano corrispondere a una persona già nominata')
   })
 })

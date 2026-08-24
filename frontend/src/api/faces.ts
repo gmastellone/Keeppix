@@ -44,6 +44,27 @@ export function rejectFace(faceId: string): Promise<null> {
   return apiFetch(`/api/v1/faces/${faceId}/reject`, { method: 'POST' })
 }
 
+/** Fase 11 Task 16 (5/N), §39 "Revisione — volti": coda dei volti
+ * proposti (assegnazione dubbia), stesso pattern piatto-ordinato-per-
+ * punteggio di `tags.ts#fetchTagProposals` — nessuna rotta raggruppa per
+ * persona suggerita, raggruppato in `ReviewView.vue` da
+ * `Face.proposed_person_id`. */
+export function fetchFaceProposals(): Promise<Face[]> {
+  return apiFetch('/api/v1/faces/proposals')
+}
+
+/** §39.3 controllo 4, singolo "Conferma" — `personId = proposed_person_id`
+ * (già la persona proposta, non serve passarlo: la rotta lo legge dal
+ * volto stesso, a differenza di `assignFace`). */
+export function confirmFaceProposal(faceId: string): Promise<null> {
+  return apiFetch(`/api/v1/faces/${faceId}/confirm`, { method: 'POST' })
+}
+
+/** §39.3 controllo 2 "Conferma tutte", per persona suggerita. */
+export function confirmAllFaceProposals(personId: string): Promise<null> {
+  return apiFetch(`/api/v1/persons/${personId}/proposals/confirm`, { method: 'POST' })
+}
+
 /** Fase 11 Task 16 (4/N), §33/§36: "una miniatura per ogni volto
  * confermato della persona" (§33.2), non per ogni foto — se una persona
  * ha due volti confermati nella stessa foto compaiono due miniature

@@ -6157,3 +6157,68 @@ del bundle iniziale gzip → 141.820 byte, sotto il budget di 153.600.
 dettaglio/griglia/dialog** — manca solo la coda "Revisione → Volti"
 (§39, la linguetta condivisa con `ReviewView.vue` già costruita per i
 tag nel Task 15). Prossima sotto-unità: Task 16 (5/N).
+
+## Task 16 (5/N) — Revisione: linguetta Volti (§39), chiude il Task 16
+
+**Selettore di tab riusando `SegmentedControl.vue` (SP-24)**, non
+scritto a mano: già `role="radiogroup"` con roving tabindex e frecce
+(Task 2) — esattamente §39.3 controllo 1 ("la linguetta attiva ha
+`tabindex=0`, l'altra `-1`"), gratis.
+
+**Tre azioni per i volti, non due, e le due negazioni restano
+concettualmente diverse** (stesso punto già annotato in
+`AssetViewer.vue`, Task 16 3/N): Conferma (`POST /faces/{id}/confirm`,
+nuova `confirmFaceProposal` in `api/faces.ts`); "Rifiuta" (la ✕ —
+l'attribuzione è sbagliata, il volto resta un volto: **composto**
+`createPerson('')` + `assignFace`, nessuna rotta fa questo in un colpo
+solo); "Non è un volto" (il cestino — falso positivo permanente,
+`rejectFace`, già reale dal Task 8).
+
+**"Rifiuta tutte" NON usa la rotta bulk reale**: riletta
+`FaceRepo::reject_all_proposed_for_person` (`crates/keeppix-db/src/
+faces.rs:631-664`, già annotata nella ricerca preliminare del Task 16
+1/N, riconfermata leggendo il codice di persona in questa unità prima
+di scrivere) — applica la stessa semantica permanente di `reject`, non
+"ogni volto diventa una persona nuova senza nome" come vuole il
+documento (§39: "rifiutare in blocco 14 proposte crea 14 persone nuove
+senza nome", un effetto che il documento stesso segnala di verificare
+col committente). Disallineamento reale documento/backend, non
+un'invenzione: composto qui con un `createPerson('')`+`assignFace` per
+ciascun volto del gruppo — stessa semantica del "Rifiuta" singolo,
+scalata. **Nessuna azione "Non è un volto" in blocco** (deliberato nel
+documento, non costruita).
+
+**Nome della persona suggerita risolto da `fetchPersons(true)`**:
+`FaceView` porta solo `proposed_person_id` (un id), mai il nome — un
+`Record<id,nome>` costruito a parte, stesso principio del colore dei
+tag (Task 15). `include_hidden=true` perché una persona candidata
+potrebbe in teoria essere nascosta (caso raro, mai escluso a priori).
+
+**Miniature reali**: stesso `fetchAsset(id)` per asset unico già usato
+per i tag — `FaceView` non porta `content_hash`/`thumbhash`.
+
+**Titolo/sottotitolo/testi vuoti distinti dalla scheda Tag** (§39.2,
+verificato: "Revisione volti" non "Revisione", "raggruppate per
+persona" non "per tag", "Nessuna proposta in attesa" non "Nessun
+suggerimento in attesa" — tre coppie di stringhe diverse, non
+riusate/confuse).
+
+Trovato scrivendo i test: `ReviewView.spec.ts` non mockava `@/api/
+faces`/`@/api/persons` — innocuo finché quella vista non li importava,
+rotto aprendo la scheda Tag stessa (il `Promise.all` di `load()` ora
+include anche `fetchFaceProposals`/`fetchPersons`, quindi un
+`apiFetch` reale non mockato falliva l'intero caricamento). Aggiunti i
+mock mancanti.
+
+Verifica completa: `npx vue-tsc -b` pulito. `npx eslint` sull'intero
+repo → 1 solo errore preesistente (`PlayerView.vue`), nessun errore
+nuovo. `npx vitest run` → 100 file, **869/869** verdi (+8 in
+`ReviewView.spec.ts`, incluso un test che verifica esplicitamente che
+"Rifiuta tutte" **non** chiami la rotta bulk reale). `npm run build` +
+calcolo manuale del bundle iniziale gzip → 142.222 byte, sotto il
+budget di 153.600.
+
+**Con questa unità si chiude il Task 16 ("Persone", §31-39) per
+intero.** Resta solo il Task 17 (Culling) per chiudere la Tranche D,
+poi il merge finale della Fase 11 (`PROSEGUI.md` §10), poi Task A
+(Volti: YuNet+SFace) e Task B (CLIP).
