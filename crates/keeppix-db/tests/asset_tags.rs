@@ -875,6 +875,87 @@ async fn assign_is_idempotent_and_forbidden_on_a_foreign_asset() {
     assert_eq!(row.0, "confirmed");
 }
 
+// Fase 11 Task 7 (§13.3 campo 5, dialog di scelta tag): la freccia opposta
+// di `assign`, una `DELETE` vera — non una decisione `'rejected'` (quella è
+// permanente, coda di revisione IA).
+
+#[tokio::test]
+async fn unassign_deletes_a_manually_confirmed_row() {
+    let test = TestDb::start().await;
+    let owner = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(owner, SystemRole::Admin);
+    let library = seed_library(&test, owner, "/mnt/unassign-basic").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let asset = seed_asset(&test, folder.id, "unassign.jpg").await;
+    let tag = create_tag_with_embedding(&test, &ctx, "Da togliere", 0.75, unit_axis(0), MODEL).await;
+    let repo = AssetTagRepo::new(test.db());
+    repo.assign(&ctx, tag, asset).await.unwrap();
+    assert!(fetch_assignment(&test, asset, tag).await.is_some());
+
+    repo.unassign(&ctx, tag, asset).await.unwrap();
+
+    assert!(
+        fetch_assignment(&test, asset, tag).await.is_none(),
+        "unassign must delete the row, not flip it to 'rejected'"
+    );
+}
+
+#[tokio::test]
+async fn unassign_reassigning_afterwards_never_hits_the_permanent_rejected_conflict() {
+    let test = TestDb::start().await;
+    let owner = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(owner, SystemRole::Admin);
+    let library = seed_library(&test, owner, "/mnt/unassign-reassign").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let asset = seed_asset(&test, folder.id, "reassign.jpg").await;
+    let tag = create_tag_with_embedding(&test, &ctx, "Ripensato", 0.75, unit_axis(0), MODEL).await;
+    let repo = AssetTagRepo::new(test.db());
+    repo.assign(&ctx, tag, asset).await.unwrap();
+    repo.unassign(&ctx, tag, asset).await.unwrap();
+
+    // Se `unassign` avesse scritto `state='rejected'` invece di cancellare,
+    // questo `assign` sarebbe comunque passato (la sua stessa deviazione
+    // dichiarata da `confirm`) — ma è `reject`, non `assign`, a bloccarsi
+    // permanentemente su un `'rejected'` già deciso: la prova vera è che
+    // la riga qui sotto sia tornata `'confirmed'`, non solo che `assign`
+    // non erri.
+    repo.assign(&ctx, tag, asset).await.unwrap();
+
+    let row = fetch_assignment(&test, asset, tag).await.unwrap();
+    assert_eq!(row.0, "confirmed");
+    assert_eq!(row.1, "user");
+}
+
+#[tokio::test]
+async fn unassign_is_idempotent_and_forbidden_on_a_foreign_asset() {
+    let test = TestDb::start().await;
+    let owner = harness::seed_admin(&test).await;
+    let stranger = harness::seed_user(&test, owner, "estraneo-unassign").await;
+    let ctx = AuthContext::user(owner, SystemRole::Admin);
+    let stranger_ctx = AuthContext::user(stranger, SystemRole::User);
+    let library = seed_library(&test, owner, "/mnt/unassign-forbidden").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let asset = seed_asset(&test, folder.id, "private.jpg").await;
+    let tag = create_tag_with_embedding(&test, &ctx, "Privato", 0.75, unit_axis(0), MODEL).await;
+    let repo = AssetTagRepo::new(test.db());
+    repo.assign(&ctx, tag, asset).await.unwrap();
+
+    assert!(repo.unassign(&stranger_ctx, tag, asset).await.is_err());
+
+    repo.unassign(&ctx, tag, asset).await.unwrap();
+    repo.unassign(&ctx, tag, asset).await.unwrap();
+    assert!(fetch_assignment(&test, asset, tag).await.is_none());
+}
+
 #[tokio::test]
 async fn confirmed_among_returns_only_confirmed_rows_grouped_by_asset() {
     let test = TestDb::start().await;

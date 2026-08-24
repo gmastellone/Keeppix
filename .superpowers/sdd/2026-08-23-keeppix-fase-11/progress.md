@@ -3612,3 +3612,154 @@ Verifica eseguita per intero:
   `import()` pigro (nessuna delle due è nel bundle d'ingresso),
   confermato leggendo `dist/index.html` prima di calcolare, non
   presunto.
+
+## Task 7 (8/N) — Modifica in blocco (§13), chiude il Task 7
+
+**Ambito**: la riscrittura completa di `BatchEditView.vue` sul documento
+funzionale §13 ("Modifica in blocco") — otto sezioni, "Applica"/"Annulla",
+stato vuoto. La vista precedente (selettore di posizione, copia
+posizione, importazione GPX) non corrisponde a **nessuna** schermata
+documentata in tutto il documento (ricerca testuale sull'intero file,
+zero risultati) — sostituita per intero (PROSEGUI, "codice sostituito
+si elimina non si commenta), non affiancata. `PlacePicker.vue`/
+`copyLocation`/`importGpx` restano intatti: appartengono al dialog
+"Imposta posizione" (§28, Lightbox — Task 8, non ancora costruito),
+solo scollegati da questa pagina, non eliminati.
+
+**Il pezzo senza primitivo, come da istruzione dell'utente — trovato,
+non presunto, e costruito, non taciuto**: il dialog di scelta tag
+(§13.3 campo 5) deve poter **sia aggiungere sia togliere** un tag in
+blocco — verificato leggendo il prototipo reale
+(`openTagPickerDialog`/`removeTagFromPhoto`, `docs/ui/
+keeppix-mockup.html`: "attiva/disattiva un tag... per aggiungerlo o
+toglierlo da tutti"), non presunto dal solo testo del documento
+funzionale. `AssetTagRepo` (Fase 7/Task 7 4/N) aveva `assign` ma
+**nessun** modo di togliere un tag assegnato a mano: `reject` esiste,
+ma è la decisione **permanente** della coda di revisione IA (`state=
+'proposed'→'rejected'`, in conflitto esplicito se già `'confirmed'`
+— verificato leggendo `decide()` riga per riga) — semanticamente
+sbagliata per "ho ripensato a un tag manuale", e userebbe un `Conflict`
+per bloccare esattamente il caso che deve funzionare. Nessun
+endpoint, nessun metodo di repository, verificato con una ricerca
+esplicita su tutto `asset_tags.rs`/`tags.rs`, non "non l'ho ancora
+visto". Costruito, stessa forma esatta di `assign`/`assign_batch`
+(niente di nuovo inventato):
+- `AssetTagRepo::unassign` (`keeppix-db/src/asset_tags.rs`) — una
+  `DELETE` vera della riga, non uno stato `'rejected'`: così
+  riassegnare più tardi lo stesso tag passa di nuovo da `assign`
+  senza scontrarsi con la permanenza di `reject`. Idempotente.
+- `POST /tags/{id}/assets/batch/remove` (`unassign_batch` in
+  `routes/tags.rs`) — stesso `BulkOutcome::from_partition` di
+  `assign_batch`, stesso ciclo sequenziale.
+- `unassignTagBatch` in `api/tags.ts`.
+- `TagPickerDialog.vue` (nuovo) — stesso interruttore di gruppo di
+  `AlbumPickerDialog.vue` (Task 7 2/N), ma **senza** un fetch per tag:
+  l'appartenenza si legge direttamente da `TimelineAsset.tags` (già
+  dentro `AssetView` dal Task 7 4/N), non serve un endpoint di
+  "appartenenza" come per gli album.
+
+**Il resto — cablaggio puro, tutti primitivi già esistenti**:
+- **Valutazione/Pick-Scarta/Preferiti**: nessun endpoint batch
+  "parziale" esiste per questi tre insieme — verificato:
+  `POST /flags/batch` è anch'esso un rimpiazzo completo
+  (`AssetFlagsBody` con `#[serde(default)]` su `pick`/`favorite`:
+  ometterli scriverebbe "nessuno"/falso su ogni foto, non "lasciali
+  invariati"). Con selezioni che possono avere stati diversi asset per
+  asset, non esiste un corpo condiviso valido per tutti: `applyFlags()`
+  in `BatchEditView.vue` legge e riscrive **un asset alla volta**
+  (`fetchFlags`/`setFlags`, gli stessi due endpoint già usati da
+  `stores/favorites.ts`), scrivendo solo i campi toccati sopra il
+  valore corrente di ciascuno.
+- **Album**: `AlbumPickerDialog.vue`, riusato senza modifiche.
+- **Titolo**: `applyMetadataBatch` (già esistente, patch sparsa —
+  `Option<Option<T>>` sul backend), una chiamata sola per l'intera
+  selezione, solo se non vuoto dopo la ripulitura degli spazi.
+- **Sposta in cartella**: `moveAssetsBatch` (Task 7 4/N), una chiamata
+  sola, solo se diversa da "Non modificare".
+- **Rinomina con formula** (§62): `RenameFormulaDialog.vue` (nuovo,
+  solo l'ambito "selezione" — gli altri quattro punti d'ingresso del
+  documento restano debito dichiarato per Task 8/culling). Nessuna
+  logica di token/slug duplicata in frontend: `keeppix-domain::
+  rename::render_base` (Fase 9) è già la fonte di verità, verificata
+  leggendo i suoi stessi test unitari prima di scrivere il dialog —
+  l'anteprima chiama `previewRename` (già esistente) a ogni cambio di
+  schema, calcola su **tutte** le foto dell'ambito ma mostra solo le
+  prime 5, "Applica" **davvero disattivato** su collisione (non solo
+  `pointer-events`, la doc stessa assegna questo miglioramento
+  esplicitamente a Fase 11: "'Applica' davvero disabilitato... è
+  comportamento di interfaccia, Fase 11").
+- **Stelle di valutazione**: radiogroup/radio veri con `aria-checked`
+  solo sul valore esatto e "ri-clic sulla stella attiva → torna a 0"
+  (§13.3 campo 1) — scritto qui, non riusando `RatingStars.vue`
+  (Task Culling): quel componente è `role="group"`/`aria-pressed`
+  cumulativo, un pattern diverso, corretto per il culling ma non
+  quello che il documento chiede esplicitamente qui.
+- **Pick/Scarta e Preferiti**: `SegmentedControl.vue` (Task 2) — il
+  suo stesso commento di intestazione cita già "nei filtri della
+  modifica in blocco include sempre 'Non modificare'", scritto in
+  anticipo proprio per questo momento.
+
+Verifica eseguita per intero:
+- **Rust**: `cargo check --workspace` → pulito. `cargo clippy
+  --workspace --all-targets -- -D warnings` → un errore reale trovato
+  e corretto (il test di `assign_batch` esteso con la sezione
+  `unassign_batch` ha superato le 100 righe di clippy:
+  `#[allow(clippy::too_many_lines)]` aggiunto, stesso motivo già
+  presente altrove nello stesso file). `cargo check -p keeppix-db
+  --test asset_tags` / `cargo check -p keeppix-api --test tags` /
+  `--test openapi` → puliti. `cargo test -p keeppix-api --test
+  openapi` → **6/8 verdi** dopo aver aggiornato i due elenchi
+  letterali (`security_requirements_name_a_declared_scheme`,
+  `operation_ids_are_explicit_and_unique` — nuova voce in ordine
+  alfabetico) e `UPDATE_OPENAPI=1` una volta per rigenerare
+  `docs/api/openapi.json` (aggiunta pura entro `/api/v1`, la stessa
+  frase del test da spiegare nel commit). I 2 ancora rossi
+  (`documented_operations_are_all_mounted`,
+  `openapi_summaries_do_not_contain_errors_heading`) falliscono solo
+  su `SocketNotFoundError` — Docker assente in questo sandbox, non
+  codice, stesso limite dichiarato in ogni unità precedente di questo
+  Task.
+- Nuovi test scritti seguendo le convenzioni già in uso, **mai
+  eseguiti** (nessun Postgres locale): 3 in `asset_tags.rs`
+  (`unassign` cancella davvero, riassegnare dopo non incontra mai il
+  `Conflict` permanente di `reject`, idempotenza/permessi), 1 sezione
+  aggiunta al test HTTP end-to-end esistente in `tests/tags.rs`
+  (`unassign_batch` dopo `assign_batch`, verifica diretta sul
+  database che la riga sia sparita).
+- **Frontend**: `npx vitest run` (suite intera) → 78 file, 603/603
+  verdi (11 nuovi in `BatchEditView.spec.ts`, 5 in `TagPickerDialog.
+  spec.ts`, 7 in `RenameFormulaDialog.spec.ts`). Tre bachi trovati e
+  corretti **nei test**, non nel codice applicativo, durante la
+  scrittura: (1) `PhotoTile` non dichiara una prop `asset` propria
+  (solo `v-bind` di un oggetto più grande) — un'asserzione su
+  `.props('asset').id` falliva con `undefined`, corretta leggendo
+  `filename`; (2) mutare `input.value` via DOM diretto non passa da
+  `v-model` — un test sull'inserimento di segnaposto a metà stringa
+  falliva perché lo stato reattivo non si era aggiornato, corretto
+  posizionando il cursore sul valore di default intatto invece di
+  riscriverlo a mano; (3) indici fissi su `[role="radio"]` per
+  distinguere Pick/Scarta da Preferiti (12 radio in tutto: 5 stelle +
+  4 + 3) erano sbagliati aritmeticamente — sostituiti con una ricerca
+  per testo dell'opzione, robusta all'ordine esatto delle sezioni.
+  Anche: montare sempre i tre dialog (chiusi) dentro `BatchEditView`
+  senza mockare `@/api/albums`/`@/api/tags`/`@/api/rename` nello
+  spec produceva `Unhandled Rejection` quando un test successivo li
+  apriva (il vero `apiFetch`, mockato a vuoto, risolve `null` invece
+  di rifiutare — `.catch(() => [])` non lo intercetta) — risolto
+  mockando i tre moduli con risposte innocue, coerente con la
+  disciplina già stabilita in questa sessione per `apiFetch`.
+- `npx vue-tsc -b` → un errore reale trovato e corretto (`tick()`
+  dichiarato ma mai usato in `RenameFormulaDialog.spec.ts`, residuo
+  di un tentativo con timer reali sostituito da `vi.useFakeTimers()`),
+  poi pulito.
+- `npx eslint` sui file nuovi/toccati e sull'intero repo → pulito,
+  nessun avviso nuovo (stesso unico errore preesistente e indipendente
+  su `PlayerView.vue` di prima).
+- `npm run build` + calcolo manuale del bundle iniziale gzip →
+  124.848 byte, sotto il budget di 153.600.
+
+**Task 7 chiuso**: Foto/Timeline (composizione finale), Preferiti,
+filtro rapido SP-3, selezione multipla, Modifica in blocco — tutte e
+cinque le unità del documento funzionale per questo task. Prossimo:
+Task 8 (Lightbox, pannello informazioni, menu ⋯), primo consumatore
+reale del dialog "Imposta posizione" (§28) già pronto ma scollegato.

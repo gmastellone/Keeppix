@@ -8187,6 +8187,73 @@
         ]
       }
     },
+    "/api/v1/tags/{id}/assets/batch/remove": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Remove a tag from multiple assets directly (bulk)",
+        "operationId": "tags_unassign_batch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchAssignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/tags/{id}/assets/{asset_id}/confirm": {
       "post": {
         "tags": [

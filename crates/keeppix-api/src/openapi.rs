@@ -166,6 +166,7 @@ impl utoipa::Modify for SecurityAddon {
         tags::confirm_all_proposals,
         tags::reject_all_proposals,
         tags::assign_batch,
+        tags::unassign_batch,
         faces::list_for_asset,
         faces::list_proposals,
         faces::assign,

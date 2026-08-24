@@ -28,3 +28,15 @@ export function assignTagBatch(tagId: string, assetIds: string[]): Promise<null>
     body: JSON.stringify({ asset_ids: assetIds })
   })
 }
+
+/** La freccia opposta: "attiva/disattiva un tag per aggiungerlo o
+ * toglierlo da tutti" (dialog di scelta tag, §13.3 campo 5, verificato sul
+ * prototipo reale — `openTagPickerDialog` in `docs/ui/keeppix-mockup.html`
+ * chiama sia `addManualTag` sia `removeTagFromPhoto` dallo stesso
+ * controllo). */
+export function unassignTagBatch(tagId: string, assetIds: string[]): Promise<null> {
+  return apiFetch(`/api/v1/tags/${tagId}/assets/batch/remove`, {
+    method: 'POST',
+    body: JSON.stringify({ asset_ids: assetIds })
+  })
+}

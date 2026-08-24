@@ -413,10 +413,13 @@ async fn review_queue_lists_confirms_rejects_and_updates_bootstrap_revision() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…"): assegna un tag a mano a
-/// più asset in un colpo solo — `state='confirmed', source='user'`, mai una
-/// proposta in attesa.
+/// Fase 11 Task 7 (§13.3 campo 5, dialog di scelta tag): assegna un tag a
+/// mano a più asset in un colpo solo — `state='confirmed', source='user'`,
+/// mai una proposta in attesa — poi lo toglie di nuovo con la freccia
+/// opposta dello stesso pulsante (`unassign_batch`), che deve cancellare la
+/// riga invece di lasciarla decisa.
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn assign_batch_confirms_the_tag_as_user_sourced_on_every_asset() {
     use chrono::{TimeZone, Utc};
     use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
@@ -515,6 +518,34 @@ async fn assign_batch_confirms_the_tag_as_user_sourced_on_every_asset() {
         .unwrap();
         assert_eq!(row.0, "confirmed");
         assert_eq!(row.1, "user");
+    }
+
+    // Fase 11 Task 7 (§13.3 campo 5, dialog di scelta tag): la freccia
+    // opposta dello stesso pulsante — verificato sul prototipo reale
+    // (`openTagPickerDialog`, `docs/ui/keeppix-mockup.html`) — deve
+    // cancellare la riga, non lasciarla `'rejected'`.
+    let remove_outcome: serde_json::Value = server
+        .client
+        .post(server.url(&format!("/api/v1/tags/{tag_id}/assets/batch/remove")))
+        .json(&json!({ "asset_ids": [a.to_string(), b.to_string()] }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(remove_outcome["succeeded"].as_array().unwrap().len(), 2);
+    assert!(remove_outcome["failed"].as_array().unwrap().is_empty());
+
+    for asset in [a, b] {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT state FROM asset_tags WHERE asset_id = $1 AND tag_id = $2")
+                .bind(asset.as_uuid())
+                .bind(uuid::Uuid::parse_str(tag_id).unwrap())
+                .fetch_optional(server.db.pool())
+                .await
+                .unwrap();
+        assert!(row.is_none(), "unassign_batch must delete the row");
     }
 
     let _ = fs::remove_dir_all(&root);

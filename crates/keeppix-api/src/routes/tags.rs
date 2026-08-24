@@ -549,6 +549,48 @@ pub async fn assign_batch(
     Ok(Json(BulkOutcome::from_partition(succeeded, &failed, None)))
 }
 
+/// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…" — verificato sul
+/// prototipo reale, `openTagPickerDialog` in `docs/ui/keeppix-mockup.html`:
+/// lo stesso pulsante attiva/disattiva, aggiunge **o toglie**): la freccia
+/// opposta di [`assign_batch`], stessa forma esatta. [`keeppix_db::
+/// AssetTagRepo::unassign`] cancella la riga invece di deciderla
+/// `'rejected'` — quello stato è la coda di revisione IA, permanente per
+/// costruzione, semantica sbagliata per un tag manuale su cui si è
+/// ripensato.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tags/{id}/assets/batch/remove",
+    tag = "tags",
+    operation_id = "tags_unassign_batch",
+    summary = "Remove a tag from multiple assets directly (bulk)",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id tag")),
+    request_body = BatchAssignRequest,
+    responses(
+        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
+        (status = 400, description = "batch troppo grande", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn unassign_batch(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(id): Path<TagId>,
+    Json(body): Json<BatchAssignRequest>,
+) -> Result<Json<BulkOutcome>, Problem> {
+    crate::batch::reject_oversized_batch(&body.asset_ids)?;
+    let repo = AssetTagRepo::new(&state.db);
+    let mut succeeded = Vec::new();
+    let mut failed = Vec::new();
+    for asset_id in &body.asset_ids {
+        match repo.unassign(&ctx, id, *asset_id).await {
+            Ok(()) => succeeded.push(*asset_id),
+            Err(error) => failed.push((*asset_id, error)),
+        }
+    }
+    Ok(Json(BulkOutcome::from_partition(succeeded, &failed, None)))
+}
+
 fn parse_kind(raw: &str) -> Result<TagKind, Problem> {
     raw.parse().map_err(|_| {
         Problem::new(

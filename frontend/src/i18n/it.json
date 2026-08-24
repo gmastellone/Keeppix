@@ -587,18 +587,81 @@
     "expires": "Scade il {date}"
   },
   "batchEdit": {
-    "title": "Modifica in blocco",
-    "count": "{count} foto selezionate",
-    "fieldPlaceholder": "Nome campo",
-    "valuePlaceholder": "Nuovo valore",
-    "place": "Posizione",
+    "title": "Modifica multipla",
+    "subtitle": "{n} foto selezionata — ogni campo si applica a tutte, lasciane uno \"invariato\" per non toccarlo. | {n} foto selezionate — ogni campo si applica a tutte, lasciane uno \"invariato\" per non toccarlo.",
+    "emptyTitle": "Nessuna foto selezionata",
+    "emptySubtitle": "Torna alla Timeline, seleziona una o più foto, poi premi \"Modifica\".",
+    "unchanged": "Non modificare",
+    "rating": {
+      "label": "Valutazione",
+      "hint": "Imposta lo stesso rating per tutte — 0 stelle = non modificare",
+      "star": "{n} stelle"
+    },
+    "pickReject": {
+      "label": "Pick / Scarta",
+      "hint": "Segna soltanto — per eliminare davvero le foto usa \"Elimina\" nella barra di selezione",
+      "pick": "Pick",
+      "reject": "Scarta",
+      "none": "Nessuno"
+    },
+    "favorites": {
+      "label": "Preferiti",
+      "add": "Aggiungi",
+      "remove": "Rimuovi"
+    },
+    "album": {
+      "label": "Album",
+      "hint": "Aggiungi o rimuovi tutte le foto selezionate da uno o più album",
+      "button": "Scegli album…"
+    },
+    "tag": {
+      "label": "Tag",
+      "hint": "Aggiungi o rimuovi tag da tutte le foto selezionate — un'aggiunta manuale è già una conferma, non passa dalla coda di revisione",
+      "button": "Aggiungi tag…"
+    },
+    "titleField": {
+      "label": "Titolo",
+      "hint": "Imposta lo stesso titolo per tutte — lascia vuoto per non modificarlo"
+    },
+    "rename": {
+      "label": "Rinomina file",
+      "hint": "Rinomina tutte le foto selezionate con una formula — data, fotocamera, titolo, numero progressivo…",
+      "button": "Rinomina con formula…"
+    },
+    "folder": {
+      "label": "Sposta in cartella",
+      "ariaLabel": "Sposta le foto selezionate in questa cartella"
+    },
+    "apply": "Applica a {n} foto",
+    "cancel": "Annulla",
+    "appliedToast": "Modifiche applicate a {n} foto."
+  },
+  "tagPicker": {
+    "title": "Aggiungi tag",
+    "subtitle": "{n} elemento selezionato — attiva/disattiva un tag per aggiungerlo o toglierlo da tutti | {n} elementi selezionati — attiva/disattiva un tag per aggiungerlo o toglierlo da tutti",
+    "done": "Fatto",
+    "error": "Non è stato possibile aggiornare il tag. Riprova."
+  },
+  "renameFormula": {
+    "title": "Rinomina con formula",
+    "subtitle": "{n} foto selezionata | {n} foto selezionate",
+    "schemaLabel": "Schema del nome file",
+    "token": {
+      "data": "Data",
+      "fotocamera": "Fotocamera",
+      "obiettivo": "Obiettivo",
+      "luogo": "Luogo",
+      "titolo": "Titolo",
+      "counter": "Numero (001)"
+    },
+    "previewLabel": "Anteprima",
+    "previewHint": "(prime foto)",
+    "emptyScope": "Nessuna foto in questo ambito.",
+    "collisionWarning": "{n} nomi risulterebbero uguali tra loro — aggiungi {'{'}n:3{'}'} o un altro campo che li distingua prima di applicare.",
     "apply": "Applica",
-    "copyLocation": "Copia posizione da un'altra foto",
-    "copySourcePlaceholder": "ID della foto sorgente",
-    "importGpx": "Importa traccia GPX",
-    "gpxPlaceholder": "Incolla il contenuto GPX…",
-    "gpxTolerance": "Tolleranza (min)",
-    "done": "Modifiche applicate."
+    "cancel": "Annulla",
+    "renamedToast": "{n} foto rinominata. | {n} foto rinominate.",
+    "error": "Non è stato possibile rinominare le foto. Riprova."
   },
   "shared": {
     "title": "Contenuto condiviso",

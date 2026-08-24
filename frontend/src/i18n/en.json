@@ -587,18 +587,81 @@
     "expires": "Expires {date}"
   },
   "batchEdit": {
-    "title": "Batch edit",
-    "count": "{count} photos selected",
-    "fieldPlaceholder": "Field name",
-    "valuePlaceholder": "New value",
-    "place": "Location",
+    "title": "Bulk edit",
+    "subtitle": "{n} photo selected — every field applies to all of them, leave one \"unchanged\" to skip it. | {n} photos selected — every field applies to all of them, leave one \"unchanged\" to skip it.",
+    "emptyTitle": "No photo selected",
+    "emptySubtitle": "Go back to the Timeline, select one or more photos, then press \"Edit\".",
+    "unchanged": "Don't change",
+    "rating": {
+      "label": "Rating",
+      "hint": "Set the same rating for all of them — 0 stars = don't change",
+      "star": "{n} stars"
+    },
+    "pickReject": {
+      "label": "Pick / Reject",
+      "hint": "Only marks — to actually delete photos use \"Delete\" in the selection bar",
+      "pick": "Pick",
+      "reject": "Reject",
+      "none": "None"
+    },
+    "favorites": {
+      "label": "Favorites",
+      "add": "Add",
+      "remove": "Remove"
+    },
+    "album": {
+      "label": "Album",
+      "hint": "Add or remove all selected photos from one or more albums",
+      "button": "Choose album…"
+    },
+    "tag": {
+      "label": "Tag",
+      "hint": "Add or remove tags from all selected photos — a manual addition is already a confirmation, it doesn't go through the review queue",
+      "button": "Add tag…"
+    },
+    "titleField": {
+      "label": "Title",
+      "hint": "Set the same title for all of them — leave empty to not change it"
+    },
+    "rename": {
+      "label": "Rename files",
+      "hint": "Rename all selected photos with a formula — date, camera, title, sequence number…",
+      "button": "Rename with formula…"
+    },
+    "folder": {
+      "label": "Move to folder",
+      "ariaLabel": "Move the selected photos to this folder"
+    },
+    "apply": "Apply to {n} photos",
+    "cancel": "Cancel",
+    "appliedToast": "Changes applied to {n} photos."
+  },
+  "tagPicker": {
+    "title": "Add tag",
+    "subtitle": "{n} item selected — toggle a tag to add or remove it from all of them | {n} items selected — toggle a tag to add or remove it from all of them",
+    "done": "Done",
+    "error": "Couldn't update the tag. Try again."
+  },
+  "renameFormula": {
+    "title": "Rename with formula",
+    "subtitle": "{n} photo selected | {n} photos selected",
+    "schemaLabel": "Filename schema",
+    "token": {
+      "data": "Date",
+      "fotocamera": "Camera",
+      "obiettivo": "Lens",
+      "luogo": "Place",
+      "titolo": "Title",
+      "counter": "Number (001)"
+    },
+    "previewLabel": "Preview",
+    "previewHint": "(first photos)",
+    "emptyScope": "No photos in this scope.",
+    "collisionWarning": "{n} names would come out the same — add {'{'}n:3{'}'} or another field that tells them apart before applying.",
     "apply": "Apply",
-    "copyLocation": "Copy location from another photo",
-    "copySourcePlaceholder": "Source photo ID",
-    "importGpx": "Import GPX track",
-    "gpxPlaceholder": "Paste GPX content…",
-    "gpxTolerance": "Tolerance (min)",
-    "done": "Changes applied."
+    "cancel": "Cancel",
+    "renamedToast": "{n} photo renamed. | {n} photos renamed.",
+    "error": "Couldn't rename the photos. Try again."
   },
   "shared": {
     "title": "Shared content",

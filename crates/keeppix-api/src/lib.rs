@@ -405,6 +405,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/tags/{id}/assets/batch",
             axum::routing::post(routes::tags::assign_batch),
         )
+        .route(
+            "/tags/{id}/assets/batch/remove",
+            axum::routing::post(routes::tags::unassign_batch),
+        )
         .route("/assets/{id}/faces", get(routes::faces::list_for_asset))
         .route("/faces/proposals", get(routes::faces::list_proposals))
         .route(

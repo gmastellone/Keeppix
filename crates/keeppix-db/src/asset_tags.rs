@@ -446,6 +446,42 @@ impl<'a> AssetTagRepo<'a> {
         Ok(())
     }
 
+    /// Toglie un tag assegnato a mano da un asset — la freccia opposta di
+    /// [`Self::assign`] (§13.3 campo 5: "attiva/disattiva un tag per
+    /// aggiungerlo o toglierlo da tutti", verificato sul prototipo reale,
+    /// `openTagPickerDialog`/`removeTagFromPhoto` in
+    /// `docs/ui/keeppix-mockup.html`). Una `DELETE` vera della riga, non una
+    /// transizione a `state='rejected'`: quello stato è la decisione
+    /// **permanente** della coda di revisione IA ([`Self::reject`], che
+    /// rifiuta esplicitamente di invertirsi su un conflitto) — semantica
+    /// sbagliata per "ho ripensato a un tag che avevo messo io a mano".
+    /// Con una `DELETE`, riassegnare più tardi lo stesso tag passa di nuovo
+    /// da [`Self::assign`] senza scontrarsi con `Conflict`. Idempotente:
+    /// nessuna riga da cancellare non è un errore.
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente autenticato o se l'asset non è visibile al
+    /// chiamante. `Connection` se la cancellazione fallisce.
+    pub async fn unassign(
+        &self,
+        ctx: &AuthContext,
+        tag_id: TagId,
+        asset_id: AssetId,
+    ) -> Result<(), DbError> {
+        if ctx.user_id().is_none() {
+            return Err(DbError::Forbidden);
+        }
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+        sqlx::query("DELETE FROM asset_tags WHERE asset_id = $1 AND tag_id = $2")
+            .bind(asset_id.as_uuid())
+            .bind(tag_id.as_uuid())
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
+    }
+
     /// Tag confermati per un insieme di asset (Fase 11 Task 7, SP-3 §11 e
     /// `AssetView`) — solo `state='confirmed'`, mai proposte in attesa né
     /// rifiutate (§11.3: "si guardano solo i tag confermati della foto").
