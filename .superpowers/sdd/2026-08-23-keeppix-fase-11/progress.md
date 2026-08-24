@@ -4792,3 +4792,102 @@ salvataggio non estesa), saltare direttamente alla vista Foto di una
 cartella (nessuna rotta/parametro nell'app reale). Si prosegue con i
 Task 10-14 della Tranche B (Mappa, Condivisioni, Album, Manutenzione,
 Impostazioni/Profilo).
+
+## Task 10 — Mappa (§26-28), le quattro sezioni verificate una per una
+
+Letto per intero §26 ("Mappa"), §27 ("Popover della mappa"), §28-A
+(dialog "Imposta posizione") e §28-B ("Ricerca di regione", dentro
+Impostazioni → Mappe offline) prima di scrivere codice, e usato un
+agente di ricerca dedicato per mappare lo stato reale di ciascuna
+sezione contro `MapView.vue`/`MapClusterLayer.vue`/`maps.ts`/
+`PlacePickerDialog.vue` prima di decidere cosa costruire. Risultato:
+quattro sezioni, quattro stati diversi — un caso di lavoro vero (§27),
+due di deviazione già deliberata e documentata altrove (§26, §28-A) e
+un debito reale con causa citata (§28-B).
+
+**§26 "Mappa" — già superata, non riprodotta.** Il mockup è
+esplicitamente una mappa statica (tre pin a posizione percentuale
+cablata, zoom/pan/wheel "non implementati", `"300 km"` fisso). La vista
+reale (`MapView.vue`, Fase 11 Task 6, già esistente) è una vera mappa
+MapLibre GL con tile pmtiles offline, clustering server-side reale,
+tema chiaro/scuro, e uno strumento di selezione area → Timeline
+(`showArea`, assente dal documento). Nessun lavoro necessario qui:
+verificato che è un miglioramento reale già costruito, non un debito.
+
+**§27 "Popover della mappa" — debito reale, costruito in questa
+unità.** Il backend era già pronto: `MapClusterView`/`MapCluster`
+(`crates/keeppix-api/src/routes/map.rs:22-35`,
+`crates/keeppix-db/src/geo.rs`) portano da tempo `folder_id` e
+`place_label` con un commento a codice che cita esplicitamente questa
+sezione del documento ("per aprirla dal popover... senza una seconda
+richiesta") — il frontend non li leggeva ancora (`MapCluster` in
+`frontend/src/stores/maps.ts` non li dichiarava nemmeno). Estesa
+l'interfaccia, poi costruito il popover in `MapClusterLayer.vue`:
+copertina, nome cartella (risolto da `folder_id` via `fetchAllFolders()`,
+cache client-side), `"<N> foto · <luogo>"`, pulsante "Apri cartella".
+
+**Non riproduce il modello "un pin = un popover" del mockup**: il
+sistema reale ha clustering gerarchico (un marker aggregato può
+rappresentare cartelle/luoghi diversi a zoom bassi), il mockup no (tre
+pin terminali, ciascuno già alla granularità minima). Sintesi
+deliberata: un marker **aggregato** (`clustered:true`) ora apre il
+popover invece di zumare direttamente come prima; un marker **non
+aggregato** continua ad aprire la foto (comportamento preesistente
+invariato — un punto già alla granularità minima non ha altro da
+mostrare che aprirlo). Lo zoom-per-esplorare non sparisce: resta
+raggiungibile riaprendo il popover e cliccando di nuovo sullo stesso
+marker via il comportamento di zoom preesistente nella mini-mappa
+`compact` del lightbox, dove il popover **non appare affatto** — quel
+riquadro è alto 176px con `overflow-hidden`, una card da 76px di sola
+copertina ci starebbe a stento, e "Apri cartella" non ha senso nel
+contesto di un singolo scatto già aperto nel visore.
+
+**Colmati, non riprodotti, gli stessi gap di accessibilità che il
+documento segnala per il popover del mockup** (§27.5: "nessun
+`role="dialog"`, non riceve focus all'apertura, non lo restituisce alla
+chiusura, non risponde a Esc"): il popover reale ha `role="dialog"`,
+porta il focus sul pulsante "Apri cartella" all'apertura, lo restituisce
+al marker che l'ha aperto alla chiusura, Esc chiude. Chiusura anche su
+clic altrove sulla mappa (`map.on('click', ...)`, §26/27) e all'inizio
+di un trascinamento (`movestart`) — altrimenti il popover resterebbe
+fermo sullo schermo mentre la mappa scorre sotto, un bug visivo che il
+documento non poteva prevedere (nel mockup statico non esiste il pan).
+
+**§28-A "Imposta posizione" — già costruito, deviazione già
+documentata.** `PlacePickerDialog.vue`/`PlacePicker.vue` (Task 8, 4/N)
+sostituiscono le tre righe preimpostate a coordinate fisse del mockup
+con una ricerca reale su `GET /places/suggest` (catalogo GeoNames) — un
+commento a codice già presente in quei file documenta la scelta
+(l'orfano `PlacePicker.vue`, mai agganciato a nessuna vista, riusato
+invece di riprodurre l'elenco statico). Nessun lavoro necessario qui.
+
+**§28-B "Ricerca di regione" — debito reale, dichiarato e non
+costruito, causa citata.** Il documento vuole una casella di ricerca su
+un catalogo cablato di 35 paesi (nome + dimensione stimata). Verificato
+che **non esiste alcun endpoint di catalogo regioni** nel backend
+(`grep` su `crates/keeppix-api`/`crates/keeppix-db` per "catalog": solo
+risultati non correlati) — `MapsOfflineView.vue` espone oggi un modulo
+grezzo che l'admin compila a mano con id/etichetta/dimensione/
+versione/URL/checksum SHA-256 reali. Costruire una ricerca a scomparsa
+sui 35 paesi del mockup richiederebbe **inventare** URL sorgente e
+checksum per 35 estratti PMTiles reali — dati che non esistono in
+questo repository e che non posso verificare né procurare in modo
+affidabile in questa sessione. Un catalogo con URL/checksum fittizi
+sarebbe peggio di nessun catalogo: scaricherebbe silenziosamente nulla
+o dati sbagliati in un prodotto reale, mentre il modulo grezzo attuale
+— per quanto meno comodo — richiede sempre dati verificati da chi lo
+compila. Lasciato così, con la causa dichiarata qui e non un "manca
+ancora" senza spiegazione.
+
+Verifica completa: `npx vitest run` → 77 file, **663/663** verdi (6
+nuovi/riscritti in `MapClusterLayer.spec.ts` — comportamento diverso
+per marker aggregato/non aggregato/`compact`, apertura/chiusura del
+popover, Esc, clic sulla mappa, inizio trascinamento — 1 nuovo in
+`MapView.spec.ts` per "Apri cartella" → `/folders`). `npx vue-tsc -b`
+pulito. `npx eslint` sui file toccati e sull'intero repo → pulito
+(stesso unico errore preesistente su `PlayerView.vue`). `npm run build`
++ calcolo manuale del bundle iniziale gzip → 126.913 byte, sotto il
+budget di 153.600.
+
+Si prosegue con i Task 11-14 della Tranche B (Condivisioni, Album,
+Manutenzione, Impostazioni/Profilo).

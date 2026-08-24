@@ -213,6 +213,8 @@
   "maps": {
     "entry": "Mappa",
     "cluster": "{count} foto",
+    "popoverSubtitle": "{count} foto · {place}",
+    "openFolder": "Apri cartella",
     "openPhoto": "Apri foto",
     "drawArea": "Disegna area",
     "drawCancel": "Annulla disegno",

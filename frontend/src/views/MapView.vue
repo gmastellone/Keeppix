@@ -47,6 +47,14 @@ async function openAsset(id: string) {
   }
 }
 
+// §27, "Apri cartella": nessuna vista "Foto scoperta su una cartella"
+// esiste ancora nell'app reale (stessa lacuna già dichiarata in
+// SearchView.vue, Task 9 3/N) — `/folders` è la destinazione reale più
+// vicina, non un salto diretto ma non un link morto.
+function openFolder() {
+  void router.push('/folders')
+}
+
 async function showArea(bounds: MapBounds) {
   await router.push({
     path: '/',
@@ -122,6 +130,7 @@ onMounted(load)
         allow-draw
         @asset-click="openAsset"
         @area-selected="showArea"
+        @open-folder="openFolder"
       />
       <aside
         v-if="managingRegions"
