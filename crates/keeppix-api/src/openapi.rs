@@ -364,6 +364,7 @@ impl utoipa::Modify for SecurityAddon {
         share::ShareInfoResponse,
         share::ShareAuthRequest,
         share::SharedContentResponse,
+        share::PublicAssetView,
         share::GuestUploadResponse,
         audit::AuditEntryView,
         backup::BackupPreferencesView,

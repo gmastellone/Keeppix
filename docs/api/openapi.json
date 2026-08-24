@@ -13685,6 +13685,101 @@
           }
         }
       },
+      "PublicAssetView": {
+        "type": "object",
+        "description": "Sottoinsieme di [`AssetView`] sicuro per un guest anonimo — **non**\n`AssetView` stessa, apposta: quel tipo è condiviso con timeline/ricerca ed\nè pensato per crescere di campi \"additivi\" (`tags`, `faces`, `full_exif`,\n…, vedi i commenti su `AssetView`), e riusarlo qui esporrebbe ogni futura\naggiunta a un utente anonimo senza che nessuno se ne accorga. `face_\nprivacy.rs` lo impone strutturalmente: cammina l'intero corpo e rifiuta\nqualunque chiave \"face\"/\"person\", quindi anche `faces:[]` (vuoto, mai\npopolato da questa rotta) lo fa fallire — di proposito, perché un domani\nchi copia `.with_faces(...)` da `timeline.rs` in questa rotta lo farebbe\nfallire lo stesso, non solo il caso con dati veri.",
+        "required": [
+          "id",
+          "folder_id",
+          "filename",
+          "size_bytes",
+          "kind",
+          "status",
+          "stack_size"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "location": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GeoPointView"
+              }
+            ]
+          },
+          "place_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "raw_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "stack_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string"
+          },
+          "taken_at_utc": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "thumbhash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "RecalculateTimezonesRequest": {
         "type": "object",
         "required": [
@@ -14317,7 +14412,7 @@
           "assets": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/AssetView"
+              "$ref": "#/components/schemas/PublicAssetView"
             }
           },
           "object_type": {

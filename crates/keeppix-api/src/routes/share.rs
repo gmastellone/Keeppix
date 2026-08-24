@@ -422,10 +422,66 @@ pub async fn public_auth(
     Ok((share_headers(), jar, StatusCode::NO_CONTENT))
 }
 
+/// Sottoinsieme di [`AssetView`] sicuro per un guest anonimo — **non**
+/// `AssetView` stessa, apposta: quel tipo è condiviso con timeline/ricerca ed
+/// è pensato per crescere di campi "additivi" (`tags`, `faces`, `full_exif`,
+/// …, vedi i commenti su `AssetView`), e riusarlo qui esporrebbe ogni futura
+/// aggiunta a un utente anonimo senza che nessuno se ne accorga. `face_
+/// privacy.rs` lo impone strutturalmente: cammina l'intero corpo e rifiuta
+/// qualunque chiave "face"/"person", quindi anche `faces:[]` (vuoto, mai
+/// popolato da questa rotta) lo fa fallire — di proposito, perché un domani
+/// chi copia `.with_faces(...)` da `timeline.rs` in questa rotta lo farebbe
+/// fallire lo stesso, non solo il caso con dati veri.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct PublicAssetView {
+    pub id: String,
+    pub folder_id: String,
+    pub filename: String,
+    pub content_hash: Option<String>,
+    pub size_bytes: i64,
+    pub kind: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub taken_at_utc: Option<chrono::DateTime<chrono::Utc>>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbhash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<GeoPointView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place_id: Option<i64>,
+    pub stack_size: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_kind: Option<String>,
+}
+
+impl From<AssetView> for PublicAssetView {
+    fn from(v: AssetView) -> Self {
+        Self {
+            id: v.id,
+            folder_id: v.folder_id,
+            filename: v.filename,
+            content_hash: v.content_hash,
+            size_bytes: v.size_bytes,
+            kind: v.kind,
+            status: v.status,
+            taken_at_utc: v.taken_at_utc,
+            width: v.width,
+            height: v.height,
+            thumbhash: v.thumbhash,
+            location: v.location,
+            place_id: v.place_id,
+            stack_size: v.stack_size,
+            raw_kind: v.raw_kind,
+        }
+    }
+}
+
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct SharedContentResponse {
     pub object_type: String,
-    pub assets: Vec<AssetView>,
+    pub assets: Vec<PublicAssetView>,
 }
 
 /// # Errors
@@ -498,14 +554,14 @@ pub async fn public_assets(
             let mut view = AssetView::from_asset(&asset);
             if *hide_metadata {
                 view.taken_at_utc = None;
-                return view;
+                return PublicAssetView::from(view);
             }
             if let Some(row) = locations.get(&asset.id)
                 && !row.redact
             {
                 view = view.with_location(row.location.map(GeoPointView::from), row.place_id);
             }
-            view
+            PublicAssetView::from(view)
         })
         .collect();
 
