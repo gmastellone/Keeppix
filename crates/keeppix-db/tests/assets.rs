@@ -997,17 +997,21 @@ mod camera_models_among {
             .unwrap()
             .unwrap();
 
-        sqlx::query("INSERT INTO asset_exif (asset_id, camera_model) VALUES ($1, $2)")
-            .bind(with_camera.id.as_uuid())
-            .bind("FUJIFILM X-T5")
-            .execute(test.db().pool())
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO asset_exif (asset_id, camera_model) VALUES ($1, NULL)")
-            .bind(exif_without_camera.id.as_uuid())
-            .execute(test.db().pool())
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO asset_exif (asset_id, raw, camera_model) VALUES ($1, '{}'::jsonb, $2)",
+        )
+        .bind(with_camera.id.as_uuid())
+        .bind("FUJIFILM X-T5")
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO asset_exif (asset_id, raw, camera_model) VALUES ($1, '{}'::jsonb, NULL)",
+        )
+        .bind(exif_without_camera.id.as_uuid())
+        .execute(test.db().pool())
+        .await
+        .unwrap();
 
         let map = repo
             .camera_models_among(&[with_camera.id, no_exif_row.id, exif_without_camera.id])

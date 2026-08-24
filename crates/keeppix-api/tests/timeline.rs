@@ -1104,12 +1104,14 @@ async fn timeline_page_includes_camera_model_and_empty_tags_faces_without_vector
     );
     assert!(items.iter().all(|a| a.get("camera_model").is_none()));
 
-    sqlx::query("INSERT INTO asset_exif (asset_id, camera_model) VALUES ($1, $2)")
-        .bind(uuid::Uuid::parse_str(&with_camera_id).unwrap())
-        .bind("FUJIFILM X-T5")
-        .execute(server.db.pool())
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO asset_exif (asset_id, raw, camera_model) VALUES ($1, '{}'::jsonb, $2)",
+    )
+    .bind(uuid::Uuid::parse_str(&with_camera_id).unwrap())
+    .bind("FUJIFILM X-T5")
+    .execute(server.db.pool())
+    .await
+    .unwrap();
 
     let after = server
         .client
