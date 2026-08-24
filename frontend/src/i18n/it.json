@@ -308,7 +308,16 @@
       "position": "Posizione",
       "noPosition": "Nessuna posizione impostata.",
       "editPosition": "Modifica posizione…",
-      "setPosition": "Imposta posizione…"
+      "setPosition": "Imposta posizione…",
+      "people": "Persone",
+      "faceMenu": {
+        "correct": "Correggi persona…",
+        "correctHint": "Questo volto appartiene a qualcun altro",
+        "notAFace": "Non è un volto",
+        "notAFaceHint": "Falso positivo — non verrà mai più riproposto"
+      },
+      "personCorrected": "Persona corretta.",
+      "notAFaceToast": "Segnato come \"non è un volto\" — non verrà più riproposto."
     }
   },
   "player": {
@@ -401,6 +410,13 @@
     "subtitle": "{n} elemento selezionato — attiva/disattiva un album per aggiungere o rimuovere tutti gli elementi | {n} elementi selezionati — attiva/disattiva un album per aggiungere o rimuovere tutti gli elementi",
     "done": "Fatto",
     "error": "Non è stato possibile aggiornare l'album. Riprova."
+  },
+  "personPicker": {
+    "title": "Scegli una persona",
+    "placeholder": "Cerca o digita un nome…",
+    "unnamed": "Persona senza nome",
+    "create": "Crea persona \"{name}\"",
+    "error": "Non è stato possibile completare l'operazione. Riprova."
   },
   "shares": {
     "entry": "Condivisioni",

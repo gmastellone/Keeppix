@@ -4160,3 +4160,76 @@ corretto in `PlacePickerDialog.vue`: parametro `_place` mai usato — il
 prefisso `_` non è tollerato da questa configurazione ESLint, tolto il
 parametro anziché rinominarlo). `npm run build` + calcolo manuale del
 bundle iniziale gzip → 125.236 byte, sotto il budget di 153.600.
+
+## Task 8 (5/N) — Pannello informazioni: sezione PERSONE, riquadri volto
+
+Chiude §18.2 (riquadri volto) e §19.2-19.3 righe 13. Prima di scrivere
+codice, verificato lo stato reale delle rotte volti/persone
+(`crates/keeppix-api/src/routes/faces.rs`, `.../persons.rs`): tutte già
+pronte dalla Fase 8 (`GET /assets/{id}/faces`, `POST /faces/{id}/assign`,
+`POST /faces/{id}/reject`, `POST /persons`) ma **mai** chiamate da questo
+frontend — nessun `api/faces.ts`, nessun selettore di persona, confermato
+via grep prima di scrivere. Aggiunti `frontend/src/api/faces.ts`
+(`fetchFacesForAsset`, `assignFace`, `rejectFace`) e `createPerson` in
+`api/persons.ts` (il commento del backend su `faces::assign` lo dice
+esplicito: "il client crea prima la persona, poi assegna il volto a
+quella").
+
+**Sezione PERSONE**: un chip per volto confermato, da `asset.faces`
+(`AssetFaceBadge[]`, già nel prop — nessun giro di rete per i nomi). Nome
+mostrato o, se `person_name` è `null`, un'etichetta generica ("Persona
+senza nome") — **non** riprodotto lo schema "Persona {n}" del mockup: è
+un numero progressivo che il backend non espone da nessuna parte
+(`PersonView` non porta nessun contatore stabile), inventarne uno lato
+client sarebbe un dato finto, non un dato mancante da recuperare. Click
+sul chip apre un popover (`Popover.vue` — il suo stesso commento di
+intestazione elenca già "menu sul riquadro del volto" fra i sei
+consumatori previsti) con due voci reali:
+- **Correggi persona…**: apre `PersonPickerDialog.vue` (nuovo — elenco
+  persone filtrato lato client, `GET /persons` non ha un parametro di
+  ricerca, più "crea persona "{nome}"" quando il nome digitato non
+  corrisponde a nessuna già in elenco), poi `assignFace` sul volto
+  risolto dal chip, toast **"Persona corretta."**.
+- **Non è un volto**: `rejectFace`, toast esatto dal documento
+  (**`Segnato come "non è un volto" — non verrà più riproposto.`**).
+
+**Omesso, dichiarato non taciuto**: la terza voce del mockup, "Vai alla
+persona" — a differenza di "Ruota"/"Scarica" (demo-toast già nel mockup
+stesso), qui il mockup naviga davvero verso una schermata Persone che nel
+nostro frontend reale non esiste ancora (Task 16, Tranche D): un toast
+finto su un bottone senza destinazione sarebbe meno onesto di ometterlo,
+stessa logica già usata per "Condividi" nel Task 8 (2/N). Il chip "+
+aggiungi" (ultimo della riga, per creare un volto manuale senza
+rilevamento) resta debito verso il Task A (Volti: YuNet+SFace): un volto
+manuale nasce con `box:null` nel mockup, ma `Face.bbox` nel dominio reale
+(`crates/keeppix-domain/src/face.rs`) non è opzionale — un buco di
+modello, non di frontend, già segnalato dal Task 8 (1/N) come da
+rivedere in quella sede.
+
+**Riquadri volto sull'immagine** (§18.2): visibili solo durante l'hover/
+focus del chip corrispondente (0ms all'entrata, 200ms di tolleranza
+all'uscita, annullati rientrando nel chip **o** nel riquadro stesso — da
+qui gli stessi handler su entrambi). Posizionati in percentuale rispetto
+all'immagine **effettivamente disegnata**, non al contenitore: con
+`object-contain` le due cose divergono ogni volta che il rapporto
+d'aspetto della foto non è quello del contenitore (lettera-/pillar-
+boxing) — un dettaglio facile da sbagliare (percentuali dirette sul
+contenitore avrebbero prodotto riquadri visibilmente disallineati su
+qualunque foto non esattamente quadrata). Misurato con `naturalWidth`/
+`naturalHeight` (dopo il `load` dell'`<img>`, che si ripete a ogni cambio
+foto) e `ResizeObserver` sulla dimensione dell'elemento.
+
+Verifica completa: `npx vue-tsc -b` (`./node_modules/.bin/vue-tsc -b`,
+stesso bypass della 4/N) pulito. `npx vitest run` → 78 file, 626/626
+verdi (24 test in `AssetViewer.spec.ts`, 4 nuovi: chip con nome/etichetta
+generica, hover-mostra/200ms-nasconde-il-riquadro con timer finti
+[`vi.useFakeTimers`], "Non è un volto" con toast esatto, "Correggi
+persona…" end-to-end fino al riassegnamento — un bug reale nel test
+stesso scoperto e corretto durante la verifica: il popover del chip è
+teletrasportato nel `body` come quello del menu ⋯, `wrapper.get(...)`
+sul solo albero del componente non lo vedeva, serviva `attachTo:
+document.body` + ricerca su `document.body`, stesso correttivo già
+maturato nella verifica del Task 8 (2/N)). `npx eslint` sui file toccati
+e sull'intero repo → pulito (stesso unico errore preesistente su
+`PlayerView.vue`). `npm run build` + calcolo manuale del bundle iniziale
+gzip → 125.573 byte, sotto il budget di 153.600.

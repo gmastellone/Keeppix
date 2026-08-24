@@ -16,3 +16,16 @@ export interface Person {
 export function fetchPersons(): Promise<Person[]> {
   return apiFetch('/api/v1/persons')
 }
+
+/** `POST /persons` — usata dal selettore di persona del lightbox (§19.3,
+ * "Correggi persona…") per creare una persona digitando un nome: il volto
+ * va assegnato **dopo**, con una seconda chiamata a `faces.ts#assignFace`
+ * (commento del backend su `faces::assign`: "il client crea prima la
+ * persona, poi assegna il volto a quella"). Nome vuoto → persona senza
+ * nome. */
+export function createPerson(name: string): Promise<Person> {
+  return apiFetch('/api/v1/persons', {
+    method: 'POST',
+    body: JSON.stringify({ name })
+  })
+}

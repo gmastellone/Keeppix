@@ -1,26 +1,20 @@
 <script setup lang="ts">
-// Fase 11 Task 8 (2/N, 3/N, 4/N) — documento funzionale §18 ("Lightbox —
-// struttura e barra superiore"), §19 ("Pannello informazioni") e §20
-// ("Menu 'altre azioni' ⋯"). La 2/N ha riscritto il segnaposto precedente
-// (151 righe) con barra superiore, stage con frecce, filmino e menu ⋯. La
-// 3/N ha aggiunto titolo modificabile, valutazione a stelle, sezione
-// SCATTO (exif completo). La 4/N (questa) ha completato la sezione
-// POSIZIONE: luogo/coordinate reali, stato vuoto, e il dialog "Imposta/
-// Modifica posizione…" (`PlacePickerDialog.vue`, involucro SP-5 attorno
-// al `PlacePicker.vue` esistente ma finora mai collegato a nessuna
-// vista). Le sezioni PERSONE, TAG, ALBUM e AZIONI restano le prossime
-// unità di questo stesso Task.
+// Fase 11 Task 8 (2/N, 3/N, 4/N, 5/N) — documento funzionale §18
+// ("Lightbox — struttura e barra superiore"), §19 ("Pannello
+// informazioni") e §20 ("Menu 'altre azioni' ⋯"). La 2/N ha riscritto il
+// segnaposto precedente (151 righe) con barra superiore, stage con
+// frecce, filmino e menu ⋯. La 3/N ha aggiunto titolo modificabile,
+// valutazione a stelle, sezione SCATTO. La 4/N ha completato la sezione
+// POSIZIONE. La 5/N (questa) ha aggiunto la sezione PERSONE (chip per
+// volto confermato, menu "Correggi persona…"/"Non è un volto") e i
+// riquadri volto sull'immagine, visibili solo all'hover/focus del chip
+// corrispondente (§19, animazioni). Le sezioni TAG, ALBUM e AZIONI
+// restano le prossime unità di questo stesso Task.
 //
 // **Debito dichiarato, verificato e non taciuto**:
 // - "Condividi" (§18.3 riga 3) omesso: apre un dialog che non esiste
 //   ancora (Task 11 "Condivisioni"), stessa motivazione già usata per
 //   la barra di selezione in Task 7 (2/N).
-// - Riquadri volto sull'immagine (§18.2): la loro **visibilità** è
-//   guidata dall'hover sui chip persona del pannello (§19, animazioni:
-//   "restano invisibili... compaiono solo passando sopra il nome
-//   corrispondente") — costruirli ora, senza quei chip, produrrebbe
-//   riquadri per sempre invisibili. Rimandati all'unità che costruisce
-//   la sezione PERSONE.
 // - "Ruota" resta un toast (nessuna pipeline di rotazione reale esiste
 //   ancora — dichiarato nel Task 8 1/N: `orientation` è scrivibile ma
 //   mai consumato da `keeppix-media`).
@@ -32,6 +26,20 @@
 // - Il commutatore RAW/JPEG (§19.2 riga 5) non è ancora costruito: serve
 //   `GET /assets/{id}/stack` (esiste lato backend, nessun wrapper
 //   frontend ancora) — prossima unità.
+// - "Vai alla persona" (§19.3, prima voce del menu del chip) omesso, non
+//   sostituito da un toast: nessuna vista "Persone" esiste ancora (Task
+//   16, Tranche D) — a differenza di "Ruota"/"Scarica" (demo-toast già
+//   nel mockup originale), qui il mockup naviga davvero verso una
+//   schermata reale, quindi ometterlo (come "Condividi") è più onesto di
+//   un finto toast su un bottone che promette una destinazione che non
+//   c'è.
+// - Il chip "+ aggiungi" delle persone (§19.2 riga 13, ultimo chip) non
+//   è costruito: aggiungere una persona a mano crea un volto **senza**
+//   rilevamento dietro (`box:null` nel mockup), ma `Face.bbox` nel
+//   dominio reale (`crates/keeppix-domain/src/face.rs`) non è opzionale
+//   — un vero buco di modello, non di frontend, già rimandato al Task A
+//   (Volti: YuNet+SFace) fin dal Task 8 (1/N): quella è la sede naturale
+//   per rivedere una volta sola il modello `Face`.
 //
 // **Corretto qui, non solo aggiunto**: il click sullo sfondo nero
 // *non* deve chiudere il lightbox (§18.4, esplicito — a differenza
@@ -43,10 +51,12 @@ import { useI18n } from 'vue-i18n'
 
 import { deleteAsset, fetchFlags, setFlags, unvotedFlags } from '@/api/culling'
 import type { AssetFlags, DiskAction } from '@/api/culling'
+import { assignFace, fetchFacesForAsset, rejectFace, type Face } from '@/api/faces'
 import { fetchMetadata, patchMetadata, type AssetMetadata } from '@/api/metadata'
 import { originalSrc, previewSrc as mediaPreviewSrc, thumbSrc as mediaThumbSrc } from '@/api/media'
 import { fetchAsset, type TimelineAsset } from '@/api/timeline'
 import AlbumPickerDialog from '@/components/AlbumPickerDialog.vue'
+import PersonPickerDialog from '@/components/PersonPickerDialog.vue'
 import PlacePickerDialog from '@/components/PlacePickerDialog.vue'
 import RatingStars from '@/components/RatingStars.vue'
 import RenameFormulaDialog from '@/components/RenameFormulaDialog.vue'
@@ -101,6 +111,18 @@ const detail = ref<TimelineAsset>()
 const flags = ref<AssetFlags>()
 const placeName = ref<string | null>(null)
 const titleDraft = ref('')
+/** §18.2/§19.2: volti rilevati con riquadro (`bbox`), separati da
+ * `asset.faces` (`AssetFaceBadge[]`, solo `person_id`/`person_name`, già
+ * disponibile dal prop senza fetch) — serve a mappare ogni chip persona
+ * al/i volto/i corrispondente/i sull'immagine. */
+const faces = ref<Face[]>([])
+const personDialogOpen = ref(false)
+/** Il volto che "Correggi persona…" sta per riassegnare — impostato
+ * all'apertura del selettore, letto quando l'utente sceglie una persona. */
+const correctingFaceId = ref<string | null>(null)
+const openFaceMenuPersonId = ref<string | null>(null)
+const hoveredPersonId = ref<string | null>(null)
+let hideBoxesTimer: ReturnType<typeof setTimeout> | undefined
 let panelRequestSequence = 0
 
 function previewSrc(asset: TimelineAsset): string {
@@ -173,15 +195,20 @@ async function loadPanelData() {
   // "mappa non disponibile" anche per regioni già scaricate. A parte,
   // senza `await`: non deve ritardare gli altri tre campi del pannello.
   void maps.loadRegions()
-  const [metadataResult, detailResult, flagsResult] = await Promise.allSettled([
+  // Niente giro a vuoto: `asset.faces` (già nel prop, senza fetch) dice se
+  // la foto ha volti confermati prima ancora di chiedere i riquadri.
+  const needsFaces = props.asset.faces.length > 0
+  const [metadataResult, detailResult, flagsResult, facesResult] = await Promise.allSettled([
     fetchMetadata(assetId),
     fetchAsset(assetId),
-    fetchFlags(assetId)
+    fetchFlags(assetId),
+    needsFaces ? fetchFacesForAsset(assetId) : Promise.resolve([])
   ])
   if (sequence !== panelRequestSequence || assetId !== props.asset.id) return
   metadata.value = metadataResult.status === 'fulfilled' ? metadataResult.value : undefined
   detail.value = detailResult.status === 'fulfilled' ? detailResult.value : undefined
   flags.value = flagsResult.status === 'fulfilled' ? flagsResult.value : unvotedFlags
+  faces.value = facesResult.status === 'fulfilled' ? facesResult.value : []
   titleDraft.value = metadata.value?.title ?? ''
   placeName.value = null
   const location = metadata.value?.location
@@ -226,6 +253,134 @@ async function rate(n: number) {
   }
 }
 
+function personDisplayName(personName: string | null): string {
+  return personName ?? t('personPicker.unnamed')
+}
+
+/** Un chip persona rappresenta un `person_id`; il volto (`bbox`, e l'id da
+ * passare ad `assignFace`/`rejectFace`) va cercato nel dettaglio caricato a
+ * parte — `asset.faces` non lo porta (solo nome/id persona, SP-3). */
+function faceIdFor(personId: string): string | undefined {
+  return faces.value.find((face) => face.person_id === personId)?.id
+}
+
+/** §19, animazioni: 0ms all'entrata, 200ms di tolleranza all'uscita — si
+ * annullano se nel frattempo si rientra nel chip **o** nel riquadro
+ * stesso (da qui i due handler gemelli sui riquadri, non solo sui chip). */
+function cancelHideBoxes() {
+  if (hideBoxesTimer) {
+    clearTimeout(hideBoxesTimer)
+    hideBoxesTimer = undefined
+  }
+}
+
+function showBoxesFor(personId: string) {
+  cancelHideBoxes()
+  hoveredPersonId.value = personId
+}
+
+function scheduleHideBoxes() {
+  if (hideBoxesTimer) clearTimeout(hideBoxesTimer)
+  hideBoxesTimer = setTimeout(() => {
+    hoveredPersonId.value = null
+    hideBoxesTimer = undefined
+  }, 200)
+}
+
+const visibleFaces = computed(() => faces.value.filter((face) => face.person_id === hoveredPersonId.value))
+
+function openCorrectPerson(personId: string) {
+  const faceId = faceIdFor(personId)
+  if (!faceId) return
+  openFaceMenuPersonId.value = null
+  correctingFaceId.value = faceId
+  personDialogOpen.value = true
+}
+
+async function onPersonPicked(personId: string) {
+  const faceId = correctingFaceId.value
+  correctingFaceId.value = null
+  if (!faceId) return
+  try {
+    await assignFace(faceId, personId)
+    toast.show(t('viewer.panel.personCorrected'))
+    void loadPanelData()
+  } catch {
+    toast.showError(t('personPicker.error'))
+  }
+}
+
+async function markNotAFace(personId: string) {
+  const faceId = faceIdFor(personId)
+  openFaceMenuPersonId.value = null
+  if (!faceId) return
+  try {
+    await rejectFace(faceId)
+    toast.show(t('viewer.panel.notAFaceToast'))
+    void loadPanelData()
+  } catch {
+    toast.showError(t('personPicker.error'))
+  }
+}
+
+/** §18.2: i riquadri volto sono posizionati in percentuale rispetto
+ * all'immagine **effettivamente disegnata**, non al contenitore — con
+ * `object-contain` le due cose divergono ogni volta che il rapporto
+ * d'aspetto della foto non è quello del contenitore (lettera-/pillar-
+ * boxing). Misurato via `naturalWidth`/`naturalHeight` (dell'`<img>` dopo
+ * il suo `load`) e la dimensione dell'elemento (che con `w-full h-full`
+ * coincide col contenitore, osservata con `ResizeObserver`). */
+const stageImgEl = ref<HTMLImageElement>()
+const containerSize = ref({ w: 0, h: 0 })
+const naturalSize = ref({ w: 0, h: 0 })
+let stageResizeObserver: ResizeObserver | undefined
+
+function onStageImgLoad() {
+  if (stageImgEl.value) {
+    naturalSize.value = { w: stageImgEl.value.naturalWidth, h: stageImgEl.value.naturalHeight }
+  }
+}
+
+watch(
+  stageImgEl,
+  (el) => {
+    stageResizeObserver?.disconnect()
+    stageResizeObserver = undefined
+    if (el) {
+      containerSize.value = { w: el.clientWidth, h: el.clientHeight }
+      if (typeof ResizeObserver !== 'undefined') {
+        stageResizeObserver = new ResizeObserver(() => {
+          containerSize.value = { w: el.clientWidth, h: el.clientHeight }
+        })
+        stageResizeObserver.observe(el)
+      }
+    }
+  },
+  { immediate: true }
+)
+onUnmounted(() => stageResizeObserver?.disconnect())
+
+const imageRect = computed(() => {
+  const { w: cw, h: ch } = containerSize.value
+  const { w: nw, h: nh } = naturalSize.value
+  if (!cw || !ch || !nw || !nh) return null
+  const scale = Math.min(cw / nw, ch / nh)
+  const renderedW = nw * scale
+  const renderedH = nh * scale
+  return { offsetX: (cw - renderedW) / 2, offsetY: (ch - renderedH) / 2, renderedW, renderedH }
+})
+
+function boxStyle(face: Face) {
+  const rect = imageRect.value
+  if (!rect) return { opacity: '0' }
+  return {
+    left: `${rect.offsetX + face.bbox.x * rect.renderedW}px`,
+    top: `${rect.offsetY + face.bbox.y * rect.renderedH}px`,
+    width: `${face.bbox.w * rect.renderedW}px`,
+    height: `${face.bbox.h * rect.renderedH}px`
+  }
+}
+
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 watch(
@@ -235,6 +390,8 @@ watch(
     metadata.value = undefined
     detail.value = undefined
     flags.value = undefined
+    faces.value = []
+    hoveredPersonId.value = null
     placeName.value = null
     titleDraft.value = ''
     if (info.value) void loadPanelData()
@@ -526,10 +683,20 @@ const coordsLabel = computed(() => {
         </button>
         <div class="relative h-full w-full">
           <img
+            ref="stageImgEl"
             :src="src"
             :alt="asset.filename"
             class="m-auto h-full max-h-full w-full max-w-full rounded-md object-contain"
+            @load="onStageImgLoad"
           >
+          <div
+            v-for="face in visibleFaces"
+            :key="face.id"
+            class="absolute rounded-sm border-2 border-accent transition-[opacity,border-color]"
+            :style="{ ...boxStyle(face), transitionDuration: 'var(--duration-fast, .12s)' }"
+            @mouseenter="cancelHideBoxes"
+            @mouseleave="scheduleHideBoxes"
+          />
         </div>
         <button
           v-if="nextAsset"
@@ -690,6 +857,56 @@ const coordsLabel = computed(() => {
             {{ t(metadata?.location ? 'viewer.panel.editPosition' : 'viewer.panel.setPosition') }}
           </button>
         </section>
+
+        <section
+          v-if="asset.faces.length > 0"
+          class="mt-4"
+        >
+          <h2 class="mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
+            {{ t('viewer.panel.people') }}
+          </h2>
+          <div class="flex flex-wrap gap-1.5">
+            <Popover
+              v-for="person in asset.faces"
+              :key="person.person_id"
+              :open="openFaceMenuPersonId === person.person_id"
+              side="bottom"
+              align="start"
+              @update:open="(v) => (openFaceMenuPersonId = v ? person.person_id : null)"
+            >
+              <template #trigger>
+                <button
+                  type="button"
+                  role="button"
+                  tabindex="0"
+                  class="rounded-full bg-[#1a1a1a] px-2.5 py-1 text-xs text-[#d8d8d8]"
+                  @mouseenter="showBoxesFor(person.person_id)"
+                  @mouseleave="scheduleHideBoxes"
+                  @focus="showBoxesFor(person.person_id)"
+                  @blur="scheduleHideBoxes"
+                >
+                  {{ personDisplayName(person.person_name) }}
+                </button>
+              </template>
+              <div class="flex w-[200px] flex-col gap-0.5 py-0.5 text-[13px] text-[var(--color-content)]">
+                <button
+                  type="button"
+                  class="rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-chip-bg)]"
+                  @click="openCorrectPerson(person.person_id)"
+                >
+                  {{ t('viewer.panel.faceMenu.correct') }}
+                </button>
+                <button
+                  type="button"
+                  class="rounded-md px-2.5 py-2 text-left text-danger hover:bg-[var(--color-chip-bg)]"
+                  @click="markNotAFace(person.person_id)"
+                >
+                  {{ t('viewer.panel.faceMenu.notAFace') }}
+                </button>
+              </div>
+            </Popover>
+          </div>
+        </section>
       </aside>
     </div>
 
@@ -732,6 +949,10 @@ const coordsLabel = computed(() => {
       v-model:open="positionDialogOpen"
       :asset="asset"
       @applied="loadPanelData"
+    />
+    <PersonPickerDialog
+      v-model:open="personDialogOpen"
+      @picked="onPersonPicked"
     />
   </div>
 </template>

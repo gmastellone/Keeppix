@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { Face } from '@/api/faces'
 import type { TimelineAsset } from '@/api/timeline'
 import { i18n } from '@/i18n'
 import { useToastStore } from '@/stores/toast'
@@ -547,6 +548,179 @@ describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
       '/api/v1/assets/a/metadata',
       expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ location: null, place_id: null }) })
     )
+    wrapper.unmount()
+  })
+})
+
+describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)', () => {
+  function face(id: string, personId: string): Face {
+    return {
+      id,
+      asset_id: 'a',
+      bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+      person_id: personId,
+      proposed_person_id: null,
+      proposed_score: null,
+      assigned_by_human: true
+    }
+  }
+
+  function personWithFaces(faces: TimelineAsset['faces']): TimelineAsset {
+    return { ...photo('a'), faces }
+  }
+
+  function mockPanelFetch(opts: {
+    faces?: Face[]
+    persons?: { id: string; name: string | null; hidden: boolean; face_count: number | null }[]
+    createdPerson?: { id: string; name: string | null; hidden: boolean; face_count: number | null }
+  } = {}) {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (path.endsWith('/map/regions')) return Promise.resolve([])
+      if (path.endsWith('/metadata') && method === 'GET') {
+        return Promise.resolve({
+          title: null,
+          description: null,
+          taken_at: null,
+          location: null,
+          place_id: null,
+          orientation: null
+        })
+      }
+      if (path.endsWith('/flags') && method === 'GET') {
+        return Promise.resolve({ rating: null, pick: 'none', color_label: null, favorite: false })
+      }
+      if (path.endsWith('/faces') && method === 'GET') return Promise.resolve(opts.faces ?? [])
+      if (/\/faces\/.+\/assign$/.test(path) && method === 'POST') return Promise.resolve(null)
+      if (/\/faces\/.+\/reject$/.test(path) && method === 'POST') return Promise.resolve(null)
+      if (path.endsWith('/persons') && method === 'GET') return Promise.resolve(opts.persons ?? [])
+      if (path.endsWith('/persons') && method === 'POST') {
+        return Promise.resolve(opts.createdPerson ?? { id: 'new', name: null, hidden: false, face_count: null })
+      }
+      // GET /api/v1/assets/{id} (dettaglio)
+      return Promise.resolve({ ...photo('a') })
+    })
+  }
+
+  it('renders a chip per confirmed face, falling back to a generic label for unnamed persons', async () => {
+    mockPanelFetch({ faces: [face('f1', 'p1'), face('f2', 'p2')] })
+    const wrapper = mount(AssetViewer, {
+      props: {
+        asset: personWithFaces([
+          { person_id: 'p1', person_name: 'Anna' },
+          { person_id: 'p2', person_name: null }
+        ]),
+        isFavorite: false
+      },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Anna')
+    expect(wrapper.text()).toContain('Persona senza nome')
+  })
+
+  it('§19 animations: hovering a chip shows its face box; leaving hides it after 200ms unless re-entered', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    mockPanelFetch({ faces: [face('f1', 'p1')] })
+    const wrapper = mount(AssetViewer, {
+      props: {
+        asset: personWithFaces([{ person_id: 'p1', person_name: 'Anna' }]),
+        isFavorite: false
+      },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await vi.runAllTimersAsync()
+
+    const boxSelector = '.border-accent'
+    expect(wrapper.findAll(boxSelector)).toHaveLength(0)
+
+    const chip = wrapper.findAll('button').find((b) => b.text() === 'Anna')!
+    await chip.trigger('mouseenter')
+    expect(wrapper.findAll(boxSelector)).toHaveLength(1)
+
+    await chip.trigger('mouseleave')
+    expect(wrapper.findAll(boxSelector)).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(100)
+    await chip.trigger('mouseenter')
+    await vi.advanceTimersByTimeAsync(150)
+    expect(wrapper.findAll(boxSelector)).toHaveLength(1)
+
+    await chip.trigger('mouseleave')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(wrapper.findAll(boxSelector)).toHaveLength(0)
+
+    vi.useRealTimers()
+  })
+
+  it('"Non è un volto" rejects the face and shows the exact toast', async () => {
+    mockPanelFetch({ faces: [face('f1', 'p1')] })
+    const wrapper = mount(AssetViewer, {
+      props: {
+        asset: personWithFaces([{ person_id: 'p1', person_name: 'Anna' }]),
+        isFavorite: false
+      },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } },
+      attachTo: document.body
+    })
+    const toast = useToastStore()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    const chip = wrapper.findAll('button').find((b) => b.text() === 'Anna')!
+    await chip.trigger('click')
+    await flushPromises()
+    const notAFaceButton = Array.from(document.body.querySelectorAll('button.text-danger')).find(
+      (b) => b.textContent?.trim() === 'Non è un volto'
+    )
+    notAFaceButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/faces/f1/reject', expect.objectContaining({ method: 'POST' }))
+    expect(toast.toasts.at(-1)?.message).toBe('Segnato come "non è un volto" — non verrà più riproposto.')
+    wrapper.unmount()
+  })
+
+  it('"Correggi persona…" opens the person picker; picking an existing person reassigns the face and shows the toast', async () => {
+    mockPanelFetch({
+      faces: [face('f1', 'p1')],
+      persons: [{ id: 'p9', name: 'Marco', hidden: false, face_count: 3 }]
+    })
+    const wrapper = mount(AssetViewer, {
+      props: {
+        asset: personWithFaces([{ person_id: 'p1', person_name: 'Anna' }]),
+        isFavorite: false
+      },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } },
+      attachTo: document.body
+    })
+    const toast = useToastStore()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    const chip = wrapper.findAll('button').find((b) => b.text() === 'Anna')!
+    await chip.trigger('click')
+    await flushPromises()
+    const correctButton = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Correggi persona…'
+    )
+    correctButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    const marcoButton = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Marco'
+    )
+    expect(marcoButton).toBeTruthy()
+    marcoButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/faces/f1/assign',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ person_id: 'p9' }) })
+    )
+    expect(toast.toasts.at(-1)?.message).toBe('Persona corretta.')
     wrapper.unmount()
   })
 })

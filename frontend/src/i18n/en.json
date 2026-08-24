@@ -308,7 +308,16 @@
       "position": "Location",
       "noPosition": "No location set.",
       "editPosition": "Edit location…",
-      "setPosition": "Set location…"
+      "setPosition": "Set location…",
+      "people": "People",
+      "faceMenu": {
+        "correct": "Fix person…",
+        "correctHint": "This face belongs to someone else",
+        "notAFace": "Not a face",
+        "notAFaceHint": "False positive — never suggested again"
+      },
+      "personCorrected": "Person fixed.",
+      "notAFaceToast": "Marked as \"not a face\" — it won't be suggested again."
     }
   },
   "player": {
@@ -401,6 +410,13 @@
     "subtitle": "{n} item selected — toggle an album to add or remove all of them | {n} items selected — toggle an album to add or remove all of them",
     "done": "Done",
     "error": "Could not update the album. Try again."
+  },
+  "personPicker": {
+    "title": "Choose a person",
+    "placeholder": "Search or type a name…",
+    "unnamed": "Unnamed person",
+    "create": "Create person \"{name}\"",
+    "error": "Couldn't complete the operation. Try again."
   },
   "shares": {
     "entry": "Shares",
