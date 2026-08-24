@@ -1,15 +1,20 @@
 export type IsoCmp = 'gt' | 'gte' | 'lt' | 'lte' | 'eq'
 
+/** Voto di culling (spec fase-2/9): rispecchia `keeppix_domain::Pick`
+ * (`#[serde(rename_all="snake_case")]`, `{None,Pick,Reject}`). */
+export type PickValue = 'none' | 'pick' | 'reject'
+
 /** AST della ricerca (spec fase-10 §23-25): mai costruito da una sintassi
  * digitata (Task 9, `frontend/src/search/parse.ts`, ritirato in questo
  * task — vedi `SearchView.vue`) ma solo da pillole strutturate + un nodo
  * `text` per la descrizione libera, esattamente come nel mockup. Ogni
  * variante rispecchia `SearchNode` di `crates/keeppix-db/src/search.rs`
  * (`#[serde(tag="op", rename_all="snake_case")]`): questo file non è che
- * il sottoinsieme che la barra di ricerca sa produrre, non l'intero enum
- * del backend (che ha anche `Rating`/`Pick`/`DateRange`/`Day`/`Month`/
- * `Aperture`/`Shutter`/`Place`/`Category`/`Semantic`/`Person`/
- * `PersonGroup`/`PersonCount` — fuori campo per Task 9, altre schermate). */
+ * il sottoinsieme che la barra di ricerca e la creazione album (Task 12
+ * 2/N, `Rating`/`Pick`/`DateRange`) sanno produrre, non l'intero enum del
+ * backend (che ha anche `Day`/`Month`/`Aperture`/`Shutter`/`Place`/
+ * `Category`/`Semantic`/`Person`/`PersonGroup`/`PersonCount` — fuori campo
+ * per entrambe, altre schermate). */
 export type SearchNode =
   | { op: 'and'; args: SearchNode[] }
   | { op: 'or'; args: SearchNode[] }
@@ -34,3 +39,14 @@ export type SearchNode =
    * `places.country_code` — non un nome leggibile, vedi `SearchView.vue`
    * per il perché non esiste una tabella di traduzione codice→nome. */
   | { op: 'country'; value: string }
+  /** Task 12 (2/N), campo "Valutazione minima" della creazione album:
+   * `SearchNode::Rating{cmp,value}` nel backend, per-utente, `IsoCmp`
+   * riusato (stesso confronto numerico di `Iso`) — sempre `cmp:'gte'` da
+   * qui, "valutazione minima" non è un intervallo. */
+  | { op: 'rating'; cmp: IsoCmp; value: number }
+  /** Campo "Pick/Scarta": `SearchNode::Pick{value}`, stato di culling
+   * dell'utente che esegue la ricerca. */
+  | { op: 'pick'; value: PickValue }
+  /** Campo "Intervallo di date": `SearchNode::DateRange{from,to}`,
+   * entrambi gli estremi inclusi, timestamp UTC. */
+  | { op: 'date_range'; from: string; to: string }

@@ -19,31 +19,26 @@
 // Task 9/11 — pochi album per istanza, accettabile) più `albumMonthRange`
 // (Task 12, `@/albums/range`).
 //
-// "Crea album" (§3.1) nel mockup porta a una pagina di creazione a sé
-// (§43) con nome, condivisione, e un editor di filtro a 9 campi. Quella
-// pagina è rimandata alla prossima unità (Task 12 2/N): qui c'è un
-// dialog minimo, solo nome, che copre comunque il caso "Manuale" del
-// §43 (nome pulito dagli spazi, validato con un toast se vuoto, atterra
-// nel dettaglio del nuovo album) senza lasciare il pulsante inerte.
+// "Crea album" (§3.1) porta alla pagina di creazione a sé (§43,
+// `AlbumCreateView.vue`, Task 12 2/N) — sostituisce il dialog minimo
+// solo-nome della 1/N, rimosso qui (non commentato: era uno stopgap
+// dichiarato esplicitamente temporaneo).
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import { albumMonthRange } from '@/albums/range'
-import { createAlbum, fetchAlbumAssets, fetchAlbums, type Album, type AlbumAsset } from '@/api/albums'
+import { fetchAlbumAssets, fetchAlbums, type Album, type AlbumAsset } from '@/api/albums'
 import { ApiProblem, isUnauthenticated } from '@/api/client'
 import { classifyError } from '@/errors/classify'
 import { albumCoverGradient } from '@/design/albumCover'
 import { useSessionStore } from '@/stores/session'
-import { useToastStore } from '@/stores/toast'
 
-import Dialog from '@/components/ui/Dialog.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
 const session = useSessionStore()
-const toast = useToastStore()
 
 const albums = ref<Album[]>([])
 const members = ref<Record<string, AlbumAsset[]>>({})
@@ -88,34 +83,8 @@ function openAlbum(id: string) {
   void router.push(`/albums/${id}`)
 }
 
-const createOpen = ref(false)
-const newName = ref('')
-const nameInputEl = ref<HTMLInputElement | null>(null)
-const creating = ref(false)
-
-function openCreateDialog() {
-  newName.value = ''
-  createOpen.value = true
-}
-
-async function confirmCreate() {
-  const name = newName.value.trim()
-  if (!name) {
-    toast.showError(t('albums.createDialog.error'))
-    nameInputEl.value?.focus()
-    return
-  }
-  if (creating.value) return
-  creating.value = true
-  try {
-    const album = await createAlbum(name)
-    createOpen.value = false
-    await router.push(`/albums/${album.id}`)
-  } catch {
-    toast.showError(t('albums.createDialog.error'))
-  } finally {
-    creating.value = false
-  }
+function openCreate() {
+  void router.push('/albums/new')
 }
 </script>
 
@@ -140,7 +109,7 @@ async function confirmCreate() {
         <button
           type="button"
           class="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[13px] font-semibold text-white"
-          @click="openCreateDialog"
+          @click="openCreate"
         >
           {{ t('albums.createButton') }}
         </button>
@@ -202,40 +171,5 @@ async function confirmCreate() {
         </div>
       </div>
     </template>
-
-    <Dialog
-      v-model:open="createOpen"
-      :title="t('albums.createDialog.title')"
-      :initial-focus="nameInputEl"
-    >
-      <form
-        class="flex flex-col gap-3"
-        @submit.prevent="confirmCreate"
-      >
-        <input
-          ref="nameInputEl"
-          v-model="newName"
-          class="rounded-lg border border-border bg-surface px-3 py-2 text-sm"
-          :placeholder="t('albums.createDialog.namePlaceholderHint')"
-          :aria-label="t('albums.namePlaceholder')"
-        >
-        <div class="flex justify-end gap-2">
-          <button
-            type="button"
-            class="rounded-lg border border-border px-3.5 py-2 text-[13px] font-semibold"
-            @click="createOpen = false"
-          >
-            {{ t('albums.createDialog.cancel') }}
-          </button>
-          <button
-            type="submit"
-            class="rounded-lg bg-accent px-3.5 py-2 text-[13px] font-semibold text-white"
-            :disabled="creating"
-          >
-            {{ t('albums.createDialog.confirm') }}
-          </button>
-        </div>
-      </form>
-    </Dialog>
   </main>
 </template>

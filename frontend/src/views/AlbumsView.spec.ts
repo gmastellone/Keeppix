@@ -11,15 +11,11 @@ import AlbumsView from './AlbumsView.vue'
 
 const fetchAlbumsMock = vi.fn()
 const fetchAlbumAssetsMock = vi.fn()
-const createAlbumMock = vi.fn()
 
 vi.mock('@/api/albums', () => ({
   fetchAlbums: (...args: unknown[]) => fetchAlbumsMock(...args),
-  fetchAlbumAssets: (...args: unknown[]) => fetchAlbumAssetsMock(...args),
-  createAlbum: (...args: unknown[]) => createAlbumMock(...args)
+  fetchAlbumAssets: (...args: unknown[]) => fetchAlbumAssetsMock(...args)
 }))
-
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 function album(overrides: Partial<Album> = {}): Album {
   return {
@@ -74,7 +70,6 @@ beforeEach(() => {
   i18n.global.locale.value = 'it'
   fetchAlbumsMock.mockResolvedValue([])
   fetchAlbumAssetsMock.mockResolvedValue([])
-  createAlbumMock.mockResolvedValue(album())
 })
 
 afterEach(() => {
@@ -93,6 +88,7 @@ async function mountAlbums() {
     history: createMemoryHistory(),
     routes: [
       { path: '/albums', component: AlbumsView },
+      { path: '/albums/new', component: { template: '<div />' } },
       { path: '/albums/:id', component: { template: '<div />' } }
     ]
   })
@@ -159,36 +155,12 @@ describe('AlbumsView — §41 la griglia', () => {
     expect(router.currentRoute.value.path).toBe('/albums/album-42')
   })
 
-  function confirmButton(): HTMLButtonElement | undefined {
-    return Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Crea')
-  }
-
-  it('"Crea album" with an empty name does not create anything', async () => {
-    const { wrapper } = await mountAlbums()
-
-    await wrapper.get('button[type="button"]').trigger('click')
-    await tick()
-    confirmButton()?.click()
-    await tick()
-
-    expect(createAlbumMock).not.toHaveBeenCalled()
-  })
-
-  it('"Crea album" with a name creates the album and lands on its detail', async () => {
-    createAlbumMock.mockResolvedValue(album({ id: 'new-1', name: 'Ferie' }))
+  it('"Crea album" navigates to the full creation page (§43, Task 12 2/N) — not a dialog', async () => {
     const { wrapper, router } = await mountAlbums()
 
     await wrapper.get('button[type="button"]').trigger('click')
-    await tick()
-    const input = document.body.querySelector('input') as HTMLInputElement
-    input.value = '  Ferie  '
-    input.dispatchEvent(new Event('input'))
-    await tick()
-    confirmButton()?.click()
-    await flushPromises()
     await flushPromises()
 
-    expect(createAlbumMock).toHaveBeenCalledWith('Ferie')
-    expect(router.currentRoute.value.path).toBe('/albums/new-1')
+    expect(router.currentRoute.value.path).toBe('/albums/new')
   })
 })

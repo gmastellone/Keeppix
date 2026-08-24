@@ -53,9 +53,10 @@ const { open: openPicker, onChange } = useUploadPicker(inputEl)
 
 // §42.8: la sola briciola con un vero segmento genitore ("Album /
 // <nome>") — le altre rotte restano a un unico segmento (vedi il
-// commento in testa al file).
+// commento in testa al file). `/albums/new` (Task 12 2/N) non è un
+// album aperto: resta sulla mappa piatta sotto, non su questo ramo.
 const albumBreadcrumbName = computed(() =>
-  route.path.startsWith('/albums/') ? activeAlbumName.value : null
+  route.path.startsWith('/albums/') && route.path !== '/albums/new' ? activeAlbumName.value : null
 )
 
 const breadcrumbLabel = computed(() => {

@@ -5151,3 +5151,85 @@ manuale del bundle iniziale gzip → 128.797 byte, sotto il budget di
 Debito dichiarato, esplicito: §43 (pagina di creazione con filtro a 9
 campi) resta per la 2/N — questa stessa estenderà `search/ast.ts` con
 `Lens`/`Rating`/`Pick`/`DateRange` per rappresentare le condizioni.
+
+## Task 12 (2/N) — Album: creazione con filtro (§43)
+
+Nuova `AlbumCreateView.vue` (`/albums/new`), sostituisce il dialog
+minimo solo-nome della 1/N (rimosso, non commentato — era uno stopgap
+dichiarato esplicitamente temporaneo). `search/ast.ts` esteso con
+`Rating{cmp,value}`/`Pick{value}`/`date_range{from,to}` (rispecchiano
+`SearchNode::Rating`/`Pick`/`DateRange` di `crates/keeppix-db/src/
+search.rs`, `Lens` c'era già dal Task 9).
+
+**Tre deviazioni reali dal documento, tutte verificate leggendo il
+codice del backend, non per scelta stilistica** (documentate anche nei
+commenti del file):
+
+1. **Niente "Automatico"**: `PatchAlbumBody` (`routes/albums.rs`) non ha
+   un campo `rule` — un album creato con `rule` non può mai tornare
+   "puramente manuale", quindi "diventa manuale a tutti gli effetti" del
+   documento non è raggiungibile su questo backend. L'unica modalità
+   reale è "applica subito" (creazione + `POST .../refresh` immediato,
+   la vera equivalenza di "Una tantum"): il controllo segmentato "Quando
+   applicare" sparisce, non c'è una seconda opzione onesta da offrirci.
+   L'album resta comunque riaggiornabile in seguito da
+   `AlbumDetailView` (il pulsante "Aggiorna album" della 1/N) — bonus
+   reale non previsto dal mockup, conseguenza naturale di come `rule`
+   funziona davvero, non una bugia raccontata all'utente.
+2. **Niente switch "Condiviso"**: `is_shared` è una colonna reale letta
+   da `AlbumView` ma né `CreateAlbumBody` né `PatchAlbumBody` la
+   scrivono mai — resta sempre `false`, stessa storia già documentata
+   per `cover_tint`/`monochrome` al Task 12 1/N. La condivisione reale
+   resta il percorso già costruito al Task 11 (permessi/link), da dopo
+   la creazione.
+3. **"Tipo file" offre solo RAW/JPEG**: `SearchNode::Type` filtra
+   `assets.kind` (per singolo file), "RAW+JPEG" del mockup è
+   l'accoppiamento client-side `raw_kind` (`useBrowseFilters.ts`), mai
+   una query SQL — non rappresentabile in una `rule` persistita.
+   "Fotocamera"/"Paese" non sono tendine con l'elenco dei valori
+   distinti (nessuna rotta li enumera, solo `GET /search/suggest?q=`
+   con prefisso non vuoto, limit 6): input di testo con un `<datalist>`
+   alimentato dallo stesso endpoint della barra di ricerca (Task 9), non
+   una vera tendina. "Obiettivo" non ha nemmeno un `SuggestionKind::
+   Lens` sul backend: resta testo libero, senza suggerimenti.
+
+**Gli altri 6 campi mappano un `SearchNode` reale uno a uno**: Cartella
+(picklist multi-selezione su `fetchAllFolders()`, già pronta dal Task
+9/10, combinata in `{op:'or',args:[...]}` quando più di una è spuntata),
+Intervallo di date (`date_range`, estremi mancanti sostituiti con
+`0001-01-01`/`9999-12-31` per "aperto da un lato"), Preferiti
+(`{op:'favorite'}` o `{op:'not',arg:{op:'favorite'}}` per "Non è un
+preferito" — nessun `SearchNode` negativo dedicato, `not` già esisteva),
+Valutazione minima (`{op:'rating',cmp:'gte',value:N}`), Pick/Scarta
+(`{op:'pick',value}`, tre stelle vere via `Intl`-indipendenti `★`/`☆`,
+nessuna traduzione necessaria).
+
+**Anteprima live realmente accurata**, a differenza del conteggio della
+griglia (Task 12 1/N, che legge la membership materializzata): qui
+`runSearch(rule)` valuta l'AST dal vivo sul catalogo reale, esaustivo a
+pagine (stesso giro di `FavoritesView.loadFavorites`), con un debounce
+di 300ms sui cambi di condizione/operatore/tipo — non ad ogni carattere
+digitato in un campo di testo libero (camera/paese/obiettivo), che
+aggiornerebbe la ricerca continuamente durante la digitazione.
+
+Alla conferma: nome obbligatorio (toast + focus se vuoto, validazione
+solo all'invio come da documento), "Basato su filtro" con zero
+condizioni utili → toast dedicato, altrimenti `createAlbum(nome, rule?)`
+seguita da un `refreshAlbum(id)` immediato **solo** se `rule` è
+presente, poi navigazione diretta al dettaglio del nuovo album — "si
+atterra nel dettaglio" del documento, verificato invariato.
+
+Verifica completa: `npx vitest run` → 83 file, **706/706** verdi (6
+nuovi in `AlbumCreateView.spec.ts`; `AlbumsView.spec.ts` aggiornato,
+le due prove sul vecchio dialog sostituite da una sola prova di
+navigazione a `/albums/new`). `npx vue-tsc -b` pulito. `npx eslint` sui
+file toccati e sull'intero repo → pulito (stesso unico errore
+preesistente su `PlayerView.vue`, stesso numero di warning
+preesistenti). `npm run build` (il nuovo chunk `AlbumCreateView`,
+11,86 KB / 3,67 KB gzip, è lazy — non tocca il bundle iniziale) +
+calcolo manuale del bundle iniziale gzip → 129.779 byte, sotto il
+budget di 153.600.
+
+**Con questa unità si chiude il Task 12** ("Album", §41-43). Si
+prosegue con il Task 13 della Tranche B (Manutenzione: Cestino/
+Duplicati/Problemi, §45-49).
