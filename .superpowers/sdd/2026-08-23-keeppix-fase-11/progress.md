@@ -5656,3 +5656,146 @@ sotto il budget di 153.600; `ProfileView` è un chunk lazy a parte.
 §60-61) — e con esso davvero la Tranche B della Fase 11 (Task 11-14:
 Condivisioni, Album, Manutenzione, Impostazioni/Profilo). Si prosegue
 con la Tranche C.
+
+## Nota fuori-roadmap — CI rossa da tre bug reali, mascherati in serie
+dal gate di formattazione
+
+Prima di Task 15, un intervento richiesto esplicitamente dall'utente:
+la CI su `fase-11` era rossa da tempo, sempre per lo stesso motivo
+apparente (`cargo fmt --check`), ma risolverlo ha rivelato **altri due
+bug reali e indipendenti**, mai visti prima perché il job non aveva
+mai superato lo step di formattazione:
+
+1. **`cargo fmt --all`** — 9 file non formattati, residuo di una fase
+   precedente. Commit `7b9c1a3`.
+2. **`asset_move.rs` (keeppix-api)**: `ensure_folder()` creava una
+   nuova libreria a ogni chiamata invece di una sola — due test la
+   chiamavano due volte con la stessa radice, violando l'indice unico
+   su `root_path` alla seconda chiamata. Diviso in `ensure_library()`
+   (una volta) + `ensure_folder()` (solo il cammino di cartelle, via
+   `FolderRepo::ensure_path`, già idempotente). Commit `f3b3f77`.
+3. **Fuga di privacy reale in `GET /share/{token}/assets`**: la rotta
+   serializzava `routes::timeline::AssetView` per intero, che porta
+   `faces`/`tags`/`favorite`/`camera_model`/`full_exif` — campi
+   "additivi" cresciuti nella Fase 11 Task 7/8 per timeline/ricerca.
+   Vuoti oggi, ma la chiave `faces` era comunque presente nel JSON
+   pubblico: `face_privacy.rs` la rifiuta per costruzione (cammina
+   l'intero corpo, non solo i valori non vuoti) — così un domani
+   `.with_faces(...)` copiato per errore in questa rotta la farebbe
+   fallire lo stesso, non solo il caso con dati veri. Corretto con un
+   nuovo `routes::share::PublicAssetView`, sottoinsieme minimo di
+   `AssetView` senza quei campi — non un patch al tipo condiviso, un
+   tipo pubblico distinto. `docs/api/openapi.json` aggiornato a mano
+   (nuovo schema, `$ref` di `SharedContentResponse.assets`): `cargo
+   test` non gira in locale in questo sandbox (`ort-sys`/
+   `cdn.pyke.io` bloccato dalla rete), verificato con `cargo fmt
+   --check` pulito e confronto manuale contro lo schema di `AssetView`
+   già esistente. Commit `201c040`.
+4. **`asset_exif` NOT NULL**: un terzo bug, scoperto solo dopo aver
+   risolto il primo — `INSERT INTO asset_exif (asset_id, camera_model)`
+   senza la colonna `raw` (`jsonb NOT NULL`, nessun default), in un
+   test di `keeppix-api` e due di `keeppix-db`. Corretti tutti e tre
+   con `'{}'::jsonb`. Aggiunto anche `--no-fail-fast` al comando `cargo
+   test` della CI: senza, cargo si ferma al primo target che fallisce,
+   quindi ogni bug successivo restava nascosto finché non si
+   correggeva quello prima — tre cicli di CI da ~15-20 minuti ciascuno
+   per tre bug indipendenti, scoperti uno alla volta invece che tutti
+   insieme. Commit `195e436`.
+
+**CI confermata verde run per run**, non presunta: ogni commit
+verificato via `mcp__github__actions_get`/`list_workflow_jobs` fino al
+run 314 (commit `195e436`), tutti e cinque i job (`image`, `audit`,
+`frontend`, `api-clients`, `backend`) verdi, incluso lo step "La
+specifica OpenAPI è aggiornata" — conferma indipendente che lo schema
+scritto a mano in `docs/api/openapi.json` combacia byte per byte con
+quello che il codice genera davvero.
+
+## Tranche C
+
+## Task 15 (1/N) — Tag e categorie: la pagina (§52) + i dialog di
+modifica tag e categoria (§53-54)
+
+Documento funzionale verificato riga per riga (righe 7731-8119).
+Ricerca preliminare della capacità reale del backend (agente dedicato,
+Fase 7 Task 7/8): CRUD di tag/categorie, assegnazione, conferma/
+rifiuto e ricerca semantica sono **tutti reali**; "Analisi libreria" e
+i "tre livelli IA" no — vedi nota più sotto.
+
+**`frontend/src/api/tags.ts` esteso**: `Tag` ora porta anche `prompt`/
+`threshold`; aggiunte `createTag`/`patchTag`/`deleteTag` (`POST/PATCH/
+DELETE /tags`, `crates/keeppix-api/src/routes/tags.rs`, Fase 7 Task 7,
+mai chiamate dal frontend prima d'ora — solo lette/assegnate finora da
+`TagPickerDialog.vue`, Task 8).
+
+**Deviazioni reali, tutte per capacità backend diversa dal mockup, non
+per pigrizia:**
+
+1. **I duplicati NON sono permessi**: il documento dice "i nomi
+   duplicati sono permessi", ma il backend applica `UNIQUE(name, kind)`
+   per davvero (409 Conflict) — l'editor mostra un errore reale sotto
+   il campo nome, non solo il caso "vuoto" del documento.
+2. **Soglia — conversione percentuale/frazione**: lo slider del
+   documento è 30-95 (%), `Tag.threshold` sul backend è una frazione
+   0-1 (`real DEFAULT 0.75`, confrontata col punteggio di coseno).
+   Convertita in `TagEditorDialog.vue`, mai sul backend.
+3. **Colore — stringa CSS opaca**, non una tinta HSL pura: il backend
+   accetta qualunque testo (`color: Option<String>`, nessuna
+   validazione — verificato nei fixture reali, `crates/keeppix-db/
+   tests/tags.rs:77`, un hex `#2d6a4f`). Le 10 pastiglie scrivono
+   `hsl(H,60%,50%)` per intero, coerenti con `TagPickerDialog.vue` che
+   già la consuma come `background` diretto.
+4. **"N foto" mostra `assignment_count`** (ogni riga `asset_tags` per
+   quel tag, qualunque stato), non `tagConfirmedCount` del documento
+   (solo confermate). Nessuna rotta isola il sottoinsieme confermato:
+   costruirne una sarebbe fuori scope per un task di sola interfaccia.
+   Il numero resta reale, solo non filtrato per stato — ed è esatto
+   per il dialog di eliminazione, dove "verrà rimosso da N foto" vale
+   per ogni riga a prescindere dallo stato.
+5. **Pastiglie colore in un vero `radiogroup` con anello di focus
+   visibile**: il documento segnala esplicitamente l'assenza di
+   entrambi come "un difetto di accessibilità reale" nel prototipo —
+   corretto, non riprodotto (stesso principio di `SegmentedControl.vue`,
+   Task 14 1/N).
+
+**Cestino sulla riga tag, non solo nell'editor** (§52.3 punto 4): la
+riga non può essere un `<button>` vero (annidare un pulsante dentro un
+altro è HTML non valido, e il cestino deve fermare la propagazione per
+non aprire anche l'editor) — estratta in `TagRow.vue`,
+`role="button"`/`tabindex="0"`/gestore Invio-Spazio (SP-8) sul
+contenitore, un vero `<button>` nidificato solo per il cestino.
+
+**Bug reale trovato scrivendo i test** (stessa classe già vista in
+`ProblemFilesDialog.vue`, Task 13 3/N): sia `TagEditorDialog.vue` sia
+`CategoryEditorDialog.vue` avevano `watch(open, ...)` senza
+`{immediate:true}` — un editor aperto già "aperto" (come lo monta
+ogni test, e come lo monterebbe un futuro chiamante che lo apre
+direttamente in modifica) partiva con i campi vuoti invece che
+precompilati dal tag/categoria. Corretto in entrambi.
+
+**"Analisi libreria" e i "tre livelli IA" restano fuori dal gruppo di
+navigazione "IA"**, non solo da questa unità: `AnalysisLevel::
+ms_per_photo()` (`crates/keeppix-jobs/src/profile.rs`) è reale — 45ms
+"Piena", 270ms "Ridotta" — ma nessuna rotta la legge, nessun endpoint
+espone l'avanzamento dell'analisi in background, nessuna colonna/env
+memorizza il livello IA per l'istanza. Identica lacuna già trovata e
+dichiarata per "Intelligenza artificiale" in Impostazioni (Task 14
+1/N), verificata di nuovo qui prima di costruire — stessa disciplina:
+mai una pagina con zero dati veri da mostrare.
+
+**Wiring**: rotta `/tags` (lazy), gruppo "IA" a comparsa in
+`AppSidebar.vue` (`NavGroup`, stesso pattern di "Manutenzione") e
+sezione "IA" in `MoreView.vue` — solo la voce "Tag e categorie" per
+ora, "Revisione" arriva nella prossima sotto-unità (stesso schema
+incrementale già seguito da "Duplicati" in Manutenzione, Task 13 2/N).
+
+Verifica completa: `npx vitest run` → 94 file, **803/803** verdi (9
+nuovi in `TagsView.spec.ts`, 6 in `TagEditorDialog.spec.ts`, 5 in
+`CategoryEditorDialog.spec.ts`). `npx vue-tsc -b` pulito. `npx eslint`
+sui file toccati e sull'intero repo → pulito (stesso unico errore
+preesistente su `PlayerView.vue`, stesso numero di warning). `npm run
+build` + calcolo manuale del bundle iniziale gzip → 138.570 byte,
+sotto il budget di 153.600; `TagsView` è un chunk lazy a parte.
+
+Manca ancora, nello stesso Task 15: il selettore di tag esistente da
+verificare contro §55, la coda di Revisione (§56), e la chiusura
+esplicita del debito "Analisi libreria"/"IA" — prossima sotto-unità.

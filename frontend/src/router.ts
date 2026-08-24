@@ -78,6 +78,7 @@ export const router = createRouter({
       component: () => import('@/views/ShareTargetView.vue'),
       meta: { auth: true }
     },
+    { path: '/tags', component: () => import('@/views/TagsView.vue'), meta: { auth: true } },
     { path: '/albums', component: () => import('@/views/AlbumsView.vue'), meta: { auth: true } },
     // Segmento statico prima del parametrico: vue-router 4 preferisce già
     // `/albums/new` a `/albums/:id` a parità di specificità, ma l'ordine

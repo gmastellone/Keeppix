@@ -11,12 +11,72 @@ export interface Tag {
   name: string
   kind: 'tag' | 'category'
   parent_id: string | null
+  /** Opaco: qualunque stringa CSS `color` valida (hex nei test reali,
+   * `crates/keeppix-db/tests/tags.rs:77`) — non la tinta HSL 0-360 pura
+   * che il documento descrive. `TagPickerDialog.vue` la usa già così, come
+   * `background` diretto: le 10 pastiglie dell'editor (Task 15 1/N)
+   * scrivono `hsl(H,60%,50%)` per intero, non solo `H`. */
   color: string | null
+  /** Assente su una categoria (il backend la restituisce solo per
+   * `kind==='tag'`, `#[serde(skip_serializing_if)]`). */
+  prompt?: string
+  threshold?: number
   assignment_count: number
 }
 
 export function fetchTags(): Promise<Tag[]> {
   return apiFetch('/api/v1/tags')
+}
+
+export interface TagPayload {
+  name: string
+  kind: 'tag' | 'category'
+  parent_id?: string | null
+  prompt?: string | null
+  color?: string | null
+  threshold?: number
+}
+
+/** §52.3 "Nuovo tag"/"Nuova categoria", §53-54: crea un tag o una
+ * categoria — stesso endpoint, distinto da `kind`. Un tag con `name`/
+ * `prompt` non vuoti fa calcolare subito l'embedding testuale sul server
+ * (se il modello è presente) e propone l'abbinamento sulle foto già
+ * indicizzate — non tocca nulla se il modello manca (`has_embedding:
+ * false` nella risposta, mai un errore). */
+export function createTag(payload: TagPayload): Promise<Tag> {
+  return apiFetch('/api/v1/tags', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export interface TagPatchPayload {
+  name?: string
+  parent_id?: string | null
+  prompt?: string | null
+  color?: string | null
+  threshold?: number
+}
+
+/** §53.3 "Salva": `parent_id`/`prompt`/`color` sono "assente = invariato,
+ * `null` = azzera" sul backend (`PatchTagRequest`, `Option<Option<T>>`) —
+ * per azzerare la categoria di un tag va passato `parent_id: null` per
+ * davvero, non omesso. */
+export function patchTag(id: string, payload: TagPatchPayload): Promise<Tag> {
+  return apiFetch(`/api/v1/tags/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  })
+}
+
+/** §52.3 punto 4/§54: cancella un tag o una categoria. Su un tag, elimina
+ * a cascata ogni riga `asset_tags` (FK `ON DELETE CASCADE`) — il numero
+ * mostrato nel dialog di conferma è `Tag.assignment_count`, già nella
+ * risposta di `fetchTags()`, non una chiamata a parte. Su una categoria,
+ * i tag al suo interno restano: solo `parent_id` si azzera (FK `ON DELETE
+ * SET NULL`), mai una cancellazione a catena. */
+export function deleteTag(id: string): Promise<null> {
+  return apiFetch(`/api/v1/tags/${id}`, { method: 'DELETE' })
 }
 
 /** "Aggiungi tag…" di Modifica in blocco (§13.3 campo 5): assegna il tag a

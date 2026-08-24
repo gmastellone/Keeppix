@@ -11,8 +11,12 @@
 // 1/N e 4/N; Preferiti aggiunta nel Task 7 3/N), non i dodici gruppi
 // canonici del mockup. Tolte, stesso motivo già dichiarato lì:
 // - "Persone" (Task 16) — nessuna vista esiste.
-// - Il gruppo "IA" intero (Tag e categorie/Revisione/Analisi libreria,
-//   Task 15).
+//
+// Il gruppo "IA" (Task 15) ha solo "Tag e categorie" per ora — stesso
+// stato incrementale di `AppSidebar.vue`, "Revisione" arriva con la
+// prossima sotto-unità. "Analisi libreria" resta fuori per sempre, non
+// solo per ora: nessuna rotta la legge (stesso commento esteso in
+// `AppSidebar.vue`).
 // - "Condivisi con me" / "Le mie condivisioni" come due righe
 //   distinte: `SharesView` non ha le due schede `state.shareTab` del
 //   mockup, è un'unica vista — collassate in una sola riga
@@ -58,6 +62,8 @@ const ADMIN_ITEMS = [
   { to: '/users', labelKey: 'users.entry' },
   { to: '/groups', labelKey: 'groups.entry' }
 ] as const
+
+const IA_ITEMS = [{ to: '/tags', labelKey: 'tags.entry' }] as const
 </script>
 
 <template>
@@ -86,6 +92,24 @@ const ADMIN_ITEMS = [
     <ul class="mb-[18px] overflow-hidden rounded-xl border border-border">
       <li
         v-for="item in MAINT_ITEMS"
+        :key="item.to"
+      >
+        <RouterLink
+          :to="item.to"
+          class="flex items-center gap-3 border-b border-border px-3.5 py-3 text-[13.5px] font-semibold
+                 last:border-b-0 hover:bg-border/30"
+        >
+          {{ t(item.labelKey) }}
+        </RouterLink>
+      </li>
+    </ul>
+
+    <p class="mb-2 mt-0.5 px-0.5 text-[11px] font-bold uppercase tracking-wide text-content-muted">
+      {{ t('nav.ia') }}
+    </p>
+    <ul class="mb-[18px] overflow-hidden rounded-xl border border-border">
+      <li
+        v-for="item in IA_ITEMS"
         :key="item.to"
       >
         <RouterLink

@@ -10,8 +10,17 @@
 // Cestino, Problemi (più Utenti/Gruppi per un amministratore). Tolte,
 // debito verso le Tranche che le costruiranno per davvero:
 // - "Persone" (Task 16, Tranche D) — nessuna vista Persone esiste.
-// - Il gruppo "IA" intero — Tag e categorie/Revisione/Analisi libreria
-//   sono Task 15, Tranche C.
+//
+// Il gruppo "IA" (Task 15, Tranche C) ha **due** voci reali, non tre:
+// "Tag e categorie" (1/N) e "Revisione" (2/N, badge `shell.badges.
+// revision`, tag+volti combinato — reale dalla Fase 8, non nuovo qui).
+// "Analisi libreria" resta fuori: `AnalysisLevel::ms_per_photo()`
+// (`crates/keeppix-jobs/src/profile.rs`) è reale ma nessuna rotta la
+// legge — stessa identica lacuna già dichiarata per "Intelligenza
+// artificiale" in Impostazioni (Task 14 1/N), verificata di nuovo qui
+// prima di costruire questa unità: costruire una pagina senza alcun dato
+// vero da mostrare sarebbe l'esatto contrario della disciplina seguita
+// in ogni altra deviazione di questa fase.
 // "Duplicati" dentro "Manutenzione" (Task 13 2/N) è arrivata dopo
 // Cestino/Problemi, non contemporaneamente — nessun debito residuo qui.
 // Ogni voce qui presente è un vero <RouterLink>, quindi raggiungibile
@@ -83,6 +92,11 @@ const ADMIN_ITEMS = [
   { to: '/groups', labelKey: 'groups.entry' }
 ] as const
 
+// Task 15 (1/N): solo "Tag e categorie" per ora — "Revisione" arriva
+// nella prossima sotto-unità, stesso schema incrementale già seguito da
+// "Duplicati" dentro Manutenzione (Task 13, 2/N).
+const IA_ITEMS = [{ to: '/tags', labelKey: 'tags.entry' }] as const
+
 // `/albums` resta evidenziata anche dentro il dettaglio di un album
 // (Task 12 1/N, prima rotta con figli reali: `/albums/:id`) — stessa
 // idea del mockup ("il click su Album azzera anche `state.openAlbum`",
@@ -94,6 +108,7 @@ function isActive(to: string): boolean {
 }
 
 const maintActive = computed(() => MAINT_ITEMS.some((item) => isActive(item.to)))
+const iaActive = computed(() => IA_ITEMS.some((item) => isActive(item.to)))
 const adminActive = computed(() => ADMIN_ITEMS.some((item) => isActive(item.to)))
 
 const accountMenuOpen = ref(false)
@@ -204,6 +219,20 @@ const storageTotals = computed(() => {
       >
         <RouterLink
           v-for="item in MAINT_ITEMS"
+          :key="item.to"
+          :to="item.to"
+          class="block rounded-lg border-l-[2.5px] border-transparent px-2.5 py-1.5 text-[13px] hover:bg-border/30"
+          :class="isActive(item.to) && 'border-l-accent bg-border/30 font-semibold'"
+        >
+          {{ t(item.labelKey) }}
+        </RouterLink>
+      </NavGroup>
+      <NavGroup
+        :label="t('nav.ia')"
+        :active="iaActive"
+      >
+        <RouterLink
+          v-for="item in IA_ITEMS"
           :key="item.to"
           :to="item.to"
           class="block rounded-lg border-l-[2.5px] border-transparent px-2.5 py-1.5 text-[13px] hover:bg-border/30"
