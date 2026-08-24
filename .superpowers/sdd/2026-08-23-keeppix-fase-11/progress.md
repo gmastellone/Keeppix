@@ -5578,3 +5578,81 @@ iniziale.
 
 Manca ancora, in questo stesso Task 14: la sezione "Profilo" (§61) —
 prossima sotto-unità.
+
+## Task 14 (2/N) — Profilo (§61), chiude il Task 14 e la Tranche B
+
+Documento funzionale verificato riga per riga (righe 9129-9297). Quattro
+sezioni, tutte con una capacità reale diversa (spesso migliore) di
+quella del mockup — nessuna omessa questa volta, a differenza di §60:
+
+- **"Dati account"**: solo `"Nome visualizzato"` scrive per davvero
+  (nuova `session.updateDisplayName`, stesso `PATCH /users/{id}` già
+  usato da `changeLocale`, Fase 10). `"Email"` resta in sola lettura —
+  `UserView` la espone ma nessuna rotta la scrive — a differenza del
+  mockup (campo editabile, "Salva modifiche" non collegato a nulla), il
+  campo qui dichiara onestamente il proprio limite invece di accettare
+  una modifica che sparirebbe in silenzio.
+- **"Colore avatar"** (nuovo `stores/avatarColor.ts`): reale, ma
+  `localStorage` per `user.id`, non le preferenze server — nessun
+  campo colore in `GET/PATCH /users/me/preferences` (Fase 10 Task 9),
+  costruirne uno avrebbe richiesto una colonna/rotta nuova, fuori
+  scope. Chiave per utente, non globale: su un browser condiviso fra
+  più account dell'istanza, la scelta di un utente non deve comparire
+  sotto un altro — stesso principio che ha spostato la densità della
+  griglia da `localStorage` a preferenze server (Task 14 1/N), applicato
+  qui nel solo modo disponibile senza una colonna nuova. La scelta si
+  applica per davvero ovunque compaia l'avatar dell'utente corrente
+  (sidebar, header mobile, Profilo) tramite `Avatar.vue`, già pronto a
+  riceverla dalla Fase 11 Task 6.
+- **"Sicurezza"**: "Cambia password" apre un modulo reale (nuovo
+  `ChangePasswordDialog.vue`, `POST /users/me/password`,
+  `api/users.ts::changePassword`, scritta ma mai chiamata prima
+  d'ora) — tre campi, conferma lato client, errori distinti per
+  password attuale sbagliata (403) e password nuova troppo corta
+  (422/client). L'autenticazione a due fattori non è "un mini-switch
+  che inverte solo un flag" come nel mockup: è il flusso completo già
+  costruito in `TotpSetupView.vue` (`/settings/security/totp`, Fase 6
+  Task 5) — qui solo stato reale (`GET /auth/totp`, `api/totp.ts`,
+  anch'essa già scritta) e collegamento, "Attiva" o "Gestisci" a
+  seconda che `enabled` sia vero.
+- **"Sessioni attive"**: reale, con un elenco di lunghezza vera — non i
+  due elementi fissi del mockup (nuovo `api/sessions.ts`, `GET /users/
+  me/sessions`, `crates/keeppix-api/src/routes/sessions.rs`, Fase 10,
+  mai wrappata prima d'ora). "Esci" (per riga, assente sulla sessione
+  corrente — mai un pulsante disabilitato) e "Esci da tutti gli altri
+  dispositivi" (con conferma, `ConfirmDialog`) funzionano per davvero —
+  a differenza del mockup, dove "non sono collegati a un gestore".
+  `device_label` viene dallo user-agent al login
+  (`device_label_from_user_agent`, `crates/keeppix-db/src/
+  sessions.rs`), sempre in inglese ("Chrome on macOS"), mai la stringa
+  italiana del documento: nessuna localizzazione lato server di un
+  valore derivato dallo user-agent del client. "Ultimo accesso" per le
+  righe non correnti usa `Intl.RelativeTimeFormat` con granularità
+  minuto/ora/giorno (stesso principio già in uso in `ProblemsView.vue`
+  per `last_scan_at`, esteso qui oltre la sola giornata perché una
+  sessione è tipicamente più recente di un'ultima scansione libreria) —
+  non il formato assoluto "ieri, 21:40" del documento. Deviazione in più
+  rispetto al documento (che lo vuole "sempre visibile, anche con una
+  sola altra sessione"): il pulsante "Esci da tutti gli altri
+  dispositivi" resta nascosto quando non esiste **alcuna** altra
+  sessione da revocare — uno stato vuoto reale che il mockup, con due
+  righe fisse, non ha mai dovuto considerare.
+
+**Wiring**: rotta `/profile` (lazy), voce "Profilo" aggiunta sopra
+"Impostazioni" in entrambi i menu account (`AppSidebar.vue` desktop,
+`AppMobileHeader.vue` mobile — quest'ultimo dichiarava esplicitamente
+da Task 6 (8/N) l'assenza di Profilo/Impostazioni, ora aggiornato),
+titolo di rotta in `nav/routeTitles.ts`.
+
+Verifica completa: `npx vitest run` → 91 file, **779/779** verdi (11
+nuovi in `ProfileView.spec.ts`, 6 in `avatarColor.spec.ts`, 4 in
+`ChangePasswordDialog.spec.ts`). `npx vue-tsc -b` pulito. `npx eslint`
+sui file toccati e sull'intero repo → pulito (stesso unico errore
+preesistente su `PlayerView.vue`, stesso numero di warning). `npm run
+build` + calcolo manuale del bundle iniziale gzip → 136.434 byte,
+sotto il budget di 153.600; `ProfileView` è un chunk lazy a parte.
+
+**Con questa unità si chiude il Task 14** ("Impostazioni/Profilo",
+§60-61) — e con esso davvero la Tranche B della Fase 11 (Task 11-14:
+Condivisioni, Album, Manutenzione, Impostazioni/Profilo). Si prosegue
+con la Tranche C.

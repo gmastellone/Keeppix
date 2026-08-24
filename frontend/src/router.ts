@@ -31,6 +31,11 @@ export const router = createRouter({
       meta: { auth: true }
     },
     {
+      path: '/profile',
+      component: () => import('@/views/ProfileView.vue'),
+      meta: { auth: true }
+    },
+    {
       path: '/settings/maps/offline',
       component: () => import('@/views/settings/MapsOfflineView.vue'),
       meta: { auth: true }

@@ -199,6 +199,62 @@
       "actionError": "Could not complete the operation. Try again."
     }
   },
+  "profile": {
+    "entry": "Profile",
+    "title": "Profile",
+    "subtitleServer": "account on this Keeppix server",
+    "account": {
+      "title": "Account details",
+      "displayName": "Display name",
+      "email": "Email",
+      "emailReadonly": "Cannot be changed from here.",
+      "save": "Save changes",
+      "saveDone": "Changes saved.",
+      "saveError": "Could not save the changes. Try again."
+    },
+    "avatarColor": {
+      "title": "Avatar color",
+      "subtitle": "Just for you — changes the background color of your initials, everywhere they appear in the app."
+    },
+    "security": {
+      "title": "Security",
+      "passwordLabel": "Password",
+      "changePassword": "Change password",
+      "twoFactorLabel": "Two-factor authentication",
+      "twoFactorSubtitle": "Recommended to protect access to your account.",
+      "twoFactorOn": "On",
+      "twoFactorOff": "Not enabled",
+      "twoFactorManage": "Manage",
+      "twoFactorEnable": "Enable"
+    },
+    "sessions": {
+      "title": "Active sessions",
+      "subtitle": "Devices signed in to your account",
+      "currentSuffix": " · this session",
+      "activeNow": "Active now",
+      "unknownDevice": "Unknown device",
+      "logout": "Sign out",
+      "logoutOthers": "Sign out of all other devices",
+      "logoutOthersConfirmTitle": "Sign out of all other devices?",
+      "logoutOthersConfirmDescription": "Your other active sessions will be closed immediately.",
+      "logoutOthersConfirmButton": "Sign out everywhere",
+      "logoutOthersDone": "Signed out of the other sessions.",
+      "revokeDone": "Session closed.",
+      "actionError": "Could not complete the operation. Try again."
+    },
+    "passwordDialog": {
+      "title": "Change password",
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "hint": "At least 10 characters.",
+      "save": "Save",
+      "mismatch": "The two passwords don't match.",
+      "wrongCurrent": "Current password is incorrect.",
+      "tooShort": "The password must be at least 10 characters.",
+      "done": "Password updated."
+    }
+  },
   "home": {
     "logout": "Sign out"
   },

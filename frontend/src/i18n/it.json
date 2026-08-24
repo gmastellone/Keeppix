@@ -199,6 +199,62 @@
       "actionError": "Non è stato possibile completare l'operazione. Riprova."
     }
   },
+  "profile": {
+    "entry": "Profilo",
+    "title": "Profilo",
+    "subtitleServer": "account su questo server Keeppix",
+    "account": {
+      "title": "Dati account",
+      "displayName": "Nome visualizzato",
+      "email": "Email",
+      "emailReadonly": "Non modificabile da qui.",
+      "save": "Salva modifiche",
+      "saveDone": "Modifiche salvate.",
+      "saveError": "Non è stato possibile salvare le modifiche. Riprova."
+    },
+    "avatarColor": {
+      "title": "Colore avatar",
+      "subtitle": "Solo per te — cambia il colore di sfondo delle tue iniziali, ovunque compaiano nell'app."
+    },
+    "security": {
+      "title": "Sicurezza",
+      "passwordLabel": "Password",
+      "changePassword": "Cambia password",
+      "twoFactorLabel": "Autenticazione a due fattori",
+      "twoFactorSubtitle": "Consigliata per proteggere l'accesso al tuo account.",
+      "twoFactorOn": "Attiva",
+      "twoFactorOff": "Non attiva",
+      "twoFactorManage": "Gestisci",
+      "twoFactorEnable": "Attiva"
+    },
+    "sessions": {
+      "title": "Sessioni attive",
+      "subtitle": "Dispositivi collegati con il tuo account",
+      "currentSuffix": " · questa sessione",
+      "activeNow": "Attiva ora",
+      "unknownDevice": "Dispositivo sconosciuto",
+      "logout": "Esci",
+      "logoutOthers": "Esci da tutti gli altri dispositivi",
+      "logoutOthersConfirmTitle": "Uscire da tutti gli altri dispositivi?",
+      "logoutOthersConfirmDescription": "Le altre sessioni attive verranno chiuse immediatamente.",
+      "logoutOthersConfirmButton": "Esci da tutti",
+      "logoutOthersDone": "Uscito dalle altre sessioni.",
+      "revokeDone": "Sessione chiusa.",
+      "actionError": "Non è stato possibile completare l'operazione. Riprova."
+    },
+    "passwordDialog": {
+      "title": "Cambia password",
+      "current": "Password attuale",
+      "new": "Nuova password",
+      "confirm": "Conferma nuova password",
+      "hint": "Almeno 10 caratteri.",
+      "save": "Salva",
+      "mismatch": "Le due password non coincidono.",
+      "wrongCurrent": "Password attuale errata.",
+      "tooShort": "La password deve avere almeno 10 caratteri.",
+      "done": "Password aggiornata."
+    }
+  },
   "home": {
     "logout": "Esci"
   },

@@ -10,6 +10,7 @@ export const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/': 'topbar.allPhotos',
   '/favorites': 'favorites.title',
   '/settings': 'settings.title',
+  '/profile': 'profile.title',
   '/search': 'nav.cerca',
   '/culling': 'culling.entry',
   '/map': 'maps.entry',

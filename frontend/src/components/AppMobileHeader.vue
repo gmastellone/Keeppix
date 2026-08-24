@@ -22,9 +22,8 @@
 // AppSidebar (`shell.badges.culling`), non un segnaposto.
 //
 // Menu account: il documento (§5.2.c) elenca Profilo/Impostazioni/
-// Esci — Impostazioni aggiunta in Task 14 (1/N), stesso collegamento
-// del menu account desktop di AppSidebar. Profilo resta assente (Task
-// 14, prossima sotto-unità).
+// Esci — tutti e tre presenti da Task 14 (1/N-2/N), stesso ordine e
+// stesso collegamento del menu account desktop di AppSidebar.
 //
 // `+` di caricamento (§3.3, `caricamento-nuove-foto.md`): il mockup lo
 // mostra su `['foto','preferiti','album','libreria']`
@@ -39,6 +38,7 @@ import Avatar from '@/components/ui/Avatar.vue'
 import Popover from '@/components/ui/Popover.vue'
 import { UPLOAD_ACCEPT, useUploadPicker } from '@/composables/useUploadPicker'
 import { activeAlbumName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
+import { useAvatarColorStore } from '@/stores/avatarColor'
 import { useSessionStore } from '@/stores/session'
 import { useShellStore } from '@/stores/shell'
 
@@ -47,6 +47,7 @@ const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const shell = useShellStore()
+const avatarColor = useAvatarColorStore()
 const inputEl = ref<HTMLInputElement | null>(null)
 const { open: openPicker, onChange } = useUploadPicker(inputEl)
 
@@ -133,9 +134,19 @@ async function signOut() {
             type="button"
             class="flex h-7 w-7 items-center justify-center rounded-full"
           >
-            <Avatar :name="session.user.display_name" />
+            <Avatar
+              :name="session.user.display_name"
+              :color="avatarColor.hex"
+            />
           </button>
         </template>
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] hover:bg-border/30"
+          @click="accountMenuOpen = false; router.push('/profile')"
+        >
+          {{ t('profile.entry') }}
+        </button>
         <button
           type="button"
           class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] hover:bg-border/30"

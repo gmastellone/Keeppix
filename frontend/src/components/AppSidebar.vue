@@ -49,6 +49,7 @@ import Avatar from '@/components/ui/Avatar.vue'
 import NavGroup from '@/components/ui/NavGroup.vue'
 import Popover from '@/components/ui/Popover.vue'
 import UploadQueueStrip from '@/components/UploadQueueStrip.vue'
+import { useAvatarColorStore } from '@/stores/avatarColor'
 import { useSessionStore } from '@/stores/session'
 import { useShellStore } from '@/stores/shell'
 
@@ -57,6 +58,7 @@ const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const shell = useShellStore()
+const avatarColor = useAvatarColorStore()
 
 onMounted(() => {
   if (!shell.loaded) void shell.load()
@@ -260,10 +262,20 @@ const storageTotals = computed(() => {
           type="button"
           class="flex items-center gap-2.5 rounded-lg p-1.5 pr-2 text-left hover:bg-border/30"
         >
-          <Avatar :name="session.user.display_name" />
+          <Avatar
+            :name="session.user.display_name"
+            :color="avatarColor.hex"
+          />
           <span class="text-[13px] font-semibold">{{ session.user.display_name }}</span>
         </button>
       </template>
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] hover:bg-border/30"
+        @click="accountMenuOpen = false; router.push('/profile')"
+      >
+        {{ t('profile.entry') }}
+      </button>
       <button
         type="button"
         class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] hover:bg-border/30"
