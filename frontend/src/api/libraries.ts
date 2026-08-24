@@ -57,3 +57,16 @@ export function startLibraryScan(libraryId: string): Promise<{ library_id: strin
 export function fetchLibraryScanStatus(libraryId: string): Promise<ScanStatus> {
   return apiFetch(`/api/v1/libraries/${libraryId}/scan`)
 }
+
+/** §47, azione `"retry-connection"`: verifica se il percorso di rete della
+ * libreria è di nuovo raggiungibile (`LibraryRepo::probe`, `crates/
+ * keeppix-db/src/libraries.rs:180-193`) e aggiorna `status` di
+ * conseguenza. A differenza del mockup — dove "il tentativo riesce
+ * sempre", nessun ramo "riprovato e ancora offline" — questa chiamata
+ * **non fallisce mai** se la libreria è ancora irraggiungibile: risponde
+ * comunque `200` con `status:'offline'` invariato. Il chiamante deve
+ * quindi leggere il campo `status` della risposta, non solo l'esito
+ * della promise, per sapere se la riconnessione è riuscita davvero. */
+export function probeLibrary(libraryId: string): Promise<Library> {
+  return apiFetch(`/api/v1/libraries/${libraryId}/probe`, { method: 'POST' })
+}

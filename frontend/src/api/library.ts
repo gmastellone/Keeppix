@@ -10,10 +10,42 @@ export function runSearch(ast: SearchNode, cursor?: string): Promise<TimelinePag
   })
 }
 
+/** Un'azione proposta da un problema (§47.3) — l'etichetta è già pronta
+ * per un bottone, la chiave (`view-files`/`ignore`/`retry-connection`/
+ * `details`) sceglie il gestore. */
+export interface ProblemAction {
+  action: string
+  label: string
+}
+
+/** Una riga dell'elenco composto (Task 13, `crates/keeppix-api/src/
+ * routes/problems.rs::ProblemView`) — già in linguaggio naturale nella
+ * lingua richiesta (`?lang=`), con titolo/descrizione/azioni pronti:
+ * quello che manca al terzetto grezzo sotto (`offline_libraries`/
+ * `failed_jobs`/`error_assets`) per essere `.problem-row` del documento
+ * senza logica di composizione nel frontend. */
+export interface ProblemView {
+  id: string
+  severity: 'warning' | 'error'
+  title: string
+  description: string
+  library_id?: string
+  library_name?: string
+  folder_id?: string
+  folder_name?: string
+  actions: ProblemAction[]
+}
+
 export interface Problems {
   offline_libraries: { id: string; name: string }[]
   failed_jobs: { id: number; kind: string; last_error: string | null }[]
   error_assets: { id: string; filename: string }[]
+  /** Bug reale corretto qui (Task 13 3/N): questo campo esiste sul
+   * backend da quando `ProblemView` è stato scritto, ma il tipo qui non
+   * lo dichiarava — `ProblemsView.vue` leggeva solo i tre secchi grezzi
+   * sopra, ricostruendo a mano un'interfaccia molto più povera di
+   * quella già pronta. */
+  problems: ProblemView[]
 }
 
 export interface DuplicateGroup {
@@ -23,8 +55,12 @@ export interface DuplicateGroup {
   reclaimable_bytes: number
 }
 
-export function fetchProblems(): Promise<Problems> {
-  return apiFetch('/api/v1/problems')
+/** `lang` sceglie la lingua delle descrizioni composte lato server
+ * (`?lang=it|en`, default dall'`Accept-Language` del browser, poi
+ * italiano) — passare la lingua dell'interfaccia evita un disallineamento
+ * fra un titolo in inglese e un'interfaccia in italiano. */
+export function fetchProblems(lang?: string): Promise<Problems> {
+  return apiFetch(`/api/v1/problems${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`)
 }
 
 export function fetchDuplicates(): Promise<DuplicateGroup[]> {

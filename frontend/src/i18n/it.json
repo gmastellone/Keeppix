@@ -458,18 +458,33 @@
   },
   "problems": {
     "title": "Problemi",
-    "offlineLibraries": "Librerie offline",
-    "failedJobs": "Job falliti",
-    "errorAssets": "File illeggibili",
-    "duplicates": "Duplicati",
-    "none": "Niente da segnalare.",
-    "reclaimable": "{count} copie, {bytes} byte recuperabili",
+    "subtitle": "{n} elemento richiede attenzione | {n} elementi richiedono attenzione",
+    "emptyTitle": "Nessun problema rilevato",
+    "emptySubtitle": "File corrotti, librerie offline o job falliti compariranno qui.",
+    "ignored": "Problema ignorato.",
+    "verifying": "Verifica della connessione in corso…",
+    "reconnected": "Connessione ripristinata — {name} di nuovo online.",
+    "stillOffline": "{name} è ancora offline. Riprova più tardi.",
+    "details": {
+      "title": "Libreria offline: dettagli",
+      "intro": "Keeppix indicizza questa libreria da un percorso specifico sul disco; se quel percorso non è raggiungibile, la libreria risulta offline.",
+      "lastContact": "Ultimo contatto riuscito: {when}",
+      "never": "mai",
+      "path": "Percorso:",
+      "explain": "Le foto già indicizzate restano visibili dalla cache locale; import e culling di nuovi file sono sospesi finché il percorso non torna raggiungibile.",
+      "close": "Chiudi"
+    },
     "timezones": "Ricalcolo fusi orari",
     "tzLibrary": "Libreria",
     "tzPreview": "Anteprima",
     "tzCount": "{count} foto da correggere",
     "tzApply": "Applica correzioni",
     "tzDone": "{count} foto corrette."
+  },
+  "problemFiles": {
+    "openLabel": "Apri",
+    "open": "Apri {name}",
+    "close": "Chiudi"
   },
   "groups": {
     "entry": "Gruppi",

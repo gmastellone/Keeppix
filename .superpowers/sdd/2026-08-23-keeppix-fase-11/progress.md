@@ -5389,3 +5389,93 @@ Si prosegue con Task 13 (3/N): Problemi (§47) — la vista esiste già ma
 ignora il campo `problems: ProblemView[]` che il backend compone da
 tempo (severità/titolo/descrizione/azioni in linguaggio naturale),
 mostrando invece elenchi grezzi di nomi file.
+
+## Task 13 (3/N) — Manutenzione: Problemi (§47) + dialog "file con problemi" (§48)
+
+Documento funzionale §47 "Problemi" e §48 'Dialog "file con problemi"',
+verificati riga per riga (righe 7157-7386). Costruiti insieme, come già
+per griglia+dettaglio album al Task 12: "Vedi i 3 file" non ha senso da
+spedire senza il dialog che apre.
+
+**Bug reale corretto nel livello dati**: `Problems` (`api/library.ts`)
+non dichiarava affatto il campo `problems: ProblemView[]` che il
+backend compone da tempo (`crates/keeppix-api/src/routes/problems.rs`)
+— severità/titolo/descrizione/azioni già in linguaggio naturale, pronti
+per un bottone. `ProblemsView.vue` leggeva solo i tre secchi grezzi
+(`offline_libraries`/`failed_jobs`/`error_assets`), ricostruendo a mano
+un'interfaccia molto più povera di quella già pronta, senza azioni
+funzionanti collegate — esattamente il difetto che il commento del
+mockup a `attachProblemHandlers` descrive come già risolto lì
+("prima erano pulsanti senza alcun comportamento collegato... ognuna
+ora fa qualcosa di reale"), mai risolto per davvero in questo frontend
+fino a questa unità.
+
+**Rimossa la sezione "Duplicati" annidata** (non commentata): da questa
+stessa tranche esiste `/duplicates` (Task 13 2/N), pagina reale e
+completa — ripeterne un riassunto qui sarebbe ridondante e disallineato
+dal documento, che tratta Duplicati come pagina a sé (§46), mai
+annidata in Problemi.
+
+**Tre deviazioni reali dal documento, tutte per capacità reale del
+backend diversa dal mockup:**
+
+1. **"Riprova connessione" ha un vero ramo di fallimento**: il
+   documento dice che nel mockup "il tentativo riesce sempre" (nessun
+   ramo "ancora offline"). `POST /libraries/{id}/probe`
+   (`api/libraries.ts::probeLibrary`, mai wrappata prima d'ora) verifica
+   per davvero se il percorso torna raggiungibile — **non fallisce mai
+   con un errore HTTP se la libreria resta irraggiungibile**: risponde
+   comunque `200` con `status:'offline'` invariato
+   (`LibraryRepo::probe`, `crates/keeppix-db/src/libraries.rs:180-193`).
+   Il chiamante deve quindi leggere il campo `status` della risposta,
+   non solo l'esito della promise — un vero ramo "ancora offline" con
+   un proprio toast, assente nel mockup solo perché la sua base dati
+   non può fallire.
+2. **Il dialog "Dettagli" mostra dati reali**, non il racconto NAS/SMB
+   immaginario del mockup: `root_path` e `last_scan_at` (come "ultimo
+   contatto riuscito", via `Intl.RelativeTimeFormat` — nessuna tabella
+   di stringhe italiane scritta a mano) della libreria vera, letta da
+   `fetchLibraries()`. Niente affermazioni su NAS/SMB: il backend non
+   distingue un percorso di rete da un disco locale, `root_path` può
+   essere l'uno o l'altro.
+3. **`?lang=` sulla `GET /problems`**: le descrizioni composte
+   arrivano già nella lingua della richiesta — passare `locale.value`
+   dell'interfaccia evita un titolo in inglese dentro un'interfaccia in
+   italiano (il mockup non ha questo problema, essendo mono-lingua).
+
+**§48, il dialog "file con problemi"**: fedele fino al dettaglio più
+onesto del documento — "elenco reale dei file coinvolti (prime N foto
+della cartella)... non i tre file che hanno davvero il problema". Qui
+`ProblemView.folder_id` (reale, presente solo quando il problema
+riguarda esattamente una cartella) alimenta `fetchChildren(folderId)`,
+e si mostrano le prime 3 `assets` — stesso comportamento "primi N, non
+i file davvero coinvolti" del mockup, non un miglioramento silenzioso.
+Click su una riga → `router.push({path:'/', query:{photo:id}})`, che
+apre il visualizzatore su Timeline tramite `useLightboxRoute` già
+esistente — "porta la vista a Foto e apre il visualizzatore" del
+documento, senza scopare la timeline alla sola cartella del problema
+(nessuna vista porta oggi un `currentFolder` osservabile, stesso debito
+già dichiarato più volte in questa fase per `AppTopbar`/`caricamento-
+nuove-foto.md`).
+
+La sezione "Ricalcolo fusi orari" (`tzPreview`/`tzApply`), reale
+strumento funzionante senza alcuna controparte nel documento (§47 non
+lo menziona), resta in fondo alla pagina — non toccata nella sostanza,
+solo riposizionata sotto ai problemi veri e propri invece che frammista
+ai vecchi elenchi grezzi.
+
+Verifica completa: `npx vitest run` → 86 file, **734/734** verdi (9 in
+`ProblemsView.spec.ts`, riscritti da zero; 4 nuovi in
+`ProblemFilesDialog.spec.ts`). Un bug reale trovato scrivendo i test
+del dialog: `watch(open, ...)` senza `{immediate:true}` non caricava i
+file se il dialog nasceva già aperto — corretto, stesso principio già
+noto da `ShareSelectionDialog.vue`/`AlbumPickerDialog.vue`. `npx
+vue-tsc -b` pulito. `npx eslint` sui file toccati e sull'intero repo →
+pulito (stesso unico errore preesistente su `PlayerView.vue`, stesso
+numero di warning). `npm run build` + calcolo manuale del bundle
+iniziale gzip → 131.218 byte, sotto il budget di 153.600.
+
+**Con questa unità si chiude il Task 13** ("Manutenzione", §45-49) — e
+con esso la Tranche B della Fase 11. Si prosegue con il Task 14
+(Impostazioni/Profilo), ultimo della Tranche B, poi con le Tranche C e
+D.

@@ -458,18 +458,33 @@
   },
   "problems": {
     "title": "Problems",
-    "offlineLibraries": "Offline libraries",
-    "failedJobs": "Failed jobs",
-    "errorAssets": "Unreadable files",
-    "duplicates": "Duplicates",
-    "none": "Nothing to report.",
-    "reclaimable": "{count} copies, {bytes} bytes reclaimable",
+    "subtitle": "{n} item needs attention | {n} items need attention",
+    "emptyTitle": "No problems detected",
+    "emptySubtitle": "Corrupted files, offline libraries, or failed jobs will show up here.",
+    "ignored": "Problem dismissed.",
+    "verifying": "Checking the connection…",
+    "reconnected": "Connection restored — {name} is back online.",
+    "stillOffline": "{name} is still offline. Try again later.",
+    "details": {
+      "title": "Offline library: details",
+      "intro": "Keeppix indexes this library from a specific path on disk; if that path is unreachable, the library shows as offline.",
+      "lastContact": "Last successful contact: {when}",
+      "never": "never",
+      "path": "Path:",
+      "explain": "Already-indexed photos stay visible from the local cache; importing and culling new files is suspended until the path is reachable again.",
+      "close": "Close"
+    },
     "timezones": "Timezone recalculation",
     "tzLibrary": "Library",
     "tzPreview": "Preview",
     "tzCount": "{count} photos to fix",
     "tzApply": "Apply corrections",
     "tzDone": "{count} photos corrected."
+  },
+  "problemFiles": {
+    "openLabel": "Open",
+    "open": "Open {name}",
+    "close": "Close"
   },
   "groups": {
     "entry": "Groups",
