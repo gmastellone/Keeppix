@@ -1,16 +1,21 @@
 <script setup lang="ts">
-// Fase 11 Task 8 (2/N, 3/N, 4/N, 5/N, 6/N) — documento funzionale §18
-// ("Lightbox — struttura e barra superiore"), §19 ("Pannello
-// informazioni") e §20 ("Menu 'altre azioni' ⋯"). La 2/N ha riscritto il
-// segnaposto precedente (151 righe) con barra superiore, stage con
-// frecce, filmino e menu ⋯. La 3/N ha aggiunto titolo modificabile,
-// valutazione a stelle, sezione SCATTO. La 4/N ha completato la sezione
-// POSIZIONE. La 5/N ha aggiunto la sezione PERSONE e i riquadri volto.
-// La 6/N (questa) ha aggiunto la sezione TAG: chip confermati
-// raggruppati per categoria con `×` di rimozione permanente, sezione
-// "In attesa di conferma" separata con `✓`/`×`, chip "+ aggiungi" che
-// riusa `TagPickerDialog.vue`. Le sezioni ALBUM e AZIONI restano le
-// prossime unità di questo stesso Task.
+// Fase 11 Task 8 (2/N…7/N) — documento funzionale §18 ("Lightbox —
+// struttura e barra superiore"), §19 ("Pannello informazioni") e §20
+// ("Menu 'altre azioni' ⋯"). La 2/N ha riscritto il segnaposto precedente
+// (151 righe) con barra superiore, stage con frecce, filmino e menu ⋯. La
+// 3/N ha aggiunto titolo modificabile, valutazione a stelle, sezione
+// SCATTO. La 4/N ha completato la sezione POSIZIONE. La 5/N ha aggiunto
+// la sezione PERSONE e i riquadri volto. La 6/N ha aggiunto la sezione
+// TAG. La 7/N (questa) chiude §19 con le ultime due sezioni: ALBUM (elenco
+// di sola lettura via `AlbumRepo::for_asset`, Task 8 1/N — mai consumato
+// dal frontend finora — più "+ aggiungi" che riusa lo stesso
+// `AlbumPickerDialog`/`albumDialogOpen` già cablato dal menu ⋯ nel Task 8
+// 2/N: un solo dialog, due punti d'ingresso) e AZIONI (le stesse cinque
+// voci del menu ⋯, come pulsanti visibili invece che in un popover — il
+// documento le dichiara esplicitamente identiche: "le stesse della
+// sezione AZIONI del pannello informazioni"). Con questa unità §19 è
+// costruito per intero, salvo il debito dichiarato sotto (mai taciuto in
+// nessuna delle sette unità).
 //
 // **Deviazione deliberata dal mockup, non un debito**: il documento
 // descrive tre stati di chip per un tag confermato — "applicato dall'IA,
@@ -65,11 +70,24 @@
 // dello scrim dei dialog modali, SP-5) — la versione precedente aveva
 // `@click.self="emit('close')"` sul contenitore radice, un
 // comportamento mai documentato per questa vista. Rimosso.
+//
+// **Bug reale trovato e corretto in questa unità (7/N), presente fin dal
+// Task 8 (2/N)**: `Esc` chiudeva **anche il lightbox sotto**, non solo il
+// dialog aperto, ogni volta che uno dei sei dialog del pannello (elimina,
+// album, rinomina, posizione, persona, tag) era aperto — non solo il
+// menu ⋯, l'unico caso gestito finora. La gestione di Esc di reka-ui gira
+// su `DismissableLayer`, un meccanismo interno che non coordina in alcun
+// modo con l'`window.addEventListener('keydown', onKey)` scritto a mano
+// qui: nessuno dei sei dialog era mai stato insegnato a `onKey`. Scoperto
+// scrivendo i test della sezione ALBUM (§19.2 riga 18), mai prima
+// esercitato da nessun test di questo file. Corretto con `dialogRefs`,
+// controllato prima di ricadere sull'`emit('close')` del lightbox.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { deleteAsset, fetchFlags, setFlags, unvotedFlags } from '@/api/culling'
 import type { AssetFlags, DiskAction } from '@/api/culling'
+import { fetchAlbumsForAsset, type AlbumBadge } from '@/api/albums'
 import { assignFace, fetchFacesForAsset, rejectFace, type Face } from '@/api/faces'
 import { fetchMetadata, patchMetadata, type AssetMetadata } from '@/api/metadata'
 import { originalSrc, previewSrc as mediaPreviewSrc, thumbSrc as mediaThumbSrc } from '@/api/media'
@@ -152,6 +170,11 @@ const assetTags = ref<AssetTagDetail[]>([])
  * category_id` porta solo l'id. */
 const categories = ref<Tag[]>([])
 const tagDialogOpen = ref(false)
+/** §19.2 riga 18: elenco di sola lettura degli album di cui la foto è
+ * membro (manuali e dinamici indistinti, `AlbumRepo::for_asset`) — "+
+ * aggiungi" riusa `albumDialogOpen`/`AlbumPickerDialog`, già cablato dal
+ * Task 8 2/N per il menu ⋯: stesso dialog, due punti d'ingresso. */
+const assetAlbums = ref<AlbumBadge[]>([])
 /** Il volto che "Correggi persona…" sta per riassegnare — impostato
  * all'apertura del selettore, letto quando l'utente sceglie una persona. */
 const correctingFaceId = ref<string | null>(null)
@@ -189,10 +212,28 @@ function stepTo(target: TimelineAsset | undefined) {
  * lightbox stesso non è un `DialogRoot`/`PopoverRoot`, solo il menu ⋯
  * lo è): un singolo `keydown` globale deve sapere qual è il primo
  * livello da chiudere prima di arrivare al secondo. */
+/** I sei dialog aperti dal pannello/menu (elimina, album, rinomina,
+ * posizione, persona, tag) sono tutti componenti reka-ui reali con la
+ * propria gestione di Esc — ma quella gira su `DismissableLayer`, un
+ * meccanismo interno alla libreria che non coordina in alcun modo con un
+ * `window.addEventListener('keydown', ...)` scritto a mano come questo:
+ * senza il controllo esplicito qui sotto, la stessa pressione di Esc
+ * chiuderebbe **anche** il lightbox sotto al dialog, non solo il dialog
+ * — bug reale, trovato scrivendo i test della sezione ALBUM (Task 8
+ * 7/N), presente fin dal Task 8 2/N (quando `moreOpen` era l'unico caso
+ * gestito) e mai notato prima perché nessun test precedente premeva Esc
+ * con uno di questi sei dialog aperto. */
+const dialogRefs = [deleteDialogOpen, albumDialogOpen, renameDialogOpen, positionDialogOpen, personDialogOpen, tagDialogOpen]
+
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     if (moreOpen.value) {
       moreOpen.value = false
+      return
+    }
+    const openDialog = dialogRefs.find((dialog) => dialog.value)
+    if (openDialog) {
+      openDialog.value = false
       return
     }
     emit('close')
@@ -233,14 +274,15 @@ async function loadPanelData() {
   // Niente giro a vuoto: `asset.faces` (già nel prop, senza fetch) dice se
   // la foto ha volti confermati prima ancora di chiedere i riquadri.
   const needsFaces = props.asset.faces.length > 0
-  const [metadataResult, detailResult, flagsResult, facesResult, tagsResult, categoriesResult] =
+  const [metadataResult, detailResult, flagsResult, facesResult, tagsResult, categoriesResult, albumsResult] =
     await Promise.allSettled([
       fetchMetadata(assetId),
       fetchAsset(assetId),
       fetchFlags(assetId),
       needsFaces ? fetchFacesForAsset(assetId) : Promise.resolve([]),
       fetchTagsForAsset(assetId),
-      fetchTags()
+      fetchTags(),
+      fetchAlbumsForAsset(assetId)
     ])
   if (sequence !== panelRequestSequence || assetId !== props.asset.id) return
   metadata.value = metadataResult.status === 'fulfilled' ? metadataResult.value : undefined
@@ -248,6 +290,7 @@ async function loadPanelData() {
   flags.value = flagsResult.status === 'fulfilled' ? flagsResult.value : unvotedFlags
   faces.value = facesResult.status === 'fulfilled' ? facesResult.value : []
   assetTags.value = tagsResult.status === 'fulfilled' ? tagsResult.value : []
+  assetAlbums.value = albumsResult.status === 'fulfilled' ? albumsResult.value : []
   categories.value =
     categoriesResult.status === 'fulfilled' ? categoriesResult.value.filter((tag) => tag.kind === 'category') : []
   titleDraft.value = metadata.value?.title ?? ''
@@ -424,11 +467,13 @@ async function removeTag(tag: AssetTagDetail) {
 }
 
 /** `TagPickerDialog` applica ogni tocco subito, senza un evento di
- * completamento (stesso comportamento di `AlbumPickerDialog`, §12.3:
- * "l'effetto è immediato: non c'è 'Annulla'") — il pannello si aggiorna
- * alla chiusura, non ad ogni singolo tocco dentro il dialog. */
-watch(tagDialogOpen, (isOpen) => {
-  if (!isOpen) void loadPanelData()
+ * completamento (§12.3: "l'effetto è immediato: non c'è 'Annulla'") — il
+ * pannello si aggiorna alla chiusura, non ad ogni singolo tocco dentro il
+ * dialog. Vale anche per `albumDialogOpen`: lo stesso dialog serve sia
+ * "+ aggiungi" del pannello (sezione ALBUM) sia "Aggiungi ad album" del
+ * menu ⋯ — un solo punto di ricarica per entrambi gli ingressi. */
+watch([tagDialogOpen, albumDialogOpen], ([tagOpen, albumOpen], [prevTagOpen, prevAlbumOpen]) => {
+  if ((prevTagOpen && !tagOpen) || (prevAlbumOpen && !albumOpen)) void loadPanelData()
 })
 
 /** §18.2: i riquadri volto sono posizionati in percentuale rispetto
@@ -501,6 +546,7 @@ watch(
     faces.value = []
     hoveredPersonId.value = null
     assetTags.value = []
+    assetAlbums.value = []
     placeName.value = null
     titleDraft.value = ''
     if (info.value) void loadPanelData()
@@ -1094,6 +1140,71 @@ const coordsLabel = computed(() => {
               </span>
             </div>
           </template>
+        </section>
+
+        <section class="mt-4">
+          <h2 class="mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
+            {{ t('viewer.panel.albums') }}
+          </h2>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="album in assetAlbums"
+              :key="album.id"
+              class="rounded-full bg-[#1a1a1a] px-2.5 py-1 text-xs text-[#d8d8d8]"
+            >
+              {{ album.name }}
+            </span>
+            <button
+              type="button"
+              class="rounded-full border border-dashed border-[#3a3a3a] px-2.5 py-1 text-xs text-[#b8b8bc]"
+              @click="albumDialogOpen = true"
+            >
+              {{ t('viewer.panel.albumAdd') }}
+            </button>
+          </div>
+        </section>
+
+        <section class="mt-4">
+          <h2 class="mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
+            {{ t('viewer.panel.actions') }}
+          </h2>
+          <div class="flex flex-wrap gap-2">
+            <a
+              :href="originalSrc(asset.id)"
+              :download="asset.filename"
+              class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs hover:bg-[#1f1f1f]"
+            >
+              {{ t('viewer.menu.download') }}
+            </a>
+            <button
+              type="button"
+              class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs hover:bg-[#1f1f1f]"
+              @click="rotateStub"
+            >
+              {{ t('viewer.menu.rotate') }}
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs hover:bg-[#1f1f1f]"
+              @click="albumDialogOpen = true"
+            >
+              {{ t('viewer.menu.addToAlbum') }}
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs hover:bg-[#1f1f1f]"
+              @click="renameDialogOpen = true"
+            >
+              {{ t('viewer.menu.rename') }}
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs text-danger hover:bg-[#1f1f1f]"
+              @click="deleteDialogOpen = true"
+            >
+              {{ t('viewer.menu.delete') }}
+            </button>
+          </div>
         </section>
       </aside>
     </div>

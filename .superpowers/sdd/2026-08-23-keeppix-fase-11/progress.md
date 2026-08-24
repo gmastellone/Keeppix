@@ -4306,3 +4306,61 @@ toast esatto, sezione proposte con conferma/rifiuto, apertura di
 pulito (stesso unico errore preesistente su `PlayerView.vue`). `npm run
 build` + calcolo manuale del bundle iniziale gzip → 125.830 byte, sotto
 il budget di 153.600.
+
+## Task 8 (7/N) — Pannello informazioni: sezioni ALBUM e AZIONI, chiude §19
+
+Ultime due sezioni di §19. **ALBUM** (riga 18): elenco di sola lettura via
+`AlbumRepo::for_asset`/`fetchAlbumsForAsset` (costruito nel Task 8 1/N,
+mai consumato dal frontend finora), chip non cliccabili + "+ aggiungi"
+che riusa lo stesso `AlbumPickerDialog`/`albumDialogOpen` già cablato dal
+menu ⋯ nel Task 8 2/N — un solo dialog, due punti d'ingresso, coerente
+con "L'effetto è immediato" (§12.3). **AZIONI** (§19.3): le stesse cinque
+voci del menu ⋯ (Scarica originale, Ruota, Aggiungi ad album, Rinomina…,
+Elimina…), qui come pulsanti visibili invece che dentro un popover — il
+documento le dichiara esplicitamente identiche ("le stesse della sezione
+AZIONI del pannello informazioni"), stessi handler riusati verbatim, zero
+duplicazione di logica.
+
+**Bug reale trovato e corretto, presente fin dal Task 8 (2/N), non solo
+in questa unità**: scrivendo il test "Esc chiude il dialog di apertura
+album, non il lightbox sotto", `wrapper.emitted('close')` risultava
+valorizzato — Esc chiudeva **anche il lightbox**, non solo il dialog
+aperto sopra di esso. Causa: la gestione di Esc di reka-ui (`Dialog.vue`,
+usato da tutti e sei i dialog del pannello — elimina, album, rinomina,
+posizione, persona, tag) gira su `DismissableLayer`, un meccanismo
+interno alla libreria che non coordina in alcun modo con
+l'`window.addEventListener('keydown', onKey)` scritto a mano in
+`AssetViewer.vue`: `onKey` conosceva solo `moreOpen` (il popover del menu
+⋯, l'unico caso gestito dal Task 8 2/N in poi) e ricadeva sempre
+sull'`emit('close')` del lightbox per qualunque altro Esc — inclusi tutti
+i sei dialog aggiunti nelle unità successive (2/N, 4/N, 5/N, 6/N), mai
+esercitati da un test con Esc prima d'ora. Corretto con un array
+`dialogRefs` controllato prima della ricaduta su `emit('close')`. Non un
+debito rimandato: la causa era chiara, la correzione locale e a basso
+rischio, coerente con la disciplina di questa sessione di correggere un
+bug reale scoperto durante la verifica invece di limitarsi a
+documentarlo.
+
+Incidentale: il mock di `@/api/albums` nello spec (`fetchAlbums`/
+`fetchAlbum` soli, dal Task 8 2/N) non copriva `fetchAlbumsForAsset`
+(nuovo consumo di questa unità) né `addAssets`/`removeAsset` (già
+richiesti da `AlbumPickerDialog` ma mai realmente esercitati da nessun
+test finora): esteso a tutti e cinque via `vi.hoisted`, con default
+azzerabili per test.
+
+Verifica completa: `npx vue-tsc -b` (`./node_modules/.bin/vue-tsc -b`)
+pulito. `npx vitest run` → 78 file, 633/633 verdi (31 test in
+`AssetViewer.spec.ts`, 3 nuovi: elenco album di sola lettura + apertura
+di `AlbumPickerDialog`, Esc-chiude-solo-il-dialog-non-il-lightbox [il
+test che ha scoperto il bug], le cinque azioni come pulsanti visibili).
+`npx eslint` sui file toccati e sull'intero repo → pulito (stesso unico
+errore preesistente su `PlayerView.vue`). `npm run build` + calcolo
+manuale del bundle iniziale gzip → 125.841 byte, sotto il budget di
+153.600.
+
+**Con questa unità §19 (Pannello informazioni) è costruito per intero**,
+salvo il debito dichiarato e verificato lungo le sette unità: link
+cartella/lotto nella riga data/ora, commutatore RAW/JPEG, "Vai alla
+persona", chip "+ aggiungi" delle persone (Task A). Il Task 8 prosegue
+con §21 (integrazione culling, `CullingView.vue` non monta ancora
+`<AssetViewer>`) come ultima unità dichiarata, poi il Task 8 è chiuso.

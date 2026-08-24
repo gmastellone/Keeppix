@@ -328,7 +328,10 @@
       "tagConfirmedToast": "Tag confermato.",
       "tagRejectedToast": "Suggerimento rifiutato — non verrà riproposto.",
       "tagRemovedToast": "Tag rimosso.",
-      "tagError": "Non è stato possibile completare l'operazione. Riprova."
+      "tagError": "Non è stato possibile completare l'operazione. Riprova.",
+      "albums": "Album",
+      "albumAdd": "+ aggiungi",
+      "actions": "Azioni"
     }
   },
   "player": {

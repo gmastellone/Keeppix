@@ -27,9 +27,30 @@ vi.mock('@/api/culling', async (importOriginal) => ({
 // senza questi mock la loro `watch(open,...)` innocua a `open=false` non
 // scatterebbe, ma se un test li apre andrebbero al vero `apiFetch`
 // (mockato sopra a vuoto) — stesso correttivo già di BatchEditView.spec.ts.
+// `fetchAlbumsForAsset`/`addAssets`/`removeAsset` aggiunte nel Task 8
+// (7/N, sezione ALBUM): senza, `AssetViewer` (che ora chiama
+// `fetchAlbumsForAsset` in `loadPanelData`) e `AlbumPickerDialog` (che
+// chiama `addAssets`/`removeAsset` al tocco di un interruttore)
+// troverebbero funzioni `undefined`.
+const {
+  fetchAlbumsForAssetMock,
+  fetchAlbumsMock,
+  fetchAlbumMock,
+  addAssetsMock,
+  removeAssetMock
+} = vi.hoisted(() => ({
+  fetchAlbumsForAssetMock: vi.fn(async (): Promise<{ id: string; name: string }[]> => []),
+  fetchAlbumsMock: vi.fn(async () => []),
+  fetchAlbumMock: vi.fn(async () => ({ id: 'x', name: '', assets: [] })),
+  addAssetsMock: vi.fn(async () => null),
+  removeAssetMock: vi.fn(async () => null)
+}))
 vi.mock('@/api/albums', () => ({
-  fetchAlbums: vi.fn(async () => []),
-  fetchAlbum: vi.fn(async () => ({ id: 'x', name: '', assets: [] }))
+  fetchAlbumsForAsset: fetchAlbumsForAssetMock,
+  fetchAlbums: fetchAlbumsMock,
+  fetchAlbum: fetchAlbumMock,
+  addAssets: addAssetsMock,
+  removeAsset: removeAssetMock
 }))
 vi.mock('@/api/rename', () => ({
   previewRename: vi.fn(async () => []),
@@ -39,6 +60,11 @@ vi.mock('@/api/rename', () => ({
 afterEach(() => {
   apiFetch.mockReset()
   deleteAssetMock.mockReset()
+  fetchAlbumsForAssetMock.mockReset()
+  fetchAlbumsMock.mockReset()
+  fetchAlbumMock.mockReset()
+  addAssetsMock.mockReset()
+  removeAssetMock.mockReset()
 })
 
 function photo(id: string): TimelineAsset {
@@ -85,6 +111,11 @@ beforeEach(() => {
   i18n.global.locale.value = 'it'
   apiFetch.mockResolvedValue([])
   deleteAssetMock.mockResolvedValue(null)
+  fetchAlbumsForAssetMock.mockResolvedValue([])
+  fetchAlbumsMock.mockResolvedValue([])
+  fetchAlbumMock.mockResolvedValue({ id: 'x', name: '', assets: [] })
+  addAssetsMock.mockResolvedValue(null)
+  removeAssetMock.mockResolvedValue(null)
 })
 
 describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
@@ -893,5 +924,82 @@ describe('AssetViewer — sezione TAG (§19.2 righe 14-17)', () => {
     await flushPromises()
 
     expect(document.body.textContent).toContain('Aggiungi tag')
+  })
+})
+
+describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () => {
+  let wrapper: ReturnType<typeof mount> | undefined
+  afterEach(() => wrapper?.unmount())
+
+  it('lists the albums the asset belongs to (read-only), and "+ aggiungi" opens AlbumPickerDialog', async () => {
+    fetchAlbumsForAssetMock.mockResolvedValue([
+      { id: 'al1', name: 'Vacanze 2024' },
+      { id: 'al2', name: 'Famiglia' }
+    ])
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } },
+      attachTo: document.body
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Vacanze 2024')
+    expect(wrapper.text()).toContain('Famiglia')
+
+    const addButtons = wrapper.findAll('button').filter((b) => b.text() === '+ aggiungi')
+    // Il secondo "+ aggiungi" è quello della sezione ALBUM (il primo è
+    // TAG, stesso testo per costruzione — vedi la sezione TAG qui sopra).
+    await addButtons[1]!.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Aggiungi ad album')
+  })
+
+  it('Esc closes only AlbumPickerDialog, not the lightbox underneath — and reloads the album list', async () => {
+    fetchAlbumsForAssetMock.mockResolvedValue([])
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+    fetchAlbumsForAssetMock.mockClear()
+
+    const addButtons = wrapper.findAll('button').filter((b) => b.text() === '+ aggiungi')
+    await addButtons[1]!.trigger('click')
+    await flushPromises()
+    expect(fetchAlbumsForAssetMock).not.toHaveBeenCalled()
+
+    // Bug reale trovato scrivendo questo test: `AssetViewer` gestisce Esc
+    // con un `window.addEventListener` scritto a mano, che non coordina
+    // in alcun modo con la gestione di Esc interna di reka-ui — senza il
+    // controllo esplicito sui sei dialog, questa stessa pressione
+    // avrebbe chiuso anche il lightbox sotto al dialog (`close` emesso),
+    // non solo il dialog.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(fetchAlbumsForAssetMock).toHaveBeenCalledWith('a')
+  })
+
+  it('§19.3 AZIONI: renders the same five actions as the ⋯ menu, as visible buttons', async () => {
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    const toast = useToastStore()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    const downloadLink = wrapper.findAll('a').find((a) => a.text() === 'Scarica originale')!
+    expect(downloadLink.attributes('href')).toBe('/media/original/a')
+    expect(downloadLink.attributes('download')).toBe('a.jpg')
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Ruota')!.trigger('click')
+    expect(toast.toasts.at(-1)?.message).toContain('Solo demo')
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Rinomina…')!.trigger('click')
+    expect(document.body.textContent).toContain('1 foto — a.jpg')
   })
 })
