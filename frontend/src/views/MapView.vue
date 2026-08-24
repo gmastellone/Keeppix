@@ -7,12 +7,14 @@ import { fetchLibraries, type Library } from '@/api/libraries'
 import type { TimelineAsset } from '@/api/timeline'
 import AssetViewer from '@/components/AssetViewer.vue'
 import MapClusterLayer from '@/components/MapClusterLayer.vue'
+import { useFavoritesStore } from '@/stores/favorites'
 import { mapErrorKey, type MapBounds, useMapsStore } from '@/stores/maps'
 import MapsOfflineView from '@/views/settings/MapsOfflineView.vue'
 
 const { t } = useI18n()
 const router = useRouter()
 const maps = useMapsStore()
+const favorites = useFavoritesStore()
 const libraries = ref<Library[]>([])
 const viewing = ref<TimelineAsset>()
 const loading = ref(true)
@@ -132,8 +134,10 @@ onMounted(load)
     <AssetViewer
       v-if="viewing"
       :asset="viewing"
+      :is-favorite="favorites.isFavorite(viewing)"
       @close="viewing = undefined"
       @open-asset="openAsset"
+      @toggle-favorite="favorites.toggleOne(viewing)"
     />
   </main>
 </template>

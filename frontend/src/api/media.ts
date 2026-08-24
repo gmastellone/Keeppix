@@ -49,3 +49,15 @@ export function previewSrc(hash: string): string {
 export function fullSrc(hash: string): string {
   return `/media/full/${hash}${v()}`
 }
+
+/**
+ * Fase 11 Task 8 (§19.3, "Scarica originale" — il documento lo segnala
+ * esplicitamente come un punto dove "il backend dovrà fare qualcosa di
+ * vero", non più un toast): i byte reali del file sorgente,
+ * `GET /media/original/{id}` (`routes/media.rs`, già esistente, mai
+ * consumato dal frontend finora). Per **id asset**, non per hash come i
+ * derivati sopra: l'originale non ha una ricetta da invalidare, nessun `?v=`.
+ */
+export function originalSrc(assetId: string): string {
+  return `/media/original/${assetId}`
+}

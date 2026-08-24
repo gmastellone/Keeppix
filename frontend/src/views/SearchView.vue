@@ -11,12 +11,14 @@ import { parseSearch } from '@/search/parse'
 
 import AssetViewer from '@/components/AssetViewer.vue'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
+import { useFavoritesStore } from '@/stores/favorites'
 import { useMapsStore } from '@/stores/maps'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const maps = useMapsStore()
+const favorites = useFavoritesStore()
 const q = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const assets = ref<TimelineAsset[]>([])
 const error = ref('')
@@ -27,12 +29,6 @@ const lightbox = useLightboxRoute<TimelineAsset>(
   (id) => assets.value.find((asset) => asset.id === id),
   (id) => maps.loadAsset(id)
 )
-
-function neighbour(delta: number): TimelineAsset | undefined {
-  const i = assets.value.findIndex((a) => a.id === lightbox.viewing.value?.id)
-  if (i < 0) return undefined
-  return assets.value[i + delta]
-}
 
 const chips = computed(() => {
   try {
@@ -70,8 +66,8 @@ async function submit() {
   }
 }
 
-function stepViewer(delta: number) {
-  void lightbox.step(neighbour(delta))
+function stepViewer(asset: TimelineAsset) {
+  void lightbox.step(asset)
 }
 
 const suggestions = ref<string[]>([])
@@ -173,11 +169,11 @@ onMounted(() => {
     <AssetViewer
       v-if="lightbox.viewing.value"
       :asset="lightbox.viewing.value"
-      :prev="neighbour(-1)"
-      :next="neighbour(1)"
+      :neighbors="assets"
+      :is-favorite="favorites.isFavorite(lightbox.viewing.value)"
       @close="lightbox.close"
-      @prev="stepViewer(-1)"
-      @next="stepViewer(1)"
+      @step="stepViewer"
+      @toggle-favorite="favorites.toggleOne(lightbox.viewing.value)"
     />
   </main>
 </template>

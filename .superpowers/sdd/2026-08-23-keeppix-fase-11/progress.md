@@ -3919,3 +3919,111 @@ Verifica eseguita per intero:
   pulito (stesso unico errore preesistente su `PlayerView.vue`).
   `npm run build` + calcolo manuale del bundle iniziale gzip →
   124.872 byte, sotto il budget di 153.600.
+
+## Task 8 (2/N) — Il lightbox vero: barra superiore, palco, filmino, menu ⋯
+
+`AssetViewer.vue` riscritto da zero (§18-20 del documento funzionale,
+riletti riga per riga) sopra il terreno di backend della 1/N. Contratto
+prop/emit ridisegnato: via `prev?`/`next?` + due emit separati, dentro
+`neighbors?: TimelineAsset[]` (default `[]`) + un solo emit `step:
+[asset]` — `currentIndex`/`prevAsset`/`nextAsset` si calcolano da
+`neighbors.findIndex`, eliminando la funzione `viewingNeighbour(delta)`
+duplicata in ogni vista chiamante, e il filmino (che ha bisogno
+dell'intero elenco vicini, non solo dell'adiacente) arriva gratis dallo
+stesso prop. Aggiunta anche `isFavorite: boolean` (prop) + `toggle-
+favorite: []` (emit) — stesso schema già stabilito da `PhotoTile.vue`,
+il genitore possiede la chiamata `favorites.toggleOne(asset)`.
+
+Contratto propagato ai 4 consumatori reali: `TimelineView.vue`,
+`FavoritesView.vue`, `SearchView.vue` (nessun `open-asset`, come già
+prima), `MapView.vue` (deliberatamente **senza** `:neighbors`: nel
+popover mappa non c'erano frecce né filmino prima, e non ce ne devono
+essere ora — un solo asset alla volta).
+
+Barra superiore (§18.3): chiudi, cuoricino (riflette `isFavorite`,
+`toggle-favorite` su clic e sul tasto `f`/`F`), info (`i`/`I`), "⋯"
+(riuso di `Popover.vue` — il suo stesso commento di intestazione
+anticipava questo esatto consumatore). Palco (§18.2): frecce circolari
+condizionali (omesse al primo/ultimo vicino), preload nascosto di
+`prev`/`next`. Filmino (§18.2, in fondo): una tessera 52×52 per
+vicino, quella corrente con anello d'accento, clic = `step`. Due
+livelli di Esc (§18.5) gestiti esplicitamente nel listener `onKey` del
+lightbox stesso (controllo su `moreOpen` prima di chiudere il
+lightbox) — non affidato allo stacking automatico di reka-ui, perché
+la radice del lightbox è un `<div role="dialog">` semplice, non un
+vero `DialogRoot`; solo il menu "⋯" annidato è un vero popover reka-ui.
+
+Menu "⋯" (§20, cinque voci):
+- **Scarica originale**: prima un toast-finto, ora un vero `<a
+  :href="originalSrc(id)" :download="filename">` verso `GET /media/
+  original/{id}` — quella rotta esisteva già lato backend (stream
+  reale con supporto Range) ma non era mai stata consumata da nessun
+  punto del frontend finora. `download` forza il salvataggio per un
+  link same-origin anche senza `Content-Disposition: attachment`.
+- **Ruota**: resta un toast dimostrativo — debito dichiarato, non
+  nascosto: `orientation` è scrivibile via `MetadataPatchRequest` ma
+  mai letto dalla pipeline di derivati di `keeppix-media`; è lavoro
+  vero di elaborazione immagini, sede naturale una futura sotto-unità
+  dedicata, non questa (che è cablaggio).
+- **Aggiungi ad album**: riuso diretto di `AlbumPickerDialog.vue`.
+- **Rinomina…**: riuso di `RenameFormulaDialog.vue`, esteso con un
+  prop opzionale `subtitle?: string` che sovrascrive il sottotitolo
+  calcolato di default — il doc (§62.8) vuole «1 foto — {nome file}»
+  per il punto d'ingresso "singola foto dal lightbox», distinto dalla
+  dicitura «N foto selezionate/a» già corretta per il punto d'ingresso
+  "selezione".
+- **Elimina…**: riuso di `DeleteDialog.vue` a tre vie, stessa mappa
+  `DeleteChoice → DiskAction` già in `LibrarySelectionActions.vue`
+  (`index→'kept'`, `trash→'moved_to_trash'`, `disk→'purged'`).
+
+Non riprodotto in questa unità (debito dichiarato, non codice morto
+nascosto): **Condividi** (nessun endpoint di condivisione singolo-
+asset scoperto nella ricerca — stessa area di Task 9/10 non ancora
+raggiunta); i **riquadri volto** in overlay (visibili solo su hover di
+un chip persona nel pannello informazioni, che non esiste ancora —
+sede naturale la riscrittura completa del pannello §19); il **pannello
+informazioni completo** (titolo modificabile, valutazione a stelle,
+posizione, persone, tag, album — resta il pannello minimo con mini-
+mappa già presente prima di questa unità); l'integrazione reale in
+`CullingView.vue` (che non monta `<AssetViewer>` per niente, confermato
+via grep — solo citato in un commento).
+
+Rimosso `@click.self` sullo sfondo del lightbox (chiudeva cliccando
+fuori dall'immagine): il documento (§18.4) non lo prevede, e la stessa
+riscrittura del test lo verifica esplicitamente (clic sullo sfondo non
+emette `close`).
+
+Verifica eseguita per intero, con tre bug reali trovati e corretti
+**nel test**, non nel componente (`AssetViewer.spec.ts` riscritto da
+zero seguendo il contratto nuovo):
+- Il file di test non impostava `i18n.global.locale.value = 'it'` nel
+  `beforeEach` (convenzione già stabilita in `LibrarySelectionActions.
+  spec.ts`): senza, `detectLocale()` risolve a `'en'` in jsdom
+  (`navigator.language` è `'en-US'` di default) e ogni selettore per
+  etichetta italiana falliva silenziosamente.
+- Il test del filmino cercava `img[alt="a.jpg|b.jpg|c.jpg"]` su tutto
+  il wrapper: l'immagine del palco principale condivide lo stesso
+  `alt` dell'asset corrente, quindi il conteggio risultava sempre uno
+  in più. Corretto scoping la ricerca al contenitore del filmino
+  (`.overflow-x-auto`).
+- I tre test del menu "⋯" montano con `attachTo: document.body` (serve
+  al popover teletrasportato) ma non smontavano il wrapper fra un test
+  e l'altro: il DOM del test precedente restava attaccato al `body`, e
+  `menuItemWithText` poteva trovare — e cliccare — il bottone del
+  montaggio *sbagliato* (con un `toast`/`pinia` diversi da quello
+  osservato dal test). Corretto con `afterEach(() => wrapper?.
+  unmount())` sullo stesso pattern di `LibrarySelectionActions.spec.ts`.
+- Il test del toast "Ruota" cercava il testo nel `document.body.
+  textContent`, ma non esiste nessun host di toast montato in un test
+  che monta solo `<AssetViewer>` isolato: corretto asserendo su
+  `useToastStore().toasts.at(-1)?.message`, stesso pattern già in uso
+  in `LibrarySelectionActions.spec.ts`.
+
+`npx vue-tsc -b` → pulito. `npx vitest run` → 78 file, 612/612 verdi
+(78° file di questa unità: `AssetViewer.spec.ts`, ora 12 test contro i
+9 precedenti). `npx eslint` sui file nuovi/toccati e sull'intero repo
+→ pulito (stesso unico errore preesistente su `PlayerView.vue`, non
+toccato in questa sessione — confermato via `git blame`, commit
+`6fab915` precedente a questa sessione). `npm run build` + calcolo
+manuale del bundle iniziale gzip (stesso algoritmo di `.github/
+workflows/ci.yml`) → 124.776 byte, sotto il budget di 153.600.

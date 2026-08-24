@@ -194,15 +194,8 @@ const lightbox = useLightboxRoute<TimelineAsset>(
 
 useScrollRestoration(gridEl)
 
-function viewingNeighbour(delta: number): TimelineAsset | undefined {
-  const list = displayedAssets.value
-  const i = list.findIndex((a) => a.id === lightbox.viewing.value?.id)
-  if (i < 0) return undefined
-  return list[i + delta]
-}
-
-function stepViewer(delta: number) {
-  void lightbox.step(viewingNeighbour(delta))
+function stepViewer(asset: TimelineAsset) {
+  void lightbox.step(asset)
 }
 
 function openViewerAsset(id: string) {
@@ -740,12 +733,12 @@ function selectAllVisible() {
     <AssetViewer
       v-if="lightbox.viewing.value"
       :asset="lightbox.viewing.value"
-      :prev="viewingNeighbour(-1)"
-      :next="viewingNeighbour(1)"
+      :neighbors="displayedAssets"
+      :is-favorite="favorites.isFavorite(lightbox.viewing.value)"
       @close="lightbox.close"
-      @prev="stepViewer(-1)"
-      @next="stepViewer(1)"
+      @step="stepViewer"
       @open-asset="openViewerAsset"
+      @toggle-favorite="favorites.toggleOne(lightbox.viewing.value)"
     />
   </div>
 </template>

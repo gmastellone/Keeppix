@@ -272,7 +272,24 @@
     "submit": "Search",
     "invalid": "Invalid query."
   },
-  "viewer": { "title": "Photo", "close": "Close"   },
+  "viewer": {
+    "title": "Photo",
+    "close": "Close",
+    "favoriteOn": "Remove from favorites",
+    "favoriteOff": "Add to favorites",
+    "info": "Information",
+    "moreActions": "More actions",
+    "prev": "Previous photo",
+    "next": "Next photo",
+    "menu": {
+      "download": "Download original",
+      "rotate": "Rotate",
+      "rotateToast": "Demo only — this would rotate the file (the original on disk is never modified).",
+      "addToAlbum": "Add to album",
+      "rename": "Rename…",
+      "delete": "Delete…"
+    }
+  },
   "player": {
     "close": "Close",
     "loading": "Preparing playback…",
@@ -645,6 +662,7 @@
   "renameFormula": {
     "title": "Rename with formula",
     "subtitle": "{n} photo selected | {n} photos selected",
+    "subtitleSingle": "1 photo — {filename}",
     "schemaLabel": "Filename schema",
     "token": {
       "data": "Date",

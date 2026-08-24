@@ -1,10 +1,13 @@
 <script setup lang="ts">
-// SP-62 (documento funzionale §62, "Dialog 'Rinomina con formula'"),
-// ambito "selection" soltanto — l'unico dei cinque punti d'ingresso del
-// documento che serve a questo Task 7 (§13.3 campo 7, "Modifica in
-// blocco"). Gli altri quattro (foto singola dal lightbox, cartella aperta
-// in Timeline, lotto/selezione di culling) restano debito dichiarato per i
-// task che li introducono (Task 8 Lightbox, culling già esistente): niente
+// SP-62 (documento funzionale §62, "Dialog 'Rinomina con formula'"). Due
+// dei cinque punti d'ingresso del documento sono coperti: "selection"
+// (§13.3 campo 7, "Modifica in blocco", Task 7) e "single" (§18/§20, il
+// pulsante "Rinomina…" del lightbox, Task 8 — sottotitolo distinto, "1
+// foto — {nome file}", non "1 foto selezionata": per questo `subtitle` è
+// sovrascrivibile dal chiamante invece di dedurlo dal solo conteggio,
+// §62.8 lega il testo al **punto d'ingresso**, non al numero di foto).
+// Gli altri tre (cartella aperta in Timeline, lotto/selezione di culling)
+// restano debito dichiarato per i task che li introducono: niente
 // interruttore "sottocartelle" qui, `hasSubfolders` è vero **solo**
 // nell'ambito lotto di culling (§62.3e).
 //
@@ -23,7 +26,7 @@ import { useToastStore } from '@/stores/toast'
 import Dialog from './ui/Dialog.vue'
 
 const open = defineModel<boolean>('open', { required: true })
-const props = defineProps<{ assets: TimelineAsset[] }>()
+const props = defineProps<{ assets: TimelineAsset[]; subtitle?: string }>()
 
 const { t } = useI18n()
 const toast = useToastStore()
@@ -113,7 +116,7 @@ async function apply() {
   <Dialog
     v-model:open="open"
     :title="t('renameFormula.title')"
-    :description="t('renameFormula.subtitle', { n: assets.length }, { plural: assets.length })"
+    :description="subtitle ?? t('renameFormula.subtitle', { n: assets.length }, { plural: assets.length })"
   >
     <div class="space-y-3">
       <label class="block text-[12.5px] font-medium text-content-muted">
