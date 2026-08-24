@@ -369,6 +369,7 @@
     "badges": { "pick": "Pick", "reject": "Reject" },
     "filmstrip": { "label": "Session thumbnails" },
     "zoomLoading": "Loading full resolution…",
+    "infoButton": "Photo details — EXIF, location, rename",
     "deleteRejects": "Delete the {count} rejects",
     "deleteDialog": {
       "title": "Delete {count} photos",

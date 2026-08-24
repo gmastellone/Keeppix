@@ -6,13 +6,16 @@ import { useRouter } from 'vue-router'
 import type { DiskAction } from '@/api/culling'
 import { fullSrc as mediaFullSrc, previewSrc as mediaPreviewSrc } from '@/api/media'
 import type { TimelineAsset } from '@/api/timeline'
+import AssetViewer from '@/components/AssetViewer.vue'
 import Filmstrip from '@/components/Filmstrip.vue'
 import RatingStars from '@/components/RatingStars.vue'
 import { useCullingStore } from '@/stores/culling'
+import { useFavoritesStore } from '@/stores/favorites'
 
 const { t } = useI18n()
 const router = useRouter()
 const store = useCullingStore()
+const favorites = useFavoritesStore()
 
 const FILTERS = ['all', 'pending', 'picks', 'rejects'] as const
 const DELETE_OPTIONS = ['kept', 'moved_to_trash', 'purged'] as const
@@ -21,6 +24,19 @@ const deleteDialog = ref<{ assetIds: string[] } | null>(null)
 const selectedAction = ref<DiskAction>('moved_to_trash')
 
 const assetsById = computed(() => new Map(store.assets.map((a) => [a.id, a])))
+
+// §21: il lightbox aperto da un lotto di culling. `viewingId` invece di
+// un booleano perché "aprire una foto di miniatura" e "cliccare un
+// marcatore nella mini-mappa del pannello posizione" (§21.2, riga
+// "Ricerca della foto per id") devono poter puntare a **qualunque** foto
+// del lotto, anche una fuori dal filtro attivo — `assetsById` (costruito
+// da `store.assets`, l'intero lotto) copre esattamente questo, a
+// differenza di `store.goToId` (che cerca solo dentro `order`, già
+// filtrato).
+const viewingId = ref<string | null>(null)
+const viewingAsset = computed<TimelineAsset | undefined>(() =>
+  viewingId.value ? assetsById.value.get(viewingId.value) : undefined
+)
 
 const orderedAssets = computed<TimelineAsset[]>(() =>
   store.order.flatMap((id) => {
@@ -151,6 +167,12 @@ function deleteRejects() {
  * — non duplicati qui perché non esiste un secondo posto dove intercettarli.
  */
 function onKey(e: KeyboardEvent) {
+  // §21.5: "finché il lightbox è aperto... sopprime tutte le scorciatoie
+  // del culling — 1-5, P, X, shift+←/→ non funzionano". `AssetViewer.vue`
+  // registra il proprio `keydown` a parte: senza questo `return` qui,
+  // entrambi risponderebbero alla stessa pressione (es. `←` cambierebbe
+  // sia la foto del lightbox sia lo stage sotto di esso).
+  if (viewingId.value) return
   if (isTypingTarget(e.target)) return
   if (deleteDialog.value) {
     if (e.key === 'Escape') closeDeleteDialog()
@@ -247,6 +269,33 @@ onUnmounted(() => {
 
     <template v-else>
       <div class="relative min-h-0 flex-1 overflow-hidden bg-black">
+        <button
+          v-if="store.currentAsset && !store.compareMode"
+          type="button"
+          :aria-label="t('culling.infoButton')"
+          class="absolute right-3 bottom-3 z-10 flex h-9 w-9 items-center justify-center rounded-full
+                 bg-black/60 text-white hover:bg-black/80"
+          @click="viewingId = store.currentAsset.id"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="9"
+            />
+            <path d="M12 11v5.5M12 8v.01" />
+          </svg>
+        </button>
         <div
           v-if="store.compareMode"
           class="flex h-full w-full gap-1"
@@ -386,5 +435,17 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <AssetViewer
+      v-if="viewingAsset"
+      :asset="viewingAsset"
+      :neighbors="orderedAssets"
+      is-culling
+      :is-favorite="favorites.isFavorite(viewingAsset)"
+      @close="viewingId = null"
+      @step="(asset) => (viewingId = asset.id)"
+      @open-asset="viewingId = $event"
+      @toggle-favorite="favorites.toggleOne(viewingAsset)"
+    />
   </div>
 </template>

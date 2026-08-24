@@ -19,15 +19,23 @@
 // nell'app), serviva solo instradare la scelta dell'utente al membro
 // giusto dello stack (`GET /assets/{id}/stack`, Fase 10, primo consumo
 // frontend). Con la 8/N §19 è costruito per intero, salvo il debito
-// dichiarato sotto. La 9/N (questa) corregge un bug reale trovato
-// rileggendo §19.8: "il pannello esiste solo dentro il lightbox... **ed
-// è forzato aperto a ogni `openLightbox()`** (e all'apertura dal
-// culling)" — dalla 2/N in poi il pannello partiva **chiuso**, mai
-// notato perché ogni test di questo file lo apriva esplicitamente con
-// `i` prima di verificare qualunque contenuto (mascherando quindi il
-// difetto invece di scoprirlo). Corretto: `info` parte `true`,
-// `loadPanelData()` scatta da `onMounted`, non solo dal primo
-// `i`/click sull'icona.
+// dichiarato sotto. La 9/N corregge un bug reale trovato rileggendo
+// §19.8: "il pannello esiste solo dentro il lightbox... **ed è forzato
+// aperto a ogni `openLightbox()`** (e all'apertura dal culling)" — dalla
+// 2/N in poi il pannello partiva **chiuso**, mai notato perché ogni test
+// di questo file lo apriva esplicitamente con `i` prima di verificare
+// qualunque contenuto (mascherando quindi il difetto invece di
+// scoprirlo). Corretto: `info` parte `true`, `loadPanelData()` scatta da
+// `onMounted`, non solo dal primo `i`/click sull'icona. La 10/N (questa)
+// aggiunge il prop `isCulling` (§21, "Differenze fra lightbox aperto da
+// libreria e lightbox aperto da un lotto di culling"): nasconde PERSONE/
+// TAG/ALBUM e le azioni "Aggiungi ad album"/"Elimina…" (pannello e menu
+// ⋯) quando la foto viene da un lotto ancora non organizzato — tutto il
+// resto (titolo, stelle, RAW/JPEG, SCATTO, POSIZIONE, filmino, frecce,
+// barra superiore, Scarica/Ruota/Rinomina) resta identico, come da
+// tabella del documento. `CullingView.vue` è il primo (e unico)
+// chiamante con `isCulling`; i quattro chiamanti libreria (Timeline,
+// Preferiti, Cerca, Mappa) restano `isCulling` di default (`false`).
 //
 // **Deviazione deliberata dal mockup, non un debito**: il documento
 // descrive tre stati di chip per un tag confermato — "applicato dall'IA,
@@ -136,8 +144,17 @@ const props = withDefaults(
      * modifiche. */
     neighbors?: TimelineAsset[]
     isFavorite: boolean
+    /** §21: la foto viene da un lotto di culling, non ancora organizzata
+     * nella libreria — niente cartella/mese/tag/album/volti. Nasconde le
+     * sezioni PERSONE/TAG/ALBUM e le azioni "Aggiungi ad album"/
+     * "Elimina…" (pannello e menu ⋯); tutto il resto (titolo, stelle,
+     * RAW/JPEG, SCATTO, POSIZIONE, filmino, frecce, barra superiore,
+     * Scarica/Ruota/Rinomina) resta identico. `false` di default: gli
+     * altri quattro chiamanti (Timeline/Preferiti/Cerca/Mappa) sono
+     * sempre contesto libreria. */
+    isCulling?: boolean
   }>(),
-  { neighbors: () => [] }
+  { neighbors: () => [], isCulling: false }
 )
 const emit = defineEmits<{
   close: []
@@ -303,8 +320,10 @@ async function loadPanelData() {
   // senza `await`: non deve ritardare gli altri tre campi del pannello.
   void maps.loadRegions()
   // Niente giro a vuoto: `asset.faces` (già nel prop, senza fetch) dice se
-  // la foto ha volti confermati prima ancora di chiedere i riquadri.
-  const needsFaces = props.asset.faces.length > 0
+  // la foto ha volti confermati prima ancora di chiedere i riquadri. In
+  // culling (§21.9: "Non richiede... tag, album, volti") tag/album/volti
+  // non servono affatto — mai una foto "grezza" di un lotto li ha.
+  const needsFaces = !props.isCulling && props.asset.faces.length > 0
   const needsStack = props.asset.raw_kind === 'raw' || props.asset.raw_kind === 'raw+jpeg'
   const [
     metadataResult,
@@ -320,9 +339,9 @@ async function loadPanelData() {
     fetchAsset(assetId),
     fetchFlags(assetId),
     needsFaces ? fetchFacesForAsset(assetId) : Promise.resolve([]),
-    fetchTagsForAsset(assetId),
-    fetchTags(),
-    fetchAlbumsForAsset(assetId),
+    props.isCulling ? Promise.resolve([]) : fetchTagsForAsset(assetId),
+    props.isCulling ? Promise.resolve([]) : fetchTags(),
+    props.isCulling ? Promise.resolve([]) : fetchAlbumsForAsset(assetId),
     needsStack ? fetchStack(assetId) : Promise.resolve({ stack_id: null, primary_asset_id: null, members: [] })
   ])
   if (sequence !== panelRequestSequence || assetId !== props.asset.id) return
@@ -844,6 +863,7 @@ const coordsLabel = computed(() => {
               {{ t('viewer.menu.rotate') }}
             </button>
             <button
+              v-if="!isCulling"
               type="button"
               class="rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-chip-bg)]"
               @click="closeMoreThen(() => (albumDialogOpen = true))"
@@ -857,14 +877,16 @@ const coordsLabel = computed(() => {
             >
               {{ t('viewer.menu.rename') }}
             </button>
-            <div class="my-0.5 h-px bg-[var(--color-border)]" />
-            <button
-              type="button"
-              class="rounded-md px-2.5 py-2 text-left text-danger hover:bg-[var(--color-chip-bg)]"
-              @click="closeMoreThen(() => (deleteDialogOpen = true))"
-            >
-              {{ t('viewer.menu.delete') }}
-            </button>
+            <template v-if="!isCulling">
+              <div class="my-0.5 h-px bg-[var(--color-border)]" />
+              <button
+                type="button"
+                class="rounded-md px-2.5 py-2 text-left text-danger hover:bg-[var(--color-chip-bg)]"
+                @click="closeMoreThen(() => (deleteDialogOpen = true))"
+              >
+                {{ t('viewer.menu.delete') }}
+              </button>
+            </template>
           </div>
         </Popover>
       </div>
@@ -1107,7 +1129,7 @@ const coordsLabel = computed(() => {
         </section>
 
         <section
-          v-if="asset.faces.length > 0"
+          v-if="!isCulling && asset.faces.length > 0"
           class="mt-4"
         >
           <h2 class="mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
@@ -1156,7 +1178,10 @@ const coordsLabel = computed(() => {
           </div>
         </section>
 
-        <section class="mt-4">
+        <section
+          v-if="!isCulling"
+          class="mt-4"
+        >
           <h2 class="mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
             {{ t('viewer.panel.tags') }}
           </h2>
@@ -1235,7 +1260,10 @@ const coordsLabel = computed(() => {
           </template>
         </section>
 
-        <section class="mt-4">
+        <section
+          v-if="!isCulling"
+          class="mt-4"
+        >
           <h2 class="mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
             {{ t('viewer.panel.albums') }}
           </h2>
@@ -1277,6 +1305,7 @@ const coordsLabel = computed(() => {
               {{ t('viewer.menu.rotate') }}
             </button>
             <button
+              v-if="!isCulling"
               type="button"
               class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs hover:bg-[#1f1f1f]"
               @click="albumDialogOpen = true"
@@ -1291,6 +1320,7 @@ const coordsLabel = computed(() => {
               {{ t('viewer.menu.rename') }}
             </button>
             <button
+              v-if="!isCulling"
               type="button"
               class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs text-danger hover:bg-[#1f1f1f]"
               @click="deleteDialogOpen = true"

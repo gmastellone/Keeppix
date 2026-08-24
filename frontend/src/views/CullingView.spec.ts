@@ -10,8 +10,21 @@ import type { TimelineAsset } from '@/api/timeline'
 vi.mock('@/api/culling', () => ({
   setFlags: vi.fn(async () => null),
   deleteAsset: vi.fn(async () => null),
-  fetchFlags: vi.fn(async () => ({ rating: null, pick: 'none', color_label: null })),
-  unvotedFlags: { rating: null, pick: 'none', color_label: null }
+  fetchFlags: vi.fn(async () => ({ rating: null, pick: 'none', color_label: null, favorite: false })),
+  unvotedFlags: { rating: null, pick: 'none', color_label: null, favorite: false }
+}))
+
+// Task 8 (10/N): il pulsante info dello stage apre `AssetViewer.vue` per
+// davvero — `loadPanelData()` chiama `apiFetch` (via `fetchMetadata`/
+// `fetchAsset`) direttamente, mai mockato finora in questo file perché
+// prima d'ora nessun test apriva il lightbox. Un default a `[]` (mai un
+// valore fisso globale — vedi il correttivo dello stesso tipo già
+// maturato in `SearchView.spec.ts`/`TimelineView.spec.ts` per lo stesso
+// bug, Task 8 9/N) basta: i test qui sotto verificano solo che il
+// lightbox si apra col contesto giusto, non i dati che carica.
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
+  apiFetch: vi.fn(async () => [])
 }))
 
 import CullingView from './CullingView.vue'
@@ -117,6 +130,58 @@ describe('CullingView keyboard shortcuts', () => {
     editable.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
     await flushPromises()
     expect(store.flagsFor('a').pick).toBe('none')
+
+    wrapper.unmount()
+  })
+})
+
+describe('CullingView — §21, il lightbox aperto da un lotto', () => {
+  it('the round info button opens AssetViewer for the current photo, with isCulling hiding TAG/ALBUM/PERSONE/Elimina/Aggiungi ad album', async () => {
+    const store = useCullingStore()
+    store.start([photo('a'), photo('b')])
+    const { wrapper } = await mountCulling()
+
+    const infoButton = wrapper.get('[aria-label="Photo details — EXIF, location, rename"]')
+    await infoButton.trigger('click')
+    await flushPromises()
+
+    const viewer = wrapper.findComponent({ name: 'AssetViewer' })
+    expect(viewer.exists()).toBe(true)
+    expect(viewer.props('asset').id).toBe('a')
+    expect(viewer.props('isCulling')).toBe(true)
+
+    const text = wrapper.text()
+    expect(text).not.toContain('Tags')
+    expect(text).not.toContain('Albums')
+    expect(text).not.toContain('Delete…')
+    expect(text).not.toContain('Add to album')
+    // Everything else stays (§21.2, "cosa resta identico"): title,
+    // stars, SCATTO section, Rename….
+    expect(text).toContain('Rename…')
+    expect(text).toContain('Download original')
+
+    wrapper.unmount()
+  })
+
+  it('closing the lightbox returns to the same stage photo, and suppresses culling shortcuts while open', async () => {
+    const store = useCullingStore()
+    store.start([photo('a'), photo('b')])
+    const { wrapper } = await mountCulling()
+
+    await wrapper.get('[aria-label="Photo details — EXIF, location, rename"]').trigger('click')
+    await flushPromises()
+
+    // §21.5: le scorciatoie del culling sono soppresse finché il
+    // lightbox è aperto — la stella non deve votare la foto sotto.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '3' }))
+    await flushPromises()
+    expect(store.flagsFor('a').rating).toBeNull()
+
+    wrapper.findComponent({ name: 'AssetViewer' }).vm.$emit('close')
+    await flushPromises()
+
+    expect(wrapper.findComponent({ name: 'AssetViewer' }).exists()).toBe(false)
+    expect(store.currentAsset?.id).toBe('a')
 
     wrapper.unmount()
   })

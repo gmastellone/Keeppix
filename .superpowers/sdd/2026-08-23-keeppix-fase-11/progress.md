@@ -4462,3 +4462,97 @@ nuovo). `npx eslint` sui file toccati e sull'intero repo → pulito
 (stesso unico errore preesistente su `PlayerView.vue`). `npm run build`
 + calcolo manuale del bundle iniziale gzip → 125.971 byte, sotto il
 budget di 153.600.
+
+## Task 8 (10/N) — Integrazione col culling (§21): ultima unità del Task 8
+
+Letto per intero §21 (`docs/ui/documento-funzionale-ui.md:3995-4092`)
+prima di scrivere codice. Discriminante unico dichiarato dal mockup:
+`isCulling` (`!!p.batchId` nel mockup). Aggiunto a `AssetViewer.vue` un
+prop `isCulling?: boolean` (default `false`, commento header esteso con
+il contratto) che governa cosa sparisce rispetto al lightbox normale:
+sezione PERSONE (`v-if="!isCulling && asset.faces.length > 0"`), sezione
+TAG e sezione ALBUM (entrambe `v-if="!isCulling"`), voce "Aggiungi ad
+album" nel menu ⋯ e nel pannello AZIONI, voce "Elimina…" nel menu ⋯ e
+nel pannello AZIONI (con relativo separatore). `loadPanelData()` salta i
+tre giri di rete corrispondenti quando `isCulling` è vero
+(`fetchTagsForAsset`/`fetchTags`/`fetchAlbumsForAsset` sostituiti da
+`Promise.resolve([])` inline) invece di limitarsi a nascondere la UI e
+lasciare partire comunque chiamate il cui risultato non verrà mai
+mostrato — niente giri a vuoto. "Rinomina…" resta ovunque, invariato,
+come da elenco esplicito del documento ("cosa resta identico").
+
+`CullingView.vue`: nuovo pulsante tondo "info" sullo stage (`aria-label`
+da `t('culling.infoButton')`, visibile solo quando
+`store.currentAsset && !store.compareMode`) che imposta
+`viewingId = store.currentAsset.id`; un computed `viewingAsset` risolve
+l'id nella `TimelineAsset` completa via l'`assetsById` già esistente nello
+store (fonte del **lotto intero**, non della sola `order` filtrata — la
+lookup "id di qualunque foto del lotto, comprese quelle escluse dal
+filtro attivo" richiesta da §21.2 viene quindi gratis, senza codice
+nuovo). `<AssetViewer>` montato in coda al template con `is-culling`,
+`:neighbors="orderedAssets"` (già il computed esistente che mappa
+`store.order` — la navigazione filtrata, esattamente quella richiesta),
+e il cuoricino agganciato al vero `useFavoritesStore()` invece che al
+campo `isFav` inesistente/write-only del mockup (stessa scelta già presa
+per il resto del pannello — vedi Task 8 1/N — di preferire la capacità
+reale del backend a una fedeltà pedante a un difetto del mockup che non
+ha giustificazione nel sistema vero).
+
+**Bug prevenuto, non solo corretto**: senza guardia, le scorciatoie del
+culling (voto, pick/reject, frecce, zoom, confronto, cancella)
+avrebbero continuato a rispondere alla tastiera mentre il lightbox è
+aperto sopra lo stage, dato che `AssetViewer.vue` registra un proprio
+listener `keydown` separato e indipendente da quello di `CullingView.
+vue` — esattamente la stessa classe di bug Esc già trovata e corretta al
+Task 8 7/N, ma qui prevenuta invece che scoperta a posteriori, perché
+questa volta il codice è stato scritto sapendo già che i due listener
+non si coordinano. Corretto con una guardia `if (viewingId.value)
+return` come **primo** controllo dentro `onKey` di `CullingView.vue`,
+prima persino di `isTypingTarget`.
+
+Ciò che il documento dichiara "resta identico" (nome file, data/ora,
+titolo, stelle, commutatore RAW/JPEG, SCATTO, POSIZIONE, filmstrip,
+frecce, barra superiore, Scarica originale/Ruota/Rinomina) non ha
+richiesto nessuna modifica: era già tutto indipendente da `isCulling`
+per costruzione. La differenziazione del breadcrumb (nome lotto/stato
+vs link cartella) resta debito dichiarato e non esteso, non a metà
+costruito: né il mockup né il backend reale hanno un'entità "lotto"
+persistita a cui puntare (`culling.start(list)` prende un array
+client-side effimero, senza nome né id) né una rotta di risoluzione nome
+cartella — la stessa classe di debito già lasciata dichiarata al Task 8
+(8/N) per "Vai alla persona"/link cartella.
+
+**Bug di test scoperto e corretto durante questa unità (non un difetto
+di produzione)**: le due prime versioni dei nuovi test in
+`CullingView.spec.ts` usavano asserzioni in italiano
+(`'Dettagli foto — EXIF, posizione, rinomina'`, `'Tag'`, `'Album'`,
+ecc.), ma questo file — a differenza di `AssetViewer.spec.ts` — non ha
+mai impostato `i18n.global.locale.value = 'it'` in nessun `beforeEach`:
+la convenzione consolidata qui è la lingua inglese di default di jsdom
+(`navigator.language === 'en-US'`), già usata da test preesistenti nello
+stesso file (`'Loading'`, `'Culling'`). Diagnosticato leggendo il DOM
+reale stampato dal fallimento (`aria-label="Photo details — EXIF,
+location, rename"`) e corretto traducendo le due nuove asserzioni in
+inglese, verificate contro le stringhe reali di `en.json`
+(`viewer.actions.{rename,download,delete,addToAlbum}`,
+`viewer.panel.{tags,albums}`) — non una correzione di codice di
+produzione, ma un promemoria dello stesso principio già annotato al Task
+8 (3/N) sulla localizzazione nei test.
+
+Verifica completa: `npx vitest run src/views/CullingView.spec.ts` → 9/9
+verdi. `npx vitest run` (intero repo) → 78 file, **639/639** verdi (2
+nuovi in `CullingView.spec.ts`). `npx vue-tsc -b` pulito. `npx eslint`
+sui file toccati (`AssetViewer.vue`, `CullingView.vue`,
+`CullingView.spec.ts`, `it.json`, `en.json`) e sull'intero repo →
+pulito (stesso unico errore preesistente su `PlayerView.vue`,
+confermato invariato). `npm run build` + calcolo manuale del bundle
+iniziale gzip (stesso algoritmo di `.github/workflows/ci.yml`) →
+125.897 byte, sotto il budget di 153.600.
+
+**Con questa unità si chiude il Task 8** ("Lightbox, pannello
+informazioni, menu ⋯", §18–21) — dieci sotto-unità, nessun debito reale
+rimasto se non le destinazioni dichiaratamente non ancora esistenti
+altrove nell'app (Persone → Task 16, ricerca volti → Task A, link
+cartella/lotto → nessuna rotta di risoluzione nome in nessuna delle due
+direzioni). Si prosegue con i Task 9–14 della Tranche B (Cerca, Mappa,
+Condivisioni, Album, Manutenzione, Impostazioni/Profilo).

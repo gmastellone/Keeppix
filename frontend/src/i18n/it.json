@@ -369,6 +369,7 @@
     "badges": { "pick": "Scelta", "reject": "Scarto" },
     "filmstrip": { "label": "Miniature della sessione" },
     "zoomLoading": "Caricamento della risoluzione piena…",
+    "infoButton": "Dettagli foto — EXIF, posizione, rinomina",
     "deleteRejects": "Elimina i {count} scarti",
     "deleteDialog": {
       "title": "Elimina {count} foto",
