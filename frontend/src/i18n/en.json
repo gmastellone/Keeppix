@@ -1,5 +1,7 @@
 {
-  "app": { "name": "Keeppix" },
+  "app": {
+    "name": "Keeppix"
+  },
   "librarySelectionActions": {
     "favoritesLabel": "Add to or remove from favorites",
     "favoritesTip": "Favorites",
@@ -14,7 +16,10 @@
     "deleteError": "Could not complete the deletion. Try again."
   },
   "ui": {
-    "dialog": { "close": "Close", "cancel": "Cancel" },
+    "dialog": {
+      "close": "Close",
+      "cancel": "Cancel"
+    },
     "toast": {
       "retry": "Retry",
       "retryRemaining": "Retry the {n} remaining",
@@ -150,7 +155,9 @@
       "signedOutOffline": "You were signed out locally; we couldn't confirm it with the server (likely a network issue)."
     }
   },
-  "home": { "logout": "Sign out" },
+  "home": {
+    "logout": "Sign out"
+  },
   "folders": {
     "entry": "Folders",
     "title": "Folders",
@@ -272,9 +279,30 @@
     }
   },
   "search": {
-    "placeholder": "Search photos…",
-    "submit": "Search",
-    "invalid": "Invalid query."
+    "placeholder": "Describe what you're looking for, or pick a tag, a camera, a folder…",
+    "clearAll": "Clear search",
+    "removePill": "Remove filter {label}",
+    "error": "The search could not be completed.",
+    "group": {
+      "tag": "Tags",
+      "camera": "Camera",
+      "folder": "Folder",
+      "iso": "ISO",
+      "year": "Year",
+      "gps": "Location",
+      "country": "Country"
+    },
+    "suggest": {
+      "gps": "Has GPS coordinates",
+      "freeTextLabel": "As a free description:",
+      "empty": "Type to search by tag, camera, folder, ISO… or describe the photo (\"sunset with a house\")."
+    },
+    "pill": {
+      "tag": "Tag: {name}",
+      "iso": "ISO {n}",
+      "year": "Year {n}",
+      "gps": "With GPS position"
+    }
   },
   "viewer": {
     "title": "Photo",
@@ -366,8 +394,13 @@
       "picks": "Picks",
       "rejects": "Rejects"
     },
-    "badges": { "pick": "Pick", "reject": "Reject" },
-    "filmstrip": { "label": "Session thumbnails" },
+    "badges": {
+      "pick": "Pick",
+      "reject": "Reject"
+    },
+    "filmstrip": {
+      "label": "Session thumbnails"
+    },
     "zoomLoading": "Loading full resolution…",
     "infoButton": "Photo details — EXIF, location, rename",
     "deleteRejects": "Delete the {count} rejects",

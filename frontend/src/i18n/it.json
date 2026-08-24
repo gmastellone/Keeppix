@@ -1,5 +1,7 @@
 {
-  "app": { "name": "Keeppix" },
+  "app": {
+    "name": "Keeppix"
+  },
   "librarySelectionActions": {
     "favoritesLabel": "Aggiungi o rimuovi dai preferiti",
     "favoritesTip": "Preferiti",
@@ -14,7 +16,10 @@
     "deleteError": "Non è stato possibile completare l'eliminazione. Riprova."
   },
   "ui": {
-    "dialog": { "close": "Chiudi", "cancel": "Annulla" },
+    "dialog": {
+      "close": "Chiudi",
+      "cancel": "Annulla"
+    },
     "toast": {
       "retry": "Riprova",
       "retryRemaining": "Riprova le {n} rimaste",
@@ -150,7 +155,9 @@
       "signedOutOffline": "Sei uscito localmente; non siamo riusciti a confermarlo con il server (probabile problema di rete)."
     }
   },
-  "home": { "logout": "Esci" },
+  "home": {
+    "logout": "Esci"
+  },
   "folders": {
     "entry": "Cartelle",
     "title": "Cartelle",
@@ -272,9 +279,30 @@
     }
   },
   "search": {
-    "placeholder": "Cerca foto…",
-    "submit": "Cerca",
-    "invalid": "Query non valida."
+    "placeholder": "Descrivi cosa cerchi, o scegli un tag, una fotocamera, una cartella…",
+    "clearAll": "Cancella la ricerca",
+    "removePill": "Rimuovi filtro {label}",
+    "error": "Non è stato possibile completare la ricerca.",
+    "group": {
+      "tag": "Tag",
+      "camera": "Fotocamera",
+      "folder": "Cartella",
+      "iso": "ISO",
+      "year": "Anno",
+      "gps": "Posizione",
+      "country": "Paese"
+    },
+    "suggest": {
+      "gps": "Ha coordinate GPS",
+      "freeTextLabel": "Come descrizione libera:",
+      "empty": "Scrivi per cercare per tag, fotocamera, cartella, ISO… oppure descrivi la foto («tramonto con casa»)."
+    },
+    "pill": {
+      "tag": "Tag: {name}",
+      "iso": "ISO {n}",
+      "year": "Anno {n}",
+      "gps": "Con posizione GPS"
+    }
   },
   "viewer": {
     "title": "Foto",
@@ -366,8 +394,13 @@
       "picks": "Scelte",
       "rejects": "Scarti"
     },
-    "badges": { "pick": "Scelta", "reject": "Scarto" },
-    "filmstrip": { "label": "Miniature della sessione" },
+    "badges": {
+      "pick": "Scelta",
+      "reject": "Scarto"
+    },
+    "filmstrip": {
+      "label": "Miniature della sessione"
+    },
     "zoomLoading": "Caricamento della risoluzione piena…",
     "infoButton": "Dettagli foto — EXIF, posizione, rinomina",
     "deleteRejects": "Elimina i {count} scarti",

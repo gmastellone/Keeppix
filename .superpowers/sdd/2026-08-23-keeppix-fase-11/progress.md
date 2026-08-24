@@ -4556,3 +4556,96 @@ altrove nell'app (Persone → Task 16, ricerca volti → Task A, link
 cartella/lotto → nessuna rotta di risoluzione nome in nessuna delle due
 direzioni). Si prosegue con i Task 9–14 della Tranche B (Cerca, Mappa,
 Condivisioni, Album, Manutenzione, Impostazioni/Profilo).
+
+## Task 9 (1/N) — Cerca: il composer a pillole (§23-24), sostituisce la sintassi digitata
+
+Letti per intero §23 e §24 (`docs/ui/documento-funzionale-ui.md:4104-4382`)
+prima di scrivere codice. `SearchView.vue` esistente non era una versione
+parziale del mockup ma un'architettura del tutto diversa: un campo +
+pulsante "Cerca" + un mini-linguaggio digitato (`type:.../camera:...`,
+`frontend/src/search/parse.ts`, con AND/OR/NOT/parentesi) mai previsto dal
+documento — che è esplicito al contrario: *"non esiste alcun altro modo
+di creare un filtro strutturato — né digitando e premendo Invio"* (§23.5).
+Riscritta la vista: pillole + un nodo `text` per la descrizione libera,
+niente sintassi, niente pulsante — la ricerca si ricalcola a ogni
+carattere (nessun debounce, come richiesto).
+
+**Il vecchio parser è stato ritirato, non lasciato spento**: `frontend/
+src/search/parse.ts` e il suo `parse.spec.ts` eliminati (il tokenizer/
+parser non aveva più alcun chiamante reale — l'unico consumatore era
+`SearchView.vue`), il tipo `SearchNode` spostato in un nuovo `frontend/
+src/search/ast.ts` (stesso enum, senza il tokenizer), esteso con `Tag{id}`
+e `Country{value}` per rispecchiare per intero `SearchNode` del backend
+(`crates/keeppix-db/src/search.rs:33-156`) nel sottoinsieme che la barra
+sa produrre.
+
+**Le sette categorie di suggerimento (§23.2) vengono da due fonti reali
+diverse, non da un'unica lista precaricata come nel mockup** — verificato
+leggendo `crates/keeppix-db/src/search.rs:396-460` (`SearchRepo::suggest`)
+prima di decidere:
+- **Tag**: `GET /search/suggest` non produce mai righe di genere `tag` —
+  il commento a codice lì lo dice esplicitamente ("la tabella dei tag non
+  esiste ancora", scritto in Fase 10 prima che la Fase 7 la creasse, mai
+  aggiornato). Costruito qui filtrando `fetchTags()` lato client (stessa
+  tecnica del mockup, ma su dati reali).
+- **Fotocamera/Cartella/ISO/Anno/Paese**: dal vero endpoint, che a
+  differenza del mockup calcola su dati reali di libreria invece che su
+  costanti cablate (l'anno "2026" e il paese "Italia" del mockup erano
+  letteralmente hardcoded nel prototipo) — usato così com'è, un
+  miglioramento reale non un compromesso.
+- **Cartella**: serviva l'intero albero appiattito, non solo le radici —
+  `fetchTree()` esistente è cablata su `?roots=true` per i due chiamanti
+  che già la usano (`FoldersView`/`SharesView`, alberi pigri). Aggiunta
+  `fetchAllFolders()` (`frontend/src/api/folders.ts`), stesso endpoint
+  senza il parametro, per non filtrare per sbaglio le sottocartelle da
+  una ricerca.
+- **Posizione (GPS)**: nessuna fonte reale — `SuggestionKind` del backend
+  non ha un genere per questo. Riprodotta pari al mockup: una riga
+  pseudo-generata quando il testo è sottostringa di "gps".
+- **Paese**: il backend restituisce il codice ISO grezzo (`p.country_code`,
+  es. "IT"), non un nome leggibile — nessuna tabella codice→nome esiste
+  altrove nell'app (verificato: nessun file "places" nel frontend).
+  Deviazione dichiarata dal mockup, che mostrava "Italia" cablato.
+
+`frontend/src/api/search.ts` aggiornato dallo stesso giro: il tipo
+`fetchSuggestions` era rimasto `{suggestions: string[]}`, ma il backend
+restituisce da tempo oggetti tipizzati (`SuggestionView{kind,value,label,
+color}`, `crates/keeppix-api/src/routes/search.rs:64-84`) — tipo corretto
+per riflettere la realtà, primo vero consumatore.
+
+**Gap di accessibilità che il documento stesso segnala come "da colmare
+nell'implementazione Vue"** (§23.5: righe di suggerimento non
+raggiungibili da tastiera nel mockup) colmati, non riprodotti: le righe
+sono `<button>` veri (tabbable di natura, non `div` con `tabindex`
+mancante come nel mockup), e le frecce ↑/↓ spostano il focus tra le righe
+del pannello aperto (`focusFirstRow`/`focusNextRow`/`focusPrevRow`), Esc
+chiude il pannello senza toccare pillole o testo.
+
+Click-fuori-chiude (§23.4) implementato con un listener `mousedown` a
+livello di `document`, montato/smontato col ciclo di vita del componente
+— non `Popover.vue` (SP-14): quel componente lega apertura/chiusura a un
+`PopoverTrigger` cliccabile e a `PopoverContent` che nella pratica di
+reka-ui gestisce anche lo spostamento del focus al contenuto — sposterebbe
+il focus fuori da `#cercaInput` mentre si digita, il contrario di quanto
+richiesto qui (il cursore deve restare nel campo). Nessun pattern
+riutilizzabile esisteva già nel repo per un dropdown ancorato a un campo
+di testo sempre attivo (verificato: l'unico `contains(target)` esistente
+è un gestore di mappa non correlato).
+
+`?photo=`/`?q=` nell'URL (SP invariata da prima di questo task) resta,
+ma `router.replace` ora fonde la query esistente invece di sovrascriverla
+(`{...route.query, q}`), altrimenti digitare mentre il lightbox è aperto
+avrebbe cancellato `?photo=` a ogni carattere.
+
+**Fuori campo per questa unità, dichiarato**: i chip del tipo file (Tutti/
+RAW/JPEG/Preferiti/Persona disabilitato, §23.3 controlli 5-9) e l'intera
+area risultati di §25 (ricerche salvate, card cartella, "Aggiunti di
+recente", riepilogo "Risultati", stato vuoto) — la griglia resta quella
+semplice preesistente, rifatta nella prossima unità.
+
+Verifica completa: `npx vitest run` → 77 file (78-1: `parse.spec.ts`
+eliminato), 648/648 verdi (15 nuovi in `SearchView.spec.ts`, contro i 3
+preesistenti riscritti). `npx vue-tsc -b` pulito. `npx eslint` sui file
+toccati e sull'intero repo → pulito (stesso unico errore preesistente su
+`PlayerView.vue`). `npm run build` + calcolo manuale del bundle iniziale
+gzip → 126.265 byte, sotto il budget di 153.600.

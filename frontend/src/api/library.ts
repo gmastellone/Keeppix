@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { SearchNode } from '@/search/parse'
+import type { SearchNode } from '@/search/ast'
 import type { TimelinePage } from './timeline'
 
 export function runSearch(ast: SearchNode, cursor?: string): Promise<TimelinePage> {
