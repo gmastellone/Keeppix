@@ -631,6 +631,8 @@
       "setPosition": "Set location…",
       "people": "People",
       "faceMenu": {
+        "goToPerson": "Go to person",
+        "goToPersonHint": "Opens all their photos",
         "correct": "Fix person…",
         "correctHint": "This face belongs to someone else",
         "notAFace": "Not a face",
@@ -834,8 +836,10 @@
     "error": "Could not update the album. Try again."
   },
   "personPicker": {
-    "title": "Choose a person",
-    "placeholder": "Search or type a name…",
+    "title": "Assign person",
+    "searchLabel": "Search or create a person",
+    "placeholder": "Search or create a person…",
+    "empty": "No person found.",
     "unnamed": "Unnamed person",
     "create": "Create person \"{name}\"",
     "error": "Couldn't complete the operation. Try again."

@@ -631,6 +631,8 @@
       "setPosition": "Imposta posizione…",
       "people": "Persone",
       "faceMenu": {
+        "goToPerson": "Vai alla persona",
+        "goToPersonHint": "Apre tutte le sue foto",
         "correct": "Correggi persona…",
         "correctHint": "Questo volto appartiene a qualcun altro",
         "notAFace": "Non è un volto",
@@ -834,8 +836,10 @@
     "error": "Non è stato possibile aggiornare l'album. Riprova."
   },
   "personPicker": {
-    "title": "Scegli una persona",
-    "placeholder": "Cerca o digita un nome…",
+    "title": "Assegna persona",
+    "searchLabel": "Cerca o crea una persona",
+    "placeholder": "Cerca o crea una persona…",
+    "empty": "Nessuna persona trovata.",
     "unnamed": "Persona senza nome",
     "create": "Crea persona \"{name}\"",
     "error": "Non è stato possibile completare l'operazione. Riprova."

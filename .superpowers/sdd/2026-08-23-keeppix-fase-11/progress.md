@@ -6044,3 +6044,57 @@ Manca ancora, nello stesso Task 16: "Scegli copertina" (§33) e
 "Dividi…" (§36) nel dettaglio; selettore di persona da riverificare
 contro §37; menu sul riquadro del volto (§38) da completare con "Vai
 alla persona"; coda "Revisione → Volti" (§39) — prossime sotto-unità.
+
+## Task 16 (3/N) — Selettore di persona (verifica riga per riga, §37) +
+completamento del menu volto (§38, "Vai alla persona")
+
+**§37 riverificato con occhi freschi, non solo riportato dal Task 8**:
+a differenza di `TagPickerDialog.vue` (Task 15, "già pienamente
+conforme, nessuna modifica necessaria"), `PersonPickerDialog.vue`
+aveva **quattro lacune reali**, trovate leggendo il documento riga per
+riga (5874-5955) e confrontandolo col componente esistente:
+1. titolo/placeholder non combaciavano ("Scegli una persona"/"Cerca o
+   digita un nome…" invece di "Assegna persona"/"Cerca o crea una
+   persona…");
+2. mancava il conteggio "N foto" per riga (§37.2, terzo punto elenco);
+3. mancava il fuoco automatico sul campo di ricerca all'apertura
+   (§37.5: "l'unico dialog di questo blocco a farlo" — `nextTick` +
+   `.focus()`, dietro al fuoco già dato gratis da reka-ui);
+4. mancava lo stato vuoto "Nessuna persona trovata." (§37.7) e il
+   pulsante "Annulla" (§37.2 punto 4) — quest'ultimo semplicemente non
+   esisteva, l'unico modo di chiudere era lo scrim/Escape di reka-ui.
+
+Tutte e quattro chiuse in questa unità. Nuovo test dedicato
+`PersonPickerDialog.spec.ts` (7 casi, nessuno esisteva prima — il
+componente era finora esercitato solo indirettamente da
+`AssetViewer.spec.ts`).
+
+**§38 "Vai alla persona" costruito**: era omesso di proposito nel Task
+8 ("nessuna vista Persone esiste ancora — ometterlo è più onesto di un
+finto toast"), ora reale (`AssetViewer.vue`: chiude il menu, chiude il
+lightbox con `emit('close')`, `router.push('/persons/{id}')`). Le due
+descrizioni sotto le altre due opzioni (`correctHint`/`notAFaceHint`)
+erano già tradotte nell'i18n ma **mai rese a schermo** — chiavi morte
+trovate verificando §38.2 ("titolo in grassetto su riga propria e
+descrizione sotto"), ora visualizzate per tutte e tre le opzioni.
+
+**Deviazione reale dichiarata, non corretta qui**: il menu resta un
+`Popover` ancorato, non il dialog modale che il documento richiede
+esplicitamente (§38/§40 SP-14: "**non** usa questo pattern"). Riscrivere
+il contenitore toccherebbe anche l'hover/focus dei riquadri sulla foto
+(200ms di tolleranza, §38.4-5) per un guadagno di sola fedeltà
+strutturale — annotato per l'architetto, non nello scope di questa
+sotto-unità di completamento contenuti.
+
+Verifica completa: `npx vue-tsc -b` pulito. `npx eslint` sull'intero
+repo → 1 solo errore preesistente (`PlayerView.vue`), nessun errore
+nuovo. `npx vitest run` → 98 file, **848/848** verdi (+8: 7 nuovi in
+`PersonPickerDialog.spec.ts`, 1 nuovo in `AssetViewer.spec.ts` per "Vai
+alla persona"; due test esistenti aggiornati perché il testo dei
+pulsanti del menu ora porta anche la riga di descrizione, non solo il
+titolo). `npm run build` + calcolo manuale del bundle iniziale gzip →
+141.153 byte, sotto il budget di 153.600.
+
+Manca ancora, nello stesso Task 16: "Scegli copertina" (§33) e
+"Dividi…" (§36) nel dettaglio; coda "Revisione → Volti" (§39) —
+prossime sotto-unità.

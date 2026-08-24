@@ -743,8 +743,8 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
     const chip = wrapper.findAll('button').find((b) => b.text() === 'Anna')!
     await chip.trigger('click')
     await flushPromises()
-    const notAFaceButton = Array.from(document.body.querySelectorAll('button.text-danger')).find(
-      (b) => b.textContent?.trim() === 'Non è un volto'
+    const notAFaceButton = Array.from(document.body.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Non è un volto')
     )
     notAFaceButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
@@ -772,14 +772,14 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
     const chip = wrapper.findAll('button').find((b) => b.text() === 'Anna')!
     await chip.trigger('click')
     await flushPromises()
-    const correctButton = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Correggi persona…'
+    const correctButton = Array.from(document.body.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Correggi persona…')
     )
     correctButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
 
-    const marcoButton = Array.from(document.body.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Marco'
+    const marcoButton = Array.from(document.body.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Marco')
     )
     expect(marcoButton).toBeTruthy()
     marcoButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -790,6 +790,39 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ person_id: 'p9' }) })
     )
     expect(toast.toasts.at(-1)?.message).toBe('Persona corretta.')
+  })
+
+  it('§38.3 controllo 1 "Vai alla persona" closes the lightbox and navigates to the person detail route', async () => {
+    const { createMemoryHistory, createRouter } = await import('vue-router')
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div/>' } }, { path: '/persons/:id', component: { template: '<div/>' } }]
+    })
+    await router.push('/')
+    await router.isReady()
+
+    mockPanelFetch({ faces: [face('f1', 'p1')] })
+    wrapper = mount(AssetViewer, {
+      props: {
+        asset: personWithFaces([{ person_id: 'p1', person_name: 'Anna' }]),
+        isFavorite: false
+      },
+      global: { plugins: [i18n, router], stubs: { MapClusterLayer: true } },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    const chip = wrapper.findAll('button').find((b) => b.text() === 'Anna')!
+    await chip.trigger('click')
+    await flushPromises()
+    const goToPersonButton = Array.from(document.body.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Vai alla persona')
+    )
+    goToPersonButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(wrapper.emitted('close')).toBeTruthy()
+    expect(router.currentRoute.value.path).toBe('/persons/p1')
   })
 })
 

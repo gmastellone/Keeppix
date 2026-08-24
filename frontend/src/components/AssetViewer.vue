@@ -68,12 +68,19 @@
 //   il nome di una cartella dal solo `folder_id` (`GET /folders/{id}`
 //   non esiste, solo `tree`/`{id}/children`) — costruirla per una sola
 //   riga di sottotitolo non è nello scopo di questa unità.
-// - "Vai alla persona" (§19.3, prima voce del menu del chip) omesso, non
-//   sostituito da un toast: nessuna vista "Persone" esiste ancora (Task
-//   16, Tranche D) — a differenza di "Ruota"/"Scarica" (demo-toast già
-//   nel mockup originale), qui il mockup naviga davvero verso una
-//   schermata reale, quindi ometterlo è più onesto di un finto toast su
-//   un bottone che promette una destinazione che non c'è.
+// - "Vai alla persona" (§19.3/§38, prima voce del menu del chip): era
+//   omesso qui (debito dichiarato: "nessuna vista Persone esiste
+//   ancora"), costruito nel Task 16 (3/N) ora che `/persons/:id` esiste
+//   — chiude il menu, chiude il lightbox (`emit('close')`), naviga.
+// - **Il menu sul riquadro del volto resta un `Popover` ancorato, non un
+//   dialog modale** (Task 16 3/N, verificato contro §38/§40 SP-14: "il
+//   menu sul riquadro del volto **non** usa questo pattern: è un dialog
+//   modale, non un menu a comparsa ancorato" — deviazione reale, non
+//   corretta qui: riscrivere il contenitore da `Popover` a `Dialog`
+//   toccherebbe anche l'hover/focus dei riquadri sulla foto (§38.4-5,
+//   200 ms di tolleranza) per un guadagno di fedeltà strutturale, non di
+//   contenuto — le tre opzioni con titolo+descrizione (§38.2) sono ora
+//   comunque tutte presenti e reali).
 // - Il chip "+ aggiungi" delle persone (§19.2 riga 13, ultimo chip) non
 //   è costruito: aggiungere una persona a mano crea un volto **senza**
 //   rilevamento dietro (`box:null` nel mockup), ma `Face.bbox` nel
@@ -101,6 +108,7 @@
 // controllato prima di ricadere sull'`emit('close')` del lightbox.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import { deleteAsset, fetchFlags, setFlags, unvotedFlags } from '@/api/culling'
 import type { AssetFlags, DiskAction } from '@/api/culling'
@@ -171,6 +179,7 @@ const emit = defineEmits<{
 const { t, locale } = useI18n()
 const maps = useMapsStore()
 const toast = useToastStore()
+const router = useRouter()
 
 /** §19.8: "forzato aperto a ogni `openLightbox()` (e all'apertura dal
  * culling)" — non chiuso di default come nella versione precedente di
@@ -436,6 +445,17 @@ function scheduleHideBoxes() {
 }
 
 const visibleFaces = computed(() => faces.value.filter((face) => face.person_id === hoveredPersonId.value))
+
+// §19.3/§38.3 controllo 1, "Vai alla persona": chiude il menu, chiude il
+// lightbox, passa alla vista Persone e apre il dettaglio — reale da
+// quando la rotta `/persons/:id` esiste (Task 16 1/N). Era omesso di
+// proposito nel Task 8 (commento di testa del file): "nessuna vista
+// Persone esiste ancora... ometterlo è più onesto di un finto toast".
+function goToPerson(personId: string) {
+  openFaceMenuPersonId.value = null
+  emit('close')
+  void router.push(`/persons/${personId}`)
+}
 
 function openCorrectPerson(personId: string) {
   const faceId = faceIdFor(personId)
@@ -1168,20 +1188,30 @@ const coordsLabel = computed(() => {
                   {{ personDisplayName(person.person_name) }}
                 </button>
               </template>
-              <div class="flex w-[200px] flex-col gap-0.5 py-0.5 text-[13px] text-[var(--color-content)]">
+              <div class="flex w-[260px] flex-col gap-0.5 py-0.5 text-[var(--color-content)]">
+                <button
+                  type="button"
+                  class="rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-chip-bg)]"
+                  @click="goToPerson(person.person_id)"
+                >
+                  <span class="block text-[13px] font-semibold">{{ t('viewer.panel.faceMenu.goToPerson') }}</span>
+                  <span class="block text-[12.5px] text-content-muted">{{ t('viewer.panel.faceMenu.goToPersonHint') }}</span>
+                </button>
                 <button
                   type="button"
                   class="rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-chip-bg)]"
                   @click="openCorrectPerson(person.person_id)"
                 >
-                  {{ t('viewer.panel.faceMenu.correct') }}
+                  <span class="block text-[13px] font-semibold">{{ t('viewer.panel.faceMenu.correct') }}</span>
+                  <span class="block text-[12.5px] text-content-muted">{{ t('viewer.panel.faceMenu.correctHint') }}</span>
                 </button>
                 <button
                   type="button"
-                  class="rounded-md px-2.5 py-2 text-left text-danger hover:bg-[var(--color-chip-bg)]"
+                  class="rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-chip-bg)]"
                   @click="markNotAFace(person.person_id)"
                 >
-                  {{ t('viewer.panel.faceMenu.notAFace') }}
+                  <span class="block text-[13px] font-semibold text-danger">{{ t('viewer.panel.faceMenu.notAFace') }}</span>
+                  <span class="block text-[12.5px] text-content-muted">{{ t('viewer.panel.faceMenu.notAFaceHint') }}</span>
                 </button>
               </div>
             </Popover>
