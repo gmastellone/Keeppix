@@ -4364,3 +4364,54 @@ cartella/lotto nella riga data/ora, commutatore RAW/JPEG, "Vai alla
 persona", chip "+ aggiungi" delle persone (Task A). Il Task 8 prosegue
 con §21 (integrazione culling, `CullingView.vue` non monta ancora
 `<AssetViewer>`) come ultima unità dichiarata, poi il Task 8 è chiuso.
+
+## Task 8 (8/N) — Commutatore RAW/JPEG: chiude l'ultimo debito reale di §19
+
+Nuovo `frontend/src/api/stacks.ts` (`fetchStack`, primo consumo di
+`GET /assets/{id}/stack`, Fase 10 — mai chiamata dal frontend finora).
+
+**Deviazione deliberata e migliorativa rispetto al mockup, dichiarata fin
+dal Task 8 (1/N)**: il documento descrive il commutatore come puramente
+cosmetico — "l'unico effetto osservabile è quale delle due chip è
+evidenziata... non cambia l'immagine mostrata... non cambia il
+comportamento di 'Scarica originale'" — e lo indica esplicitamente come
+uno dei punti in cui "il backend dovrà fare qualcosa di vero: scegliere
+quale dei due file della pila viene decodificato, mostrato e scaricato".
+Qui la selezione **cambia davvero** cosa mostra lo stage e cosa scarica
+"Scarica originale" (sia nel pannello AZIONI sia nel menu ⋯, stesso
+`downloadTarget` condiviso). Nessun lavoro nuovo lato `keeppix-media`
+serviva per la decodifica: `/media/preview/{hash}` genera già
+un'anteprima per i file RAW (le miniature RAW funzionano ovunque
+nell'app da prima di questa unità) — mancava solo instradare la scelta
+dell'utente al `content_hash`/`id` del membro giusto dello stack, che è
+esattamente ciò che questa unità collega.
+
+Tre stati, dalla lettura di `StackMemberView`
+(`crates/keeppix-api/src/routes/stacks.rs:16-20`, ogni membro è un
+`AssetView` completo via `AssetView::from_asset` — **non**
+`from_asset_with_stack` — quindi porta il proprio `raw_kind` per-file,
+non quello aggregato dello stack, permettendo di distinguere il membro
+RAW da quello JPEG): `raw_kind==='raw+jpeg'` → due chip cliccabili (RAW/
+JPEG, dimensioni reali da `size_bytes` via `Intl.NumberFormat` — virgola
+italiana verificata dal test, "4,2 MB"); `raw_kind==='raw'` senza membri
+nello stack → una chip sola, sempre attiva, non cliccabile, con
+"nessun JPEG associato"; `raw_kind` null/`'jpeg'` → nessun blocco, nessuna
+richiesta a `/stack` (verificato esplicitamente con un test dedicato —
+niente giro a vuoto per l'immensa maggioranza delle foto che non sono
+RAW).
+
+Verifica completa: `npx vue-tsc -b` pulito. `npx vitest run` → 78 file,
+636/636 verdi (34 test in `AssetViewer.spec.ts`, 3 nuovi: due chip con
+switch reale di stage+download, chip singola non cliccabile per RAW
+senza JPEG, nessun blocco/nessuna richiesta per un JPEG semplice). `npx
+eslint` sui file toccati e sull'intero repo → pulito (stesso unico
+errore preesistente su `PlayerView.vue`). `npm run build` + calcolo
+manuale del bundle iniziale gzip → 125.977 byte, sotto il budget di
+153.600.
+
+**Con questa unità si chiude l'ultimo debito reale (non di destinazione
+mancante) dichiarato per §19.** Restano dichiarati e non costruiti:
+link cartella/lotto (nessuna rotta di risoluzione nome), "Vai alla
+persona" e "+ aggiungi" delle persone (destinazioni che non esistono
+ancora altrove nell'app — Task 16 e Task A). Il Task 8 prosegue con §21
+(integrazione culling) come ultima unità dichiarata.

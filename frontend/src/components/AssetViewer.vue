@@ -1,21 +1,25 @@
 <script setup lang="ts">
-// Fase 11 Task 8 (2/N…7/N) — documento funzionale §18 ("Lightbox —
+// Fase 11 Task 8 (2/N…8/N) — documento funzionale §18 ("Lightbox —
 // struttura e barra superiore"), §19 ("Pannello informazioni") e §20
 // ("Menu 'altre azioni' ⋯"). La 2/N ha riscritto il segnaposto precedente
 // (151 righe) con barra superiore, stage con frecce, filmino e menu ⋯. La
 // 3/N ha aggiunto titolo modificabile, valutazione a stelle, sezione
 // SCATTO. La 4/N ha completato la sezione POSIZIONE. La 5/N ha aggiunto
 // la sezione PERSONE e i riquadri volto. La 6/N ha aggiunto la sezione
-// TAG. La 7/N (questa) chiude §19 con le ultime due sezioni: ALBUM (elenco
-// di sola lettura via `AlbumRepo::for_asset`, Task 8 1/N — mai consumato
-// dal frontend finora — più "+ aggiungi" che riusa lo stesso
-// `AlbumPickerDialog`/`albumDialogOpen` già cablato dal menu ⋯ nel Task 8
-// 2/N: un solo dialog, due punti d'ingresso) e AZIONI (le stesse cinque
-// voci del menu ⋯, come pulsanti visibili invece che in un popover — il
-// documento le dichiara esplicitamente identiche: "le stesse della
-// sezione AZIONI del pannello informazioni"). Con questa unità §19 è
-// costruito per intero, salvo il debito dichiarato sotto (mai taciuto in
-// nessuna delle sette unità).
+// TAG. La 7/N ha chiuso §19 con ALBUM e AZIONI. La 8/N (questa) ha
+// costruito il commutatore RAW/JPEG (§19.2 riga 5) — **non** come nel
+// mockup (dove "l'unico effetto osservabile è quale chip è evidenziata",
+// l'immagine mostrata non cambia mai): qui la selezione cambia davvero
+// cosa viene mostrato sullo stage e cosa scarica "Scarica originale", il
+// punto che il documento stesso indica come "il backend dovrà fare
+// qualcosa di vero: scegliere quale dei due file della pila viene
+// decodificato, mostrato e scaricato" — decodifica e mostra funzionano
+// già gratis via `/media/preview/{hash}` (i RAW hanno già un'anteprima
+// derivata, stesso motivo per cui le miniature RAW funzionano ovunque
+// nell'app), serviva solo instradare la scelta dell'utente al membro
+// giusto dello stack (`GET /assets/{id}/stack`, Fase 10, primo consumo
+// frontend). Con questa unità §19 è costruito per intero, salvo il
+// debito dichiarato sotto (mai taciuto in nessuna delle otto unità).
 //
 // **Deviazione deliberata dal mockup, non un debito**: il documento
 // descrive tre stati di chip per un tag confermato — "applicato dall'IA,
@@ -47,9 +51,6 @@
 //   il nome di una cartella dal solo `folder_id` (`GET /folders/{id}`
 //   non esiste, solo `tree`/`{id}/children`) — costruirla per una sola
 //   riga di sottotitolo non è nello scopo di questa unità.
-// - Il commutatore RAW/JPEG (§19.2 riga 5) non è ancora costruito: serve
-//   `GET /assets/{id}/stack` (esiste lato backend, nessun wrapper
-//   frontend ancora) — prossima unità.
 // - "Vai alla persona" (§19.3, prima voce del menu del chip) omesso, non
 //   sostituito da un toast: nessuna vista "Persone" esiste ancora (Task
 //   16, Tranche D) — a differenza di "Ruota"/"Scarica" (demo-toast già
@@ -91,6 +92,7 @@ import { fetchAlbumsForAsset, type AlbumBadge } from '@/api/albums'
 import { assignFace, fetchFacesForAsset, rejectFace, type Face } from '@/api/faces'
 import { fetchMetadata, patchMetadata, type AssetMetadata } from '@/api/metadata'
 import { originalSrc, previewSrc as mediaPreviewSrc, thumbSrc as mediaThumbSrc } from '@/api/media'
+import { fetchStack, type StackMember } from '@/api/stacks'
 import {
   confirmTagProposal,
   fetchTags,
@@ -189,7 +191,24 @@ function previewSrc(asset: TimelineAsset): string {
     : `/media/original/${asset.id}`
 }
 
-const src = computed(() => previewSrc(props.asset))
+/** §19.2 riga 5, commutatore RAW/JPEG: a differenza del mockup ("l'unico
+ * effetto osservabile è quale chip è evidenziata... non cambia l'immagine
+ * mostrata"), qui la selezione **cambia davvero cosa viene mostrato e
+ * scaricato** — il documento stesso lo indica come uno dei punti in cui
+ * "il backend dovrà fare qualcosa di vero: scegliere quale dei due file
+ * della pila viene decodificato, mostrato e scaricato". `stackMembers`
+ * arriva solo per un asset `raw_kind` `'raw'`/`'raw+jpeg'` (mai per un
+ * JPEG semplice, che non ha uno stack). */
+const stackMembers = ref<StackMember[]>([])
+const selectedStackMemberId = ref<string | null>(null)
+const rawMember = computed(() => stackMembers.value.find((m) => m.raw_kind === 'raw'))
+const jpegMember = computed(() => stackMembers.value.find((m) => m.raw_kind === 'jpeg'))
+const selectedStackMember = computed(() =>
+  stackMembers.value.find((m) => m.id === selectedStackMemberId.value)
+)
+
+const src = computed(() => previewSrc(selectedStackMember.value ?? props.asset))
+const downloadTarget = computed(() => selectedStackMember.value ?? props.asset)
 
 const currentIndex = computed(() => props.neighbors.findIndex((n) => n.id === props.asset.id))
 const prevAsset = computed(() =>
@@ -274,16 +293,26 @@ async function loadPanelData() {
   // Niente giro a vuoto: `asset.faces` (già nel prop, senza fetch) dice se
   // la foto ha volti confermati prima ancora di chiedere i riquadri.
   const needsFaces = props.asset.faces.length > 0
-  const [metadataResult, detailResult, flagsResult, facesResult, tagsResult, categoriesResult, albumsResult] =
-    await Promise.allSettled([
-      fetchMetadata(assetId),
-      fetchAsset(assetId),
-      fetchFlags(assetId),
-      needsFaces ? fetchFacesForAsset(assetId) : Promise.resolve([]),
-      fetchTagsForAsset(assetId),
-      fetchTags(),
-      fetchAlbumsForAsset(assetId)
-    ])
+  const needsStack = props.asset.raw_kind === 'raw' || props.asset.raw_kind === 'raw+jpeg'
+  const [
+    metadataResult,
+    detailResult,
+    flagsResult,
+    facesResult,
+    tagsResult,
+    categoriesResult,
+    albumsResult,
+    stackResult
+  ] = await Promise.allSettled([
+    fetchMetadata(assetId),
+    fetchAsset(assetId),
+    fetchFlags(assetId),
+    needsFaces ? fetchFacesForAsset(assetId) : Promise.resolve([]),
+    fetchTagsForAsset(assetId),
+    fetchTags(),
+    fetchAlbumsForAsset(assetId),
+    needsStack ? fetchStack(assetId) : Promise.resolve({ stack_id: null, primary_asset_id: null, members: [] })
+  ])
   if (sequence !== panelRequestSequence || assetId !== props.asset.id) return
   metadata.value = metadataResult.status === 'fulfilled' ? metadataResult.value : undefined
   detail.value = detailResult.status === 'fulfilled' ? detailResult.value : undefined
@@ -291,6 +320,8 @@ async function loadPanelData() {
   faces.value = facesResult.status === 'fulfilled' ? facesResult.value : []
   assetTags.value = tagsResult.status === 'fulfilled' ? tagsResult.value : []
   assetAlbums.value = albumsResult.status === 'fulfilled' ? albumsResult.value : []
+  stackMembers.value = stackResult.status === 'fulfilled' ? stackResult.value.members : []
+  selectedStackMemberId.value = assetId
   categories.value =
     categoriesResult.status === 'fulfilled' ? categoriesResult.value.filter((tag) => tag.kind === 'category') : []
   titleDraft.value = metadata.value?.title ?? ''
@@ -547,6 +578,8 @@ watch(
     hoveredPersonId.value = null
     assetTags.value = []
     assetAlbums.value = []
+    stackMembers.value = []
+    selectedStackMemberId.value = null
     placeName.value = null
     titleDraft.value = ''
     if (info.value) void loadPanelData()
@@ -612,6 +645,14 @@ const exposureLine = computed(() => {
 
 function formatFNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function formatMB(bytes: number): string {
+  return new Intl.NumberFormat(locale.value, { maximumFractionDigits: 1 }).format(bytes / 1_000_000)
+}
+
+function selectStackMember(member: StackMember) {
+  selectedStackMemberId.value = member.id
 }
 
 const cameraLine = computed(() => {
@@ -771,8 +812,8 @@ const coordsLabel = computed(() => {
           </template>
           <div class="flex w-[188px] flex-col gap-0.5 py-0.5 text-[13px] text-[var(--color-content)]">
             <a
-              :href="originalSrc(asset.id)"
-              :download="asset.filename"
+              :href="originalSrc(downloadTarget.id)"
+              :download="downloadTarget.filename"
               class="rounded-md px-2.5 py-2 hover:bg-[var(--color-chip-bg)]"
               @click="moreOpen = false"
             >
@@ -915,6 +956,41 @@ const coordsLabel = computed(() => {
           :rating="flags?.rating ?? null"
           @rate="rate"
         />
+
+        <div
+          v-if="jpegMember"
+          class="mt-3 flex gap-1.5"
+        >
+          <button
+            v-if="rawMember"
+            type="button"
+            class="rounded-md border px-2 py-1 text-[11px]"
+            :class="selectedStackMemberId === rawMember.id
+              ? 'border-accent bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] text-accent'
+              : 'border-[#232323] bg-[#1a1a1a] text-[#9a9a9e]'"
+            @click="selectStackMember(rawMember)"
+          >
+            {{ t('viewer.panel.rawChip', { size: formatMB(rawMember.size_bytes) }) }}
+          </button>
+          <button
+            type="button"
+            class="rounded-md border px-2 py-1 text-[11px]"
+            :class="selectedStackMemberId === jpegMember.id
+              ? 'border-accent bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] text-accent'
+              : 'border-[#232323] bg-[#1a1a1a] text-[#9a9a9e]'"
+            @click="selectStackMember(jpegMember)"
+          >
+            {{ t('viewer.panel.jpegChip', { size: formatMB(jpegMember.size_bytes) }) }}
+          </button>
+        </div>
+        <div
+          v-else-if="asset.raw_kind === 'raw'"
+          class="mt-3"
+        >
+          <span class="rounded-md border border-accent bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] px-2 py-1 text-[11px] text-accent">
+            {{ t('viewer.panel.rawOnlyChip', { size: formatMB(asset.size_bytes) }) }}
+          </span>
+        </div>
 
         <section
           v-if="cameraLine || detail?.full_exif?.lens || exposureLine || dimensionsLine"
@@ -1170,8 +1246,8 @@ const coordsLabel = computed(() => {
           </h2>
           <div class="flex flex-wrap gap-2">
             <a
-              :href="originalSrc(asset.id)"
-              :download="asset.filename"
+              :href="originalSrc(downloadTarget.id)"
+              :download="downloadTarget.filename"
               class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs hover:bg-[#1f1f1f]"
             >
               {{ t('viewer.menu.download') }}

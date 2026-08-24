@@ -1003,3 +1003,89 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
     expect(document.body.textContent).toContain('1 foto — a.jpg')
   })
 })
+
+describe('AssetViewer — commutatore RAW/JPEG (§19.2 riga 5)', () => {
+  function stackMember(id: string, rawKind: 'raw' | 'jpeg', sizeBytes: number) {
+    return { ...photo(id), raw_kind: rawKind, size_bytes: sizeBytes, content_hash: `${id}${'b'.repeat(63)}`.slice(0, 64) }
+  }
+
+  function mockPanelFetch(opts: { members?: ReturnType<typeof stackMember>[] } = {}) {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (isArrayEndpoint(path)) return Promise.resolve([])
+      if (path.endsWith('/metadata') && method === 'GET') {
+        return Promise.resolve({
+          title: null,
+          description: null,
+          taken_at: null,
+          location: null,
+          place_id: null,
+          orientation: null
+        })
+      }
+      if (path.endsWith('/flags') && method === 'GET') {
+        return Promise.resolve({ rating: null, pick: 'none', color_label: null, favorite: false })
+      }
+      if (path.endsWith('/stack') && method === 'GET') {
+        return Promise.resolve({ stack_id: 's1', primary_asset_id: 'a', members: opts.members ?? [] })
+      }
+      // GET /api/v1/assets/{id} (dettaglio)
+      return Promise.resolve({ ...photo('a') })
+    })
+  }
+
+  let wrapper: ReturnType<typeof mount> | undefined
+  afterEach(() => wrapper?.unmount())
+
+  it('raw+jpeg: renders both chips; clicking the RAW one switches the stage image and the download target', async () => {
+    const raw = stackMember('a-raw', 'raw', 62_000_000)
+    const jpg = stackMember('a', 'jpeg', 4_200_000)
+    mockPanelFetch({ members: [raw, jpg] })
+    wrapper = mount(AssetViewer, {
+      props: { asset: { ...photo('a'), raw_kind: 'raw+jpeg' }, isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('RAW · 62 MB')
+    expect(wrapper.text()).toContain('JPEG · 4,2 MB')
+    // Aperta come "a" (il membro JPEG): lo stage mostra già quel file.
+    expect(wrapper.get('img[alt="a.jpg"]').attributes('src')).toBe(previewSrc(jpg.content_hash!))
+
+    const rawButton = wrapper.findAll('button').find((b) => b.text() === 'RAW · 62 MB')!
+    await rawButton.trigger('click')
+
+    expect(wrapper.get('img[alt="a.jpg"]').attributes('src')).toBe(previewSrc(raw.content_hash!))
+    const downloadLink = wrapper.findAll('a').find((a) => a.text() === 'Scarica originale')!
+    expect(downloadLink.attributes('href')).toBe('/media/original/a-raw')
+    expect(downloadLink.attributes('download')).toBe('a-raw.jpg')
+  })
+
+  it('raw_only (no JPEG sibling): a single non-clickable chip with the exact label', async () => {
+    mockPanelFetch({ members: [] })
+    wrapper = mount(AssetViewer, {
+      props: { asset: { ...photo('a'), raw_kind: 'raw', size_bytes: 62_000_000 }, isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('RAW · 62 MB · nessun JPEG associato')
+    expect(wrapper.findAll('button').filter((b) => b.text().startsWith('RAW'))).toHaveLength(0)
+  })
+
+  it('plain jpeg (raw_kind null): no RAW/JPEG block at all, and no /stack request', async () => {
+    mockPanelFetch()
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('RAW')
+    expect(wrapper.text()).not.toContain('JPEG ·')
+    expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining('/stack'))
+  })
+})
