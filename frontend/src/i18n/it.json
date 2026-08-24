@@ -164,6 +164,20 @@
     "emptyTitle": "Nessun preferito ancora",
     "emptySubtitle": "Premi il cuore su una foto per ritrovarla qui."
   },
+  "browseFilter": {
+    "type": "Tipo",
+    "typeOption": {
+      "raw+jpeg": "RAW+JPEG",
+      "raw": "RAW",
+      "jpeg": "JPEG"
+    },
+    "person": "Persone",
+    "unnamedPerson": "Persona senza nome",
+    "tag": "Tag",
+    "category": "Categorie",
+    "camera": "Fotocamera",
+    "folder": "Luogo"
+  },
   "nav": {
     "foto": "Foto",
     "cerca": "Cerca",

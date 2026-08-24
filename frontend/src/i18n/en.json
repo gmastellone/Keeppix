@@ -164,6 +164,20 @@
     "emptyTitle": "No favorites yet",
     "emptySubtitle": "Tap the heart on a photo to find it here."
   },
+  "browseFilter": {
+    "type": "Type",
+    "typeOption": {
+      "raw+jpeg": "RAW+JPEG",
+      "raw": "RAW",
+      "jpeg": "JPEG"
+    },
+    "person": "People",
+    "unnamedPerson": "Unnamed person",
+    "tag": "Tags",
+    "category": "Categories",
+    "camera": "Camera",
+    "folder": "Location"
+  },
   "nav": {
     "foto": "Photos",
     "cerca": "Search",

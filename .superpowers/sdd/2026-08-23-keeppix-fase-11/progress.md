@@ -3444,3 +3444,64 @@ Quanto segue è il massimo verificabile senza un database reale:
   Rust con dipendenze pesanti (aws-sdk, tokenizers, ort). Risolto con
   `cargo clean` (26 GB liberati); tutte le verifiche sopra erano già
   state fatte prima dell'incidente, nessuna ripetuta con dati stantii.
+
+## Task 7 (5/N) — `useBrowseFilters`: le sei dimensioni reali di SP-3 (§11)
+
+**Ambito**: solo il composable che dà dati veri alle sei dimensioni
+che `QuickFilter.vue` (Task 2) aspettava già, generico, dalla sua
+stessa nascita — nessun cablaggio in `TimelineView.vue`/
+`FavoritesView.vue` ancora, quella è la prossima unità di questo
+stesso Task 7.
+
+`design/quickFilter.ts`'s `matchesFilters` fa già AND-fra-dimensioni/
+OR-dentro-una-dimensione (§11.3): trattare "Tag" e "Categorie" come
+due voci separate di `dimensions[]`, invece di un caso speciale,
+riproduce da sola l'esempio del documento senza logica dedicata; una
+"Persone" con lista vuota (nessuna persona visibile con almeno un
+volto, §11.2) non compare affatto nel pannello e non serve nemmeno un
+controllo esplicito nella combinazione — se una selezione Persone
+restasse comunque impostata, `getValues` non restituirebbe mai quel
+valore e `matchesFilters` la azzera da sola (il "ritorna falso secco"
+del documento, ottenuto gratis dalla genericità, non da un `if` in
+più).
+
+Le sei dimensioni e le loro fonti, verificate sul codice reale prima
+di scrivere, non presunte:
+- **Tipo** — tre opzioni fisse RAW+JPEG/RAW/JPEG, nessuna fonte dati.
+- **Persone** — `GET /persons` (`api/persons.ts`, nuovo), filtrato a
+  `!hidden && face_count > 0` (stesso criterio di "visibili con
+  almeno una foto" già usato altrove in questa sessione per lo stesso
+  endpoint).
+- **Tag** / **Categorie** — `GET /tags` (`api/tags.ts`, già esistente
+  da Task 7 (4/N)), diviso per `kind`.
+- **Fotocamera** — `camera_model` distinto fra gli asset già caricati
+  in memoria (nessuna chiamata di rete: il campo arriva già dentro
+  `TimelineAsset` da Task 7 (4/N)).
+- **Luogo** — `shell.folders`, già in store, nessuna chiamata nuova.
+
+Nuovo namespace i18n `browseFilter.*` (`it.json`/`en.json`, sette
+chiavi + tre `typeOption.*`), nessun endpoint nuovo lato backend: la
+premessa del messaggio dell'utente ("controlla PRIMA se bastano
+quelli esistenti") si è confermata su tutti e sei i punti.
+
+Verifica eseguita per intero:
+- `npx vitest run src/composables/useBrowseFilters.spec.ts` → 9/9
+  verdi (dopo un fix di tempistica: il primo giro usava due
+  `$nextTick()` in sequenza per aspettare il `Promise.all` di
+  `onMounted`, insufficiente; sostituito con `flushPromises()` da
+  `@vue/test-utils`, stesso correttivo già usato con successo in
+  questa sessione su `AlbumPickerDialog.spec.ts`).
+- `npx vitest run` (suite intera) → 75 file, 571/571 verdi.
+- `npx vue-tsc -b` → un errore reale trovato e corretto (`wrapper`
+  distrutto ma mai letto in quattro test, residuo del passaggio da
+  `$nextTick()` a `flushPromises()`: rimosso dalla destrutturazione),
+  poi pulito.
+- `npx eslint` su `useBrowseFilters.ts`/`.spec.ts` → pulito.
+- `npm run build` + calcolo manuale del bundle iniziale gzip (stesso
+  algoritmo esatto di `.github/workflows/ci.yml`: somma di
+  `index-*.js` + `client-*.js` + `index-*.css`, i soli asset che
+  `dist/index.html` carica subito) → 123.150 byte, sotto il budget di
+  153.600 (nessuna vista consuma ancora il composable, quindi questo
+  numero non riflette il costo finale del cablaggio — sarà
+  ricontrollato quando `TimelineView.vue`/`FavoritesView.vue` lo
+  importeranno davvero).
