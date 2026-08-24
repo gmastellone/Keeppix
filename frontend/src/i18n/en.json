@@ -317,7 +317,18 @@
         "notAFaceHint": "False positive — never suggested again"
       },
       "personCorrected": "Person fixed.",
-      "notAFaceToast": "Marked as \"not a face\" — it won't be suggested again."
+      "notAFaceToast": "Marked as \"not a face\" — it won't be suggested again.",
+      "tags": "Tags",
+      "tagsPending": "Awaiting confirmation",
+      "tagNoCategory": "No category",
+      "tagAdd": "+ add",
+      "tagRemove": "Remove tag {name}",
+      "tagConfirm": "Confirm tag {name}",
+      "tagReject": "Reject suggestion {name}",
+      "tagConfirmedToast": "Tag confirmed.",
+      "tagRejectedToast": "Suggestion rejected — it won't be suggested again.",
+      "tagRemovedToast": "Tag removed.",
+      "tagError": "Couldn't complete the operation. Try again."
     }
   },
   "player": {

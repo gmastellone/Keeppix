@@ -317,7 +317,18 @@
         "notAFaceHint": "Falso positivo — non verrà mai più riproposto"
       },
       "personCorrected": "Persona corretta.",
-      "notAFaceToast": "Segnato come \"non è un volto\" — non verrà più riproposto."
+      "notAFaceToast": "Segnato come \"non è un volto\" — non verrà più riproposto.",
+      "tags": "Tag",
+      "tagsPending": "In attesa di conferma",
+      "tagNoCategory": "Senza categoria",
+      "tagAdd": "+ aggiungi",
+      "tagRemove": "Rimuovi tag {name}",
+      "tagConfirm": "Conferma tag {name}",
+      "tagReject": "Rifiuta suggerimento {name}",
+      "tagConfirmedToast": "Tag confermato.",
+      "tagRejectedToast": "Suggerimento rifiutato — non verrà riproposto.",
+      "tagRemovedToast": "Tag rimosso.",
+      "tagError": "Non è stato possibile completare l'operazione. Riprova."
     }
   },
   "player": {

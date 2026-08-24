@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Face } from '@/api/faces'
+import type { AssetTagDetail, Tag } from '@/api/tags'
 import type { TimelineAsset } from '@/api/timeline'
 import { i18n } from '@/i18n'
 import { useToastStore } from '@/stores/toast'
@@ -61,6 +62,16 @@ function photo(id: string): TimelineAsset {
   }
 }
 
+/** `/map/regions` (`maps.loadRegions()`, chiamato ad ogni apertura del
+ * pannello) e `/tags`/`/assets/{id}/tags` (elenco tag+categorie e tag
+ * dell'asset) vogliono sempre un array — nessun test qui li esercita
+ * davvero, ma senza una rotta esplicita finiscono nel ramo di fallback
+ * di ciascun mock, che spesso restituisce un oggetto singolo e rompe
+ * `.filter()`/`.length` a valle. */
+function isArrayEndpoint(path: string): boolean {
+  return path.endsWith('/map/regions') || path.endsWith('/tags')
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((done) => {
@@ -77,8 +88,11 @@ beforeEach(() => {
 })
 
 describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
+  let wrapper: ReturnType<typeof mount> | undefined
+  afterEach(() => wrapper?.unmount())
+
   it('renders no arrows/filmstrip without neighbors, and never closes on background click (§18.4)', () => {
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('aaaa'), isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -93,7 +107,7 @@ describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
     const a = photo('a')
     const b = photo('b')
     const c = photo('c')
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: b, neighbors: [a, b, c], isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -112,7 +126,7 @@ describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
   it('omits the left arrow on the first neighbour and the right arrow on the last', () => {
     const a = photo('a')
     const b = photo('b')
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: a, neighbors: [a, b], isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -124,7 +138,7 @@ describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
     const a = photo('a')
     const b = photo('b')
     const c = photo('c')
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: b, neighbors: [a, b, c], isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -140,7 +154,7 @@ describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
   it('keeps src reactive across an asset change', async () => {
     const first = photo('aaaa')
     const second = photo('bbbb')
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: first, isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -152,8 +166,11 @@ describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
 })
 
 describe('AssetViewer — barra superiore (§18.3)', () => {
+  let wrapper: ReturnType<typeof mount> | undefined
+  afterEach(() => wrapper?.unmount())
+
   it('close/favorite/info buttons work; the heart reflects isFavorite and toggles via "f"', async () => {
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: true },
       global: { plugins: [i18n] }
     })
@@ -167,7 +184,7 @@ describe('AssetViewer — barra superiore (§18.3)', () => {
   })
 
   it('§18.5: Esc closes the ⋯ menu on the first press, the lightbox only on the second', async () => {
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -248,9 +265,12 @@ describe('AssetViewer — menu ⋯ (§20)', () => {
 })
 
 describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
+  let wrapper: ReturnType<typeof mount> | undefined
+  afterEach(() => wrapper?.unmount())
+
   it('shows a compact cluster map only when effective metadata has a location', async () => {
     apiFetch.mockImplementation((path: string) =>
-      path.endsWith('/map/regions')
+      isArrayEndpoint(path)
         ? Promise.resolve([])
         : Promise.resolve({
           title: null,
@@ -261,7 +281,7 @@ describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
           orientation: null
         })
     )
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('aaaa'), isFavorite: false },
       global: {
         plugins: [i18n],
@@ -285,10 +305,10 @@ describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
     const firstMetadata = deferred<{ location: { lat: number; lon: number } }>()
     const secondMetadata = deferred<{ location: { lat: number; lon: number } }>()
     apiFetch.mockImplementation((path: string) => {
-      if (path.endsWith('/map/regions')) return Promise.resolve([])
+      if (isArrayEndpoint(path)) return Promise.resolve([])
       return path.includes('/aaaa/') ? firstMetadata.promise : secondMetadata.promise
     })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('aaaa'), isFavorite: false },
       global: {
         plugins: [i18n],
@@ -314,6 +334,9 @@ describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
 })
 
 describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
+  let wrapper: ReturnType<typeof mount> | undefined
+  afterEach(() => wrapper?.unmount())
+
   function mockPanelFetch(opts: {
     title?: string | null
     rating?: number | null
@@ -322,7 +345,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
   } = {}) {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
-      if (path.endsWith('/map/regions')) return Promise.resolve([])
+      if (isArrayEndpoint(path)) return Promise.resolve([])
       if (path.endsWith('/metadata') && method === 'GET') {
         return Promise.resolve({
           title: opts.title ?? null,
@@ -345,7 +368,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
 
   it('carica il titolo esistente nel campo; lasciarlo vuoto lo azzera a null (non stringa vuota) e salva solo al change', async () => {
     mockPanelFetch({ title: 'Tramonto' })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -367,7 +390,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
 
   it('trims the title and sends it only on change, not on every keystroke (§19.3: onchange, not oninput)', async () => {
     mockPanelFetch({ title: null })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -394,7 +417,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
 
   it('§19.3: click on a star sets the rating, a second click on the same star resets it to 0', async () => {
     mockPanelFetch({ rating: 2 })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -435,7 +458,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
         focal_length: 50
       }
     })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -450,7 +473,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
 
   it('§19.2 SCATTO: omits camera/lens/exposure rows the asset has no exif for, keeping dimensions (sourced from the asset itself, not exif)', async () => {
     mockPanelFetch({ exif: undefined })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
     })
@@ -465,10 +488,13 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
 })
 
 describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
+  let wrapper: ReturnType<typeof mount> | undefined
+  afterEach(() => wrapper?.unmount())
+
   function mockPanelFetch(location: { lat: number; lon: number } | null) {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
-      if (path.endsWith('/map/regions')) return Promise.resolve([])
+      if (isArrayEndpoint(path)) return Promise.resolve([])
       if (path.endsWith('/metadata') && method === 'GET') {
         return Promise.resolve({
           title: null,
@@ -490,7 +516,7 @@ describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
 
   it('shows the empty state and "Imposta posizione…" when the asset has no location', async () => {
     mockPanelFetch(null)
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
@@ -505,7 +531,7 @@ describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
 
   it('shows coordinates (4 decimals) and "Modifica posizione…" when the asset has a location', async () => {
     mockPanelFetch({ lat: 41.9, lon: 12.5 })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
@@ -519,7 +545,7 @@ describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
 
   it('opens the position dialog on click, and "Nessuna posizione" clears the location and reloads the panel', async () => {
     mockPanelFetch({ lat: 41.9, lon: 12.5 })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: {
         plugins: [i18n],
@@ -576,7 +602,7 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
   } = {}) {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
-      if (path.endsWith('/map/regions')) return Promise.resolve([])
+      if (isArrayEndpoint(path)) return Promise.resolve([])
       if (path.endsWith('/metadata') && method === 'GET') {
         return Promise.resolve({
           title: null,
@@ -602,9 +628,19 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
     })
   }
 
+  // Il listener `keydown` globale di `AssetViewer` (aperto/chiuso del
+  // pannello con `i`) resta registrato finché il componente non viene
+  // smontato: un wrapper mai smontato continua a rispondere ai
+  // `dispatchEvent` dei test *successivi*, richiamando la propria
+  // `loadPanelData()` contro l'`apiFetch` mockato per quel test (diverso
+  // dal proprio) — scoperto qui perché produceva `faces.value.filter is
+  // not a function` in tutt'altra sezione (TAG). Smontare sempre.
+  let wrapper: ReturnType<typeof mount> | undefined
+  afterEach(() => wrapper?.unmount())
+
   it('renders a chip per confirmed face, falling back to a generic label for unnamed persons', async () => {
     mockPanelFetch({ faces: [face('f1', 'p1'), face('f2', 'p2')] })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: {
         asset: personWithFaces([
           { person_id: 'p1', person_name: 'Anna' },
@@ -624,7 +660,7 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
   it('§19 animations: hovering a chip shows its face box; leaving hides it after 200ms unless re-entered', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     mockPanelFetch({ faces: [face('f1', 'p1')] })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: {
         asset: personWithFaces([{ person_id: 'p1', person_name: 'Anna' }]),
         isFavorite: false
@@ -657,7 +693,7 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
 
   it('"Non è un volto" rejects the face and shows the exact toast', async () => {
     mockPanelFetch({ faces: [face('f1', 'p1')] })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: {
         asset: personWithFaces([{ person_id: 'p1', person_name: 'Anna' }]),
         isFavorite: false
@@ -680,7 +716,6 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
 
     expect(apiFetch).toHaveBeenCalledWith('/api/v1/faces/f1/reject', expect.objectContaining({ method: 'POST' }))
     expect(toast.toasts.at(-1)?.message).toBe('Segnato come "non è un volto" — non verrà più riproposto.')
-    wrapper.unmount()
   })
 
   it('"Correggi persona…" opens the person picker; picking an existing person reassigns the face and shows the toast', async () => {
@@ -688,7 +723,7 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
       faces: [face('f1', 'p1')],
       persons: [{ id: 'p9', name: 'Marco', hidden: false, face_count: 3 }]
     })
-    const wrapper = mount(AssetViewer, {
+    wrapper = mount(AssetViewer, {
       props: {
         asset: personWithFaces([{ person_id: 'p1', person_name: 'Anna' }]),
         isFavorite: false
@@ -721,6 +756,142 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ person_id: 'p9' }) })
     )
     expect(toast.toasts.at(-1)?.message).toBe('Persona corretta.')
-    wrapper.unmount()
+  })
+})
+
+describe('AssetViewer — sezione TAG (§19.2 righe 14-17)', () => {
+  function tag(id: string, opts: Partial<AssetTagDetail> = {}): AssetTagDetail {
+    return { id, name: id, color: '#3b82f6', category_id: null, state: 'confirmed', source: 'user', ...opts }
+  }
+
+  function category(id: string, name: string): Tag {
+    return { id, name, kind: 'category', parent_id: null, color: null, assignment_count: 0 }
+  }
+
+  function mockPanelFetch(opts: { assetTags?: AssetTagDetail[]; categories?: Tag[] } = {}) {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (path.endsWith('/map/regions')) return Promise.resolve([])
+      if (path.endsWith('/metadata') && method === 'GET') {
+        return Promise.resolve({
+          title: null,
+          description: null,
+          taken_at: null,
+          location: null,
+          place_id: null,
+          orientation: null
+        })
+      }
+      if (path.endsWith('/flags') && method === 'GET') {
+        return Promise.resolve({ rating: null, pick: 'none', color_label: null, favorite: false })
+      }
+      if (/\/assets\/.+\/tags$/.test(path) && method === 'GET') return Promise.resolve(opts.assetTags ?? [])
+      if (path === '/api/v1/tags' && method === 'GET') return Promise.resolve(opts.categories ?? [])
+      if (/\/tags\/.+\/assets\/.+\/(confirm|reject|remove)$/.test(path) && method === 'POST') {
+        return Promise.resolve(null)
+      }
+      // GET /api/v1/assets/{id} (dettaglio)
+      return Promise.resolve({ ...photo('a') })
+    })
+  }
+
+  // Stesso motivo del blocco PERSONE qui sopra: il listener `keydown`
+  // resta vivo finché il wrapper non è smontato.
+  let wrapper: ReturnType<typeof mount> | undefined
+  afterEach(() => wrapper?.unmount())
+
+  it('groups confirmed tags by category, "Senza categoria" last, and renders the "+ aggiungi" chip', async () => {
+    mockPanelFetch({
+      assetTags: [
+        tag('t1', { name: 'Spiaggia', category_id: 'cat-luoghi' }),
+        tag('t2', { name: 'Senza tag' }),
+        tag('t3', { name: 'Estate', category_id: 'cat-stagioni' })
+      ],
+      categories: [category('cat-stagioni', 'Stagioni'), category('cat-luoghi', 'Luoghi')]
+    })
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('Luoghi')
+    expect(text).toContain('Spiaggia')
+    expect(text).toContain('Stagioni')
+    expect(text).toContain('Estate')
+    expect(text).toContain('Senza categoria')
+    expect(text).toContain('Senza tag')
+    expect(text.indexOf('Senza categoria')).toBeGreaterThan(text.indexOf('Stagioni'))
+    expect(wrapper.text()).toContain('+ aggiungi')
+  })
+
+  it('"×" on a confirmed tag removes it permanently and shows the exact toast', async () => {
+    mockPanelFetch({ assetTags: [tag('t1', { name: 'Spiaggia' })] })
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    const toast = useToastStore()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Rimuovi tag Spiaggia"]').trigger('click')
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/tags/t1/assets/a/remove',
+      expect.objectContaining({ method: 'POST' })
+    )
+    expect(toast.toasts.at(-1)?.message).toBe('Tag rimosso.')
+  })
+
+  it('proposed tags render in a separate "In attesa di conferma" section; ✓ confirms and × rejects', async () => {
+    mockPanelFetch({ assetTags: [tag('t1', { name: 'Forse spiaggia', state: 'proposed', source: 'ai' })] })
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    const toast = useToastStore()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('In attesa di conferma')
+    expect(wrapper.text()).toContain('Forse spiaggia')
+
+    await wrapper.get('[aria-label="Conferma tag Forse spiaggia"]').trigger('click')
+    await flushPromises()
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/tags/t1/assets/a/confirm',
+      expect.objectContaining({ method: 'POST' })
+    )
+    expect(toast.toasts.at(-1)?.message).toBe('Tag confermato.')
+
+    mockPanelFetch({ assetTags: [tag('t1', { name: 'Forse spiaggia', state: 'proposed', source: 'ai' })] })
+    await wrapper.get('[aria-label="Rifiuta suggerimento Forse spiaggia"]').trigger('click')
+    await flushPromises()
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/tags/t1/assets/a/reject',
+      expect.objectContaining({ method: 'POST' })
+    )
+    expect(toast.toasts.at(-1)?.message).toBe('Suggerimento rifiutato — non verrà riproposto.')
+  })
+
+  it('"+ aggiungi" opens the shared TagPickerDialog', async () => {
+    mockPanelFetch()
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } },
+      attachTo: document.body
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    const addButton = wrapper.findAll('button').find((b) => b.text() === '+ aggiungi')!
+    await addButton.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Aggiungi tag')
   })
 })

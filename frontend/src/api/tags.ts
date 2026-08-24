@@ -65,3 +65,20 @@ export function fetchTagsForAsset(assetId: string): Promise<AssetTagDetail[]> {
 export function removeConfirmedTag(tagId: string, assetId: string): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/assets/${assetId}/remove`, { method: 'POST' })
 }
+
+/** §19.2 sezione "In attesa di conferma": il `✓` su una proposta —
+ * transita `state: 'proposed' → 'confirmed'` (`AssetTagRepo::confirm`, la
+ * stessa macchina a stati a senso unico di `remove_confirmed`). Nessun
+ * wrapper esisteva ancora: la coda di revisione globale (fuori campo qui)
+ * e il lightbox sono i primi due consumatori reali di questa rotta. */
+export function confirmTagProposal(tagId: string, assetId: string): Promise<null> {
+  return apiFetch(`/api/v1/tags/${tagId}/assets/${assetId}/confirm`, { method: 'POST' })
+}
+
+/** Il `×` su una proposta (SP-10): `state: 'proposed' → 'rejected'`,
+ * permanente — a differenza di `removeConfirmedTag`, qui la proposta non
+ * era mai stata confermata: non c'è nulla da "rimuovere", solo da
+ * rifiutare prima che diventi un tag vero. */
+export function rejectTagProposal(tagId: string, assetId: string): Promise<null> {
+  return apiFetch(`/api/v1/tags/${tagId}/assets/${assetId}/reject`, { method: 'POST' })
+}

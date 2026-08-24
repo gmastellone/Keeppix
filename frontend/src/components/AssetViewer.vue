@@ -1,15 +1,34 @@
 <script setup lang="ts">
-// Fase 11 Task 8 (2/N, 3/N, 4/N, 5/N) — documento funzionale §18
+// Fase 11 Task 8 (2/N, 3/N, 4/N, 5/N, 6/N) — documento funzionale §18
 // ("Lightbox — struttura e barra superiore"), §19 ("Pannello
 // informazioni") e §20 ("Menu 'altre azioni' ⋯"). La 2/N ha riscritto il
 // segnaposto precedente (151 righe) con barra superiore, stage con
 // frecce, filmino e menu ⋯. La 3/N ha aggiunto titolo modificabile,
 // valutazione a stelle, sezione SCATTO. La 4/N ha completato la sezione
-// POSIZIONE. La 5/N (questa) ha aggiunto la sezione PERSONE (chip per
-// volto confermato, menu "Correggi persona…"/"Non è un volto") e i
-// riquadri volto sull'immagine, visibili solo all'hover/focus del chip
-// corrispondente (§19, animazioni). Le sezioni TAG, ALBUM e AZIONI
-// restano le prossime unità di questo stesso Task.
+// POSIZIONE. La 5/N ha aggiunto la sezione PERSONE e i riquadri volto.
+// La 6/N (questa) ha aggiunto la sezione TAG: chip confermati
+// raggruppati per categoria con `×` di rimozione permanente, sezione
+// "In attesa di conferma" separata con `✓`/`×`, chip "+ aggiungi" che
+// riusa `TagPickerDialog.vue`. Le sezioni ALBUM e AZIONI restano le
+// prossime unità di questo stesso Task.
+//
+// **Deviazione deliberata dal mockup, non un debito**: il documento
+// descrive tre stati di chip per un tag confermato — "applicato dall'IA,
+// mai revisionato" (opacità ridotta, marcatore "IA", click-per-
+// confermare) contro "confermato da un umano" (pieno, nessun marcatore).
+// Nel backend reale questa distinzione **non esiste**: `AssetTagRepo::
+// decide` (`confirm`/`reject`) transita solo righe `state='proposed'` —
+// una riga `state='confirmed'` è per costruzione già stata decisa (da
+// `confirm()`, che richiede un utente autenticato, o da un'assegnazione
+// manuale), non importa se il suo `source` originario era `'ai'` o
+// `'user'`. Riprodurre il marcatore "IA, clicca per confermare" su un
+// tag già confermato sarebbe un pulsante che promette un'azione (una
+// seconda "conferma") che non ha alcun effetto reale — `decide()` è
+// idempotente e non fa nulla se lo stato è già quello richiesto. Ogni
+// tag confermato ha quindi **un solo aspetto**, indipendente da `source`;
+// la distinzione a tre vie del mockup collassa correttamente nelle due
+// sezioni reali del backend: confermato (fatto) e proposto (da
+// decidere).
 //
 // **Debito dichiarato, verificato e non taciuto**:
 // - "Condividi" (§18.3 riga 3) omesso: apre un dialog che non esiste
@@ -54,12 +73,22 @@ import type { AssetFlags, DiskAction } from '@/api/culling'
 import { assignFace, fetchFacesForAsset, rejectFace, type Face } from '@/api/faces'
 import { fetchMetadata, patchMetadata, type AssetMetadata } from '@/api/metadata'
 import { originalSrc, previewSrc as mediaPreviewSrc, thumbSrc as mediaThumbSrc } from '@/api/media'
+import {
+  confirmTagProposal,
+  fetchTags,
+  fetchTagsForAsset,
+  rejectTagProposal,
+  removeConfirmedTag,
+  type AssetTagDetail,
+  type Tag
+} from '@/api/tags'
 import { fetchAsset, type TimelineAsset } from '@/api/timeline'
 import AlbumPickerDialog from '@/components/AlbumPickerDialog.vue'
 import PersonPickerDialog from '@/components/PersonPickerDialog.vue'
 import PlacePickerDialog from '@/components/PlacePickerDialog.vue'
 import RatingStars from '@/components/RatingStars.vue'
 import RenameFormulaDialog from '@/components/RenameFormulaDialog.vue'
+import TagPickerDialog from '@/components/TagPickerDialog.vue'
 import DeleteDialog, { type DeleteChoice } from '@/components/ui/DeleteDialog.vue'
 import Popover from '@/components/ui/Popover.vue'
 import MapClusterLayer from '@/components/MapClusterLayer.vue'
@@ -117,6 +146,12 @@ const titleDraft = ref('')
  * al/i volto/i corrispondente/i sull'immagine. */
 const faces = ref<Face[]>([])
 const personDialogOpen = ref(false)
+const assetTags = ref<AssetTagDetail[]>([])
+/** Solo `kind === 'category'` da `GET /tags` (elenco unico tag+categorie,
+ * §19.2 righe 14-17): serve per il nome di ogni gruppo — `AssetTagDetail.
+ * category_id` porta solo l'id. */
+const categories = ref<Tag[]>([])
+const tagDialogOpen = ref(false)
 /** Il volto che "Correggi persona…" sta per riassegnare — impostato
  * all'apertura del selettore, letto quando l'utente sceglie una persona. */
 const correctingFaceId = ref<string | null>(null)
@@ -198,17 +233,23 @@ async function loadPanelData() {
   // Niente giro a vuoto: `asset.faces` (già nel prop, senza fetch) dice se
   // la foto ha volti confermati prima ancora di chiedere i riquadri.
   const needsFaces = props.asset.faces.length > 0
-  const [metadataResult, detailResult, flagsResult, facesResult] = await Promise.allSettled([
-    fetchMetadata(assetId),
-    fetchAsset(assetId),
-    fetchFlags(assetId),
-    needsFaces ? fetchFacesForAsset(assetId) : Promise.resolve([])
-  ])
+  const [metadataResult, detailResult, flagsResult, facesResult, tagsResult, categoriesResult] =
+    await Promise.allSettled([
+      fetchMetadata(assetId),
+      fetchAsset(assetId),
+      fetchFlags(assetId),
+      needsFaces ? fetchFacesForAsset(assetId) : Promise.resolve([]),
+      fetchTagsForAsset(assetId),
+      fetchTags()
+    ])
   if (sequence !== panelRequestSequence || assetId !== props.asset.id) return
   metadata.value = metadataResult.status === 'fulfilled' ? metadataResult.value : undefined
   detail.value = detailResult.status === 'fulfilled' ? detailResult.value : undefined
   flags.value = flagsResult.status === 'fulfilled' ? flagsResult.value : unvotedFlags
   faces.value = facesResult.status === 'fulfilled' ? facesResult.value : []
+  assetTags.value = tagsResult.status === 'fulfilled' ? tagsResult.value : []
+  categories.value =
+    categoriesResult.status === 'fulfilled' ? categoriesResult.value.filter((tag) => tag.kind === 'category') : []
   titleDraft.value = metadata.value?.title ?? ''
   placeName.value = null
   const location = metadata.value?.location
@@ -323,6 +364,73 @@ async function markNotAFace(personId: string) {
   }
 }
 
+const confirmedTags = computed(() => assetTags.value.filter((tag) => tag.state === 'confirmed'))
+const proposedTags = computed(() => assetTags.value.filter((tag) => tag.state === 'proposed'))
+
+/** Raggruppa i tag confermati per categoria (§19.2 righe 14-15): nessun
+ * `TAG_CATEGORIES` lato backend (era una costante del solo prototipo) —
+ * ordine alfabetico per nome, "Senza categoria" sempre in fondo. */
+const groupedConfirmedTags = computed(() => {
+  const groups = new Map<string | null, AssetTagDetail[]>()
+  for (const tag of confirmedTags.value) {
+    const key = tag.category_id
+    const bucket = groups.get(key)
+    if (bucket) bucket.push(tag)
+    else groups.set(key, [tag])
+  }
+  const entries = Array.from(groups.entries()).map(([categoryId, tags]) => ({
+    categoryId,
+    name: categoryId
+      ? (categories.value.find((c) => c.id === categoryId)?.name ?? t('viewer.panel.tagNoCategory'))
+      : t('viewer.panel.tagNoCategory'),
+    tags
+  }))
+  entries.sort((a, b) => {
+    if (a.categoryId === null) return 1
+    if (b.categoryId === null) return -1
+    return a.name.localeCompare(b.name)
+  })
+  return entries
+})
+
+async function confirmTag(tag: AssetTagDetail) {
+  try {
+    await confirmTagProposal(tag.id, props.asset.id)
+    toast.show(t('viewer.panel.tagConfirmedToast'))
+    void loadPanelData()
+  } catch {
+    toast.showError(t('viewer.panel.tagError'))
+  }
+}
+
+async function rejectTag(tag: AssetTagDetail) {
+  try {
+    await rejectTagProposal(tag.id, props.asset.id)
+    toast.show(t('viewer.panel.tagRejectedToast'))
+    void loadPanelData()
+  } catch {
+    toast.showError(t('viewer.panel.tagError'))
+  }
+}
+
+async function removeTag(tag: AssetTagDetail) {
+  try {
+    await removeConfirmedTag(tag.id, props.asset.id)
+    toast.show(t('viewer.panel.tagRemovedToast'))
+    void loadPanelData()
+  } catch {
+    toast.showError(t('viewer.panel.tagError'))
+  }
+}
+
+/** `TagPickerDialog` applica ogni tocco subito, senza un evento di
+ * completamento (stesso comportamento di `AlbumPickerDialog`, §12.3:
+ * "l'effetto è immediato: non c'è 'Annulla'") — il pannello si aggiorna
+ * alla chiusura, non ad ogni singolo tocco dentro il dialog. */
+watch(tagDialogOpen, (isOpen) => {
+  if (!isOpen) void loadPanelData()
+})
+
 /** §18.2: i riquadri volto sono posizionati in percentuale rispetto
  * all'immagine **effettivamente disegnata**, non al contenitore — con
  * `object-contain` le due cose divergono ogni volta che il rapporto
@@ -392,6 +500,7 @@ watch(
     flags.value = undefined
     faces.value = []
     hoveredPersonId.value = null
+    assetTags.value = []
     placeName.value = null
     titleDraft.value = ''
     if (info.value) void loadPanelData()
@@ -907,6 +1016,85 @@ const coordsLabel = computed(() => {
             </Popover>
           </div>
         </section>
+
+        <section class="mt-4">
+          <h2 class="mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
+            {{ t('viewer.panel.tags') }}
+          </h2>
+          <div
+            v-for="group in groupedConfirmedTags"
+            :key="group.categoryId ?? '__none__'"
+            class="mb-2"
+          >
+            <p class="mb-1 text-[10px] text-[#6b6b6e]">
+              {{ group.name }}
+            </p>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="tag in group.tags"
+                :key="tag.id"
+                class="flex items-center gap-1.5 rounded-full bg-[#1a1a1a] py-1 pr-1.5 pl-2 text-xs text-[#d8d8d8]"
+              >
+                <span
+                  class="h-2 w-2 rounded-full"
+                  :style="{ backgroundColor: tag.color ?? '#6b6b6e' }"
+                />
+                {{ tag.name }}
+                <button
+                  type="button"
+                  class="opacity-60 hover:opacity-100"
+                  :aria-label="t('viewer.panel.tagRemove', { name: tag.name })"
+                  @click="removeTag(tag)"
+                >
+                  ×
+                </button>
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="rounded-full border border-dashed border-[#3a3a3a] px-2.5 py-1 text-xs text-[#b8b8bc]"
+            @click="tagDialogOpen = true"
+          >
+            {{ t('viewer.panel.tagAdd') }}
+          </button>
+
+          <template v-if="proposedTags.length > 0">
+            <h2 class="mt-3 mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
+              {{ t('viewer.panel.tagsPending') }}
+            </h2>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="tag in proposedTags"
+                :key="tag.id"
+                class="flex items-center gap-1.5 rounded-full border border-dashed border-[#3a3a3a]
+                       py-1 pr-1.5 pl-2 text-xs text-[#b8b8bc]"
+              >
+                <span
+                  class="h-2 w-2 rounded-full"
+                  :style="{ backgroundColor: tag.color ?? '#6b6b6e' }"
+                />
+                {{ tag.name }}
+                <button
+                  type="button"
+                  class="text-[#6fd08a]"
+                  :aria-label="t('viewer.panel.tagConfirm', { name: tag.name })"
+                  @click="confirmTag(tag)"
+                >
+                  ✓
+                </button>
+                <button
+                  type="button"
+                  class="text-[#ff8a80]"
+                  :aria-label="t('viewer.panel.tagReject', { name: tag.name })"
+                  @click="rejectTag(tag)"
+                >
+                  ×
+                </button>
+              </span>
+            </div>
+          </template>
+        </section>
       </aside>
     </div>
 
@@ -953,6 +1141,10 @@ const coordsLabel = computed(() => {
     <PersonPickerDialog
       v-model:open="personDialogOpen"
       @picked="onPersonPicked"
+    />
+    <TagPickerDialog
+      v-model:open="tagDialogOpen"
+      :assets="[asset]"
     />
   </div>
 </template>

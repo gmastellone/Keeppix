@@ -4233,3 +4233,76 @@ maturato nella verifica del Task 8 (2/N)). `npx eslint` sui file toccati
 e sull'intero repo → pulito (stesso unico errore preesistente su
 `PlayerView.vue`). `npm run build` + calcolo manuale del bundle iniziale
 gzip → 125.573 byte, sotto il budget di 153.600.
+
+## Task 8 (6/N) — Pannello informazioni: sezione TAG
+
+Chiude §19.2 righe 14-17. Aggiunte `confirmTagProposal`/
+`rejectTagProposal` in `api/tags.ts` (`POST /tags/{id}/assets/{asset_id}/
+confirm|reject` — rotte pronte dalla Fase 7, mai chiamate dal frontend).
+
+**Deviazione deliberata dal mockup, verificata contro il vero state
+machine del backend prima di scrivere codice, non assunta**: il documento
+descrive tre aspetti di chip per un tag confermato — "applicato dall'IA,
+mai revisionato" (marcatore "IA", cliccabile per confermare) contro
+"confermato da un umano" (pieno, non cliccabile). Letto `AssetTagRepo::
+decide` (`crates/keeppix-db/src/asset_tags.rs:336-382`): transita **solo**
+righe `state='proposed'`; una riga `state='confirmed'` è per costruzione
+già stata decisa (via `confirm()`, che richiede un utente autenticato, o
+un'assegnazione manuale) — non importa se il suo `source` originario era
+`'ai'` (il campo non viene mai toccato da `decide()`, resta quello messo
+da `propose_for_tag` per sempre). Riprodurre "IA, clicca per confermare"
+su un tag già confermato sarebbe un bottone che promette un'azione senza
+alcun effetto reale (`decide()` è idempotente). Ogni tag confermato ha
+quindi **un solo aspetto** nel pannello, indipendente da `source`; la
+distinzione a tre vie del mockup collassa correttamente nelle due sezioni
+reali del backend — confermato (fatto) e proposto (da decidere) —
+documentato nel commento di testa del file, non solo taciuto in un
+commit.
+
+**Sezione TAG**: chip confermati raggruppati per categoria
+(`category_id` → nome, `GET /tags` filtrato per `kind==='category'`),
+ordine alfabetico con "Senza categoria" sempre in fondo — nessun
+`TAG_CATEGORIES` lato backend (era una costante del solo prototipo,
+verificato: `ORDER BY t.kind ASC, t.name ASC`, nessun ordine custom).
+Ogni chip: pallino colorato (`tag.color`) + nome + `×` di rimozione
+permanente (`removeConfirmedTag`, già costruito nel Task 8 1/N, toast
+**"Tag rimosso."**). Chip **"+ aggiungi"**: riuso diretto di
+`TagPickerDialog.vue` (già esistente, usato finora solo da
+`BatchEditView.vue`) passando `assets: [asset]` — applica ogni tocco
+subito senza un evento di completamento (stesso comportamento di
+`AlbumPickerDialog`), quindi il pannello si ricarica alla **chiusura**
+del dialog (`watch(tagDialogOpen, ...)`), non ad ogni singolo tocco.
+Sezione separata **"In attesa di conferma"** (solo se ci sono proposte):
+chip tratteggiati con `✓` (`confirmTagProposal`, toast **"Tag
+confermato."**) e `×` (`rejectTagProposal`, toast **"Suggerimento
+rifiutato — non verrà riproposto."**, SP-10).
+
+**Bug reale di isolamento test scoperto e corretto, non solo in questa
+unità**: i nuovi test della sezione TAG fallivano con `faces.value.filter
+is not a function` — non per un difetto nel codice di produzione, ma
+perché **nessun `describe` precedente in questo file smontava mai il
+proprio wrapper**. Il listener `keydown` globale di `AssetViewer` (apre/
+chiude il pannello con `i`) resta registrato su `window` finché il
+componente non è smontato: un wrapper della sezione PERSONE (5/N, `asset.
+faces` non vuoto) mai smontato continuava a rispondere ai
+`dispatchEvent` dei test *successivi* della sezione TAG, richiamando la
+propria `loadPanelData()` — che per quel vecchio componente chiedeva
+davvero `fetchFacesForAsset` — contro l'`apiFetch` ormai riconfigurato dal
+test TAG corrente, il cui ramo di fallback restituiva un oggetto singolo,
+non un array. Corretto non solo per la sezione TAG ma **sistematicamente
+per tutto il file**: ogni `describe` ora dichiara un `wrapper` condiviso
+con `afterEach(() => wrapper?.unmount())` (stesso pattern già in uso nel
+blocco "menu ⋯" fin dal Task 8 2/N) — i blocchi precedenti non fallivano
+ancora per puro caso (nessuno dei loro asset aveva `faces` non vuoti), ma
+erano comunque silenziosamente order-dependent; con altre tre sezioni
+ancora da costruire su questo stesso file (ALBUM, AZIONI) il rischio di
+rincontrare esattamente questo bug era concreto, non ipotetico.
+
+Verifica completa: `npx vue-tsc -b` pulito. `npx vitest run` → 78 file,
+630/630 verdi (28 test in `AssetViewer.spec.ts`, 4 nuovi: raggruppamento
+per categoria con "Senza categoria" in fondo, rimozione permanente con
+toast esatto, sezione proposte con conferma/rifiuto, apertura di
+`TagPickerDialog`). `npx eslint` sui file toccati e sull'intero repo →
+pulito (stesso unico errore preesistente su `PlayerView.vue`). `npm run
+build` + calcolo manuale del bundle iniziale gzip → 125.830 byte, sotto
+il budget di 153.600.
