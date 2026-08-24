@@ -980,7 +980,7 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
     expect(fetchAlbumsForAssetMock).toHaveBeenCalledWith('a')
   })
 
-  it('§19.3 AZIONI: renders the same five actions as the ⋯ menu, as visible buttons', async () => {
+  it('§19.3 AZIONI: renders the same six actions as the ⋯ menu, as visible buttons', async () => {
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
@@ -997,6 +997,19 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
 
     await wrapper.findAll('button').find((b) => b.text() === 'Rinomina…')!.trigger('click')
     expect(document.body.textContent).toContain('1 foto — a.jpg')
+  })
+
+  it('Task 11 (1/N), §18.3: "Condividi…" opens ShareSelectionDialog for this single asset', async () => {
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Condividi…')!.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Condividi 1 elemento')
   })
 })
 

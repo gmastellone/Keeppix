@@ -7,6 +7,8 @@
     "favoritesTip": "Preferiti",
     "albumLabel": "Aggiungi ad album",
     "albumTip": "Album",
+    "shareLabel": "Condividi selezione",
+    "shareTip": "Condividi",
     "editLabel": "Modifica in blocco",
     "editTip": "Modifica",
     "deleteLabel": "Elimina selezione",
@@ -346,6 +348,7 @@
       "download": "Scarica originale",
       "rotate": "Ruota",
       "rotateToast": "Solo demo — ruoterebbe il file (l'originale sul disco non viene mai modificato).",
+      "share": "Condividi…",
       "addToAlbum": "Aggiungi ad album",
       "rename": "Rinomina…",
       "delete": "Elimina…"
@@ -523,7 +526,22 @@
     "explain": "Spiega",
     "explainNone": "Nessun accesso.",
     "explainLink": "{subject} ha ruolo {role} su {on}",
-    "explainLinkInherited": "{subject} ha ruolo {role} su {on}, ereditato in {inherited}"
+    "explainLinkInherited": "{subject} ha ruolo {role} su {on}, ereditato in {inherited}",
+    "dialog": {
+      "title": "Condividi {n} elemento | Condividi {n} elementi",
+      "subtitle": "Concedi accesso a persone già invitate, oppure crea un link pubblico solo per questa selezione.",
+      "peopleTitle": "Persone",
+      "linkSectionTitle": "Link pubblico",
+      "linkSectionSubtitle": "Sola visualizzazione, senza condividere l'intera cartella o album di provenienza.",
+      "createLink": "Crea link di condivisione",
+      "done": "Fatto",
+      "granted": "Condiviso con {name}.",
+      "revoked": "Accesso rimosso a {name}.",
+      "linkCreated": "Link creato e copiato negli appunti.",
+      "error": "Non è stato possibile completare l'operazione.",
+      "role": "Visualizzatore",
+      "autoAlbumName": "Selezione condivisa del {date}"
+    }
   },
   "users": {
     "entry": "Utenti",

@@ -16,6 +16,12 @@ export interface ShareLink {
   revoked_at: string | null
   last_accessed_at: string | null
   created_at: string
+  /** Numero di elementi dell'oggetto condiviso — calcolato lato server
+   * (`ShareLinkRepo::item_counts`, `crates/keeppix-api/src/routes/
+   * share.rs:184-189`, commento che cita esplicitamente §29: "il pannello
+   * 'Le mie condivisioni' lo chiede per i link pubblici"). Campo reale,
+   * mancava dal tipo TS anche se il backend lo restituiva già. */
+  item_count: number
 }
 
 export interface SharedAsset {

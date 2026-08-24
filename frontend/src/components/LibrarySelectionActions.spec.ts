@@ -22,12 +22,32 @@ vi.mock('@/api/culling', () => ({
 
 const fetchAlbumsMock = vi.fn()
 const fetchAlbumMock = vi.fn()
+const createAlbumMock = vi.fn()
+const addAssetsMock = vi.fn()
 
 vi.mock('@/api/albums', () => ({
   fetchAlbums: (...args: unknown[]) => fetchAlbumsMock(...args),
   fetchAlbum: (...args: unknown[]) => fetchAlbumMock(...args),
-  addAssets: vi.fn(async () => null),
+  createAlbum: (...args: unknown[]) => createAlbumMock(...args),
+  addAssets: (...args: unknown[]) => addAssetsMock(...args),
   removeAsset: vi.fn(async () => null)
+}))
+
+const fetchUsersMock = vi.fn()
+vi.mock('@/api/users', () => ({
+  fetchUsers: (...args: unknown[]) => fetchUsersMock(...args)
+}))
+
+const grantPermissionMock = vi.fn()
+const revokePermissionMock = vi.fn()
+vi.mock('@/api/permissions', () => ({
+  grantPermission: (...args: unknown[]) => grantPermissionMock(...args),
+  revokePermission: (...args: unknown[]) => revokePermissionMock(...args)
+}))
+
+const createShareLinkMock = vi.fn()
+vi.mock('@/api/shares', () => ({
+  createShareLink: (...args: unknown[]) => createShareLinkMock(...args)
 }))
 
 const LibrarySelectionActions = (await import('./LibrarySelectionActions.vue')).default
@@ -84,6 +104,12 @@ beforeEach(() => {
   deleteAssetMock.mockResolvedValue(null)
   fetchAlbumsMock.mockResolvedValue([])
   fetchAlbumMock.mockResolvedValue({ id: 'x', name: '', assets: [] })
+  createAlbumMock.mockResolvedValue({ id: 'album-1', name: 'x', cover_hash: null, created_at: '' })
+  addAssetsMock.mockResolvedValue(null)
+  fetchUsersMock.mockResolvedValue([])
+  grantPermissionMock.mockResolvedValue({ id: 'grant-1' })
+  revokePermissionMock.mockResolvedValue(null)
+  createShareLinkMock.mockResolvedValue({ id: 'link-1', token: 'tok123' })
 })
 
 afterEach(() => {
@@ -91,16 +117,49 @@ afterEach(() => {
   wrapper = undefined
 })
 
-describe('LibrarySelectionActions — "Condividi" is a declared omission, not a stub (backend has no ad-hoc-selection share)', () => {
-  it('renders exactly four action buttons: Preferiti, Album, Modifica, Elimina — no fifth "Condividi"', async () => {
+describe('LibrarySelectionActions — the five documented buttons (§12.2-§12.3)', () => {
+  it('renders all five action buttons in order: Preferiti, Album, Condividi, Modifica, Elimina', async () => {
     const w = await mountActions([photo('a')])
     const labels = w.findAll('button').map((b) => b.attributes('aria-label'))
     expect(labels).toEqual([
       'Aggiungi o rimuovi dai preferiti',
       'Aggiungi ad album',
+      'Condividi selezione',
       'Modifica in blocco',
       'Elimina selezione'
     ])
+  })
+})
+
+describe('LibrarySelectionActions — Condividi (Task 11, §30: an auto-generated album stands in for the non-existent "selection" object type)', () => {
+  it('creating a public link auto-creates a hidden album with the selection, then shares that album', async () => {
+    const w = await mountActions([photo('a'), photo('b')])
+    const toast = useToastStore()
+
+    await w.get('[aria-label="Condividi selezione"]').trigger('click')
+    await tick()
+
+    const createLinkBtn = Array.from(document.body.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Crea link di condivisione')
+    )
+    createLinkBtn?.click()
+    await tick()
+
+    expect(createAlbumMock).toHaveBeenCalledTimes(1)
+    expect(addAssetsMock).toHaveBeenCalledWith('album-1', ['a', 'b'])
+    expect(createShareLinkMock).toHaveBeenCalledWith({ object_type: 'album', object_id: 'album-1' })
+    expect(toast.toasts.at(-1)?.message).toBe('Link creato e copiato negli appunti.')
+  })
+
+  it('without admin rights, the "Persone" section is hidden — only the public link is offered', async () => {
+    const w = await mountActions([photo('a')])
+
+    await w.get('[aria-label="Condividi selezione"]').trigger('click')
+    await tick()
+
+    expect(fetchUsersMock).not.toHaveBeenCalled()
+    expect(document.body.textContent).not.toContain('Persone')
+    expect(document.body.textContent).toContain('Link pubblico')
   })
 })
 

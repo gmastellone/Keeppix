@@ -56,9 +56,10 @@
 // decidere).
 //
 // **Debito dichiarato, verificato e non taciuto**:
-// - "Condividi" (§18.3 riga 3) omesso: apre un dialog che non esiste
-//   ancora (Task 11 "Condivisioni"), stessa motivazione già usata per
-//   la barra di selezione in Task 7 (2/N).
+// - "Condividi" (§18.3 riga 3, Task 11 1/N): apre `ShareSelectionDialog
+//   .vue` per questo singolo asset — stesso meccanismo (album
+//   auto-generato) già usato dalla barra di selezione, vedi lì per il
+//   perché.
 // - "Ruota" resta un toast (nessuna pipeline di rotazione reale esiste
 //   ancora — dichiarato nel Task 8 1/N: `orientation` è scrivibile ma
 //   mai consumato da `keeppix-media`).
@@ -71,9 +72,8 @@
 //   sostituito da un toast: nessuna vista "Persone" esiste ancora (Task
 //   16, Tranche D) — a differenza di "Ruota"/"Scarica" (demo-toast già
 //   nel mockup originale), qui il mockup naviga davvero verso una
-//   schermata reale, quindi ometterlo (come "Condividi") è più onesto di
-//   un finto toast su un bottone che promette una destinazione che non
-//   c'è.
+//   schermata reale, quindi ometterlo è più onesto di un finto toast su
+//   un bottone che promette una destinazione che non c'è.
 // - Il chip "+ aggiungi" delle persone (§19.2 riga 13, ultimo chip) non
 //   è costruito: aggiungere una persona a mano crea un volto **senza**
 //   rilevamento dietro (`box:null` nel mockup), ma `Face.bbox` nel
@@ -124,6 +124,7 @@ import PersonPickerDialog from '@/components/PersonPickerDialog.vue'
 import PlacePickerDialog from '@/components/PlacePickerDialog.vue'
 import RatingStars from '@/components/RatingStars.vue'
 import RenameFormulaDialog from '@/components/RenameFormulaDialog.vue'
+import ShareSelectionDialog from '@/components/ShareSelectionDialog.vue'
 import TagPickerDialog from '@/components/TagPickerDialog.vue'
 import DeleteDialog, { type DeleteChoice } from '@/components/ui/DeleteDialog.vue'
 import Popover from '@/components/ui/Popover.vue'
@@ -178,6 +179,7 @@ const toast = useToastStore()
 const info = ref(true)
 const moreOpen = ref(false)
 const albumDialogOpen = ref(false)
+const shareDialogOpen = ref(false)
 const renameDialogOpen = ref(false)
 const deleteDialogOpen = ref(false)
 const positionDialogOpen = ref(false)
@@ -271,7 +273,7 @@ function stepTo(target: TimelineAsset | undefined) {
  * 7/N), presente fin dal Task 8 2/N (quando `moreOpen` era l'unico caso
  * gestito) e mai notato prima perché nessun test precedente premeva Esc
  * con uno di questi sei dialog aperto. */
-const dialogRefs = [deleteDialogOpen, albumDialogOpen, renameDialogOpen, positionDialogOpen, personDialogOpen, tagDialogOpen]
+const dialogRefs = [deleteDialogOpen, albumDialogOpen, shareDialogOpen, renameDialogOpen, positionDialogOpen, personDialogOpen, tagDialogOpen]
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
@@ -866,6 +868,14 @@ const coordsLabel = computed(() => {
               v-if="!isCulling"
               type="button"
               class="rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-chip-bg)]"
+              @click="closeMoreThen(() => (shareDialogOpen = true))"
+            >
+              {{ t('viewer.menu.share') }}
+            </button>
+            <button
+              v-if="!isCulling"
+              type="button"
+              class="rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-chip-bg)]"
               @click="closeMoreThen(() => (albumDialogOpen = true))"
             >
               {{ t('viewer.menu.addToAlbum') }}
@@ -1308,6 +1318,14 @@ const coordsLabel = computed(() => {
               v-if="!isCulling"
               type="button"
               class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs hover:bg-[#1f1f1f]"
+              @click="shareDialogOpen = true"
+            >
+              {{ t('viewer.menu.share') }}
+            </button>
+            <button
+              v-if="!isCulling"
+              type="button"
+              class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs hover:bg-[#1f1f1f]"
               @click="albumDialogOpen = true"
             >
               {{ t('viewer.menu.addToAlbum') }}
@@ -1361,6 +1379,10 @@ const coordsLabel = computed(() => {
     <AlbumPickerDialog
       v-model:open="albumDialogOpen"
       :assets="[asset]"
+    />
+    <ShareSelectionDialog
+      v-model:open="shareDialogOpen"
+      :asset-ids="[asset.id]"
     />
     <RenameFormulaDialog
       v-model:open="renameDialogOpen"

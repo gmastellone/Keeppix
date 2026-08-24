@@ -6,19 +6,11 @@
 // noto al momento di scriverlo (stesso principio già seguito per
 // `nav/routeTitles.ts` e `composables/useIsMobile.ts`).
 //
-// **"Condividi" volutamente omesso** — non uno stub, un'assenza dichiarata:
-// verificato leggendo per intero `crates/keeppix-db/src/share_links.rs` e
-// `crates/keeppix-db/src/permissions.rs`. Un link di condivisione esiste
-// solo per `object_type` `folder`/`album`/`asset` — e "asset" **conta
-// sempre 1** (`item_counts`, commento del codice stesso: "un link asset
-// conta sempre 1, senza query"), mai una selezione multi-foto ad hoc; le
-// concessioni di permesso a persone già invitate coprono solo `folder`/
-// `album` (`permissions.rs`, riga 502). Non esiste nel backend nessun
-// concetto di "condividi questa selezione arbitraria di N foto", né come
-// link pubblico né come concessione a una persona — lo stesso genere di
-// lacuna già dichiarata altrove in questa sessione (il badge video "in
-// preparazione", "Nuova cartella…") invece di un pulsante che non
-// farebbe nulla di reale.
+// "Condividi" (Task 11, §30) apre `ShareSelectionDialog.vue` — vedi lì per
+// il perché non serve un `object_type` "selezione" nel backend (non è mai
+// esistito, verificato in `crates/keeppix-db/src/share_links.rs`/
+// `permissions.rs`: un album auto-generato lo sostituisce, con permessi e
+// link pubblici già completi).
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -30,6 +22,7 @@ import { useSelectionStore } from '@/stores/selection'
 import { useToastStore } from '@/stores/toast'
 
 import AlbumPickerDialog from './AlbumPickerDialog.vue'
+import ShareSelectionDialog from './ShareSelectionDialog.vue'
 import DeleteDialog, { type DeleteChoice } from './ui/DeleteDialog.vue'
 import Tooltip from './ui/Tooltip.vue'
 
@@ -42,6 +35,7 @@ const selection = useSelectionStore()
 const toast = useToastStore()
 
 const albumOpen = ref(false)
+const shareOpen = ref(false)
 const deleteOpen = ref(false)
 
 // §12.3: "se tutte le selezionate sono già preferite, le toglie tutte;
@@ -153,6 +147,43 @@ async function confirmDelete(choice: DeleteChoice) {
       </svg>
     </button>
   </Tooltip>
+  <Tooltip :label="t('librarySelectionActions.shareTip')">
+    <button
+      type="button"
+      :aria-label="t('librarySelectionActions.shareLabel')"
+      class="flex h-8 w-8 items-center justify-center rounded-lg text-content-muted hover:bg-border/40"
+      @click="shareOpen = true"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="15"
+        height="15"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <circle
+          cx="18"
+          cy="5"
+          r="3"
+        />
+        <circle
+          cx="6"
+          cy="12"
+          r="3"
+        />
+        <circle
+          cx="18"
+          cy="19"
+          r="3"
+        />
+        <path d="M8.6 10.5l6.8-3.9M8.6 13.5l6.8 3.9" />
+      </svg>
+    </button>
+  </Tooltip>
   <Tooltip :label="t('librarySelectionActions.editTip')">
     <button
       type="button"
@@ -206,6 +237,10 @@ async function confirmDelete(choice: DeleteChoice) {
   <AlbumPickerDialog
     v-model:open="albumOpen"
     :assets="assets"
+  />
+  <ShareSelectionDialog
+    v-model:open="shareOpen"
+    :asset-ids="assets.map((asset) => asset.id)"
   />
   <DeleteDialog
     v-model:open="deleteOpen"

@@ -4891,3 +4891,84 @@ budget di 153.600.
 
 Si prosegue con i Task 11-14 della Tranche B (Condivisioni, Album,
 Manutenzione, Impostazioni/Profilo).
+
+## Task 11 (1/N) — Condivisioni: dialog "Condividi selezione" (§30)
+
+Letto per intero §29 e §30 e usato un agente di ricerca dedicato per
+verificare lo stato reale di `SharesView.vue`, `LibrarySelectionActions
+.vue`, `AssetViewer.vue`, `crates/keeppix-api/src/routes/share.rs`/
+`permissions.rs` prima di scrivere codice. Confermato quanto già
+dichiarato al Task 7 (2/N) e al Task 8: "Condividi" era un'assenza
+deliberata sia nella barra di selezione sia nel menu ⋯ del lightbox,
+perché **il backend non ha mai avuto un `object_type` per "una
+selezione arbitraria di foto"** — verificato di nuovo, riga per riga,
+in `crates/keeppix-db/src/share_links.rs` e `permissions.rs`: solo
+`folder`/`album`/`asset` esistono ovunque (riga SQL, validazione della
+rotta, `item_counts` — "un link asset conta sempre 1, senza query").
+
+**Non serve estendere il backend**: un insieme arbitrario di foto è
+esattamente ciò che un **album** già rappresenta, con permessi e link
+pubblici già completi (`createAlbum`/`addAssets`, `grantPermission`/
+`revokePermission`, `createShareLink` — tutti reali, già usati altrove).
+Nuovo `ShareSelectionDialog.vue`: al primo uso reale (non all'apertura
+del dialog) crea un album nascosto contenente solo la selezione, poi
+condivide *quello* — "Selezione manuale" del mockup diventa un album
+auto-generato nel sistema reale, stessa promessa ("non condividi
+l'intera cartella/album di provenienza"), meccanismo reale invece di un
+tipo che non esiste. Riusa il pattern già collaudato di
+`AlbumPickerDialog.vue` (righe switch dentro `Dialog.vue`, `role=
+"switch"`/`aria-checked`, nocca che scorre) — lo stesso dialog condiviso
+SP-5 di `PlacePickerDialog.vue`, quindi la stessa deviazione già presa
+lì viene ereditata gratis: click sul velo chiude (comportamento
+migliore di reka-ui, non riprodotta la stranezza del mockup — §30.4 la
+segnala esplicitamente come "deviazione da SP-5" nel mockup).
+
+**Gap reale trovato durante la verifica, non ipotizzato**: la sezione
+"Persone" del dialog richiede `GET /users` per elencare "persone già
+invitate" — quella rotta è riservata agli admin
+(`crates/keeppix-api/src/routes/users.rs`, `AdminAuth` su ogni
+endpoint), e non esiste alcuna rotta alternativa per un utente normale
+per elencare gli altri account dell'istanza (stesso per `GET /groups`).
+La sezione "Persone" è quindi visibile solo per un admin
+(`session.user?.role === 'admin'`, stesso pattern già in uso in
+`PlacePicker.vue` per "Scarica regione"); per chiunque altro il dialog
+mostra **solo** "Link pubblico" — pienamente funzionante per tutti,
+senza richiedere quell'elenco. Dichiarato nel commento del componente,
+non taciuto.
+
+Colore avatar per le "altre persone" in condivisione: il documento
+(SP-16, riga 9175-9178) specifica "hash-based via `hsl()`, indipendente
+dalla scelta personale" ma non una formula esatta — nuovo
+`frontend/src/design/avatarColor.ts`, hash deterministico su stringa →
+tonalità 0-359, saturazione/luminosità fisse per restare leggibile con
+testo bianco sopra (stesso vincolo del preset "Arancione" di SP-16).
+
+`AssetViewer.vue`: "Condividi…" aggiunto al menu ⋯ e al pannello AZIONI
+(stessa `[!isCulling]`, posizione dopo "Ruota" come nell'elenco
+canonico del documento "preferiti / album / condividi / modifica /
+elimina"), apre lo stesso dialog per l'asset singolo. Aggiunto
+`shareDialogOpen` a `dialogRefs` (la lista che previene il bug Esc-
+chiude-anche-il-lightbox-sotto già trovato e corretto al Task 8 7/N) —
+lo stesso dialog nuovo avrebbe altrimenti reintrodotto esattamente
+quella classe di bug.
+
+`ShareLink` (`frontend/src/api/shares.ts`) e la nuova `SharedWithMe`
+(`frontend/src/api/permissions.ts`, `GET /shared-with-me` — aggiunta
+apposta per §29, mai consumata dal frontend finora) ora hanno
+`item_count`/i campi reali già restituiti dal backend ma mancanti dal
+tipo TS — preparazione diretta per la prossima unità (§29, la pagina
+Condivisioni).
+
+Verifica completa: `npx vitest run` → 78 file (nuovo `avatarColor.
+spec.ts`), 670/670 verdi (5 nuovi/estesi in `LibrarySelectionActions.
+spec.ts`, 1 nuovo in `AssetViewer.spec.ts`, 3 nuovi in `avatarColor.
+spec.ts`). `npx vue-tsc -b` pulito. `npx eslint` sui file toccati e
+sull'intero repo → pulito (stesso unico errore preesistente su
+`PlayerView.vue`). `npm run build` + calcolo manuale del bundle
+iniziale gzip → 127.348 byte, sotto il budget di 153.600.
+
+Il Task 11 prosegue con §29 (la pagina "Condivisioni": due schede,
+"Persone"/"Link pubblici"/"Cartelle e album condivisi" per "Le mie
+condivisioni", "Condivisi con me" via `shared-with-me`) — riscrive
+`SharesView.vue`, oggi uno strumento CRUD di permessi non allineato
+alla UI del documento.

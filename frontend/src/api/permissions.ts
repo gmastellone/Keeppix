@@ -54,3 +54,23 @@ export function grantPermission(body: {
 export function revokePermission(id: string): Promise<null> {
   return apiFetch(`/api/v1/permissions/${id}`, { method: 'DELETE' })
 }
+
+/** §29, scheda "Condivisi con me" — `GET /shared-with-me`
+ * (`crates/keeppix-api/src/routes/permissions.rs`, aggiunta apposta per
+ * questa sezione: il commento a codice la cita per nome). Unisce
+ * concessioni dirette e di gruppo su cartelle/album dell'utente
+ * corrente, con nome/proprietario/conteggio già risolti lato server —
+ * primo consumatore reale di questa rotta. */
+export interface SharedWithMe {
+  object_type: string
+  object_id: string
+  name: string
+  owner_name: string
+  role: string
+  via_group?: string
+  item_count: number
+}
+
+export function fetchSharedWithMe(): Promise<SharedWithMe[]> {
+  return apiFetch('/api/v1/shared-with-me')
+}

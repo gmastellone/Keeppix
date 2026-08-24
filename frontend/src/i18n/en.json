@@ -7,6 +7,8 @@
     "favoritesTip": "Favorites",
     "albumLabel": "Add to album",
     "albumTip": "Album",
+    "shareLabel": "Share selection",
+    "shareTip": "Share",
     "editLabel": "Bulk edit",
     "editTip": "Edit",
     "deleteLabel": "Delete selection",
@@ -346,6 +348,7 @@
       "download": "Download original",
       "rotate": "Rotate",
       "rotateToast": "Demo only — this would rotate the file (the original on disk is never modified).",
+      "share": "Share…",
       "addToAlbum": "Add to album",
       "rename": "Rename…",
       "delete": "Delete…"
@@ -523,7 +526,22 @@
     "explain": "Explain",
     "explainNone": "No access.",
     "explainLink": "{subject} has role {role} on {on}",
-    "explainLinkInherited": "{subject} has role {role} on {on}, inherited in {inherited}"
+    "explainLinkInherited": "{subject} has role {role} on {on}, inherited in {inherited}",
+    "dialog": {
+      "title": "Share {n} item | Share {n} items",
+      "subtitle": "Grant access to people already invited, or create a public link just for this selection.",
+      "peopleTitle": "People",
+      "linkSectionTitle": "Public link",
+      "linkSectionSubtitle": "View only, without sharing the whole originating folder or album.",
+      "createLink": "Create share link",
+      "done": "Done",
+      "granted": "Shared with {name}.",
+      "revoked": "Access removed for {name}.",
+      "linkCreated": "Link created and copied to clipboard.",
+      "error": "The operation could not be completed.",
+      "role": "Viewer",
+      "autoAlbumName": "Shared selection from {date}"
+    }
   },
   "users": {
     "entry": "Users",
