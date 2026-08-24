@@ -302,6 +302,14 @@
       "iso": "ISO {n}",
       "year": "Anno {n}",
       "gps": "Con posizione GPS"
+    },
+    "type": {
+      "all": "Tutti i tipi",
+      "raw": "RAW",
+      "jpeg": "JPEG",
+      "favorite": "Preferiti",
+      "person": "Persona",
+      "personTitle": "Richiede riconoscimento volti — vedi Gruppo B"
     }
   },
   "viewer": {

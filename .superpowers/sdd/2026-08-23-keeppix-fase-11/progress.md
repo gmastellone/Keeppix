@@ -4649,3 +4649,46 @@ preesistenti riscritti). `npx vue-tsc -b` pulito. `npx eslint` sui file
 toccati e sull'intero repo → pulito (stesso unico errore preesistente su
 `PlayerView.vue`). `npm run build` + calcolo manuale del bundle iniziale
 gzip → 126.265 byte, sotto il budget di 153.600.
+
+## Task 9 (2/N) — Cerca: i chip del tipo file (§23.3 controlli 5-9)
+
+Cinque chip sotto il composer: "Tutti i tipi"/"RAW"/"JPEG"/"Preferiti"
+(mutuamente esclusivi, `typeFilter` a quattro stati, default `'all'`,
+nel mockup non si torna mai a "nessuno" — solo `setTypeFilter` da un
+chip all'altro) e "Persona" (`<span>`, non un `<button>`: nessun
+gestore di click, `title` HTML nativo `"Richiede riconoscimento volti —
+vedi Gruppo B"` — non un tooltip `[data-tip]` di Keeppix, come richiede
+esplicitamente il documento).
+
+**RAW/JPEG non riproducono il booleano binario `isRaw` del mockup**: il
+sistema reale ha `kind` a quattro valori (`image`/`raw_image`/`video`/
+`unknown`, `crates/keeppix-db/src/search.rs:911-914`), non solo RAW/
+JPEG. "RAW" filtra `{op:'type', value:'raw_image'}`; "JPEG" filtra
+`{op:'type', value:'image'}` **esatto**, non "tutto ciò che non è RAW"
+— altrimenti includerebbe anche i video, che nel mockup (solo foto)
+semplicemente non esistevano. Stesso principio già seguito al Task 8
+(10/N) per il chip "JPEG" del lightbox.
+
+I chip si combinano in AND con pillole e testo (`buildAst()` ora
+antepone il nodo del tipo, se presente, prima delle pillole — stesso
+ordine, stesso meccanismo `and`). Confermato dal test dedicato: con
+"Preferiti" attivo e una pillola `tag` aggiunta, l'AST è `{op:'and',
+args:[{op:'favorite'},{op:'tag',id:...}]}`.
+
+`clearAll()` (✕ "Cancella la ricerca") non tocca `typeFilter`, per
+costruzione — non serviva codice apposito, solo non includerlo nel
+reset, esattamente come richiesto (§23.3, riga 4179: "**Non** azzera il
+chip del tipo file").
+
+**Fuori campo, dichiarato**: l'area risultati (§25) resta quella
+semplice preesistente — con solo "RAW" attivo e nessuna pillola/testo,
+`buildAst()` produce comunque un AST valido (il nodo `type` da solo) e
+la ricerca gira, ma la vista non mostra ancora il titolo "Aggiunti di
+recente"/le card cartella che il documento richiede in quello stato:
+arriva con l'unità successiva, che ricostruisce l'intera area risultati.
+
+Verifica completa: `npx vitest run` → 77 file, 653/653 verdi (5 nuovi
+in `SearchView.spec.ts`). `npx vue-tsc -b` pulito. `npx eslint` sui
+file toccati e sull'intero repo → pulito (stesso unico errore
+preesistente su `PlayerView.vue`). `npm run build` + calcolo manuale
+del bundle iniziale gzip → 126.349 byte, sotto il budget di 153.600.

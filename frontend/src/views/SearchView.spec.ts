@@ -341,3 +341,79 @@ describe('SearchView — §23, il composer e i suggerimenti', () => {
     wrapper.unmount()
   })
 })
+
+describe('SearchView — §23.3, i chip del tipo file', () => {
+  function chip(wrapper: ReturnType<typeof mount>, label: string) {
+    return wrapper.findAll('button').find((el) => el.text() === label)
+  }
+
+  it('"Tutti i tipi" is the default and the four chips are mutually exclusive', async () => {
+    const { wrapper } = await mountSearch()
+
+    const all = chip(wrapper, 'All types')
+    const raw = chip(wrapper, 'RAW')
+    expect(all?.classes()).toContain('text-accent')
+    expect(raw?.classes()).not.toContain('text-accent')
+
+    await raw?.trigger('click')
+    await flushPromises()
+
+    expect(chip(wrapper, 'RAW')?.classes()).toContain('text-accent')
+    expect(chip(wrapper, 'All types')?.classes()).not.toContain('text-accent')
+  })
+
+  it('clicking RAW searches by type raw_image; JPEG searches by type image (not just "not raw" — video stays excluded)', async () => {
+    vi.mocked(runSearch).mockResolvedValue({ assets: [] })
+    const { wrapper } = await mountSearch()
+
+    await chip(wrapper, 'RAW')?.trigger('click')
+    await flushPromises()
+    expect(runSearch).toHaveBeenLastCalledWith({ op: 'type', value: 'raw_image' }, undefined)
+
+    await chip(wrapper, 'JPEG')?.trigger('click')
+    await flushPromises()
+    expect(runSearch).toHaveBeenLastCalledWith({ op: 'type', value: 'image' }, undefined)
+  })
+
+  it('"Preferiti" searches by favorite, combined in AND with a pill when both are active', async () => {
+    vi.mocked(runSearch).mockResolvedValue({ assets: [] })
+    const { wrapper } = await mountSearch('/search', { tags: [tag('t1', 'Tramonti')] })
+
+    await chip(wrapper, 'Favorites')?.trigger('click')
+    await flushPromises()
+    expect(runSearch).toHaveBeenLastCalledWith({ op: 'favorite' }, undefined)
+
+    await wrapper.find('#search-query-input').setValue('tram')
+    await flushPromises()
+    await wrapper.findAll('.search-suggest-row')[0].trigger('click')
+    await flushPromises()
+
+    expect(runSearch).toHaveBeenLastCalledWith(
+      { op: 'and', args: [{ op: 'favorite' }, { op: 'tag', id: 't1' }] },
+      undefined
+    )
+  })
+
+  it('"Persona" is disabled: no click handler, native title tooltip, cannot become active', async () => {
+    vi.mocked(runSearch).mockResolvedValue({ assets: [] })
+    const { wrapper } = await mountSearch()
+
+    const person = wrapper.findAll('span').find((el) => el.text() === 'Person')
+    expect(person?.attributes('title')).toBe('Requires face recognition — see Group B')
+
+    await person?.trigger('click')
+    await flushPromises()
+    expect(runSearch).not.toHaveBeenCalled()
+  })
+
+  it('clear-all does not reset the type chip (§23.3, "non azzera il chip del tipo file")', async () => {
+    const { wrapper } = await mountSearch()
+
+    await chip(wrapper, 'RAW')?.trigger('click')
+    await flushPromises()
+    await wrapper.find('#searchClearAll').trigger('click')
+    await flushPromises()
+
+    expect(chip(wrapper, 'RAW')?.classes()).toContain('text-accent')
+  })
+})

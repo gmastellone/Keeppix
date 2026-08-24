@@ -270,12 +270,44 @@ function focusPrevRow(e: KeyboardEvent) {
   rows[i - 1]?.focus()
 }
 
+// --- chip del tipo file (§23.3 controlli 5-9) ---
+// Mutuamente esclusivi, "Tutti i tipi" è il default e nel mockup non si
+// può tornare a "nessuno" — si passa solo da un chip all'altro. "RAW" e
+// "JPEG" filtrano sul `kind` della riga primaria dello stack (`SearchNode
+// ::Type`, `crates/keeppix-db/src/search.rs:911-914` — "raw" è un alias
+// di "raw_image"): a differenza del mockup, che aveva un solo booleano
+// `isRaw`/non-`isRaw` binario, il sistema reale ha anche `video`/
+// `unknown` — "JPEG" qui filtra esattamente `kind==='image'`, non
+// genericamente "non RAW", altrimenti includerebbe anche i video.
+type TypeFilter = 'all' | 'raw' | 'jpeg' | 'favorite'
+const typeFilter = ref<TypeFilter>('all')
+
+function setTypeFilter(value: TypeFilter) {
+  typeFilter.value = value
+  void triggerSearch()
+}
+
+function typeFilterNode(): SearchNode | null {
+  switch (typeFilter.value) {
+    case 'raw':
+      return { op: 'type', value: 'raw_image' }
+    case 'jpeg':
+      return { op: 'type', value: 'image' }
+    case 'favorite':
+      return { op: 'favorite' }
+    case 'all':
+      return null
+  }
+}
+
 // --- risultati (§25, area completa non ancora costruita — resta la
 // griglia semplice per questa unità: rifatta nella prossima) ---
 const hasSearch = computed(() => pills.value.length > 0 || q.value.trim().length > 0)
 
 function buildAst(): SearchNode | null {
   const nodes: SearchNode[] = []
+  const tn = typeFilterNode()
+  if (tn) nodes.push(tn)
   for (const p of pills.value) {
     if (p.type === 'tag') nodes.push({ op: 'tag', id: p.value })
     else if (p.type === 'camera') nodes.push({ op: 'camera', value: p.value })
@@ -461,6 +493,29 @@ onUnmounted(() => {
           {{ t('search.suggest.freeTextLabel') }} «<b>{{ q.trim() }}</b>»
         </p>
       </div>
+    </div>
+
+    <div class="mt-2 flex flex-wrap items-center gap-1.5">
+      <button
+        v-for="chip in (['all', 'raw', 'jpeg', 'favorite'] as const)"
+        :key="chip"
+        type="button"
+        class="rounded-full border px-3 py-1 text-[12.5px]"
+        :class="
+          typeFilter === chip
+            ? 'border-accent bg-accent-tint font-semibold text-accent'
+            : 'border-border bg-chip-bg text-content hover:bg-border/40'
+        "
+        @click="setTypeFilter(chip)"
+      >
+        {{ t(`search.type.${chip}`) }}
+      </button>
+      <span
+        class="cursor-default rounded-full border border-border bg-chip-bg px-3 py-1 text-[12.5px] text-content-muted opacity-50"
+        :title="t('search.type.personTitle')"
+      >
+        {{ t('search.type.person') }}
+      </span>
     </div>
 
     <p

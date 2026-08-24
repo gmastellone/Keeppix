@@ -302,6 +302,14 @@
       "iso": "ISO {n}",
       "year": "Year {n}",
       "gps": "With GPS position"
+    },
+    "type": {
+      "all": "All types",
+      "raw": "RAW",
+      "jpeg": "JPEG",
+      "favorite": "Favorites",
+      "person": "Person",
+      "personTitle": "Requires face recognition — see Group B"
     }
   },
   "viewer": {
