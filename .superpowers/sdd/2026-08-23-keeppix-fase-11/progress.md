@@ -4972,3 +4972,83 @@ Il Task 11 prosegue con §29 (la pagina "Condivisioni": due schede,
 condivisioni", "Condivisi con me" via `shared-with-me`) — riscrive
 `SharesView.vue`, oggi uno strumento CRUD di permessi non allineato
 alla UI del documento.
+
+## Task 11 (2/N) — Condivisioni: la pagina "Le mie condivisioni"/"Condivisi con me" (§29), chiude il Task 11
+
+`SharesView.vue` riscritta da zero: due schede (`?tab=mine|shared`,
+persistito nell'URL come `?photo=`/`?q=` altrove in questa sessione),
+tre sezioni per "Le mie condivisioni" (Persone, Link pubblici, Cartelle
+e album condivisi), una per "Condivisi con me" — non più uno strumento
+CRUD di permessi senza relazione con la UI del documento.
+
+**Sezione "Persone" riservata agli admin, stessa causa già citata al
+Task 11 (1/N)**: elencare "con chi ho condiviso" richiede risolvere
+nome/e-mail dei soggetti (`GET /users`/`GET /groups`, entrambe
+`AdminAuth`) — nessuna rotta alternativa per un utente normale.
+Aggregazione reale, non finta: per ogni cartella (`fetchAllFolders()`,
+l'intero albero, non solo le radici — la differenza già stabilita al
+Task 9 1/N fra questa e `fetchTree()`) e ogni album, una chiamata a
+`GET /permissions?object_type&object_id` in parallelo (N+1 delimitato,
+stesso principio già accettato per i conteggi delle card cartella del
+Task 9 3/N) — appiattite in righe risolte con nome/e-mail/ruolo/origine
+di ereditarietà.
+
+**"Invita" (§29.3 riga 5, "no handler" nel mockup) ora fa qualcosa di
+reale**: riusa il form di concessione già costruito e testato nella
+vecchia `SharesView.vue` (cartella/soggetto/ruolo/eredita, più lo
+strumento "Perché può vederla?" di spiegazione della catena) — ricollocato
+dentro un pannello a comparsa sotto "Persone", non cancellato: era
+codice reale e funzionante, non uno scarto del rifacimento.
+
+**"Copia" esiste solo per un link appena creato in questa sessione,
+causa reale non ipotetica**: verificato che `GET /share/links`
+(`LinkView`) non include mai il `token` — solo la risposta di
+creazione lo restituisce, una volta sola
+(`crates/keeppix-api/src/routes/share.rs`). Un link caricato dalla
+lista non ha modo di ricostruire l'URL condivisibile: "Copia" compare
+solo per un `link.id` presente in una mappa locale popolata da questa
+stessa pagina, mai per un link che arriva già esistente da
+`fetchShareLinks()` — verificato con un test dedicato. Il pulsante
+`"Crea link di condivisione"` della sezione (§29.3 riga 8) non è
+costruito qui: nel mockup non ha comunque alcun gestore, e la strada
+reale per crearne uno resta `ShareSelectionDialog.vue` (Task 11 1/N),
+da una griglia con una selezione.
+
+**Le card di "Cartelle e album condivisi" sono cliccabili**, a
+differenza del mockup, che le disegna con `cursor:pointer` ma nessun
+gestore — il documento stesso lo segnala come "falsa affordance da
+correggere nell'implementazione Vue" (§29.4). Portano rispettivamente a
+`/folders` e `/albums`: nessuna vista "Foto scoperta su una cartella"/
+"dettaglio album" esiste ancora (stessa lacuna già dichiarata al Task 9
+3/N e al Task 10), quindi le destinazioni reali più vicine, non un
+salto diretto fasullo. Conteggio elementi reale: `fetchAlbum(id)` per
+gli album, lo stesso giro esaustivo `runSearch({op:'folder',id})` già
+usato per le card cartella di Ricerca (Task 9 3/N) per le cartelle.
+
+**Sottotitolo dei link pubblici costruito da campi reali**, non da una
+stringa cablata: tipo oggetto, `"nessuna scadenza"`/`"scade il
+<data>"`, `"password attiva"` solo se `has_password` (mai una dicitura
+negativa, come richiede il documento), `"download originale
+attivo"`/`"off"` — quest'ultimo riflette lo stato vero, a differenza
+del mockup che secondo il documento non mostra mai "on" nei suoi due
+soli esempi dimostrativi.
+
+Verifica completa: `npx vitest run` → 78 file, **677/677** verdi (11 in
+`SharesView.spec.ts`, riscritti: il form di invito ora richiede una
+sessione admin impostata **prima** del montaggio — impostarla dopo non
+ricarica i dati, esattamente come nell'app reale, dove il login avviene
+prima di navigare qui). `npx vue-tsc -b` pulito. `npx eslint` sui file
+toccati e sull'intero repo → pulito (stesso unico errore preesistente
+su `PlayerView.vue`). `npm run build` + calcolo manuale del bundle
+iniziale gzip → 127.924 byte, sotto il budget di 153.600.
+
+**Con questa unità si chiude il Task 11** ("Condivisioni", §29-30) —
+due sotto-unità: il dialog "Condividi selezione" (un album
+auto-generato al posto di un `object_type` "selezione" mai esistito nel
+backend) e la pagina Condivisioni stessa. Debito dichiarato: la sezione
+Persone/Invita per chi non è admin (nessuna rotta di risoluzione nomi
+accessibile a un utente normale), "Crea link di condivisione" dentro
+Condivisioni (la strada reale resta il dialog di selezione), le
+destinazioni delle card cartella/album (nessuna vista scoperta-da-id).
+Si prosegue con i Task 12-14 della Tranche B (Album, Manutenzione,
+Impostazioni/Profilo).
