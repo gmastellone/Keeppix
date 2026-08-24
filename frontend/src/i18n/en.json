@@ -157,6 +157,48 @@
       "signedOutOffline": "You were signed out locally; we couldn't confirm it with the server (likely a network issue)."
     }
   },
+  "settings": {
+    "entry": "Settings",
+    "title": "Settings",
+    "appearance": {
+      "title": "Appearance",
+      "subtitle": "Light, dark, or follow the operating system",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "density": {
+      "title": "Grid density",
+      "subtitleDesktop": "Columns in Timeline on this device (Desktop) — saved separately from mobile ({n} columns)",
+      "subtitleMobile": "Columns in Timeline on this device (Mobile) — saved separately from desktop ({n} columns)"
+    },
+    "maps": {
+      "title": "Offline maps",
+      "subtitle": "Tiles are served from this Keeppix server, never from external providers — no request ever leaves your network",
+      "manage": "Manage offline maps"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "digest": "Weekly digest",
+      "shares": "New shares received",
+      "problems": "Problems detected"
+    },
+    "language": {
+      "title": "Language"
+    },
+    "faces": {
+      "title": "Face recognition",
+      "subtitle": "Faces are biometric data — different from a \"sunset\" tag. They never appear on a shared public link: it's not configurable, it always applies.",
+      "toggleLabel": "Face recognition active — {name}",
+      "adminOnly": "Only an administrator can change this setting.",
+      "deleteAll": "Delete all face data",
+      "deleteConfirmTitle": "Delete all face data?",
+      "deleteConfirmDescription": "People, groups, and recognized faces will be permanently deleted — this does not touch your photos, only the face-recognition data. This cannot be undone.",
+      "deleteConfirmButton": "Delete everything",
+      "deleteDone": "Face data deleted.",
+      "actionError": "Could not complete the operation. Try again."
+    }
+  },
   "home": {
     "logout": "Sign out"
   },

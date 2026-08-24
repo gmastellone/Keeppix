@@ -45,6 +45,7 @@ function library(overrides: Partial<Library> = {}): Library {
     owner_id: 'u1',
     root_path: '/data/lago-di-braies',
     scan_enabled: true,
+    faces_enabled: true,
     exclude_patterns: [],
     status: 'offline',
     last_scan_at: '2026-08-20T00:00:00Z',

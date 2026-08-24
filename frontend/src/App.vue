@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import AppShell from '@/components/ui/AppShell.vue'
@@ -12,9 +12,24 @@ import ToastHost from '@/components/ui/ToastHost.vue'
 import UploadDropVeil from '@/components/UploadDropVeil.vue'
 import UploadQueueStrip from '@/components/UploadQueueStrip.vue'
 import { useSessionStore } from '@/stores/session'
+import { useThemeStore } from '@/stores/theme'
 
 const { t } = useI18n()
 const session = useSessionStore()
+const theme = useThemeStore()
+
+// Fase 11 Task 14 (1/N), §60.1: il tema vive nelle preferenze del server,
+// quindi richiede una sessione — caricato/azzerato in un unico punto
+// osservando `session.user`, invece che da ogni azione che potrebbe farlo
+// cambiare (bootstrap/login/setup/logout).
+watch(
+  () => session.user,
+  (user) => {
+    if (user) void theme.load()
+    else theme.reset()
+  },
+  { immediate: true }
+)
 
 // Import differito: il pannello di upload è un overlay globale che vive
 // fuori dal router, ma senza `defineAsyncComponent` finirebbe comunque nel

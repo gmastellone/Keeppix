@@ -35,9 +35,15 @@ describe('justify', () => {
 })
 
 describe('clampDensity', () => {
-  it('stays inside 2–12', () => {
+  it('stays inside 2–12 on desktop (default)', () => {
     expect(clampDensity(1)).toBe(2)
     expect(clampDensity(12.4)).toBe(12)
     expect(clampDensity(7.2)).toBe(7)
+  })
+
+  it('stays inside 2–6 on mobile (§60.2)', () => {
+    expect(clampDensity(1, true)).toBe(2)
+    expect(clampDensity(9, true)).toBe(6)
+    expect(clampDensity(4.4, true)).toBe(4)
   })
 })

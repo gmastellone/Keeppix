@@ -42,3 +42,10 @@ export function assignFace(faceId: string, personId: string): Promise<null> {
 export function rejectFace(faceId: string): Promise<null> {
   return apiFetch(`/api/v1/faces/${faceId}/reject`, { method: 'POST' })
 }
+
+/** §60.8 "Elimina tutti i dati dei volti" — reale e irreversibile, solo
+ * admin (`routes/faces.rs::delete_all_data`): svuota volti, persone e
+ * gruppi di persone in tutta l'istanza. Non tocca le foto. */
+export function deleteAllFaceData(): Promise<null> {
+  return apiFetch('/api/v1/faces/data', { method: 'DELETE' })
+}

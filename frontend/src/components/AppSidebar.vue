@@ -266,6 +266,13 @@ const storageTotals = computed(() => {
       </template>
       <button
         type="button"
+        class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] hover:bg-border/30"
+        @click="accountMenuOpen = false; router.push('/settings')"
+      >
+        {{ t('settings.entry') }}
+      </button>
+      <button
+        type="button"
         class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-danger hover:bg-border/30"
         @click="signOut"
       >

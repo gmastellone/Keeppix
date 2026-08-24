@@ -69,6 +69,11 @@ export function justify(
   return rows
 }
 
-export function clampDensity(n: number): number {
-  return Math.min(12, Math.max(2, Math.round(n)))
+/** §60.2 "Densità griglia" (Task 14, 1/N): due intervalli distinti,
+ * desktop 2-12 e mobile 2-6 — la stessa funzione serviva prima solo il
+ * caso desktop (`useDensity`, unico consumatore fino a questo task, mai
+ * usato su un intervallo diverso). */
+export function clampDensity(n: number, mobile = false): number {
+  const max = mobile ? 6 : 12
+  return Math.min(max, Math.max(2, Math.round(n)))
 }

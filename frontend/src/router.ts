@@ -26,6 +26,11 @@ export const router = createRouter({
     // iniziali riguarda solo ciò che `index.html` carica subito.
     { path: '/map', component: () => import('@/views/MapView.vue'), meta: { auth: true } },
     {
+      path: '/settings',
+      component: () => import('@/views/settings/SettingsView.vue'),
+      meta: { auth: true }
+    },
+    {
       path: '/settings/maps/offline',
       component: () => import('@/views/settings/MapsOfflineView.vue'),
       meta: { auth: true }

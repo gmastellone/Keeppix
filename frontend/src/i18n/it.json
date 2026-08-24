@@ -157,6 +157,48 @@
       "signedOutOffline": "Sei uscito localmente; non siamo riusciti a confermarlo con il server (probabile problema di rete)."
     }
   },
+  "settings": {
+    "entry": "Impostazioni",
+    "title": "Impostazioni",
+    "appearance": {
+      "title": "Aspetto",
+      "subtitle": "Chiaro, scuro, o segui il sistema operativo",
+      "light": "Chiaro",
+      "dark": "Scuro",
+      "system": "Sistema"
+    },
+    "density": {
+      "title": "Densità griglia",
+      "subtitleDesktop": "Colonne nella Timeline su questo dispositivo (Desktop) — salvata separatamente da desktop e mobile ({n} colonne)",
+      "subtitleMobile": "Colonne nella Timeline su questo dispositivo (Mobile) — salvata separatamente da desktop e mobile ({n} colonne)"
+    },
+    "maps": {
+      "title": "Mappe offline",
+      "subtitle": "Le tile sono servite da questo server Keeppix, mai da provider esterni — nessuna richiesta lascia la tua rete",
+      "manage": "Gestisci mappe offline"
+    },
+    "notifications": {
+      "title": "Notifiche",
+      "digest": "Riepilogo settimanale",
+      "shares": "Nuove condivisioni ricevute",
+      "problems": "Problemi rilevati"
+    },
+    "language": {
+      "title": "Lingua"
+    },
+    "faces": {
+      "title": "Riconoscimento volti",
+      "subtitle": "I volti sono dati biometrici — un trattamento diverso da un tag \"tramonto\". Non compaiono mai su un link pubblico condiviso: non è configurabile, vale sempre.",
+      "toggleLabel": "Riconoscimento facciale attivo — {name}",
+      "adminOnly": "Solo un amministratore può cambiare questa impostazione.",
+      "deleteAll": "Elimina tutti i dati dei volti",
+      "deleteConfirmTitle": "Eliminare tutti i dati dei volti?",
+      "deleteConfirmDescription": "Persone, gruppi e volti riconosciuti verranno cancellati per sempre — non tocca le foto, solo i dati di riconoscimento facciale. Non è recuperabile.",
+      "deleteConfirmButton": "Elimina tutto",
+      "deleteDone": "Dati dei volti eliminati.",
+      "actionError": "Non è stato possibile completare l'operazione. Riprova."
+    }
+  },
   "home": {
     "logout": "Esci"
   },

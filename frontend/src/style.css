@@ -76,6 +76,63 @@
   }
 }
 
+/* §60.1 "Aspetto" (Task 14, 1/N): tre stati (chiaro/scuro/sistema)
+   scritti da `stores/theme.ts` come `data-theme="light"|"dark"` su
+   `<html>`. "Sistema" non scrive l'attributo su nessun valore fisso: lo
+   store lo risolve una volta con `matchMedia` e riscrive comunque
+   `data-theme`, quindi il blocco `prefers-color-scheme` qui sotto resta
+   solo per il breve istante prima che lo store carichi le preferenze (o
+   per chi non ha ancora effettuato l'accesso, dove le preferenze non
+   sono leggibili) — non un secondo meccanismo indipendente. Specificità
+   dell'attributo (`:root[data-theme]`) sempre più alta di un `@media`
+   che punta implicitamente allo stesso `:root`: vince sempre quando
+   presente, in entrambe le direzioni, indipendentemente dall'ordine nel
+   file. */
+:root[data-theme="dark"] {
+  --color-surface: oklch(17% 0 0);
+  --color-surface-elevated: oklch(22% 0 0);
+  --color-content: oklch(95% 0 0);
+  --color-content-muted: oklch(65% 0 0);
+  --color-accent: #ff9d52;
+  --color-accent-text: #1a1005;
+  --color-danger: #ff6b61;
+  --color-border: oklch(30% 0 0);
+  --color-accent-tint: #2c1c0e;
+  --color-warn: #f0a23c;
+  --color-warn-tint: #2e2110;
+  --color-warn-border: #4a361a;
+  --color-danger-tint: #331411;
+  --color-chip-bg: #141414;
+  --color-card-bg: #0a0a0a;
+  --color-border-strong: #2c2c2c;
+  --color-toast-danger: #c6382f;
+  --color-toast-warn: #a66200;
+  --color-skel-sheen: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme="light"] {
+  --color-surface: oklch(99% 0 0);
+  --color-surface-elevated: oklch(100% 0 0);
+  --color-content: oklch(20% 0 0);
+  --color-content-muted: oklch(50% 0 0);
+  --color-accent: #f2812e;
+  --color-accent-text: #1a1005;
+  --color-danger: #cc4038;
+  --color-border: oklch(90% 0 0);
+  --color-accent-tint: #fde7d6;
+  --color-warn: #a15c00;
+  --color-warn-tint: #fdf0dc;
+  --color-warn-border: #efd4a8;
+  --color-danger-tint: #fbe4e2;
+  --color-chip-bg: #f5f5f5;
+  --color-card-bg: #ffffff;
+  --color-border-strong: #dcdcdc;
+  --color-status-positive: #2e9e5b;
+  --color-toast-danger: #ff7a6e;
+  --color-toast-warn: #ffb84d;
+  --color-skel-sheen: rgba(255, 255, 255, 0.9);
+}
+
 html, body, #app { height: 100%; }
 body { background: var(--color-surface); color: var(--color-content); }
 

@@ -22,9 +22,9 @@
 // AppSidebar (`shell.badges.culling`), non un segnaposto.
 //
 // Menu account: il documento (§5.2.c) elenca Profilo/Impostazioni/
-// Esci — qui solo Esci, stesso ambito già dichiarato per il menu
-// account desktop di AppSidebar (Profilo e Impostazioni non hanno
-// ancora una vista, Task 14).
+// Esci — Impostazioni aggiunta in Task 14 (1/N), stesso collegamento
+// del menu account desktop di AppSidebar. Profilo resta assente (Task
+// 14, prossima sotto-unità).
 //
 // `+` di caricamento (§3.3, `caricamento-nuove-foto.md`): il mockup lo
 // mostra su `['foto','preferiti','album','libreria']`
@@ -136,6 +136,13 @@ async function signOut() {
             <Avatar :name="session.user.display_name" />
           </button>
         </template>
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] hover:bg-border/30"
+          @click="accountMenuOpen = false; router.push('/settings')"
+        >
+          {{ t('settings.entry') }}
+        </button>
         <button
           type="button"
           class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-danger hover:bg-border/30"

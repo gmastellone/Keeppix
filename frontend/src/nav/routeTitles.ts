@@ -9,6 +9,7 @@ import { ref } from 'vue'
 export const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/': 'topbar.allPhotos',
   '/favorites': 'favorites.title',
+  '/settings': 'settings.title',
   '/search': 'nav.cerca',
   '/culling': 'culling.entry',
   '/map': 'maps.entry',

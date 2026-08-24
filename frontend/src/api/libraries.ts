@@ -6,6 +6,13 @@ export interface Library {
   owner_id: string
   root_path: string
   scan_enabled: boolean
+  /** §60.8 "Riconoscimento volti" (Task 14, 1/N): reale, ma **per
+   * libreria** — `LibraryView.faces_enabled` (`crates/keeppix-api/src/
+   * routes/libraries.rs:27`), non l'interruttore unico "per istanza" che
+   * il documento descrive. Con più di una libreria l'unica scelta
+   * onesta è mostrarne una riga per libreria, non fingere un solo
+   * interruttore globale che il backend non ha. */
+  faces_enabled: boolean
   exclude_patterns: string[]
   status: string
   last_scan_at: string | null
@@ -69,4 +76,20 @@ export function fetchLibraryScanStatus(libraryId: string): Promise<ScanStatus> {
  * della promise, per sapere se la riconnessione è riuscita davvero. */
 export function probeLibrary(libraryId: string): Promise<Library> {
   return apiFetch(`/api/v1/libraries/${libraryId}/probe`, { method: 'POST' })
+}
+
+export interface LibraryPatch {
+  name?: string
+  scan_enabled?: boolean
+  faces_enabled?: boolean
+  exclude_patterns?: string[]
+}
+
+/** §60.8 "Riconoscimento facciale attivo": `PatchLibraryRequest`
+ * (`routes/libraries.rs:63-68`) accetta anche `faces_enabled`. */
+export function patchLibrary(libraryId: string, patch: LibraryPatch): Promise<Library> {
+  return apiFetch(`/api/v1/libraries/${libraryId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch)
+  })
 }

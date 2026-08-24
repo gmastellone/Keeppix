@@ -5479,3 +5479,102 @@ iniziale gzip → 131.218 byte, sotto il budget di 153.600.
 con esso la Tranche B della Fase 11. Si prosegue con il Task 14
 (Impostazioni/Profilo), ultimo della Tranche B, poi con le Tranche C e
 D.
+
+## Task 14 (1/N) — Impostazioni (§60): sei sezioni su otto, le due
+mancanti dichiarate esplicitamente
+
+Prima unità di consumo reale per `GET/PATCH /users/me/preferences`
+(Fase 10 Task 9): scritte allora, mai lette da alcuna vista fino ad
+ora. Verificato riga per riga il documento (righe 8813-9127, §60): otto
+sezioni elencate, sei costruite con capacità reale, due dichiarate
+esplicitamente assenti invece di finte con dati a caso — stesso
+principio seguito per ogni altra deviazione di questa intera fase.
+
+**Le due sezioni omesse, entrambe per un vero buco nella superficie
+HTTP, non per pigrizia:**
+
+1. **"Cartella di culling"**: `Library.culling_root_folder_id` e
+   `LibraryRepo::set_culling_root` esistono
+   (`crates/keeppix-db/src/libraries.rs:326-360`) ma **nessuna rotta li
+   espone** — orfani, mai raggiungibili da una richiesta HTTP.
+2. **"Intelligenza artificiale"**: i numeri reali esistono
+   (`AnalysisLevel::ms_per_photo()`, `crates/keeppix-jobs/src/
+   profile.rs:50-74` — 45ms "Piena", 270ms "Ridotta", misurati sul vero
+   modello MobileCLIP2-S2) ma nessuna rotta li legge.
+
+Costruire l'una o l'altra avrebbe richiesto una rotta backend nuova:
+fuori dallo scope di un task di sola interfaccia, contro una capacità
+già esistente.
+
+**Le sei sezioni reali:**
+
+- **Aspetto** (`stores/theme.ts`, nuovo): store Pinia, non un
+  composable a ref di modulo come `useDensity` — il tema è
+  effettivamente globale, cambia sempre l'intera interfaccia nello
+  stesso istante, quindi serve un singleton reattivo condiviso, l'unico
+  punto che scrive `data-theme` sul documento. Legge/scrive la
+  preferenza server (`theme: 'chiaro'|'scuro'|'sistema'`), applicazione
+  ottimistica con rollback su un `PATCH` fallito, `'sistema'` risolto
+  via `matchMedia('(prefers-color-scheme: dark)')` con reazione live a
+  un cambio di preferenza di sistema mentre la pagina resta aperta.
+  `reset()` per il logout, richiamato da `App.vue` insieme a `load()`
+  su ogni cambio di `session.user` — prima del login resta il
+  comportamento di default già esistente (`@media
+  (prefers-color-scheme: dark)` in `style.css`, invariato: nessuna
+  rotta legge le preferenze di un utente non autenticato).
+- **Densità griglia**: `useDensity` riscritto — due valori distinti
+  (desktop/mobile), ciascuno col proprio intervallo (`clampDensity`,
+  esteso con un secondo parametro `mobile`), persistiti sullo stesso
+  endpoint invece che in `localStorage` come prima: un valore per
+  utente, non per browser, coerente con "salvata separatamente da
+  desktop e mobile" del documento (due dispositivi dello stesso
+  account, non due schede dello stesso browser).
+- **Mappe offline**: `MapsOfflineView.vue` esisteva già, completa — qui
+  solo il collegamento reale, nessuna riscrittura.
+- **Notifiche**: tre preferenze reali (`digest`/`condivisioni`/
+  `problemi`), ottimistiche con rollback — ma senza alcun effetto
+  visibile altrove nell'app, perché nessun sottosistema di notifiche
+  esiste ancora. Trattate come sole preferenze, la stessa cosa che il
+  documento ne dice.
+- **Lingua**: a differenza del mockup ("il select non ha id né alcun
+  gestore: cambiarlo non fa nulla"), qui `session.changeLocale` è già
+  reale e funzionante dalla Fase 10 — un miglioramento reale rispetto
+  al mockup, non un controllo trascritto inerte.
+- **Riconoscimento volti**: reale ma **per libreria**
+  (`LibraryView.faces_enabled`, `PATCH /libraries/{id}`), non
+  l'interruttore unico "per istanza" del documento — con più di una
+  libreria l'unica scelta onesta è una riga per libreria, non un solo
+  interruttore globale che il backend non ha. "Elimina tutti i dati dei
+  volti" (`DELETE /faces/data`) è invece davvero globale e admin-only,
+  con conferma via `ConfirmDialog`.
+
+**Wiring**: rotta `/settings` (lazy, stesso gruppo di chunk di mappa e
+delle altre viste di impostazioni già esistenti), voce "Impostazioni"
+aggiunta al menu account sia in `AppSidebar.vue` (desktop) sia in
+`AppMobileHeader.vue` (mobile) — quest'ultimo dichiarava esplicitamente
+da Task 6 (8/N) l'assenza di Impostazioni/Profilo nel proprio commento,
+ora aggiornato. Titolo di rotta in `nav/routeTitles.ts` per la briciola
+di pane/header mobile.
+
+**Un bug di corsa reale trovato scrivendo i test, non nel codice
+applicativo**: verificare lo stato ottimistico "subito dopo" un
+`trigger('click')` con un mock che rifiuta la PATCH all'istante
+(`mockRejectedValueOnce`) è a rischio di corsa — il microtask del
+rollback può eseguire prima ancora che l'unico `nextTick()` di
+`trigger()` sia risolto, cosa che una vera chiamata di rete (sempre con
+latenza reale) non fa mai. Diviso in due test: uno per l'applicazione
+ottimistica immediata (mock mai risolto durante il test), uno per il
+rollback finale dopo un `flushPromises()` completo.
+
+Verifica completa: `npx vitest run` → 88 file, **756/756** verdi (10
+nuovi in `SettingsView.spec.ts`, 8 nuovi in `theme.spec.ts`, `useDensity
+.spec.ts` riscritto). `npx vue-tsc -b` pulito. `npx eslint` sui file
+toccati e sull'intero repo → pulito (stesso unico errore preesistente
+su `PlayerView.vue`, stesso numero di warning, nessuno nei file di
+questa unità). `npm run build` + calcolo manuale del bundle iniziale
+gzip (`index`+`client`+CSS) → 133.468 byte, sotto il budget di 153.600;
+`SettingsView` è un chunk lazy a parte (7,22 kB), non tocca il bundle
+iniziale.
+
+Manca ancora, in questo stesso Task 14: la sezione "Profilo" (§61) —
+prossima sotto-unità.

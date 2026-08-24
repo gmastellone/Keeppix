@@ -221,7 +221,10 @@ describe('TimelineView buckets + geometry', () => {
 
     const { wrapper } = await mountTimeline()
 
-    const expected = planStream(new TimelineGeometry(buffer), buckets, 1200, 6).totalHeight
+    // Task 14 (1/N): il predefinito onesto di `useDensity` è 4 (desktop,
+    // §60.2) — prima era 6 solo per un valore di ripiego mai verificato
+    // contro il documento, non una scelta deliberata.
+    const expected = planStream(new TimelineGeometry(buffer), buckets, 1200, 4).totalHeight
     const styledDiv = wrapper.findAll('div').find((d) => d.attributes('style')?.includes('height:'))
     expect(styledDiv?.attributes('style')).toContain(`${expected}px`)
   })
