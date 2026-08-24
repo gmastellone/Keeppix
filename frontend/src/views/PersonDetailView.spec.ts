@@ -10,6 +10,7 @@ import type { TimelineAsset } from '@/api/timeline'
 import PhotoTile from '@/components/ui/PhotoTile.vue'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
+import { useToastStore } from '@/stores/toast'
 
 import PersonDetailView from './PersonDetailView.vue'
 import PeopleView from './PeopleView.vue'
@@ -30,7 +31,12 @@ vi.mock('@/api/persons', () => ({
   deletePersonGroup: vi.fn(),
   addGroupMember: vi.fn(async () => null),
   removeGroupMember: vi.fn(async () => null),
-  mergePersons: vi.fn()
+  mergePersons: vi.fn(),
+  separatePerson: vi.fn()
+}))
+
+vi.mock('@/api/faces', () => ({
+  fetchPersonFaceTiles: vi.fn(async () => [])
 }))
 
 vi.mock('@/api/events', () => ({
@@ -85,6 +91,15 @@ function stubMatchMedia() {
 }
 
 let unstubLayout: () => void
+// Task 16 (4/N): a differenza di `FavoritesView.spec.ts` (da cui questo
+// file discende), qui i dialog di copertina/divisione teletrasportano
+// (reka-ui `DialogPortal`) nel vero `document.body` anche a `wrapper`
+// mai smontato — senza smontare esplicitamente, un test che apre un
+// dialog lo lascia lì per il test *successivo*, che lo trova ancora nel
+// DOM globale. Trovato scrivendo l'asserzione "nessun dialog aperto"
+// del test §32.3 controllo 5 (sotto), mai un problema prima perché
+// nessun test precedente controllava l'assenza di un dialog.
+let wrapper: ReturnType<typeof mount> | undefined
 
 beforeEach(() => {
   i18n.global.locale.value = 'it'
@@ -92,6 +107,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  wrapper?.unmount()
+  wrapper = undefined
   vi.resetAllMocks()
   vi.unstubAllGlobals()
   unstubLayout?.()
@@ -124,7 +141,7 @@ async function mountDetail(id = 'p1') {
 
   await router.push(`/persons/${id}`)
   await router.isReady()
-  const wrapper = mount(PersonDetailView, { global: { plugins: [router, i18n] } })
+  wrapper = mount(PersonDetailView, { global: { plugins: [router, i18n] } })
   await flushPromises()
   return { router, wrapper }
 }
@@ -276,5 +293,44 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     await flushPromises()
 
     expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
+  })
+
+  it('§32.3 control 3 "Scegli copertina" opens the cover dialog', async () => {
+    vi.mocked(fetchPerson).mockResolvedValue(person())
+    vi.mocked(runSearch).mockResolvedValue({ assets: [] })
+    const { wrapper } = await mountDetail('p1')
+
+    const coverBtn = wrapper.findAll('button').find((b) => b.text() === 'Scegli copertina')
+    await coverBtn!.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Scegli copertina')
+  })
+
+  it('§32.3 control 5 "Dividi…" with fewer than two photos shows the toast instead of opening', async () => {
+    vi.mocked(fetchPerson).mockResolvedValue(person())
+    vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a')] })
+    const { wrapper } = await mountDetail('p1')
+
+    const splitBtn = wrapper.findAll('button').find((b) => b.text() === 'Dividi…')
+    await splitBtn!.trigger('click')
+    await flushPromises()
+
+    const toast = useToastStore()
+    expect(toast.toasts.some((t) => t.message === 'Servono almeno due volti per poter dividere questa persona.')).toBe(true)
+    expect(document.body.querySelector('[role="dialog"]')).toBeFalsy()
+  })
+
+  it('§32.3 control 5 "Dividi…" with two or more photos opens the split dialog', async () => {
+    vi.mocked(fetchPerson).mockResolvedValue(person())
+    vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a'), photo('b')] })
+    const { wrapper } = await mountDetail('p1')
+
+    const splitBtn = wrapper.findAll('button').find((b) => b.text() === 'Dividi…')
+    await splitBtn!.trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeTruthy()
+    expect(document.body.textContent).toContain('Dividi Marta')
   })
 })

@@ -2,12 +2,21 @@
 // Fase 11 Task 16 (1/N) — documento funzionale §32 "Persone — dettaglio
 // di una persona" (righe 5420-5524), verificato riga per riga.
 //
-// **Due dei cinque pulsanti d'azione mancano ancora** (§32.3, controlli
-// 3 e 5: "Scegli copertina", "Dividi…") — i loro dialog (§33, §36) sono
-// sotto-unità successive; aggiungerli ora senza dialog dietro sarebbe un
-// pulsante che non fa nulla. "Assegna/Cambia gruppo" (controllo 4,
-// Task 16 2/N) riusa `AssignGroupDialog.vue` (§34), lo stesso già
-// costruito per la selezione multipla di `PeopleView.vue`.
+// **Tutti e cinque i pulsanti d'azione sono ora reali** (§32.3):
+// "Assegna/Cambia gruppo" (Task 16 2/N, riusa `AssignGroupDialog.vue`
+// §34); "Scegli copertina" (§33, Task 16 4/N, `ChooseCoverDialog.vue`)
+// e "Dividi…" (§36, Task 16 4/N, `SplitPersonDialog.vue`) — entrambi
+// costruiscono le proprie miniature da `fetchPersonFaceTiles` sulle
+// foto già caricate qui (`assets`), un volto confermato per miniatura.
+//
+// **"Meno di due volti" (§32.3 controllo 5) approssimato con
+// `assets.length`**: il conteggio esatto dei *volti* (non delle foto
+// distinte) richiederebbe caricare tutte le miniature del dialog di
+// separazione solo per un controllo preliminare — costo sproporzionato
+// per il caso raro in cui differiscono (due volti confermati nella
+// stessa foto). `assets.length` è lo stesso numero già mostrato nella
+// riga di riepilogo di questa vista, onesto anche se non identico a
+// "N volti" in quel raro caso.
 //
 // **Griglia foto = `photosForPerson()`** (§32.2): `runSearch({op:
 // 'person', id})`, paginata come Preferiti (Task 7 3/N, stesso schema
@@ -36,8 +45,10 @@ import { fetchGroupMembers, fetchPerson, fetchPersonGroups, patchPerson, type Pe
 import type { TimelineAsset } from '@/api/timeline'
 import AssetViewer from '@/components/AssetViewer.vue'
 import AssignGroupDialog from '@/components/AssignGroupDialog.vue'
+import ChooseCoverDialog from '@/components/ChooseCoverDialog.vue'
 import FlatAssetGrid from '@/components/FlatAssetGrid.vue'
 import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
+import SplitPersonDialog from '@/components/SplitPersonDialog.vue'
 import Dialog from '@/components/ui/Dialog.vue'
 import QuickFilter from '@/components/ui/QuickFilter.vue'
 import SelectAllVisible from '@/components/ui/SelectAllVisible.vue'
@@ -175,6 +186,29 @@ async function onAssigned() {
   await loadGroup()
 }
 
+const coverOpen = ref(false)
+
+function onCoverUpdated(updated: Person) {
+  person.value = updated
+}
+
+const splitOpen = ref(false)
+
+function askSplit() {
+  // §32.3 controllo 5: "se la persona ha meno di due volti, il dialog
+  // non si apre" — approssimato con `assets.length` (vedi commento di
+  // testa del file).
+  if (assets.value.length < 2) {
+    toast.showError(t('splitPerson.tooFewFaces'))
+    return
+  }
+  splitOpen.value = true
+}
+
+async function onSplit() {
+  await load()
+}
+
 async function toggleHidden() {
   if (!person.value) return
   const next = !person.value.hidden
@@ -248,9 +282,23 @@ onUnmounted(() => {
           <button
             type="button"
             class="rounded-lg border border-border px-3 py-1.5 text-[13px] font-semibold hover:bg-border/20"
+            @click="coverOpen = true"
+          >
+            {{ t('persons.chooseCover') }}
+          </button>
+          <button
+            type="button"
+            class="rounded-lg border border-border px-3 py-1.5 text-[13px] font-semibold hover:bg-border/20"
             @click="assignGroupOpen = true"
           >
             {{ currentGroup ? t('persons.changeGroup') : t('persons.assignGroup') }}
+          </button>
+          <button
+            type="button"
+            class="rounded-lg border border-border px-3 py-1.5 text-[13px] font-semibold hover:bg-border/20"
+            @click="askSplit"
+          >
+            {{ t('persons.split') }}
           </button>
           <button
             type="button"
@@ -381,6 +429,20 @@ onUnmounted(() => {
       :current-group-id="currentGroupOf"
       :groups="groups"
       @assigned="onAssigned"
+    />
+    <ChooseCoverDialog
+      v-if="person"
+      v-model:open="coverOpen"
+      :person="person"
+      :assets="assets"
+      @updated="onCoverUpdated"
+    />
+    <SplitPersonDialog
+      v-if="person"
+      v-model:open="splitOpen"
+      :person="person"
+      :assets="assets"
+      @split="onSplit"
     />
   </div>
 </template>

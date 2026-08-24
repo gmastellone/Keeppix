@@ -385,7 +385,30 @@
     "deleteGroupError": "Could not delete the group. Try again.",
     "deleteGroupConfirmTitle": "Delete group \"{name}\"?",
     "deleteGroupConfirmDescription": "The people in it stay — they just move back to \"No group\".",
-    "deleteGroupConfirmButton": "Delete group"
+    "deleteGroupConfirmButton": "Delete group",
+    "chooseCover": "Choose cover",
+    "split": "Split…"
+  },
+  "chooseCover": {
+    "title": "Choose cover",
+    "subtitle": "{name} — which photo represents them in the grid",
+    "empty": "No confirmed face for this person.",
+    "setCover": "Set as cover",
+    "updatedToast": "Cover updated.",
+    "close": "Close",
+    "error": "Could not update the cover. Try again."
+  },
+  "splitPerson": {
+    "title": "Split {name}",
+    "subtitle": "Does this cluster contain two different people? Select the faces to extract into a separate person — the rest stay here.",
+    "countLine": "{n} face selected to extract — {remaining} stays with \"{name}\" | {n} faces selected to extract — {remaining} stay with \"{name}\"",
+    "allSelectedWarning": "You can't extract them all: no face would remain with this name.",
+    "name": "Name of the new person",
+    "optional": "optional, you can name them later",
+    "confirmButton": "Split into a new person",
+    "splitToast": "{n} face extracted into a new person. | {n} faces extracted into a new person.",
+    "tooFewFaces": "You need at least two faces to split this person.",
+    "error": "Could not split the person. Try again."
   },
   "groupEditor": {
     "newTitle": "New group",

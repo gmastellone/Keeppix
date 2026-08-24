@@ -8,6 +8,12 @@ export interface Person {
   name: string | null
   hidden: boolean
   face_count: number | null
+  /** Fase 11 Task 16 (4/N), §33: l'id del volto scelto come copertina —
+   * assente (non `null`) se mai impostato, come `PersonView.cover_face_id`
+   * lato backend (`Option`, `skip_serializing_if`). Mai risolvibile a
+   * un'immagine da solo (vedi `ChooseCoverDialog.vue`/`PeopleView.vue`
+   * per il perché), solo confrontato per bordo "corrente" nel dialog. */
+  cover_face_id?: string
 }
 
 /** `include_hidden` di proposito assente per il chiamante SP-3 §11 (mai
@@ -62,6 +68,19 @@ export function patchPerson(id: string, payload: PersonPatchPayload): Promise<Pe
   return apiFetch(`/api/v1/persons/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(payload)
+  })
+}
+
+/** Fase 11 Task 16 (4/N), §36 "Separa persona": `POST /persons/{id}/
+ * separate` sposta i `faceIds` indicati su una persona nuova (nome
+ * facoltativo, `''` se non specificato — `PersonRepo::separate`,
+ * `crates/keeppix-db/src/persons.rs:326-392`). **Non reversibile
+ * dall'interfaccia** oltre a una nuova unione manuale (commento del
+ * backend: "l'utente non deve aspettarsi un annullamento"). */
+export function separatePerson(id: string, faceIds: string[], name: string): Promise<Person> {
+  return apiFetch(`/api/v1/persons/${id}/separate`, {
+    method: 'POST',
+    body: JSON.stringify({ face_ids: faceIds, name })
   })
 }
 

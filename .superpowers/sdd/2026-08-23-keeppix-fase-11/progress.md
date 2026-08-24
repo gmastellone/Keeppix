@@ -6098,3 +6098,62 @@ titolo). `npm run build` + calcolo manuale del bundle iniziale gzip →
 Manca ancora, nello stesso Task 16: "Scegli copertina" (§33) e
 "Dividi…" (§36) nel dettaglio; coda "Revisione → Volti" (§39) —
 prossime sotto-unità.
+
+## Task 16 (4/N) — "Scegli copertina" (§33) e "Dividi persona" (§36)
+
+**Nuovo helper condiviso `fetchPersonFaceTiles`** (`api/faces.ts`):
+entrambi i dialog hanno bisogno della stessa cosa — "una miniatura per
+ogni volto confermato della persona" (non per foto: §33.2/§36.2 sono
+espliciti, due volti nella stessa foto producono due miniature). Nessuna
+rotta lo calcola da sola: un giro di `fetchFacesForAsset` per ciascuna
+foto già caricata dal chiamante (`PersonDetailView.vue`, da
+`runSearch({op:'person'})`), filtrato su `person_id`, poi appiattito.
+Costo N accettato, stesso principio di `ReviewView.vue`.
+
+**`ChooseCoverDialog.vue` (§33)**: griglia 5 colonne, foto intera per
+miniatura (non ritagliata sul volto — il documento stesso lo dice
+esplicito: "il mockup non ritaglia"), bordo accento sulla copertina
+attuale (`tile.face.id === person.cover_face_id`), click imposta e
+chiude subito (`PATCH /persons/{id} {cover_face_id}`), "Chiudi" non
+"Annulla". Niente "torna alla copertina automatica" (assente anche nel
+documento).
+
+**`SplitPersonDialog.vue` (§36)**: griglia 8 colonne di caselle di
+spunta, contatore "N volti selezionati — M restano con Nome",
+avvertimento rosso quando tutti selezionati, pulsante "Dividi in una
+nuova persona" disabilitato con selezione vuota o totale, campo nome
+opzionale. **Nessuna banda di suggerimento IA**: verificato di nuovo (lo
+era già stato dall'agente di ricerca preliminare) che `subCluster` non
+ha alcuna colonna corrispondente su `Face`/`FaceRow` — il dialog si apre
+sempre a selezione vuota, mai una preselezione fabbricata. Il controllo
+"meno di due volti" (§32.3 controllo 5) vive nel chiamante
+(`PersonDetailView.vue`), approssimato con `assets.length` (foto
+distinte, non volti — stesso numero già mostrato nella riga di
+riepilogo, differisce solo nel raro caso di due volti confermati nella
+stessa foto, dichiarato nel commento del file).
+
+Nuovo `Person.cover_face_id?: string` nell'interfaccia frontend (mancava
+del tutto), e `separatePerson` in `api/persons.ts` (`POST /persons/{id}/
+separate`).
+
+Con questa unità **tutti e cinque i pulsanti d'azione del dettaglio
+persona sono reali** (§32.3).
+
+Verifica completa: `npx vue-tsc -b` pulito. `npx eslint` sull'intero
+repo → 1 solo errore preesistente (`PlayerView.vue`). `npx vitest run` →
+100 file, **861/861** verdi (+13: `ChooseCoverDialog.spec.ts` nuovo,
+`SplitPersonDialog.spec.ts` nuovo, 3 nuovi in `PersonDetailView.spec.ts`
+per i due pulsanti). **Bug reale di igiene dei test trovato e corretto**
+in `PersonDetailView.spec.ts`: nessun test smontava mai il proprio
+`wrapper` (stesso schema di `FavoritesView.spec.ts`, da cui il file
+discende) — innocuo finché nessun test controllava l'assenza di un
+dialog nel DOM, ma un dialog aperto in un test restava teletrasportato
+nel vero `document.body` (reka-ui `DialogPortal`) fino al test
+successivo. Aggiunto `wrapper?.unmount()` in `afterEach`, scoperto
+scrivendo il test §32.3 controllo 5. `npm run build` + calcolo manuale
+del bundle iniziale gzip → 141.820 byte, sotto il budget di 153.600.
+
+**Con questa unità si chiude il Task 16 per la parte "Persone" del
+dettaglio/griglia/dialog** — manca solo la coda "Revisione → Volti"
+(§39, la linguetta condivisa con `ReviewView.vue` già costruita per i
+tag nel Task 15). Prossima sotto-unità: Task 16 (5/N).

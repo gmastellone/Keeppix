@@ -385,7 +385,30 @@
     "deleteGroupError": "Non è stato possibile eliminare il gruppo. Riprova.",
     "deleteGroupConfirmTitle": "Eliminare il gruppo \"{name}\"?",
     "deleteGroupConfirmDescription": "Le persone al suo interno restano, tornano solo in \"Senza gruppo\".",
-    "deleteGroupConfirmButton": "Elimina gruppo"
+    "deleteGroupConfirmButton": "Elimina gruppo",
+    "chooseCover": "Scegli copertina",
+    "split": "Dividi…"
+  },
+  "chooseCover": {
+    "title": "Scegli copertina",
+    "subtitle": "{name} — quale foto la rappresenta nella griglia",
+    "empty": "Nessun volto confermato per questa persona.",
+    "setCover": "Imposta come copertina",
+    "updatedToast": "Copertina aggiornata.",
+    "close": "Chiudi",
+    "error": "Non è stato possibile aggiornare la copertina. Riprova."
+  },
+  "splitPerson": {
+    "title": "Dividi {name}",
+    "subtitle": "Questo gruppo contiene due persone diverse? Seleziona i volti che vanno estratti in una persona a parte — gli altri restano qui.",
+    "countLine": "{n} volto selezionato da estrarre — {remaining} resta con \"{name}\" | {n} volti selezionati da estrarre — {remaining} restano con \"{name}\"",
+    "allSelectedWarning": "Non puoi estrarli tutti: non resterebbe nessun volto con questo nome.",
+    "name": "Nome della nuova persona",
+    "optional": "opzionale, puoi nominarla anche dopo",
+    "confirmButton": "Dividi in una nuova persona",
+    "splitToast": "{n} volto estratto in una nuova persona. | {n} volti estratti in una nuova persona.",
+    "tooFewFaces": "Servono almeno due volti per poter dividere questa persona.",
+    "error": "Non è stato possibile dividere la persona. Riprova."
   },
   "groupEditor": {
     "newTitle": "Nuovo gruppo",
