@@ -5,6 +5,22 @@ export interface MonthBucket {
   count: number
 }
 
+/** Un tag confermato (Fase 11 Task 7, SP-3 §11 — dimensioni "Tag"/
+ * "Categorie"). `category_id` è il `parent_id` del tag: le "categorie" del
+ * documento sono tag con `kind='category'`, non un secondo concetto. */
+export interface AssetTagBadge {
+  id: string
+  name: string
+  color: string | null
+  category_id: string | null
+}
+
+/** Un volto confermato (Fase 11 Task 7, SP-3 §11 — dimensione "Persone"). */
+export interface AssetFaceBadge {
+  person_id: string
+  person_name: string | null
+}
+
 export interface TimelineAsset {
   id: string
   folder_id: string
@@ -21,6 +37,15 @@ export interface TimelineAsset {
    * per un kind che non è né l'uno né l'altro (video, unknown). */
   raw_kind: string | null
   favorite: boolean
+  /** SP-3 §11, dimensione "Fotocamera" — `null` se l'exif non porta il
+   * modello o non esiste affatto. Campo additivo, Fase 11 Task 7. */
+  camera_model: string | null
+  /** SP-3 §11 — solo tag confermati, mai proposte in attesa. Sempre un
+   * array, mai assente (`[]` se non ne ha). Campo additivo, Fase 11 Task 7. */
+  tags: AssetTagBadge[]
+  /** SP-3 §11 — solo volti confermati. Sempre un array, mai assente. Campo
+   * additivo, Fase 11 Task 7. */
+  faces: AssetFaceBadge[]
 }
 
 export interface TimelinePage {

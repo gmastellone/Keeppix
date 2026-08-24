@@ -163,7 +163,10 @@ function photo(id: string): TimelineAsset {
     height: 100,
     thumbhash: null,
     raw_kind: null,
-    favorite: false
+    favorite: false,
+    camera_model: null,
+    tags: [],
+    faces: []
   }
 }
 

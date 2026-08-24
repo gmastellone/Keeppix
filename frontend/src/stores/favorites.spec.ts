@@ -30,7 +30,10 @@ function photo(id: string, favorite = false): TimelineAsset {
     height: 100,
     thumbhash: null,
     raw_kind: null,
-    favorite
+    favorite,
+    camera_model: null,
+    tags: [],
+    faces: []
   }
 }
 

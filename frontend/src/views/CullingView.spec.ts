@@ -31,7 +31,10 @@ function photo(id: string, kind = 'image', filename = `${id}.jpg`): TimelineAsse
     height: 100,
     thumbhash: null,
     raw_kind: null,
-    favorite: false
+    favorite: false,
+    camera_model: null,
+    tags: [],
+    faces: []
   }
 }
 
