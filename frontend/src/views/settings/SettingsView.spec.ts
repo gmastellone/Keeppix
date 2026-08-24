@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import type { User } from '@/api/auth'
+import type { CullingLot } from '@/api/culling'
+import type { FolderView } from '@/api/folders'
 import type { Library } from '@/api/libraries'
 import type { UserPreferences } from '@/api/preferences'
 import { i18n } from '@/i18n'
@@ -16,8 +18,12 @@ const fetchPreferencesMock = vi.fn()
 const patchPreferencesMock = vi.fn()
 const fetchLibrariesMock = vi.fn()
 const patchLibraryMock = vi.fn()
+const patchCullingRootMock = vi.fn()
 const deleteAllFaceDataMock = vi.fn()
 const updateUserMock = vi.fn()
+const fetchAllFoldersMock = vi.fn()
+const fetchChildrenMock = vi.fn()
+const fetchCullingLotsMock = vi.fn()
 
 vi.mock('@/api/preferences', () => ({
   fetchPreferences: (...args: unknown[]) => fetchPreferencesMock(...args),
@@ -26,7 +32,8 @@ vi.mock('@/api/preferences', () => ({
 
 vi.mock('@/api/libraries', () => ({
   fetchLibraries: (...args: unknown[]) => fetchLibrariesMock(...args),
-  patchLibrary: (...args: unknown[]) => patchLibraryMock(...args)
+  patchLibrary: (...args: unknown[]) => patchLibraryMock(...args),
+  patchCullingRoot: (...args: unknown[]) => patchCullingRootMock(...args)
 }))
 
 vi.mock('@/api/faces', () => ({
@@ -35,6 +42,15 @@ vi.mock('@/api/faces', () => ({
 
 vi.mock('@/api/users', () => ({
   updateUser: (...args: unknown[]) => updateUserMock(...args)
+}))
+
+vi.mock('@/api/folders', () => ({
+  fetchAllFolders: (...args: unknown[]) => fetchAllFoldersMock(...args),
+  fetchChildren: (...args: unknown[]) => fetchChildrenMock(...args)
+}))
+
+vi.mock('@/api/culling', () => ({
+  fetchCullingLots: (...args: unknown[]) => fetchCullingLotsMock(...args)
 }))
 
 function stubMatchMedia(matchesByQuery: Record<string, boolean> = {}) {
@@ -71,6 +87,30 @@ function library(overrides: Partial<Library> = {}): Library {
     status: 'active',
     last_scan_at: null,
     created_at: '',
+    culling_root_folder_id: null,
+    ...overrides
+  }
+}
+
+function folder(overrides: Partial<FolderView> = {}): FolderView {
+  return {
+    id: 'root-1',
+    library_id: 'lib-1',
+    parent_id: null,
+    name: 'Lago di Braies',
+    depth: 0,
+    ...overrides
+  }
+}
+
+function cullingLot(overrides: Partial<CullingLot> = {}): CullingLot {
+  return {
+    folder_id: 'lot-1',
+    name: '2026-08-14',
+    created_at: '',
+    pending: 3,
+    taken: 1,
+    skipped: 0,
     ...overrides
   }
 }
@@ -99,6 +139,10 @@ beforeEach(() => {
   patchLibraryMock.mockResolvedValue(library({ faces_enabled: false }))
   deleteAllFaceDataMock.mockResolvedValue(null)
   updateUserMock.mockResolvedValue({ ...adminUser, locale: 'en' })
+  fetchAllFoldersMock.mockResolvedValue([folder()])
+  fetchChildrenMock.mockResolvedValue({ folders: [], assets: [] })
+  fetchCullingLotsMock.mockResolvedValue([])
+  patchCullingRootMock.mockResolvedValue(library({ culling_root_folder_id: 'root-1' }))
 })
 
 afterEach(() => {
@@ -238,5 +282,63 @@ describe('SettingsView — §60 Impostazioni', () => {
     const { wrapper } = await mountSettings(memberUser)
 
     expect(wrapper.text()).not.toContain('Elimina tutti i dati dei volti')
+  })
+})
+
+describe('SettingsView — §17/§64 "Cartella di culling"', () => {
+  it('shows "Non impostata" when the library has no culling root yet', async () => {
+    const { wrapper } = await mountSettings()
+
+    expect(wrapper.text()).toContain('Cartella di culling')
+    expect(wrapper.text()).toContain('Non impostata')
+  })
+
+  it('resolves the configured folder to a real name breadcrumb and shows the lot count', async () => {
+    fetchLibrariesMock.mockResolvedValue([library({ culling_root_folder_id: 'culling-1' })])
+    fetchAllFoldersMock.mockResolvedValue([
+      folder({ id: 'root-1', parent_id: null, name: 'Lago di Braies' }),
+      folder({ id: 'culling-1', parent_id: 'root-1', name: 'Culling', depth: 1 })
+    ])
+    fetchCullingLotsMock.mockResolvedValue([cullingLot(), cullingLot({ folder_id: 'lot-2' })])
+    const { wrapper } = await mountSettings()
+
+    expect(fetchCullingLotsMock).toHaveBeenCalledWith('lib-1')
+    expect(wrapper.text()).toContain('Culling')
+    expect(wrapper.text()).toContain('2 lotti attivi')
+  })
+
+  it('an owner can open the picker and confirming a folder calls patchCullingRoot', async () => {
+    fetchAllFoldersMock.mockResolvedValue([folder({ id: 'root-1', parent_id: null })])
+    fetchChildrenMock.mockResolvedValue({
+      folders: [folder({ id: 'sub-1', parent_id: 'root-1', name: 'Culling', depth: 1 })],
+      assets: []
+    })
+    const { wrapper } = await mountSettings()
+
+    const changeBtn = wrapper.findAll('button').find((b) => b.text() === 'Cambia…')
+    await changeBtn!.trigger('click')
+    await flushPromises()
+
+    expect(fetchChildrenMock).toHaveBeenCalledWith('root-1')
+    const rowBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('Culling'))
+    rowBtn?.click()
+    await flushPromises()
+    const confirmBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Usa questa cartella')
+    confirmBtn?.click()
+    await flushPromises()
+
+    expect(patchCullingRootMock).toHaveBeenCalledWith('lib-1', 'sub-1')
+    const toast = useToastStore()
+    expect(toast.toasts.some((t) => t.message === 'Cartella di culling aggiornata.')).toBe(true)
+  })
+
+  it('a non-owner non-admin does not see "Cambia…" for the culling root', async () => {
+    fetchLibrariesMock.mockResolvedValue([library({ owner_id: 'someone-else' })])
+    const { wrapper } = await mountSettings(memberUser)
+
+    const cullingSection = wrapper.text()
+    expect(cullingSection).toContain('Cartella di culling')
+    const changeBtn = wrapper.findAll('button').find((b) => b.text() === 'Cambia…')
+    expect(changeBtn).toBeUndefined()
   })
 })

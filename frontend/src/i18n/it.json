@@ -197,6 +197,15 @@
       "deleteConfirmButton": "Elimina tutto",
       "deleteDone": "Dati dei volti eliminati.",
       "actionError": "Non è stato possibile completare l'operazione. Riprova."
+    },
+    "cullingRoot": {
+      "title": "Cartella di culling",
+      "subtitle": "La cartella radice sul disco dentro cui vivono i lotti — una sottocartella per importazione. Serve anche a poterla sincronizzare da un altro computer (es. via WebDAV) dopo aver scelto le foto.",
+      "notSet": "Non impostata",
+      "lotsCount": "{n} lotto attivo | {n} lotti attivi",
+      "change": "Cambia…",
+      "updated": "Cartella di culling aggiornata.",
+      "actionError": "Non è stato possibile completare l'operazione. Riprova."
     }
   },
   "profile": {
@@ -873,6 +882,14 @@
     "subtitle": "{n} elemento selezionato — attiva/disattiva un album per aggiungere o rimuovere tutti gli elementi | {n} elementi selezionati — attiva/disattiva un album per aggiungere o rimuovere tutti gli elementi",
     "done": "Fatto",
     "error": "Non è stato possibile aggiornare l'album. Riprova."
+  },
+  "cullingRootPicker": {
+    "title": "Scegli la cartella radice di culling",
+    "subtitle": "Dentro, ogni sottocartella diventa un lotto — Keeppix crea da sola le sottocartelle dei presi/scartati quando servono.",
+    "rootCrumb": "/",
+    "empty": "Nessuna sottocartella qui.",
+    "confirm": "Usa questa cartella",
+    "cancel": "Annulla"
   },
   "personPicker": {
     "title": "Assegna persona",

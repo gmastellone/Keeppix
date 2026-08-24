@@ -6346,3 +6346,89 @@ modifica frontend in questa sotto-unità: `vue-tsc`/`eslint`/`vitest`/
 nuove (deliberato, vedi Rinvii sopra) — schermata Culling (§14-17) e
 l'estensione di `RenameFormulaDialog.vue` per lotto/selezione culling
 (§62, `hasSubfolders`) restano nelle prossime sotto-unità del Task 17.
+
+## Task 17 (2/N) — Impostazioni: sezione "Cartella di culling" (§17/§64)
+
+**Primo consumatore frontend reale delle rotte del Task 17 (1/N)**:
+`PATCH .../culling-root` e `GET .../culling/lots`, entrambe tolte da
+`scripts/wired-exceptions.txt` — hanno un chiamante vero ora, non solo
+la dichiarazione di intenti che le teneva ferme dal 24 agosto.
+`POST .../pick` e `POST .../empty-skipped` restano in Rinvii: arrivano
+con la schermata Culling vera e propria (griglia lotti, lotto aperto),
+non questa sotto-unità.
+
+**Adattata come "Riconoscimento volti" (Task 14 1/N), non come il
+mockup**: `culling_root_folder_id` è per libreria
+(`LibraryView.culling_root_folder_id`), non per istanza come lo
+descrive il documento — una riga per libreria in
+`SettingsView.vue`, stesso principio già scritto per i volti. Rimossa
+la nota che dichiarava la sezione fuori scope (era vera quando scritta
+nel Task 14, non più).
+
+**Il percorso mostrato è una briciola di nomi, non un percorso su
+disco**: il backend non espone un percorso assoluto per una cartella
+qualunque (solo `Library.root_path`, la radice della libreria intera —
+`FolderView` porta solo `name`/`parent_id`/`depth`). Risalito
+`parent_id` dentro una mappa costruita da `fetchAllFolders()` (già
+esistente, Task 9 "Cartella" della barra di ricerca) — nessuna rotta
+nuova per questo, solo riuso. Stessa mappa usata per posizionare il
+dialog "sul percorso attualmente configurato" (§17.2): se la cartella
+configurata non è più nell'albero della libreria, si riparte dalla
+radice, esattamente come richiede la spec — non un caso limite
+ignorato.
+
+**`CullingRootPickerDialog.vue` — tre deviazioni deliberate da SP-5
+(§17.4-5), non un dialog `Dialog.vue` con qualche prop diversa.**
+Verificato leggendo il sorgente compilato di reka-ui (`node_modules/
+reka-ui/dist/Dialog/*.js`, non solo i `.d.ts`), non assunto:
+`DialogContentModal` forza `trap-focus` a `true` ogni volta che il
+dialog è aperto, senza modo di scavalcarlo — l'unico modo per ottenere
+`trap-focus:false` è `DialogRoot :modal="false"`, che monta
+`DialogContentNonModal` (lo forza a `false` per davvero). Con
+`modal="false"`, `DialogOverlay` non si monta affatto (il suo stesso
+sorgente: `rootContext.modal.value ? ... : nulla`) — lo scrim qui è un
+`div` decorativo senza gestore, non quel componente. Il click fuori
+resta comunque "dismiss" di default anche nella variante non-modale
+(`onInteractOutside` non chiama `preventDefault()` per un click
+generico): serve un `@pointer-down-outside`/`@interact-outside`
+propri con `preventDefault()` — messo, e verificato che l'ordine di
+composizione di `mergeProps` fa girare il mio gestore prima di quello
+interno, quindi `event.defaultPrevented` è già vero quando reka-ui
+decide se segnare l'interazione "fuori" (da cui dipende anche se il
+fuoco torna al trigger alla chiusura). Tutto questo ragionamento sui
+sorgenti **è stato poi verificato per davvero**, non lasciato come
+teoria: nove test in `CullingRootPickerDialog.spec.ts` (scrim non
+chiude, Esc chiude, nessun fuoco automatico all'apertura, il fuoco
+torna al trigger alla chiusura, navigazione a briciole/righe, stato
+vuoto, conferma/annulla) — tutti verdi al primo colpo.
+
+**Permesso**: `LibraryRepo::set_culling_root` pretende owner **o**
+admin, più stretto di `isAdmin` (usato per "Riconoscimento volti", solo
+admin) — `canChangeCullingRoot` confronta anche `library.owner_id` con
+`session.user?.id`. Un non-owner/non-admin non vede il pulsante
+"Cambia…", niente rotta tentata a vuoto lato client.
+
+**Verifica completa**: `npx vue-tsc -b` pulito (dopo due correzioni:
+un cast di tipo nel test del dialog, e un fixture di `Library` in
+`ProblemsView.spec.ts` senza `culling_root_folder_id` — il campo è
+diventato obbligatorio nell'interfaccia). `npx eslint` pulito.
+`npx vitest run` → **101 file, 884/884** verdi (33 nuovi: 9 nel dialog,
+24 nella sezione impostazioni + `ProblemsView`). `npm run build` +
+calcolo manuale del bundle iniziale gzip → 142.732 byte, sotto il
+budget di 153.600 (invariato: `SettingsView`/`CullingRootPickerDialog`
+sono chunk pigri per rotta, fuori dal bundle iniziale per disegno).
+`python3 scripts/check-wired.py` → pulito dopo la rimozione delle due
+eccezioni ora risolte.
+
+**CI del Task 17 (1/N)** (`48920da`) confermata verde per `frontend`,
+`image`, `audit`, `api-clients`; `backend` ha superato per davvero
+`Formattazione`/`Lint`/`Funzioni pubbliche e rotte senza chiamanti`
+(clippy e check-wired.py sul vero compilatore, non solo la verifica a
+mano di questo sandbox) — la `Test`/`La specifica OpenAPI è
+aggiornata` restano da confermare, il pezzo più a rischio essendo
+`docs/api/openapi.json` scritto a mano.
+
+**Prossima sotto-unità**: la schermata Culling vera e propria — griglia
+lotti (§14), lotto aperto (§15, tastiera completa), selettore rapido
+(§16) — che consuma `pick`/`empty-skipped` e chiude i due Rinvii
+rimasti.

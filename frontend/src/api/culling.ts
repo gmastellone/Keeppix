@@ -42,3 +42,21 @@ export function deleteAsset(assetId: string, diskAction: DiskAction): Promise<nu
     body: JSON.stringify({ disk_action: diskAction })
   })
 }
+
+/** §14 griglia dei lotti, §64 "<N> lotti attivi": un lotto è una cartella
+ * di primo livello sotto la radice di culling della libreria
+ * (`CullingRepo::list_lots`, Fase 9 Task 3, esposta via HTTP in Fase 11
+ * Task 17). Vuoto — non un errore — se la libreria non ha ancora una
+ * radice designata. */
+export interface CullingLot {
+  folder_id: string
+  name: string
+  created_at: string
+  pending: number
+  taken: number
+  skipped: number
+}
+
+export function fetchCullingLots(libraryId: string): Promise<CullingLot[]> {
+  return apiFetch(`/api/v1/libraries/${libraryId}/culling/lots`)
+}

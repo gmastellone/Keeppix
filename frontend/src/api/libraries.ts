@@ -17,6 +17,10 @@ export interface Library {
   status: string
   last_scan_at: string | null
   created_at: string
+  /** §17/§64 "Cartella di culling" (Fase 9 Task 2, esposta via HTTP in
+   * Fase 11 Task 17): id della cartella radice dei lotti, o `null` se il
+   * proprietario non ne ha ancora designata una. */
+  culling_root_folder_id: string | null
 }
 
 export interface LibraryPreview {
@@ -91,5 +95,17 @@ export function patchLibrary(libraryId: string, patch: LibraryPatch): Promise<Li
   return apiFetch(`/api/v1/libraries/${libraryId}`, {
     method: 'PATCH',
     body: JSON.stringify(patch)
+  })
+}
+
+/** §17/§64 "Cartella di culling": rotta dedicata invece di un campo su
+ * `patchLibrary` — `LibraryRepo::set_culling_root` pretende owner/admin
+ * esplicito, più stretto del permesso generale di `update` (vedi il
+ * commento sull'handler, `routes/libraries.rs`). `folderId: null` rimuove
+ * la radice designata. */
+export function patchCullingRoot(libraryId: string, folderId: string | null): Promise<Library> {
+  return apiFetch(`/api/v1/libraries/${libraryId}/culling-root`, {
+    method: 'PATCH',
+    body: JSON.stringify({ folder_id: folderId })
   })
 }

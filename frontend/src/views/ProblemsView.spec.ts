@@ -50,6 +50,7 @@ function library(overrides: Partial<Library> = {}): Library {
     status: 'offline',
     last_scan_at: '2026-08-20T00:00:00Z',
     created_at: '',
+    culling_root_folder_id: null,
     ...overrides
   }
 }

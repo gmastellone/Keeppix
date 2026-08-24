@@ -1,25 +1,28 @@
 <script setup lang="ts">
 // Fase 11 Task 14 (1/N) — documento funzionale §60 "Impostazioni",
-// verificato riga per riga (righe 8813-9127). Sei delle otto sezioni
-// hanno una capacità reale da rispecchiare fedelmente; due no, e restano
-// fuori da questa pagina, dichiarate esplicitamente qui invece che
-// finte con dati a caso:
+// verificato riga per riga (righe 8813-9127). Sette delle otto sezioni
+// hanno una capacità reale da rispecchiare fedelmente; una no, e resta
+// fuori da questa pagina, dichiarata esplicitamente qui invece che
+// finta con dati a caso:
 //
-// - **"Cartella di culling"**: il backend ha `Library.culling_root_
-//   folder_id` e `LibraryRepo::set_culling_root` già scritti
-//   (`crates/keeppix-db/src/libraries.rs:326-360`), ma **nessuna rotta
-//   li espone** — orfani, mai raggiungibili da nessuna richiesta HTTP.
-//   Costruire questa sezione richiederebbe una rotta nuova: fuori dallo
-//   scope di questo task (solo interfaccia, contro capacità già
-//   esistente — lo stesso principio seguito per ogni altra deviazione
-//   di questa intera fase).
 // - **"Intelligenza artificiale"**: i numeri reali esistono
 //   (`AnalysisLevel::ms_per_photo()`, `crates/keeppix-jobs/src/
 //   profile.rs:50-74`, 45ms Piena/270ms Ridotta, misurati sul vero
 //   modello MobileCLIP2-S2) ma **nessuna rotta li legge**: stesso
 //   motivo, stessa scelta.
 //
-// Le altre sei sezioni sono reali:
+// Le altre sette sezioni sono reali:
+// - **Cartella di culling** (Task 17, 2/N): `PATCH .../culling-root` e
+//   `GET .../culling/lots` non esistevano quando questa pagina fu
+//   scritta la prima volta (Task 14) — la sezione restava dichiarata
+//   fuori scope. Le rotte sono arrivate col Task 17 (Ruling nel ledger
+//   del 24 agosto): una riga per libreria, stesso adattamento già
+//   scelto per "Riconoscimento volti" qui sotto (per libreria, non per
+//   istanza come lo descrive il documento). Il percorso mostrato è una
+//   briciola di **nomi** di cartella (`folders.name`, risalendo
+//   `parent_id` con `fetchAllFolders()`), non un percorso su disco: il
+//   backend non espone un percorso assoluto per una cartella qualunque
+//   (solo `Library.root_path`, la radice della libreria intera).
 // - **Aspetto**: `stores/theme.ts` (Task 14, questa unità), preferenze
 //   server (`GET/PATCH /users/me/preferences`, Fase 10 Task 9, mai
 //   consumate dal frontend prima d'ora).
@@ -42,9 +45,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { fetchCullingLots } from '@/api/culling'
 import { deleteAllFaceData } from '@/api/faces'
-import { fetchLibraries, patchLibrary, type Library } from '@/api/libraries'
+import { fetchAllFolders, type FolderView } from '@/api/folders'
+import { fetchLibraries, patchCullingRoot, patchLibrary, type Library } from '@/api/libraries'
 import { fetchPreferences, patchPreferences, type NotificationPreferences, type Theme } from '@/api/preferences'
+import CullingRootPickerDialog from '@/components/CullingRootPickerDialog.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import { useDensity } from '@/composables/useDensity'
@@ -130,13 +136,101 @@ async function confirmDeleteAllFaces() {
   }
 }
 
+const allFolders = ref<FolderView[]>([])
+const foldersById = computed(() => new Map(allFolders.value.map((f) => [f.id, f])))
+const lotCounts = ref<Record<string, number>>({})
+const cullingBusy = ref<Set<string>>(new Set())
+const pickerOpen = ref(false)
+const pickerLibraryId = ref<string | null>(null)
+
+function canChangeCullingRoot(library: Library): boolean {
+  return isAdmin.value || library.owner_id === session.user?.id
+}
+
+function libraryRoot(library: Library): FolderView | undefined {
+  return allFolders.value.find((f) => f.library_id === library.id && f.parent_id === null)
+}
+
+/** Briciola di **nomi**, non un percorso su disco — risale `parent_id`
+ * dentro `foldersById` fino alla radice. `null` se non c'è ancora una
+ * radice designata. */
+function cullingPathName(library: Library): string | null {
+  const id = library.culling_root_folder_id
+  if (!id) return null
+  const chain: string[] = []
+  let current = foldersById.value.get(id)
+  while (current) {
+    chain.unshift(current.name)
+    current = current.parent_id ? foldersById.value.get(current.parent_id) : undefined
+  }
+  return chain.length > 0 ? chain.join(' / ') : null
+}
+
+/** Radice-a-foglia per il dialog (§17.2: "si posiziona sul percorso
+ * attualmente configurato... se quel percorso esiste nell'albero;
+ * altrimenti riparte dalla radice"). `[]` solo se la libreria non ha
+ * ancora una cartella radice propria (scansione non ancora avvenuta). */
+function pickerInitialPath(library: Library): FolderView[] {
+  const root = libraryRoot(library)
+  if (!root) return []
+  const id = library.culling_root_folder_id
+  if (!id) return [root]
+  const chain: FolderView[] = []
+  let current = foldersById.value.get(id)
+  while (current) {
+    chain.unshift(current)
+    if (current.id === root.id) return chain
+    current = current.parent_id ? foldersById.value.get(current.parent_id) : undefined
+  }
+  return [root]
+}
+
+const pickerLibrary = computed(() => libraries.value.find((l) => l.id === pickerLibraryId.value) ?? null)
+const pickerPath = computed(() => (pickerLibrary.value ? pickerInitialPath(pickerLibrary.value) : []))
+
+function openCullingRootPicker(library: Library) {
+  pickerLibraryId.value = library.id
+  pickerOpen.value = true
+}
+
+async function loadLotCount(libraryId: string) {
+  try {
+    const lots = await fetchCullingLots(libraryId)
+    lotCounts.value = { ...lotCounts.value, [libraryId]: lots.length }
+  } catch {
+    // Conteggio informativo: un fallimento qui non deve bloccare la sezione,
+    // resta semplicemente assente (il template ricade su 0).
+  }
+}
+
+async function onCullingRootConfirm(folderId: string) {
+  const library = pickerLibrary.value
+  if (!library) return
+  cullingBusy.value = new Set(cullingBusy.value).add(library.id)
+  try {
+    const updated = await patchCullingRoot(library.id, folderId)
+    libraries.value = libraries.value.map((l) => (l.id === library.id ? updated : l))
+    toast.show(t('settings.cullingRoot.updated'))
+    await loadLotCount(library.id)
+  } catch {
+    toast.showError(t('settings.cullingRoot.actionError'))
+  } finally {
+    const next = new Set(cullingBusy.value)
+    next.delete(library.id)
+    cullingBusy.value = next
+  }
+}
+
 onMounted(async () => {
-  const [prefs, libs] = await Promise.all([
+  const [prefs, libs, folders] = await Promise.all([
     fetchPreferences().catch(() => null),
-    fetchLibraries().catch(() => [])
+    fetchLibraries().catch(() => []),
+    fetchAllFolders().catch(() => [])
   ])
   if (prefs) notifications.value = prefs.notifications
   libraries.value = libs
+  allFolders.value = folders
+  await Promise.all(libs.filter((l) => l.culling_root_folder_id).map((l) => loadLotCount(l.id)))
 })
 </script>
 
@@ -295,6 +389,50 @@ onMounted(async () => {
       :description="t('settings.faces.deleteConfirmDescription')"
       :confirm-label="t('settings.faces.deleteConfirmButton')"
       @confirm="confirmDeleteAllFaces"
+    />
+
+    <section class="mt-6">
+      <p class="text-[13.5px] font-semibold">
+        {{ t('settings.cullingRoot.title') }}
+      </p>
+      <p class="text-sm text-content-muted">
+        {{ t('settings.cullingRoot.subtitle') }}
+      </p>
+      <div class="mt-2.5 flex flex-col gap-3">
+        <div
+          v-for="library in libraries"
+          :key="library.id"
+          class="flex items-center justify-between gap-3"
+        >
+          <div class="min-w-0">
+            <p class="truncate text-[13px] font-medium">
+              {{ library.name }}
+            </p>
+            <p class="truncate text-[12px] text-content-muted">
+              {{ cullingPathName(library) ?? t('settings.cullingRoot.notSet') }}
+              <template v-if="library.culling_root_folder_id">
+                — {{ t('settings.cullingRoot.lotsCount', { n: lotCounts[library.id] ?? 0 }) }}
+              </template>
+            </p>
+          </div>
+          <button
+            v-if="canChangeCullingRoot(library)"
+            type="button"
+            :disabled="cullingBusy.has(library.id)"
+            class="shrink-0 rounded-lg border border-border px-3.5 py-2 text-[13px] font-semibold
+                   hover:bg-border/20 disabled:cursor-not-allowed disabled:opacity-60"
+            @click="openCullingRootPicker(library)"
+          >
+            {{ t('settings.cullingRoot.change') }}
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <CullingRootPickerDialog
+      v-model:open="pickerOpen"
+      :initial-path="pickerPath"
+      @confirm="onCullingRootConfirm"
     />
   </main>
 </template>

@@ -197,6 +197,15 @@
       "deleteConfirmButton": "Delete everything",
       "deleteDone": "Face data deleted.",
       "actionError": "Could not complete the operation. Try again."
+    },
+    "cullingRoot": {
+      "title": "Culling root folder",
+      "subtitle": "The root folder on disk where the lots live — one subfolder per import. Also needed to sync it from another computer (e.g. via WebDAV) after picking photos.",
+      "notSet": "Not set",
+      "lotsCount": "{n} active lot | {n} active lots",
+      "change": "Change…",
+      "updated": "Culling root folder updated.",
+      "actionError": "Could not complete the operation. Try again."
     }
   },
   "profile": {
@@ -873,6 +882,14 @@
     "subtitle": "{n} item selected — toggle an album to add or remove all of them | {n} items selected — toggle an album to add or remove all of them",
     "done": "Done",
     "error": "Could not update the album. Try again."
+  },
+  "cullingRootPicker": {
+    "title": "Choose the culling root folder",
+    "subtitle": "Inside it, every subfolder becomes a lot — Keeppix creates the taken/skipped subfolders on its own when needed.",
+    "rootCrumb": "/",
+    "empty": "No subfolders here.",
+    "confirm": "Use this folder",
+    "cancel": "Cancel"
   },
   "personPicker": {
     "title": "Assign person",
