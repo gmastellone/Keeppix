@@ -1261,3 +1261,33 @@ Nessun difetto reale trovato in questa verifica: il codice sul branch
 pushato corrisponde a quanto dichiarato nel ledger, per ognuna delle
 voci controllate sopra.
 
+### Addendum (verifica indipendente, 24 agosto) — il permesso mancava dal riepilogo
+
+Il riepilogo sopra non menzionava il permesso — proprio una delle due
+correzioni più serie fissate prima di questa fase (l'altra era il finto
+`undo`, coperta correttamente sopra). Verificato ora, separatamente:
+**`AssetRepo::move_asset` (`crates/keeppix-db/src/assets.rs:884-887`)
+chiama `FolderRepo::assert_editor` due volte — sorgente e destinazione**,
+non `assert_can_edit_assets` (che risolve solo la cartella corrente di
+un asset esistente, non una destinazione arbitraria, come richiesto).
+Test di regressione dedicato:
+`requires_editor_on_the_destination_folder_not_just_the_source`
+(`crates/keeppix-db/tests/assets.rs:789`) — un editor solo sulla
+sorgente riceve `DbError::Forbidden`, file sorgente intatto. Codice
+corretto fin dall'inizio; era il riepilogo a essere incompleto.
+
+Due debiti reali ma non urgenti, entrambi già dichiarati nel codice
+stesso (non nascosti), da chiudere quando la Fase 11 arriva alle
+schermate che li rendono vivi:
+- **"Applica" davvero disabilitato** (la quinta convalida del Task 7):
+  rimandato esplicitamente alla Fase 11, nessun componente di rinomina
+  esiste ancora nel frontend — oggi è un rischio inerte, non un difetto
+  attivo. Va chiuso nella stessa tranche che costruisce quella
+  schermata (Fase 11 Task 17), non dimenticato.
+- **Lo spostamento fisico nel culling (`_taken`/`_skipped`) non ha
+  ancora una rotta HTTP**: il viaggio reale del Task 11 copre il flag
+  di culling per-utente ma non lo spostamento fisico su disco (quello
+  esiste solo a livello di repository, `culling.rs`). Va esercitato
+  end-to-end quando la Fase 11 costruisce la UI del culling a cartelle
+  (Task 17), non prima.
+

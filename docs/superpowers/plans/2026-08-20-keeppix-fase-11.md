@@ -381,6 +381,14 @@ menu sul riquadro del volto, Revisione–volti.
 **Task 17** — Culling: griglia lotti, lotto aperto, selettore di lotto, dialog cartella radice,
 dialog "Rinomina con formula". Scorciatoie del lotto aperto, esatte:
 
+**Due debiti di Fase 9 da chiudere qui, non prima** (dichiarati nel ledger, verificati indipendentemente
+il 24 agosto — rischio inerte finché questo task non costruisce le schermate che li attivano):
+- **"Applica" della rinomina davvero disabilitato**, non solo sbiadito (Task 7 di Fase 9, quinta
+  convalida, rimandata a questo task perché nessun componente di rinomina esisteva ancora).
+- **Lo spostamento fisico nel culling (`_taken`/`_skipped`) non ha ancora una rotta HTTP esercitata
+  end-to-end** — solo a livello di repository (`culling.rs`). Va provato nel viaggio reale quando la
+  UI del lotto lo rende raggiungibile.
+
 | Tasto | Effetto |
 |---|---|
 | `←` `→` | **azzerano la selezione multipla**, poi spostano di uno. Non tornano in cerchio |
