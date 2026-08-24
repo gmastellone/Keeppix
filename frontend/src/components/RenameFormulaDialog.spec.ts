@@ -52,6 +52,19 @@ function mountHost(assets: TimelineAsset[]) {
   return wrapper
 }
 
+function mountHostWithSubfolders(assets: TimelineAsset[], restrictedAssets: TimelineAsset[]) {
+  const Host = defineComponent({
+    components: { TheRenameFormulaDialog: RenameFormulaDialog },
+    setup() {
+      const open = ref(true)
+      return { open, assets, restrictedAssets }
+    },
+    template: `<TheRenameFormulaDialog v-model:open="open" :assets="assets" :restricted-assets="restrictedAssets" has-subfolders />`
+  })
+  wrapper = mount(Host, { global: { plugins: [i18n] }, attachTo: document.body })
+  return wrapper
+}
+
 function schemaInput(): HTMLInputElement {
   const el = document.body.querySelector('input[type="text"]')
   if (!el) throw new Error('schema input not found')
@@ -167,5 +180,55 @@ describe('RenameFormulaDialog', () => {
 
     expect(applyRenameBatchMock).not.toHaveBeenCalled()
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('§62.3e: with hasSubfolders, the toggle is off by default and previews only the restricted scope', async () => {
+    mountHostWithSubfolders([photo('a'), photo('b'), photo('c')], [photo('a')])
+    await vi.runAllTimersAsync()
+
+    expect(previewRenameMock).toHaveBeenCalledWith(['a'], '{data}_{luogo}_{n:3}')
+  })
+
+  it('§62.3e: switching the toggle on widens the preview and apply scope to the whole lot', async () => {
+    mountHostWithSubfolders([photo('a'), photo('b'), photo('c')], [photo('a')])
+    await vi.runAllTimersAsync()
+    previewRenameMock.mockClear()
+    previewRenameMock.mockResolvedValue(
+      ['a', 'b', 'c'].map((id) => ({ asset_id: id, folder_id: 'f', current_name: `${id}.jpg`, new_name: `${id}2.jpg`, collides: false }))
+    )
+
+    const toggle = document.body.querySelector('[role="switch"]') as HTMLButtonElement
+    toggle.click()
+    await vi.runAllTimersAsync()
+
+    expect(previewRenameMock).toHaveBeenCalledWith(['a', 'b', 'c'], '{data}_{luogo}_{n:3}')
+
+    buttonWithText('Applica')?.click()
+    await vi.runAllTimersAsync()
+
+    expect(applyRenameBatchMock).toHaveBeenCalledWith(['a', 'b', 'c'], '{data}_{luogo}_{n:3}')
+  })
+
+  it('the toggle resets to off on every fresh open, never remembered', async () => {
+    mountHostWithSubfolders([photo('a'), photo('b')], [photo('a')])
+    await vi.runAllTimersAsync()
+    const toggle = document.body.querySelector('[role="switch"]') as HTMLButtonElement
+    toggle.click()
+    await vi.runAllTimersAsync()
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    wrapper?.unmount()
+
+    mountHostWithSubfolders([photo('a'), photo('b')], [photo('a')])
+    await vi.runAllTimersAsync()
+
+    expect(document.body.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('without hasSubfolders, no toggle is rendered and the full assets scope is used', async () => {
+    mountHost([photo('a'), photo('b')])
+    await vi.runAllTimersAsync()
+
+    expect(document.body.querySelector('[role="switch"]')).toBeNull()
+    expect(previewRenameMock).toHaveBeenCalledWith(['a', 'b'], '{data}_{luogo}_{n:3}')
   })
 })

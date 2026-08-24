@@ -718,7 +718,27 @@
       "star": "{n} stelle"
     },
     "filmstrip": {
-      "label": "Miniature del lotto"
+      "label": "Miniature del lotto",
+      "selectPhoto": "Seleziona foto {n}"
+    },
+    "selectAll": {
+      "tip": "Seleziona tutto",
+      "ariaLabel": "Seleziona tutte le foto in questo lotto (o in questo filtro, se attivo)"
+    },
+    "selectionBar": {
+      "ariaLabel": "Azioni sulla selezione del lotto",
+      "renameTip": "Rinomina…"
+    },
+    "renameLot": {
+      "button": "Rinomina lotto…",
+      "subtitle": "Tutta la cartella \"{name}\" ({n} foto)"
+    },
+    "bulk": {
+      "taken": "{n} foto presa. | {n} foto prese.",
+      "skipped": "{n} foto scartata. | {n} foto scartate."
+    },
+    "switcher": {
+      "ariaLabel": "Passa a un altro lotto"
     },
     "infoButton": "Dettagli foto — EXIF, posizione, rinomina",
     "noRootConfigured": "Nessuna libreria ha ancora una cartella di culling designata.",
@@ -1248,6 +1268,7 @@
     "title": "Rinomina con formula",
     "subtitle": "{n} foto selezionata | {n} foto selezionate",
     "subtitleSingle": "1 foto — {filename}",
+    "includeSubfolders": "Includi anche presi e scartati, non solo da valutare",
     "schemaLabel": "Schema del nome file",
     "token": {
       "data": "Data",

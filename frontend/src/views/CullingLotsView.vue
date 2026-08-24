@@ -60,8 +60,8 @@ async function load() {
 
 const hasAnyRoot = computed(() => sections.value.length > 0)
 
-function openLot(lot: CullingLot) {
-  void router.push({ path: `/culling/${lot.folder_id}`, query: { name: lot.name } })
+function openLot(lot: CullingLot, libraryId: string) {
+  void router.push({ path: `/culling/${lot.folder_id}`, query: { name: lot.name, library: libraryId } })
 }
 
 function formatDate(iso: string): string {
@@ -127,7 +127,7 @@ function formatDate(iso: string): string {
           :key="lot.folder_id"
           type="button"
           class="rounded-lg border border-border p-3 text-left transition-colors hover:border-[var(--color-border-strong)]"
-          @click="openLot(lot)"
+          @click="openLot(lot, section.library.id)"
         >
           <div class="h-[110px] rounded-md bg-gradient-to-br from-border to-surface-elevated" />
           <p class="mt-2 truncate text-[13.5px] font-semibold">

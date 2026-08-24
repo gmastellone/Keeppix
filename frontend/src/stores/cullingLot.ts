@@ -6,6 +6,8 @@ import { emptySkipped, fetchFlags, pickAsset, setFlags, unvotedFlags } from '@/a
 import { fetchChildren } from '@/api/folders'
 import type { TimelineAsset } from '@/api/timeline'
 
+import { useSelectionStore } from './selection'
+
 export type CullState = 'pending' | 'taken' | 'skipped'
 export type CullingLotFilter = 'all' | 'todo' | 'taken' | 'skipped'
 
@@ -45,6 +47,23 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
   const loading = ref(false)
   const loadError = ref(false)
   const busy = ref<Set<string>>(new Set())
+
+  // Task 17 (4/N), §15.3 controlli 20-25: pool di selezione indipendente da
+  // quello della libreria (stores/selection.ts lo dichiara già dei due pool
+  // paralleli, "non si parlano e non si azzerano a vicenda") — più
+  // l'ancora dello shift+click/shift+freccia, che vive solo qui perché
+  // serve `order` per calcolare l'intervallo.
+  const pool = useSelectionStore().culling
+  // `pool` è l'oggetto reattivo esposto dallo store `selection` — i suoi
+  // ref interni sono già spacchettati dal proxy di Pinia (stesso
+  // comportamento di `selection.library.selectedIds` altrove nel
+  // frontend, mai `.value`). Un `computed` invece di catturare
+  // `pool.selectedIds` una volta sola: quel valore viene *rimpiazzato*
+  // (non mutato) a ogni selezione, un riferimento catturato staticamente
+  // andrebbe stantio.
+  const selectedIds = computed(() => pool.selectedIds)
+  const selectedCount = computed(() => pool.selectedIds.size)
+  const selectAnchor = ref<string | null>(null)
 
   const assetsById = computed(() => new Map(assets.value.map((a) => [a.id, a])))
 
@@ -104,6 +123,7 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     filter.value = 'all'
     position.value = 0
     flagsById.value = {}
+    clearSelection()
     try {
       const root = await fetchChildren(id)
       const pending: LotAsset[] = root.assets.map((a) => ({ ...a, cullState: 'pending' as const }))
@@ -142,16 +162,13 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     if (idx >= 0) position.value = idx
   }
 
-  /**
-   * "Scelta"/"Scarta" (`decideCulling`): click identico a un'etichetta,
-   * mai un dialog. Ripetere la stessa decisione la annulla (torna
-   * `pending`); decidere l'opposto passa direttamente da uno stato
-   * all'altro, senza transitare per `pending`.
-   */
-  async function decide(assetId: string, target: 'taken' | 'skipped'): Promise<void> {
+  /** Il giro reale su una sola foto: chiamata HTTP + aggiornamento locale.
+   * Condiviso fra `decide` (che sceglie `nextPick` con la regola del
+   * toggle) e `decideMany` (che lo forza, senza toggle — §15.3 controlli
+   * 23-24, "Porta tutte le selezionate a taken/skipped"). */
+  async function applyPick(assetId: string, nextPick: PickValue): Promise<boolean> {
     const asset = assetsById.value.get(assetId)
-    if (!asset || busy.value.has(assetId)) return
-    const nextPick: PickValue = asset.cullState === target ? 'none' : target === 'taken' ? 'pick' : 'reject'
+    if (!asset || busy.value.has(assetId)) return false
     busy.value = new Set(busy.value).add(assetId)
     try {
       const updated = await pickAsset(assetId, nextPick)
@@ -162,12 +179,121 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
       if (assetId in flagsById.value) {
         flagsById.value = { ...flagsById.value, [assetId]: { ...flagsFor(assetId), pick: nextPick } }
       }
-      recomputeOrder()
+      return true
+    } catch {
+      return false
     } finally {
       const next = new Set(busy.value)
       next.delete(assetId)
       busy.value = next
     }
+  }
+
+  /**
+   * "Scelta"/"Scarta" (`decideCulling`): click identico a un'etichetta,
+   * mai un dialog. Ripetere la stessa decisione la annulla (torna
+   * `pending`); decidere l'opposto passa direttamente da uno stato
+   * all'altro, senza transitare per `pending`.
+   */
+  async function decide(assetId: string, target: 'taken' | 'skipped'): Promise<void> {
+    const asset = assetsById.value.get(assetId)
+    if (!asset) return
+    const nextPick: PickValue = asset.cullState === target ? 'none' : target === 'taken' ? 'pick' : 'reject'
+    const ok = await applyPick(assetId, nextPick)
+    if (ok) recomputeOrder()
+  }
+
+  /** Barra di selezione, "Scelta"/"Scarta" di massa (§15.3 controlli 23-24):
+   * a differenza di `decide`, **forza** lo stato target invece di fare
+   * toggle — foto già a quello stato vengono saltate (contano comunque fra
+   * le riuscite, non c'è nulla da correggere). Riuscita parziale come
+   * "Svuota scartati": chi fallisce resta dov'era. */
+  async function decideMany(ids: string[], target: 'taken' | 'skipped'): Promise<{ succeeded: number; failed: number }> {
+    let succeeded = 0
+    let failed = 0
+    for (const id of ids) {
+      const asset = assetsById.value.get(id)
+      if (!asset) continue
+      if (asset.cullState === target) {
+        succeeded++
+        continue
+      }
+      const nextPick: PickValue = target === 'taken' ? 'pick' : 'reject'
+      const ok = await applyPick(id, nextPick)
+      if (ok) succeeded++
+      else failed++
+    }
+    recomputeOrder()
+    return { succeeded, failed }
+  }
+
+  function clearSelection() {
+    pool.clear()
+    selectAnchor.value = null
+  }
+
+  /** Intervallo `[a..b]` dentro `order`, in qualunque verso siano passati
+   * gli estremi — la stessa forma qualunque sia il controllo che l'ha
+   * chiesta (filmino, tastiera). */
+  function rangeIds(fromId: string, toId: string): string[] {
+    const from = order.value.indexOf(fromId)
+    const to = order.value.indexOf(toId)
+    if (from === -1 || to === -1) return [toId]
+    const [start, end] = from <= to ? [from, to] : [to, from]
+    return order.value.slice(start, end + 1)
+  }
+
+  /** Checkbox della miniatura, senza shift: inverte quella sola foto e
+   * sposta l'ancora su di essa (§15.4, "Click sulla checkbox"). */
+  function toggleSelect(id: string) {
+    pool.toggle(id)
+    selectAnchor.value = id
+  }
+
+  /** Shift+click sul corpo della miniatura: seleziona sempre l'intero
+   * intervallo `[ancora..id]`, sostituendo la selezione precedente — mai
+   * additiva (§15.5, "non si sommano a una selezione precedente, si
+   * sostituiscono ad essa"). Senza ancora, usa la foto aperta; l'ancora
+   * resta quella già in uso una volta impostata. */
+  function selectRangeToThumb(id: string) {
+    const anchor = selectAnchor.value ?? currentAsset.value?.id ?? id
+    selectAnchor.value = anchor
+    pool.selectedIds = new Set(rangeIds(anchor, id))
+  }
+
+  /** Shift+click sulla checkbox: come sopra, ma solo se un'ancora esiste
+   * già; altrimenti si comporta come un click semplice (§15.4). */
+  function selectRangeOrToggle(id: string) {
+    if (!selectAnchor.value) {
+      toggleSelect(id)
+      return
+    }
+    pool.selectedIds = new Set(rangeIds(selectAnchor.value, id))
+  }
+
+  /** Shift+freccia da tastiera (§15.5): l'ancora è quella già in uso o la
+   * foto corrente; l'indice si sposta di `delta`, poi l'intero intervallo
+   * `[ancora..nuovo indice]` viene ricalcolato da zero. */
+  function selectRangeByArrow(delta: number) {
+    if (order.value.length === 0) return
+    const anchor = selectAnchor.value ?? currentAsset.value?.id ?? order.value[position.value]
+    selectAnchor.value = anchor
+    position.value = Math.min(Math.max(position.value + delta, 0), order.value.length - 1)
+    const newId = order.value[position.value]
+    pool.selectedIds = new Set(rangeIds(anchor, newId))
+  }
+
+  /** Icona "Seleziona tutto" (§15.3 controllo 8, fuori dalla barra di
+   * selezione): aggiunge tutta la coda corrente e azzera l'ancora. */
+  function selectAllInQueue() {
+    pool.selectedIds = new Set([...pool.selectedIds, ...order.value])
+    selectAnchor.value = null
+  }
+
+  /** "Seleziona tutte" dentro la barra di selezione (§15.3 controllo 22):
+   * interruttore sulla coda corrente, non un semplice "aggiungi tutto". */
+  function toggleSelectAllInQueue() {
+    pool.selectAllVisible(order.value)
   }
 
   /** Recupera i flag (valutazione, preferito) solo per l'asset richiesto —
@@ -242,15 +368,25 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     busy,
     currentAsset,
     counts,
+    selectedIds,
+    selectedCount,
     open,
     setFilter,
     goTo,
     goToId,
     decide,
+    decideMany,
     setRating,
     ensureFlagsLoaded,
     toggleFavorite,
     emptySkippedFolder,
-    flagsFor
+    flagsFor,
+    clearSelection,
+    toggleSelect,
+    selectRangeToThumb,
+    selectRangeOrToggle,
+    selectRangeByArrow,
+    selectAllInQueue,
+    toggleSelectAllInQueue
   }
 })

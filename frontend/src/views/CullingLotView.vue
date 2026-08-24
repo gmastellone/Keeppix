@@ -1,22 +1,29 @@
 <script setup lang="ts">
-// Fase 11 Task 17 (3/N) — documento funzionale §15 "Culling — lotto
-// aperto". Nucleo reale: filtri, palco, filmino, Scelta/Scarta con
-// spostamento fisico vero, valutazione, tastiera con la guardia sui campi
-// di testo (Ruling del piano). **Deliberatamente fuori da questa
-// sotto-unità** (Task 17 4/N): selezione multipla (shift+click/
-// shift+freccia, barra di selezione), "Rinomina lotto…", selettore rapido
-// di lotto (§16) — nessuno di questi è finto qui, semplicemente non
-// ancora costruito.
+// Fase 11 Task 17 (3/N-4/N) — documento funzionale §15 "Culling — lotto
+// aperto" e §16 "Il selettore rapido di lotto". Nucleo (3/N): filtri,
+// palco, filmino, Scelta/Scarta con spostamento fisico vero, valutazione,
+// tastiera con la guardia sui campi di testo (Ruling del piano). Aggiunto
+// in 4/N, che chiude il Task: selezione multipla (shift+click/shift+
+// freccia sul filmino e da tastiera, barra di selezione SP-2 con le
+// quattro deviazioni dichiarate — §15.3), "Rinomina lotto…"/"Rinomina…"
+// (estendono RenameFormulaDialog con `hasSubfolders`), selettore rapido
+// di lotto (§16, su Popover con `escDismisses=false` — l'unica deviazione
+// da SP-14 fra i sei consumatori del componente).
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import { fetchCullingLots, type CullingLot } from '@/api/culling'
 import { previewSrc as mediaPreviewSrc } from '@/api/media'
 import type { TimelineAsset } from '@/api/timeline'
 import AssetViewer from '@/components/AssetViewer.vue'
 import Filmstrip from '@/components/Filmstrip.vue'
 import RatingStars from '@/components/RatingStars.vue'
+import RenameFormulaDialog from '@/components/RenameFormulaDialog.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import Popover from '@/components/ui/Popover.vue'
+import SelectionBar from '@/components/ui/SelectionBar.vue'
+import Tooltip from '@/components/ui/Tooltip.vue'
 import { activeCullingLotName } from '@/nav/routeTitles'
 import { useCullingLotStore, type CullingLotFilter } from '@/stores/cullingLot'
 import { useToastStore } from '@/stores/toast'
@@ -31,6 +38,28 @@ const FILTERS: CullingLotFilter[] = ['all', 'todo', 'taken', 'skipped']
 
 const lotId = computed(() => route.params.lotId as string)
 const lotNameFromQuery = computed(() => (typeof route.query.name === 'string' ? route.query.name : ''))
+const libraryId = computed(() => (typeof route.query.library === 'string' ? route.query.library : null))
+
+// §16 — selettore rapido di lotto: elenco caricato pigramente all'apertura
+// del pannello, non a ogni apertura del lotto (il documento legge "id,
+// nome, N da vedere per ogni lotto" solo mentre il pannello è aperto).
+const switcherOpen = ref(false)
+const switcherLots = ref<CullingLot[]>([])
+
+watch(switcherOpen, (isOpen) => {
+  if (isOpen) void loadSwitcherLots()
+})
+
+async function loadSwitcherLots() {
+  if (!libraryId.value) return
+  switcherLots.value = await fetchCullingLots(libraryId.value).catch(() => [])
+}
+
+function switchToLot(lot: CullingLot) {
+  switcherOpen.value = false
+  store.clearSelection()
+  void router.push({ path: `/culling/${lot.folder_id}`, query: { name: lot.name, library: libraryId.value ?? undefined } })
+}
 
 onMounted(() => {
   void store.open(lotId.value, lotNameFromQuery.value)
@@ -88,10 +117,22 @@ function onKeydown(event: KeyboardEvent) {
   const asset = store.currentAsset
   switch (event.key) {
     case 'ArrowLeft':
-      store.goTo(-1)
+      if (event.shiftKey) {
+        store.selectRangeByArrow(-1)
+      } else {
+        // §15.5: la freccia semplice azzera una selezione multipla in
+        // corso — l'unica via d'uscita rapida da tastiera (niente Esc qui).
+        if (store.selectedCount > 0) store.clearSelection()
+        store.goTo(-1)
+      }
       break
     case 'ArrowRight':
-      store.goTo(1)
+      if (event.shiftKey) {
+        store.selectRangeByArrow(1)
+      } else {
+        if (store.selectedCount > 0) store.clearSelection()
+        store.goTo(1)
+      }
       break
     case 'p':
     case 'P':
@@ -144,6 +185,51 @@ async function onToggleFavorite() {
   if (!id) return
   await store.toggleFavorite(id)
 }
+
+const selectedAssets = computed(() =>
+  orderedAssets.value.filter((a) => store.selectedIds.has(a.id))
+)
+
+/** Barra di selezione, "Scelta"/"Scarta" di massa (§15.3 controlli 23-24):
+ * toast e svuota la selezione, riuscita parziale come "Svuota scartati". */
+async function decideSelection(target: 'taken' | 'skipped') {
+  const ids = Array.from(store.selectedIds)
+  const { succeeded, failed } = await store.decideMany(ids, target)
+  store.clearSelection()
+  if (failed > 0) {
+    toast.showPartial(succeeded, failed)
+  } else if (succeeded > 0) {
+    toast.show(t(target === 'taken' ? 'culling.bulk.taken' : 'culling.bulk.skipped', { n: succeeded }, { plural: succeeded }))
+  }
+}
+
+// "Rinomina lotto…" (§15.3 controllo 19) e "Rinomina…" della barra di
+// selezione (controllo 25) condividono lo stesso dialog: cambia solo
+// l'ambito con cui viene aperto — nessuna logica duplicata.
+const renameOpen = ref(false)
+const renameScope = ref<'lot' | 'selection'>('lot')
+const pendingLotAssets = computed(() => store.assets.filter((a) => a.cullState === 'pending'))
+
+function openRenameLot() {
+  renameScope.value = 'lot'
+  renameOpen.value = true
+}
+
+function openRenameSelection() {
+  renameScope.value = 'selection'
+  renameOpen.value = true
+}
+
+const renameAssets = computed(() => (renameScope.value === 'lot' ? store.assets : selectedAssets.value))
+const renameSubtitle = computed(() =>
+  renameScope.value === 'lot'
+    ? t('culling.renameLot.subtitle', { name: store.lotName || lotNameFromQuery.value, n: store.assets.length })
+    : undefined
+)
+
+function onRenameApplied() {
+  if (renameScope.value === 'selection') store.clearSelection()
+}
 </script>
 
 <template>
@@ -165,9 +251,39 @@ async function onToggleFavorite() {
           >
             ‹ {{ t('culling.backToLots') }}
           </button>
-          <span class="rounded-lg bg-[var(--color-border)]/30 px-2.5 py-1 text-[13px]">
-            {{ store.lotName || lotNameFromQuery }}
-          </span>
+          <Popover
+            v-model:open="switcherOpen"
+            :esc-dismisses="false"
+            align="start"
+          >
+            <template #trigger>
+              <button
+                type="button"
+                class="rounded-lg bg-[var(--color-border)]/30 px-2.5 py-1 text-[13px]"
+              >
+                {{ store.lotName || lotNameFromQuery }} ⌄
+              </button>
+            </template>
+            <div
+              role="listbox"
+              :aria-label="t('culling.switcher.ariaLabel')"
+              class="w-[220px]"
+            >
+              <button
+                v-for="lot in switcherLots"
+                :key="lot.folder_id"
+                type="button"
+                role="option"
+                :aria-selected="lot.folder_id === lotId"
+                class="flex w-full items-center justify-between gap-2 border-b border-border px-2 py-2 text-left text-[12.5px] last:border-b-0 hover:bg-border/30"
+                :class="lot.folder_id === lotId ? 'font-semibold text-accent' : ''"
+                @click="switchToLot(lot)"
+              >
+                <span class="truncate">{{ lot.name }}</span>
+                <span class="shrink-0 text-content-muted">{{ t('culling.lotTodo', { n: lot.pending }) }}</span>
+              </button>
+            </div>
+          </Popover>
           <div class="flex items-center gap-3 text-[13px]">
             <span>✓ <strong>{{ store.counts.taken }}</strong> {{ t('culling.counters.taken') }}</span>
             <span>✕ <strong>{{ store.counts.skipped }}</strong> {{ t('culling.counters.skipped') }}</span>
@@ -175,7 +291,48 @@ async function onToggleFavorite() {
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-1.5">
+        <SelectionBar
+          v-if="store.selectedCount > 0"
+          :count="store.selectedCount"
+          :ariaLabel="t('culling.selectionBar.ariaLabel')"
+          @clear="store.clearSelection"
+          @select-all="store.toggleSelectAllInQueue"
+        >
+          <Tooltip :label="t('culling.pick')">
+            <button
+              type="button"
+              :aria-label="t('culling.pick')"
+              class="flex h-8 w-8 items-center justify-center rounded-lg text-[#2E9E5B] hover:bg-[#2E9E5B]/10"
+              @click="decideSelection('taken')"
+            >
+              ✓
+            </button>
+          </Tooltip>
+          <Tooltip :label="t('culling.reject')">
+            <button
+              type="button"
+              :aria-label="t('culling.reject')"
+              class="flex h-8 w-8 items-center justify-center rounded-lg text-danger hover:bg-danger/10"
+              @click="decideSelection('skipped')"
+            >
+              ✕
+            </button>
+          </Tooltip>
+          <Tooltip :label="t('culling.selectionBar.renameTip')">
+            <button
+              type="button"
+              :aria-label="t('culling.selectionBar.renameTip')"
+              class="flex h-8 w-8 items-center justify-center rounded-lg text-content-muted hover:bg-border/40"
+              @click="openRenameSelection"
+            >
+              ✎
+            </button>
+          </Tooltip>
+        </SelectionBar>
+        <div
+          v-else
+          class="flex flex-wrap items-center gap-1.5"
+        >
           <button
             v-for="f in FILTERS"
             :key="f"
@@ -189,11 +346,25 @@ async function onToggleFavorite() {
           <button
             v-if="store.filter === 'skipped' && store.counts.skipped > 0"
             type="button"
-            class="ml-auto rounded-full border border-danger px-3 py-1 text-[12.5px] text-danger hover:bg-danger/10"
+            class="rounded-full border border-danger px-3 py-1 text-[12.5px] text-danger hover:bg-danger/10"
             @click="emptySkippedOpen = true"
           >
             {{ t('culling.emptySkipped.button', { n: store.counts.skipped }) }}
           </button>
+          <Tooltip
+            v-if="store.order.length > 0"
+            :label="t('culling.selectAll.tip')"
+            class="ml-auto"
+          >
+            <button
+              type="button"
+              :aria-label="t('culling.selectAll.ariaLabel')"
+              class="flex h-[26px] w-[26px] items-center justify-center rounded-lg text-content-muted hover:bg-border/40"
+              @click="store.selectAllInQueue"
+            >
+              ☑
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -258,7 +429,11 @@ async function onToggleFavorite() {
         <Filmstrip
           :assets="orderedAssets"
           :current-id="store.currentAsset.id"
+          :selected-ids="store.selectedIds"
           @select="store.goToId"
+          @shift-select="store.selectRangeToThumb"
+          @toggle="store.toggleSelect"
+          @shift-toggle="store.selectRangeOrToggle"
         />
 
         <div class="flex items-center justify-between gap-3 px-6 py-3.5">
@@ -271,7 +446,9 @@ async function onToggleFavorite() {
                 type="button"
                 class="underline hover:text-content"
                 @click="backToLots"
-              >{{ store.lotName || lotNameFromQuery }}</button>
+              >
+                {{ store.lotName || lotNameFromQuery }}
+              </button>
               › {{ stateLabel(store.currentAsset) }}
             </p>
             <RatingStars
@@ -296,6 +473,13 @@ async function onToggleFavorite() {
             >
               {{ t('culling.reject') }}
             </button>
+            <button
+              type="button"
+              class="rounded-lg px-3 py-2 text-[13px] font-medium text-content-muted hover:bg-border/40"
+              @click="openRenameLot"
+            >
+              {{ t('culling.renameLot.button') }}
+            </button>
           </div>
         </div>
       </template>
@@ -307,6 +491,15 @@ async function onToggleFavorite() {
       :description="t('culling.emptySkipped.description', { n: store.counts.skipped })"
       :confirm-label="t('culling.emptySkipped.button', { n: store.counts.skipped })"
       @confirm="confirmEmptySkipped"
+    />
+
+    <RenameFormulaDialog
+      v-model:open="renameOpen"
+      :assets="renameAssets"
+      :restricted-assets="pendingLotAssets"
+      :has-subfolders="renameScope === 'lot'"
+      :subtitle="renameSubtitle"
+      @applied="onRenameApplied"
     />
 
     <AssetViewer

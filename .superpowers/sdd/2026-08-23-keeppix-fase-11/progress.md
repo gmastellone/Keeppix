@@ -6563,3 +6563,125 @@ aperto (shift+click/shift+freccia, barra di selezione SP-2 con le quattro
 deviazioni dichiarate), "Rinomina lotto…"/"Rinomina…" (estende
 `RenameFormulaDialog.vue` con `hasSubfolders`), selettore rapido di lotto
 (§16) — chiude il Task 17 e la Tranche D.
+
+## Task 17 (4/N) — selezione multipla, rinomina, selettore rapido di lotto: chiude il Task 17 e la Tranche D
+
+**Documenti riletti prima di scrivere codice**: `documento-funzionale-ui.md`
+§15.3-§15.5 (controlli 8, 20-25; interazioni da mouse e tastiera del
+filmino), §16 (selettore rapido di lotto per intero), §12 (SP-2, la
+definizione canonica della barra di selezione da cui §15 dichiara
+esplicitamente "quattro deviazioni"), §62.3e (`hasSubfolders`, già
+menzionato come debito dichiarato nell'intestazione di
+`RenameFormulaDialog.vue` scritta al Task 8).
+
+**Due pool di selezione, non uno nuovo**: `stores/selection.ts` aveva
+già `culling` accanto a `library` dal Task 2 ("due pool paralleli e
+indipendenti... non si parlano e non si azzerano a vicenda"), mai
+consumato fino ad ora — esattamente il pool che questa sotto-unità
+doveva riempire, non un terzo pool da inventare. L'ancora dello
+shift+click/shift+freccia (`selectAnchor`) vive invece in
+`stores/cullingLot.ts`, non in `selection.ts`: le serve `order` per
+calcolare l'intervallo, un dato che il pool di selezione — generico,
+condiviso con la libreria — non ha e non deve avere.
+
+**Un'insidia di tipi con Pinia**: `pool = useSelectionStore().culling`
+è l'oggetto *reattivo* esposto dallo store — i suoi ref interni sono già
+spacchettati dal proxy di Pinia (`pool.selectedIds` è un `Set<string>`
+vero, non un `Ref`, esattamente come `selection.library.selectedIds`
+altrove nel frontend). Scrivere `pool.selectedIds.value = ...` non
+compila; scrivere `pool.selectedIds = new Set(...)` sì (il proxy
+individua che la proprietà sottostante è un ref e la riassegna da sé).
+Esportare `selectedIds` dal `cullingLot` store ha bisogno di un
+`computed(() => pool.selectedIds)`, non di catturare `pool.selectedIds`
+una volta sola all'avvio: quel valore viene *rimpiazzato* (mai mutato)
+a ogni selezione — un riferimento catturato staticamente andrebbe
+stantio al primo shift+click.
+
+**Semantica di `decideMany`, non un ciclo su `decide`**: la barra di
+selezione "Porta tutte le selezionate a taken/skipped" (§15.3 controlli
+23-24) — un *force*, non un *toggle*. Chiamare `decide()` in ciclo
+avrebbe *tolto* lo stato a una foto già `taken` cliccando "Scelta" di
+massa su una selezione che la contiene già. Refactoring minimo: la vera
+chiamata HTTP + aggiornamento locale di `decide()` estratta in
+`applyPick(assetId, nextPick)`, condivisa da `decide()` (che calcola
+`nextPick` col toggle) e dal nuovo `decideMany()` (che lo forza, saltando
+— e contando comunque come riuscite — le foto già allo stato target).
+Comportamento di `decide()` invariato: i test del Task 17 3/N che
+verificano il toggle sul pulsante grande passano senza modifiche.
+
+**Filmstrip.vue riguadagna una checkbox, non i vecchi badge**: il Task
+17 3/N l'aveva svuotato dei badge presi/scartati/valutazione (mai nel
+disegno dei lotti, §15.6). La checkbox di selezione è cosa diversa —
+prevista esplicitamente da §15.2.C — e la sua aggiunta è l'occasione per
+correggere una deviazione pre-esistente: la miniatura intera era un
+`<button>` (quindi raggiungibile da Tab), mentre il documento è esplicito
+("**Non** sono focusabili: ... le miniature ...", §15.5) — corretto a un
+contenitore `<div>` non focusabile con **solo** la checkbox come
+`<button role="checkbox">` reale, risolvendo anche l'annidamento
+altrimenti non valido di un controllo interattivo dentro un `<button>`.
+Quattro eventi distinti (`select`/`shift-select`/`toggle`/`shift-toggle`)
+invece di due booleani sullo stesso evento: TypeScript non riesce a
+risolvere l'overload di `emit()` con un nome di evento scelto a runtime
+da un'espressione ternaria (`emit(cond ? 'a' : 'b', id)` non compila con
+`defineEmits` tipizzato) — risolto con `if`/`else` espliciti, non con un
+cast.
+
+**`RenameFormulaDialog.vue` esteso, non duplicato**: `hasSubfolders` e
+`restrictedAssets` nuovi prop opzionali — spento di partenza
+(`includeSubfolders`, mai ricordato fra un'apertura e l'altra, stessa
+regola dello schema), l'ambito reale di anteprima/applicazione
+(`scopedAssets`) passa da `restrictedAssets` (solo `cullState==='pending'`)
+a tutto `assets` quando l'interruttore si accende. "Rinomina lotto…" e
+"Rinomina…" della barra di selezione condividono la stessa istanza del
+dialog in `CullingLotView.vue`: cambia solo `renameScope` (`'lot'` vs
+`'selection'`), non il componente. Aggiunto anche l'evento `applied`
+(mancava): la barra di selezione deve svuotarsi *solo* a rinomina
+riuscita, non alla chiusura del dialog per "Annulla" — un `watch` sul solo
+`v-model:open` non li distingue.
+
+**Selettore rapido di lotto su `Popover.vue`, con una deviazione sola
+da SP-14**: il documento (§16.5) è esplicito — "Esc non chiude questo
+pannello", l'unica delle sei deviazioni-da-SP-14 fra i consumatori di
+`Popover.vue`. Aggiunto un prop `escDismisses` (default `true`, zero
+impatto sui cinque consumatori esistenti) che, quando `false`, chiama
+`event.preventDefault()` sull'evento `escapeKeyDown` di reka-ui — stesso
+meccanismo già provato nel Task 17 2/N per `@pointer-down-outside` su
+`Dialog.vue`. **Il `library_id` del lotto aperto non esisteva da
+nessuna parte nella rotta** (`/culling/:lotId` porta solo `lotId` +
+`?name=`): aggiunto `?library=<id>` alla navigazione da
+`CullingLotsView.vue`, stesso posto dove `?name=` già viveva — non una
+rotta di lettura nuova per risalire dalla cartella alla libreria.
+
+**Un bug di test, non di prodotto, trovato scrivendo i test**: il primo
+tentativo del test "Esc non chiude quando `escDismisses=false`" falliva
+sempre — `event.defaultPrevented` restava `false` anche dopo aver
+chiamato `preventDefault()`. Non un difetto del componente: l'evento
+sintetico del test (`new KeyboardEvent('keydown', {key:'Escape'})`) non
+aveva `cancelable:true`, e per specifica DOM `preventDefault()` su un
+evento non cancellabile è un no-op silenzioso. Diagnosticato con un
+`console.log` temporaneo (rimosso), non per tentativi.
+
+**Verifica completa**: `npx vue-tsc -b` pulito (un'insidia in più oltre
+a quella dei tipi di Pinia sopra: `SelectionBar`'s `:aria-label` in
+kebab-case rompe la risoluzione degli overload di `defineEmits`
+generati da vue-tsc per questo componente in modo non ovvio — l'intero
+messaggio d'errore punta a `onSelect-all` invece che a `ariaLabel`;
+`eslint --fix` lo riscrive silenziosamente da `:ariaLabel` a
+`:aria-label` seguendo la regola `vue/attribute-hyphenation`, quindi va
+ripristinato a mano dopo ogni `--fix` — stesso trade-off già accettato
+altrove nel frontend, vedi il warning identico e preesistente in
+`TimelineView.vue`/`SearchView.vue`). `npx eslint` sull'intero repo → 1
+solo errore preesistente (`PlayerView.vue`), nessun errore nuovo. `npx
+vitest run` → **102 file, 898/898** verdi (18 test nuovi: 7 su
+`CullingLotView.spec.ts`, 5 su `Filmstrip.spec.ts` nuovo, 4 su
+`RenameFormulaDialog.spec.ts`, 1 su `CullingLotsView.spec.ts`, 1 su
+`Popover.spec.ts`). `npm run build` + calcolo manuale del bundle
+iniziale gzip → 143.903 byte, sotto il budget di 153.600 (+348 byte sui
+143.555 del Task 17 3/N). Nessun file di backend toccato in questa
+sotto-unità: `cargo fmt`/`clippy`/`check-wired.py` non applicabili.
+
+**Task 17 chiuso, con esso la Tranche D.** Prossimo passo: la procedura
+di pre-merge di `docs/superpowers/PROSEGUI.md` §10 (verifica rigorosa
+prima di `fase-11` → `main`), poi Task A (Volti: YuNet+SFace) e Task B
+(CLIP: OpenCLIP XLM-R IT/EN) — i due task di integrazione ML che restano
+nella lista, dopo il merge.

@@ -718,7 +718,27 @@
       "star": "{n} stars"
     },
     "filmstrip": {
-      "label": "Lot thumbnails"
+      "label": "Lot thumbnails",
+      "selectPhoto": "Select photo {n}"
+    },
+    "selectAll": {
+      "tip": "Select all",
+      "ariaLabel": "Select all photos in this lot (or in this filter, if active)"
+    },
+    "selectionBar": {
+      "ariaLabel": "Actions on the lot's selection",
+      "renameTip": "Rename…"
+    },
+    "renameLot": {
+      "button": "Rename lot…",
+      "subtitle": "The whole \"{name}\" folder ({n} photos)"
+    },
+    "bulk": {
+      "taken": "{n} photo taken. | {n} photos taken.",
+      "skipped": "{n} photo skipped. | {n} photos skipped."
+    },
+    "switcher": {
+      "ariaLabel": "Switch to another lot"
     },
     "infoButton": "Photo details — EXIF, location, rename",
     "noRootConfigured": "No library has a culling root folder set yet.",
@@ -1248,6 +1268,7 @@
     "title": "Rename with formula",
     "subtitle": "{n} photo selected | {n} photos selected",
     "subtitleSingle": "1 photo — {filename}",
+    "includeSubfolders": "Also include taken and skipped, not just to-review",
     "schemaLabel": "Filename schema",
     "token": {
       "data": "Date",

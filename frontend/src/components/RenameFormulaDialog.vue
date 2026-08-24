@@ -1,15 +1,18 @@
 <script setup lang="ts">
-// SP-62 (documento funzionale §62, "Dialog 'Rinomina con formula'"). Due
+// SP-62 (documento funzionale §62, "Dialog 'Rinomina con formula'"). Quattro
 // dei cinque punti d'ingresso del documento sono coperti: "selection"
-// (§13.3 campo 7, "Modifica in blocco", Task 7) e "single" (§18/§20, il
-// pulsante "Rinomina…" del lightbox, Task 8 — sottotitolo distinto, "1
+// (§13.3 campo 7, "Modifica in blocco", Task 7 — e §15.3 controllo 25, la
+// barra di selezione del lotto di culling, Task 17 4/N), "single" (§18/§20,
+// il pulsante "Rinomina…" del lightbox, Task 8 — sottotitolo distinto, "1
 // foto — {nome file}", non "1 foto selezionata": per questo `subtitle` è
 // sovrascrivibile dal chiamante invece di dedurlo dal solo conteggio,
-// §62.8 lega il testo al **punto d'ingresso**, non al numero di foto).
-// Gli altri tre (cartella aperta in Timeline, lotto/selezione di culling)
-// restano debito dichiarato per i task che li introducono: niente
-// interruttore "sottocartelle" qui, `hasSubfolders` è vero **solo**
-// nell'ambito lotto di culling (§62.3e).
+// §62.8 lega il testo al **punto d'ingresso**, non al numero di foto) e
+// "lotto intero" (§15.3 controllo 19, "Rinomina lotto…", Task 17 4/N —
+// l'unico ambito con `hasSubfolders`, §62.3e: `restrictedAssets` è il
+// sottoinsieme `cullState==='pending'`, l'ambito di partenza con
+// l'interruttore spento; `assets` resta l'intero lotto, usato quando
+// l'interruttore è acceso). Resta debito dichiarato solo il quinto
+// (cartella aperta in Timeline).
 //
 // Nessuna logica di token/slug/sanificazione duplicata qui: il motore è
 // server-side (`keeppix-domain::rename::render_base`, Fase 9), verificato
@@ -26,15 +29,35 @@ import { useToastStore } from '@/stores/toast'
 import Dialog from './ui/Dialog.vue'
 
 const open = defineModel<boolean>('open', { required: true })
-const props = defineProps<{ assets: TimelineAsset[]; subtitle?: string }>()
+const props = defineProps<{
+  assets: TimelineAsset[]
+  subtitle?: string
+  hasSubfolders?: boolean
+  restrictedAssets?: TimelineAsset[]
+}>()
 
 const { t } = useI18n()
 const toast = useToastStore()
+
+// §62.3e: spento di partenza, tocca solo `restrictedAssets` (le foto
+// "da vedere"); acceso, tocca l'intero `assets` (presi e scartati inclusi).
+// Mai ricordato fra un'apertura e l'altra, stessa regola dello schema.
+const includeSubfolders = ref(false)
+const scopedAssets = computed(() =>
+  props.hasSubfolders && !includeSubfolders.value ? (props.restrictedAssets ?? []) : props.assets
+)
 
 // Valore iniziale sempre lo stesso a ogni apertura (§62.2 punto 4): non è
 // ricordato fra un'apertura e l'altra.
 const DEFAULT_SCHEMA = '{data}_{luogo}_{n:3}'
 const PLACEHOLDERS = ['data', 'fotocamera', 'obiettivo', 'luogo', 'titolo'] as const
+
+// `applied` (Task 17 4/N): la barra di selezione del lotto vuole svuotare
+// la selezione a rinomina riuscita (§15.3 controllo 25) — un evento
+// generico invece di far indovinare al chiamante quando l'apply è andato
+// a buon fine dal solo v-model:open che torna a `false` (si chiude anche
+// su "Annulla", che non deve svuotare nulla).
+const emit = defineEmits<{ applied: [] }>()
 
 const schema = ref(DEFAULT_SCHEMA)
 const preview = ref<RenamePreviewItem[]>([])
@@ -46,7 +69,7 @@ const visiblePreview = computed(() => preview.value.slice(0, 5))
 const collisionCount = computed(() => preview.value.filter((item) => item.collides).length)
 
 async function runPreview() {
-  const ids = props.assets.map((asset) => asset.id)
+  const ids = scopedAssets.value.map((asset) => asset.id)
   preview.value = await previewRename(ids, schema.value).catch(() => [])
 }
 
@@ -56,12 +79,14 @@ function scheduleRunPreview() {
 }
 
 watch(schema, scheduleRunPreview)
+watch(includeSubfolders, scheduleRunPreview)
 
 watch(
   open,
   (isOpen) => {
     if (!isOpen) return
     schema.value = DEFAULT_SCHEMA
+    includeSubfolders.value = false
     void runPreview()
     void nextTick(() => {
       // Fuoco sul campo schema con il cursore in fondo, non sul testo
@@ -98,12 +123,13 @@ async function apply() {
   applying.value = true
   try {
     await applyRenameBatch(
-      props.assets.map((asset) => asset.id),
+      scopedAssets.value.map((asset) => asset.id),
       schema.value
     )
-    const n = props.assets.length
+    const n = scopedAssets.value.length
     toast.show(t('renameFormula.renamedToast', { n }, { plural: n }))
     open.value = false
+    emit('applied')
   } catch {
     toast.showError(t('renameFormula.error'))
   } finally {
@@ -129,6 +155,26 @@ async function apply() {
           class="mt-1 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2 text-[13px]
                  text-content focus:border-accent focus:outline-none"
         >
+      </label>
+
+      <label
+        v-if="hasSubfolders"
+        class="flex cursor-pointer items-center justify-between gap-2"
+      >
+        <span class="text-[12.5px] text-content-muted">{{ t('renameFormula.includeSubfolders') }}</span>
+        <button
+          type="button"
+          role="switch"
+          :aria-checked="includeSubfolders"
+          class="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+          :class="includeSubfolders ? 'bg-accent' : 'bg-border'"
+          @click="includeSubfolders = !includeSubfolders"
+        >
+          <span
+            class="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-[left]"
+            :style="{ left: includeSubfolders ? '18px' : '2px' }"
+          />
+        </button>
       </label>
 
       <div class="flex flex-wrap gap-1.5">

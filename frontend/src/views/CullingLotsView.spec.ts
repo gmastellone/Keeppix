@@ -125,5 +125,6 @@ describe('CullingLotsView — §14 griglia dei lotti', () => {
 
     expect(router.currentRoute.value.path).toBe('/culling/lot-1')
     expect(router.currentRoute.value.query.name).toBe('Dolomiti')
+    expect(router.currentRoute.value.query.library).toBe('lib-1')
   })
 })
