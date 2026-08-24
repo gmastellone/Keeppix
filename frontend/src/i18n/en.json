@@ -321,6 +321,25 @@
     "createdToast": "Category \"{name}\" created.",
     "renamedToast": "Category renamed to \"{name}\"."
   },
+  "review": {
+    "entry": "Review",
+    "title": "Review",
+    "subtitle": "{n} proposal pending, grouped by tag — none applied yet | {n} proposals pending, grouped by tag — none applied yet",
+    "proposalCount": "{n} proposal | {n} proposals",
+    "confirmAll": "Confirm all",
+    "rejectAll": "Reject all",
+    "confirmOne": "Confirm",
+    "rejectOne": "Reject",
+    "aiBadge": "AI",
+    "confirmedOne": "Tag confirmed.",
+    "rejectedOne": "Suggestion rejected — it won't be proposed again.",
+    "confirmedAll": "{n} proposal confirmed. | {n} proposals confirmed.",
+    "rejectedAll": "{n} proposal rejected. | {n} proposals rejected.",
+    "actionError": "Could not complete the operation. Try again.",
+    "loadError": "Could not load the review queue. Try again.",
+    "emptyTitle": "No suggestions pending",
+    "emptyText": "When AI finds mid-confidence matches for your tags, they'll appear here for your confirmation — never applied on their own."
+  },
   "home": {
     "logout": "Sign out"
   },

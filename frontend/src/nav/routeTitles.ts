@@ -12,6 +12,7 @@ export const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/settings': 'settings.title',
   '/profile': 'profile.title',
   '/tags': 'tags.title',
+  '/review': 'review.title',
   '/search': 'nav.cerca',
   '/culling': 'culling.entry',
   '/map': 'maps.entry',

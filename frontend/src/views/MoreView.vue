@@ -12,10 +12,10 @@
 // canonici del mockup. Tolte, stesso motivo già dichiarato lì:
 // - "Persone" (Task 16) — nessuna vista esiste.
 //
-// Il gruppo "IA" (Task 15) ha solo "Tag e categorie" per ora — stesso
-// stato incrementale di `AppSidebar.vue`, "Revisione" arriva con la
-// prossima sotto-unità. "Analisi libreria" resta fuori per sempre, non
-// solo per ora: nessuna rotta la legge (stesso commento esteso in
+// Il gruppo "IA" (Task 15) ha due voci reali: "Tag e categorie" e
+// "Revisione" (badge `shell.badges.revision`, stesso dato di
+// `AppSidebar.vue`). "Analisi libreria" resta fuori per sempre, non solo
+// per ora: nessuna rotta la legge (stesso commento esteso in
 // `AppSidebar.vue`).
 // - "Condivisi con me" / "Le mie condivisioni" come due righe
 //   distinte: `SharesView` non ha le due schede `state.shareTab` del
@@ -41,9 +41,11 @@
 import { useI18n } from 'vue-i18n'
 
 import { useSessionStore } from '@/stores/session'
+import { useShellStore } from '@/stores/shell'
 
 const { t } = useI18n()
 const session = useSessionStore()
+const shell = useShellStore()
 
 const LIBRARY_ITEMS = [
   { to: '/folders', labelKey: 'folders.entry' },
@@ -63,7 +65,10 @@ const ADMIN_ITEMS = [
   { to: '/groups', labelKey: 'groups.entry' }
 ] as const
 
-const IA_ITEMS = [{ to: '/tags', labelKey: 'tags.entry' }] as const
+const IA_ITEMS = [
+  { to: '/tags', labelKey: 'tags.entry', badge: false },
+  { to: '/review', labelKey: 'review.entry', badge: true }
+] as const
 </script>
 
 <template>
@@ -114,10 +119,16 @@ const IA_ITEMS = [{ to: '/tags', labelKey: 'tags.entry' }] as const
       >
         <RouterLink
           :to="item.to"
-          class="flex items-center gap-3 border-b border-border px-3.5 py-3 text-[13.5px] font-semibold
+          class="flex items-center justify-between gap-3 border-b border-border px-3.5 py-3 text-[13.5px] font-semibold
                  last:border-b-0 hover:bg-border/30"
         >
-          {{ t(item.labelKey) }}
+          <span>{{ t(item.labelKey) }}</span>
+          <span
+            v-if="item.badge && shell.badges.revision > 0"
+            class="min-w-[18px] rounded-full bg-danger px-1.5 text-center text-[11px] font-bold text-white"
+          >
+            {{ shell.badges.revision }}
+          </span>
         </RouterLink>
       </li>
     </ul>

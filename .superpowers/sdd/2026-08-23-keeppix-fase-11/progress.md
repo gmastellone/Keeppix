@@ -5799,3 +5799,77 @@ sotto il budget di 153.600; `TagsView` è un chunk lazy a parte.
 Manca ancora, nello stesso Task 15: il selettore di tag esistente da
 verificare contro §55, la coda di Revisione (§56), e la chiusura
 esplicita del debito "Analisi libreria"/"IA" — prossima sotto-unità.
+
+## Task 15 (2/N) — Selettore di tag (verifica, §55) + Revisione (§56),
+chiude il Task 15
+
+**§55 "Selettore di tag" verificato riga per riga contro
+`TagPickerDialog.vue` (già costruito al Task 8, mai riletto contro
+questa sezione specifica): **già pienamente conforme, nessuna modifica
+necessaria.** Titolo "Aggiungi tag", sottotitolo con conteggio e
+pluralizzazione esatti, quadratino 22×22 raggio 7px, solo "Fatto"
+(nessun "Annulla"), elenco piatto senza raggruppamento per categoria
+(`tagOptions` filtra `kind==='tag'`), nessun campo di ricerca, nessuno
+stato vuoto inventato — confrontato riga per riga con `frontend/src/
+i18n/it.json` (`"tagPicker"`) e il componente: combacia. Il toggle
+spento→acceso usa `assignTagBatch` (confermato/umano), acceso→spento
+usa `unassignTagBatch` — una vera `DELETE`, non una transizione a
+`rejected` come nel documento: già documentato correttamente nel
+commento del file al momento della sua scrittura (Task 8), non una
+sorpresa di questa unità.
+
+**§56 "Revisione" — nuova `ReviewView.vue`, solo la coda Tag**: il
+documento descrive un'unica pagina SP-10 a due schede (Tag/Volti), ma
+"Volti" è Task 16 (Persone, Tranche D) — costruire un selettore di tab
+verso una coda ancora inesistente sarebbe un collegamento morto. Fino
+a Task 16 questa resta la sola coda Tag, senza selettore di tab; la
+scheda arriva quando SP-10 avrà davvero due code da condividere.
+
+**Raggruppamento client-side, non da una rotta dedicata**: `GET /tags/
+proposals` (nuova `fetchTagProposals` in `api/tags.ts`, reale dalla
+Fase 7, mai chiamata dal frontend prima d'ora) torna un elenco piatto
+ordinato per punteggio — nessuna rotta raggruppa per tag con un
+conteggio pronto. Raggruppato qui da `Proposal.tag_id`; il colore di
+ogni gruppo viene da un secondo `fetchTags()` (la proposta porta il
+nome del tag ma non il colore).
+
+**Miniature reali**: `ProposalView` non porta `content_hash`/
+`thumbhash` — nessuna rotta di card per una coda di revisione esiste.
+Un `fetchAsset(id)` per ogni **asset unico** coinvolto (una foto può
+comparire in più gruppi se ha più proposte in attesa, deduplicato
+prima di chiamare) recupera gli stessi dati reali che alimentano
+`FlatAssetGrid.vue` — stesso `thumbSrc()`/`thumbhashToDataURL()`, non
+un placeholder finto. Nessuna paginazione: il documento stesso non ne
+ha ("non esiste paginazione o 'mostra altre N'").
+
+**"Conferma tutte"/"Rifiuta tutte" per gruppo** usano le rotte
+dedicate (`confirmAllTagProposals`/`rejectAllTagProposals`, `POST
+/tags/{id}/proposals/confirm|reject`, Fase 7, mai chiamate dal
+frontend prima d'ora) — una sola richiesta per gruppo, non un giro di
+`confirmTagProposal` per riga.
+
+**Badge combinato reale**: `shell.badges.revision` (tag+volti, Fase 8)
+aggiunto alla voce "Revisione" sia in `AppSidebar.vue` sia in
+`MoreView.vue` (che non aveva ancora nessun badge — aggiunto
+`useShellStore`, già caricato altrove nella shell mobile via
+`AppMobileHeader.vue`, letto qui senza un secondo `load()`).
+
+**"Analisi libreria" e i tre livelli IA restano fuori dal gruppo di
+navigazione "IA"** — dichiarazione confermata di nuovo, non solo
+riportata: nessuna rotta espone l'avanzamento dell'analisi in
+background né il livello IA dell'istanza (stessa verifica di Task 15
+1/N). Il gruppo "IA" chiude qui a due sole voci reali: "Tag e
+categorie" e "Revisione".
+
+Verifica completa: `npx vitest run` → 95 file, **812/812** verdi (8
+nuovi in `ReviewView.spec.ts`). `npx vue-tsc -b` pulito. `npx eslint`
+sui file toccati e sull'intero repo → pulito (stesso unico errore
+preesistente su `PlayerView.vue`, stesso numero di warning). `npm run
+build` + calcolo manuale del bundle iniziale gzip → 139.120 byte,
+sotto il budget di 153.600; `ReviewView` è un chunk lazy a parte.
+
+**Con questa unità si chiude il Task 15** ("Tag e categorie", §51-58)
+— e con essa la Tranche C della Fase 11 (un solo task). Si prosegue
+con la Tranche D (Task 16 Persone, Task 17 Culling), poi il merge
+finale della Fase 11 (PROSEGUI.md §10), poi Task A (Volti: YuNet
++SFace) e Task B (CLIP).

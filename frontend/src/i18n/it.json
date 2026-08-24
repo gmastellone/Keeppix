@@ -321,6 +321,25 @@
     "createdToast": "Categoria \"{name}\" creata.",
     "renamedToast": "Categoria rinominata in \"{name}\"."
   },
+  "review": {
+    "entry": "Revisione",
+    "title": "Revisione",
+    "subtitle": "{n} proposta in attesa, raggruppata per tag — nessuna è ancora applicata | {n} proposte in attesa, raggruppate per tag — nessuna è ancora applicata",
+    "proposalCount": "{n} proposta | {n} proposte",
+    "confirmAll": "Conferma tutte",
+    "rejectAll": "Rifiuta tutte",
+    "confirmOne": "Conferma",
+    "rejectOne": "Rifiuta",
+    "aiBadge": "IA",
+    "confirmedOne": "Tag confermato.",
+    "rejectedOne": "Suggerimento rifiutato — non verrà riproposto.",
+    "confirmedAll": "{n} proposta confermata. | {n} proposte confermate.",
+    "rejectedAll": "{n} proposta rifiutata. | {n} proposte rifiutate.",
+    "actionError": "Non è stato possibile completare l'operazione. Riprova.",
+    "loadError": "Non è stato possibile caricare la coda di revisione. Riprova.",
+    "emptyTitle": "Nessun suggerimento in attesa",
+    "emptyText": "Quando l'IA troverà corrispondenze a confidenza intermedia per i tuoi tag, appariranno qui per la tua conferma — mai applicate da sole."
+  },
   "home": {
     "logout": "Esci"
   },

@@ -128,9 +128,9 @@ export function removeConfirmedTag(tagId: string, assetId: string): Promise<null
 
 /** §19.2 sezione "In attesa di conferma": il `✓` su una proposta —
  * transita `state: 'proposed' → 'confirmed'` (`AssetTagRepo::confirm`, la
- * stessa macchina a stati a senso unico di `remove_confirmed`). Nessun
- * wrapper esisteva ancora: la coda di revisione globale (fuori campo qui)
- * e il lightbox sono i primi due consumatori reali di questa rotta. */
+ * stessa macchina a stati a senso unico di `remove_confirmed`). Consumata
+ * dal lightbox e, da Task 15 (2/N), dalla coda di Revisione globale
+ * (spunta su una singola miniatura). */
 export function confirmTagProposal(tagId: string, assetId: string): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/assets/${assetId}/confirm`, { method: 'POST' })
 }
@@ -141,4 +141,34 @@ export function confirmTagProposal(tagId: string, assetId: string): Promise<null
  * rifiutare prima che diventi un tag vero. */
 export function rejectTagProposal(tagId: string, assetId: string): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/assets/${assetId}/reject`, { method: 'POST' })
+}
+
+/** §56.2: una proposta IA in attesa, arricchita lato server con nome tag e
+ * nome file — la coda non deve fare un secondo giro per riga. **Non**
+ * raggruppata per tag dal backend (`GET /tags/proposals`, senza `tag_id`,
+ * torna un elenco piatto ordinato per punteggio decrescente): il
+ * raggruppamento per tag della pagina è client-side, in `ReviewView.vue`. */
+export interface Proposal {
+  asset_id: string
+  tag_id: string
+  tag_name: string
+  score?: number
+  filename: string
+  taken_at_utc?: string
+}
+
+export function fetchTagProposals(): Promise<Proposal[]> {
+  return apiFetch('/api/v1/tags/proposals')
+}
+
+/** §56.3 "Conferma tutte" (per gruppo): conferma ogni proposta in attesa
+ * di quel tag in una sola richiesta, non un giro di `confirmTagProposal`
+ * per riga. */
+export function confirmAllTagProposals(tagId: string): Promise<null> {
+  return apiFetch(`/api/v1/tags/${tagId}/proposals/confirm`, { method: 'POST' })
+}
+
+/** §56.3 "Rifiuta tutte" — mirror di `confirmAllTagProposals`. */
+export function rejectAllTagProposals(tagId: string): Promise<null> {
+  return apiFetch(`/api/v1/tags/${tagId}/proposals/reject`, { method: 'POST' })
 }

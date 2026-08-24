@@ -92,10 +92,13 @@ const ADMIN_ITEMS = [
   { to: '/groups', labelKey: 'groups.entry' }
 ] as const
 
-// Task 15 (1/N): solo "Tag e categorie" per ora — "Revisione" arriva
-// nella prossima sotto-unità, stesso schema incrementale già seguito da
-// "Duplicati" dentro Manutenzione (Task 13, 2/N).
-const IA_ITEMS = [{ to: '/tags', labelKey: 'tags.entry' }] as const
+// Task 15 (2/N): "Revisione" con badge `shell.badges.revision` — reale
+// dalla Fase 8/Task 7 (tag+volti combinato, non solo tag: il commento
+// esteso è in `App.vue`/`bootstrap.rs`), non un conteggio nuovo qui.
+const IA_ITEMS = [
+  { to: '/tags', labelKey: 'tags.entry', badge: false },
+  { to: '/review', labelKey: 'review.entry', badge: true }
+] as const
 
 // `/albums` resta evidenziata anche dentro il dettaglio di un album
 // (Task 12 1/N, prima rotta con figli reali: `/albums/:id`) — stessa
@@ -235,10 +238,16 @@ const storageTotals = computed(() => {
           v-for="item in IA_ITEMS"
           :key="item.to"
           :to="item.to"
-          class="block rounded-lg border-l-[2.5px] border-transparent px-2.5 py-1.5 text-[13px] hover:bg-border/30"
+          class="flex items-center justify-between rounded-lg border-l-[2.5px] border-transparent px-2.5 py-1.5 text-[13px] hover:bg-border/30"
           :class="isActive(item.to) && 'border-l-accent bg-border/30 font-semibold'"
         >
-          {{ t(item.labelKey) }}
+          <span>{{ t(item.labelKey) }}</span>
+          <span
+            v-if="item.badge && shell.badges.revision > 0"
+            class="min-w-[16px] rounded-full bg-danger px-1.5 text-center text-[10.5px] font-bold text-white"
+          >
+            {{ shell.badges.revision }}
+          </span>
         </RouterLink>
       </NavGroup>
       <NavGroup
