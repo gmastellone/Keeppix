@@ -817,6 +817,69 @@ async fn get_single_asset_resolves_the_callers_favorite() {
     assert_eq!(after["favorite"], true);
 }
 
+/// Fase 11 Task 8 (§19.2 campi 6-9, sezione "SCATTO" del lightbox):
+/// `full_exif` è additivo su `GET /assets/{id}` soltanto — mai su
+/// `/timeline`, un giro di query in più per riga che nessuna pagina della
+/// timeline legge.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn get_single_asset_includes_full_exif_but_timeline_page_never_does() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "con-exif.jpg", 2024, 6, 1).await;
+    let page = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let asset_id = page["assets"][0]["id"].as_str().unwrap().to_owned();
+    assert!(
+        page["assets"][0].get("full_exif").is_none(),
+        "full_exif must never appear on a timeline page"
+    );
+
+    let before = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset_id}")))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert!(before.get("full_exif").is_none(), "no asset_exif row yet");
+
+    sqlx::query(
+        "INSERT INTO asset_exif (asset_id, raw, camera_make, camera_model, lens, iso, \
+                                  f_number, exposure, focal_length) \
+         VALUES ($1, '{}', 'Sony', 'Sony A7 IV', 'FE 24-70mm f/2.8', 400, 3.5, '1/250', 70.0)",
+    )
+    .bind(uuid::Uuid::parse_str(&asset_id).unwrap())
+    .execute(server.db.pool())
+    .await
+    .unwrap();
+
+    let after = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset_id}")))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(after["full_exif"]["camera_make"], "Sony");
+    assert_eq!(after["full_exif"]["lens"], "FE 24-70mm f/2.8");
+    assert_eq!(after["full_exif"]["iso"], 400);
+    assert_eq!(after["full_exif"]["f_number"], 3.5);
+    assert_eq!(after["full_exif"]["exposure"], "1/250");
+    assert_eq!(after["full_exif"]["focal_length"], 70.0);
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn probing_someone_elses_library_geometry_is_forbidden() {

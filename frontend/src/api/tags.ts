@@ -40,3 +40,28 @@ export function unassignTagBatch(tagId: string, assetIds: string[]): Promise<nul
     body: JSON.stringify({ asset_ids: assetIds })
   })
 }
+
+/** Un tag come lo mostra il pannello informazioni del lightbox (Fase 11
+ * Task 8, §19.2 campi 14-17): `state`/`source` grezzi — confermato/in
+ * attesa (mai rifiutato, già filtrato dal backend), IA/umano. */
+export interface AssetTagDetail {
+  id: string
+  name: string
+  color: string | null
+  category_id: string | null
+  state: 'confirmed' | 'proposed'
+  source: 'ai' | 'user'
+}
+
+/** §19.2 sezione TAG: tag confermati e in attesa di **un solo** asset —
+ * primo consumatore di questa rotta, costruita per il lightbox. */
+export function fetchTagsForAsset(assetId: string): Promise<AssetTagDetail[]> {
+  return apiFetch(`/api/v1/assets/${assetId}/tags`)
+}
+
+/** §19.3, la `×` sui chip confermati: rimuove permanentemente un tag già
+ * confermato (transizione a `'rejected'`, mai una `DELETE` — vedi
+ * `AssetTagRepo::remove_confirmed` sul backend per il perché). */
+export function removeConfirmedTag(tagId: string, assetId: string): Promise<null> {
+  return apiFetch(`/api/v1/tags/${tagId}/assets/${assetId}/remove`, { method: 'POST' })
+}

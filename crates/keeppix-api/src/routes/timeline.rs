@@ -91,6 +91,13 @@ pub struct AssetView {
     /// `person_id IS NOT NULL AND rejected_at IS NULL`, assegnato a mano o
     /// dal raggruppamento automatico. Vuoto, mai assente. Campo additivo.
     pub faces: Vec<AssetFaceBadgeView>,
+    /// EXIF completo (Fase 11 Task 8, §19.2 sezione "SCATTO") — popolato
+    /// **solo** da [`asset`] (dettaglio di un asset alla volta, il
+    /// lightbox), mai da [`page`]/`/search`: un giro di query in più per
+    /// ogni riga di ogni pagina della timeline non serve a nessuno lì.
+    /// Campo additivo, sempre assente (non `null`) sulle viste bulk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_exif: Option<AssetExifDetailView>,
 }
 
 impl AssetView {
@@ -115,6 +122,7 @@ impl AssetView {
             camera_model: None,
             tags: Vec::new(),
             faces: Vec::new(),
+            full_exif: None,
         }
     }
 
@@ -156,6 +164,47 @@ impl AssetView {
     pub(crate) fn with_faces(mut self, faces: Vec<AssetFaceBadgeView>) -> Self {
         self.faces = faces;
         self
+    }
+
+    pub(crate) fn with_full_exif(mut self, full_exif: Option<AssetExifDetailView>) -> Self {
+        self.full_exif = full_exif;
+        self
+    }
+}
+
+/// EXIF completo di un asset (Fase 11 Task 8, §19.2 campi 6-9) — a
+/// differenza di [`AssetView::camera_model`] (una stringa sola, per SP-3),
+/// il lightbox mostra obiettivo, esposizione (diaframma/tempo/ISO) e
+/// focale.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct AssetExifDetailView {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_make: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lens: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iso: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub f_number: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exposure: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focal_length: Option<f32>,
+}
+
+impl From<keeppix_db::AssetExifDetail> for AssetExifDetailView {
+    fn from(e: keeppix_db::AssetExifDetail) -> Self {
+        Self {
+            camera_make: e.camera_make,
+            camera_model: e.camera_model,
+            lens: e.lens,
+            iso: e.iso,
+            f_number: e.f_number,
+            exposure: e.exposure,
+            focal_length: e.focal_length,
+        }
     }
 }
 
@@ -314,6 +363,7 @@ pub async fn asset(
         .remove(&id);
     let tags = AssetTagRepo::new(&state.db).confirmed_among(&ids).await?;
     let faces = FaceRepo::new(&state.db).confirmed_among(&ids).await?;
+    let full_exif = AssetRepo::new(&state.db).exif_for(id).await?;
     let view = AssetView::from_asset(&asset)
         .with_location(
             effective.location.map(GeoPointView::from),
@@ -337,7 +387,8 @@ pub async fn asset(
                 .into_iter()
                 .map(Into::into)
                 .collect(),
-        );
+        )
+        .with_full_exif(full_exif.map(AssetExifDetailView::from));
     Ok(Json(view))
 }
 

@@ -129,6 +129,30 @@ struct AlbumAssetRow {
 const ALBUM_COLUMNS: &str = "id, name, description, owner_id, cover_asset_id, created_at, \
      updated_at, rule, rule_run_at, is_shared, cover_tint, monochrome";
 
+/// Un album di cui un asset è membro, come [`AlbumRepo::for_asset`] lo
+/// restituisce — solo id e nome, quanto basta per un chip non cliccabile
+/// (§19.2 campo 18: nessuna distinzione visiva fra manuale e dinamico).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlbumBadge {
+    pub id: AlbumId,
+    pub name: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct AlbumBadgeRow {
+    id: Uuid,
+    name: String,
+}
+
+impl AlbumBadgeRow {
+    fn into_domain(self) -> AlbumBadge {
+        AlbumBadge {
+            id: AlbumId::from_uuid(self.id),
+            name: self.name,
+        }
+    }
+}
+
 impl<'a> AlbumRepo<'a> {
     #[must_use]
     pub const fn new(db: &'a Db) -> Self {
@@ -470,6 +494,69 @@ impl<'a> AlbumRepo<'a> {
                 })
             })
             .collect()
+    }
+
+    /// Album (manuali e dinamici insieme) di cui un asset fa già parte —
+    /// la sezione ALBUM del pannello informazioni del lightbox (Fase 11
+    /// Task 8, §19.2 campo 18). Nessuna ricerca dedicata esisteva prima
+    /// d'ora: [`Self::list_assets`] va nel verso opposto (album → asset).
+    /// Gli album dinamici non vengono rivalutati qui: la loro
+    /// appartenenza è già **materializzata** in `album_assets` da
+    /// [`Self::refresh`] (commento alla sua definizione), quindi lo stesso
+    /// join di [`Self::list_assets`] copre entrambi i tipi senza bisogno
+    /// di ricalcolare alcuna `rule`. Stessa regola di visibilità di
+    /// [`Self::list`]: admin vede tutto, altrimenti solo gli album di cui
+    /// si è owner o con un permesso condiviso.
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente autenticato, o se l'asset stesso non è
+    /// visibile al chiamante — altrimenti la sola appartenenza a un album
+    /// **proprio** rivelerebbe l'esistenza di un asset che il chiamante
+    /// non potrebbe vedere in nessun altro modo. `Connection` se la query
+    /// fallisce.
+    pub async fn for_asset(
+        &self,
+        ctx: &AuthContext,
+        asset_id: AssetId,
+    ) -> Result<Vec<AlbumBadge>, DbError> {
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+        if ctx.is_admin() {
+            let rows: Vec<AlbumBadgeRow> = sqlx::query_as(
+                "SELECT al.id, al.name FROM album_assets aa JOIN albums al ON al.id = aa.album_id \
+                  WHERE aa.asset_id = $1 ORDER BY al.name ASC",
+            )
+            .bind(asset_id.as_uuid())
+            .fetch_all(self.db.pool())
+            .await?;
+            return Ok(rows.into_iter().map(AlbumBadgeRow::into_domain).collect());
+        }
+
+        let Some(user_id) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+        let rows: Vec<AlbumBadgeRow> = sqlx::query_as(
+            "SELECT al.id, al.name FROM album_assets aa JOIN albums al ON al.id = aa.album_id \
+              WHERE aa.asset_id = $1 \
+                AND (al.owner_id = $2 \
+                     OR EXISTS ( \
+                          SELECT 1 FROM permissions \
+                           WHERE object_type = 'album' AND object_id = al.id \
+                             AND ( \
+                                  (subject_type = 'user'  AND subject_id = $2) \
+                               OR (subject_type = 'group' AND subject_id IN ( \
+                                     SELECT group_id FROM group_members WHERE user_id = $2 \
+                                  )) \
+                             ) \
+                        )) \
+              ORDER BY al.name ASC",
+        )
+        .bind(asset_id.as_uuid())
+        .bind(user_id.as_uuid())
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows.into_iter().map(AlbumBadgeRow::into_domain).collect())
     }
 
     /// Ricalcola l'appartenenza dell'album dalla `rule` con cui è nato e

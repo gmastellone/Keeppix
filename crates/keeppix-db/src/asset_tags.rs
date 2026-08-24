@@ -45,6 +45,45 @@ struct ConfirmedTagRow {
     parent_id: Option<uuid::Uuid>,
 }
 
+/// Un tag di un asset per il pannello informazioni (Fase 11 Task 8, §19.2
+/// campi 14-17) — a differenza di [`ConfirmedTag`], porta anche `state`
+/// (`"confirmed"` o `"proposed"`, mai `"rejected"`, filtrato da
+/// [`AssetTagRepo::for_asset`]) e `source` (`"ai"` o `"user"`, i valori
+/// grezzi della colonna): il chiamante li usa per scegliere fra le tre
+/// rese del chip, non per costruire logica qui.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssetTagDetail {
+    pub tag_id: TagId,
+    pub name: String,
+    pub color: Option<String>,
+    pub category_id: Option<TagId>,
+    pub state: String,
+    pub source: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct AssetTagDetailRow {
+    tag_id: uuid::Uuid,
+    name: String,
+    color: Option<String>,
+    parent_id: Option<uuid::Uuid>,
+    state: String,
+    source: String,
+}
+
+impl AssetTagDetailRow {
+    fn into_domain(self) -> AssetTagDetail {
+        AssetTagDetail {
+            tag_id: TagId::from_uuid(self.tag_id),
+            name: self.name,
+            color: self.color,
+            category_id: self.parent_id.map(TagId::from_uuid),
+            state: self.state,
+            source: self.source,
+        }
+    }
+}
+
 /// Le due decisioni umane possibili su una proposta. Costante interna: non è
 /// mai serializzata, la traduzione da/verso stringa SQL resta qui.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -524,5 +563,99 @@ impl<'a> AssetTagRepo<'a> {
                 });
         }
         Ok(out)
+    }
+
+    /// Tag di **un** asset per il pannello informazioni del lightbox (Fase
+    /// 11 Task 8, §19.2 campi 14-17): confermati **e** proposti in attesa —
+    /// mai rifiutati, che il documento vuole permanentemente fuori vista
+    /// (§19.3: "rimuovere... deve restare permanente"). A differenza di
+    /// [`Self::confirmed_among`] (bulk, solo confermati, per SP-3), qui
+    /// serve anche `state`/`source` per distinguere le tre rese del
+    /// pannello: confermato umano (chip piena), confermato ma di origine
+    /// IA (`.ai-applied`, marcatore "IA"), e proposto in attesa (chip
+    /// tratteggiata, sezione separata).
+    ///
+    /// # Errors
+    /// `Forbidden` se l'asset non è visibile al chiamante. `Connection` se
+    /// la query fallisce.
+    pub async fn for_asset(
+        &self,
+        ctx: &AuthContext,
+        asset_id: AssetId,
+    ) -> Result<Vec<AssetTagDetail>, DbError> {
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+        let status = probe_pgvector(self.db).await?;
+        if !status.available {
+            return Ok(Vec::new());
+        }
+        let rows: Vec<AssetTagDetailRow> = sqlx::query_as(
+            "SELECT t.id AS tag_id, t.name, t.color, t.parent_id, at.state, at.source \
+               FROM asset_tags at JOIN tags t ON t.id = at.tag_id \
+              WHERE at.asset_id = $1 AND at.state IN ('confirmed', 'proposed') \
+              ORDER BY t.name ASC",
+        )
+        .bind(asset_id.as_uuid())
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows.into_iter().map(AssetTagDetailRow::into_domain).collect())
+    }
+
+    /// Rimuove un tag **già confermato** dal pannello informazioni (§19.3,
+    /// la `×` sui chip confermati): non una `DELETE` come
+    /// [`Self::unassign`] (che serve l'aggiunta manuale di Modifica in
+    /// blocco, §13.3), ma una transizione permanente a `state='rejected'`
+    /// — il documento è esplicito: *"rimuovere un tag da una foto è a sua
+    /// volta una decisione umana: deve restare permanente (altrimenti una
+    /// rianalisi potrebbe far ricomparire un tag che l'utente aveva tolto
+    /// apposta)"*. Funziona sia su tag di origine IA sia umana: qui la
+    /// persona sta rimuovendo un tag già presente, non decidendo una
+    /// proposta ([`Self::reject`], che invece transita solo da
+    /// `'proposed'`). Idempotente se già rifiutato.
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente autenticato o se l'asset non è visibile.
+    /// `NotFound` se il tag non è mai stato assegnato a questo asset.
+    /// `Conflict` se è ancora `'proposed'` (va confermato o rifiutato dalla
+    /// coda, non "rimosso" — §19.3 tratta le due sezioni separatamente).
+    pub async fn remove_confirmed(
+        &self,
+        ctx: &AuthContext,
+        tag_id: TagId,
+        asset_id: AssetId,
+    ) -> Result<(), DbError> {
+        let Some(user_id) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+        let transitioned: Option<(String,)> = sqlx::query_as(
+            "UPDATE asset_tags SET state = 'rejected', decided_by = $3, decided_at = now() \
+             WHERE tag_id = $1 AND asset_id = $2 AND state = 'confirmed' \
+             RETURNING state",
+        )
+        .bind(tag_id.as_uuid())
+        .bind(asset_id.as_uuid())
+        .bind(user_id.as_uuid())
+        .fetch_optional(self.db.pool())
+        .await?;
+        if transitioned.is_some() {
+            return Ok(());
+        }
+        let current: Option<(String,)> =
+            sqlx::query_as("SELECT state FROM asset_tags WHERE tag_id = $1 AND asset_id = $2")
+                .bind(tag_id.as_uuid())
+                .bind(asset_id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
+        match current {
+            None => Err(DbError::NotFound),
+            Some((state,)) if state == "rejected" => Ok(()),
+            Some((state,)) => Err(DbError::Conflict(format!(
+                "asset_tags is '{state}', not 'confirmed'; cannot remove"
+            ))),
+        }
     }
 }

@@ -402,6 +402,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::tags::reject_proposal),
         )
         .route(
+            "/tags/{id}/assets/{asset_id}/remove",
+            axum::routing::post(routes::tags::remove_confirmed_tag),
+        )
+        .route(
             "/tags/{id}/assets/batch",
             axum::routing::post(routes::tags::assign_batch),
         )
@@ -409,6 +413,8 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/tags/{id}/assets/batch/remove",
             axum::routing::post(routes::tags::unassign_batch),
         )
+        .route("/assets/{id}/tags", get(routes::tags::list_tags_for_asset))
+        .route("/assets/{id}/albums", get(routes::albums::list_for_asset))
         .route("/assets/{id}/faces", get(routes::faces::list_for_asset))
         .route("/faces/proposals", get(routes::faces::list_proposals))
         .route(

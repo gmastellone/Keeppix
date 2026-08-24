@@ -1036,3 +1036,140 @@ async fn confirmed_among_is_empty_for_an_empty_id_list() {
         .unwrap();
     assert!(map.is_empty());
 }
+
+// Fase 11 Task 8 (§19.2 campi 14-17, sezione TAG del pannello informazioni
+// del lightbox): un asset alla volta, confermati **e** proposti, mai
+// rifiutati.
+
+#[tokio::test]
+async fn for_asset_returns_confirmed_and_proposed_but_never_rejected() {
+    let test = TestDb::start().await;
+    let owner = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(owner, SystemRole::Admin);
+    let library = seed_library(&test, owner, "/mnt/for-asset-tags").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let asset = seed_asset(&test, folder.id, "photo.jpg").await;
+    let confirmed_human = create_tag_with_embedding(&test, &ctx, "Umano", 0.75, unit_axis(0), MODEL).await;
+    let confirmed_ai = create_tag_with_embedding(&test, &ctx, "IA-confermato", 0.75, unit_axis(1), MODEL).await;
+    let proposed = create_tag_with_embedding(&test, &ctx, "In attesa", 0.75, unit_axis(2), MODEL).await;
+    let rejected = create_tag_with_embedding(&test, &ctx, "Rifiutato", 0.75, unit_axis(3), MODEL).await;
+
+    let repo = AssetTagRepo::new(test.db());
+    repo.assign(&ctx, confirmed_human, asset).await.unwrap();
+    seed_proposed(&test, asset, confirmed_ai, 0.9).await;
+    repo.confirm(&ctx, confirmed_ai, asset).await.unwrap();
+    seed_proposed(&test, asset, proposed, 0.9).await;
+    seed_proposed(&test, asset, rejected, 0.9).await;
+    repo.reject(&ctx, rejected, asset).await.unwrap();
+
+    let tags = repo.for_asset(&ctx, asset).await.unwrap();
+    let by_id: std::collections::HashMap<_, _> = tags.iter().map(|t| (t.tag_id, t)).collect();
+
+    assert_eq!(tags.len(), 3, "confirmed_human, confirmed_ai, proposed — never rejected");
+    assert_eq!(by_id[&confirmed_human].state, "confirmed");
+    assert_eq!(by_id[&confirmed_human].source, "user");
+    assert_eq!(by_id[&confirmed_ai].state, "confirmed");
+    assert_eq!(by_id[&confirmed_ai].source, "ai");
+    assert_eq!(by_id[&proposed].state, "proposed");
+    assert!(!by_id.contains_key(&rejected), "rejected tags never appear (§19.3: removal is permanent)");
+}
+
+#[tokio::test]
+async fn for_asset_is_forbidden_on_a_foreign_asset() {
+    let test = TestDb::start().await;
+    let fx = review_fixture(&test).await;
+    let stranger_ctx = AuthContext::user(fx.stranger, SystemRole::User);
+
+    assert!(matches!(
+        AssetTagRepo::new(test.db()).for_asset(&stranger_ctx, fx.asset).await,
+        Err(keeppix_db::DbError::Forbidden)
+    ));
+}
+
+#[tokio::test]
+async fn remove_confirmed_transitions_a_confirmed_tag_to_rejected_permanently() {
+    let test = TestDb::start().await;
+    let owner = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(owner, SystemRole::Admin);
+    let library = seed_library(&test, owner, "/mnt/remove-confirmed").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let asset = seed_asset(&test, folder.id, "photo.jpg").await;
+    let tag = create_tag_with_embedding(&test, &ctx, "Da rimuovere", 0.75, unit_axis(0), MODEL).await;
+    let repo = AssetTagRepo::new(test.db());
+    repo.assign(&ctx, tag, asset).await.unwrap();
+
+    repo.remove_confirmed(&ctx, tag, asset).await.unwrap();
+
+    let row = fetch_assignment(&test, asset, tag).await.unwrap();
+    assert_eq!(row.0, "rejected");
+    assert!(
+        !repo.for_asset(&ctx, asset).await.unwrap().iter().any(|t| t.tag_id == tag),
+        "a rejected tag must never surface in for_asset again"
+    );
+
+    // Idempotente: rimuoverlo di nuovo non deve fallire.
+    repo.remove_confirmed(&ctx, tag, asset).await.unwrap();
+}
+
+#[tokio::test]
+async fn remove_confirmed_conflicts_on_a_still_pending_proposal() {
+    let test = TestDb::start().await;
+    let fx = review_fixture(&test).await;
+    let ctx = AuthContext::user(fx.owner, SystemRole::Admin);
+
+    // `fx.asset`/`fx.tag` sono ancora 'proposed' (review_fixture li lascia
+    // così): rimuovere un tag non ancora deciso è compito della coda di
+    // revisione (confirm/reject), non di "rimuovi un tag già presente".
+    assert!(matches!(
+        AssetTagRepo::new(test.db())
+            .remove_confirmed(&ctx, fx.tag, fx.asset)
+            .await,
+        Err(keeppix_db::DbError::Conflict(_))
+    ));
+}
+
+#[tokio::test]
+async fn remove_confirmed_not_found_when_never_assigned() {
+    let test = TestDb::start().await;
+    let owner = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(owner, SystemRole::Admin);
+    let library = seed_library(&test, owner, "/mnt/remove-confirmed-404").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let asset = seed_asset(&test, folder.id, "photo.jpg").await;
+    let tag = create_tag_with_embedding(&test, &ctx, "Mai assegnato", 0.75, unit_axis(0), MODEL).await;
+
+    assert!(matches!(
+        AssetTagRepo::new(test.db())
+            .remove_confirmed(&ctx, tag, asset)
+            .await,
+        Err(keeppix_db::DbError::NotFound)
+    ));
+}
+
+#[tokio::test]
+async fn remove_confirmed_is_forbidden_on_a_foreign_asset() {
+    let test = TestDb::start().await;
+    let fx = review_fixture(&test).await;
+    let ctx = AuthContext::user(fx.owner, SystemRole::Admin);
+    let stranger_ctx = AuthContext::user(fx.stranger, SystemRole::User);
+    AssetTagRepo::new(test.db())
+        .confirm(&ctx, fx.tag, fx.asset)
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        AssetTagRepo::new(test.db())
+            .remove_confirmed(&stranger_ctx, fx.tag, fx.asset)
+            .await,
+        Err(keeppix_db::DbError::Forbidden)
+    ));
+}

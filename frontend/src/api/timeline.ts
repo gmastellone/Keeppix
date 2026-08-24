@@ -21,6 +21,21 @@ export interface AssetFaceBadge {
   person_name: string | null
 }
 
+/** EXIF completo (Fase 11 Task 8, §19.2 campi 6-9, sezione "SCATTO" del
+ * lightbox) — a differenza di `camera_model` (una stringa sola, SP-3),
+ * presente **solo** sulla risposta di `GET /assets/{id}` (dettaglio
+ * singolo): il backend non lo calcola su `/timeline`/`/search`, un giro di
+ * query in più per riga che nessuna griglia legge. */
+export interface AssetExifDetail {
+  camera_make: string | null
+  camera_model: string | null
+  lens: string | null
+  iso: number | null
+  f_number: number | null
+  exposure: string | null
+  focal_length: number | null
+}
+
 export interface TimelineAsset {
   id: string
   folder_id: string
@@ -46,6 +61,11 @@ export interface TimelineAsset {
   /** SP-3 §11 — solo volti confermati. Sempre un array, mai assente. Campo
    * additivo, Fase 11 Task 7. */
   faces: AssetFaceBadge[]
+  /** Fase 11 Task 8, §19.2 sezione "SCATTO" — presente **solo** quando
+   * l'oggetto viene da `GET /assets/{id}` (il lightbox), assente (non
+   * `null`) su ogni asset di `/timeline`/`/search`. Campo opzionale di
+   * proposito: `photo()` nei test esistenti non deve cambiare. */
+  full_exif?: AssetExifDetail
 }
 
 export interface TimelinePage {

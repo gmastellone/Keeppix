@@ -1046,6 +1046,57 @@
         ]
       }
     },
+    "/api/v1/assets/{id}/albums": {
+      "get": {
+        "tags": [
+          "albums"
+        ],
+        "summary": "List the albums (manual and dynamic) an asset already belongs to",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "assets_list_albums",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Album di cui l'asset è membro, per nome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AlbumBadgeView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/{id}/faces": {
       "get": {
         "tags": [
@@ -1537,6 +1588,66 @@
           },
           "500": {
             "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/{id}/tags": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "List an asset's tags — confirmed and pending, never rejected",
+        "operationId": "assets_list_tags",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tag confermati e in attesa, ordinati per nome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssetTagDetailView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
             "content": {
               "application/json": {
                 "schema": {
@@ -8412,6 +8523,85 @@
         ]
       }
     },
+    "/api/v1/tags/{id}/assets/{asset_id}/remove": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Permanently remove an already-confirmed tag from an asset",
+        "operationId": "tags_remove_confirmed",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Rimosso (idempotente se già rimosso)"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Il tag non è mai stato assegnato a questo asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "È ancora in attesa di conferma: va deciso dalla coda, non rimosso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/tags/{id}/proposals/confirm": {
       "post": {
         "tags": [
@@ -10677,6 +10867,22 @@
           }
         ]
       },
+      "AlbumBadgeView": {
+        "type": "object",
+        "description": "Un album di cui un asset è membro, come lo mostra la sezione ALBUM del\npannello informazioni del lightbox (Fase 11 Task 8, §19.2 campo 18) —\nsolo id e nome: i chip non sono cliccabili e non distinguono manuale da\ndinamico (il documento è esplicito su questo).",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "AlbumView": {
         "type": "object",
         "required": [
@@ -10797,6 +11003,57 @@
           }
         }
       },
+      "AssetExifDetailView": {
+        "type": "object",
+        "description": "EXIF completo di un asset (Fase 11 Task 8, §19.2 campi 6-9) — a\ndifferenza di [`AssetView::camera_model`] (una stringa sola, per SP-3),\nil lightbox mostra obiettivo, esposizione (diaframma/tempo/ISO) e\nfocale.",
+        "properties": {
+          "camera_make": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "camera_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exposure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "f_number": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "focal_length": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "iso": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "lens": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AssetFaceBadgeView": {
         "type": "object",
         "description": "Un volto confermato, come SP-3 §11 lo mostra: solo l'identità della\npersona (bbox/punteggi non servono a un chip di filtro).",
@@ -10874,6 +11131,42 @@
           }
         }
       },
+      "AssetTagDetailView": {
+        "type": "object",
+        "description": "Un tag come lo mostra il pannello informazioni del lightbox (Fase 11\nTask 8, §19.2 campi 14-17) — `state`/`source` grezzi, la vista sceglie\nla resa (piena / `.ai-applied` / tratteggiata), non questa risposta.",
+        "required": [
+          "id",
+          "name",
+          "state",
+          "source"
+        ],
+        "properties": {
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
       "AssetView": {
         "type": "object",
         "required": [
@@ -10918,6 +11211,17 @@
           },
           "folder_id": {
             "type": "string"
+          },
+          "full_exif": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssetExifDetailView",
+                "description": "EXIF completo (Fase 11 Task 8, §19.2 sezione \"SCATTO\") — popolato\n**solo** da [`asset`] (dettaglio di un asset alla volta, il\nlightbox), mai da [`page`]/`/search`: un giro di query in più per\nogni riga di ogni pagina della timeline non serve a nessuno lì.\nCampo additivo, sempre assente (non `null`) sulle viste bulk."
+              }
+            ]
           },
           "height": {
             "type": [

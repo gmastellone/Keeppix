@@ -194,3 +194,58 @@ async fn refresh_on_a_foreign_album_is_forbidden() {
         .unwrap();
     assert_eq!(response.status(), 403);
 }
+
+/// Fase 11 Task 8 (§19.2 campo 18, sezione ALBUM del pannello informazioni
+/// del lightbox): la freccia opposta di `GET /albums/{id}/assets` —
+/// verificata end-to-end via HTTP, la logica di visibilità è già coperta
+/// dai test di `AlbumRepo::for_asset` in `keeppix-db`.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn list_for_asset_returns_only_the_albums_the_asset_belongs_to() {
+    let server = TestServer::start().await;
+    let admin = setup_admin(&server).await;
+    let folder = seed_folder(&server, admin).await;
+    seed_indexed_asset(&server, folder, "a.jpg", AssetKind::Image).await;
+    let asset_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM assets WHERE filename = 'a.jpg'")
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+
+    let in_album: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/albums"))
+        .json(&json!({ "name": "Vacanze" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let in_album_id = in_album["id"].as_str().unwrap();
+    server
+        .client
+        .post(server.url("/api/v1/albums"))
+        .json(&json!({ "name": "Non membro" }))
+        .send()
+        .await
+        .unwrap();
+
+    server
+        .client
+        .post(server.url(&format!("/api/v1/albums/{in_album_id}/assets/{asset_id}")))
+        .send()
+        .await
+        .unwrap();
+
+    let response = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset_id}/albums")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let albums = body.as_array().unwrap();
+    assert_eq!(albums.len(), 1);
+    assert_eq!(albums[0]["name"], "Vacanze");
+}

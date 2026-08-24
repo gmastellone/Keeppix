@@ -3763,3 +3763,159 @@ filtro rapido SP-3, selezione multipla, Modifica in blocco — tutte e
 cinque le unità del documento funzionale per questo task. Prossimo:
 Task 8 (Lightbox, pannello informazioni, menu ⋯), primo consumatore
 reale del dialog "Imposta posizione" (§28) già pronto ma scollegato.
+
+# Task 8 — Lightbox, pannello informazioni, menu ⋯ (§18-21)
+
+Letti per intero §18 (struttura/barra superiore), §19 (pannello
+informazioni), §20 (menu ⋯), §21 (differenze libreria/culling) prima
+di scrivere una riga. `AssetViewer.vue` attuale è un segnaposto da
+151 righe (apri/chiudi/frecce, un solo campo di posizione) — la
+riscrittura vera è task grande quanto l'intero Task 7, quindi
+scomposta nelle stesse unità granulari, cominciando dal terreno di
+backend come già fatto per SP-3/Modifica in blocco.
+
+## Task 8 (1/N) — Il terreno di backend per il pannello informazioni
+
+**Ricerca preliminare** (agente dedicato, come per Task 7 4/N):
+verificato sul codice reale quali primitivi esistono già prima di
+presumere lacune. Risultato: la maggior parte dei campi del pannello
+è già raggiungibile (EXIF core scritto da `insert_exif` fin dalla
+Fase 5 ma mai letto per intero; `state`/`source` già in `asset_tags`
+ma mai esposti; `album_assets` già la tabella giusta per la ricerca
+inversa) — **nessuno di questi è un buco reale**, solo query mai
+scritte sopra dati già lì. Quattro nuovi metodi di sola lettura/scrittura,
+stessa forma di `camera_models_among`/`confirmed_among`/`assign`:
+
+- **`AssetRepo::exif_for`** (nuovo, `keeppix-db/src/assets.rs`) —
+  l'intera riga `asset_exif` di un asset (obiettivo, esposizione, ISO,
+  focale), non solo `camera_model` come `camera_models_among` (bulk,
+  per SP-3). Wired in `AssetView.full_exif` (`timeline.rs`), campo
+  additivo popolato **solo** da `GET /assets/{id}` — mai da `/timeline`/
+  `/search`, un giro di query in più per riga che nessuna griglia
+  legge (`page()` continua a chiamare `enrich_views` invariata).
+- **`AssetTagRepo::for_asset`** (nuovo) — tag di un asset, confermati
+  e proposti insieme (mai rifiutati, §19.3: "deve restare permanente"),
+  con `state`/`source` per le tre rese del chip del documento (piena
+  umana / `.ai-applied` IA / tratteggiata in attesa). Nuova rotta
+  `GET /assets/{id}/tags`.
+- **`AssetTagRepo::remove_confirmed`** (nuovo) — la `×` sui chip
+  confermati (§19.3): **non** una `DELETE` come `unassign` (quella
+  serve l'aggiunta manuale di Modifica in blocco), ma una transizione
+  permanente a `state='rejected'` — verificato che `decide()`
+  (confirm/reject) blocca esplicitamente la transizione
+  `confirmed→rejected` con un `Conflict` ("una decisione permanente
+  non si inverte"), quindi serve un metodo dedicato che la permette
+  **solo** da `'confirmed'`, mai da `'proposed'` (quello resta compito
+  di `confirm`/`reject`, la coda di revisione). Nuova rotta
+  `POST /tags/{id}/assets/{asset_id}/remove`.
+- **`AlbumRepo::for_asset`** (nuovo) — la freccia opposta di
+  `list_assets`: dato un asset, i suoi album (manuali e dinamici
+  insieme — i dinamici sono già materializzati in `album_assets` da
+  `refresh`, nessuna `rule` da rivalutare qui). **Controllo di
+  visibilità aggiunto in corsa**: la prima stesura filtrava solo per
+  proprietà/condivisione dell'*album*, non per visibilità
+  dell'*asset* — un chiamante senza permesso sull'asset avrebbe
+  comunque scoperto che esiste, se per caso stava in un album suo.
+  Corretto con `assert_visible` sull'asset prima di tutto, stesso
+  principio già seguito da `AssetTagRepo::for_asset`. Nuova rotta
+  `GET /assets/{id}/albums`.
+
+**Debito dichiarato, non backend groundwork di questa unità** (verificato
+e scartato per motivi precisi, non "non ci ho pensato"):
+- **Aggiungere un volto senza riquadro** (§19.3, "+ aggiungi" persone):
+  `Face.bbox` non è opzionale nel dominio, nessuna riga può esistere
+  senza — un vero cambiamento di modello, non un giro di query in
+  più. Rimandato: il riconoscimento volti reale (Task A, YuNet+SFace)
+  non è ancora costruito in questa sessione, la stessa unità futura è
+  la sede naturale per rivedere il modello `Face` una volta sola.
+  Confermare/correggere/rifiutare un volto **già rilevato** restano
+  invece pienamente costruiti (`faces.rs`, verificato).
+- **Rotazione reale** (§19.3, "Ruota" — il documento la assegna
+  esplicitamente a Fase 11 come azione vera, non più un toast):
+  `orientation` è già scrivibile (`MetadataPatchRequest`, patch
+  singolo asset) ma **non consumato da nessuna parte** — non dalla
+  pipeline dei derivati (`keeppix-media`), non da nessun generatore di
+  thumb/preview/full. Renderla reale è lavoro di elaborazione immagini
+  vero, non cablaggio: unità propria più avanti in questo stesso
+  Task 8, non qui.
+- **"Luoghi noti alla libreria"** per il dialog di posizione (§19.3):
+  il documento descrive un elenco di "posizioni delle cartelle" — ma
+  `Folder` non ha (e non deve avere) un concetto di posizione propria:
+  è la stessa finzione mockup-cartella-uguale-luogo già scartata per
+  SP-3 §11 nel Task 7. La sostituzione reale, migliore del mockup, è
+  già pronta e non richiede nulla di nuovo: `GET /places/suggest`
+  (GeoNames vero), non un elenco chiuso di cartelle — unità del
+  dialog di posizione, non di questa.
+- **"Explicit none" sulla posizione**: `location: Option<Option<...>>`
+  già distingue "non toccare" da "azzera" **alla scrittura**, ma
+  `effective()` non può distinguere "azzerato apposta" da "mai
+  impostato" alla lettura (`COALESCE` non vede la differenza) —
+  rilevante solo quando il dialog di posizione stesso viene costruito,
+  non per il pannello di sola lettura di questa unità.
+
+**Bug reale trovato e corretto lungo la strada, non nell'ambito
+originale ma nella stessa area (album)**: `frontend/src/api/albums.ts`'s
+`addAssets(albumId, assetIds)` postava un corpo `{asset_ids}` a
+`POST /albums/{id}/assets` — quel percorso ha **solo** `GET`
+(`list_assets`, l'elenco dei membri) montato; l'unico endpoint di
+scrittura reale è `POST /albums/{id}/assets/{asset_id}`, un asset alla
+volta (`AlbumRepo::add_asset`, verificato anche lato `keeppix-db`: mai
+stato batch). Non si è visto finora perché `AlbumPickerDialog.spec.ts`
+mocka l'intero modulo `@/api/albums` — nessun test in questa sessione
+ha mai davvero colpito quella rotta. Corretto con un ciclo sequenziale
+sullo stesso endpoint singolo, stesso principio di `stores/
+favorites.ts`'s `setMany`.
+
+Verifica eseguita per intero:
+- `cargo check --workspace` → pulito.
+- `cargo clippy --workspace --all-targets -- -D warnings` → due errori
+  reali trovati e corretti: `list_for_asset` in `albums.rs` senza
+  sezione `# Errors` nel doc comment (quel file usa commenti
+  espliciti, non l'allow di file di `tags.rs`); `.expect(...)` in un
+  test di `assets.rs` che non ha l'allow di file per
+  `clippy::expect_used` (solo `unwrap_used` per funzione) — sostituito
+  con `.unwrap()`.
+- `cargo check -p keeppix-db --test asset_tags/assets/albums`,
+  `cargo check -p keeppix-api --test tags/albums/timeline` → tutti
+  puliti.
+- `cargo test -p keeppix-api --test openapi` → **7/8 verdi** dopo tre
+  aggiornamenti: i due elenchi letterali (`security_requirements_
+  name_a_declared_scheme`, `operation_ids_are_explicit_and_unique` —
+  cinque voci nuove in ordine alfabetico) **e**, per la prima volta in
+  questa sessione, il conteggio letterale di operazioni
+  (`documented_operations_are_all_mounted` e `openapi_summaries_do_
+  not_contain_errors_heading` condividono lo stesso numero, 174→180
+  — sei nuove operazioni contate, non tre: il numero precedente era
+  già leggermente indietro rispetto al codice reale, verificato
+  chiedendo al documento vivo invece di ricalcolare a mano). Un
+  secondo giro di `UPDATE_OPENAPI=1` necessario dopo aver aggiunto una
+  sezione `# Errors` al doc comment di `list_for_asset`: `utoipa`
+  porta il commento rustdoc nella `description` OpenAPI anche senza un
+  `summary` esplicito che lo sovrascriva del tutto, quindi cambiarlo
+  ha invalidato lo snapshot una seconda volta — scoperto dal test
+  stesso, non presunto. L'unico ancora rosso
+  (`documented_operations_are_all_mounted`) fallisce solo su
+  `SocketNotFoundError` — Docker assente qui, non codice.
+- Nuovi test scritti seguendo le convenzioni già in uso, **mai
+  eseguiti** (nessun Postgres locale in questo sandbox — tentativo di
+  esecuzione con timeout esplicito, confermato che si blocca
+  cercando un container, non un errore di compilazione): 2 in
+  `assets.rs` (`exif_for` con riga piena, `None` senza riga), 6 in
+  `asset_tags.rs` (`for_asset` confermati+proposti mai rifiutati con
+  provenienza mista IA/umana, forbidden su asset estraneo;
+  `remove_confirmed` transizione permanente, idempotenza, conflitto su
+  proposta ancora in attesa, not-found su mai assegnato, forbidden), 4
+  in `albums.rs` (`for_asset` elenco per nome, vuoto, filtrato per
+  permesso condiviso, forbidden su asset invisibile), 1 end-to-end via
+  HTTP in `keeppix-api/tests/tags.rs` (lista poi rimuove, verifica che
+  sparisca), 1 in `keeppix-api/tests/albums.rs` (lista filtrata per
+  appartenenza reale), 1 in `keeppix-api/tests/timeline.rs`
+  (`full_exif` presente solo sul dettaglio singolo, mai sulla pagina
+  timeline).
+- Frontend: `npx vitest run` → 78 file, 603/603 verdi (invariati:
+  questa unità è solo terreno di backend + wrapper `api/*.ts`, nessuna
+  vista reale li consuma ancora — la prossima unità). `npx vue-tsc -b`
+  → pulito. `npx eslint` sui file nuovi/toccati e sull'intero repo →
+  pulito (stesso unico errore preesistente su `PlayerView.vue`).
+  `npm run build` + calcolo manuale del bundle iniziale gzip →
+  124.872 byte, sotto il budget di 153.600.

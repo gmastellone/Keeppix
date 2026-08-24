@@ -156,6 +156,46 @@ pub struct DirectPutOutcome {
     pub collision: CollisionOutcome,
 }
 
+/// EXIF completo di un asset (Fase 11 Task 8, §19.2 "SCATTO") — a
+/// differenza di [`AssetRepo::camera_models_among`], che espone solo
+/// `camera_model` per la dimensione SP-3, questo è il dettaglio pieno per
+/// un singolo asset aperto nel lightbox.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssetExifDetail {
+    pub camera_make: Option<String>,
+    pub camera_model: Option<String>,
+    pub lens: Option<String>,
+    pub iso: Option<i32>,
+    pub f_number: Option<f32>,
+    pub exposure: Option<String>,
+    pub focal_length: Option<f32>,
+}
+
+#[derive(sqlx::FromRow)]
+struct AssetExifDetailRow {
+    camera_make: Option<String>,
+    camera_model: Option<String>,
+    lens: Option<String>,
+    iso: Option<i32>,
+    f_number: Option<f32>,
+    exposure: Option<String>,
+    focal_length: Option<f32>,
+}
+
+impl AssetExifDetailRow {
+    fn into_domain(self) -> AssetExifDetail {
+        AssetExifDetail {
+            camera_make: self.camera_make,
+            camera_model: self.camera_model,
+            lens: self.lens,
+            iso: self.iso,
+            f_number: self.f_number,
+            exposure: self.exposure,
+            focal_length: self.focal_length,
+        }
+    }
+}
+
 impl<'a> AssetRepo<'a> {
     #[must_use]
     pub const fn new(db: &'a Db) -> Self {
@@ -997,6 +1037,28 @@ impl<'a> AssetRepo<'a> {
             .into_iter()
             .map(|(id, model)| (AssetId::from_uuid(id), model))
             .collect())
+    }
+
+    /// L'intera riga `asset_exif` di **un** asset (Fase 11 Task 8, §19.2
+    /// campi 6-9, sezione "SCATTO" del pannello informazioni): a differenza
+    /// di [`Self::camera_models_among`] (bulk, un solo campo, per SP-3),
+    /// qui il lightbox apre una foto alla volta e ha bisogno di tutto —
+    /// obiettivo, esposizione, ISO, focale — colonne già scritte da
+    /// [`Self::insert_exif`] fin dalla Fase 5, mai lette per intero finora.
+    /// `None` se l'asset non ha una riga `asset_exif` (mai analizzato, o
+    /// senza EXIF leggibile) — non un errore.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn exif_for(&self, asset_id: AssetId) -> Result<Option<AssetExifDetail>, DbError> {
+        let row: Option<AssetExifDetailRow> = sqlx::query_as(
+            "SELECT camera_make, camera_model, lens, iso, f_number, exposure, focal_length \
+               FROM asset_exif WHERE asset_id = $1",
+        )
+        .bind(asset_id.as_uuid())
+        .fetch_optional(self.db.pool())
+        .await?;
+        Ok(row.map(AssetExifDetailRow::into_domain))
     }
 
     /// Sposta l'asset in una cartella diversa **senza rinominarlo** — il

@@ -47,9 +47,9 @@ pub mod uploads;
 pub mod users;
 pub mod visibility;
 
-pub use albums::{Album, AlbumAsset, AlbumPatch, AlbumRefresh, AlbumRepo, NewAlbum};
-pub use asset_tags::{AssetTagRepo, ConfirmedTag, ProposalView, TAG_MATCH_BAND};
-pub use assets::{AssetRepo, DirectPutOutcome};
+pub use albums::{Album, AlbumAsset, AlbumBadge, AlbumPatch, AlbumRefresh, AlbumRepo, NewAlbum};
+pub use asset_tags::{AssetTagDetail, AssetTagRepo, ConfirmedTag, ProposalView, TAG_MATCH_BAND};
+pub use assets::{AssetExifDetail, AssetRepo, DirectPutOutcome};
 pub use audit::{AuditEntry, AuditRepo};
 pub use backup::{
     BackupDestination, BackupKind, BackupPreferences, BackupRepo, BackupRetention, BackupRun,
