@@ -13,7 +13,6 @@
 // - "Persone" (Task 16) — nessuna vista esiste.
 // - Il gruppo "IA" intero (Tag e categorie/Revisione/Analisi libreria,
 //   Task 15).
-// - "Duplicati" (Task 13).
 // - "Condivisi con me" / "Le mie condivisioni" come due righe
 //   distinte: `SharesView` non ha le due schede `state.shareTab` del
 //   mockup, è un'unica vista — collassate in una sola riga
@@ -51,6 +50,7 @@ const LIBRARY_ITEMS = [
 
 const MAINT_ITEMS = [
   { to: '/trash', labelKey: 'trash.entry' },
+  { to: '/duplicates', labelKey: 'duplicates.entry' },
   { to: '/problems', labelKey: 'problems.title' }
 ] as const
 

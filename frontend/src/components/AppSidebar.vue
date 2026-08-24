@@ -12,8 +12,8 @@
 // - "Persone" (Task 16, Tranche D) — nessuna vista Persone esiste.
 // - Il gruppo "IA" intero — Tag e categorie/Revisione/Analisi libreria
 //   sono Task 15, Tranche C.
-// - "Duplicati" dentro "Manutenzione" — Task 13, Tranche B, non ancora
-//   fatto (Cestino e Problemi sì, esistono già).
+// "Duplicati" dentro "Manutenzione" (Task 13 2/N) è arrivata dopo
+// Cestino/Problemi, non contemporaneamente — nessun debito residuo qui.
 // Ogni voce qui presente è un vero <RouterLink>, quindi raggiungibile
 // da tastiera per costruzione — il prototipo non lo è (§2.5, "nessuna
 // voce della sidebar è raggiungibile da tastiera").
@@ -72,6 +72,7 @@ const NAV_TOP = [
 
 const MAINT_ITEMS = [
   { to: '/trash', labelKey: 'trash.entry' },
+  { to: '/duplicates', labelKey: 'duplicates.entry' },
   { to: '/problems', labelKey: 'problems.title' }
 ] as const
 

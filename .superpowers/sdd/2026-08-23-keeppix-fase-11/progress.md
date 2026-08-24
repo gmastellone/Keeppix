@@ -5326,3 +5326,66 @@ il backend (`crates/keeppix-api/src/routes/duplicates.rs`) è già
 completo (lista gruppi, membri di un gruppo, risoluzione con
 `keep`+`disk_action` applicata per davvero), il frontend non ha ancora
 né vista né i wrapper per gli endpoint di membri/risoluzione.
+
+## Task 13 (2/N) — Manutenzione: Duplicati (§46)
+
+Documento funzionale §46 "Duplicati", verificato riga per riga (righe
+6984-7155). Vista costruita da zero (`DuplicatesView.vue`, `/duplicates`)
+— non esisteva, `AppSidebar.vue`/`MoreView.vue` la dichiaravano
+esplicitamente non ancora fatta. Aggiunta anche alla sidebar desktop
+(fra Cestino e Problemi), alla pagina "Altro" mobile, alla tab bar
+mobile (`ALTRO_ROUTES`) e a `routeTitles.ts` — stessa quaterna di punti
+toccata per ogni nuova destinazione di manutenzione (Task 13 1/N).
+
+`fetchDuplicateMembers`/`resolveDuplicateGroup` aggiunte a
+`api/library.ts`, accanto alla `fetchDuplicates`/`DuplicateGroup` già
+esistenti dal Task 1c (mai consumate da una vista fino a questa unità).
+
+**Due deviazioni reali dal documento, entrambe per capacità reale del
+backend diversa dal mockup:**
+
+1. **Niente "motivo probabile" per gruppo**: il mockup mostra un testo
+   in linguaggio naturale (`"Stesso file importato due volte — import
+   manuale e poi sync automatico dalla stessa scheda SD"`) scritto a
+   mano nei due gruppi di prova (`DUPLICATE_GROUPS`) — `DuplicateGroupView`
+   (`routes/duplicates.rs:19-24`) non ha un campo del genere: nessuna
+   query può indovinare *perché* due file coincidono. Il sottotitolo di
+   ogni gruppo qui è solo la parte reale (MB recuperabili), senza
+   premettere un motivo inventato.
+2. **La copia proposta come "da tenere" non è garantita "quella senza
+   suffisso"**: nel mockup lo è per costruzione dei dati di prova. Sul
+   backend reale `DuplicateRepo::members` ordina per `a.filename` puro
+   (`crates/keeppix-db/src/assets.rs:562`) — uno spazio prima di
+   `"(1)"` ordina **prima** di un punto prima dell'estensione, quindi
+   l'ordine alfabetico non garantisce affatto che il file senza
+   suffisso venga per primo. Si propone comunque `members[0]` come
+   default (punto di partenza ragionevole, non una detection reale
+   dell'originale che nessuna query supporta) — l'utente sceglie
+   comunque liberamente con un click, come da documento.
+
+**Il resto è fedele, incluso il punto più delicato**: la nota per
+l'architetto del documento (§46.9) dice esplicitamente che nel mockup
+"risolvere un gruppo non applica davvero" la modalità di eliminazione
+scelta — qui invece `resolveDuplicateGroup` (`POST /duplicates/
+{hash}/resolve`, `{keep, disk_action}`) la applica per davvero a ogni
+membro del gruppo tranne quello tenuto, in un'unica chiamata reale;
+"Risolvi gruppo"/"Ignora" restano comunque senza conferma propria (il
+dialog di eliminazione a 3 opzioni, §9/`DeleteDialog.vue`, riusato
+identico, resta l'unica conferma) e "Ignora" resta solo in memoria di
+sessione (nessuna rotta per "non segnalare più" un gruppo esiste sul
+backend — ma il mockup stesso non persiste oltre la sessione, quindi
+non è una perdita di fedeltà).
+
+Verifica completa: `npx vitest run` → 85 file, **722/722** verdi (6
+nuovi in `DuplicatesView.spec.ts`, prima assente). `npx vue-tsc -b`
+pulito. `npx eslint` sui file toccati e sull'intero repo → pulito
+(stesso unico errore preesistente su `PlayerView.vue`, stesso numero
+di warning; tre avvisi di indentazione nel file nuovo corretti con
+`--fix`, poi riverificato tsc+test). `npm run build` (nuovo chunk
+`DuplicatesView` lazy, non nel bundle iniziale) + calcolo manuale del
+bundle iniziale gzip → 130.758 byte, sotto il budget di 153.600.
+
+Si prosegue con Task 13 (3/N): Problemi (§47) — la vista esiste già ma
+ignora il campo `problems: ProblemView[]` che il backend compone da
+tempo (severità/titolo/descrizione/azioni in linguaggio naturale),
+mostrando invece elenchi grezzi di nomi file.

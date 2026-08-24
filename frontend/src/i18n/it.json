@@ -827,6 +827,23 @@
       "disableFailed": "Impossibile disattivare il 2FA."
     }
   },
+  "duplicates": {
+    "entry": "Duplicati",
+    "title": "Duplicati",
+    "subtitle": "{n} gruppo · {m} file coinvolti · fino a {mb} MB recuperabili tenendo una sola copia per gruppo | {n} gruppi · {m} file coinvolti · fino a {mb} MB recuperabili tenendo una sola copia per gruppo",
+    "emptyTitle": "Nessun duplicato trovato",
+    "emptySubtitle": "Keeppix confronta l'hash del contenuto dei file, non solo il nome — trova copie identiche anche se rinominate o in cartelle diverse.",
+    "groupTitle": "{n} file identici (stesso hash del contenuto)",
+    "groupSubtitle": "{mb} MB recuperabili se tieni solo la copia evidenziata",
+    "keepLabel": "Mantieni {name}",
+    "discardLabel": "Segna come duplicato da eliminare, mantieni invece {name}",
+    "resolve": "Risolvi gruppo",
+    "ignore": "Ignora",
+    "resolveTitle": "Eliminare {n} copia duplicata? | Eliminare {n} copie duplicate?",
+    "resolved": "{n} copia rimossa, mantenuta {name}. | {n} copie rimosse, mantenuta {name}.",
+    "ignored": "Gruppo ignorato — non verrà più segnalato.",
+    "actionError": "Non è stato possibile completare l'operazione. Riprova."
+  },
   "trash": {
     "entry": "Cestino",
     "title": "Cestino",

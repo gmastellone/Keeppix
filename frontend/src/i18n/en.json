@@ -827,6 +827,23 @@
       "disableFailed": "Could not disable 2FA."
     }
   },
+  "duplicates": {
+    "entry": "Duplicates",
+    "title": "Duplicates",
+    "subtitle": "{n} group · {m} files involved · up to {mb} MB reclaimable keeping one copy per group | {n} groups · {m} files involved · up to {mb} MB reclaimable keeping one copy per group",
+    "emptyTitle": "No duplicates found",
+    "emptySubtitle": "Keeppix compares file content hashes, not just the name — it finds identical copies even if renamed or in different folders.",
+    "groupTitle": "{n} identical files (same content hash)",
+    "groupSubtitle": "{mb} MB reclaimable if you keep only the highlighted copy",
+    "keepLabel": "Keep {name}",
+    "discardLabel": "Mark as duplicate to delete, keep {name} instead",
+    "resolve": "Resolve group",
+    "ignore": "Ignore",
+    "resolveTitle": "Delete {n} duplicate copy? | Delete {n} duplicate copies?",
+    "resolved": "{n} copy removed, kept {name}. | {n} copies removed, kept {name}.",
+    "ignored": "Group ignored — it won't be flagged again.",
+    "actionError": "Could not complete the operation. Try again."
+  },
   "trash": {
     "entry": "Trash",
     "title": "Trash",

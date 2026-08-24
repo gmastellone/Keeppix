@@ -22,7 +22,17 @@ import { useRoute } from 'vue-router'
 const { t } = useI18n()
 const route = useRoute()
 
-const ALTRO_ROUTES = new Set(['/folders', '/map', '/shares', '/trash', '/problems', '/users', '/groups', '/more'])
+const ALTRO_ROUTES = new Set([
+  '/folders',
+  '/map',
+  '/shares',
+  '/trash',
+  '/duplicates',
+  '/problems',
+  '/users',
+  '/groups',
+  '/more'
+])
 const FOTO_ROUTES = new Set(['/', '/culling', '/batch-edit'])
 
 type TabId = 'foto' | 'cerca' | 'album' | 'altro'

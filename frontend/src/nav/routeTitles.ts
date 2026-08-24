@@ -17,6 +17,7 @@ export const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/albums/new': 'albums.createButton',
   '/trash': 'trash.entry',
   '/problems': 'problems.title',
+  '/duplicates': 'duplicates.entry',
   '/batch-edit': 'batchEdit.title',
   '/folders': 'folders.title',
   '/users': 'users.title',
