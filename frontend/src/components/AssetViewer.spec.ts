@@ -248,14 +248,18 @@ describe('AssetViewer — menu ⋯ (§20)', () => {
 
 describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
   it('shows a compact cluster map only when effective metadata has a location', async () => {
-    apiFetch.mockResolvedValue({
-      title: null,
-      description: null,
-      taken_at: null,
-      location: { lat: 41.9, lon: 12.5 },
-      place_id: null,
-      orientation: null
-    })
+    apiFetch.mockImplementation((path: string) =>
+      path.endsWith('/map/regions')
+        ? Promise.resolve([])
+        : Promise.resolve({
+          title: null,
+          description: null,
+          taken_at: null,
+          location: { lat: 41.9, lon: 12.5 },
+          place_id: null,
+          orientation: null
+        })
+    )
     const wrapper = mount(AssetViewer, {
       props: { asset: photo('aaaa'), isFavorite: false },
       global: {
@@ -279,11 +283,10 @@ describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
   it('ignores stale metadata when the viewed asset changes', async () => {
     const firstMetadata = deferred<{ location: { lat: number; lon: number } }>()
     const secondMetadata = deferred<{ location: { lat: number; lon: number } }>()
-    apiFetch.mockImplementation((path: string) =>
-      path.includes('/aaaa/')
-        ? firstMetadata.promise
-        : secondMetadata.promise
-    )
+    apiFetch.mockImplementation((path: string) => {
+      if (path.endsWith('/map/regions')) return Promise.resolve([])
+      return path.includes('/aaaa/') ? firstMetadata.promise : secondMetadata.promise
+    })
     const wrapper = mount(AssetViewer, {
       props: { asset: photo('aaaa'), isFavorite: false },
       global: {
@@ -314,15 +317,17 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
     title?: string | null
     rating?: number | null
     exif?: Record<string, unknown>
+    location?: { lat: number; lon: number } | null
   } = {}) {
     apiFetch.mockImplementation((path: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
+      if (path.endsWith('/map/regions')) return Promise.resolve([])
       if (path.endsWith('/metadata') && method === 'GET') {
         return Promise.resolve({
           title: opts.title ?? null,
           description: null,
           taken_at: null,
-          location: null,
+          location: opts.location ?? null,
           place_id: null,
           orientation: null
         })
@@ -455,5 +460,93 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
     expect(wrapper.text()).not.toContain('Obiettivo')
     expect(wrapper.text()).not.toContain('Esposizione')
     expect(wrapper.text()).toContain('100×100')
+  })
+})
+
+describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
+  function mockPanelFetch(location: { lat: number; lon: number } | null) {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (path.endsWith('/map/regions')) return Promise.resolve([])
+      if (path.endsWith('/metadata') && method === 'GET') {
+        return Promise.resolve({
+          title: null,
+          description: null,
+          taken_at: null,
+          location,
+          place_id: null,
+          orientation: null
+        })
+      }
+      if (path.endsWith('/metadata') && method === 'PATCH') return Promise.resolve(null)
+      if (path.endsWith('/flags') && method === 'GET') {
+        return Promise.resolve({ rating: null, pick: 'none', color_label: null, favorite: false })
+      }
+      if (path.endsWith('/places/reverse')) return Promise.resolve(null)
+      return Promise.resolve({ ...photo('a') })
+    })
+  }
+
+  it('shows the empty state and "Imposta posizione…" when the asset has no location', async () => {
+    mockPanelFetch(null)
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Nessuna posizione impostata.')
+    expect(wrapper.find('button').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Imposta posizione…')
+    expect(wrapper.text()).not.toContain('Modifica posizione…')
+  })
+
+  it('shows coordinates (4 decimals) and "Modifica posizione…" when the asset has a location', async () => {
+    mockPanelFetch({ lat: 41.9, lon: 12.5 })
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('41.9000, 12.5000')
+    expect(wrapper.text()).toContain('Modifica posizione…')
+    expect(wrapper.text()).not.toContain('Nessuna posizione impostata.')
+  })
+
+  it('opens the position dialog on click, and "Nessuna posizione" clears the location and reloads the panel', async () => {
+    mockPanelFetch({ lat: 41.9, lon: 12.5 })
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: {
+        plugins: [i18n],
+        stubs: { MapClusterLayer: true }
+      },
+      attachTo: document.body
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    const positionButton = wrapper.findAll('button').find((b) => b.text() === 'Modifica posizione…')
+    expect(positionButton).toBeTruthy()
+    await positionButton!.trigger('click')
+    await flushPromises()
+
+    const clearButton = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Nessuna posizione'
+    )
+    expect(clearButton).toBeTruthy()
+
+    apiFetch.mockClear()
+    clearButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/assets/a/metadata',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ location: null, place_id: null }) })
+    )
+    wrapper.unmount()
   })
 })

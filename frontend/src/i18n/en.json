@@ -264,7 +264,11 @@
       "apply": "Apply",
       "downloadRegionAction": "Download Region",
       "downloadRegion": "Download {region}",
-      "regionDownloading": "Region download in progress…"
+      "regionDownloading": "Region download in progress…",
+      "dialogTitle": "Set location",
+      "dialogSubtitle": "Search a known place, or clear the current location.",
+      "clear": "No location",
+      "clearError": "Couldn't clear the location. Try again."
     }
   },
   "search": {
@@ -300,7 +304,11 @@
       "camera": "Camera",
       "lens": "Lens",
       "exposure": "Exposure",
-      "dimensions": "Dimensions"
+      "dimensions": "Dimensions",
+      "position": "Location",
+      "noPosition": "No location set.",
+      "editPosition": "Edit location…",
+      "setPosition": "Set location…"
     }
   },
   "player": {

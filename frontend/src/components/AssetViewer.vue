@@ -1,12 +1,15 @@
 <script setup lang="ts">
-// Fase 11 Task 8 (2/N poi 3/N) — documento funzionale §18 ("Lightbox —
+// Fase 11 Task 8 (2/N, 3/N, 4/N) — documento funzionale §18 ("Lightbox —
 // struttura e barra superiore"), §19 ("Pannello informazioni") e §20
 // ("Menu 'altre azioni' ⋯"). La 2/N ha riscritto il segnaposto precedente
 // (151 righe) con barra superiore, stage con frecce, filmino e menu ⋯. La
-// 3/N (questa) ha aggiunto la prima metà reale del pannello: titolo
-// modificabile, valutazione a stelle, sezione SCATTO (exif completo). Le
-// sezioni POSIZIONE (dialog di modifica), PERSONE, TAG, ALBUM e AZIONI
-// restano le prossime unità di questo stesso Task.
+// 3/N ha aggiunto titolo modificabile, valutazione a stelle, sezione
+// SCATTO (exif completo). La 4/N (questa) ha completato la sezione
+// POSIZIONE: luogo/coordinate reali, stato vuoto, e il dialog "Imposta/
+// Modifica posizione…" (`PlacePickerDialog.vue`, involucro SP-5 attorno
+// al `PlacePicker.vue` esistente ma finora mai collegato a nessuna
+// vista). Le sezioni PERSONE, TAG, ALBUM e AZIONI restano le prossime
+// unità di questo stesso Task.
 //
 // **Debito dichiarato, verificato e non taciuto**:
 // - "Condividi" (§18.3 riga 3) omesso: apre un dialog che non esiste
@@ -44,6 +47,7 @@ import { fetchMetadata, patchMetadata, type AssetMetadata } from '@/api/metadata
 import { originalSrc, previewSrc as mediaPreviewSrc, thumbSrc as mediaThumbSrc } from '@/api/media'
 import { fetchAsset, type TimelineAsset } from '@/api/timeline'
 import AlbumPickerDialog from '@/components/AlbumPickerDialog.vue'
+import PlacePickerDialog from '@/components/PlacePickerDialog.vue'
 import RatingStars from '@/components/RatingStars.vue'
 import RenameFormulaDialog from '@/components/RenameFormulaDialog.vue'
 import DeleteDialog, { type DeleteChoice } from '@/components/ui/DeleteDialog.vue'
@@ -88,6 +92,7 @@ const moreOpen = ref(false)
 const albumDialogOpen = ref(false)
 const renameDialogOpen = ref(false)
 const deleteDialogOpen = ref(false)
+const positionDialogOpen = ref(false)
 const metadata = ref<AssetMetadata>()
 /** §19.2 sezione "SCATTO": `full_exif` non arriva mai col prop `asset`
  * (le griglie che passano l'asset al lightbox usano `/timeline`/`/search`,
@@ -162,6 +167,12 @@ function onKey(e: KeyboardEvent) {
 async function loadPanelData() {
   const sequence = ++panelRequestSequence
   const assetId = props.asset.id
+  // `maps.regions` non è caricato da nessun ingresso globale (solo
+  // MapView/MapsOfflineView lo fanno) — senza questo, `PlacePickerDialog`
+  // vedrebbe sempre `availableRegionIds` vuoto e mostrerebbe l'avviso
+  // "mappa non disponibile" anche per regioni già scaricate. A parte,
+  // senza `await`: non deve ritardare gli altri tre campi del pannello.
+  void maps.loadRegions()
   const [metadataResult, detailResult, flagsResult] = await Promise.allSettled([
     fetchMetadata(assetId),
     fetchAsset(assetId),
@@ -300,6 +311,14 @@ const cameraLine = computed(() => {
 const dimensionsLine = computed(() => {
   if (!props.asset.width || !props.asset.height) return ''
   return `${props.asset.width}×${props.asset.height}`
+})
+
+/** §19.2 riga 11: "lat, lng" a 4 decimali — non le coordinate grezze del
+ * `GeoPointView` (che ne porta molti di più, dal backend). */
+const coordsLabel = computed(() => {
+  const location = metadata.value?.location
+  if (!location) return ''
+  return `${location.lat.toFixed(4)}, ${location.lon.toFixed(4)}`
 })
 </script>
 
@@ -630,27 +649,46 @@ const dimensionsLine = computed(() => {
           </dl>
         </section>
 
-        <section
-          v-if="metadata?.location"
-          class="mt-4"
-        >
-          <p
-            v-if="placeName"
-            class="mb-2 text-content-muted"
-          >
-            {{ placeName }}
-          </p>
-          <h2 class="mb-2 font-medium">
-            {{ t('maps.nearbyPhotos') }}
+        <section class="mt-4">
+          <h2 class="mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
+            {{ t('viewer.panel.position') }}
           </h2>
-          <MapClusterLayer
-            compact
-            :center="metadata.location"
-            scope="folder"
-            :scope-id="asset.folder_id"
-            :region-ids="maps.availableRegionIds"
-            @asset-click="emit('open-asset', $event)"
-          />
+          <template v-if="metadata?.location">
+            <p
+              v-if="placeName"
+              class="mb-1 text-content-muted"
+            >
+              {{ placeName }}
+            </p>
+            <p class="mb-2 text-xs text-[#8f8f92]">
+              {{ coordsLabel }}
+            </p>
+            <h3 class="mb-2 text-xs font-medium text-[#8f8f92]">
+              {{ t('maps.nearbyPhotos') }}
+            </h3>
+            <MapClusterLayer
+              compact
+              :center="metadata.location"
+              scope="folder"
+              :scope-id="asset.folder_id"
+              :region-ids="maps.availableRegionIds"
+              @asset-click="emit('open-asset', $event)"
+            />
+          </template>
+          <p
+            v-else
+            class="mb-2 text-[13px] text-[#8f8f92] italic"
+          >
+            {{ t('viewer.panel.noPosition') }}
+          </p>
+          <button
+            type="button"
+            class="mt-2 rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs
+                   hover:bg-[#1f1f1f]"
+            @click="positionDialogOpen = true"
+          >
+            {{ t(metadata?.location ? 'viewer.panel.editPosition' : 'viewer.panel.setPosition') }}
+          </button>
         </section>
       </aside>
     </div>
@@ -689,6 +727,11 @@ const dimensionsLine = computed(() => {
       v-model:open="renameDialogOpen"
       :assets="[asset]"
       :subtitle="renameSubtitle"
+    />
+    <PlacePickerDialog
+      v-model:open="positionDialogOpen"
+      :asset="asset"
+      @applied="loadPanelData"
     />
   </div>
 </template>

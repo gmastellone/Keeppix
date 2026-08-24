@@ -4103,3 +4103,60 @@ con dimensioni). `npx eslint` sui file toccati e sull'intero repo →
 pulito (stesso unico errore preesistente su `PlayerView.vue`). `npm run
 build` + calcolo manuale del bundle iniziale gzip → 125.051 byte, sotto
 il budget di 153.600.
+
+## Task 8 (4/N) — Pannello informazioni: sezione POSIZIONE
+
+Chiude §19.2 righe 10-12. `PlacePicker.vue` esisteva già (ricerca reale
+GeoNames via `maps.suggestPlaces`/`GET /places/suggest`, applicazione via
+`maps.applyPlace`) ma era **orfano**: nessuna vista lo montava — confermato
+via grep prima di scrivere codice, e già annotato in un commento di
+`BatchEditView.vue` come earmarked proprio per questo dialog. Costruito
+`PlacePickerDialog.vue`, un involucro SP-5 (`Dialog.vue`, stesso pattern
+di `AlbumPickerDialog`/`TagPickerDialog`) attorno a `PlacePicker` con
+un'unica aggiunta: il pulsante **"Nessuna posizione"**, che `PlacePicker.
+apply()` non può esprimere (richiede sempre un luogo scelto) — chiama
+`patchMetadata(id, {location: null, place_id: null})` direttamente,
+sfruttando la stessa semantica "doppio opzionale" già disponibile lato
+backend dal Task 8 (3/N). Il sottotitolo del mockup ("Nessuna mappa reale
+in questo mockup — scegli tra i luoghi già noti alla libreria") non è
+riprodotto: sostituito da un testo che descrive la ricerca reale, che è
+strettamente migliore del finto elenco statico del prototipo — stessa
+decisione già presa per lo stesso identico dialog nel Task 7.
+
+Nel pannello: stato vuoto (`"Nessuna posizione impostata."`, corsivo) o
+luogo+coordinate a 4 decimali+mini-mappa quando una posizione esiste;
+pulsante che alterna etichetta **"Imposta posizione…"**/**"Modifica
+posizione…"** secondo §19.2 riga 12. Aprire il dialog e applicare/
+cancellare una posizione ricarica il pannello (`@applied="loadPanelData"`)
+così luogo/coordinate/mini-mappa riflettono subito il nuovo stato, senza
+richiudere e riaprire il lightbox.
+
+**Bug scoperto e corretto durante la verifica, non prima**: `maps.regions`
+non veniva mai caricato da nessun ingresso globale (solo `MapView.vue` e
+`MapsOfflineView.vue` lo fanno) — la mini-mappa del pannello informazioni
+usava già `maps.availableRegionIds` fin dal Task 8 (1/N)/(2/N) senza che
+nulla la popolasse quando si apre il lightbox da Timeline/Preferiti/Cerca
+(mai da Mappa). Risultato pratico: l'avviso "mappa non disponibile" del
+nuovo `PlacePickerDialog` sarebbe scattato sempre, anche per regioni già
+scaricate. Corretto aggiungendo `void maps.loadRegions()` (fire-and-forget,
+non blocca gli altri tre campi del pannello) dentro `loadPanelData()` —
+beneficia sia il dialog nuovo sia la mini-mappa preesistente.
+
+Verifica completa: `npx vue-tsc -b` pulito (la CI di questa sandbox
+`npx`/`_npx` ha risolto una copia mismatched di `typescript`/`vue-tsc` da
+cache in un tentativo — bypassato con `./node_modules/.bin/vue-tsc -b`
+diretto, stesso identico controllo). `npx vitest run` → 78 file, 621/621
+verdi (20 test in `AssetViewer.spec.ts`, 3 nuovi: stato vuoto col pulsante
+giusto, stato pieno con coordinate a 4 decimali e pulsante giusto, apertura
+del dialog e cancellazione reale della posizione via `patchMetadata`) — un
+bug reale nei mock di due test **preesistenti** scoperto e corretto nello
+stesso giro: `maps.loadRegions()` (nuovo in questa unità) colpiva lo stesso
+`apiFetch` mockato a un valore fisso non-array per tutte le chiamate,
+mandando in eccezione `availableRegionIds` (`regions.value.filter` su un
+oggetto) — corretto instradando `/map/regions` a `[]` in entrambi i mock.
+`npx eslint` sui file toccati e sull'intero repo → pulito (stesso unico
+errore preesistente su `PlayerView.vue`; un errore reale nuovo trovato e
+corretto in `PlacePickerDialog.vue`: parametro `_place` mai usato — il
+prefisso `_` non è tollerato da questa configurazione ESLint, tolto il
+parametro anziché rinominarlo). `npm run build` + calcolo manuale del
+bundle iniziale gzip → 125.236 byte, sotto il budget di 153.600.

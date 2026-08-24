@@ -264,7 +264,11 @@
       "apply": "Applica",
       "downloadRegionAction": "Scarica regione",
       "downloadRegion": "Scarica {region}",
-      "regionDownloading": "Download della regione in corso…"
+      "regionDownloading": "Download della regione in corso…",
+      "dialogTitle": "Imposta posizione",
+      "dialogSubtitle": "Cerca una località nota, oppure cancella la posizione attuale.",
+      "clear": "Nessuna posizione",
+      "clearError": "Non è stato possibile cancellare la posizione. Riprova."
     }
   },
   "search": {
@@ -300,7 +304,11 @@
       "camera": "Fotocamera",
       "lens": "Obiettivo",
       "exposure": "Esposizione",
-      "dimensions": "Dimensioni"
+      "dimensions": "Dimensioni",
+      "position": "Posizione",
+      "noPosition": "Nessuna posizione impostata.",
+      "editPosition": "Modifica posizione…",
+      "setPosition": "Imposta posizione…"
     }
   },
   "player": {
