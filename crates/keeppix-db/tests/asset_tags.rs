@@ -806,3 +806,152 @@ async fn count_proposed_visible_counts_only_what_the_caller_can_see() {
         "a decided proposal must leave the queue"
     );
 }
+
+// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…"): un'aggiunta manuale è
+// già una conferma, non passa dalla coda di revisione.
+
+#[tokio::test]
+async fn assign_inserts_a_confirmed_user_row_from_scratch() {
+    let test = TestDb::start().await;
+    let owner = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(owner, SystemRole::Admin);
+    let library = seed_library(&test, owner, "/mnt/assign-fresh").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let asset = seed_asset(&test, folder.id, "fresh.jpg").await;
+    let tag = create_tag_with_embedding(&test, &ctx, "A mano", 0.75, unit_axis(0), MODEL).await;
+
+    AssetTagRepo::new(test.db())
+        .assign(&ctx, tag, asset)
+        .await
+        .unwrap();
+
+    let row = fetch_assignment(&test, asset, tag).await.unwrap();
+    assert_eq!(row.0, "confirmed");
+    assert_eq!(row.1, "user");
+}
+
+#[tokio::test]
+async fn assign_overrides_an_existing_rejection_unlike_confirm() {
+    let test = TestDb::start().await;
+    let fx = review_fixture(&test).await;
+    let ctx = AuthContext::user(fx.owner, SystemRole::Admin);
+    let repo = AssetTagRepo::new(test.db());
+    repo.reject(&ctx, fx.tag, fx.asset).await.unwrap();
+
+    // `confirm` would conflict here (already tested above); `assign` is a
+    // direct human decision made *now*, not a proposal resolution — it
+    // must win over the earlier rejection instead of erroring.
+    repo.assign(&ctx, fx.tag, fx.asset).await.unwrap();
+
+    let row = fetch_assignment(&test, fx.asset, fx.tag).await.unwrap();
+    assert_eq!(row.0, "confirmed");
+    assert_eq!(row.1, "user");
+}
+
+#[tokio::test]
+async fn assign_is_idempotent_and_forbidden_on_a_foreign_asset() {
+    let test = TestDb::start().await;
+    let owner = harness::seed_admin(&test).await;
+    let stranger = harness::seed_user(&test, owner, "estraneo-assign").await;
+    let ctx = AuthContext::user(owner, SystemRole::Admin);
+    let stranger_ctx = AuthContext::user(stranger, SystemRole::User);
+    let library = seed_library(&test, owner, "/mnt/assign-forbidden").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let asset = seed_asset(&test, folder.id, "private.jpg").await;
+    let tag = create_tag_with_embedding(&test, &ctx, "Privato", 0.75, unit_axis(0), MODEL).await;
+    let repo = AssetTagRepo::new(test.db());
+
+    assert!(repo.assign(&stranger_ctx, tag, asset).await.is_err());
+
+    repo.assign(&ctx, tag, asset).await.unwrap();
+    repo.assign(&ctx, tag, asset).await.unwrap();
+    let row = fetch_assignment(&test, asset, tag).await.unwrap();
+    assert_eq!(row.0, "confirmed");
+}
+
+#[tokio::test]
+async fn confirmed_among_returns_only_confirmed_rows_grouped_by_asset() {
+    let test = TestDb::start().await;
+    let owner = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(owner, SystemRole::Admin);
+    let library = seed_library(&test, owner, "/mnt/confirmed-among").await;
+    let folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["2024"])
+        .await
+        .unwrap();
+    let confirmed_asset = seed_asset(&test, folder.id, "confirmed.jpg").await;
+    let proposed_asset = seed_asset(&test, folder.id, "proposed.jpg").await;
+    let untouched_asset = seed_asset(&test, folder.id, "untouched.jpg").await;
+    let category = TagRepo::new(test.db())
+        .create(
+            &ctx,
+            NewTag {
+                name: "Viaggi".to_owned(),
+                kind: TagKind::Category,
+                parent_id: None,
+                prompt: None,
+                color: None,
+                threshold: None,
+                embedding: None,
+                model_version: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    let tag = TagRepo::new(test.db())
+        .create(
+            &ctx,
+            NewTag {
+                name: "Montagna".to_owned(),
+                kind: TagKind::Tag,
+                parent_id: Some(category),
+                prompt: None,
+                color: Some("#336699".to_owned()),
+                threshold: None,
+                embedding: None,
+                model_version: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    let repo = AssetTagRepo::new(test.db());
+    repo.assign(&ctx, tag, confirmed_asset).await.unwrap();
+    seed_proposed(&test, proposed_asset, tag, 0.9).await;
+
+    let map = repo
+        .confirmed_among(&[confirmed_asset, proposed_asset, untouched_asset])
+        .await
+        .unwrap();
+
+    assert_eq!(map.len(), 1, "only the confirmed asset carries an entry");
+    let badges = &map[&confirmed_asset];
+    assert_eq!(badges.len(), 1);
+    assert_eq!(badges[0].tag_id, tag);
+    assert_eq!(badges[0].name, "Montagna");
+    assert_eq!(badges[0].color.as_deref(), Some("#336699"));
+    assert_eq!(
+        badges[0].category_id,
+        Some(category),
+        "category_id is the tag's own parent_id, resolved in the same query"
+    );
+    assert!(!map.contains_key(&proposed_asset), "proposed, not confirmed");
+    assert!(!map.contains_key(&untouched_asset));
+}
+
+#[tokio::test]
+async fn confirmed_among_is_empty_for_an_empty_id_list() {
+    let test = TestDb::start().await;
+    let map = AssetTagRepo::new(test.db())
+        .confirmed_among(&[])
+        .await
+        .unwrap();
+    assert!(map.is_empty());
+}

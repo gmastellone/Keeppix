@@ -13,12 +13,37 @@
 //! mai sovrascritte dal rematch (`ON CONFLICT ... WHERE state = 'proposed'`
 //! in [`Self::propose_for_tag`]).
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use keeppix_domain::{AssetId, AuthContext, TagId};
 
 use crate::pgvector::probe_pgvector;
 use crate::visibility::VisibilityScope;
 use crate::{AssetRepo, Db, DbError};
+
+/// Un tag confermato su un asset, come [`AssetTagRepo::confirmed_among`] lo
+/// restituisce — non l'assegnazione grezza della tabella (`state`/`source`
+/// non servono al chiamante, che ha già filtrato su `state='confirmed'`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfirmedTag {
+    pub tag_id: TagId,
+    pub name: String,
+    pub color: Option<String>,
+    /// `parent_id` del tag: le "categorie" del documento funzionale (SP-3
+    /// §11) sono tag con `kind='category'`, non una tabella a parte — un
+    /// tag senza genitore (o la cui gerarchia non è impostata) ha `None`.
+    pub category_id: Option<TagId>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ConfirmedTagRow {
+    asset_id: uuid::Uuid,
+    tag_id: uuid::Uuid,
+    name: String,
+    color: Option<String>,
+    parent_id: Option<uuid::Uuid>,
+}
 
 /// Le due decisioni umane possibili su una proposta. Costante interna: non è
 /// mai serializzata, la traduzione da/verso stringa SQL resta qui.
@@ -381,5 +406,87 @@ impl<'a> AssetTagRepo<'a> {
             .into_iter()
             .map(|(id,)| AssetId::from_uuid(id))
             .collect())
+    }
+
+    /// Assegna un tag a un asset per decisione diretta di una persona (Fase
+    /// 11 Task 7, §13.3 campo 5, SP-12: "un'aggiunta manuale è già una
+    /// conferma, non passa dalla coda di revisione"). A differenza di
+    /// [`Self::confirm`] — che transita solo da `'proposed'` ed è in
+    /// conflitto su un `'rejected'` già deciso — qui la persona sta
+    /// decidendo *ora*, non risolvendo una proposta IA passata: scrive
+    /// sempre `state='confirmed', source='user'`, anche sopra un rifiuto
+    /// precedente. Idempotente.
+    ///
+    /// # Errors
+    /// `Forbidden` senza utente autenticato o se l'asset non è visibile al
+    /// chiamante. `Connection` se la scrittura fallisce.
+    pub async fn assign(
+        &self,
+        ctx: &AuthContext,
+        tag_id: TagId,
+        asset_id: AssetId,
+    ) -> Result<(), DbError> {
+        let Some(user_id) = ctx.user_id() else {
+            return Err(DbError::Forbidden);
+        };
+        AssetRepo::new(self.db)
+            .assert_visible(ctx, std::slice::from_ref(&asset_id))
+            .await?;
+        sqlx::query(
+            "INSERT INTO asset_tags (asset_id, tag_id, state, source, decided_by, decided_at) \
+             VALUES ($1, $2, 'confirmed', 'user', $3, now()) \
+             ON CONFLICT (asset_id, tag_id) DO UPDATE SET \
+               state = 'confirmed', source = 'user', decided_by = $3, decided_at = now()",
+        )
+        .bind(asset_id.as_uuid())
+        .bind(tag_id.as_uuid())
+        .bind(user_id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Tag confermati per un insieme di asset (Fase 11 Task 7, SP-3 §11 e
+    /// `AssetView`) — solo `state='confirmed'`, mai proposte in attesa né
+    /// rifiutate (§11.3: "si guardano solo i tag confermati della foto").
+    /// Stesso idioma di [`crate::FlagRepo::favorites_among`]: una query sola
+    /// per l'intera pagina. Mappa vuota — non un errore — se pgvector non è
+    /// installato: `tags`/`asset_tags` non esistono affatto in quel caso
+    /// (migrazione 0043, stesso no-op già in [`Self::count_proposed_visible`]).
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn confirmed_among(
+        &self,
+        asset_ids: &[AssetId],
+    ) -> Result<HashMap<AssetId, Vec<ConfirmedTag>>, DbError> {
+        if asset_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let status = probe_pgvector(self.db).await?;
+        if !status.available {
+            return Ok(HashMap::new());
+        }
+        let ids: Vec<uuid::Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
+        let rows: Vec<ConfirmedTagRow> = sqlx::query_as(
+            "SELECT at.asset_id, t.id AS tag_id, t.name, t.color, t.parent_id \
+               FROM asset_tags at JOIN tags t ON t.id = at.tag_id \
+              WHERE at.asset_id = ANY($1) AND at.state = 'confirmed'",
+        )
+        .bind(&ids)
+        .fetch_all(self.db.pool())
+        .await?;
+        let mut out: HashMap<AssetId, Vec<ConfirmedTag>> = HashMap::new();
+        for row in rows {
+            out.entry(AssetId::from_uuid(row.asset_id))
+                .or_default()
+                .push(ConfirmedTag {
+                    tag_id: TagId::from_uuid(row.tag_id),
+                    name: row.name,
+                    color: row.color,
+                    category_id: row.parent_id.map(TagId::from_uuid),
+                });
+        }
+        Ok(out)
     }
 }

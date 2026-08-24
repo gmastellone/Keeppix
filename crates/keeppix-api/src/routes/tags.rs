@@ -502,6 +502,53 @@ pub async fn reject_all_proposals(
     Ok(Json(BulkOutcome::from_partition(rejected, &[], None)))
 }
 
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct BatchAssignRequest {
+    #[schema(value_type = Vec<String>)]
+    pub asset_ids: Vec<AssetId>,
+}
+
+/// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…"): un'aggiunta manuale è
+/// già una conferma, non passa dalla coda di revisione (SP-12) — stessa
+/// forma di [`confirm_all_proposals`], ma sull'insieme di asset che il
+/// chiamante sceglie (la selezione corrente), non su "tutte le proposte in
+/// attesa per questo tag". [`keeppix_db::AssetTagRepo::assign`] scrive
+/// sempre `state='confirmed', source='user'`, anche sopra un rifiuto
+/// precedente — a differenza di `confirm_proposal`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tags/{id}/assets/batch",
+    tag = "tags",
+    operation_id = "tags_assign_batch",
+    summary = "Assign a tag to multiple assets directly (source=user, bulk)",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id tag")),
+    request_body = BatchAssignRequest,
+    responses(
+        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
+        (status = 400, description = "batch troppo grande", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn assign_batch(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(id): Path<TagId>,
+    Json(body): Json<BatchAssignRequest>,
+) -> Result<Json<BulkOutcome>, Problem> {
+    crate::batch::reject_oversized_batch(&body.asset_ids)?;
+    let repo = AssetTagRepo::new(&state.db);
+    let mut succeeded = Vec::new();
+    let mut failed = Vec::new();
+    for asset_id in &body.asset_ids {
+        match repo.assign(&ctx, id, *asset_id).await {
+            Ok(()) => succeeded.push(*asset_id),
+            Err(error) => failed.push((*asset_id, error)),
+        }
+    }
+    Ok(Json(BulkOutcome::from_partition(succeeded, &failed, None)))
+}
+
 fn parse_kind(raw: &str) -> Result<TagKind, Problem> {
     raw.parse().map_err(|_| {
         Problem::new(

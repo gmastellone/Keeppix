@@ -9,10 +9,10 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 
 use crate::extract::SESSION_COOKIE;
 use crate::routes::{
-    albums, audit, auth, backup, bootstrap, credentials, duplicates, faces, flags, folders, geotag,
-    groups, health, libraries, map, media, metadata, operations, permissions, persons, places,
-    preferences, problems, regions, rename, restore, search, sessions, setup, share, stacks, sync,
-    tags, timeline, totp, trash, upload, users, video, viewport, ws,
+    albums, asset_move, audit, auth, backup, bootstrap, credentials, duplicates, faces, flags,
+    folders, geotag, groups, health, libraries, map, media, metadata, operations, permissions,
+    persons, places, preferences, problems, regions, rename, restore, search, sessions, setup,
+    share, stacks, sync, tags, timeline, totp, trash, upload, users, video, viewport, ws,
 };
 
 /// Nome dello schema di sicurezza nel documento. Gli attributi
@@ -110,6 +110,7 @@ impl utoipa::Modify for SecurityAddon {
         rename::preview,
         rename::apply_batch,
         rename::undo_batch,
+        asset_move::batch_move,
         geotag::copy_location,
         geotag::import_gpx,
         flags::get,
@@ -164,6 +165,7 @@ impl utoipa::Modify for SecurityAddon {
         tags::reject_proposal,
         tags::confirm_all_proposals,
         tags::reject_all_proposals,
+        tags::assign_batch,
         faces::list_for_asset,
         faces::list_proposals,
         faces::assign,
@@ -243,6 +245,8 @@ impl utoipa::Modify for SecurityAddon {
         timeline::MonthBucketView,
         timeline::TimelinePage,
         timeline::AssetView,
+        timeline::AssetTagBadgeView,
+        timeline::AssetFaceBadgeView,
         folders::FolderView,
         folders::FolderChildren,
         viewport::ViewportRequest,
@@ -281,6 +285,7 @@ impl utoipa::Modify for SecurityAddon {
         rename::RenameBatchRequest,
         rename::RenamePreviewItemView,
         rename::RenameOperationOutcome,
+        asset_move::BatchMoveRequest,
         geotag::CopyLocationRequest,
         geotag::ImportGpxRequest,
         flags::AssetFlagsBody,
@@ -321,6 +326,7 @@ impl utoipa::Modify for SecurityAddon {
         tags::CreateTagRequest,
         tags::PatchTagRequest,
         tags::ProposalView,
+        tags::BatchAssignRequest,
         faces::FaceView,
         faces::FaceBBoxView,
         faces::AssignFaceRequest,

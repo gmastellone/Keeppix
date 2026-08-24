@@ -3303,3 +3303,144 @@ non ha `tags.ts`/`persons.ts`/`faces.ts`). Estendere `AssetView` per
 portare questi campi (o un endpoint di join dedicato) è lavoro di
 backend reale, non cablaggio — va scoping a parte prima di procedere,
 non improvvisato dentro questa stessa unità.
+
+**Corretto dopo verifica diretta sul codice reale** (indicazione
+dell'operatore, non presunzione mia): quasi tutto il necessario esiste
+già, va solo collegato — verificato riga per riga prima di scrivere
+qualunque cosa, non per sentito dire:
+- `AssetRepo::move_asset` (Fase 9 Task 1) esiste già, mai esposta da una
+  rotta.
+- `camera_make`/`camera_model` sono già colonne reali su `asset_exif`
+  (migrazione 0005), già indicizzate (`asset_exif_camera_idx`).
+- `GET /tags` e `GET /persons` esistono già dalla Fase 7/8, mai
+  consumate dal frontend — bastano per i menu a discesa, nessun
+  endpoint nuovo serve lì.
+- **Scoperta non anticipata**: `POST /assets/batch/rename*` (Fase 9
+  Task 10, `RenameRepo`) è **già completo** — anteprima, applicazione
+  con `operation_id` tracciato, annullamento — mai esposto al frontend.
+  "Rinomina con formula…" (§13.3 campo 7) è quindi **puro cablaggio**
+  anch'esso, scoperto solo leggendo `crates/keeppix-api/src/lib.rs` per
+  intero per trovare dove aggiungere la rotta di spostamento.
+
+## Task 7 (4/N) — Il terreno di backend per SP-3 e Modifica in blocco
+
+**Ambito**: solo backend + i moduli `api/*.ts` che lo rendono
+raggiungibile — nessun cablaggio in una schermata reale ancora (SP-3 e
+Modifica in blocco sono le prossime unità). Tre pezzi nuovi, uno
+scoperto già pronto:
+
+**1. `POST /assets/batch/move`** (nuovo modulo
+`routes/asset_move.rs`) — su `AssetRepo::move_to_folder` (nuovo metodo
+in `keeppix-db/src/assets.rs`: wrapper sottile su `move_asset` che
+legge il nome corrente e lo passa invariato, per "sposta senza
+rinominare" di §13.3 campo 8). Stesso pattern di `flags::batch_set`:
+ciclo sequenziale, esito in `BulkOutcome` — non l'involucro con
+`operation_id` di `rename.rs`, che serve al progresso `WebSocket` di un
+batch tracciato; uno spostamento di cartella non ha né anteprima né
+annullamento nel documento (§13.3).
+
+**2. `POST /tags/{id}/assets/batch`** (nuovo handler `assign_batch` in
+`routes/tags.rs`) — su `AssetTagRepo::assign` (nuovo metodo in
+`keeppix-db/src/asset_tags.rs`): scrive sempre `state='confirmed',
+source='user'`, anche sopra un rifiuto precedente — a differenza di
+`confirm()` (che transita solo da `'proposed'` ed è in conflitto su un
+`'rejected'`), qui la persona sta decidendo *ora*, non risolvendo una
+proposta IA passata (SP-12, §13.3 campo 5: "un'aggiunta manuale è già
+una conferma, non passa dalla coda di revisione").
+
+**3. `AssetView` esteso** (`camera_model`, `tags`, `faces` — campi
+additivi) per SP-3 §11. Tre nuovi metodi bulk, stesso idioma di
+`FlagRepo::favorites_among` (una query sola per l'intera pagina, mai
+una per riga):
+- `AssetRepo::camera_models_among` — `asset_exif`, nessun gate
+  pgvector (schema core, migrazione 0005).
+- `AssetTagRepo::confirmed_among` — solo `state='confirmed'`;
+  `category_id` è il `parent_id` del tag stesso (le "categorie" del
+  documento sono tag con `kind='category'`, non una tabella a parte —
+  nessun secondo giro per risolverle). Gate pgvector: mappa vuota, non
+  errore, se l'estensione manca (`tags`/`asset_tags` non esistono
+  affatto in quel caso, migrazione 0043).
+- `FaceRepo::confirmed_among` — `person_id IS NOT NULL AND rejected_at
+  IS NULL`, sia assegnato a mano sia dal raggruppamento automatico:
+  entrambi sono un'identità stabilita, a differenza di
+  `proposed_person_id` (un suggerimento non ancora deciso). Stesso gate
+  pgvector di sopra (migrazione 0046).
+
+Estratta `enrich_views` (funzione condivisa in `routes/timeline.rs`,
+`pub(crate)`) per non duplicare la sequenza "raccogli gli id → quattro
+bulk-fetch → fondi" fra `/timeline` e `/search`, che la duplicavano già
+solo per `favorite` prima di questa unità — occasione per accorciarla
+invece di allungare la duplicazione aggiungendo i tre campi nuovi in
+entrambi i posti. Anche `GET /assets/{id}` (dettaglio singolo, usato
+dal lightbox per un link diretto) ora porta camera/tag/volti, con gli
+stessi tre metodi bulk chiamati su una slice di un solo id — nessun
+terzo percorso di codice a parte.
+
+**Frontend**: solo i moduli `api/*.ts` che rendono tutto questo
+raggiungibile — `api/assets.ts` (`moveAssetsBatch`), `api/tags.ts`
+(`fetchTags`, `assignTagBatch`), `api/persons.ts` (`fetchPersons`),
+`api/rename.ts` (`previewRename`/`applyRenameBatch`/`undoRenameBatch`,
+il cablaggio "puro" scoperto sopra) — e `TimelineAsset` esteso con
+`camera_model`/`tags`/`faces` in `api/timeline.ts`. **Nessuna vista
+ancora li consuma**: quello è SP-3 e Modifica in blocco, le prossime
+unità.
+
+Verifica eseguita — **con un limite dichiarato**: questo sandbox non ha
+Docker (`docker ps` fallisce, nessun demone) né un Postgres locale
+(`pg_isready` non risponde), quindi **nessun test che tocca davvero il
+database ha potuto girare qui** — gireranno in CI, dove Docker esiste.
+Quanto segue è il massimo verificabile senza un database reale:
+- `cargo check --workspace` → pulito (richiede `ORT_LIB_LOCATION=/root/
+  ort-lib ORT_PREFER_DYNAMIC_LINK=1` per collegare l'ONNX runtime
+  locale invece di scaricarlo — il proxy della sandbox blocca il
+  download; `LD_LIBRARY_PATH=/root/ort-lib` in più per *eseguire*
+  qualunque binario, non solo compilarlo).
+- `cargo clippy --workspace --all-targets -- -D warnings` → pulito,
+  inclusi tutti i nuovi file di test (un `#[allow(clippy::
+  too_many_lines)]` aggiunto a un test con molta seed, stesso motivo
+  già presente su `review_queue_lists_confirms_rejects_and_updates_
+  bootstrap_revision` in `tags.rs`).
+- `cargo check -p X --test Y` mirato su ognuno dei sei file di test
+  toccati/nuovi (`keeppix-db`: `asset_tags`, `assets`, `faces`;
+  `keeppix-api`: `asset_move`, `tags`, `timeline`) → tutti puliti.
+- `cargo test -p keeppix-api --test openapi` → **6/8 verdi** dopo aver
+  aggiornato i due elenchi letterali che il test stesso vieta di
+  rigenerare automaticamente (`security_requirements_name_a_declared_
+  scheme`, `operation_ids_are_explicit_and_unique` — nuove voci
+  inserite in ordine alfabetico, non appese) e `UPDATE_OPENAPI=1` una
+  volta per rigenerare `docs/api/openapi.json` (il test stesso lo
+  autorizza per **sole aggiunte** entro `/api/v1`, con la frase esatta
+  da spiegare nel commit: fatto qui). I 2 test ancora rossi
+  (`documented_operations_are_all_mounted`,
+  `openapi_summaries_do_not_contain_errors_heading`) falliscono solo
+  su `SocketNotFoundError("/var/run/docker.sock")` — ambiente, non
+  codice: entrambi montano un `TestServer` reale via testcontainers.
+- Nuovi test scritti seguendo alla lettera le convenzioni già in uso
+  (harness `TestDb`/`TestServer`, stessi helper di seed, stesso stile
+  di asserzione) ma **mai eseguiti**, solo compilati: 3 in
+  `asset_tags.rs` (assign da zero, assign sopra un rifiuto precedente
+  — la deviazione dichiarata da `confirm` —, idempotenza e permessi;
+  più 2 su `confirmed_among`), 3 in `faces.rs` (`confirmed_among` con
+  assegnazione mano+automatica insieme, esclusione di rifiutati e
+  proposte non decise, lista vuota), 2 in `assets.rs`
+  (`move_to_folder` non rinomina, `camera_models_among` con/senza riga
+  exif), 3 in `asset_move.rs` (spostamento in blocco, una collisione
+  che non blocca il resto del lotto, il tetto di batch), 1 in
+  `tags.rs` (`assign_batch` end-to-end via HTTP), 2 in `timeline.rs`
+  (camera/tags/faces vuoti con grazia senza pgvector; popolati per
+  davvero con pgvector, via `TestServer::start_with_vector()`).
+  **Debito dichiarato**: verificheranno per la prima volta in CI, non
+  qui — coerente con la disciplina già seguita in questa sessione per
+  tutto ciò che questo sandbox non può eseguire, mai taciuto.
+- Frontend (dopo l'estensione di `TimelineAsset`): `npx vitest run` →
+  74 file, 562/562 ancora verdi; `npx vue-tsc -b` → pulito (9 file di
+  test con una propria `function photo()` aggiornati con i tre campi
+  nuovi, tutti trovati con una ricerca esplicita, non uno alla volta a
+  tentoni); `npx eslint` sui file nuovi/toccati → pulito.
+- **Incidente ambientale, risolto**: a metà di questa unità il
+  filesystem si è riempito (`cargo test --workspace --no-run` stava
+  compilando ogni binario di test insieme, ~26 GB in `target/`) — non
+  un difetto del codice, la cartella di build di un intero workspace
+  Rust con dipendenze pesanti (aws-sdk, tokenizers, ort). Risolto con
+  `cargo clean` (26 GB liberati); tutte le verifiche sopra erano già
+  state fatte prima dell'incidente, nessuna ripetuta con dati stantii.

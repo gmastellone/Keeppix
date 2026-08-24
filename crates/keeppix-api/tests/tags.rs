@@ -412,3 +412,110 @@ async fn review_queue_lists_confirms_rejects_and_updates_bootstrap_revision() {
 
     let _ = fs::remove_dir_all(&root);
 }
+
+/// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…"): assegna un tag a mano a
+/// più asset in un colpo solo — `state='confirmed', source='user'`, mai una
+/// proposta in attesa.
+#[tokio::test]
+async fn assign_batch_confirms_the_tag_as_user_sourced_on_every_asset() {
+    use chrono::{TimeZone, Utc};
+    use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
+    use keeppix_domain::{AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, UserId};
+    use std::fs;
+
+    let server = TestServer::start_with_vector().await;
+    setup_admin(&server).await;
+    let admin_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+    let admin = UserId::from_uuid(admin_id);
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let root = std::env::temp_dir().join(format!("kpx-assign-batch-{}", uuid::Uuid::now_v7()));
+    fs::create_dir_all(root.join("2024")).unwrap();
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Assegna".into(),
+                owner_id: admin,
+                root_path: root.clone(),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(&server.db)
+        .ensure_path(library.id, &["2024"])
+        .await
+        .unwrap();
+    fs::write(root.join("2024/a.jpg"), b"a").unwrap();
+    fs::write(root.join("2024/b.jpg"), b"b").unwrap();
+    let a = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("a.jpg").unwrap(),
+            size_bytes: 1,
+            mtime: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let b = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("b.jpg").unwrap(),
+            size_bytes: 1,
+            mtime: Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap(),
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+
+    let tag: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/tags"))
+        .json(&json!({ "name": "Montagna", "kind": "tag" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let tag_id = tag["id"].as_str().unwrap();
+
+    let outcome: serde_json::Value = server
+        .client
+        .post(server.url(&format!("/api/v1/tags/{tag_id}/assets/batch")))
+        .json(&json!({ "asset_ids": [a.to_string(), b.to_string()] }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(outcome["succeeded"].as_array().unwrap().len(), 2);
+    assert!(outcome["failed"].as_array().unwrap().is_empty());
+
+    for asset in [a, b] {
+        let row: (String, String) = sqlx::query_as(
+            "SELECT state, source FROM asset_tags WHERE asset_id = $1 AND tag_id = $2",
+        )
+        .bind(asset.as_uuid())
+        .bind(uuid::Uuid::parse_str(tag_id).unwrap())
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+        assert_eq!(row.0, "confirmed");
+        assert_eq!(row.1, "user");
+    }
+
+    let _ = fs::remove_dir_all(&root);
+}

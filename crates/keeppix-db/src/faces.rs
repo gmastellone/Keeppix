@@ -8,11 +8,31 @@
 //! vede. Una volta assegnato a mano (`assigned_by` impostato), un volto non
 //! viene mai più toccato dal raggruppamento automatico (spec §4.3).
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use keeppix_domain::{AssetId, AuthContext, Face, FaceBBox, FaceId, PersonId, UserId};
 
 use crate::visibility::VisibilityScope;
 use crate::{AssetRepo, Db, DbError};
+
+/// Un volto confermato su un asset, come [`FaceRepo::confirmed_among`] lo
+/// restituisce — `person_id`/nome soltanto, non la riga `faces` intera
+/// (bbox/embedding/punteggi non servono al chiamante, SP-3 §11).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmedFace {
+    pub person_id: PersonId,
+    /// `None` per una persona senza nome ("Persona 4" — l'etichetta di
+    /// fallback è responsabilità del chiamante, non di questo livello).
+    pub person_name: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ConfirmedFaceRow {
+    asset_id: uuid::Uuid,
+    person_id: uuid::Uuid,
+    person_name: Option<String>,
+}
 
 /// Allineato a `keeppix_media::face::MODEL_VERSION`. Duplicato qui perché
 /// `keeppix-db` non può dipendere da `keeppix-media` (`deny.toml`) — stessa
@@ -674,5 +694,51 @@ impl<'a> FaceRepo<'a> {
             .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    /// Volti confermati per un insieme di asset (Fase 11 Task 7, SP-3 §11 e
+    /// `AssetView`) — "confermato" qui è `person_id IS NOT NULL AND
+    /// rejected_at IS NULL`, sia esso assegnato a mano (`assigned_by`
+    /// impostato) sia dal raggruppamento automatico: entrambi sono
+    /// un'identità stabilita, a differenza di `proposed_person_id` (un
+    /// suggerimento non ancora deciso, mai qui). Stesso idioma di
+    /// [`crate::FlagRepo::favorites_among`]: una query sola per l'intera
+    /// pagina. Mappa vuota — non un errore — se pgvector non è installato:
+    /// `faces`/`persons` non esistono affatto in quel caso (migrazione
+    /// 0046, stesso no-op già in [`Self::count_proposed_visible`]).
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn confirmed_among(
+        &self,
+        asset_ids: &[AssetId],
+    ) -> Result<HashMap<AssetId, Vec<ConfirmedFace>>, DbError> {
+        if asset_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let status = crate::pgvector::probe_pgvector(self.db).await?;
+        if !status.available {
+            return Ok(HashMap::new());
+        }
+        let ids: Vec<uuid::Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
+        let rows: Vec<ConfirmedFaceRow> = sqlx::query_as(
+            "SELECT fa.asset_id, p.id AS person_id, p.name AS person_name \
+               FROM faces fa JOIN persons p ON p.id = fa.person_id \
+              WHERE fa.asset_id = ANY($1) AND fa.person_id IS NOT NULL \
+                AND fa.rejected_at IS NULL",
+        )
+        .bind(&ids)
+        .fetch_all(self.db.pool())
+        .await?;
+        let mut out: HashMap<AssetId, Vec<ConfirmedFace>> = HashMap::new();
+        for row in rows {
+            out.entry(AssetId::from_uuid(row.asset_id))
+                .or_default()
+                .push(ConfirmedFace {
+                    person_id: PersonId::from_uuid(row.person_id),
+                    person_name: row.person_name,
+                });
+        }
+        Ok(out)
     }
 }

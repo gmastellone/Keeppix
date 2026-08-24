@@ -48,7 +48,7 @@ pub mod users;
 pub mod visibility;
 
 pub use albums::{Album, AlbumAsset, AlbumPatch, AlbumRefresh, AlbumRepo, NewAlbum};
-pub use asset_tags::{AssetTagRepo, ProposalView, TAG_MATCH_BAND};
+pub use asset_tags::{AssetTagRepo, ConfirmedTag, ProposalView, TAG_MATCH_BAND};
 pub use assets::{AssetRepo, DirectPutOutcome};
 pub use audit::{AuditEntry, AuditRepo};
 pub use backup::{
@@ -65,7 +65,7 @@ pub use embeddings::{
     PendingEmbedding, vector_literal,
 };
 pub use error::DbError;
-pub use faces::{FaceRepo, NewDetectedFace, PendingFaceScan};
+pub use faces::{ConfirmedFace, FaceRepo, NewDetectedFace, PendingFaceScan};
 pub use flags::FlagRepo;
 pub use folders::FolderRepo;
 pub use geo::{

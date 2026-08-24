@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -964,6 +965,60 @@ impl<'a> AssetRepo<'a> {
         .execute(self.db.pool())
         .await?;
         Ok(())
+    }
+
+    /// Modelli di fotocamera per un insieme di asset (Fase 11 Task 7, SP-3
+    /// §11: dimensione "Fotocamera"). Un asset senza `asset_exif` leggibile
+    /// (o senza `camera_model` nell'exif) semplicemente non compare nella
+    /// mappa — nessun `None` esplicito da propagare. Stesso idioma di
+    /// [`crate::FlagRepo::favorites_among`]: una query sola per l'intera
+    /// pagina, non una per asset — non prende `AuthContext` per lo stesso
+    /// motivo di quel metodo, il chiamante ha già filtrato `asset_ids` sul
+    /// visibile.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn camera_models_among(
+        &self,
+        asset_ids: &[AssetId],
+    ) -> Result<HashMap<AssetId, String>, DbError> {
+        if asset_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let ids: Vec<uuid::Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
+        let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(
+            "SELECT asset_id, camera_model FROM asset_exif \
+              WHERE asset_id = ANY($1) AND camera_model IS NOT NULL",
+        )
+        .bind(&ids)
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, model)| (AssetId::from_uuid(id), model))
+            .collect())
+    }
+
+    /// Sposta l'asset in una cartella diversa **senza rinominarlo** — il
+    /// campo "Sposta in cartella" di Modifica in blocco (Fase 11 Task 7,
+    /// §13.3, campo 8), a differenza di [`Self::move_asset`] che prende
+    /// anche un nuovo nome per il caso "Rinomina cartella…"/spostamento con
+    /// rinomina contestuale. Wrapper sottile: legge il nome corrente e lo
+    /// passa invariato — [`Self::move_asset`] fa comunque un secondo
+    /// `find_by_id` al suo interno (già così prima di questo metodo, non
+    /// una regressione introdotta qui) per il proprio controllo di no-op.
+    ///
+    /// # Errors
+    /// Come [`Self::move_asset`].
+    pub async fn move_to_folder(
+        &self,
+        ctx: &AuthContext,
+        asset_id: AssetId,
+        new_folder_id: FolderId,
+    ) -> Result<Asset, DbError> {
+        let current = self.find_by_id(ctx, asset_id).await?;
+        self.move_asset(ctx, asset_id, new_folder_id, current.filename)
+            .await
     }
 }
 

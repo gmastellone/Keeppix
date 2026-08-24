@@ -643,6 +643,62 @@
         ]
       }
     },
+    "/api/v1/assets/batch/move": {
+      "post": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Move multiple assets to a folder",
+        "operationId": "assets_batch_move",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchMoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/batch/rename": {
       "post": {
         "tags": [
@@ -8064,6 +8120,73 @@
         ]
       }
     },
+    "/api/v1/tags/{id}/assets/batch": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Assign a tag to multiple assets directly (source=user, bulk)",
+        "operationId": "tags_assign_batch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchAssignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/tags/{id}/assets/{asset_id}/confirm": {
       "post": {
         "tags": [
@@ -10607,6 +10730,25 @@
           }
         }
       },
+      "AssetFaceBadgeView": {
+        "type": "object",
+        "description": "Un volto confermato, come SP-3 §11 lo mostra: solo l'identità della\npersona (bbox/punteggi non servono a un chip di filtro).",
+        "required": [
+          "person_id"
+        ],
+        "properties": {
+          "person_id": {
+            "type": "string"
+          },
+          "person_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` per una persona senza nome (\"Persona 4\" — l'etichetta di\nfallback è compito del frontend, come già per le altre schermate\nPersone)."
+          }
+        }
+      },
       "AssetFlagsBody": {
         "type": "object",
         "properties": {
@@ -10637,6 +10779,34 @@
           }
         }
       },
+      "AssetTagBadgeView": {
+        "type": "object",
+        "description": "Un tag confermato, come SP-3 §11 lo mostra: nome e colore per la chip,\n`category_id` per l'AND fra le dimensioni \"Tag\"/\"Categorie\" — mai\nbisogno di un secondo giro sul tag per risolvere la sua categoria.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "AssetView": {
         "type": "object",
         "required": [
@@ -10647,14 +10817,30 @@
           "kind",
           "status",
           "stack_size",
-          "favorite"
+          "favorite",
+          "tags",
+          "faces"
         ],
         "properties": {
+          "camera_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fotocamera confermata sull'exif (Fase 11 Task 7, SP-3 §11,\ndimensione \"Fotocamera\"). `None` se l'asset non ha `asset_exif`\nleggibile o l'exif non porta il modello. Campo additivo."
+          },
           "content_hash": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "faces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetFaceBadgeView"
+            },
+            "description": "Volti confermati (Fase 11 Task 7, SP-3 §11, dimensione \"Persone\") —\n`person_id IS NOT NULL AND rejected_at IS NULL`, assegnato a mano o\ndal raggruppamento automatico. Vuoto, mai assente. Campo additivo."
           },
           "favorite": {
             "type": "boolean",
@@ -10715,6 +10901,13 @@
           },
           "status": {
             "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetTagBadgeView"
+            },
+            "description": "Tag confermati (Fase 11 Task 7, SP-3 §11, dimensioni \"Tag\"/\n\"Categorie\") — solo `state='confirmed'`, mai proposte in attesa.\nVuoto, mai assente: `[]` se l'asset non ha tag o se pgvector non è\ninstallato. Campo additivo."
           },
           "taken_at_utc": {
             "type": [
@@ -10992,6 +11185,20 @@
           }
         }
       },
+      "BatchAssignRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "BatchDeleteRequest": {
         "type": "object",
         "required": [
@@ -11032,6 +11239,24 @@
             }
           }
         ]
+      },
+      "BatchMoveRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "folder_id"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "folder_id": {
+            "type": "string"
+          }
+        }
       },
       "BatchShiftRequest": {
         "type": "object",

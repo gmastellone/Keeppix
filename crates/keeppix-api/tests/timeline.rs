@@ -1001,3 +1001,186 @@ async fn seed_user(server: &TestServer, username: &str) {
         .await
         .unwrap();
 }
+
+/// Fase 11 Task 7 (SP-3 §11, dimensione "Fotocamera") — campo additivo su
+/// `AssetView`, condiviso da `enrich_views` fra `/timeline` e `/search`.
+/// Server senza pgvector di proposito: dimostra che `tags`/`faces` restano
+/// `[]` per grazia (nessun errore) quando lo schema AI non esiste affatto —
+/// `camera_model` non dipende da pgvector, `asset_exif` è schema core.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_page_includes_camera_model_and_empty_tags_faces_without_vector() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "with-camera.jpg", 2024, 6, 1).await;
+    index_photo(&server, folder, "no-exif.jpg", 2024, 6, 2).await;
+
+    let before = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let items = before["assets"].as_array().unwrap();
+    let with_camera_id = items
+        .iter()
+        .find(|a| a["filename"] == "with-camera.jpg")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        items.iter().all(|a| a["tags"].as_array().unwrap().is_empty()
+            && a["faces"].as_array().unwrap().is_empty()),
+        "tags/faces are always present arrays, empty here — no pgvector, no AI schema"
+    );
+    assert!(items.iter().all(|a| a.get("camera_model").is_none()));
+
+    sqlx::query("INSERT INTO asset_exif (asset_id, camera_model) VALUES ($1, $2)")
+        .bind(uuid::Uuid::parse_str(&with_camera_id).unwrap())
+        .bind("FUJIFILM X-T5")
+        .execute(server.db.pool())
+        .await
+        .unwrap();
+
+    let after = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let after_items = after["assets"].as_array().unwrap();
+    let with_camera = after_items
+        .iter()
+        .find(|a| a["id"] == with_camera_id)
+        .unwrap();
+    assert_eq!(with_camera["camera_model"], "FUJIFILM X-T5");
+    let no_exif = after_items
+        .iter()
+        .find(|a| a["filename"] == "no-exif.jpg")
+        .unwrap();
+    assert!(no_exif.get("camera_model").is_none());
+}
+
+/// Fase 11 Task 7 (SP-3 §11, dimensioni "Tag"/"Categorie"/"Persone") — la
+/// stessa `enrich_views` che il test sopra dimostra graziosa senza
+/// pgvector deve popolare per davvero quando lo schema AI c'è.
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::too_many_lines)]
+async fn timeline_page_includes_confirmed_tags_and_faces_with_vector() {
+    use keeppix_db::{AssetTagRepo, FaceRepo, NewDetectedFace, PersonRepo};
+    use keeppix_domain::{FaceBBox, TagKind};
+
+    let server = TestServer::start_with_vector().await;
+    let (folder, _) = seed_library(&server).await;
+    index_photo(&server, folder, "tagged.jpg", 2024, 6, 1).await;
+
+    let before = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let asset_id: keeppix_domain::AssetId = before["assets"][0]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+
+    let ctx = admin_ctx(&server).await;
+    let category = keeppix_db::TagRepo::new(&server.db)
+        .create(
+            &ctx,
+            keeppix_db::NewTag {
+                name: "Viaggi".to_owned(),
+                kind: TagKind::Category,
+                parent_id: None,
+                prompt: None,
+                color: None,
+                threshold: None,
+                embedding: None,
+                model_version: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    let tag = keeppix_db::TagRepo::new(&server.db)
+        .create(
+            &ctx,
+            keeppix_db::NewTag {
+                name: "Montagna".to_owned(),
+                kind: TagKind::Tag,
+                parent_id: Some(category),
+                prompt: None,
+                color: Some("#336699".to_owned()),
+                threshold: None,
+                embedding: None,
+                model_version: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    AssetTagRepo::new(&server.db)
+        .assign(&ctx, tag, asset_id)
+        .await
+        .unwrap();
+
+    let person = PersonRepo::new(&server.db)
+        .create(Some(keeppix_domain::PersonName::parse("Marta").unwrap()))
+        .await
+        .unwrap();
+    let face = FaceRepo::new(&server.db)
+        .insert_detected(NewDetectedFace {
+            asset_id,
+            bbox: FaceBBox {
+                x: 0.1,
+                y: 0.1,
+                w: 0.2,
+                h: 0.2,
+            },
+            landmarks: None,
+            embedding: None,
+            detect_score: 0.95,
+            quality: Some(0.8),
+            model_version: "scrfd-500mf+arcface".to_owned(),
+        })
+        .await
+        .unwrap();
+    FaceRepo::new(&server.db)
+        .assign(&ctx, face.id, person.id)
+        .await
+        .unwrap();
+
+    let after = server
+        .client
+        .get(server.url("/api/v1/timeline?bucket=2024-06"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let item = &after["assets"][0];
+
+    let tags = item["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0]["name"], "Montagna");
+    assert_eq!(tags[0]["color"], "#336699");
+    assert_eq!(tags[0]["category_id"], category.to_string());
+
+    let faces = item["faces"].as_array().unwrap();
+    assert_eq!(faces.len(), 1);
+    assert_eq!(faces[0]["person_id"], person.id.to_string());
+    assert_eq!(faces[0]["person_name"], "Marta");
+}

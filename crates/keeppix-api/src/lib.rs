@@ -343,6 +343,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::rename::undo_batch),
         )
         .route(
+            "/assets/batch/move",
+            axum::routing::post(routes::asset_move::batch_move),
+        )
+        .route(
             "/assets/{id}/flags",
             get(routes::flags::get).put(routes::flags::set),
         )
@@ -396,6 +400,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
         .route(
             "/tags/{id}/assets/{asset_id}/reject",
             axum::routing::post(routes::tags::reject_proposal),
+        )
+        .route(
+            "/tags/{id}/assets/batch",
+            axum::routing::post(routes::tags::assign_batch),
         )
         .route("/assets/{id}/faces", get(routes::faces::list_for_asset))
         .route("/faces/proposals", get(routes::faces::list_proposals))
