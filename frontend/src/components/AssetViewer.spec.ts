@@ -308,3 +308,152 @@ describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
     expect(wrapper.get('[data-testid="mini-map"]').text()).toBe('45,9')
   })
 })
+
+describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
+  function mockPanelFetch(opts: {
+    title?: string | null
+    rating?: number | null
+    exif?: Record<string, unknown>
+  } = {}) {
+    apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (path.endsWith('/metadata') && method === 'GET') {
+        return Promise.resolve({
+          title: opts.title ?? null,
+          description: null,
+          taken_at: null,
+          location: null,
+          place_id: null,
+          orientation: null
+        })
+      }
+      if (path.endsWith('/metadata') && method === 'PATCH') return Promise.resolve(null)
+      if (path.endsWith('/flags') && method === 'GET') {
+        return Promise.resolve({ rating: opts.rating ?? null, pick: 'none', color_label: null, favorite: false })
+      }
+      if (path.endsWith('/flags') && method === 'PUT') return Promise.resolve(null)
+      // GET /api/v1/assets/{id} (dettaglio, mai /metadata né /flags)
+      return Promise.resolve({ ...photo('a'), full_exif: opts.exif })
+    })
+  }
+
+  it('carica il titolo esistente nel campo; lasciarlo vuoto lo azzera a null (non stringa vuota) e salva solo al change', async () => {
+    mockPanelFetch({ title: 'Tramonto' })
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n] }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    const input = wrapper.get('#lbTitleInput')
+    expect((input.element as HTMLInputElement).value).toBe('Tramonto')
+
+    await input.setValue('  ')
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/assets/a/metadata',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: null }) })
+    )
+  })
+
+  it('trims the title and sends it only on change, not on every keystroke (§19.3: onchange, not oninput)', async () => {
+    mockPanelFetch({ title: null })
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n] }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+    apiFetch.mockClear()
+
+    // Simula la digitazione (solo `input`, mai `change`) senza passare da
+    // `setValue()`: quel metodo di vue-test-utils spara *entrambi* gli
+    // eventi per gli `<input>`, quindi non potrebbe distinguere `onchange`
+    // da `oninput` — esattamente ciò che questo test verifica.
+    const input = wrapper.get('#lbTitleInput')
+    ;(input.element as HTMLInputElement).value = '  Tramonto  '
+    await input.trigger('input')
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    await input.trigger('change')
+    await flushPromises()
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/assets/a/metadata',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: 'Tramonto' }) })
+    )
+  })
+
+  it('§19.3: click on a star sets the rating, a second click on the same star resets it to 0', async () => {
+    mockPanelFetch({ rating: 2 })
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n] }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    await wrapper.get('[aria-label="4 stelle"]').trigger('click')
+    await flushPromises()
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/assets/a/flags',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ rating: 4, pick: 'none', color_label: null, favorite: false })
+      })
+    )
+
+    apiFetch.mockClear()
+    await wrapper.get('[aria-label="4 stelle"]').trigger('click')
+    await flushPromises()
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/assets/a/flags',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ rating: 0, pick: 'none', color_label: null, favorite: false })
+      })
+    )
+  })
+
+  it('§19.2 SCATTO: shows camera/lens/exposure/dimensions only when the exif carries them', async () => {
+    mockPanelFetch({
+      exif: {
+        camera_make: 'Sony',
+        camera_model: 'α7R V',
+        lens: 'FE 24-70mm',
+        iso: 400,
+        f_number: 3.5,
+        exposure: '1/250',
+        focal_length: 50
+      }
+    })
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n] }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Sony α7R V')
+    expect(wrapper.text()).toContain('FE 24-70mm')
+    expect(wrapper.text()).toContain('f/3.5 · 1/250s · ISO 400')
+    expect(wrapper.text()).toContain('100×100')
+  })
+
+  it('§19.2 SCATTO: omits camera/lens/exposure rows the asset has no exif for, keeping dimensions (sourced from the asset itself, not exif)', async () => {
+    mockPanelFetch({ exif: undefined })
+    const wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n] }
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Fotocamera')
+    expect(wrapper.text()).not.toContain('Obiettivo')
+    expect(wrapper.text()).not.toContain('Esposizione')
+    expect(wrapper.text()).toContain('100×100')
+  })
+})

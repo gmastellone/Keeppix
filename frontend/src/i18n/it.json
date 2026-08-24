@@ -288,6 +288,19 @@
       "addToAlbum": "Aggiungi ad album",
       "rename": "Rinomina…",
       "delete": "Elimina…"
+    },
+    "panel": {
+      "dateTime": "{date}, ore {time}",
+      "titleLabel": "Titolo",
+      "titleOptional": "(opzionale)",
+      "titlePlaceholder": "Senza titolo",
+      "titleError": "Non è stato possibile salvare il titolo. Riprova.",
+      "ratingError": "Non è stato possibile salvare la valutazione. Riprova.",
+      "shot": "Scatto",
+      "camera": "Fotocamera",
+      "lens": "Obiettivo",
+      "exposure": "Esposizione",
+      "dimensions": "Dimensioni"
     }
   },
   "player": {

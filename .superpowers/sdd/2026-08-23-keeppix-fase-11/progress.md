@@ -4027,3 +4027,79 @@ toccato in questa sessione — confermato via `git blame`, commit
 `6fab915` precedente a questa sessione). `npm run build` + calcolo
 manuale del bundle iniziale gzip (stesso algoritmo di `.github/
 workflows/ci.yml`) → 124.776 byte, sotto il budget di 153.600.
+
+## Task 8 (3/N) — Pannello informazioni: titolo, valutazione, sezione SCATTO
+
+Prima metà reale di §19 (le altre restano POSIZIONE/PERSONE/TAG/ALBUM/
+AZIONI, prossime unità). Prima di scrivere codice, un agente di ricerca ha
+verificato lo stato reale di tutte le primitive necessarie (endpoint
+metadati, componente stelle, dati RAW/JPEG, place picker, volti, tag,
+album) — due gap reali trovati e corretti prima di essere usati, non
+dopo:
+
+- `frontend/src/api/metadata.ts`: `AssetMetadata`/`fetchMetadata` avevano
+  un tipo (`{exif, overrides}`) che **non corrisponde a nessuna risposta
+  reale del backend** ed erano `grep`-confermati mai chiamati da nessun
+  punto del frontend — codice morto con un tipo sbagliato, non solo
+  inutilizzato. Sostituito con la forma vera di `EffectiveMetadataView`
+  (`crates/keeppix-api/src/routes/metadata.rs:48-55`: title, description,
+  taken_at, location, place_id, orientation) e aggiunta `patchMetadata`
+  per `PATCH /assets/{id}/metadata`, stessa semantica "doppio opzionale"
+  del backend (campo assente = non toccare, `null` = azzera).
+- `TimelineAsset` (`frontend/src/api/timeline.ts`) non portava
+  `location`/`place_id`/`stack_size`, già presenti lato backend
+  (`AssetView`, `crates/keeppix-api/src/routes/timeline.rs:48-101`) ma
+  mai arrivati al tipo frontend. Aggiunti come campi opzionali (stesso
+  motivo di `full_exif`: presenti solo su `GET /assets/{id}`, mai su
+  `/timeline`/`/search`) insieme a un nuovo `fetchAsset(id)`.
+
+Il prop `asset` che arriva ad `AssetViewer` dalle griglie (`/timeline`,
+`/search`) non porta mai `full_exif` — solo `GET /assets/{id}` lo calcola.
+`loadPanelData()` (sostituisce il precedente `loadMetadata()`) ora fa tre
+chiamate in parallelo all'apertura del pannello — `fetchMetadata` (titolo,
+posizione), `fetchAsset` (`full_exif`, per la sezione SCATTO),
+`fetchFlags` (valutazione) — con `Promise.allSettled`: l'esito di ciascuna
+è indipendente, così l'assenza di pgvector (che fa fallire `fetchFlags`
+altrove nel codice) non porta via anche titolo e posizione. Stessa guardia
+di sequenza già in uso per la mini-mappa, estesa a tutt'e tre.
+
+**Titolo** (`#lbTitleInput`, §19.3): salvataggio `@change`, non `@input`
+— la digitazione aggiorna solo il modello locale (`v-model`), il giro di
+rete parte solo alla perdita del fuoco o Invio. Valore vuoto (dopo
+`trim()`) inviato come `title: null` (azzera l'override), non stringa
+vuota — il campo torna al placeholder "Senza titolo" senza alcun
+ripiego sul nome del file, come da §19.3.
+
+**Stelle** (§19.3): riuso diretto di `RatingStars.vue` (già esistente,
+usato da `CullingView.vue`) — il componente emette solo `rate(n)`, il
+toggle "riclick sulla stessa stella azzera a 0" è responsabilità del
+chiamante e **non** era implementato nemmeno in `CullingView.vue`
+(`stores/culling.ts#rate` fa un `set` diretto, mai un toggle): qui sì,
+per rispettare §19.3 alla lettera — prima volta che questo comportamento
+esiste nel codice. `setFlags` sostituisce l'intero oggetto voti (PUT, non
+PATCH): si parte sempre da `flags.value` già caricato, mai da un valore
+vuoto, stessa trappola già risolta una volta in `stores/favorites.ts` per
+`favorite`.
+
+**Sezione SCATTO** (§19.2 righe 6-9): Fotocamera (`camera_make` +
+`camera_model` uniti), Obiettivo, Esposizione (`f/{f_number} ·
+{exposure}s · ISO {iso}`, solo le parti effettivamente presenti — un file
+senza diaframma noto non mostra "f/undefined"), Dimensioni
+(`{width}×{height}`, dall'asset stesso, non dall'exif: la sezione resta
+visibile anche senza alcun exif se le dimensioni pixel esistono, verificato
+esplicitamente con un test dedicato).
+
+**Debito dichiarato** (aggiunto al commento di testa del file, non
+taciuto): il link cartella/lotto nella riga data/ora (nessuna rotta
+`GET /folders/{id}` per risolvere un nome da un `folder_id`); il
+commutatore RAW/JPEG (serve `GET /assets/{id}/stack`, esiste lato
+backend, nessun wrapper frontend ancora — prossima unità).
+
+Verifica completa: `npx vue-tsc -b` pulito. `npx vitest run` → 78 file,
+617/617 verdi (17 test in `AssetViewer.spec.ts`, 5 nuovi: titolo
+caricato/azzerato-a-null, salvataggio solo su `change` mai su `input`,
+toggle delle stelle, sezione SCATTO piena, sezione SCATTO senza exif ma
+con dimensioni). `npx eslint` sui file toccati e sull'intero repo →
+pulito (stesso unico errore preesistente su `PlayerView.vue`). `npm run
+build` + calcolo manuale del bundle iniziale gzip → 125.051 byte, sotto
+il budget di 153.600.

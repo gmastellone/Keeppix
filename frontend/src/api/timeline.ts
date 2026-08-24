@@ -66,11 +66,27 @@ export interface TimelineAsset {
    * `null`) su ogni asset di `/timeline`/`/search`. Campo opzionale di
    * proposito: `photo()` nei test esistenti non deve cambiare. */
   full_exif?: AssetExifDetail
+  /** Posizione effettiva (`COALESCE(override, exif)`), stessa fonte di
+   * `metadata.ts#AssetMetadata.location` — presente solo quando l'oggetto
+   * viene da `GET /assets/{id}` (mai da `/timeline`/`/search`, stesso
+   * motivo di `full_exif`). Fase 11 Task 8, §19.2 sezione "POSIZIONE". */
+  location?: { lat: number; lon: number } | null
+  place_id?: number | null
+  /** 1 se non impilato, altrimenti il numero di file della pila (RAW+JPEG
+   * incluso). Fase 11 Task 8, §19.2 sezione "SCATTO"/commutatore RAW-JPEG. */
+  stack_size?: number
 }
 
 export interface TimelinePage {
   assets: TimelineAsset[]
   next_cursor?: string
+}
+
+/** `GET /assets/{id}` — l'unico posto che popola `full_exif`/`location`/
+ * `place_id`/`stack_size` (assenti su ogni asset di `/timeline`/`/search`).
+ * Usato dal pannello informazioni del lightbox (§19), mai dalle griglie. */
+export function fetchAsset(id: string): Promise<TimelineAsset> {
+  return apiFetch(`/api/v1/assets/${id}`)
 }
 
 export function fetchBuckets(bbox?: string): Promise<MonthBucket[]> {

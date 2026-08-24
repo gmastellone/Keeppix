@@ -1,12 +1,40 @@
 import { apiFetch } from './client'
 
+/** `GET /assets/{id}/metadata` — valore effettivo `COALESCE(override, exif)`
+ * campo per campo (`EffectiveMetadataView`, crates/keeppix-api/src/routes/
+ * metadata.rs). Il tipo precedente (`{exif, overrides}`) non corrispondeva
+ * a nessuna risposta reale del backend e non era mai usato da nessun
+ * chiamante — sostituito, non affiancato. */
 export interface AssetMetadata {
-  exif: Record<string, string>
-  overrides: Record<string, string>
+  title: string | null
+  description: string | null
+  taken_at: string | null
+  location: { lat: number; lon: number } | null
+  place_id: number | null
+  orientation: number | null
 }
 
 export function fetchMetadata(assetId: string): Promise<AssetMetadata> {
   return apiFetch(`/api/v1/assets/${assetId}/metadata`)
+}
+
+/** `PATCH /assets/{id}/metadata` — stessa semantica "doppio opzionale" del
+ * backend (`MetadataPatchRequest`): un campo assente da questo oggetto non
+ * tocca il valore esistente, `null` lo azzera esplicitamente. */
+export interface MetadataPatch {
+  title?: string | null
+  description?: string | null
+  taken_at?: string | null
+  location?: { lat: number; lon: number } | null
+  place_id?: number | null
+  orientation?: number | null
+}
+
+export function patchMetadata(assetId: string, patch: MetadataPatch): Promise<null> {
+  return apiFetch(`/api/v1/assets/${assetId}/metadata`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch)
+  })
 }
 
 export function updateOverrides(

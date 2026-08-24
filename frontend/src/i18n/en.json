@@ -288,6 +288,19 @@
       "addToAlbum": "Add to album",
       "rename": "Rename…",
       "delete": "Delete…"
+    },
+    "panel": {
+      "dateTime": "{date}, at {time}",
+      "titleLabel": "Title",
+      "titleOptional": "(optional)",
+      "titlePlaceholder": "Untitled",
+      "titleError": "Couldn't save the title. Try again.",
+      "ratingError": "Couldn't save the rating. Try again.",
+      "shot": "Shot",
+      "camera": "Camera",
+      "lens": "Lens",
+      "exposure": "Exposure",
+      "dimensions": "Dimensions"
     }
   },
   "player": {
