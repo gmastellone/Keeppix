@@ -10,7 +10,8 @@ use chrono::{TimeZone, Utc};
 use harness::TestServer;
 use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
 use keeppix_domain::{
-    AssetId, AssetKind, AssetName, AuthContext, FolderId, NewAsset, NewLibrary, SystemRole, UserId,
+    AssetId, AssetKind, AssetName, AuthContext, FolderId, LibraryId, NewAsset, NewLibrary,
+    SystemRole, UserId,
 };
 use serde_json::json;
 
@@ -35,15 +36,20 @@ async fn setup_admin(server: &TestServer) -> UserId {
         .expect("uuid valido")
 }
 
+/// Bug reale trovato e corretto qui: la vecchia `ensure_folder` creava una
+/// libreria nuova a ogni chiamata usando `root` come `root_path` — chiamarla
+/// due volte con la stessa radice (`"2024"` poi `"2024/Scelte"`, come fanno
+/// entrambi i test qui sotto) violava il vincolo `libraries_root_path_key`
+/// alla seconda chiamata. Mai emerso prima d'ora: la CI non arrivava fino
+/// allo step dei test finché `cargo fmt --check` falliva su altri file.
+/// Separata in "crea la libreria una volta" + "assicura un percorso di
+/// cartelle dentro quella libreria, quante volte serve" — `ensure_path`
+/// (`crates/keeppix-db/src/folders.rs:245-259`) è già idempotente per
+/// costruzione su percorsi che si sovrappongono, non serve altro.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
-async fn ensure_folder(
-    server: &TestServer,
-    admin: UserId,
-    root: &std::path::Path,
-    segments: &[&str],
-) -> FolderId {
+async fn ensure_library(server: &TestServer, admin: UserId, root: &std::path::Path) -> LibraryId {
     let ctx = AuthContext::user(admin, SystemRole::Admin);
-    let library = LibraryRepo::new(&server.db)
+    LibraryRepo::new(&server.db)
         .create(
             &ctx,
             NewLibrary {
@@ -55,7 +61,16 @@ async fn ensure_folder(
         )
         .await
         .expect("libreria")
-        .id;
+        .id
+}
+
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+async fn ensure_folder(
+    server: &TestServer,
+    library: LibraryId,
+    root: &std::path::Path,
+    segments: &[&str],
+) -> FolderId {
     let mut dir = root.to_path_buf();
     for segment in segments {
         dir = dir.join(segment);
@@ -106,8 +121,9 @@ async fn moves_every_asset_in_the_batch_keeping_its_filename() {
     let server = TestServer::start().await;
     let admin = setup_admin(&server).await;
     let root = temp_root();
-    let src = ensure_folder(&server, admin, &root, &["2024"]).await;
-    let dst = ensure_folder(&server, admin, &root, &["2024", "Scelte"]).await;
+    let library = ensure_library(&server, admin, &root).await;
+    let src = ensure_folder(&server, library, &root, &["2024"]).await;
+    let dst = ensure_folder(&server, library, &root, &["2024", "Scelte"]).await;
     let a = seed_indexed_asset(&server, src, &root.join("2024"), "a.jpg").await;
     let b = seed_indexed_asset(&server, src, &root.join("2024"), "b.jpg").await;
 
@@ -144,8 +160,9 @@ async fn a_collision_fails_only_that_asset_not_the_whole_batch() {
     let server = TestServer::start().await;
     let admin = setup_admin(&server).await;
     let root = temp_root();
-    let src = ensure_folder(&server, admin, &root, &["2024"]).await;
-    let dst = ensure_folder(&server, admin, &root, &["2024", "Scelte"]).await;
+    let library = ensure_library(&server, admin, &root).await;
+    let src = ensure_folder(&server, library, &root, &["2024"]).await;
+    let dst = ensure_folder(&server, library, &root, &["2024", "Scelte"]).await;
     let clean = seed_indexed_asset(&server, src, &root.join("2024"), "clean.jpg").await;
     let clashing = seed_indexed_asset(&server, src, &root.join("2024"), "taken.jpg").await;
     let _already_there =
