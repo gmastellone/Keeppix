@@ -1096,8 +1096,10 @@ async fn timeline_page_includes_camera_model_and_empty_tags_faces_without_vector
         .unwrap()
         .to_owned();
     assert!(
-        items.iter().all(|a| a["tags"].as_array().unwrap().is_empty()
-            && a["faces"].as_array().unwrap().is_empty()),
+        items
+            .iter()
+            .all(|a| a["tags"].as_array().unwrap().is_empty()
+                && a["faces"].as_array().unwrap().is_empty()),
         "tags/faces are always present arrays, empty here — no pgvector, no AI schema"
     );
     assert!(items.iter().all(|a| a.get("camera_model").is_none()));
@@ -1153,11 +1155,8 @@ async fn timeline_page_includes_confirmed_tags_and_faces_with_vector() {
         .json::<serde_json::Value>()
         .await
         .unwrap();
-    let asset_id: keeppix_domain::AssetId = before["assets"][0]["id"]
-        .as_str()
-        .unwrap()
-        .parse()
-        .unwrap();
+    let asset_id: keeppix_domain::AssetId =
+        before["assets"][0]["id"].as_str().unwrap().parse().unwrap();
 
     let ctx = admin_ctx(&server).await;
     let category = keeppix_db::TagRepo::new(&server.db)

@@ -890,7 +890,8 @@ async fn unassign_deletes_a_manually_confirmed_row() {
         .await
         .unwrap();
     let asset = seed_asset(&test, folder.id, "unassign.jpg").await;
-    let tag = create_tag_with_embedding(&test, &ctx, "Da togliere", 0.75, unit_axis(0), MODEL).await;
+    let tag =
+        create_tag_with_embedding(&test, &ctx, "Da togliere", 0.75, unit_axis(0), MODEL).await;
     let repo = AssetTagRepo::new(test.db());
     repo.assign(&ctx, tag, asset).await.unwrap();
     assert!(fetch_assignment(&test, asset, tag).await.is_some());
@@ -1023,7 +1024,10 @@ async fn confirmed_among_returns_only_confirmed_rows_grouped_by_asset() {
         Some(category),
         "category_id is the tag's own parent_id, resolved in the same query"
     );
-    assert!(!map.contains_key(&proposed_asset), "proposed, not confirmed");
+    assert!(
+        !map.contains_key(&proposed_asset),
+        "proposed, not confirmed"
+    );
     assert!(!map.contains_key(&untouched_asset));
 }
 
@@ -1052,10 +1056,14 @@ async fn for_asset_returns_confirmed_and_proposed_but_never_rejected() {
         .await
         .unwrap();
     let asset = seed_asset(&test, folder.id, "photo.jpg").await;
-    let confirmed_human = create_tag_with_embedding(&test, &ctx, "Umano", 0.75, unit_axis(0), MODEL).await;
-    let confirmed_ai = create_tag_with_embedding(&test, &ctx, "IA-confermato", 0.75, unit_axis(1), MODEL).await;
-    let proposed = create_tag_with_embedding(&test, &ctx, "In attesa", 0.75, unit_axis(2), MODEL).await;
-    let rejected = create_tag_with_embedding(&test, &ctx, "Rifiutato", 0.75, unit_axis(3), MODEL).await;
+    let confirmed_human =
+        create_tag_with_embedding(&test, &ctx, "Umano", 0.75, unit_axis(0), MODEL).await;
+    let confirmed_ai =
+        create_tag_with_embedding(&test, &ctx, "IA-confermato", 0.75, unit_axis(1), MODEL).await;
+    let proposed =
+        create_tag_with_embedding(&test, &ctx, "In attesa", 0.75, unit_axis(2), MODEL).await;
+    let rejected =
+        create_tag_with_embedding(&test, &ctx, "Rifiutato", 0.75, unit_axis(3), MODEL).await;
 
     let repo = AssetTagRepo::new(test.db());
     repo.assign(&ctx, confirmed_human, asset).await.unwrap();
@@ -1068,13 +1076,20 @@ async fn for_asset_returns_confirmed_and_proposed_but_never_rejected() {
     let tags = repo.for_asset(&ctx, asset).await.unwrap();
     let by_id: std::collections::HashMap<_, _> = tags.iter().map(|t| (t.tag_id, t)).collect();
 
-    assert_eq!(tags.len(), 3, "confirmed_human, confirmed_ai, proposed — never rejected");
+    assert_eq!(
+        tags.len(),
+        3,
+        "confirmed_human, confirmed_ai, proposed — never rejected"
+    );
     assert_eq!(by_id[&confirmed_human].state, "confirmed");
     assert_eq!(by_id[&confirmed_human].source, "user");
     assert_eq!(by_id[&confirmed_ai].state, "confirmed");
     assert_eq!(by_id[&confirmed_ai].source, "ai");
     assert_eq!(by_id[&proposed].state, "proposed");
-    assert!(!by_id.contains_key(&rejected), "rejected tags never appear (§19.3: removal is permanent)");
+    assert!(
+        !by_id.contains_key(&rejected),
+        "rejected tags never appear (§19.3: removal is permanent)"
+    );
 }
 
 #[tokio::test]
@@ -1084,7 +1099,9 @@ async fn for_asset_is_forbidden_on_a_foreign_asset() {
     let stranger_ctx = AuthContext::user(fx.stranger, SystemRole::User);
 
     assert!(matches!(
-        AssetTagRepo::new(test.db()).for_asset(&stranger_ctx, fx.asset).await,
+        AssetTagRepo::new(test.db())
+            .for_asset(&stranger_ctx, fx.asset)
+            .await,
         Err(keeppix_db::DbError::Forbidden)
     ));
 }
@@ -1100,7 +1117,8 @@ async fn remove_confirmed_transitions_a_confirmed_tag_to_rejected_permanently() 
         .await
         .unwrap();
     let asset = seed_asset(&test, folder.id, "photo.jpg").await;
-    let tag = create_tag_with_embedding(&test, &ctx, "Da rimuovere", 0.75, unit_axis(0), MODEL).await;
+    let tag =
+        create_tag_with_embedding(&test, &ctx, "Da rimuovere", 0.75, unit_axis(0), MODEL).await;
     let repo = AssetTagRepo::new(test.db());
     repo.assign(&ctx, tag, asset).await.unwrap();
 
@@ -1109,7 +1127,12 @@ async fn remove_confirmed_transitions_a_confirmed_tag_to_rejected_permanently() 
     let row = fetch_assignment(&test, asset, tag).await.unwrap();
     assert_eq!(row.0, "rejected");
     assert!(
-        !repo.for_asset(&ctx, asset).await.unwrap().iter().any(|t| t.tag_id == tag),
+        !repo
+            .for_asset(&ctx, asset)
+            .await
+            .unwrap()
+            .iter()
+            .any(|t| t.tag_id == tag),
         "a rejected tag must never surface in for_asset again"
     );
 
@@ -1145,7 +1168,8 @@ async fn remove_confirmed_not_found_when_never_assigned() {
         .await
         .unwrap();
     let asset = seed_asset(&test, folder.id, "photo.jpg").await;
-    let tag = create_tag_with_embedding(&test, &ctx, "Mai assegnato", 0.75, unit_axis(0), MODEL).await;
+    let tag =
+        create_tag_with_embedding(&test, &ctx, "Mai assegnato", 0.75, unit_axis(0), MODEL).await;
 
     assert!(matches!(
         AssetTagRepo::new(test.db())

@@ -588,9 +588,21 @@ async fn confirmed_among_includes_both_manual_and_auto_assignments() {
     let map = repo.confirmed_among(&[asset]).await.unwrap();
 
     let badges = &map[&asset];
-    assert_eq!(badges.len(), 2, "both the manual and the auto assignment count as confirmed");
-    assert!(badges.iter().any(|b| b.person_id == manual_person.id && b.person_name.as_deref() == Some("Marta")));
-    assert!(badges.iter().any(|b| b.person_id == auto_person && b.person_name.is_none()));
+    assert_eq!(
+        badges.len(),
+        2,
+        "both the manual and the auto assignment count as confirmed"
+    );
+    assert!(
+        badges
+            .iter()
+            .any(|b| b.person_id == manual_person.id && b.person_name.as_deref() == Some("Marta"))
+    );
+    assert!(
+        badges
+            .iter()
+            .any(|b| b.person_id == auto_person && b.person_name.is_none())
+    );
 }
 
 #[tokio::test]

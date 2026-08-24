@@ -641,7 +641,9 @@ pub async fn list_tags_for_asset(
     let tags = AssetTagRepo::new(&state.db)
         .for_asset(&ctx, asset_id)
         .await?;
-    Ok(Json(tags.into_iter().map(AssetTagDetailView::from).collect()))
+    Ok(Json(
+        tags.into_iter().map(AssetTagDetailView::from).collect(),
+    ))
 }
 
 /// Fase 11 Task 8 (§19.3, la `×` sui chip confermati): rimuove un tag già

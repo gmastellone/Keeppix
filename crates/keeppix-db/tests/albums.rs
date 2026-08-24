@@ -528,17 +528,38 @@ async fn for_asset_lists_every_album_the_asset_is_a_member_of() {
 
     let repo = AlbumRepo::new(test.db());
     let album_a = repo
-        .create(&ctx, NewAlbum { name: "Vacanze".into(), description: String::new(), rule: None })
+        .create(
+            &ctx,
+            NewAlbum {
+                name: "Vacanze".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
         .await
         .unwrap();
     let album_b = repo
-        .create(&ctx, NewAlbum { name: "Famiglia".into(), description: String::new(), rule: None })
+        .create(
+            &ctx,
+            NewAlbum {
+                name: "Famiglia".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
         .await
         .unwrap();
     // Un terzo album di cui la foto NON fa parte: non deve comparire.
-    repo.create(&ctx, NewAlbum { name: "Altro".into(), description: String::new(), rule: None })
-        .await
-        .unwrap();
+    repo.create(
+        &ctx,
+        NewAlbum {
+            name: "Altro".into(),
+            description: String::new(),
+            rule: None,
+        },
+    )
+    .await
+    .unwrap();
 
     repo.add_asset(&ctx, album_a.id, photo).await.unwrap();
     repo.add_asset(&ctx, album_b.id, photo).await.unwrap();
@@ -546,7 +567,11 @@ async fn for_asset_lists_every_album_the_asset_is_a_member_of() {
 
     let albums = repo.for_asset(&ctx, photo).await.unwrap();
     let names: Vec<&str> = albums.iter().map(|a| a.name.as_str()).collect();
-    assert_eq!(names, vec!["Famiglia", "Vacanze"], "ordinati per nome, solo i due di cui la foto è membro");
+    assert_eq!(
+        names,
+        vec!["Famiglia", "Vacanze"],
+        "ordinati per nome, solo i due di cui la foto è membro"
+    );
 }
 
 #[tokio::test]
@@ -559,7 +584,10 @@ async fn for_asset_is_empty_when_the_asset_is_in_no_album() {
     let folder = seed_folder(&test, lib, "2024").await;
     let photo = index_photo(&test, folder, "solo.jpg").await;
 
-    let albums = AlbumRepo::new(test.db()).for_asset(&ctx, photo).await.unwrap();
+    let albums = AlbumRepo::new(test.db())
+        .for_asset(&ctx, photo)
+        .await
+        .unwrap();
     assert!(albums.is_empty());
 }
 
@@ -577,11 +605,25 @@ async fn for_asset_hides_albums_the_caller_cannot_see_but_still_lists_the_shared
 
     let repo = AlbumRepo::new(test.db());
     let private = repo
-        .create(&ctx_admin, NewAlbum { name: "Privato".into(), description: String::new(), rule: None })
+        .create(
+            &ctx_admin,
+            NewAlbum {
+                name: "Privato".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
         .await
         .unwrap();
     let shared = repo
-        .create(&ctx_admin, NewAlbum { name: "Condiviso".into(), description: String::new(), rule: None })
+        .create(
+            &ctx_admin,
+            NewAlbum {
+                name: "Condiviso".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
         .await
         .unwrap();
     repo.add_asset(&ctx_admin, private.id, photo).await.unwrap();
@@ -590,7 +632,11 @@ async fn for_asset_hides_albums_the_caller_cannot_see_but_still_lists_the_shared
 
     let albums = repo.for_asset(&ctx_mario, photo).await.unwrap();
     let names: Vec<&str> = albums.iter().map(|a| a.name.as_str()).collect();
-    assert_eq!(names, vec!["Condiviso"], "solo l'album con permesso condiviso, mai quello privato altrui");
+    assert_eq!(
+        names,
+        vec!["Condiviso"],
+        "solo l'album con permesso condiviso, mai quello privato altrui"
+    );
 }
 
 #[tokio::test]
@@ -612,7 +658,14 @@ async fn for_asset_is_forbidden_on_an_asset_the_caller_cannot_see_at_all() {
     // invisibile al chiamante.
     let repo = AlbumRepo::new(test.db());
     let album = repo
-        .create(&ctx_admin, NewAlbum { name: "Vacanze".into(), description: String::new(), rule: None })
+        .create(
+            &ctx_admin,
+            NewAlbum {
+                name: "Vacanze".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
         .await
         .unwrap();
     repo.add_asset(&ctx_admin, album.id, photo).await.unwrap();

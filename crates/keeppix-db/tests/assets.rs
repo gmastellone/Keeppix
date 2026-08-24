@@ -714,12 +714,7 @@ mod move_asset {
 
         assert_eq!(moved.folder_id, dst.id);
         assert_eq!(moved.filename.as_str(), "foto.jpg", "il nome non cambia");
-        assert!(
-            root.join("2024")
-                .join("Scelte")
-                .join("foto.jpg")
-                .is_file()
-        );
+        assert!(root.join("2024").join("Scelte").join("foto.jpg").is_file());
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -1021,7 +1016,10 @@ mod camera_models_among {
 
         assert_eq!(map.len(), 1);
         assert_eq!(map[&with_camera.id], "FUJIFILM X-T5");
-        assert!(!map.contains_key(&no_exif_row.id), "no asset_exif row at all");
+        assert!(
+            !map.contains_key(&no_exif_row.id),
+            "no asset_exif row at all"
+        );
         assert!(
             !map.contains_key(&exif_without_camera.id),
             "an asset_exif row exists but camera_model is NULL"

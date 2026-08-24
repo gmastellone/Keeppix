@@ -423,7 +423,9 @@ async fn review_queue_lists_confirms_rejects_and_updates_bootstrap_revision() {
 async fn assign_batch_confirms_the_tag_as_user_sourced_on_every_asset() {
     use chrono::{TimeZone, Utc};
     use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
-    use keeppix_domain::{AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, UserId};
+    use keeppix_domain::{
+        AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, UserId,
+    };
     use std::fs;
 
     let server = TestServer::start_with_vector().await;
@@ -560,7 +562,9 @@ async fn assign_batch_confirms_the_tag_as_user_sourced_on_every_asset() {
 async fn list_tags_for_asset_reflects_confirmed_state_and_source() {
     use chrono::{TimeZone, Utc};
     use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
-    use keeppix_domain::{AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, UserId};
+    use keeppix_domain::{
+        AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, UserId,
+    };
     use std::fs;
 
     let server = TestServer::start_with_vector().await;

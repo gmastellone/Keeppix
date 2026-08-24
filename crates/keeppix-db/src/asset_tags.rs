@@ -599,7 +599,10 @@ impl<'a> AssetTagRepo<'a> {
         .bind(asset_id.as_uuid())
         .fetch_all(self.db.pool())
         .await?;
-        Ok(rows.into_iter().map(AssetTagDetailRow::into_domain).collect())
+        Ok(rows
+            .into_iter()
+            .map(AssetTagDetailRow::into_domain)
+            .collect())
     }
 
     /// Rimuove un tag **già confermato** dal pannello informazioni (§19.3,

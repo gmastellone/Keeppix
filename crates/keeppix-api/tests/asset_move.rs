@@ -94,7 +94,8 @@ async fn seed_indexed_asset(
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root() -> PathBuf {
-    let root = std::env::temp_dir().join(format!("keeppix-api-asset-move-{}", uuid::Uuid::now_v7()));
+    let root =
+        std::env::temp_dir().join(format!("keeppix-api-asset-move-{}", uuid::Uuid::now_v7()));
     fs::create_dir_all(&root).expect("radice di test");
     root
 }
@@ -127,7 +128,10 @@ async fn moves_every_asset_in_the_batch_keeping_its_filename() {
     assert!(!root.join("2024").join("a.jpg").exists());
 
     let ctx = AuthContext::user(admin, SystemRole::Admin);
-    let moved = AssetRepo::new(&server.db).find_by_id(&ctx, a).await.unwrap();
+    let moved = AssetRepo::new(&server.db)
+        .find_by_id(&ctx, a)
+        .await
+        .unwrap();
     assert_eq!(moved.folder_id, dst);
     assert_eq!(moved.filename.as_str(), "a.jpg", "spostare non rinomina");
 
@@ -163,7 +167,10 @@ async fn a_collision_fails_only_that_asset_not_the_whole_batch() {
     assert_eq!(failed[0]["reason"], "collision");
 
     assert!(root.join("2024").join("Scelte").join("clean.jpg").is_file());
-    assert!(root.join("2024").join("taken.jpg").is_file(), "il file in conflitto resta al suo posto");
+    assert!(
+        root.join("2024").join("taken.jpg").is_file(),
+        "il file in conflitto resta al suo posto"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
