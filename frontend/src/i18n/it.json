@@ -340,6 +340,31 @@
     "emptyTitle": "Nessun suggerimento in attesa",
     "emptyText": "Quando l'IA troverà corrispondenze a confidenza intermedia per i tuoi tag, appariranno qui per la tua conferma — mai applicate da sole."
   },
+  "persons": {
+    "entry": "Persone",
+    "title": "Persone",
+    "subtitle": "Riconosciute automaticamente dalle tue foto — mai su un link pubblico, mai fuori da questo server.",
+    "emptyText": "Nessuna persona riconosciuta ancora.",
+    "unnamed": "Persona senza nome",
+    "unnamedHint": "da nominare",
+    "photoCount": "{n} foto | {n} foto",
+    "hiddenFooter": "{n} persona nascosta non mostrata qui. | {n} persone nascoste non mostrate qui.",
+    "backLink": "Tutte le persone",
+    "rename": "Rinomina",
+    "renameTitle": "Rinomina persona",
+    "name": "Nome",
+    "save": "Salva",
+    "show": "Mostra di nuovo",
+    "hide": "Nascondi",
+    "hiddenLabel": "nascosta",
+    "hiddenToast": "Persona nascosta.",
+    "shownToast": "Persona di nuovo visibile.",
+    "loadError": "Non è stato possibile caricare le persone. Riprova.",
+    "renameError": "Non è stato possibile rinominare la persona. Riprova.",
+    "hideError": "Non è stato possibile aggiornare la persona. Riprova.",
+    "emptyPhotosTitle": "Nessuna foto qui",
+    "emptyPhotosSubtitle": "Questa persona non ha (più) volti confermati."
+  },
   "home": {
     "logout": "Esci"
   },

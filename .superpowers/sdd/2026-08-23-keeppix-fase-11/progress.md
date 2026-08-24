@@ -5873,3 +5873,103 @@ sotto il budget di 153.600; `ReviewView` è un chunk lazy a parte.
 con la Tranche D (Task 16 Persone, Task 17 Culling), poi il merge
 finale della Fase 11 (PROSEGUI.md §10), poi Task A (Volti: YuNet
 +SFace) e Task B (CLIP).
+
+## Tranche D
+
+## Task 16 (1/N) — Persone: griglia (§31) e dettaglio (§32), ridotti
+
+Ricerca preliminare (agente in background, poi verificata a mano contro
+i sorgenti reali — `crates/keeppix-api/src/routes/persons.rs`,
+`crates/keeppix-db/src/persons.rs`, `crates/keeppix-db/src/faces.rs`,
+`crates/keeppix-api/src/lib.rs:437-478`): CRUD persone/gruppi, unione,
+separazione già reali lato backend; nessuna rotta risolve un id di
+volto (`cover_face_id`) al suo asset — solo `GET /assets/{id}/faces`
+(serve già un asset noto), mai `GET /faces/{id}`. Confermato di persona
+anche un secondo punto, non solo dedotto dall'agente: `FaceRepo::
+reject_all_proposed_for_person` (`crates/keeppix-db/src/faces.rs:
+631-664`) applica **la stessa semantica permanente di `reject`**
+(«non è un volto»), non quella che il documento descrive per «Rifiuta
+tutte» nella coda Volti (§39: «ogni volto diventa una persona nuova
+senza nome») — un disallineamento vero fra documento e backend reale,
+non un'invenzione dell'agente. Resta per la sotto-unità che costruirà
+quella coda (comporre "crea persona vuota + assegna" per singolo volto,
+non usare quella rotta bulk per quel pulsante — annotato qui prima di
+dimenticarlo).
+
+**Ambito di questa unità, deliberatamente ridotto**: solo griglia (§31)
+e dettaglio (§32), **senza** gruppi di persone, banner della coda di
+revisione, e tre dei cinque pulsanti d'azione del dettaglio ("Scegli
+copertina" §33, "Assegna/Cambia gruppo" §34, "Dividi…" §36) — i loro
+dialog sono sotto-unità successive, e un pulsante senza dialog dietro
+sarebbe un vicolo cieco (stessa disciplina di "Duplicati" Task 13 2/N e
+del gruppo "IA" a comparsa incrementale, Task 15). Restano "Rinomina" e
+"Nascondi"/"Mostra di nuovo", entrambi pienamente reali (`PATCH
+/persons/{id}`).
+
+**`SearchNode::Person{id}` portato dentro l'ambito di `search/ast.ts`**
+(era dichiarato "fuori campo" nel commento di quel file, scritto prima
+che esistesse un consumatore reale): risolve sia `photosForPerson()`
+(§32, foto della persona) sia — con `runSearch(ast, undefined, 1)`,
+nuovo terzo parametro `limit` che usa un campo reale di `SearchRequest`
+mai esposto dal frontend finora — la copertina della griglia. `PATCH /
+persons/{id}` (`PersonPatchPayload`) e `fetchPerson`/`fetchPersons
+(includeHidden)` aggiunti a `api/persons.ts`.
+
+**Copertina reale ma non quella scelta**: `cover_face_id` esiste ed è
+scrivibile (dialog "Scegli copertina", §33, prossima sotto-unità — resta
+pienamente reale come azione), ma **non è risolvibile a un'immagine**
+senza `GET /faces/{id}` (non esistente — costruirla sarebbe una rotta
+nuova per comodità di interfaccia, fuori scope per un task di sola
+interfaccia). La griglia mostra quindi sempre una foto reale e recente
+della persona (un `runSearch` per scheda, costo N accettato — stesso
+principio già di `ReviewView.vue`), mai necessariamente quella
+impostata con "Scegli copertina". Il dialog resta comunque pienamente
+funzionale una volta costruito: il difetto è solo nel non poter
+*mostrare* la scelta qui, non nel poterla fare.
+
+**Nessun `autoNum` fabbricato**: il mockup usa un contatore in memoria
+(`_personAutoSeq`, parte da 30) per "Persona 12" — nessuna colonna
+corrispondente sul backend reale (`Person.name: Option<String>`,
+nient'altro). Al posto di un numero inventato: `persons.unnamed`
+("Persona senza nome"), onesto.
+
+**Dettaglio = `FavoritesView.vue` riadattata**, non scritta da zero:
+stesso schema `runSearch` + `do…while(cursor)`, stesso `useBrowseFilters`
+(SP-3, con la dimensione "Persone" già presente — §32.3 controllo 8,
+"può restringere ulteriormente alle co-presenze", che questo riuso dà
+gratis), stessa `FlatAssetGrid`/`SelectionBar`/`AssetViewer`. Fallback
+automatico alla griglia se la persona non è (più) visibile (§32.8),
+qualunque il motivo (403, id inesistente — mai un 404, commento del
+backend).
+
+**Nav**: `/persons` in `NAV_TOP` su desktop (`AppSidebar.vue`, §31.8:
+"voce «Persone» della barra laterale, NAV_TOP, icona user" — non nel
+gruppo "Libreria" sotto), ma dentro "Libreria" su mobile (`MoreView.vue`,
+stesso paragrafo: "da mobile 'Altro' → gruppo 'Libreria' → 'Persone'")
+— posizionamento diverso per piattaforma dichiarato dal documento
+stesso, non una divergenza introdotta qui. Briciola di pane dinamica
+`Persone / <b>Nome</b>` (solo se la persona ha un nome, altrimenti resta
+piatta) via un nuovo `activePersonName` in `routeTitles.ts`, stesso
+pattern di `activeAlbumName` (Task 12 1/N) — cablato sia in
+`AppTopbar.vue` sia in `AppMobileHeader.vue` (titolo mobile e freccia
+indietro verso `/persons`).
+
+Verifica completa: `npx vue-tsc -b` pulito. `npx eslint` sui file
+toccati e sull'intero repo → pulito (stesso unico errore preesistente
+su `PlayerView.vue`; i 3 warning nuovi sono lo stesso `:ariaLabel` non
+trattinizzato già presente in `FavoritesView.vue`/`AlbumDetailView.vue`/
+`SearchView.vue`/`TimelineView.vue` — prop reale di `SelectionBar`, non
+una regressione). `npx vitest run` → 97 file, **827/827** verdi (13
+nuovi fra `PeopleView.spec.ts` e `PersonDetailView.spec.ts`). `npm run
+build` + calcolo manuale del bundle iniziale gzip → 140.012 byte, sotto
+il budget di 153.600; `PeopleView`/`PersonDetailView` sono due chunk
+lazy separati (1,26 KB e 2,60 KB gzip).
+
+Manca ancora, nello stesso Task 16: gruppi di persone + dialog "Nuovo
+gruppo"/rinomina/elimina gruppo + selezione multipla con Unisci/Assegna
+a gruppo (§31, §34, §35); "Scegli copertina" (§33) e "Dividi…" (§36) nel
+dettaglio; selettore di persona già verificato una volta (Task 8) da
+riverificare contro §37 con occhi freschi; menu sul riquadro del volto
+(§38, già in `AssetViewer.vue`) da completare con "Vai alla persona" ora
+che la rotta esiste; coda "Revisione → Volti" (§39) — prossime
+sotto-unità.

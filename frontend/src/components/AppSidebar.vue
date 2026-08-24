@@ -6,10 +6,10 @@
 //
 // Ambito dichiarato: **non** tutte le voci canoniche. Costruite solo
 // quelle con una destinazione reale in questa sessione — Foto, Cerca,
-// Culling, Mappa, Condivisioni, Preferiti (Task 7, 3/N), Album, Cartelle,
-// Cestino, Problemi (più Utenti/Gruppi per un amministratore). Tolte,
-// debito verso le Tranche che le costruiranno per davvero:
-// - "Persone" (Task 16, Tranche D) — nessuna vista Persone esiste.
+// Culling, Mappa, Condivisioni, Persone (Task 16 1/N — griglia +
+// dettaglio, senza ancora gruppi/unione/copertina), Preferiti (Task 7,
+// 3/N), Album, Cartelle, Cestino, Problemi (più Utenti/Gruppi per un
+// amministratore).
 //
 // Il gruppo "IA" (Task 15, Tranche C) ha **due** voci reali, non tre:
 // "Tag e categorie" (1/N) e "Revisione" (2/N, badge `shell.badges.
@@ -73,12 +73,19 @@ onMounted(() => {
   if (!shell.loaded) void shell.load()
 })
 
+// Task 16 (1/N): "Persone" qui, non nel gruppo "Libreria" sotto — il
+// documento la mette esplicitamente in `NAV_TOP` (§31.8: "voce 'Persone'
+// della barra laterale (NAV_TOP, icona user)"), a differenza di
+// Cartelle/Preferiti/Album che il mockup non elenca affatto in
+// `NAV_TOP`. Su mobile invece vive sotto "Libreria" (`MoreView.vue`) —
+// posizionamento diverso per piattaforma, dichiarato dallo stesso §31.8.
 const NAV_TOP = [
   { to: '/', labelKey: 'nav.foto', badge: false },
   { to: '/search', labelKey: 'nav.cerca', badge: false },
   { to: '/culling', labelKey: 'culling.entry', badge: true },
   { to: '/map', labelKey: 'maps.entry', badge: false },
-  { to: '/shares', labelKey: 'shares.entry', badge: false }
+  { to: '/shares', labelKey: 'shares.entry', badge: false },
+  { to: '/persons', labelKey: 'persons.entry', badge: false }
 ] as const
 
 const MAINT_ITEMS = [
@@ -107,6 +114,7 @@ const IA_ITEMS = [
 // dettaglio aperto.
 function isActive(to: string): boolean {
   if (to === '/albums') return route.path === to || route.path.startsWith('/albums/')
+  if (to === '/persons') return route.path === to || route.path.startsWith('/persons/')
   return route.path === to
 }
 

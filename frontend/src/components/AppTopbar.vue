@@ -43,7 +43,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import Tooltip from '@/components/ui/Tooltip.vue'
 import { useUploadPicker, UPLOAD_ACCEPT } from '@/composables/useUploadPicker'
-import { activeAlbumName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
+import { activeAlbumName, activePersonName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -59,8 +59,15 @@ const albumBreadcrumbName = computed(() =>
   route.path.startsWith('/albums/') && route.path !== '/albums/new' ? activeAlbumName.value : null
 )
 
+// §32.8: "Persone / <b>Nome</b> quando è aperto un dettaglio" — ma solo
+// se la persona **ha** un nome: senza nome resta la sola briciola piatta
+// "Persone" (nessun secondo segmento "Persona senza nome" inventato).
+const personBreadcrumbName = computed(() =>
+  route.path.startsWith('/persons/') ? activePersonName.value : null
+)
+
 const breadcrumbLabel = computed(() => {
-  const key = ROUTE_TITLE_KEYS[route.path]
+  const key = ROUTE_TITLE_KEYS[route.path] ?? (route.path.startsWith('/persons/') ? 'persons.title' : undefined)
   return key ? t(key) : null
 })
 
@@ -76,6 +83,9 @@ async function openSearch() {
     <div class="min-w-0 truncate text-[14.5px] text-content-muted">
       <template v-if="albumBreadcrumbName">
         {{ t('albums.entry') }} / <b class="font-semibold text-content">{{ albumBreadcrumbName }}</b>
+      </template>
+      <template v-else-if="personBreadcrumbName">
+        {{ t('persons.title') }} / <b class="font-semibold text-content">{{ personBreadcrumbName }}</b>
       </template>
       <b
         v-else-if="breadcrumbLabel"

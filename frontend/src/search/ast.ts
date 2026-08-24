@@ -10,11 +10,11 @@ export type PickValue = 'none' | 'pick' | 'reject'
  * `text` per la descrizione libera, esattamente come nel mockup. Ogni
  * variante rispecchia `SearchNode` di `crates/keeppix-db/src/search.rs`
  * (`#[serde(tag="op", rename_all="snake_case")]`): questo file non è che
- * il sottoinsieme che la barra di ricerca e la creazione album (Task 12
- * 2/N, `Rating`/`Pick`/`DateRange`) sanno produrre, non l'intero enum del
- * backend (che ha anche `Day`/`Month`/`Aperture`/`Shutter`/`Place`/
- * `Category`/`Semantic`/`Person`/`PersonGroup`/`PersonCount` — fuori campo
- * per entrambe, altre schermate). */
+ * il sottoinsieme che la barra di ricerca, la creazione album (Task 12
+ * 2/N, `Rating`/`Pick`/`DateRange`) e la griglia/dettaglio Persone (Task
+ * 16 1/N, `Person`) sanno produrre, non l'intero enum del backend (che ha
+ * anche `Day`/`Month`/`Aperture`/`Shutter`/`Place`/`Category`/`Semantic`/
+ * `PersonGroup`/`PersonCount` — restano fuori campo, altre schermate). */
 export type SearchNode =
   | { op: 'and'; args: SearchNode[] }
   | { op: 'or'; args: SearchNode[] }
@@ -50,3 +50,11 @@ export type SearchNode =
   /** Campo "Intervallo di date": `SearchNode::DateRange{from,to}`,
    * entrambi gli estremi inclusi, timestamp UTC. */
   | { op: 'date_range'; from: string; to: string }
+  /** Fase 11 Task 16 (1/N): `SearchNode::Person{id}` nel backend — foto
+   * con un volto **confermato** di questa persona (mai proposte in
+   * attesa). Portato qui dentro l'ambito del file (era esplicitamente
+   * "fuori campo" nel commento sopra, scritto prima che esistesse un
+   * consumatore reale): la griglia Persone e il dettaglio persona lo
+   * usano per "le foto di questa persona" — `photosForPerson()` del
+   * documento (§32) — non esiste altra rotta che lo calcoli. */
+  | { op: 'person'; id: string }

@@ -3,10 +3,14 @@ import type { DiskAction } from './culling'
 import type { SearchNode } from '@/search/ast'
 import type { TimelineAsset, TimelinePage } from './timeline'
 
-export function runSearch(ast: SearchNode, cursor?: string): Promise<TimelinePage> {
+/** `limit` (Task 16 1/N): campo reale di `SearchRequest` (`crates/
+ * keeppix-api/src/routes/search.rs`), mai passato dal frontend finora —
+ * la griglia Persone lo usa per prendere una sola foto per persona come
+ * copertina, senza scaricare un'intera pagina da scartare. */
+export function runSearch(ast: SearchNode, cursor?: string, limit?: number): Promise<TimelinePage> {
   return apiFetch('/api/v1/search', {
     method: 'POST',
-    body: JSON.stringify(cursor ? { ast, cursor } : { ast })
+    body: JSON.stringify({ ast, ...(cursor ? { cursor } : {}), ...(limit ? { limit } : {}) })
   })
 }
 

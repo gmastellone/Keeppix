@@ -8,9 +8,14 @@
 // desktop che usa `NavGroup`. Non riusato qui apposta.
 //
 // Ambito dichiarato: stesse destinazioni reali di AppSidebar (Task 6
-// 1/N e 4/N; Preferiti aggiunta nel Task 7 3/N), non i dodici gruppi
-// canonici del mockup. Tolte, stesso motivo già dichiarato lì:
-// - "Persone" (Task 16) — nessuna vista esiste.
+// 1/N e 4/N; Preferiti aggiunta nel Task 7 3/N; Persone nel Task 16
+// 1/N), non i dodici gruppi canonici del mockup.
+//
+// "Persone" vive qui sotto "Libreria" (§31.8: "da mobile 'Altro' →
+// gruppo 'Libreria' → 'Persone'"), **non** in `NAV_TOP` come su
+// desktop (`AppSidebar.vue`) — posizionamento diverso per piattaforma,
+// dichiarato dallo stesso paragrafo del documento, non una divergenza
+// introdotta qui.
 //
 // Il gruppo "IA" (Task 15) ha due voci reali: "Tag e categorie" e
 // "Revisione" (badge `shell.badges.revision`, stesso dato di
@@ -51,7 +56,8 @@ const LIBRARY_ITEMS = [
   { to: '/folders', labelKey: 'folders.entry' },
   { to: '/map', labelKey: 'maps.entry' },
   { to: '/shares', labelKey: 'shares.entry' },
-  { to: '/favorites', labelKey: 'favorites.entry' }
+  { to: '/favorites', labelKey: 'favorites.entry' },
+  { to: '/persons', labelKey: 'persons.entry' }
 ] as const
 
 const MAINT_ITEMS = [

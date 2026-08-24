@@ -37,7 +37,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Avatar from '@/components/ui/Avatar.vue'
 import Popover from '@/components/ui/Popover.vue'
 import { UPLOAD_ACCEPT, useUploadPicker } from '@/composables/useUploadPicker'
-import { activeAlbumName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
+import { activeAlbumName, activePersonName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
 import { useAvatarColorStore } from '@/stores/avatarColor'
 import { useSessionStore } from '@/stores/session'
 import { useShellStore } from '@/stores/shell'
@@ -63,7 +63,10 @@ const showBack = computed(() => !ROOT_ROUTES.has(route.path))
 
 const title = computed(() => {
   if (route.path.startsWith('/albums/') && activeAlbumName.value) return activeAlbumName.value
-  const key = ROUTE_TITLE_KEYS[route.path]
+  // §32.8: "su mobile il titolo è 'Persone' o il nome della persona" —
+  // senza nome resta il titolo piatto della mappa sotto (`persons.title`).
+  if (route.path.startsWith('/persons/') && activePersonName.value) return activePersonName.value
+  const key = ROUTE_TITLE_KEYS[route.path] ?? (route.path.startsWith('/persons/') ? 'persons.title' : undefined)
   if (key) return t(key)
   if (route.path === '/more') return t('nav.more')
   return t('app.name')
@@ -72,6 +75,10 @@ const title = computed(() => {
 function goBack() {
   if (route.path.startsWith('/albums/')) {
     void router.push('/albums')
+    return
+  }
+  if (route.path.startsWith('/persons/')) {
+    void router.push('/persons')
     return
   }
   void router.push(BACK_TO_FOTO.has(route.path) ? '/' : '/more')

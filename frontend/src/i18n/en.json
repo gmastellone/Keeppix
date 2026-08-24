@@ -340,6 +340,31 @@
     "emptyTitle": "No suggestions pending",
     "emptyText": "When AI finds mid-confidence matches for your tags, they'll appear here for your confirmation — never applied on their own."
   },
+  "persons": {
+    "entry": "People",
+    "title": "People",
+    "subtitle": "Automatically recognized from your photos — never on a public link, never off this server.",
+    "emptyText": "No people recognized yet.",
+    "unnamed": "Unnamed person",
+    "unnamedHint": "needs a name",
+    "photoCount": "{n} photo | {n} photos",
+    "hiddenFooter": "{n} hidden person not shown here. | {n} hidden people not shown here.",
+    "backLink": "All people",
+    "rename": "Rename",
+    "renameTitle": "Rename person",
+    "name": "Name",
+    "save": "Save",
+    "show": "Show again",
+    "hide": "Hide",
+    "hiddenLabel": "hidden",
+    "hiddenToast": "Person hidden.",
+    "shownToast": "Person visible again.",
+    "loadError": "Could not load people. Try again.",
+    "renameError": "Could not rename the person. Try again.",
+    "hideError": "Could not update the person. Try again.",
+    "emptyPhotosTitle": "No photos here",
+    "emptyPhotosSubtitle": "This person has no confirmed faces (anymore)."
+  },
   "home": {
     "logout": "Sign out"
   },

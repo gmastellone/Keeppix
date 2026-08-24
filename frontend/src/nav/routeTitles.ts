@@ -13,6 +13,7 @@ export const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/profile': 'profile.title',
   '/tags': 'tags.title',
   '/review': 'review.title',
+  '/persons': 'persons.title',
   '/search': 'nav.cerca',
   '/culling': 'culling.entry',
   '/map': 'maps.entry',
@@ -37,3 +38,9 @@ export const ROUTE_TITLE_KEYS: Record<string, string> = {
  * uno store Pinia per un solo campo: stesso principio di `useDensity`
  * (comparso un secondo consumatore, `AppMobileHeader`, subito). */
 export const activeAlbumName = ref<string | null>(null)
+
+/** Stesso pattern per `/persons/:id` (Fase 11 Task 16 1/N) — `nome
+ * persona` come per gli album, non `"Persona senza nome"`: quando non
+ * ha nome la briciola mostra solo `Persone` (nessun secondo segmento),
+ * lasciando `PersonDetailView` scrivere qui il nome vero o `null`. */
+export const activePersonName = ref<string | null>(null)
