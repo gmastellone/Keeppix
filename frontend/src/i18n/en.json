@@ -363,7 +363,55 @@
     "renameError": "Could not rename the person. Try again.",
     "hideError": "Could not update the person. Try again.",
     "emptyPhotosTitle": "No photos here",
-    "emptyPhotosSubtitle": "This person has no confirmed faces (anymore)."
+    "emptyPhotosSubtitle": "This person has no confirmed faces (anymore).",
+    "newGroup": "New group",
+    "cancelSelection": "Clear selection",
+    "selectedCount": "{n} selected | {n} selected",
+    "mergeAction": "Merge",
+    "assignGroupAction": "Assign to group",
+    "groupCount": "{n} person | {n} people",
+    "edit": "Rename",
+    "delete": "Delete",
+    "renameGroup": "Rename group {name}",
+    "deleteGroup": "Delete group {name}",
+    "emptyGroupText": "Nobody here yet — assign a person to this group from their detail page, or from the multi-selection above.",
+    "noGroupTitle": "No group",
+    "selectAriaLabel": "Select {name}",
+    "groupLabel": "group {name}",
+    "noGroupLabel": "no group",
+    "assignGroup": "Assign to group",
+    "changeGroup": "Change group",
+    "groupDeletedToast": "Group deleted.",
+    "deleteGroupError": "Could not delete the group. Try again.",
+    "deleteGroupConfirmTitle": "Delete group \"{name}\"?",
+    "deleteGroupConfirmDescription": "The people in it stay — they just move back to \"No group\".",
+    "deleteGroupConfirmButton": "Delete group"
+  },
+  "groupEditor": {
+    "newTitle": "New group",
+    "renameTitle": "Rename group",
+    "subtitle": "A group collects several photographed people (e.g. \"Family\", \"Friends\") — it isn't an app user group, that already exists elsewhere for sharing permissions.",
+    "name": "Group name",
+    "save": "Save",
+    "create": "Create",
+    "nameRequired": "The name is required.",
+    "nameConflict": "A group with this name already exists.",
+    "createdToast": "Group \"{name}\" created.",
+    "renamedToast": "Group renamed."
+  },
+  "assignGroup": {
+    "title": "Assign to group",
+    "noGroup": "No group",
+    "assignedToast": "Group assigned.",
+    "removedToast": "Removed from group."
+  },
+  "mergePeople": {
+    "title": "Merge {n} people",
+    "subtitle": "They're the same person: they'll be merged into one, {n} photos in total. Choose which name survives.",
+    "radiogroupLabel": "Name that survives",
+    "confirm": "Merge",
+    "mergedToast": "{n} person merged. | {n} people merged.",
+    "error": "Could not merge the people. Try again."
   },
   "home": {
     "logout": "Sign out"

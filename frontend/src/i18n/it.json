@@ -363,7 +363,55 @@
     "renameError": "Non è stato possibile rinominare la persona. Riprova.",
     "hideError": "Non è stato possibile aggiornare la persona. Riprova.",
     "emptyPhotosTitle": "Nessuna foto qui",
-    "emptyPhotosSubtitle": "Questa persona non ha (più) volti confermati."
+    "emptyPhotosSubtitle": "Questa persona non ha (più) volti confermati.",
+    "newGroup": "Nuovo gruppo",
+    "cancelSelection": "Annulla selezione",
+    "selectedCount": "{n} selezionata | {n} selezionate",
+    "mergeAction": "Unisci",
+    "assignGroupAction": "Assegna a gruppo",
+    "groupCount": "{n} persona | {n} persone",
+    "edit": "Rinomina",
+    "delete": "Elimina",
+    "renameGroup": "Rinomina gruppo {name}",
+    "deleteGroup": "Elimina gruppo {name}",
+    "emptyGroupText": "Nessuno qui ancora — assegna una persona a questo gruppo dal suo dettaglio, o dalla selezione multipla qui sopra.",
+    "noGroupTitle": "Senza gruppo",
+    "selectAriaLabel": "Seleziona {name}",
+    "groupLabel": "gruppo {name}",
+    "noGroupLabel": "senza gruppo",
+    "assignGroup": "Assegna a gruppo",
+    "changeGroup": "Cambia gruppo",
+    "groupDeletedToast": "Gruppo eliminato.",
+    "deleteGroupError": "Non è stato possibile eliminare il gruppo. Riprova.",
+    "deleteGroupConfirmTitle": "Eliminare il gruppo \"{name}\"?",
+    "deleteGroupConfirmDescription": "Le persone al suo interno restano, tornano solo in \"Senza gruppo\".",
+    "deleteGroupConfirmButton": "Elimina gruppo"
+  },
+  "groupEditor": {
+    "newTitle": "Nuovo gruppo",
+    "renameTitle": "Rinomina gruppo",
+    "subtitle": "Un gruppo raccoglie più persone fotografate (es. \"Famiglia\", \"Amici\") — non è un gruppo di utenti dell'app, quello esiste già altrove per i permessi.",
+    "name": "Nome gruppo",
+    "save": "Salva",
+    "create": "Crea",
+    "nameRequired": "Il nome è obbligatorio.",
+    "nameConflict": "Esiste già un gruppo con questo nome.",
+    "createdToast": "Gruppo \"{name}\" creato.",
+    "renamedToast": "Gruppo rinominato."
+  },
+  "assignGroup": {
+    "title": "Assegna a gruppo",
+    "noGroup": "Nessun gruppo",
+    "assignedToast": "Gruppo assegnato.",
+    "removedToast": "Rimosso dal gruppo."
+  },
+  "mergePeople": {
+    "title": "Unisci {n} persone",
+    "subtitle": "Sono la stessa persona: verranno unite in una sola, {n} foto in tutto. Scegli quale nome deve sopravvivere.",
+    "radiogroupLabel": "Nome che sopravvive",
+    "confirm": "Unisci",
+    "mergedToast": "{n} persona unita. | {n} persone unite.",
+    "error": "Non è stato possibile unire le persone. Riprova."
   },
   "home": {
     "logout": "Esci"

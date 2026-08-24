@@ -1,24 +1,21 @@
 <script setup lang="ts">
-// Fase 11 Task 16 (1/N) — documento funzionale §31 "Persone — la
+// Fase 11 Task 16 (1/N-2/N) — documento funzionale §31 "Persone — la
 // griglia" (righe 5192-5417), verificato riga per riga.
 //
-// **Scheda ridotta rispetto al documento**: niente blocchi di gruppo
-// (§31.2, "un blocco per ogni gruppo… e in coda sempre 'Senza gruppo'"),
-// niente pulsante "Nuovo gruppo", niente selezione multipla con
-// Unisci/Assegna a gruppo (§31.3, controlli 7-10), niente banner della
-// coda di revisione. Nessuna di queste è raggiungibile senza i dialog
-// dedicati (§34 "Assegna a gruppo", §35 "Unisci") o senza una linguetta
-// "Volti" reale in `ReviewView.vue` — entrambi ancora da costruire
-// (prossime sotto-unità). Costruire qui i loro trigger sarebbe un
-// vicolo cieco, stessa disciplina di "Duplicati" (Task 13 2/N) e del
-// gruppo "IA" a comparsa incrementale (Task 15). Per ora: un unico
-// elenco piatto di tutte le persone visibili, nell'ordine restituito da
-// `GET /persons`.
+// **Ancora fuori da questa unità**: il banner della coda di revisione
+// (§31.2 — nessuna linguetta "Volti" reale in `ReviewView.vue` ancora,
+// prossima sotto-unità: un collegamento oggi sarebbe un vicolo cieco).
 //
 // **`visiblePeople()`** (§31.2): persone non nascoste (`fetchPersons()`
 // senza `include_hidden`, già il comportamento della rotta) *e* con
 // almeno un volto confermato (`face_count > 0` — filtro lato client,
 // la rotta non lo applica, commento originale di `persons.ts`).
+//
+// **Blocchi di gruppo, ma senza un `groupId` sulla persona** (§31.2):
+// `PersonView` non porta l'appartenenza — solo `GET /person-groups/{id}/
+// members` (elenco di id persona per gruppo) la espone. Il blocco
+// "Senza gruppo" è quindi il complemento: ogni persona non presente in
+// nessun elenco membri. Task 16 (2/N).
 //
 // **Foto di copertina reale, ma non quella scelta**: `PersonView` porta
 // `cover_face_id` (l'id di un volto), non l'id di un asset — nessuna
@@ -29,23 +26,31 @@
 // persona** (`runSearch({op:'person',id}, undefined, 1)`, un giro per
 // scheda — stesso costo accettato di N richieste per N elementi già di
 // `ReviewView.vue`), non necessariamente quella impostata con "Scegli
-// copertina" (§33, prossima sotto-unità: quel dialog resta comunque
-// pienamente reale — il difetto è solo nel non poter *mostrare* la
-// scelta qui senza quella rotta mancante).
+// copertina" (§33, prossima sotto-unità).
 //
 // **Nessun `autoNum` per le persone senza nome**: `_personAutoSeq` è un
 // contatore in memoria del mockup, senza alcuna colonna corrispondente
 // sul backend reale (`Person.name: Option<String>`, nient'altro). Al
 // posto di "Persona 12" inventato, l'etichetta è `persons.unnamed`
 // ("Persona senza nome") — onesto, non un numero fabbricato.
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import { runSearch } from '@/api/library'
-import { fetchPersons, type Person } from '@/api/persons'
-import { thumbSrc } from '@/api/media'
-import { thumbhashToDataURL } from '@/timeline/thumbhash'
+import {
+  deletePersonGroup,
+  fetchGroupMembers,
+  fetchPersonGroups,
+  fetchPersons,
+  type Person,
+  type PersonGroup
+} from '@/api/persons'
+import AssignGroupDialog from '@/components/AssignGroupDialog.vue'
+import GroupEditorDialog from '@/components/GroupEditorDialog.vue'
+import MergePeopleDialog from '@/components/MergePeopleDialog.vue'
+import PersonCard from '@/components/PersonCard.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { useToastStore } from '@/stores/toast'
 
 const { t } = useI18n()
@@ -54,6 +59,8 @@ const toast = useToastStore()
 
 const loading = ref(true)
 const people = ref<Person[]>([])
+const groups = ref<PersonGroup[]>([])
+const memberOf = ref<Record<string, string>>({})
 const hiddenCount = ref(0)
 const covers = ref<Record<string, { hash: string | null; thumbhash: string | null } | null>>({})
 
@@ -67,13 +74,23 @@ async function loadCover(person: Person) {
   }
 }
 
+async function loadGroups() {
+  groups.value = await fetchPersonGroups()
+  const memberships = await Promise.all(groups.value.map((g) => fetchGroupMembers(g.id)))
+  const map: Record<string, string> = {}
+  groups.value.forEach((g, i) => {
+    for (const personId of memberships[i]) map[personId] = g.id
+  })
+  memberOf.value = map
+}
+
 async function load() {
   loading.value = true
   try {
     const [visible, all] = await Promise.all([fetchPersons(), fetchPersons(true)])
     people.value = visible.filter((p) => (p.face_count ?? 0) > 0)
     hiddenCount.value = all.filter((p) => p.hidden).length
-    await Promise.all(people.value.map(loadCover))
+    await Promise.all([loadGroups(), Promise.all(people.value.map(loadCover))])
   } catch {
     toast.showError(t('persons.loadError'))
   } finally {
@@ -83,33 +100,158 @@ async function load() {
 
 onMounted(load)
 
-function displayName(person: Person): string {
-  return person.name?.trim() || t('persons.unnamed')
-}
+const groupBlocks = computed(() =>
+  groups.value.map((group) => ({
+    group,
+    people: people.value.filter((p) => memberOf.value[p.id] === group.id)
+  }))
+)
 
-function coverStyle(person: Person) {
-  const cover = covers.value[person.id]
-  if (cover?.hash) return { backgroundImage: `url(${thumbSrc(cover.hash)})` }
-  if (cover?.thumbhash) {
-    const url = thumbhashToDataURL(cover.thumbhash)
-    if (url) return { backgroundImage: `url(${url})` }
-  }
-  return {}
-}
+const ungrouped = computed(() => people.value.filter((p) => !memberOf.value[p.id]))
 
 function open(person: Person) {
   void router.push(`/persons/${person.id}`)
+}
+
+// §31.3 controlli 7-10: la selezione è nell'ordine di click (serve al
+// dialog di unione, §35, per il sopravvissuto di default), non un `Set`
+// che perderebbe l'ordine.
+const selectedIds = ref<string[]>([])
+
+function toggleSelect(personId: string) {
+  const i = selectedIds.value.indexOf(personId)
+  if (i === -1) selectedIds.value = [...selectedIds.value, personId]
+  else selectedIds.value = selectedIds.value.filter((id) => id !== personId)
+}
+
+function clearSelection() {
+  selectedIds.value = []
+}
+
+const selectedPeople = computed(() =>
+  selectedIds.value.map((id) => people.value.find((p) => p.id === id)).filter((p): p is Person => p !== undefined)
+)
+
+const groupEditorOpen = ref(false)
+const editingGroup = ref<PersonGroup | null>(null)
+
+function openNewGroup() {
+  editingGroup.value = null
+  groupEditorOpen.value = true
+}
+
+function openRenameGroup(group: PersonGroup) {
+  editingGroup.value = group
+  groupEditorOpen.value = true
+}
+
+const deleteGroupTarget = ref<PersonGroup | null>(null)
+const deleteGroupConfirmOpen = ref(false)
+
+function askDeleteGroup(group: PersonGroup) {
+  deleteGroupTarget.value = group
+  deleteGroupConfirmOpen.value = true
+}
+
+async function confirmDeleteGroup() {
+  const target = deleteGroupTarget.value
+  if (!target) return
+  try {
+    await deletePersonGroup(target.id)
+    toast.show(t('persons.groupDeletedToast'))
+    await load()
+  } catch {
+    toast.showError(t('persons.deleteGroupError'))
+  }
+}
+
+const assignGroupOpen = ref(false)
+
+function currentGroupOf(personId: string): string | null {
+  return memberOf.value[personId] ?? null
+}
+
+async function onAssigned() {
+  clearSelection()
+  await loadGroups()
+}
+
+const mergeOpen = ref(false)
+const mergeTotalPhotos = ref(0)
+
+async function openMerge() {
+  const ids = selectedIds.value
+  if (ids.length < 2) return
+  try {
+    const page = await runSearch({ op: 'or', args: ids.map((id) => ({ op: 'person' as const, id })) })
+    mergeTotalPhotos.value = page.assets.length
+  } catch {
+    mergeTotalPhotos.value = 0
+  }
+  mergeOpen.value = true
+}
+
+async function onMerged() {
+  clearSelection()
+  await load()
 }
 </script>
 
 <template>
   <main class="mx-auto max-w-[860px] p-6">
-    <p class="text-[15px] font-bold">
-      {{ t('persons.title') }}
-    </p>
-    <p class="mt-1 text-[12.5px] text-content-muted">
-      {{ t('persons.subtitle') }}
-    </p>
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <p class="text-[15px] font-bold">
+          {{ t('persons.title') }}
+        </p>
+        <p class="mt-1 text-[12.5px] text-content-muted">
+          {{ t('persons.subtitle') }}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="shrink-0 rounded-lg border border-border px-3 py-1.5 text-[13px] font-semibold hover:bg-border/20"
+        @click="openNewGroup"
+      >
+        {{ t('persons.newGroup') }}
+      </button>
+    </div>
+
+    <div
+      v-if="selectedIds.length > 0"
+      class="mt-4 flex items-center gap-2 rounded-lg border border-border px-3 py-2"
+    >
+      <button
+        type="button"
+        class="rounded-md px-1.5 py-1 text-[12px] text-content-muted hover:bg-border/30"
+        :aria-label="t('persons.cancelSelection')"
+        @click="clearSelection"
+      >
+        ✕
+      </button>
+      <span class="text-[13px] font-semibold">
+        {{ t('persons.selectedCount', { n: selectedIds.length }, { plural: selectedIds.length }) }}
+      </span>
+      <div class="ml-auto flex gap-1">
+        <button
+          v-if="selectedIds.length >= 2"
+          type="button"
+          class="rounded-md px-2 py-1 text-[12px] font-semibold text-content-muted hover:bg-border/30"
+          :aria-label="t('persons.mergeAction')"
+          @click="openMerge"
+        >
+          {{ t('persons.mergeAction') }}
+        </button>
+        <button
+          type="button"
+          class="rounded-md px-2 py-1 text-[12px] font-semibold text-content-muted hover:bg-border/30"
+          :aria-label="t('persons.assignGroupAction')"
+          @click="assignGroupOpen = true"
+        >
+          {{ t('persons.assignGroupAction') }}
+        </button>
+      </div>
+    </div>
 
     <p
       v-if="!loading && people.length === 0"
@@ -118,35 +260,88 @@ function open(person: Person) {
       {{ t('persons.emptyText') }}
     </p>
 
-    <div
-      v-else
-      class="mt-5 grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-4"
-    >
-      <button
-        v-for="person in people"
-        :key="person.id"
-        type="button"
-        class="flex flex-col items-center gap-2 rounded-lg p-2 text-center hover:bg-border/20
-               focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        @click="open(person)"
+    <template v-else>
+      <section
+        v-for="block in groupBlocks"
+        :key="block.group.id"
+        class="mt-6"
       >
-        <span
-          class="h-[78px] w-[78px] rounded-full border border-border bg-cover bg-center bg-surface-elevated"
-          :style="coverStyle(person)"
-          aria-hidden="true"
-        />
-        <span class="w-full truncate text-[12.5px] font-semibold">
-          {{ displayName(person) }}
-          <span
-            v-if="!person.name"
-            class="font-semibold text-accent"
-          > · {{ t('persons.unnamedHint') }}</span>
-        </span>
-        <span class="text-[11px] text-content-muted">
-          {{ t('persons.photoCount', { n: person.face_count ?? 0 }, { plural: person.face_count ?? 0 }) }}
-        </span>
-      </button>
-    </div>
+        <div class="mb-2 flex items-center justify-between">
+          <div class="flex items-baseline gap-2">
+            <p class="text-[13.5px] font-bold">
+              {{ block.group.name }}
+            </p>
+            <span class="text-[11.5px] text-content-muted">
+              {{ t('persons.groupCount', { n: block.people.length }, { plural: block.people.length }) }}
+            </span>
+          </div>
+          <div class="flex gap-1">
+            <button
+              type="button"
+              class="rounded-md px-2 py-1 text-[12px] text-content-muted hover:bg-border/30 hover:text-content"
+              :aria-label="t('persons.renameGroup', { name: block.group.name })"
+              @click="openRenameGroup(block.group)"
+            >
+              {{ t('persons.edit') }}
+            </button>
+            <button
+              type="button"
+              class="rounded-md px-2 py-1 text-[12px] text-content-muted hover:bg-danger/10 hover:text-danger"
+              :aria-label="t('persons.deleteGroup', { name: block.group.name })"
+              @click="askDeleteGroup(block.group)"
+            >
+              {{ t('persons.delete') }}
+            </button>
+          </div>
+        </div>
+        <p
+          v-if="block.people.length === 0"
+          class="text-[12.5px] text-content-muted"
+        >
+          {{ t('persons.emptyGroupText') }}
+        </p>
+        <div
+          v-else
+          class="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-4"
+        >
+          <PersonCard
+            v-for="person in block.people"
+            :key="person.id"
+            :person="person"
+            :cover="covers[person.id] ?? null"
+            :selected="selectedIds.includes(person.id)"
+            @open="open(person)"
+            @toggle-select="toggleSelect(person.id)"
+          />
+        </div>
+      </section>
+
+      <section class="mt-6">
+        <p class="mb-2 text-[13.5px] font-bold">
+          {{ t('persons.noGroupTitle') }}
+        </p>
+        <p
+          v-if="ungrouped.length === 0"
+          class="text-[12.5px] text-content-muted"
+        >
+          {{ t('persons.emptyGroupText') }}
+        </p>
+        <div
+          v-else
+          class="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-4"
+        >
+          <PersonCard
+            v-for="person in ungrouped"
+            :key="person.id"
+            :person="person"
+            :cover="covers[person.id] ?? null"
+            :selected="selectedIds.includes(person.id)"
+            @open="open(person)"
+            @toggle-select="toggleSelect(person.id)"
+          />
+        </div>
+      </section>
+    </template>
 
     <p
       v-if="hiddenCount > 0"
@@ -154,5 +349,35 @@ function open(person: Person) {
     >
       {{ t('persons.hiddenFooter', { n: hiddenCount }, { plural: hiddenCount }) }}
     </p>
+
+    <GroupEditorDialog
+      v-model:open="groupEditorOpen"
+      :group="editingGroup"
+      @saved="load"
+    />
+    <ConfirmDialog
+      v-if="deleteGroupTarget"
+      v-model:open="deleteGroupConfirmOpen"
+      :title="t('persons.deleteGroupConfirmTitle', { name: deleteGroupTarget.name })"
+      :description="t('persons.deleteGroupConfirmDescription')"
+      :confirm-label="t('persons.deleteGroupConfirmButton')"
+      @confirm="confirmDeleteGroup"
+    />
+    <AssignGroupDialog
+      v-model:open="assignGroupOpen"
+      :person-ids="selectedIds"
+      :person-label="selectedIds.length === 1
+        ? (selectedPeople[0]?.name?.trim() || t('persons.unnamed'))
+        : t('persons.selectedCount', { n: selectedIds.length }, { plural: selectedIds.length })"
+      :current-group-id="currentGroupOf"
+      :groups="groups"
+      @assigned="onAssigned"
+    />
+    <MergePeopleDialog
+      v-model:open="mergeOpen"
+      :people="selectedPeople"
+      :total-photo-count="mergeTotalPhotos"
+      @merged="onMerged"
+    />
   </main>
 </template>

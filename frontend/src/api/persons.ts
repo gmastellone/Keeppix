@@ -64,3 +64,68 @@ export function patchPerson(id: string, payload: PersonPatchPayload): Promise<Pe
     body: JSON.stringify(payload)
   })
 }
+
+/** Fase 11 Task 16 (2/N), §35 "Unisci persone": `POST /persons/{id}/
+ * merge` sposta **tutti** i volti di `absorbed` sul sopravvissuto `id` e
+ * cancella le persone assorbite (`PersonRepo::merge`,
+ * `crates/keeppix-db/src/persons.rs:278-324`) — non reversibile, stesso
+ * comportamento del documento. */
+export function mergePersons(id: string, absorbed: string[]): Promise<Person> {
+  return apiFetch(`/api/v1/persons/${id}/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ absorbed })
+  })
+}
+
+/** Gruppi di persone (§31.2-§31.3, §34) — `crates/keeppix-api/src/
+ * routes/persons.rs:333-550`. **Il backend permette a una persona di
+ * stare in più gruppi** (`person_group_members` è una tabella
+ * molti-a-molti, nessun vincolo di unicità) — il documento invece
+ * modella "una persona sta in al massimo un gruppo" (`groupId` singolo).
+ * Non è un'invenzione da riprodurre alla cieca: `PeopleView.vue`
+ * applica quel vincolo lato client (rimuove la vecchia appartenenza
+ * prima di aggiungere la nuova), mai esposta qui una vera UI
+ * multi-gruppo — il backend lo permetterebbe, il documento no. */
+export interface PersonGroup {
+  id: string
+  name: string
+  created_by: string
+  created_at: string
+}
+
+export function fetchPersonGroups(): Promise<PersonGroup[]> {
+  return apiFetch('/api/v1/person-groups')
+}
+
+export function createPersonGroup(name: string): Promise<PersonGroup> {
+  return apiFetch('/api/v1/person-groups', {
+    method: 'POST',
+    body: JSON.stringify({ name })
+  })
+}
+
+export function renamePersonGroup(id: string, name: string): Promise<PersonGroup> {
+  return apiFetch(`/api/v1/person-groups/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name })
+  })
+}
+
+export function deletePersonGroup(id: string): Promise<null> {
+  return apiFetch(`/api/v1/person-groups/${id}`, { method: 'DELETE' })
+}
+
+/** Id delle persone nel gruppo — non un `PersonView` completo: la
+ * griglia incrocia questi id con l'elenco già caricato da
+ * `fetchPersons()`, un giro di rete in meno per gruppo. */
+export function fetchGroupMembers(groupId: string): Promise<string[]> {
+  return apiFetch(`/api/v1/person-groups/${groupId}/members`)
+}
+
+export function addGroupMember(groupId: string, personId: string): Promise<null> {
+  return apiFetch(`/api/v1/person-groups/${groupId}/members/${personId}`, { method: 'POST' })
+}
+
+export function removeGroupMember(groupId: string, personId: string): Promise<null> {
+  return apiFetch(`/api/v1/person-groups/${groupId}/members/${personId}`, { method: 'DELETE' })
+}

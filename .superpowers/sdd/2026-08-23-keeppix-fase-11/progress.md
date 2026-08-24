@@ -5973,3 +5973,74 @@ riverificare contro §37 con occhi freschi; menu sul riquadro del volto
 (§38, già in `AssetViewer.vue`) da completare con "Vai alla persona" ora
 che la rotta esiste; coda "Revisione → Volti" (§39) — prossime
 sotto-unità.
+
+## Task 16 (2/N) — Gruppi di persone (§31, §34, §35)
+
+**Il backend permette a una persona di stare in più gruppi** — verificato
+in `crates/keeppix-db/migrations/0046_faces.sql:124-135`:
+`person_group_members` è una tabella molti-a-molti (`group_id,
+person_id`), nessun vincolo di unicità su `person_id`. Il documento
+invece modella "una persona sta in al massimo un gruppo" (`groupId`
+singolo, §31.2/§34). Non riprodotto alla cieca né ignorato: il vincolo
+è applicato **lato client** in `AssignGroupDialog.vue` (§34) — prima di
+aggiungere l'appartenenza nuova rimuove quella vecchia se diversa
+(`removeGroupMember` + `addGroupMember`, due chiamate reali sulla stessa
+tabella molti-a-molti, mai una vera UI multi-gruppo che il backend
+permetterebbe ma il documento no).
+
+**Nessun `groupId` sulla persona**: `PersonView` non lo porta —
+l'appartenenza è ricostruita incrociando `GET /person-groups` con un
+`GET /person-groups/{id}/members` per gruppo (elenco di id persona),
+sia in `PeopleView.vue` (tutta la griglia, un giro per gruppo) sia in
+`PersonDetailView.vue` (una sola persona, stesso giro ripetuto — pochi
+gruppi nella pratica, costo accettato). Il blocco "Senza gruppo" è il
+complemento: ogni persona non presente in nessun elenco membri.
+
+**Tre nuovi componenti condivisi**: `GroupEditorDialog.vue` (§31.3
+controlli 1/5 — crea/rinomina, stesso pattern di
+`CategoryEditorDialog.vue`, ma **con** convalida del campo vuoto a
+differenza del documento: "si chiude senza fare nulla" su un campo
+obbligatorio non è un comportamento da riprodurre, stessa disciplina già
+di `TagEditorDialog.vue`); `AssignGroupDialog.vue` (§34, riusato da
+entrambe le schermate: selezione multipla di `PeopleView.vue` **e**
+pulsante "Assegna/Cambia gruppo" del dettaglio, chiuso in questa stessa
+unità); `MergePeopleDialog.vue` (§35, `role="radiogroup"` per il
+sopravvissuto, default "prima persona selezionata con un nome vero" —
+`people` arriva già nell'ordine di selezione dal chiamante).
+
+**`PersonCard.vue` estratto** da `PeopleView.vue` per ospitare la
+casella di spunta di selezione (non annidabile in un vero `<button>` —
+stesso motivo di `TagRow.vue`, Task 15). **Corretto rispetto al
+documento**: §31.5 segnala esplicitamente "la scheda persona non è
+raggiungibile da tastiera… lacuna di accessibilità, non una scelta
+documentata" — qui `role="button" tabindex="0"` + Invio/Spazio (SP-8),
+stessa disciplina già seguita per le pastiglie colore di
+`TagEditorDialog.vue`.
+
+**M per il dialog di unione** (§35.2, "conteggio delle foto distinte
+dell'unione"): `runSearch({op:'or', args:[...persone]})` — l'AST
+composito `or` esisteva già (Task 12, creazione album), qui il primo
+uso reale con più nodi `person`.
+
+**"Assegna/Cambia gruppo" aggiunto anche al dettaglio** (§32.3
+controllo 4, chiudendo un debito dichiarato nella sotto-unità
+precedente): riusa lo stesso `AssignGroupDialog.vue`, con
+`person-ids="[person.id]"` — un solo elemento nell'array condiviso con
+la selezione multipla. La riga di riepilogo del dettaglio mostra ora
+"· gruppo Nome" o "· senza gruppo" (§32.2), reale.
+
+Verifica completa: `npx vue-tsc -b` pulito. `npx eslint` sui file
+toccati e sull'intero repo → pulito (0 errori nuovi; solo warning dello
+stesso `:ariaLabel` non trattinizzato già presente altrove, più i
+consueti avvisi di formattazione template). `npx vitest run` → 97 file,
+**840/840** verdi (22 fra `PeopleView.spec.ts`/`PersonDetailView.spec.ts`,
++13 da questa unità — inclusa una correzione a un test che perdeva stato
+mock fra casi per `vi.clearAllMocks()` non azzerare le implementazioni,
+non un bug del componente). `npm run build` + calcolo manuale del
+bundle iniziale gzip → 141.074 byte, sotto il budget di 153.600;
+`PeopleView`/`PersonDetailView` restano due chunk lazy separati.
+
+Manca ancora, nello stesso Task 16: "Scegli copertina" (§33) e
+"Dividi…" (§36) nel dettaglio; selettore di persona da riverificare
+contro §37; menu sul riquadro del volto (§38) da completare con "Vai
+alla persona"; coda "Revisione → Volti" (§39) — prossime sotto-unità.

@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { runSearch } from '@/api/library'
 import { startLiveEvents, type LiveMessage } from '@/api/events'
-import { fetchPerson, patchPerson, type Person } from '@/api/persons'
+import { fetchPerson, patchPerson, type Person, type PersonGroup } from '@/api/persons'
 import type { TimelineAsset } from '@/api/timeline'
 import PhotoTile from '@/components/ui/PhotoTile.vue'
 import { i18n } from '@/i18n'
@@ -22,7 +22,15 @@ vi.mock('@/api/persons', () => ({
   fetchPerson: vi.fn(),
   fetchPersons: vi.fn(async () => []),
   patchPerson: vi.fn(),
-  createPerson: vi.fn()
+  createPerson: vi.fn(),
+  fetchPersonGroups: vi.fn(async () => []),
+  fetchGroupMembers: vi.fn(async () => []),
+  createPersonGroup: vi.fn(),
+  renamePersonGroup: vi.fn(),
+  deletePersonGroup: vi.fn(),
+  addGroupMember: vi.fn(async () => null),
+  removeGroupMember: vi.fn(async () => null),
+  mergePersons: vi.fn()
 }))
 
 vi.mock('@/api/events', () => ({
@@ -125,6 +133,10 @@ function person(overrides: Partial<Person> = {}): Person {
   return { id: 'p1', name: 'Marta', hidden: false, face_count: 2, ...overrides }
 }
 
+function group(overrides: Partial<PersonGroup> = {}): PersonGroup {
+  return { id: 'g1', name: 'Famiglia', created_by: 'u1', created_at: '2024-01-01T00:00:00Z', ...overrides }
+}
+
 function photo(id: string): TimelineAsset {
   return {
     id,
@@ -157,6 +169,29 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     expect(wrapper.text()).toContain('Marta')
     expect(wrapper.text()).toContain('2 foto')
     expect(wrapper.findAllComponents(PhotoTile)).toHaveLength(2)
+  })
+
+  it('§32.2 shows the current group in the summary line, and §32.3 control 4 the matching action', async () => {
+    vi.mocked(fetchPerson).mockResolvedValue(person())
+    vi.mocked(runSearch).mockResolvedValue({ assets: [] })
+    const { fetchPersonGroups, fetchGroupMembers } = await import('@/api/persons')
+    vi.mocked(fetchPersonGroups).mockResolvedValue([group({ id: 'g1', name: 'Famiglia' })])
+    vi.mocked(fetchGroupMembers).mockResolvedValue(['p1'])
+
+    const { wrapper } = await mountDetail('p1')
+
+    expect(wrapper.text()).toContain('gruppo Famiglia')
+    expect(wrapper.findAll('button').find((b) => b.text() === 'Cambia gruppo')).toBeTruthy()
+  })
+
+  it('§32.2 shows "senza gruppo" when the person has none', async () => {
+    vi.mocked(fetchPerson).mockResolvedValue(person())
+    vi.mocked(runSearch).mockResolvedValue({ assets: [] })
+
+    const { wrapper } = await mountDetail('p1')
+
+    expect(wrapper.text()).toContain('senza gruppo')
+    expect(wrapper.findAll('button').find((b) => b.text() === 'Assegna a gruppo')).toBeTruthy()
   })
 
   it('shows the unnamed label and hidden marker when applicable', async () => {

@@ -2,12 +2,12 @@
 // Fase 11 Task 16 (1/N) — documento funzionale §32 "Persone — dettaglio
 // di una persona" (righe 5420-5524), verificato riga per riga.
 //
-// **Tre dei cinque pulsanti d'azione mancano ancora** (§32.3, controlli
-// 3-5: "Scegli copertina", "Assegna/Cambia gruppo", "Dividi…") — i loro
-// dialog (§33-34, §36) sono sotto-unità successive; aggiungerli ora
-// senza dialog dietro sarebbe un pulsante che non fa nulla. Restano
-// "Rinomina" e "Nascondi"/"Mostra di nuovo" (controlli 2 e 6), entrambi
-// pienamente reali (`PATCH /persons/{id}`).
+// **Due dei cinque pulsanti d'azione mancano ancora** (§32.3, controlli
+// 3 e 5: "Scegli copertina", "Dividi…") — i loro dialog (§33, §36) sono
+// sotto-unità successive; aggiungerli ora senza dialog dietro sarebbe un
+// pulsante che non fa nulla. "Assegna/Cambia gruppo" (controllo 4,
+// Task 16 2/N) riusa `AssignGroupDialog.vue` (§34), lo stesso già
+// costruito per la selezione multipla di `PeopleView.vue`.
 //
 // **Griglia foto = `photosForPerson()`** (§32.2): `runSearch({op:
 // 'person', id})`, paginata come Preferiti (Task 7 3/N, stesso schema
@@ -32,9 +32,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { startLiveEvents, type LiveSocket } from '@/api/events'
 import { runSearch } from '@/api/library'
 import { thumbSrc } from '@/api/media'
-import { fetchPerson, patchPerson, type Person } from '@/api/persons'
+import { fetchGroupMembers, fetchPerson, fetchPersonGroups, patchPerson, type Person, type PersonGroup } from '@/api/persons'
 import type { TimelineAsset } from '@/api/timeline'
 import AssetViewer from '@/components/AssetViewer.vue'
+import AssignGroupDialog from '@/components/AssignGroupDialog.vue'
 import FlatAssetGrid from '@/components/FlatAssetGrid.vue'
 import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
 import Dialog from '@/components/ui/Dialog.vue'
@@ -66,8 +67,17 @@ const person = ref<Person | null>(null)
 const notFound = ref(false)
 const assets = ref<TimelineAsset[]>([])
 const loaded = ref(false)
+const groups = ref<PersonGroup[]>([])
+const currentGroup = ref<PersonGroup | null>(null)
 
 let live: LiveSocket | undefined
+
+async function loadGroup() {
+  groups.value = await fetchPersonGroups()
+  const memberships = await Promise.all(groups.value.map((g) => fetchGroupMembers(g.id)))
+  const i = memberships.findIndex((ids) => ids.includes(personId.value))
+  currentGroup.value = i === -1 ? null : groups.value[i]
+}
 
 async function loadPhotos() {
   const collected: TimelineAsset[] = []
@@ -86,7 +96,7 @@ async function load() {
   try {
     person.value = await fetchPerson(personId.value)
     activePersonName.value = person.value.name?.trim() || null
-    await loadPhotos()
+    await Promise.all([loadPhotos(), loadGroup()])
     loaded.value = true
   } catch {
     // §32.8: "se la persona sparisce… si ricade automaticamente sulla
@@ -155,6 +165,16 @@ async function saveRename() {
   }
 }
 
+const assignGroupOpen = ref(false)
+
+function currentGroupOf(id: string): string | null {
+  return id === personId.value ? (currentGroup.value?.id ?? null) : null
+}
+
+async function onAssigned() {
+  await loadGroup()
+}
+
 async function toggleHidden() {
   if (!person.value) return
   const next = !person.value.hidden
@@ -210,6 +230,8 @@ onUnmounted(() => {
             </p>
             <p class="text-[12.5px] text-content-muted">
               {{ t('persons.photoCount', { n: assets.length }, { plural: assets.length }) }}
+              <template v-if="currentGroup"> · {{ t('persons.groupLabel', { name: currentGroup.name }) }}</template>
+              <template v-else> · {{ t('persons.noGroupLabel') }}</template>
               <template v-if="person.hidden"> · {{ t('persons.hiddenLabel') }}</template>
             </p>
           </div>
@@ -222,6 +244,13 @@ onUnmounted(() => {
             @click="openRename"
           >
             {{ t('persons.rename') }}
+          </button>
+          <button
+            type="button"
+            class="rounded-lg border border-border px-3 py-1.5 text-[13px] font-semibold hover:bg-border/20"
+            @click="assignGroupOpen = true"
+          >
+            {{ currentGroup ? t('persons.changeGroup') : t('persons.assignGroup') }}
           </button>
           <button
             type="button"
@@ -343,5 +372,15 @@ onUnmounted(() => {
         </div>
       </div>
     </Dialog>
+
+    <AssignGroupDialog
+      v-if="person"
+      v-model:open="assignGroupOpen"
+      :person-ids="[person.id]"
+      :person-label="displayName(person)"
+      :current-group-id="currentGroupOf"
+      :groups="groups"
+      @assigned="onAssigned"
+    />
   </div>
 </template>
