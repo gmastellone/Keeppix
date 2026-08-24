@@ -5233,3 +5233,96 @@ budget di 153.600.
 **Con questa unità si chiude il Task 12** ("Album", §41-43). Si
 prosegue con il Task 13 della Tranche B (Manutenzione: Cestino/
 Duplicati/Problemi, §45-49).
+
+## Task 13 (1/N) — Manutenzione: Cestino (§45)
+
+Documento funzionale §45 "Cestino", verificato riga per riga (righe
+6841-6981). Preceduto da un'analisi di gap via agente in background su
+tutto il Task 13 (§45-49): confermato che §49 (dialog di eliminazione a
+3 opzioni) è già coperto da `DeleteDialog.vue` (nota della sessione
+precedente corretta), che §46 (Duplicati) e §48 (dialog "file con
+problemi") non esistono affatto, e che §47 (Problemi) esiste ma ignora
+il campo `problems: ProblemView[]` già composto dal backend — tre unità
+ancora da fare dopo questa.
+
+**Bug reale trovato e corretto nel livello dati**, stessa classe del
+bug Album del Task 12: `TrashedAsset` (`api/trash.ts`) dichiarava
+`filename`/`expires_at`, mai esistiti sul vero `TrashItemView`
+(`crates/keeppix-api/src/routes/trash.rs:176-185`, che ha invece
+`asset_id`/`original_path`/`disk_action`/`days_remaining`) — la vista
+leggeva `undefined` per entrambi, e usava l'id della **riga di
+cestino** al posto dell'`asset_id` per ripristinare, quindi il
+ripristino non avrebbe mai funzionato in produzione. `GET /trash`
+restituisce anche una pagina cursor-based (`{items, next_cursor}`),
+mai seguita: solo la prima pagina veniva mostrata. Corretto:
+`TrashedItem` rispecchia `TrashItemView` esattamente, `fetchTrash`
+segue `next_cursor` fino a esaurimento (stesso giro di
+`FavoritesView.loadFavorites`).
+
+**Due deviazioni reali dal documento, per capacità reale del backend
+diversa dal mockup:**
+
+1. **Miniatura vera, non un gradiente finto**: il mockup mostra "il
+   gradiente della foto come miniatura" (stesso trucco delle copertine
+   album) perché la sua base dati non porta immagini reali. Sul
+   backend vero gli elementi in cestino sono foto vere ancora presenti
+   in `assets` (`status='trashed'`, non cancellate finché non si
+   sceglie "Elimina definitivamente") — `GET /assets/{id}` le trova
+   ancora con `content_hash`/`thumbhash` validi. Un gradiente al posto
+   della foto vera sarebbe un passo indietro reale: senza nome file
+   (mai mostrato, per documento) sarebbe impossibile riconoscere cosa
+   si sta per ripristinare o eliminare per sempre. Pattern N+1 (un
+   `fetchAsset` per elemento) già usato ai Task 9/11/12.
+2. **"<N> giorni rimanenti" è il vero conto alla rovescia**: il
+   documento lo dichiara esplicitamente "annunciato ma non
+   implementato" nel mockup (`20 + hash(id)%10`, sempre fra 20 e 29) —
+   sul backend reale `days_remaining` è calcolato per davvero da
+   `deleted_at` + 30 giorni (`routes/trash.rs:199-202`), già pronto,
+   solo mai letto dal frontend prima d'ora.
+
+**Fedele al documento nonostante le azioni siano ora reali e
+permanenti**: "Svuota cestino" e "Elimina definitivamente" restano
+senza dialog di conferma, senza toast di successo, senza
+annullamento — comportamento esplicitamente voluto dal documento
+(§45.3, "senza chiedere conferma... senza toast... senza
+annullamento"), non un debito di questa unità: il documento è la
+specifica di questa interfaccia, non solo un resoconto di una demo, e
+non c'è un buco di capacità del backend che lo renda insostenibile —
+solo una scelta di design già presa altrove nel documento e qui
+rispettata. Un errore di rete resta comunque segnalato con un toast,
+perché sul backend reale queste chiamate possono davvero fallire
+(403/409/500 — permessi, conflitto sul ripristino, errore filesystem),
+cosa che il mockup non prevede solo perché la sua base dati non può
+fallire.
+
+**Accessibilità da tastiera corretta rispetto al mockup**: il
+documento chiama esplicitamente questa "la vista meno accessibile del
+blocco" (§45.5) — un difetto dichiarato, non una scelta di design (a
+differenza del "no conferma" sopra). I due pulsantini per riquadro
+sono `<button>` reali con `aria-label`, rivelati da `:focus-within`
+oltre che da `:hover` (Tailwind `group-focus-within`), coerenti con il
+resto dell'app (SP-1) — stessa politica già seguita ovunque in questa
+fase per i difetti di accessibilità dichiarati come tali nel
+documento.
+
+**"Elimina definitivamente" del singolo riquadro riusa la rotta di
+cancellazione a 3 vie** (`DELETE /assets/{id}` con
+`disk_action:'purged'`, già wrappata come `deleteAsset` in
+`api/culling.ts`) invece di una rotta dedicata — verificato che
+`authorize_choose` (`crates/keeppix-db/src/trash.rs:453-488`) non
+richiede che l'asset non sia già in stato `trashed`, quindi richiamare
+`choose` su un asset già cestinato per purgarlo funziona senza
+modifiche al backend.
+
+Verifica completa: `npx vitest run` → 84 file, **715/715** verdi (9
+nuovi in `TrashView.spec.ts`, prima assente). `npx vue-tsc -b` pulito.
+`npx eslint` sui file toccati e sull'intero repo → pulito (stesso
+unico errore preesistente su `PlayerView.vue`, stesso numero di
+warning). `npm run build` + calcolo manuale del bundle iniziale gzip →
+130.041 byte, sotto il budget di 153.600.
+
+Si prosegue con Task 13 (2/N): Duplicati (§46), da costruire da zero —
+il backend (`crates/keeppix-api/src/routes/duplicates.rs`) è già
+completo (lista gruppi, membri di un gruppo, risoluzione con
+`keep`+`disk_action` applicata per davvero), il frontend non ha ancora
+né vista né i wrapper per gli endpoint di membri/risoluzione.

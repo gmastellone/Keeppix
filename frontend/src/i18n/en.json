@@ -829,11 +829,15 @@
   },
   "trash": {
     "entry": "Trash",
-    "empty": "Trash is empty.",
+    "title": "Trash",
+    "subtitle": "{n} item · permanently deleted after 30 days | {n} items · permanently deleted after 30 days",
     "emptyAll": "Empty trash",
+    "emptyTitle": "Trash is empty",
+    "emptySubtitle": "Items moved here — from the viewer or the selection bar, choosing \"Move to Keeppix trash\" — stay recoverable for 30 days.",
+    "daysRemaining": "{n} day remaining | {n} days remaining",
     "restore": "Restore",
     "purge": "Delete permanently",
-    "expires": "Expires {date}"
+    "actionError": "Could not complete the operation. Try again."
   },
   "batchEdit": {
     "title": "Bulk edit",

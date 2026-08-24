@@ -829,11 +829,15 @@
   },
   "trash": {
     "entry": "Cestino",
-    "empty": "Il cestino è vuoto.",
+    "title": "Cestino",
+    "subtitle": "{n} elemento · eliminazione definitiva dopo 30 giorni | {n} elementi · eliminazione definitiva dopo 30 giorni",
     "emptyAll": "Svuota cestino",
+    "emptyTitle": "Il cestino è vuoto",
+    "emptySubtitle": "Gli elementi spostati qui — dal visualizzatore o dalla barra di selezione, scegliendo \"Sposta nel cestino di Keeppix\" — restano recuperabili per 30 giorni.",
+    "daysRemaining": "{n} giorno rimanente | {n} giorni rimanenti",
     "restore": "Ripristina",
     "purge": "Elimina definitivamente",
-    "expires": "Scade il {date}"
+    "actionError": "Non è stato possibile completare l'operazione. Riprova."
   },
   "batchEdit": {
     "title": "Modifica multipla",
