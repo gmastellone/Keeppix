@@ -37,7 +37,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Avatar from '@/components/ui/Avatar.vue'
 import Popover from '@/components/ui/Popover.vue'
 import { UPLOAD_ACCEPT, useUploadPicker } from '@/composables/useUploadPicker'
-import { activeAlbumName, activePersonName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
+import { activeAlbumName, activeCullingLotName, activePersonName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
 import { useAvatarColorStore } from '@/stores/avatarColor'
 import { useSessionStore } from '@/stores/session'
 import { useShellStore } from '@/stores/shell'
@@ -66,6 +66,8 @@ const title = computed(() => {
   // §32.8: "su mobile il titolo è 'Persone' o il nome della persona" —
   // senza nome resta il titolo piatto della mappa sotto (`persons.title`).
   if (route.path.startsWith('/persons/') && activePersonName.value) return activePersonName.value
+  // §15.8: "Header mobile: il titolo è il nome del lotto".
+  if (route.path.startsWith('/culling/') && activeCullingLotName.value) return activeCullingLotName.value
   const key = ROUTE_TITLE_KEYS[route.path] ?? (route.path.startsWith('/persons/') ? 'persons.title' : undefined)
   if (key) return t(key)
   if (route.path === '/more') return t('nav.more')
@@ -79,6 +81,12 @@ function goBack() {
   }
   if (route.path.startsWith('/persons/')) {
     void router.push('/persons')
+    return
+  }
+  // §15.8: "la freccia indietro porta direttamente a state.view='foto' —
+  // non alla griglia dei lotti", anche dal lotto aperto.
+  if (route.path.startsWith('/culling/')) {
+    void router.push('/')
     return
   }
   void router.push(BACK_TO_FOTO.has(route.path) ? '/' : '/more')

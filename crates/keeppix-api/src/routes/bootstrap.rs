@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 
 use axum::extract::{Query, State};
-use keeppix_db::{AssetTagRepo, Db, FaceRepo, FolderRepo, LibraryRepo, PreferencesRepo, UserRepo};
+use keeppix_db::{
+    AssetTagRepo, CullingRepo, Db, FaceRepo, FolderRepo, LibraryRepo, PreferencesRepo, UserRepo,
+};
 use keeppix_domain::AuthContext;
 use serde::{Deserialize, Serialize};
 
@@ -21,8 +23,11 @@ use crate::state::AppState;
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct BadgeCountsView {
-    /// Foto ancora da valutare nel culling (Fase 9). Zero finché i lotti non
-    /// esistono nel backend.
+    /// Foto ancora da valutare nel culling, sommate su tutti i lotti di
+    /// tutte le librerie con una radice designata (Fase 9, esposto in Fase
+    /// 11 Task 17). `list_lots` è già owner/admin-scoped per costruzione —
+    /// una libreria senza radice designata contribuisce zero senza una
+    /// query in più (`list_lots` la salta subito).
     pub culling: i64,
     /// Proposte tag/volti in attesa (Fasi 7/8). Zero finché non ci sono code.
     pub revision: i64,
@@ -75,6 +80,21 @@ pub async fn compose(
         storage.insert(library.id.to_string(), LibraryStorageView::from(usage));
     }
 
+    // Metà "culling" del badge: somma di `pending` sui lotti di ogni
+    // libreria che ha una radice designata. `list_lots` è sicuro da
+    // chiamare per ognuna di `libraries` senza rischiare `Forbidden`:
+    // `LibraryRepo::list` le ha già filtrate a owner-o-admin, lo stesso
+    // ambito che `list_lots` pretende internamente.
+    let culling_repo = CullingRepo::new(db);
+    let mut culling = 0_i64;
+    for library in &libraries {
+        if library.culling_root_folder_id.is_none() {
+            continue;
+        }
+        let lots = culling_repo.list_lots(ctx, library.id).await?;
+        culling = culling.saturating_add(lots.iter().map(|lot| lot.pending).sum());
+    }
+
     // Fase 7 Task 9: metà "tag" del badge. `count_proposed_visible` non
     // propaga l'assenza di pgvector (torna 0) — il bootstrap non deve mai
     // fallire per una feature IA opzionale (Task 3 ruling). Fase 8 Task 8
@@ -89,10 +109,7 @@ pub async fn compose(
         preferences: UserPreferencesView::from(prefs),
         folders: folders.iter().map(FolderView::from_folder).collect(),
         storage,
-        badges: BadgeCountsView {
-            culling: 0,
-            revision,
-        },
+        badges: BadgeCountsView { culling, revision },
     })
 }
 

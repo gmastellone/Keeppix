@@ -44,3 +44,9 @@ export const activeAlbumName = ref<string | null>(null)
  * ha nome la briciola mostra solo `Persone` (nessun secondo segmento),
  * lasciando `PersonDetailView` scrivere qui il nome vero o `null`. */
 export const activePersonName = ref<string | null>(null)
+
+/** Stesso pattern per `/culling/:lotId` (Fase 11 Task 17 3/N) — chiude il
+ * debito dichiarato sopra per "Culling / <nome lotto>": `CullingLotView`
+ * scrive qui il nome del lotto al caricamento e lo azzera allo
+ * smontaggio. */
+export const activeCullingLotName = ref<string | null>(null)

@@ -53,16 +53,6 @@ fn resolve_place_label fase-9
 route /health ops
 route /api/openapi.json ci
 
-# Culling a cartelle (Fase 11 Task 17, 1/N — terreno di backend): quattro
-# rotte HTTP scritte contro la logica già di Fase 9 (Ruling nel ledger del 24
-# agosto spiega perché qui, eccezionalmente, nascono rotte nuove). Due hanno
-# già un consumatore reale dal Task 17 (2/N) — la sezione "Cartella di
-# culling" di Impostazioni (§17/§64), `SettingsView.vue` — e sono tolte da
-# qui. Le altre due restano: consumatore la schermata Culling vera e propria
-# (griglia lotti §14, schermo lotto aperto §15), non ancora costruita.
-route /assets/{id}/pick fase-11
-route /culling/lots/{id}/empty-skipped fase-11
-
 # Fase 10 — superficie API per l'interfaccia: i consumatori sono le 70
 # schermate della Fase 11 (tranche A/B subito dopo la 10).
 route /bootstrap fase-11

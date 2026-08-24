@@ -713,54 +713,54 @@
   },
   "culling": {
     "entry": "Culling",
-    "title": "Culling",
-    "close": "Chiudi",
-    "ofTotal": "su {total}",
-    "empty": "Nessuna foto da rivedere.",
     "rating": {
       "group": "Valutazione",
       "star": "{n} stelle"
     },
-    "stats": {
-      "picks": "Scelte",
-      "rejects": "Scarti",
-      "pending": "Da vedere"
+    "filmstrip": {
+      "label": "Miniature del lotto"
+    },
+    "infoButton": "Dettagli foto — EXIF, posizione, rinomina",
+    "noRootConfigured": "Nessuna libreria ha ancora una cartella di culling designata.",
+    "rootLine": "Cartella di culling: {path}",
+    "rootChangeLink": "Cambia in Impostazioni",
+    "lotsTitle": "Lotti",
+    "lotsSubtitle": "Un lotto per ogni importazione — scegli e scarta, poi sincronizza la sottocartella dei presi quando arrivi in studio.",
+    "empty": "Nessun lotto qui.",
+    "lotSubtitle": "{date} · {n} foto",
+    "lotTodo": "{n} da vedere",
+    "backToLots": "Tutti i lotti",
+    "counters": {
+      "taken": "presi",
+      "skipped": "scartati",
+      "pending": "da vedere"
     },
     "filters": {
-      "label": "Filtro",
       "all": "Tutte",
-      "pending": "Da vedere",
-      "picks": "Scelte",
-      "rejects": "Scarti"
+      "todo": "Da vedere",
+      "taken": "Presi",
+      "skipped": "Scartati"
     },
-    "badges": {
-      "pick": "Scelta",
-      "reject": "Scarto"
+    "state": {
+      "pending": "Da valutare",
+      "taken": "Presi",
+      "skipped": "Scartati"
     },
-    "filmstrip": {
-      "label": "Miniature della sessione"
+    "prev": "Foto precedente",
+    "next": "Foto successiva",
+    "keyhint": "← → naviga · shift+← → seleziona intervallo · 1-5 rating · P scegli · X scarta",
+    "pick": "Scelta",
+    "reject": "Scarta",
+    "emptyFilter": {
+      "title": "Niente da mostrare con questo filtro",
+      "subtitle": "Cambia filtro qui sopra, oppure torna a \"Tutte\"."
     },
-    "zoomLoading": "Caricamento della risoluzione piena…",
-    "infoButton": "Dettagli foto — EXIF, posizione, rinomina",
-    "deleteRejects": "Elimina i {count} scarti",
-    "deleteDialog": {
-      "title": "Elimina {count} foto",
-      "cancel": "Annulla",
-      "confirm": "Elimina",
-      "options": {
-        "kept": {
-          "label": "Rimuovi solo dall'indice",
-          "hint": "I file restano sul disco. Keeppix li reindicizzerà alla prossima scansione."
-        },
-        "moved_to_trash": {
-          "label": "Sposta nel cestino di Keeppix",
-          "hint": "Recuperabili per 30 giorni. I file vengono spostati in .keeppix-trash/ dentro la stessa libreria."
-        },
-        "purged": {
-          "label": "Elimina dal disco adesso",
-          "hint": "Irreversibile."
-        }
-      }
+    "emptySkipped": {
+      "button": "Svuota scartati ({n})",
+      "title": "Svuotare gli scartati di \"{name}\"?",
+      "description": "{n} foto verranno eliminate definitivamente da questo lotto. Le foto già prese non sono toccate — è pensato apposta come passaggio prima di sincronizzare il lotto in studio.",
+      "done": "Foto scartate eliminate dal lotto.",
+      "partialError": "Non è stato possibile eliminare {n} foto. Riprova."
     }
   },
   "problems": {

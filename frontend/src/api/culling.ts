@@ -1,4 +1,5 @@
 import { apiFetch } from './client'
+import type { TimelineAsset } from './timeline'
 
 export type Pick = 'none' | 'pick' | 'reject'
 
@@ -59,4 +60,41 @@ export interface CullingLot {
 
 export function fetchCullingLots(libraryId: string): Promise<CullingLot[]> {
   return apiFetch(`/api/v1/libraries/${libraryId}/culling/lots`)
+}
+
+/** §15 "Scelta"/"Scarta": fuori da un lotto resta solo un voto, come
+ * `setFlags`; dentro un lotto sposta anche fisicamente il file in
+ * `_taken`/`_skipped` (`CullingRepo::set_pick`, Fase 9 Task 4, esposta via
+ * HTTP in Fase 11 Task 17). Restituisce l'asset aggiornato — `folder_id`
+ * cambia se si è spostato — non solo `204`, perché il chiamante deve saperlo
+ * per aggiornarsi senza un secondo giro. */
+export function pickAsset(assetId: string, pick: Pick): Promise<TimelineAsset> {
+  return apiFetch(`/api/v1/assets/${assetId}/pick`, {
+    method: 'POST',
+    body: JSON.stringify({ pick })
+  })
+}
+
+/** Riuscita parziale (spec Fase 10 §3): un asset il cui purge fallisce non
+ * blocca gli altri. */
+export interface BulkFailure {
+  id: string
+  reason: string
+  detail?: string
+}
+
+export interface BulkOutcome {
+  succeeded: string[]
+  failed: BulkFailure[]
+  batch_id: string | null
+}
+
+/** "Svuota scartati" (§15): elimina definitivamente ogni asset oggi in
+ * `_skipped` per questo lotto (`CullingRepo::empty_skipped`, Fase 9 Task 4,
+ * esposta via HTTP in Fase 11 Task 17). `lotFolderId` è l'id del lotto
+ * stesso, non di `_skipped`: la rotta risolve la sottocartella da sé. */
+export function emptySkipped(lotFolderId: string): Promise<BulkOutcome> {
+  return apiFetch(`/api/v1/culling/lots/${lotFolderId}/empty-skipped`, {
+    method: 'POST'
+  })
 }

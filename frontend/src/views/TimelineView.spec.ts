@@ -487,10 +487,9 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
     expect(wrapper.findComponent(PhotoTile).props('selected')).toBe(true)
     expect(wrapper.findComponent(PhotoTile).props('selectionMode')).toBe(true)
     expect(wrapper.findComponent(SelectionBar).props('count')).toBe(1)
-    // §12.2: "in selezione multipla l'intera riga è sostituita" — il
-    // pulsante di ingresso al culling sparisce insieme al resto della
-    // barra strumenti normale.
-    expect(wrapper.text()).not.toContain(String(i18n.global.t('culling.entry')))
+    // §12.2: "in selezione multipla l'intera riga è sostituita" — la
+    // barra strumenti normale (filtro rapido incluso) sparisce insieme.
+    expect(wrapper.findComponent(QuickFilter).exists()).toBe(false)
   })
 
   it('clicking a tile body while selection is active toggles selection instead of opening the lightbox', async () => {

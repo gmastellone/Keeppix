@@ -713,54 +713,54 @@
   },
   "culling": {
     "entry": "Culling",
-    "title": "Culling",
-    "close": "Close",
-    "ofTotal": "of {total}",
-    "empty": "No photos to review.",
     "rating": {
       "group": "Rating",
       "star": "{n} stars"
     },
-    "stats": {
-      "picks": "Picks",
-      "rejects": "Rejects",
-      "pending": "Pending"
+    "filmstrip": {
+      "label": "Lot thumbnails"
+    },
+    "infoButton": "Photo details — EXIF, location, rename",
+    "noRootConfigured": "No library has a culling root folder set yet.",
+    "rootLine": "Culling root folder: {path}",
+    "rootChangeLink": "Change in Settings",
+    "lotsTitle": "Lots",
+    "lotsSubtitle": "One lot per import — pick and skip, then sync the taken subfolder once you're back at the studio.",
+    "empty": "No lots here.",
+    "lotSubtitle": "{date} · {n} photos",
+    "lotTodo": "{n} to review",
+    "backToLots": "All lots",
+    "counters": {
+      "taken": "taken",
+      "skipped": "skipped",
+      "pending": "to review"
     },
     "filters": {
-      "label": "Filter",
       "all": "All",
-      "pending": "Pending",
-      "picks": "Picks",
-      "rejects": "Rejects"
+      "todo": "To review",
+      "taken": "Taken",
+      "skipped": "Skipped"
     },
-    "badges": {
-      "pick": "Pick",
-      "reject": "Reject"
+    "state": {
+      "pending": "To review",
+      "taken": "Taken",
+      "skipped": "Skipped"
     },
-    "filmstrip": {
-      "label": "Session thumbnails"
+    "prev": "Previous photo",
+    "next": "Next photo",
+    "keyhint": "← → navigate · shift+← → select range · 1-5 rating · P pick · X skip",
+    "pick": "Pick",
+    "reject": "Skip",
+    "emptyFilter": {
+      "title": "Nothing to show with this filter",
+      "subtitle": "Change filter above, or go back to \"All\"."
     },
-    "zoomLoading": "Loading full resolution…",
-    "infoButton": "Photo details — EXIF, location, rename",
-    "deleteRejects": "Delete the {count} rejects",
-    "deleteDialog": {
-      "title": "Delete {count} photos",
-      "cancel": "Cancel",
-      "confirm": "Delete",
-      "options": {
-        "kept": {
-          "label": "Remove from the index only",
-          "hint": "The files stay on disk. Keeppix will re-index them on the next scan."
-        },
-        "moved_to_trash": {
-          "label": "Move to the Keeppix trash",
-          "hint": "Recoverable for 30 days. Files are moved into .keeppix-trash/ inside the same library."
-        },
-        "purged": {
-          "label": "Delete from disk now",
-          "hint": "Irreversible."
-        }
-      }
+    "emptySkipped": {
+      "button": "Empty skipped ({n})",
+      "title": "Empty the skipped photos of \"{name}\"?",
+      "description": "{n} photos will be permanently deleted from this lot. Photos already taken are not touched — this is meant as a step before syncing the lot at the studio.",
+      "done": "Skipped photos removed from the lot.",
+      "partialError": "Could not delete {n} photos. Try again."
     }
   },
   "problems": {

@@ -20,7 +20,6 @@ import { useDensity } from '@/composables/useDensity'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
 import { useScrollRestoration } from '@/composables/useScrollRestoration'
-import { useCullingStore } from '@/stores/culling'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useMapsStore } from '@/stores/maps'
 import { useSelectionStore } from '@/stores/selection'
@@ -60,7 +59,6 @@ const PAGE_CACHE_CAPACITY = 50
 const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const culling = useCullingStore()
 const maps = useMapsStore()
 const favorites = useFavoritesStore()
 const selection = useSelectionStore()
@@ -157,11 +155,10 @@ watch(mountedMonths, (months) => {
 
 // Concatenazione dei mesi attualmente residenti in cache, nello stesso
 // ordine di `buckets` (dal più recente): l'equivalente di un "tutte le
-// foto caricate finora", non l'intera libreria — stesso limite già
-// dichiarato prima del Task 4 per l'avvio del culling, ora esteso anche
-// alla navigazione prev/next del lightbox (debito dichiarato nel ledger:
-// ai bordi di un mese caricato, "successiva" può non trovare nulla anche
-// se esiste, semplicemente non è ancora in cache).
+// foto caricate finora", non l'intera libreria — usato dalla navigazione
+// prev/next del lightbox (debito dichiarato nel ledger: ai bordi di un
+// mese caricato, "successiva" può non trovare nulla anche se esiste,
+// semplicemente non è ancora in cache).
 const loadedAssets = computed(() => {
   void cacheTick.value
   const out: TimelineAsset[] = []
@@ -174,8 +171,8 @@ const loadedAssets = computed(() => {
 
 // Task 7 (7/N) — SP-3: "N è calcolato sulla lista di questa vista"
 // (§11), qui `loadedAssets` — lo stesso "quanto già caricato finora" già
-// dichiarato sopra per culling/lightbox, non un limite nuovo di questa
-// unità. Il blob di geometria server-side presume l'intero mese: un
+// dichiarato sopra per il lightbox, non un limite nuovo di questa unità.
+// Il blob di geometria server-side presume l'intero mese: un
 // filtro attivo passa a `FlatAssetGrid` (Task 7, 6/N), la stessa griglia
 // giustificata piatta già usata da Preferiti, invece di provare a
 // ritagliare celle dentro righe pensate per un mese intero.
@@ -230,18 +227,6 @@ async function clearMapFilter() {
   delete q.bbox
   await router.replace({ path: '/', query: q })
   await refreshTimeline()
-}
-
-/**
- * Unico punto d'ingresso al culling (spec §4.2, hard rule del piano): un
- * pulsante, non scorciatoie sparse. L'insieme di lavoro resta "quanto già
- * caricato in timeline" (nessuna vista per cartella o selezione multipla
- * in questa fase del frontend — Task 7 la introdurrà), invariato dal
- * comportamento pre-Task-4.
- */
-async function startCulling() {
-  culling.start(loadedAssets.value)
-  await router.push('/culling')
 }
 
 /**
@@ -516,10 +501,7 @@ const selectedAssets = computed(() =>
 
 /** SP-4: "ciò che è visibile in quel momento", mai l'intera libreria
  * sottostante — `displayedAssets`, che si restringe da sola quando un
- * filtro rapido (SP-3) è attivo. `startCulling()` resta volutamente su
- * `loadedAssets` intero: il culling non ha un concetto di "filtrato",
- * lavora sempre su tutto il caricato (nessun requisito del documento lo
- * lega a SP-3). */
+ * filtro rapido (SP-3) è attivo. */
 function selectAllVisible() {
   selection.library.selectAllVisible(displayedAssets.value.map((asset) => asset.id))
 }
@@ -530,24 +512,18 @@ function selectAllVisible() {
     <!-- Fase 11 Task 6 (5/N): la navigazione globale (saluto, ricerca,
          Cartelle/Mappa/Cestino/Album/Condivisioni/Utenti/Gruppi/Problemi,
          Esci) è ora in AppSidebar/AppTopbar (App.vue) — tolta da qui, non
-         duplicata. Restano i due controlli reali di questa vista che non
-         hanno un'altra sede: l'ingresso al culling (unico pulsante, spec
-         §4.2) e la densità (ripiego pre-Impostazioni, v. commento su
-         DENSITY_KEY). "Rinomina cartella…" (§8.3, a sinistra quando è
-         aperta una cartella) non si applica ancora: questa vista non ha
-         un concetto di "cartella aperta" (debito già dichiarato). -->
+         duplicata. Il culling (Task 17) non ha più un ingresso da questa
+         vista: è un'area separata, per cartella (nav "Culling"), non più
+         una sessione sopra "quanto già caricato in timeline" (Ruling nel
+         ledger del 24 agosto 2026). Resta solo la densità (ripiego
+         pre-Impostazioni, v. commento su DENSITY_KEY). "Rinomina
+         cartella…" (§8.3, a sinistra quando è aperta una cartella) non si
+         applica ancora: questa vista non ha un concetto di "cartella
+         aperta" (debito già dichiarato). -->
     <div
       v-if="!selectionMode"
       class="flex items-center gap-3 border-b border-border px-4 py-3"
     >
-      <button
-        v-if="loadedAssets.length > 0"
-        type="button"
-        class="rounded-lg border border-border px-3 py-1 text-sm"
-        @click="startCulling"
-      >
-        {{ t('culling.entry') }}
-      </button>
       <div class="ml-auto flex items-center gap-2">
         <SelectAllVisible
           :visible-count="displayedAssets.length"

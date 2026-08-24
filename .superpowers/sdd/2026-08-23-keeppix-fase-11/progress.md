@@ -6432,3 +6432,134 @@ aggiornata` restano da confermare, il pezzo più a rischio essendo
 lotti (§14), lotto aperto (§15, tastiera completa), selettore rapido
 (§16) — che consuma `pick`/`empty-skipped` e chiude i due Rinvii
 rimasti.
+
+## Task 17 (3/N) — Culling sostituisce interamente la vecchia sessione
+
+**Decisione dell'utente, non mia**: chiesto esplicitamente (AskUserQuestion)
+come dovessero convivere la vecchia sessione di culling a voto per-utente
+(`stores/culling.ts`/`CullingView.vue`, "quanto già caricato in timeline",
+nessuno spostamento fisico) e la nuova griglia lotti del documento
+funzionale. Risposta letterale: *"esisterà solo la nuova versione. il
+culling non centra più nulla con le foto 'normali' ma è sezione che lavora
+solo su specifica cartella e sposta fisicamente le foto così come da
+piano."* — con l'istruzione di leggere bene tutti i documenti prima di
+agire, non solo il documento funzionale UI.
+
+**Letti per davvero prima di scrivere codice** (non solo il documento
+funzionale UI, già letto nel Task 17 1/N-2/N): `docs/superpowers/plans/
+2026-08-20-keeppix-fase-11.md` (righe 370-399, Task 17 letterale col
+tastierino esatto e il Ruling sulla guardia "non attivarsi in un campo di
+testo"), `docs/superpowers/specs/fase-11-interfaccia.md` (riga 193, Task
+17 dipende **solo** da Fase 9/lotti — nessuna menzione della sessione a
+voto come deliverable di Fase 11), `docs/ui/analisi-gap-backend.md` (riga
+41-43, conferma dal glossario: *"`Pick::{None,Pick,Reject}` è lo stato di
+culling **dentro un lotto**"* — non un flag generico di sessione). Tre
+fonti indipendenti, stessa conclusione: la sessione a voto era un ripiego
+pre-Task-17, mai il disegno finale.
+
+**Blast radius verificato prima di cancellare**: `grep` di
+`useCullingStore`/`api/culling` su tutto `frontend/src` prima di toccare
+nulla. `AssetViewer.vue`/`Filmstrip.vue`/`LibrarySelectionActions.vue`/
+`TrashView.vue`/`BatchEditView.vue` usano `pick`/`reject`/`rating`/
+`favorite` per motivi propri e indipendenti (modifica in blocco,
+"elimina" che marca reject prima di smaltire, lightbox generico) — **mai
+toccati**. Solo `CullingView.vue`, `stores/culling.ts` e il pulsante
+"Cull" di `TimelineView.vue` erano davvero legati alla vecchia sessione:
+cancellati/rimossi, non lasciati come debito morto.
+
+**`stores/cullingLot.ts` (nuovo) — niente coda offline, a differenza del
+vecchio store**: `pick` sposta un file per davvero (Fase 9 Task 4); un
+fallimento (permesso, collisione) deve arrivare subito, non essere
+accodato e ritentato in background come un voto qualunque. Ogni azione
+(`decide`/`setRating`/`emptySkippedFolder`) è un `await` diretto con
+gestione dell'errore, non ottimistica.
+
+**Lo stato preso/scartato/da vedere viene dalla cartella, non da un flag
+riletto**: `pickAsset` (nuova, `api/culling.ts`) restituisce l'asset
+aggiornato — `folder_id` cambia se si è spostato — ed è quella la fonte
+di verità per `cullState`, letta dalla stessa risposta HTTP, non un
+secondo giro. La valutazione (stelle) resta invece per-utente via
+`AssetFlags`, recuperata **solo per la foto aperta**, mai per l'intero
+lotto: nessuna rotta di lettura in blocco esiste (`POST /flags/batch` è
+solo scrittura) e un lotto può avere centinaia di foto — lo stesso limite
+che il vecchio store rispettava con `ensureFlagsLoaded`.
+
+**Composizione del lotto da `fetchChildren`, non una rotta nuova**: gli
+asset diretti del lotto (in attesa) più, se esistono già, i figli
+`_taken`/`_skipped` (`ensure_culling_child` li crea solo al primo
+"Scelta"/"Scarta" — spesso non esistono ancora) — fino a tre chiamate,
+mai una in più di quel che la schermata deve comunque mostrare.
+
+**Multi-libreria, il mockup no**: `CullingLotsView.vue` (§14) mostra una
+sezione per libreria con una radice designata — stesso adattamento già
+scelto per "Riconoscimento volti" e "Cartella di culling" in
+Impostazioni. Il percorso della radice è una briciola di **nomi**
+(`utils/folderPath.ts`, nuovo — estratto da `SettingsView.vue` per
+evitare una seconda copia divergente), non un percorso su disco: nessuna
+rotta lo espone.
+
+**Filmstrip.vue semplificato, non esteso**: il documento è esplicito
+(§15.6): *"la miniatura non ha alcuna animazione di cambio stato, e non
+ha nemmeno un contrassegno di stato"* — tolti i badge presi/scartati/
+valutazione che il vecchio filmino mostrava (comportamento della
+sessione precedente, mai stato nel disegno dei lotti). Unico consumatore
+di `Filmstrip.vue` era `CullingView.vue`: nessun altro chiamante da
+aggiornare.
+
+**Tastiera con la guardia del Ruling** (piano, Task 17): frecce/`P`/`X`/
+`Canc`/`1`-`5` inerti se il focus è su un campo di testo, un dialog è
+aperto, o il lightbox è aperto — corregge alla radice il difetto
+dichiarato del prototipo ("digitare 1 in un campo cambia la valutazione
+della foto sottostante"), non replicato. **Fuori scope di questa
+sotto-unità** (Task 17 4/N): selezione multipla (shift+click/
+shift+freccia, barra di selezione con le sue quattro azioni), "Rinomina
+lotto…", selettore rapido di lotto (§16) — dichiarati esplicitamente nel
+commento di testa del file, non finti né abbozzati a metà.
+
+**Bootstrap.rs**: il badge culling della sidebar era **hardcoded a
+zero** dal Task 10 (commento letterale: *"Zero finché i lotti non
+esistono nel backend... (Task 17)"*) — sostituito con la somma reale di
+`pending` su `list_lots` per ogni libreria con una radice designata.
+Verificato che il test di budget delle query (`bootstrap_emits_no_more_
+queries_than_individual_repos`) non si rompe: `seed_library` non imposta
+mai una radice, quindi il nuovo ciclo su `list_lots` non emette query in
+più in quel test — aggiunto comunque lo stesso ciclo a `load_individual_
+repos` per parità, non solo perché il test passa per caso.
+
+**Debito di navigazione chiuso**: `AppTopbar.vue`/`nav/routeTitles.ts`
+dichiaravano esplicitamente da Task 6 che "Culling / <nome lotto>" non
+era mai raggiungibile (nessuno stato "aperto" osservabile). `/culling/
+:lotId` (nuova rotta) più `activeCullingLotName` (stesso pattern di
+`activeAlbumName`/`activePersonName`) lo chiudono per davvero — briciola
+desktop e titolo mobile mostrano il nome del lotto vero. Il nome arriva
+per query string dal click sulla scheda (`CullingLotsView` → `router.push`
+con `query.name`): un deep-link diretto senza passare dalla griglia mostra
+un titolo vuoto finché il lotto non risponde — limite dichiarato, non
+un tentativo di risolverlo con una rotta nuova (nessuna esiste per "dammi
+il nome di questa cartella").
+
+**Un bug reale trovato scrivendo i test**: `previewSrc`/`fullSrc`
+ricorrevano l'uno nell'altro quando `content_hash` è `null` (foto appena
+importate, non ancora hashate — il caso comune per un lotto) —
+`RangeError: Maximum call stack size exceeded`, non un caso limite raro.
+Corretto a un'unica funzione che torna `undefined` (stesso pattern già
+usato da `DuplicatesView`/`TrashView`/`Filmstrip` per lo stesso campo).
+
+**Verifica completa**: `npx vue-tsc -b` pulito. `npx eslint` sull'intero
+repo → 1 solo errore preesistente (`PlayerView.vue`), nessun errore
+nuovo. `npx vitest run` → **101 file, 880/880** verdi. `npm run build` +
+calcolo manuale del bundle iniziale gzip → 143.555 byte, sotto il
+budget di 153.600. `python3 scripts/check-wired.py` → pulito, le quattro
+eccezioni "Rinvii" del Task 17 sono tutte tolte: tutt'e quattro le rotte
+hanno un consumatore reale ora. `cargo fmt --check --all` pulito.
+`keeppix-api` resta bloccato dalla rete in questo sandbox per `cargo
+check`/`clippy` — CI del Task 17 1/N ha già confermato `Formattazione`/
+`Lint`/`Funzioni pubbliche e rotte senza chiamanti` verdi sul vero
+compilatore prima di questa sotto-unità, `bootstrap.rs` verificato solo a
+mano qui.
+
+**Prossima sotto-unità (Task 17 4/N)**: selezione multipla nel lotto
+aperto (shift+click/shift+freccia, barra di selezione SP-2 con le quattro
+deviazioni dichiarate), "Rinomina lotto…"/"Rinomina…" (estende
+`RenameFormulaDialog.vue` con `hasSubfolders`), selettore rapido di lotto
+(§16) — chiude il Task 17 e la Tranche D.

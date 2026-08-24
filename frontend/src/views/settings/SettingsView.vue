@@ -57,6 +57,7 @@ import { useDensity } from '@/composables/useDensity'
 import { useSessionStore } from '@/stores/session'
 import { useThemeStore } from '@/stores/theme'
 import { useToastStore } from '@/stores/toast'
+import { folderPathName } from '@/utils/folderPath'
 
 const { t, locale } = useI18n()
 const session = useSessionStore()
@@ -151,19 +152,10 @@ function libraryRoot(library: Library): FolderView | undefined {
   return allFolders.value.find((f) => f.library_id === library.id && f.parent_id === null)
 }
 
-/** Briciola di **nomi**, non un percorso su disco — risale `parent_id`
- * dentro `foldersById` fino alla radice. `null` se non c'è ancora una
- * radice designata. */
 function cullingPathName(library: Library): string | null {
-  const id = library.culling_root_folder_id
-  if (!id) return null
-  const chain: string[] = []
-  let current = foldersById.value.get(id)
-  while (current) {
-    chain.unshift(current.name)
-    current = current.parent_id ? foldersById.value.get(current.parent_id) : undefined
-  }
-  return chain.length > 0 ? chain.join(' / ') : null
+  return library.culling_root_folder_id
+    ? folderPathName(library.culling_root_folder_id, foldersById.value)
+    : null
 }
 
 /** Radice-a-foglia per il dialog (§17.2: "si posiziona sul percorso

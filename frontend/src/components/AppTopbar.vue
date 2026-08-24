@@ -43,7 +43,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import Tooltip from '@/components/ui/Tooltip.vue'
 import { useUploadPicker, UPLOAD_ACCEPT } from '@/composables/useUploadPicker'
-import { activeAlbumName, activePersonName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
+import { activeAlbumName, activeCullingLotName, activePersonName, ROUTE_TITLE_KEYS } from '@/nav/routeTitles'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -66,6 +66,13 @@ const personBreadcrumbName = computed(() =>
   route.path.startsWith('/persons/') ? activePersonName.value : null
 )
 
+// §15.8: "Topbar desktop: Culling / <b>Nome lotto</b>" — chiude il debito
+// dichiarato sopra (Task 6), ora che `/culling/:lotId` espone davvero uno
+// stato "aperto".
+const cullingLotBreadcrumbName = computed(() =>
+  route.path.startsWith('/culling/') ? activeCullingLotName.value : null
+)
+
 const breadcrumbLabel = computed(() => {
   const key = ROUTE_TITLE_KEYS[route.path] ?? (route.path.startsWith('/persons/') ? 'persons.title' : undefined)
   return key ? t(key) : null
@@ -86,6 +93,9 @@ async function openSearch() {
       </template>
       <template v-else-if="personBreadcrumbName">
         {{ t('persons.title') }} / <b class="font-semibold text-content">{{ personBreadcrumbName }}</b>
+      </template>
+      <template v-else-if="cullingLotBreadcrumbName">
+        {{ t('culling.entry') }} / <b class="font-semibold text-content">{{ cullingLotBreadcrumbName }}</b>
       </template>
       <b
         v-else-if="breadcrumbLabel"

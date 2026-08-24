@@ -70,7 +70,12 @@ export const router = createRouter({
       component: () => import('@/views/PlayerView.vue'),
       meta: { auth: true }
     },
-    { path: '/culling', component: () => import('@/views/CullingView.vue'), meta: { auth: true } },
+    { path: '/culling', component: () => import('@/views/CullingLotsView.vue'), meta: { auth: true } },
+    {
+      path: '/culling/:lotId',
+      component: () => import('@/views/CullingLotView.vue'),
+      meta: { auth: true }
+    },
     // PWA Share Target (§4.2 fase-5): il service worker redirige qui dopo
     // aver intercettato un POST "Condividi -> Keeppix" dalla galleria.
     {
