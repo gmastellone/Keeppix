@@ -572,7 +572,7 @@ mod tests {
         let mut obj = vec![0.0_f32; n];
         let mut bboxes = vec![0.0_f32; n * 4];
         let kpss = vec![0.0_f32; n * 10];
-        let idx = (1 * feat_w + 2) as usize;
+        let idx = (feat_w + 2) as usize; // riga 1, colonna 2
         cls[idx] = 0.9;
         obj[idx] = 0.9;
         bboxes[idx * 4] = 0.0;
@@ -692,8 +692,8 @@ mod tests {
         rgb[0] = 255; // R del pixel (0,0)
         let (nchw, _scale, pad_x, pad_y) = letterbox_to_nchw_bgr(&rgb, w, h, 4);
         let plane = 4 * 4;
-        let dst = ((0 + pad_y) * 4 + (0 + pad_x)) as usize;
-        assert!((nchw[0 * plane + dst] - 0.0).abs() < 1e-6, "piano B");
+        let dst = (pad_y * 4 + pad_x) as usize; // pixel sorgente (0,0), spostato dal padding
+        assert!((nchw[dst] - 0.0).abs() < 1e-6, "piano B");
         assert!((nchw[2 * plane + dst] - 255.0).abs() < 1e-6, "piano R");
     }
 
