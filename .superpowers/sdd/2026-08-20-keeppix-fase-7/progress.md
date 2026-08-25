@@ -856,3 +856,43 @@ I/O (verificato offline su grafo sintetico, `keep_io_types=True`) —
 il consumatore Rust non richiede modifiche per caricarlo. Non ancora
 fatto: il confronto Rust reale (serve prima i numeri del bench IT/EN
 sul default, ancora in corso).
+
+## 25 agosto: Task B — trovato e corretto un bug reale, doppio remap del vocabolario
+
+Il primo bench IT/EN girato per davvero in CI (commit `7a49a333`, run
+32874522510, dopo che tutti i pezzi infrastrutturali — cache pesi,
+foto del banco, retry Wikimedia — erano finalmente a posto) ha dato un
+risultato allarmante, non un semplice numero basso:
+`openclip_xlmr_it_en_retrieval_bench` **FAILED**, EN recall@1=0.05
+(praticamente casuale — con 20 immagini in galleria, un singolo rank@1
+corretto su 20 query, ranks tutti sparsi: `[6,20,6,12,17,13,13,8,11,1,
+13,7,3,8,14,14,17,13,14,7]`). Non il "colpo IT sul visual" atteso e
+documentato dal piano (quello riguarda l'IT, non l'EN, ed è un
+degrado, non un collasso a casuale) — un segnale di pipeline rotta.
+
+**Causa reale, trovata leggendo lo script di export riga per riga**:
+`TextTowerExport.forward` (in `scripts/export-openclip-xlmr-it-en.py`)
+applica il remap del vocabolario potato DENTRO il grafo ONNX stesso —
+un gather su una costante `[vocab_size_originale]` cotta nel grafo
+all'export. Il commento nello script lo dice esplicitamente: "deve
+esistere PRIMA dell'export, non essere applicato lato Rust dopo".
+`crates/keeppix-media/src/openclip_xlmr.rs::embed_text` applicava lo
+STESSO remap una seconda volta, leggendo `id_remap.json` PRIMA di
+alimentare `text.onnx` — ogni token veniva rimappato due volte (id
+originale → nuovo indice via Rust → di nuovo "rimappato" come se fosse
+un id originale, dentro il grafo, su indici piccoli e scorrelati dal
+token vero). Nessuna verifica offline di questa sessione poteva
+catturarlo: serviva il grafo ONNX reale (mai eseguibile in questa
+sandbox) più un bench IT/EN reale (bloccato fino ad oggi da tre
+problemi infrastrutturali distinti, tutti risolti prima che questo
+potesse emergere).
+
+Corretto in `bcf9b4a`: `embed_text` alimenta `text.onnx` con gli id
+ORIGINALI del tokenizer, nessun remap lato Rust. Rimossi
+`IdRemapFile`, i campi `remap`/`unk_new_index`, la lettura di
+`id_remap.json` (lo script Python continua a produrlo, ma serve solo
+per diagnostica — il consumatore Rust non ne ha più bisogno). Ancora
+da confermare: il prossimo run CI deve mostrare un EN recall@1
+ragionevole (vicino a 1.00, come per MobileCLIP2 e come atteso dal
+piano) prima di considerare il bug davvero chiuso — non solo che il
+codice compili.
