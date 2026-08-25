@@ -6919,3 +6919,84 @@ sul branch sia sul merge. Prossimo passo, per istruzione permanente
 dell'utente: pulizia del branch di lavoro non-`fase-N`
 (`claude/keeppix-phases-8-11-shi9fl`), poi avanti su Task A (Volti:
 YuNet+SFace).
+
+## Addendum (verifica indipendente, 25 agosto) — l'impegno perso di Fase 10
+
+Una verifica dedicata sul merge ha trovato un impegno reale della Fase
+10 mai portato avanti: il ledger di Fase 10 (Task 18) misura **3,4s**
+di primo disegno su rete lenta a 214.000 scatti — oltre il suo stesso
+budget di 2s — e conclude *"pianificare geometria per mese in Fase 11
+... la frammentazione serve agli accessi cellulari remoti"*. Quella
+frase non è mai arrivata nel piano di Fase 11 (Task 4), né è mai stata
+ridiscussa apertamente: `/timeline/geometry` è stato collegato per
+davvero (`wired-exceptions.txt` ripulito), ma solo nella forma a vista
+intera che la Fase 10 stessa aveva già misurato come troppo lenta.
+
+**Ruling: paginazione keyset, non `OFFSET`.** — Il file dichiara in
+testa "Nessun `OFFSET`" (il costo cresce con la posizione nella vista);
+`GeometryPage { limit, after: Option<(DateTime<Utc>, AssetId)> }` riusa
+lo stesso pattern già in `page()` — `WHERE (taken_at_utc, id) < cursore`
+— invece di inventare un secondo stile di paginazione nello stesso
+file. — *Costo se sbagliato:* una vista tarda scava sempre più a fondo,
+esattamente il problema che il commento in testa al file avverte di non
+reintrodurre.
+
+**Ruling: `LIMIT $N` sempre presente in SQL, mai un ramo condizionale.**
+— `LIMIT NULL` in Postgres equivale a ometterlo: bindare sempre lo
+stesso numero di placeholder evita un mismatch runtime fra SQL generato
+e parametri legati (trovato da me stesso in revisione, prima di
+qualunque esecuzione reale — un `page_sql` condizionale lasciava `$7`
+bindato ma mai referenziato quando `page` era `None`). — *Costo se
+sbagliato:* `sqlx` rifiuta la query a runtime con un errore di conteggio
+parametri, su ogni singola richiesta non paginata.
+
+**Ruling: il cursore non entra mai nel payload binario.** — La
+geometria non porta identificativi per costruzione (spec fase-10 §2.3);
+il cursore keyset (timestamp + id dell'ultima riga) viaggia
+nell'intestazione `x-keeppix-geometry-cursor`, opaco per il client — lo
+riporta così com'è, non lo interpreta. — *Costo se sbagliato:* la
+geometria torna a identificare asset, il vincolo che l'ha resa piccola
+fin dall'inizio.
+
+**Ruling: solo il primissimo `refreshTimeline()` del mount pagina.** —
+I refresh successivi (evento live, cambio filtro) restano sulla vista
+intera con `ETag`: un compromesso deliberato, non un oversight — una
+richiesta paginata non cattura un `ETag` di vista intera (costerebbe la
+query di stampa che la paginazione esiste apposta per evitare), quindi
+il refresh subito dopo il primo caricamento non beneficia di un 304
+finché non ne fa uno pieno. — *Costo se sbagliato:* un utente che cambia
+filtro molto spesso in una sessione paga qualche fetch pieno in più —
+molto meno del blocco di 3,4s che questa paginazione elimina.
+
+Implementazione: `GeometryPage`/`GeometryRow` in
+`crates/keeppix-db/src/timeline.rs` (`geometry`/`geometry_in_bounds`),
+`GeometryQuery`/`x-keeppix-geometry-cursor` in
+`crates/keeppix-api/src/routes/timeline.rs`, ciclo di continuazione in
+`TimelineView.vue::refreshTimeline` (solo `fetchGeometry`, nessuna
+funzione helper separata — i mock esistenti di
+`TimelineView.spec.ts` restano validi con una sola aggiunta di campo,
+`nextCursor: null`, invece di essere riscritti). `TimelineGeometry.concat`
+in `geometry.ts` unisce le pagine lato client senza ricontrollare
+l'ordinamento (arrivano già ordinate dallo stesso cursore server).
+
+**Verifica:** nuovo test Rust `geometry_pages_match_the_whole_view_concatenated`
+(`crates/keeppix-db/tests/timeline.rs`) — concatena le pagine e le
+confronta byte per byte con la vista intera, non solo "non vuota"; non
+eseguito qui (nessun Docker in questa sandbox, stesso limite già
+incontrato dalla sessione cloud), verificato per lettura riga per riga
+del binding SQL invece. `cargo check`/`clippy -D warnings`/`fmt --check`
+puliti su entrambi i crate toccati (le uniche voci `clippy` rimaste
+sono in `uploads.rs`, non toccato da questo lavoro — confermato
+pre-esistenti e specifiche della piattaforma macOS locale, `f_bavail`/
+`f_blocks` hanno larghezza diversa da Linux). Lato frontend: `vue-tsc
+--noEmit`, `npm run build` (type-check più stretto, budget bundle
+144.158/153.600 byte), `vitest run` sull'intera suite — **910/910
+verdi**, inclusi quattro test nuovi che esercitano il ciclo di
+paginazione end-to-end (prima pagina disegna subito, continuazione in
+background, fallimento in background non svuota lo schermo, refresh
+successivo non pagina più).
+
+Non mergiato direttamente: pushato su un branch dedicato
+(`fix-timeline-geometry-per-month`), in attesa di CI reale (Postgres
+vero, non questa sandbox) prima del merge — stessa disciplina di ogni
+altra fase.

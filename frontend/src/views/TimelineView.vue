@@ -72,6 +72,19 @@ const buckets = ref<MonthBucket[]>([])
 // reattività profonda.
 const geometry = shallowRef<TimelineGeometry | null>(null)
 const geometryEtag = ref<string | null>(null)
+// Solo il primissimo refreshTimeline() di questo mount pagina la geometria
+// (Task 4-bis): è l'unico caso a schermo davvero freddo, dove i 3,4s
+// misurati in Fase 10 su rete lenta contano. I refresh successivi (cambio
+// filtro mappa, evento live) restano sulla vista intera con ETag — la
+// sessione è già "calda", non vale la complessità in più.
+const hasLoadedGeometryOnce = ref(false)
+/** ~24 KB per pagina (6 byte/scatto): abbondante per il primo schermo su
+ * qualunque densità, piccolo anche su rete lenta. */
+const FIRST_GEOMETRY_PAGE_LIMIT = 4000
+/** Sola intestazione (versione 1, conteggio 0), stesso layout binario di
+ * `encode_geometry` — ripiego difensivo se il backend rispondesse mai senza
+ * buffer su una richiesta paginata. */
+const EMPTY_GEOMETRY_BUFFER = new Uint8Array([1, 0, 0, 0, 0, 0, 0, 0]).buffer
 const pageCache = new LruPageCache<string, TimelineAsset[]>(PAGE_CACHE_CAPACITY)
 const loadingMonths = new Set<string>()
 /** Bump esplicito: `pageCache` è una classe imperativa, non reattiva —
@@ -236,24 +249,75 @@ async function clearMapFilter() {
  * pezzo — e "Riprova" richiama di nuovo questa stessa funzione (§68.4:
  * "rimette l'insieme di dati in caricamento e lo richiede da capo").
  */
+function resetGridForNewGeometry() {
+  pageCache.clear()
+  loadingMonths.clear()
+  cacheTick.value++
+  if (gridEl.value) gridEl.value.scrollTop = 0
+  scrollTop.value = 0
+}
+
 async function refreshTimeline() {
   loadError.value = null
   try {
-    const [bucketList, geo] = await Promise.all([
+    if (hasLoadedGeometryOnce.value) {
+      const [bucketList, geo] = await Promise.all([
+        bbox.value ? fetchBuckets(bbox.value) : fetchBuckets(),
+        fetchGeometry(bbox.value, geometryEtag.value ?? undefined)
+      ])
+      buckets.value = bucketList
+      empty.value = bucketList.length === 0
+      if (geo.buffer) {
+        geometry.value = new TimelineGeometry(geo.buffer)
+      }
+      geometryEtag.value = geo.etag
+      resetGridForNewGeometry()
+      return
+    }
+
+    // Primo caricamento del mount: pagina la geometria per disegnare senza
+    // aspettare l'intero payload (Task 4-bis). Nessun `ETag` qui — una
+    // richiesta paginata non lo porta (spec: pensata per lo schermo freddo,
+    // non per un rientro), quindi il refresh *successivo* farà un fetch
+    // pieno invece di un 304. Compromesso deliberato: perdere quel 304
+    // un'unica volta per sessione costa molto meno del blocco di 3,4s che
+    // questa paginazione elimina.
+    const [bucketList, first] = await Promise.all([
       bbox.value ? fetchBuckets(bbox.value) : fetchBuckets(),
-      fetchGeometry(bbox.value, geometryEtag.value ?? undefined)
+      fetchGeometry(bbox.value, undefined, { limit: FIRST_GEOMETRY_PAGE_LIMIT })
     ])
     buckets.value = bucketList
     empty.value = bucketList.length === 0
-    if (geo.buffer) {
-      geometry.value = new TimelineGeometry(geo.buffer)
+    // Una richiesta paginata non valida mai `If-None-Match` (vedi sopra),
+    // quindi il backend vero non risponde mai `304`/`buffer: null` qui — una
+    // libreria vuota torna comunque un buffer reale, solo con `count: 0`.
+    // Il ripiego sotto è per difesa, non per un caso atteso.
+    const firstBuffer = first.buffer ?? EMPTY_GEOMETRY_BUFFER
+    geometry.value = new TimelineGeometry(firstBuffer)
+    hasLoadedGeometryOnce.value = true
+    resetGridForNewGeometry()
+
+    // Il resto arriva dopo il primo disegno, in background: un fallimento
+    // qui non deve svuotare uno schermo che sta già mostrando qualcosa di
+    // corretto — solo la coda della vista resta incompleta finché non
+    // arriva un refresh vero (evento live, cambio filtro).
+    if (first.nextCursor) {
+      try {
+        const chunks = [firstBuffer]
+        let cursor: string | null = first.nextCursor
+        while (cursor) {
+          const page = await fetchGeometry(bbox.value, undefined, {
+            limit: FIRST_GEOMETRY_PAGE_LIMIT,
+            cursor
+          })
+          if (page.buffer) chunks.push(page.buffer)
+          cursor = page.nextCursor
+        }
+        geometry.value = TimelineGeometry.concat(chunks)
+      } catch (error) {
+        console.warn('geometria: completamento in background fallito', error)
+      }
     }
-    geometryEtag.value = geo.etag
-    pageCache.clear()
-    loadingMonths.clear()
-    cacheTick.value++
-    if (gridEl.value) gridEl.value.scrollTop = 0
-    scrollTop.value = 0
   } catch (error) {
     loadError.value = error
   }

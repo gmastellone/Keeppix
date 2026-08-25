@@ -40,7 +40,33 @@ pub struct GeometryRecord {
 pub struct Geometry {
     pub records: Vec<GeometryRecord>,
     pub last_modified: Option<DateTime<Utc>>,
+    /// `Some` solo se questa era una richiesta paginata ([`GeometryPage`]) e
+    /// potrebbe esserci altro dopo — il chiamante HTTP lo espone come cursore
+    /// opaco per la pagina successiva, mai nel corpo binario: la geometria
+    /// non porta identificativi per costruzione (spec fase-10 §2.3).
+    pub next_cursor: Option<(DateTime<Utc>, AssetId)>,
 }
+
+/// Prima pagina "a vista intera" (senza `page`) o continuazione keyset dopo
+/// un cursore — mai `OFFSET` (vedi nota in testa al file): il costo di
+/// saltare N righe cresce con N, il keyset resta O(log n) sull'indice
+/// esistente a prescindere da dove ci si trova nella vista.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeometryPage {
+    pub limit: i64,
+    pub after: Option<(DateTime<Utc>, AssetId)>,
+}
+
+/// Tetto di `GeometryPage::limit` — un client che chiede di più viene
+/// silenziosamente clampato, non rifiutato: la richiesta resta valida, dà
+/// solo meno per volta. 20.000 record da 6 byte sono ~117 KB, già ben oltre
+/// quanto serve a un primo disegno su rete lenta.
+const GEOMETRY_PAGE_LIMIT_MAX: i64 = 20_000;
+
+/// Riga grezza condivisa da `geometry`/`geometry_in_bounds`: id (per il
+/// cursore della pagina successiva, mai nel payload binario), dimensioni,
+/// istante dello scatto.
+type GeometryRow = (uuid::Uuid, Option<i32>, Option<i32>, DateTime<Utc>);
 
 /// Timbratura leggera della vista geometria (`count` + `max(updated_at)`),
 /// usata per validare `If-None-Match` **prima** di scaricare tutti i record.
@@ -299,14 +325,26 @@ impl<'a> TimelineRepo<'a> {
         &self,
         ctx: &AuthContext,
         library_id: Option<LibraryId>,
+        page: Option<GeometryPage>,
     ) -> Result<Geometry, DbError> {
         if let Some(id) = library_id {
             LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
         }
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
+        let (cursor_time, cursor_id, limit) = page.map_or((None, None, None), |p| {
+            (
+                p.after.map(|(t, _)| t),
+                p.after.map(|(_, id)| id.as_uuid()),
+                Some(p.limit.clamp(1, GEOMETRY_PAGE_LIMIT_MAX)),
+            )
+        });
+        // `LIMIT $7` è sempre nella query: Postgres tratta `LIMIT NULL` come
+        // "nessun limite" (equivalente a ometterlo), quindi non serve un
+        // ramo di SQL condizionale — solo un binding sempre presente, che
+        // tiene il conteggio dei placeholder fisso.
         let sql = format!(
-            "SELECT a.width, a.height, a.taken_at_utc FROM assets a \
+            "SELECT a.id, a.width, a.height, a.taken_at_utc FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
              {STACK_PRIMARY_JOIN_SQL} \
              WHERE {} \
@@ -314,48 +352,74 @@ impl<'a> TimelineRepo<'a> {
                AND a.kind <> 'unknown' \
                AND a.taken_at_utc IS NOT NULL \
                AND ($4::uuid IS NULL OR f.library_id = $4) \
+               AND ($5::timestamptz IS NULL \
+                    OR a.taken_at_utc < $5 \
+                    OR (a.taken_at_utc = $5 AND a.id < $6)) \
                AND {STACK_PRIMARY_ONLY_SQL} \
-             ORDER BY a.taken_at_utc DESC, a.id DESC",
+             ORDER BY a.taken_at_utc DESC, a.id DESC \
+             LIMIT $7",
             filter.sql()
         );
-        let rows: Vec<(Option<i32>, Option<i32>, DateTime<Utc>)> = sqlx::query_as(&sql)
+        let rows: Vec<GeometryRow> = sqlx::query_as(&sql)
             .bind(filter.bind())
             .bind(filter.holes())
             .bind(filter.assets())
             .bind(library_id.map(|id| id.as_uuid()))
+            .bind(cursor_time)
+            .bind(cursor_id)
+            .bind(limit)
             .fetch_all(self.db.pool())
             .await?;
+        // Se `page` è impostata e la risposta arriva esattamente al `limit`
+        // (clampato) richiesto, potrebbe esserci altro dopo: il chiamante
+        // HTTP lo segnala col cursore dell'ultima riga. Se la risposta è
+        // più corta (o `page` è `None`), quella era l'intera vista.
+        let next_cursor = limit
+            .filter(|&l| usize::try_from(l).is_ok_and(|l| rows.len() == l))
+            .and_then(|_| {
+                rows.last()
+                    .map(|(id, _, _, taken_at_utc)| (*taken_at_utc, AssetId::from_uuid(*id)))
+            });
         let records = rows
             .into_iter()
-            .map(|(width, height, taken_at_utc)| GeometryRecord {
+            .map(|(_, width, height, taken_at_utc)| GeometryRecord {
                 width,
                 height,
                 taken_at_utc,
             })
             .collect();
 
-        let last_modified_sql = format!(
-            "SELECT max(a.updated_at) FROM assets a \
-             JOIN folders f ON f.id = a.folder_id \
-             {STACK_PRIMARY_JOIN_SQL} \
-             WHERE {} \
-               AND a.status = 'indexed' \
-               AND a.kind <> 'unknown' \
-               AND a.taken_at_utc IS NOT NULL \
-               AND ($4::uuid IS NULL OR f.library_id = $4) \
-               AND {STACK_PRIMARY_ONLY_SQL}",
-            filter.sql()
-        );
-        let last_modified: Option<DateTime<Utc>> = sqlx::query_scalar(&last_modified_sql)
-            .bind(filter.bind())
-            .bind(filter.holes())
-            .bind(filter.assets())
-            .bind(library_id.map(|id| id.as_uuid()))
-            .fetch_one(self.db.pool())
-            .await?;
+        // Il timbro per l'ETag ha senso solo sulla vista intera (Task 6): una
+        // richiesta paginata (Task 4-bis, cold-start) salta la validazione
+        // 304 e questa query, che altrimenti pagherebbe una scansione in più
+        // per ogni pagina senza usarne mai il risultato.
+        let last_modified = if page.is_none() {
+            let last_modified_sql = format!(
+                "SELECT max(a.updated_at) FROM assets a \
+                 JOIN folders f ON f.id = a.folder_id \
+                 {STACK_PRIMARY_JOIN_SQL} \
+                 WHERE {} \
+                   AND a.status = 'indexed' \
+                   AND a.kind <> 'unknown' \
+                   AND a.taken_at_utc IS NOT NULL \
+                   AND ($4::uuid IS NULL OR f.library_id = $4) \
+                   AND {STACK_PRIMARY_ONLY_SQL}",
+                filter.sql()
+            );
+            sqlx::query_scalar(&last_modified_sql)
+                .bind(filter.bind())
+                .bind(filter.holes())
+                .bind(filter.assets())
+                .bind(library_id.map(|id| id.as_uuid()))
+                .fetch_one(self.db.pool())
+                .await?
+        } else {
+            None
+        };
         Ok(Geometry {
             records,
             last_modified,
+            next_cursor,
         })
     }
 
@@ -412,6 +476,7 @@ impl<'a> TimelineRepo<'a> {
         ctx: &AuthContext,
         library_id: Option<LibraryId>,
         bounds: MapBounds,
+        page: Option<GeometryPage>,
     ) -> Result<Geometry, DbError> {
         if let Some(id) = library_id {
             LibraryRepo::new(self.db).find_by_id(ctx, id).await?;
@@ -419,8 +484,17 @@ impl<'a> TimelineRepo<'a> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let bbox = effective_bbox_filter_sql(5, 6, 7, 8);
+        let (cursor_time, cursor_id, limit) = page.map_or((None, None, None), |p| {
+            (
+                p.after.map(|(t, _)| t),
+                p.after.map(|(_, id)| id.as_uuid()),
+                Some(p.limit.clamp(1, GEOMETRY_PAGE_LIMIT_MAX)),
+            )
+        });
+        // Come in `geometry`: `LIMIT $11` sempre presente, `NULL` = nessun
+        // limite — niente ramo di SQL condizionale.
         let sql = format!(
-            "SELECT a.width, a.height, a.taken_at_utc FROM assets a \
+            "SELECT a.id, a.width, a.height, a.taken_at_utc FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
              LEFT JOIN asset_overrides o ON o.asset_id = a.id \
              {STACK_PRIMARY_JOIN_SQL} \
@@ -430,11 +504,15 @@ impl<'a> TimelineRepo<'a> {
                AND a.taken_at_utc IS NOT NULL \
                AND ($4::uuid IS NULL OR f.library_id = $4) \
                AND ({bbox}) \
+               AND ($9::timestamptz IS NULL \
+                    OR a.taken_at_utc < $9 \
+                    OR (a.taken_at_utc = $9 AND a.id < $10)) \
                AND {STACK_PRIMARY_ONLY_SQL} \
-             ORDER BY a.taken_at_utc DESC, a.id DESC",
+             ORDER BY a.taken_at_utc DESC, a.id DESC \
+             LIMIT $11",
             filter.sql()
         );
-        let rows: Vec<(Option<i32>, Option<i32>, DateTime<Utc>)> = sqlx::query_as(&sql)
+        let rows: Vec<GeometryRow> = sqlx::query_as(&sql)
             .bind(filter.bind())
             .bind(filter.holes())
             .bind(filter.assets())
@@ -443,45 +521,59 @@ impl<'a> TimelineRepo<'a> {
             .bind(bounds.south)
             .bind(bounds.east)
             .bind(bounds.north)
+            .bind(cursor_time)
+            .bind(cursor_id)
+            .bind(limit)
             .fetch_all(self.db.pool())
             .await?;
+        let next_cursor = limit
+            .filter(|&l| usize::try_from(l).is_ok_and(|l| rows.len() == l))
+            .and_then(|_| {
+                rows.last()
+                    .map(|(id, _, _, taken_at_utc)| (*taken_at_utc, AssetId::from_uuid(*id)))
+            });
         let records = rows
             .into_iter()
-            .map(|(width, height, taken_at_utc)| GeometryRecord {
+            .map(|(_, width, height, taken_at_utc)| GeometryRecord {
                 width,
                 height,
                 taken_at_utc,
             })
             .collect();
 
-        let last_modified_sql = format!(
-            "SELECT max(a.updated_at) FROM assets a \
-             JOIN folders f ON f.id = a.folder_id \
-             LEFT JOIN asset_overrides o ON o.asset_id = a.id \
-             {STACK_PRIMARY_JOIN_SQL} \
-             WHERE {} \
-               AND a.status = 'indexed' \
-               AND a.kind <> 'unknown' \
-               AND a.taken_at_utc IS NOT NULL \
-               AND ($4::uuid IS NULL OR f.library_id = $4) \
-               AND ({bbox}) \
-               AND {STACK_PRIMARY_ONLY_SQL}",
-            filter.sql()
-        );
-        let last_modified: Option<DateTime<Utc>> = sqlx::query_scalar(&last_modified_sql)
-            .bind(filter.bind())
-            .bind(filter.holes())
-            .bind(filter.assets())
-            .bind(library_id.map(|id| id.as_uuid()))
-            .bind(bounds.west)
-            .bind(bounds.south)
-            .bind(bounds.east)
-            .bind(bounds.north)
-            .fetch_one(self.db.pool())
-            .await?;
+        let last_modified = if page.is_none() {
+            let last_modified_sql = format!(
+                "SELECT max(a.updated_at) FROM assets a \
+                 JOIN folders f ON f.id = a.folder_id \
+                 LEFT JOIN asset_overrides o ON o.asset_id = a.id \
+                 {STACK_PRIMARY_JOIN_SQL} \
+                 WHERE {} \
+                   AND a.status = 'indexed' \
+                   AND a.kind <> 'unknown' \
+                   AND a.taken_at_utc IS NOT NULL \
+                   AND ($4::uuid IS NULL OR f.library_id = $4) \
+                   AND ({bbox}) \
+                   AND {STACK_PRIMARY_ONLY_SQL}",
+                filter.sql()
+            );
+            sqlx::query_scalar(&last_modified_sql)
+                .bind(filter.bind())
+                .bind(filter.holes())
+                .bind(filter.assets())
+                .bind(library_id.map(|id| id.as_uuid()))
+                .bind(bounds.west)
+                .bind(bounds.south)
+                .bind(bounds.east)
+                .bind(bounds.north)
+                .fetch_one(self.db.pool())
+                .await?
+        } else {
+            None
+        };
         Ok(Geometry {
             records,
             last_modified,
+            next_cursor,
         })
     }
 

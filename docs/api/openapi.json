@@ -9160,8 +9160,8 @@
         "tags": [
           "timeline"
         ],
-        "summary": "Get the compact width/height/month geometry of a whole timeline view",
-        "description": "Un record binario da 6 byte per scatto (w:u16, h:u16, month:u16 = anno*12+mese), senza identificativo: descrive solo altezze, non identifica asset. Nessuna paginazione: è la geometria di tutta la vista, con gli stessi filtri e la stessa visibilità di /timeline. Supporta 304 via If-None-Match.",
+        "summary": "Get the compact width/height/month geometry of a timeline view, in full or paged",
+        "description": "Un record binario da 6 byte per scatto (w:u16, h:u16, month:u16 = anno*12+mese), senza identificativo: descrive solo altezze, non identifica asset. Senza `limit`: l'intera vista, con gli stessi filtri e la stessa visibilità di /timeline, e supporto a 304 via If-None-Match. Con `limit`: solo i primi N scatti (schermo freddo su rete lenta, Task 4-bis) — se ce n'è altro, la risposta porta l'intestazione x-keeppix-geometry-cursor da passare come `cursor` alla richiesta successiva; nessuna intestazione = quella era l'intera vista. Le richieste paginate non validano If-None-Match: sono pensate per il primo caricamento, non per un rientro con vista invariata.",
         "operationId": "timeline_geometry",
         "parameters": [
           {
@@ -9177,6 +9177,25 @@
             "name": "bbox",
             "in": "query",
             "description": "west,south,east,north WGS84",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Solo i primi N scatti, invece della vista intera",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursore opaco della pagina precedente",
             "required": false,
             "schema": {
               "type": "string"
@@ -9201,6 +9220,16 @@
           },
           "304": {
             "description": "Non modificato rispetto a If-None-Match"
+          },
+          "400": {
+            "description": "Cursore non valido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           },
           "401": {
             "description": "Non autenticato",

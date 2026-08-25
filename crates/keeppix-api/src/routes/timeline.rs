@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, Utc};
 use keeppix_db::{
     AssetRepo, AssetTagRepo, AssetWithStack, ConfirmedFace, ConfirmedTag, FaceRepo, FlagRepo,
-    Geometry, GeometryRecord, GeometryStamp, OverrideRepo, TimelineRepo,
+    Geometry, GeometryPage, GeometryRecord, GeometryStamp, OverrideRepo, TimelineRepo,
 };
 use keeppix_domain::{Asset, AssetId, AssetKind, AuthContext, LibraryId};
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,45 @@ use crate::state::AppState;
 pub struct BucketsQuery {
     library: Option<LibraryId>,
     bbox: Option<String>,
+}
+
+/// Query di `/timeline/geometry` — un sovrainsieme di [`BucketsQuery`], non
+/// lo stesso tipo: `limit`/`cursor` non hanno senso su `/timeline/buckets`.
+#[derive(Deserialize)]
+pub struct GeometryQuery {
+    library: Option<LibraryId>,
+    bbox: Option<String>,
+    /// Presente solo sulla prima richiesta a schermo freddo (Task 4-bis):
+    /// chiede solo i primi `limit` scatti invece dell'intera vista, per
+    /// disegnare senza aspettare l'intero payload su rete lenta. Assente →
+    /// comportamento invariato, vista intera con validazione `ETag`.
+    limit: Option<i64>,
+    /// Il cursore opaco di `X-Keeppix-Geometry-Cursor` della risposta
+    /// precedente, così com'è — il client non lo interpreta, lo riporta.
+    cursor: Option<String>,
+}
+
+fn invalid_geometry_cursor() -> Problem {
+    Problem::bad_request("invalid-geometry-cursor", "Invalid geometry cursor")
+}
+
+fn parse_geometry_cursor(raw: &str) -> Result<(DateTime<Utc>, AssetId), Problem> {
+    let (time, id) = raw.split_once(',').ok_or_else(invalid_geometry_cursor)?;
+    let time = DateTime::parse_from_rfc3339(time)
+        .map_err(|_| invalid_geometry_cursor())?
+        .with_timezone(&Utc);
+    let id = id
+        .parse::<uuid::Uuid>()
+        .map_err(|_| invalid_geometry_cursor())?;
+    Ok((time, AssetId::from_uuid(id)))
+}
+
+fn encode_geometry_cursor((time, id): (DateTime<Utc>, AssetId)) -> String {
+    format!(
+        "{},{}",
+        time.to_rfc3339_opts(SecondsFormat::Micros, true),
+        id.as_uuid()
+    )
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -464,29 +503,43 @@ pub async fn buckets(
 /// byte a caso.
 const GEOMETRY_FORMAT_VERSION: u32 = 1;
 
+/// Nome dell'intestazione che porta il cursore opaco per la pagina
+/// successiva (Task 4-bis) — mai nel corpo binario, che resta senza
+/// identificativi per costruzione.
+const GEOMETRY_CURSOR_HEADER: &str = "x-keeppix-geometry-cursor";
+
 /// # Errors
-/// `401` se non autenticato; `403` se `library` non è del chiamante.
+/// `400` se `cursor` non è valido; `401` se non autenticato; `403` se
+/// `library` non è del chiamante.
 #[utoipa::path(
     get,
     path = "/api/v1/timeline/geometry",
     tag = "timeline",
     operation_id = "timeline_geometry",
-    summary = "Get the compact width/height/month geometry of a whole timeline view",
+    summary = "Get the compact width/height/month geometry of a timeline view, in full or paged",
     description = "Un record binario da 6 byte per scatto (w:u16, h:u16, month:u16 = \
                     anno*12+mese), senza identificativo: descrive solo altezze, non \
-                    identifica asset. Nessuna paginazione: è la geometria di tutta la \
-                    vista, con gli stessi filtri e la stessa visibilità di /timeline. \
-                    Supporta 304 via If-None-Match.",
+                    identifica asset. Senza `limit`: l'intera vista, con gli stessi filtri \
+                    e la stessa visibilità di /timeline, e supporto a 304 via \
+                    If-None-Match. Con `limit`: solo i primi N scatti (schermo freddo su \
+                    rete lenta, Task 4-bis) — se ce n'è altro, la risposta porta \
+                    l'intestazione x-keeppix-geometry-cursor da passare come `cursor` alla \
+                    richiesta successiva; nessuna intestazione = quella era l'intera vista. \
+                    Le richieste paginate non validano If-None-Match: sono pensate per il \
+                    primo caricamento, non per un rientro con vista invariata.",
     security(("session_cookie" = [])),
     params(
         ("library" = Option<String>, Query, description = "Filtra su una libreria"),
-        ("bbox" = Option<String>, Query, description = "west,south,east,north WGS84")
+        ("bbox" = Option<String>, Query, description = "west,south,east,north WGS84"),
+        ("limit" = Option<i64>, Query, description = "Solo i primi N scatti, invece della vista intera"),
+        ("cursor" = Option<String>, Query, description = "Cursore opaco della pagina precedente")
     ),
     responses(
         (status = 200, description = "8 byte di intestazione (versione, conteggio) + \
                                        N record da 6 byte (w, h, month), little-endian",
          body = [u8]),
         (status = 304, description = "Non modificato rispetto a If-None-Match"),
+        (status = 400, description = "Cursore non valido", body = Problem),
         (status = 401, description = "Non autenticato", body = Problem),
         (status = 403, description = "Libreria non visibile", body = Problem),
         (status = 500, description = "Errore del database", body = Problem)
@@ -495,7 +548,7 @@ const GEOMETRY_FORMAT_VERSION: u32 = 1;
 pub async fn geometry(
     State(state): State<AppState>,
     SessionNotShare(ctx): SessionNotShare,
-    Query(query): Query<BucketsQuery>,
+    Query(query): Query<GeometryQuery>,
     headers: HeaderMap,
 ) -> Result<Response, Problem> {
     let bounds = query
@@ -503,10 +556,22 @@ pub async fn geometry(
         .as_deref()
         .map(super::map::parse_bounds)
         .transpose()?;
+    let page = query
+        .limit
+        .map(|limit| {
+            let after = query
+                .cursor
+                .as_deref()
+                .map(parse_geometry_cursor)
+                .transpose()?;
+            Ok::<_, Problem>(GeometryPage { limit, after })
+        })
+        .transpose()?;
     let repo = TimelineRepo::new(&state.db);
-    // Cache hit is the common case on re-entry: validate ETag with a cheap
-    // count+max stamp before paying for the full width/height scan.
-    if headers.contains_key(header::IF_NONE_MATCH) {
+    // Una richiesta paginata non ha una vista stabile da validare con
+    // If-None-Match: è per il primo caricamento a freddo, non per un
+    // rientro. Solo la richiesta a vista intera paga la validazione.
+    if page.is_none() && headers.contains_key(header::IF_NONE_MATCH) {
         let stamp = if let Some(bounds) = bounds {
             repo.geometry_stamp_in_bounds(&ctx, query.library, bounds)
                 .await?
@@ -521,17 +586,25 @@ pub async fn geometry(
         }
     }
     let geometry = if let Some(bounds) = bounds {
-        repo.geometry_in_bounds(&ctx, query.library, bounds).await?
+        repo.geometry_in_bounds(&ctx, query.library, bounds, page)
+            .await?
     } else {
-        repo.geometry(&ctx, query.library).await?
+        repo.geometry(&ctx, query.library, page).await?
     };
-    let etag = geometry_etag(&geometry);
+    let next_cursor = geometry.next_cursor;
     let mut response = encode_geometry(&geometry.records).into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/octet-stream"),
     );
-    set_etag(&mut response, &etag);
+    if page.is_none() {
+        set_etag(&mut response, &geometry_etag(&geometry));
+    }
+    if let Some(cursor) = next_cursor
+        && let Ok(value) = HeaderValue::from_str(&encode_geometry_cursor(cursor))
+    {
+        response.headers_mut().insert(GEOMETRY_CURSOR_HEADER, value);
+    }
     Ok(response)
 }
 

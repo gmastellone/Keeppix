@@ -112,27 +112,54 @@ export interface GeometryResponse {
   /** `null` su 304: il chiamante tiene la geometria già decodificata. */
   buffer: ArrayBuffer | null
   etag: string | null
+  /** Presente solo su una risposta paginata (vedi `limit` sotto) con altro
+   * dopo: passalo come `cursor` alla richiesta successiva, senza
+   * interpretarlo. Assente → questa risposta era già tutto quello che c'è. */
+  nextCursor: string | null
 }
 
 /**
- * `GET /timeline/geometry` (Fase 11 Task 4) risponde `application/
- * octet-stream`, non JSON — non può passare da `apiFetch`. `etag`, se
- * passato, va in `If-None-Match`: un `304` restituisce `buffer: null`
- * invece di ri-scaricare ~4,7 MB per una vista invariata.
+ * `GET /timeline/geometry` (Fase 11 Task 4, paginazione Task 4-bis) risponde
+ * `application/octet-stream`, non JSON — non può passare da `apiFetch`.
+ * `etag`, se passato, va in `If-None-Match`: un `304` restituisce
+ * `buffer: null` invece di ri-scaricare ~4,7 MB per una vista invariata —
+ * solo sulla richiesta a vista intera (`limit` assente): una richiesta
+ * paginata non valida mai contro l'`ETag`.
+ *
+ * `limit`/`cursor` esistono per il primo caricamento a schermo freddo (spec
+ * fase-10 §5bis, mai portata avanti nel piano di Fase 11: 3,4s misurati su
+ * rete lenta a 214.000 scatti, oltre il budget di 2s) — il ciclo "prima
+ * pagina per disegnare, poi il resto in background" vive in
+ * `TimelineView.vue::refreshTimeline`, non qui: è comportamento della vista,
+ * non del client HTTP.
  */
-export async function fetchGeometry(bbox?: string, etag?: string): Promise<GeometryResponse> {
-  const query = bbox ? `?${new URLSearchParams({ bbox })}` : ''
+export async function fetchGeometry(
+  bbox?: string,
+  etag?: string,
+  page?: { limit: number; cursor?: string }
+): Promise<GeometryResponse> {
+  const params = new URLSearchParams()
+  if (bbox) params.set('bbox', bbox)
+  if (page) {
+    params.set('limit', String(page.limit))
+    if (page.cursor) params.set('cursor', page.cursor)
+  }
+  const query = params.size > 0 ? `?${params}` : ''
   const headers: Record<string, string> = { 'x-keeppix-client': 'web' }
-  if (etag) headers['if-none-match'] = etag
+  if (etag && !page) headers['if-none-match'] = etag
   const response = await fetch(`/api/v1/timeline/geometry${query}`, {
     credentials: 'same-origin',
     headers
   })
   if (response.status === 304) {
-    return { buffer: null, etag: etag ?? null }
+    return { buffer: null, etag: etag ?? null, nextCursor: null }
   }
   if (!response.ok) {
     await throwProblem(response)
   }
-  return { buffer: await response.arrayBuffer(), etag: response.headers.get('etag') }
+  return {
+    buffer: await response.arrayBuffer(),
+    etag: response.headers.get('etag'),
+    nextCursor: response.headers.get('x-keeppix-geometry-cursor')
+  }
 }

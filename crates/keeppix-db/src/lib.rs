@@ -106,7 +106,9 @@ pub use settings::SettingsRepo;
 pub use share_links::{NewShareLink, ShareLinkRepo, ShareLinkRow};
 pub use stacks::{AssetWithStack, StackBadge, StackDetails, StackMember, StackRepo};
 pub use tags::{NewTag, TagPatch, TagRepo, TagView};
-pub use timeline::{Geometry, GeometryRecord, GeometryStamp, MonthBucket, TimelineRepo};
+pub use timeline::{
+    Geometry, GeometryPage, GeometryRecord, GeometryStamp, MonthBucket, TimelineRepo,
+};
 pub use totp::{TotpConfirmed, TotpRepo, TotpSetup, TotpStatus};
 pub use trash::{TRASH_DIR_NAME, TRASH_RETENTION_DAYS, TrashRepo};
 pub use uploads::{
