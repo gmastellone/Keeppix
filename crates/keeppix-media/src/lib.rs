@@ -9,6 +9,7 @@ pub mod face;
 pub mod gpx;
 pub mod hash;
 pub mod kind;
+pub mod openclip_xlmr;
 pub mod probe;
 pub mod raw;
 pub mod retrieval;
