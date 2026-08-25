@@ -7,7 +7,7 @@
 //! `.github/workflows/export-openclip-xlmr.yml`, non ancora un vero
 //! `scripts/download-*.sh`: non c'è un URL esterno stabile per questo
 //! checkpoint potato+quantizzato, solo un export occasionale) e le stesse
-//! foto del banco MobileCLIP2 (`./scripts/download-ai-bench.sh`,
+//! foto del banco `MobileCLIP2` (`./scripts/download-ai-bench.sh`,
 //! `captions.json` condiviso). Senza di essi il test si salta.
 
 #![allow(
@@ -33,6 +33,9 @@ struct BenchFile {
 
 #[derive(Debug, Deserialize)]
 struct BenchPair {
+    // Non letto qui: la validazione della fixture (unicità/lunghezza degli
+    // id) resta in ai_retrieval_bench.rs, non duplicata per ogni modello.
+    #[allow(dead_code)]
     id: String,
     image: String,
     en: String,
