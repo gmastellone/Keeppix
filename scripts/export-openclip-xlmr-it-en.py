@@ -207,8 +207,6 @@ def main() -> None:
 
     import torch
     import open_clip
-    import onnx
-    from onnxconverter_common import float16
     from onnxruntime.quantization import quantize_dynamic, QuantType
     from onnxruntime.quantization.shape_inference import quant_pre_process
 
@@ -403,24 +401,6 @@ def main() -> None:
     preprocess_then_quantize(
         args.out / "text_fp32.onnx", args.out / "text_preproc.onnx", args.out / "text.onnx"
     )
-
-    # Piano (Task B, "Il resto del lavoro"): "l'int8 dinamico costa un colpo
-    # IT sul visual (fp32 era 1.00): provare QDQ statica o fp16 e scegliere
-    # col numero". Variante fp16 del SOLO visual (quello che gira sulle
-    # 200.000 foto nelle finestre notturne, non il text — vedi tabella nel
-    # piano) accanto a `visual.onnx` (int8 dinamico, resta il default finché
-    # non si sceglie sui numeri Rust reali). `keep_io_types=True`: input/
-    # output del grafo restano float32 identici a `visual.onnx` — verificato
-    # offline (round-trip onnxruntime su un grafo sintetico, diff max 4.8e-5
-    # contro l'eager PyTorch) che il consumatore Rust non deve cambiare
-    # nulla per caricare questa variante, basta puntarci come file
-    # `visual.onnx` in una directory modello di confronto.
-    log("conversione fp16 (variante visual, per il confronto quantizzazione)")
-    fp16_model = float16.convert_float_to_float16(
-        onnx.load(str(args.out / "visual_fp32.onnx")), keep_io_types=True
-    )
-    onnx.save(fp16_model, str(args.out / "visual_fp16.onnx"))
-
     for tmp in ("visual_fp32.onnx", "text_fp32.onnx", "visual_preproc.onnx", "text_preproc.onnx"):
         path = args.out / tmp
         if path.is_file():
@@ -480,18 +460,10 @@ def main() -> None:
         "text_max_position_embeddings": text_max_position_embeddings,
         "opset": args.opset,
         "quantization": "dynamic_int8",
-        # `visual.onnx` (default spedito) resta int8 dinamico finché il
-        # confronto sui numeri Rust reali (bench di regressione IT/EN) non
-        # dice diversamente — vedi "Il resto del lavoro" nel piano. La
-        # variante qui sotto ha lo stesso contratto I/O (float32 in
-        # ingresso/uscita, verificato offline) e può sostituire
-        # `visual.onnx` in una directory modello di confronto senza
-        # toccare il consumatore Rust.
-        "visual_variants": {"default": "visual.onnx", "fp16": "visual_fp16.onnx"},
     }
     (args.out / "export_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    for name in ("visual.onnx", "visual_fp16.onnx", "text.onnx", "tokenizer.json", "id_remap.json"):
+    for name in ("visual.onnx", "text.onnx", "tokenizer.json", "id_remap.json"):
         path = args.out / name
         if not path.is_file():
             raise SystemExit(f"artefatto mancante dopo l'export: {path}")
