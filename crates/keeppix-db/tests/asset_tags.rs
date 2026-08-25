@@ -14,7 +14,7 @@ use keeppix_domain::{
     TagKind, UserId,
 };
 
-const MODEL: &str = "mobileclip2-s2";
+const MODEL: &str = "openclip-xlmr-it-en";
 
 /// Vettore unitario lungo l'asse `axis` (0..511).
 fn unit_axis(axis: usize) -> Vec<f32> {

@@ -33,9 +33,10 @@ impl crate::JobHandler for IngestHandler {
     fn ram_hint_bytes(&self, job: &Job) -> u64 {
         match job.kind {
             JobKind::DeriveAsset => DEFAULT_RAM_HINT,
-            // DeriveRaw: demosaic out-of-process. EmbedAssets: MobileCLIP ~400 MB
-            // RSS a lotto (Task 2bis). DetectFaces: YuNet+SFace, stesso
-            // ordine di grandezza di un secondo stack ort. Stesso tetto di gate.
+            // DeriveRaw: demosaic out-of-process. EmbedAssets: OpenCLIP XLM-R
+            // IT/EN, visual+text ≈ 530-550 MB RSS a lotto (Task B, bench CI
+            // reale). DetectFaces: YuNet+SFace, stesso ordine di grandezza di
+            // un secondo stack ort. Stesso tetto di gate.
             JobKind::DeriveRaw | JobKind::EmbedAssets | JobKind::DetectFaces => 512 * 1024 * 1024,
             JobKind::TranscodeVideo => 1024 * 1024 * 1024,
             JobKind::BackupDump | JobKind::RestoreProof | JobKind::VacuumAnalyze => {

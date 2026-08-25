@@ -57,7 +57,7 @@ fn probe_extra_includes_measured_ai_host_facts() {
         assert!(ms.is_finite() && ms > 0.0, "inference_ms={ms}");
         assert_eq!(
             ai.get("model_version").and_then(serde_json::Value::as_str),
-            Some(keeppix_media::MODEL_VERSION),
+            Some(keeppix_media::openclip_xlmr::MODEL_VERSION),
             "probe model_version must match the stable checkpoint id: {ai}"
         );
     } else {
@@ -69,7 +69,7 @@ fn probe_extra_includes_measured_ai_host_facts() {
     }
 }
 
-/// Quando i pesi MobileCLIP2-S2 sono su disco, il probe deve misurare ms > 0.
+/// Quando i pesi `OpenCLIP` XLM-R IT/EN sono su disco, il probe deve misurare ms > 0.
 #[test]
 fn probe_records_inference_ms_when_visual_model_is_present() {
     let model = keeppix_media::ai::visual_model_candidates()
@@ -77,7 +77,7 @@ fn probe_records_inference_ms_when_visual_model_is_present() {
         .find(|p| p.is_file());
     let Some(_model) = model else {
         eprintln!(
-            "skipping: models/mobileclip2-s2/visual.onnx missing — run scripts/download-mobileclip2-s2.sh"
+            "skipping: models/openclip-xlmr-it-en/visual.onnx missing — girare .github/workflows/export-openclip-xlmr.yml"
         );
         return;
     };

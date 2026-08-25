@@ -2,8 +2,7 @@
 # Scarica YuNet (rilevamento) + SFace (impronta) da opencv/opencv_zoo in
 # models/yunet-sface/detect.onnx e embed.onnx.
 #
-# A differenza di download-mobileclip2-s2.sh, questo script verifica lo
-# sha256: i file arrivano via Git LFS, e l'URL "raw" ovvio
+# Questo script verifica lo sha256: i file arrivano via Git LFS, e l'URL "raw" ovvio
 # (raw.githubusercontent.com) per un percorso tracciato LFS torna il
 # pointer testuale di ~130 byte, non il binario — un errore silenzioso che
 # altrimenti produrrebbe un "modello" da 130 byte accettato senza fiatare.

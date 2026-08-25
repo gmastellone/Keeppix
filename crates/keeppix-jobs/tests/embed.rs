@@ -17,7 +17,8 @@ use keeppix_jobs::discover;
 use keeppix_jobs::embed as embed_job;
 use keeppix_jobs::hash as hash_job;
 use keeppix_jobs::metadata;
-use keeppix_media::{MODEL_VERSION, derivative_paths};
+use keeppix_media::derivative_paths;
+use keeppix_media::openclip_xlmr::{MODEL_VERSION, first_complete_model_dir};
 
 fn tiny_jpeg() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tiny.jpg")
@@ -78,8 +79,10 @@ async fn ingest_until_thumb(
 
 #[tokio::test]
 async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
-    if keeppix_media::first_complete_model_dir().is_none() {
-        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+    if first_complete_model_dir().is_none() {
+        eprintln!(
+            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+        );
         return;
     }
 
@@ -126,8 +129,10 @@ async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
 
 #[tokio::test]
 async fn embed_job_skips_culling_subtree_entirely() {
-    if keeppix_media::first_complete_model_dir().is_none() {
-        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+    if first_complete_model_dir().is_none() {
+        eprintln!(
+            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+        );
         return;
     }
 
@@ -236,8 +241,10 @@ async fn embed_job_skips_culling_subtree_entirely() {
 
 #[tokio::test]
 async fn one_run_drains_multiple_batches_without_requeueing() {
-    if keeppix_media::first_complete_model_dir().is_none() {
-        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+    if first_complete_model_dir().is_none() {
+        eprintln!(
+            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+        );
         return;
     }
 
@@ -279,8 +286,10 @@ async fn one_run_drains_multiple_batches_without_requeueing() {
 
 #[tokio::test]
 async fn pause_between_batches_stops_and_requeues_backfill() {
-    if keeppix_media::first_complete_model_dir().is_none() {
-        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+    if first_complete_model_dir().is_none() {
+        eprintln!(
+            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+        );
         return;
     }
 
@@ -336,8 +345,10 @@ async fn pause_between_batches_stops_and_requeues_backfill() {
 
 #[tokio::test]
 async fn embed_window_opens_and_finishes_an_ai_analysis_operation() {
-    if keeppix_media::first_complete_model_dir().is_none() {
-        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+    if first_complete_model_dir().is_none() {
+        eprintln!(
+            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+        );
         return;
     }
 

@@ -675,3 +675,280 @@ con pgvector 0.6.0 installato, non testcontainers):
 Non ancora chiuso qui, verificato in CI dopo il push: CI reale verde
 sul commit pushato (non solo locale) prima di considerare il debito
 davvero pagato.
+
+## 25 agosto: Task B del piano modelli IA — primo export reale
+
+`scripts/export-openclip-xlmr-it-en.py` (branch `fase-8-task-b-clip-it-en`):
+sostituisce MobileCLIP2-S2 (Apple ML Research Model License,
+research-only) con OpenCLIP XLM-R ViT-B-32 int8
+(`laion/CLIP-ViT-B-32-xlm-roberta-base-laion5B-s13B-b90k`, permissivo),
+potato al vocabolario IT/EN — decisione presa il 22 agosto
+(`docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`, Task B).
+
+Non eseguibile in questa sandbox di sviluppo (il checkpoint è ospitato
+solo su `huggingface.co`, bloccata a livello di proxy — stesso limite
+già noto per MobileCLIP2). Verificato offline, prima di scrivere lo
+script, tutto ciò che non richiede il checkpoint reale: architettura
+`XLM-RobertaModel` pubblica nota costruita a pesi casuali via
+`transformers.XLMRobertaConfig`, export ONNX di entrambe le torri,
+logica di pooling/proiezione letta dal sorgente `open_clip` installato
+(non indovinata), round-trip completo in onnxruntime (differenza max
+7e-8 rispetto all'eager PyTorch).
+
+**Tre round di CI reale** (workflow dedicato
+`.github/workflows/export-openclip-xlmr.yml`, `push` scoped a questo
+branch — `workflow_dispatch` da solo non è invocabile finché il file
+non è sul branch di default, verificato con un 404 reale) — onesto, non
+smussato:
+
+1. **FAILED** — `proj_type inatteso: Sequential (atteso nn.Linear)`.
+   L'assert difensivo scritto apposta (`assert_real_proj_is_linear`) ha
+   fatto il suo lavoro: il checkpoint reale usa `proj_type='mlp'`
+   (`nn.Sequential` a due `Linear` senza bias + GELU in mezzo), non
+   `'linear'` come la prima stesura assumeva. Corretto riconoscendo
+   entrambe le forme (`assert_real_proj_is_recognized`) — nessun
+   cambiamento ai meccanismi di export, `self.proj(pooled)` funziona
+   identico per entrambi i tipi.
+2. **FAILED**, un passo più avanti — entrambe le torri esportano in
+   ONNX con successo (prima conferma reale: `proj_type: mlp
+   (768->640->512, bias=False)`; potatura vocabolario reale: corpus di
+   37.032 voci (parole comuni IT/EN via `wordfreq` più le 20 coppie di
+   `captions.json`) produce 15.580 id di token distinti, vocabolario
+   250.002 → 15.583 righe tenute, 6,2%) — poi
+   `onnxruntime.quantization.shape_inference.quant_pre_process` fallisce
+   con `AssertionError` dentro il suo stesso `SymbolicShapeInference`
+   (`_infer_Reshape`, `assert is_literal(shape_rank)`): limite noto
+   dello strumento sui grafi con asse batch dinamico
+   (`dynamic_axes`), non riproducibile sul grafo sintetico usato per
+   verificare la meccanica (serviva il grafo vero per emergere).
+   Corretto passando `skip_symbolic_shape=True` (disattiva solo
+   l'inferenza di forma avanzata, tiene quella base + constant
+   folding), con un fallback esplicito a "quantizza senza
+   preprocessing" se anche questo fallisse.
+3. **SUCCESS** — tutte le fasi pulite, nessun fallback necessario
+   (`skip_symbolic_shape=True` ha risolto il problema per davvero, non
+   solo mascherato). Numeri reali finali (run 32848473669, commit
+   `d598294`):
+   - `visual.onnx`: 88.929.475 byte (~85 MB) — vicinissimo alla stima
+     del piano per la torre visione int8 (~89 MB).
+   - `text.onnx`: 101.118.421 byte (~96 MB) — molto sotto la stima del
+     piano per la torre testo int8 non potata (~279 MB): l'effetto
+     combinato di potatura (6,2% del vocabolario) e quantizzazione.
+   - `tokenizer.json`: 17.098.086 byte (non potato di proposito —
+     stessa segmentazione per qualunque lingua, vedi vincolo A del
+     piano).
+   - `id_remap.json`: 240.218 byte (mappa sparsa id-originale →
+     indice-nuovo, solo le voci tenute).
+   - sha256 di tutti e cinque i file registrati nel log di CI.
+   - Artefatto caricato come artifact CI (`openclip-xlmr-it-en`,
+     retention 14 giorni) — lo zip stesso (Azure Blob Storage) non è
+     scaricabile da questa sandbox (stesso tipo di blocco di
+     `huggingface.co`, dominio diverso), quindi non ispezionato byte
+     per byte qui: la struttura di `id_remap.json`/`export_manifest.json`
+     è comunque nota per certo, perché scritta da questo stesso script,
+     e la riuscita del passo di salvataggio (nessun errore alla fase
+     "salvataggio tokenizer e tabella di remap") conferma che serializza
+     senza eccezioni. Aggiunto un passo di CI che stampa questi due file
+     nel log per i run futuri, invece di doverli scaricare per leggerli.
+
+**Ancora aperto** (Task B è lontano dall'essere chiuso — non fraintendere
+questo primo export riuscito per "fatto"):
+- ~~Consumatore Rust~~ — fatto (vedi sezione successiva): non in
+  `clip.rs` in place, ma in un nuovo modulo separato
+  `crates/keeppix-media/src/openclip_xlmr.rs`. `clip.rs`/`MobileClip`
+  restano intatti finché il nuovo modello non è provato
+  equivalente-o-meglio.
+- Bench di regressione IT/EN reale in Rust (analogo a
+  `ai_retrieval_bench.rs`), non solo il numero Python del 22 agosto —
+  il piano lo chiede esplicitamente (punto B: "i numeri che chiudono il
+  task sono quelli Rust sul target").
+- Ricalibrare `TAG_MATCH_BAND` sui nuovi punteggi.
+- Confrontare la quantizzazione dinamica (questa) con QDQ statica o
+  fp16 — il piano lo segnala come confronto ancora da fare, non deciso
+  a priori.
+- Rimuovere il codice MobileCLIP2 morto solo DOPO che il nuovo modello
+  è dimostrato equivalente-o-meglio per davvero — MobileCLIP2 resta
+  funzionante fino ad allora (stesso principio già seguito per
+  SCRFD/ArcFace nel Task A: il fallback funzionante non si toglie prima
+  che il sostituto sia provato).
+
+## 25 agosto: Task B — consumatore Rust, verde al primo colpo
+
+`crates/keeppix-media/src/openclip_xlmr.rs` (commit `e40e247`, run CI
+32857414862): carica `visual.onnx`+`text.onnx`+`tokenizer.json`+
+`id_remap.json`+`export_manifest.json` dalla directory modello, rimappa
+ogni id del tokenizer non potato sulla tabella potata (fallback a
+`unk_new_index` per gli id fuori dal corpus IT/EN — degradazione, non
+errore), nessun padding a lunghezza fissa (`text.onnx` ha asse sequenza
+dinamico, a differenza del `context_length` fisso di MobileCLIP2).
+
+Compilato/lintato/testato correttamente al primo push — nessun round di
+fix necessario, a differenza di ogni altro file toccato finora in
+questo piano modelli IA. La parte a rischio più alto (sintassi
+`ort::inputs!["input_ids" => ..., "attention_mask" => ...]`, input
+multipli per nome, mai usata prima nel codebase — sempre un solo input
+posizionale) era stata verificata PRIMA del push leggendo la sorgente
+reale del crate `ort` pinnato in `Cargo.lock` (`2.0.0-rc.13`, cache
+locale in `~/.cargo/registry/src/.../ort-2.0.0-rc.13/src/session/input.rs`,
+`macro_rules! inputs`), non assunta dalla sola documentazione — questa
+sandbox non compila `ort-sys` (bloccato), quindi era l'unica verifica
+possibile prima di CI reale.
+
+Aggiunta anche una cache Actions condivisa fra `export-openclip-xlmr.yml`
+(salva `models/openclip-xlmr-it-en/` dopo un export riuscito) e `ci.yml`
+(la ripristina, sola lettura, stessa chiave = hash dello script di
+export): senza, i test che richiedono un modello reale
+(`embed_text_and_image_agree_on_a_trivial_match_when_model_present`,
+`unmapped_token_falls_back_to_unk_without_erroring`) degradano sempre
+in skip via `first_complete_model_dir() == None`, mai eseguiti per
+davvero in CI. Primo push con questa chiave (commit `fee003d`, export
+run 32861710678, verde): popola la cache ma non ancora consumabile
+dallo stesso run di `ci.yml` (job paralleli, nessun ordine garantito) —
+un run `ci.yml` successivo deve confermare un vero cache hit prima di
+poter scrivere il bench di regressione IT/EN con numeri reali.
+
+**Confermato** (run `ci.yml` 32861710680, stesso commit `fee003d`, job
+`backend`): cache hit reale — log del passo Post-cache: "Cache hit
+occurred on the primary key openclip-xlmr-it-en-..., not saving cache."
+Di conseguenza i due test che richiedono il modello reale sono girati
+per davvero (non skip): `embed_text_and_image_agree_on_a_trivial_match_when_model_present`
+e `unmapped_token_falls_back_to_unk_without_erroring` — entrambi `ok`.
+Prima verifica reale in Rust (non solo Python) che `visual.onnx`/
+`text.onnx`/tokenizer/remap prodotti dall'export funzionano davvero
+insieme, incluso il fallback esplicito sugli id fuori corpus. Il
+meccanismo di cache condivisa fra i due file workflow funziona come
+progettato.
+
+Il bench di regressione IT/EN dedicato
+(`crates/keeppix-media/tests/openclip_xlmr_retrieval_bench.rs`, commit
+`1a194de`) ha invece fallito al primo giro — non per un problema del
+modello, due errori di lint puntuali nel file nuovo: `field 'id' is
+never read` (questo file non duplica la validazione fixture che in
+`ai_retrieval_bench.rs` legge `p.id`, quindi qui il campo è davvero
+morto — `#[allow(dead_code)]`) e `doc_markdown` su `MobileCLIP2` bare
+(sorprendente: lo stesso token bare passa altrove nello stesso branch,
+`openclip_xlmr.rs` righe 3/35, CI verde — la scansione euristica per
+precedente testuale usata in questa sessione per anticipare
+`doc_markdown` non è affidabile al 100%, è un lint sensibile al
+contesto della frase). Corretto in `687e6a2`, ancora da confermare via
+CI reale se il bench gira e produce numeri IT/EN reali.
+
+Scoperto verificando quel bench (commit `3406373`): `ci.yml` non ha mai
+scaricato le foto del banco IT/EN (`models/bench-it-en`) — solo i pesi
+modello avevano cache/download. Colpisce ALLO STESSO MODO
+`ai_retrieval_bench.rs`/MobileCLIP2 (mai girato per davvero in CI dal
+Task 2bis in poi). Aggiunta cache+download (`scripts/download-ai-bench.sh`,
+Wikimedia Commons) e un passo `--nocapture` dedicato per rendere
+visibili i blocchi `MEASUREMENT` (altrimenti catturati/scartati dal
+test harness quando il test passa). Il primo run reale con questo
+passo (`32870297867`) ha preso un HTTP 429 da Commons al tredicesimo
+file — ~40 richieste ravvicinate senza pause bastano al rate limit
+anonimo, mai capitato prima perché lo script girava solo in locale.
+Corretto in `760e6d1` (backoff su 429/5xx + pausa 0.5s fra le foto,
+verificato con `urlopen` mockato). Ancora da confermare via CI reale.
+
+Nel frattempo, preparazione per il confronto quantizzazione chiesto dal
+piano ("l'int8 dinamico costa un colpo IT sul visual: provare QDQ
+statica o fp16 e scegliere col numero", commit `9d3380d`):
+`scripts/export-openclip-xlmr-it-en.py` produce ora anche
+`visual_fp16.onnx` accanto al default int8 dinamico, stesso contratto
+I/O (verificato offline su grafo sintetico, `keep_io_types=True`) —
+il consumatore Rust non richiede modifiche per caricarlo. Non ancora
+fatto: il confronto Rust reale (serve prima i numeri del bench IT/EN
+sul default, ancora in corso).
+
+## 25 agosto: Task B — trovato e corretto un bug reale, doppio remap del vocabolario
+
+Il primo bench IT/EN girato per davvero in CI (commit `7a49a333`, run
+32874522510, dopo che tutti i pezzi infrastrutturali — cache pesi,
+foto del banco, retry Wikimedia — erano finalmente a posto) ha dato un
+risultato allarmante, non un semplice numero basso:
+`openclip_xlmr_it_en_retrieval_bench` **FAILED**, EN recall@1=0.05
+(praticamente casuale — con 20 immagini in galleria, un singolo rank@1
+corretto su 20 query, ranks tutti sparsi: `[6,20,6,12,17,13,13,8,11,1,
+13,7,3,8,14,14,17,13,14,7]`). Non il "colpo IT sul visual" atteso e
+documentato dal piano (quello riguarda l'IT, non l'EN, ed è un
+degrado, non un collasso a casuale) — un segnale di pipeline rotta.
+
+**Causa reale, trovata leggendo lo script di export riga per riga**:
+`TextTowerExport.forward` (in `scripts/export-openclip-xlmr-it-en.py`)
+applica il remap del vocabolario potato DENTRO il grafo ONNX stesso —
+un gather su una costante `[vocab_size_originale]` cotta nel grafo
+all'export. Il commento nello script lo dice esplicitamente: "deve
+esistere PRIMA dell'export, non essere applicato lato Rust dopo".
+`crates/keeppix-media/src/openclip_xlmr.rs::embed_text` applicava lo
+STESSO remap una seconda volta, leggendo `id_remap.json` PRIMA di
+alimentare `text.onnx` — ogni token veniva rimappato due volte (id
+originale → nuovo indice via Rust → di nuovo "rimappato" come se fosse
+un id originale, dentro il grafo, su indici piccoli e scorrelati dal
+token vero). Nessuna verifica offline di questa sessione poteva
+catturarlo: serviva il grafo ONNX reale (mai eseguibile in questa
+sandbox) più un bench IT/EN reale (bloccato fino ad oggi da tre
+problemi infrastrutturali distinti, tutti risolti prima che questo
+potesse emergere).
+
+Corretto in `bcf9b4a`: `embed_text` alimenta `text.onnx` con gli id
+ORIGINALI del tokenizer, nessun remap lato Rust. Rimossi
+`IdRemapFile`, i campi `remap`/`unk_new_index`, la lettura di
+`id_remap.json` (lo script Python continua a produrlo, ma serve solo
+per diagnostica — il consumatore Rust non ne ha più bisogno). Ancora
+da confermare: il prossimo run CI deve mostrare un EN recall@1
+ragionevole (vicino a 1.00, come per MobileCLIP2 e come atteso dal
+piano) prima di considerare il bug davvero chiuso — non solo che il
+codice compili.
+
+**Confermato** (run CI 32879434237, stesso commit `bcf9b4a`, verde su
+tutte le fasi incluso il passo `--nocapture` dedicato): il fix ha
+risolto il problema per davvero. Primo confronto reale, stesso
+processo, stesso host, side-by-side — mai stato possibile prima d'ora:
+
+| | MobileCLIP2-S2 | OpenCLIP XLM-R int8 |
+|---|---|---|
+| EN recall@1 / recall@5 / MRR | 1.00 / 1.00 / 1.000 | 1.00 / 1.00 / 1.000 |
+| IT recall@1 / recall@5 / MRR | 0.95 / 1.00 / 0.967 | 0.95 / 1.00 / 0.967 |
+| ms/foto (vision) | 163,0 | **57,0** (2,9× più veloce) |
+| ms/testo EN / IT | 51,7 / 50,0 | **16,8 / 17,5** (~3× più veloce) |
+| RSS after_load / peak_infer | 388 MB / 420 MB | 532 MB / 546 MB |
+
+Qualità **identica** — entrambi i modelli mancano esattamente la
+STESSA didascalia IT (rank 3, non 1: coincidenza che suggerisce una
+didascalia genuinamente ambigua nel banco, non una debolezza
+specifica di un modello). Combina quasi esattamente le stime del
+benchmark di selezione del 22 agosto (piano: "~2,7× più leggero e ~4×
+più veloce" sul solo visual) — confermato per la prima volta con
+numeri Rust reali, non solo Python.
+
+RSS più alta per OpenCLIP qui (532-546 MB contro 388-420 MB): non una
+sorpresa nuova, il piano stesso lo documentava già il 22 agosto ("Text:
+pesi/RSS picco/ms | 248 MB/452 MB/26,9 vs 279 MB/754 MB/16,6" —
+OpenCLIP ha SEMPRE avuto un text tower più pesante in RAM di
+MobileCLIP2, nonostante pesi su disco comparabili). Questo bench carica
+visual+text insieme nello stesso processo per comodità di test; in
+produzione i due non sono mai concorrenti (una ricerca pausa il lotto
+foto, per design già esistente), quindi il numero rilevante per le
+finestre notturne resta quello del solo visual — quello ~2,7× più
+leggero. Sotto il tetto duro 1 GiB in ogni caso (546 MB peak,
+combinato).
+
+Task B sostanzialmente de-rischiato: OpenCLIP XLM-R int8 è ora provato
+equivalente-o-meglio per davvero (stessa qualità, molto più veloce,
+licenza permissiva) — non più solo una promessa del benchmark Python.
+Resta aperto: ricalibrare `TAG_MATCH_BAND` sui punteggi reali,
+confrontare `visual_fp16.onnx` (già preparato, commit `9d3380d`)
+contro il default int8 per il "colpo IT sul visual" citato dal piano
+(qui non osservato in modo allarmante — IT già a 0.95, pari a
+MobileCLIP2 — ma il piano chiede comunque il confronto), e solo alla
+fine rimuovere il codice MobileCLIP2 morto.
+
+Ruling: **int8 dinamico confermato, chiusa l'esplorazione
+quantizzazione.** — Preparato un confronto reale fp16 vs int8 sul
+visual (commit `9d3380d` export + `589833b` test Rust, stesso banco,
+stessa run) ma l'utente ha deciso prima che il giro CI finisse:
+"confermo openclip [int]8, vai diretto con quello" — niente ulteriore
+tempo su fp16/QDQ statica. Entrambi i commit revertiti (`7925a34`,
+`615f7a6`): l'export torna a produrre solo `visual.onnx` int8
+dinamico, nessun file/test in più da mantenere. Non un problema
+tecnico col fp16 in sé (il round-trip offline era pulito, diff 4.8e-5)
+— una scelta di scope, IT già a 0.95 pari a MobileCLIP2 non
+giustificava altri round CI. QDQ statica resta non esplorata e non
+pianificata.

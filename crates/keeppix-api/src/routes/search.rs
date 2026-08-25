@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use keeppix_db::{SearchNode, SearchRepo, Suggestion, SuggestionKind};
 use keeppix_domain::AssetId;
-use keeppix_media::{MobileClip, first_complete_model_dir};
+use keeppix_media::openclip_xlmr::{self, OpenClipXlmr};
 use serde::{Deserialize, Serialize};
 
 use crate::extract::{Auth, SessionNotShare};
@@ -139,8 +139,8 @@ pub async fn run(
     }))
 }
 
-/// Riempie `SearchNode::Semantic.embedding` via `MobileCLIP`. Il crate db non
-/// conosce ort: l'inferenza testuale resta al confine HTTP.
+/// Riempie `SearchNode::Semantic.embedding` via `OpenClipXlmr`. Il crate db
+/// non conosce ort: l'inferenza testuale resta al confine HTTP.
 async fn prepare_semantic_embeddings(node: &mut SearchNode) -> Result<(), Problem> {
     match node {
         SearchNode::And { args } | SearchNode::Or { args } => {
@@ -160,16 +160,16 @@ async fn prepare_semantic_embeddings(node: &mut SearchNode) -> Result<(), Proble
 }
 
 async fn embed_search_query(text: &str) -> Result<Vec<f32>, Problem> {
-    let Some(model_dir) = first_complete_model_dir() else {
+    let Some(model_dir) = openclip_xlmr::first_complete_model_dir() else {
         return Err(Problem::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "ai-unavailable",
-            "Semantic search requires the MobileCLIP model on disk",
+            "Semantic search requires the OpenCLIP model on disk",
         ));
     };
     let text = text.to_owned();
     tokio::task::spawn_blocking(move || -> Result<Vec<f32>, String> {
-        let mut clip = MobileClip::load(&model_dir)?;
+        let mut clip = OpenClipXlmr::load(&model_dir)?;
         clip.embed_text(&text)
     })
     .await

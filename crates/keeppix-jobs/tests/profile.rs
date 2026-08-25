@@ -140,10 +140,10 @@ fn the_idle_threshold_is_a_caller_supplied_parameter_not_a_baked_in_constant() {
 
 #[test]
 fn reduced_level_is_about_six_times_slower_than_full_using_measured_ms() {
-    // Task 2bis (questo host): vision ≈ 43–44 ms/foto → Full arrotondato a 45.
+    // Task B, bench CI reale (`bcf9b4a`): vision OpenCLIP XLM-R IT/EN ≈ 57 ms/foto.
     // Reduced resta ~6× (documento funzionale UI), non un secondo numero inventato.
-    assert_eq!(AnalysisLevel::Full.ms_per_photo(), Some(45));
-    assert_eq!(AnalysisLevel::Reduced.ms_per_photo(), Some(270));
+    assert_eq!(AnalysisLevel::Full.ms_per_photo(), Some(57));
+    assert_eq!(AnalysisLevel::Reduced.ms_per_photo(), Some(342));
     assert_eq!(AnalysisLevel::Off.ms_per_photo(), None);
     assert!(AnalysisLevel::Full.is_enabled());
     assert!(AnalysisLevel::Reduced.is_enabled());

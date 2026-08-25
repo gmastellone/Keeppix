@@ -1,8 +1,16 @@
-//! Fase 7 Task 2bis — banco di recupero IT/EN su MobileCLIP2-S2.
+//! Task B (piano modelli IA, `docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`):
+//! banco di recupero IT/EN su `OpenCLIP` XLM-R IT/EN — il piano chiede
+//! esplicitamente i numeri Rust sul target, non solo il round-trip Python
+//! del 22 agosto. Sostituisce il bench `MobileCLIP2`-S2 (`ai_retrieval_bench.rs`,
+//! rimosso: numeri reali confermati equivalenti-o-migliori, licenza
+//! permissiva contro Apple ML Research Model License research-only).
 //!
-//! Richiede i pesi locali (`./scripts/download-mobileclip2-s2.sh`) e le foto
-//! del banco (`./scripts/download-ai-bench.sh`). Senza di essi il test si
-//! salta: la CI senza bake non scarica centinaia di MB.
+//! Richiede i pesi locali (prodotti da
+//! `.github/workflows/export-openclip-xlmr.yml`, non ancora un vero
+//! `scripts/download-*.sh`: non c'è un URL esterno stabile per questo
+//! checkpoint potato+quantizzato, solo un export occasionale) e le foto del
+//! banco (`./scripts/download-ai-bench.sh`, `captions.json` condiviso).
+//! Senza di essi il test si salta.
 
 #![allow(
     clippy::unwrap_used,
@@ -14,9 +22,10 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use keeppix_media::clip::{self, MobileClip};
+use keeppix_media::current_rss_bytes;
 use keeppix_media::decode_to_rgb8;
-use keeppix_media::retrieval::{RetrievalScore, score_retrieval};
+use keeppix_media::openclip_xlmr::{self, OpenClipXlmr};
+use keeppix_media::retrieval::{RetrievalScore, cosine_similarity, score_retrieval};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -64,7 +73,7 @@ fn load_bench(images_dir: &Path) -> Option<(BenchFile, Vec<PathBuf>)> {
     Some((bench, paths))
 }
 
-fn embed_gallery(clip: &mut MobileClip, paths: &[PathBuf]) -> (Vec<Vec<f32>>, f64) {
+fn embed_gallery(model: &mut OpenClipXlmr, paths: &[PathBuf]) -> (Vec<Vec<f32>>, f64) {
     let mut gallery = Vec::with_capacity(paths.len());
     let mut total_ms = 0.0_f64;
     for path in paths {
@@ -78,11 +87,11 @@ fn embed_gallery(clip: &mut MobileClip, paths: &[PathBuf]) -> (Vec<Vec<f32>>, f6
             "decode length mismatch for {}",
             path.display()
         );
-        let nchw = clip
+        let nchw = model
             .rgb_to_nchw(&rgb, w, h)
             .unwrap_or_else(|e| panic!("preprocess {}: {e}", path.display()));
         let started = Instant::now();
-        let emb = clip
+        let emb = model
             .embed_image_nchw(&nchw)
             .unwrap_or_else(|e| panic!("embed image: {e}"));
         total_ms += started.elapsed().as_secs_f64() * 1000.0;
@@ -91,12 +100,12 @@ fn embed_gallery(clip: &mut MobileClip, paths: &[PathBuf]) -> (Vec<Vec<f32>>, f6
     (gallery, total_ms / paths.len() as f64)
 }
 
-fn embed_queries(clip: &mut MobileClip, texts: &[String]) -> (Vec<Vec<f32>>, f64) {
+fn embed_queries(model: &mut OpenClipXlmr, texts: &[String]) -> (Vec<Vec<f32>>, f64) {
     let mut out = Vec::with_capacity(texts.len());
     let mut total_ms = 0.0_f64;
     for t in texts {
         let started = Instant::now();
-        let emb = clip
+        let emb = model
             .embed_text(t)
             .unwrap_or_else(|e| panic!("embed text '{t}': {e}"));
         total_ms += started.elapsed().as_secs_f64() * 1000.0;
@@ -112,6 +121,47 @@ fn fmt_score(lang: &str, score: &RetrievalScore) -> String {
     )
 }
 
+/// Per ogni query: cosine similarity con l'immagine corretta (stesso indice)
+/// vs. la migliore fra le immagini sbagliate. Serve a ricalibrare
+/// `TAG_MATCH_BAND`/la soglia di default (0.75) su punteggi reali, non solo
+/// ranghi — un rank=1 con margine minuscolo è un match fragile.
+fn score_margins(queries: &[Vec<f32>], gallery: &[Vec<f32>]) -> Vec<(f32, f32)> {
+    queries
+        .iter()
+        .enumerate()
+        .map(|(i, q)| {
+            let correct = cosine_similarity(q, &gallery[i]);
+            let best_wrong = gallery
+                .iter()
+                .enumerate()
+                .filter(|&(j, _)| j != i)
+                .map(|(_, g)| cosine_similarity(q, g))
+                .fold(f32::NEG_INFINITY, f32::max);
+            (correct, best_wrong)
+        })
+        .collect()
+}
+
+fn fmt_margins(lang: &str, margins: &[(f32, f32)]) -> String {
+    let gaps: Vec<f32> = margins.iter().map(|&(c, w)| c - w).collect();
+    let min_gap = gaps.iter().copied().fold(f32::INFINITY, f32::min);
+    let avg_gap = gaps.iter().sum::<f32>() / gaps.len() as f32;
+    let min_correct = margins
+        .iter()
+        .map(|&(c, _)| c)
+        .fold(f32::INFINITY, f32::min);
+    let max_wrong = margins
+        .iter()
+        .map(|&(_, w)| w)
+        .fold(f32::NEG_INFINITY, f32::max);
+    format!(
+        "{lang}: correct_score min={min_correct:.3} | best_wrong_score max={max_wrong:.3} | gap min={min_gap:.3} avg={avg_gap:.3}"
+    )
+}
+
+/// Come `captions_fixture_has_twenty_distinguishable_it_en_pairs` in
+/// `ai_retrieval_bench.rs` (`MobileCLIP2`, rimosso): la validazione della
+/// fixture non dipende dal modello, ma vive qui ora che è l'unico bench.
 #[test]
 fn captions_fixture_has_twenty_distinguishable_it_en_pairs() {
     let raw = std::fs::read_to_string(captions_path()).expect("captions.json");
@@ -145,9 +195,11 @@ fn captions_fixture_has_twenty_distinguishable_it_en_pairs() {
 }
 
 #[test]
-fn mobileclip2_s2_it_en_retrieval_bench() {
-    let Some(model_dir) = clip::first_complete_model_dir() else {
-        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+fn openclip_xlmr_it_en_retrieval_bench() {
+    let Some(model_dir) = openclip_xlmr::first_complete_model_dir() else {
+        eprintln!(
+            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+        );
         return;
     };
     let images_dir = bench_image_dir();
@@ -159,23 +211,25 @@ fn mobileclip2_s2_it_en_retrieval_bench() {
         return;
     };
 
-    let rss_before = clip::current_rss_bytes();
-    let mut clip_model = MobileClip::load(&model_dir).expect("load MobileCLIP");
-    let rss_after_load = clip::current_rss_bytes();
+    let rss_before = current_rss_bytes();
+    let mut model = OpenClipXlmr::load(&model_dir).expect("load OpenClipXlmr");
+    let rss_after_load = current_rss_bytes();
 
-    let (gallery, ms_per_image) = embed_gallery(&mut clip_model, &paths);
-    let rss_peak_infer = clip::current_rss_bytes();
+    let (gallery, ms_per_image) = embed_gallery(&mut model, &paths);
+    let rss_peak_infer = current_rss_bytes();
 
     let en_texts: Vec<String> = bench.pairs.iter().map(|p| p.en.clone()).collect();
     let it_texts: Vec<String> = bench.pairs.iter().map(|p| p.it.clone()).collect();
-    let (en_q, ms_text_en) = embed_queries(&mut clip_model, &en_texts);
-    let (it_q, ms_text_it) = embed_queries(&mut clip_model, &it_texts);
+    let (en_q, ms_text_en) = embed_queries(&mut model, &en_texts);
+    let (it_q, ms_text_it) = embed_queries(&mut model, &it_texts);
 
     let en = score_retrieval(&en_q, &gallery);
     let it = score_retrieval(&it_q, &gallery);
+    let en_margins = score_margins(&en_q, &gallery);
+    let it_margins = score_margins(&it_q, &gallery);
 
-    // Sanity: se l'inglese è sotto soglia, preprocess/tokenizer sono rotti —
-    // non è un "gap linguistico", è un harness rotto.
+    // Sanity come nel bench MobileCLIP2: se l'inglese è sotto soglia,
+    // preprocess/tokenizer/remap sono rotti — non un "gap linguistico".
     assert!(
         en.recall_at_1 >= 0.40,
         "EN recall@1 too low ({:.2}); harness or model broken. {}",
@@ -183,10 +237,10 @@ fn mobileclip2_s2_it_en_retrieval_bench() {
         fmt_score("EN", &en)
     );
 
-    drop(clip_model);
-    let rss_after_drop = clip::current_rss_bytes();
+    drop(model);
+    let rss_after_drop = current_rss_bytes();
 
-    eprintln!("MEASUREMENT MobileCLIP2-S2 IT/EN retrieval (this host, debug+opt-level=2):");
+    eprintln!("MEASUREMENT OpenCLIP-XLMR-IT/EN retrieval (this host, debug+opt-level=2):");
     eprintln!("  {}", fmt_score("EN", &en));
     eprintln!("  {}", fmt_score("IT", &it));
     eprintln!(
@@ -199,8 +253,13 @@ fn mobileclip2_s2_it_en_retrieval_bench() {
     eprintln!(
         "  RSS bytes: before={rss_before:?} after_load={rss_after_load:?} peak_infer={rss_peak_infer:?} after_drop={rss_after_drop:?}"
     );
+    // Punteggi coseno reali (non solo ranghi), per ricalibrare
+    // TAG_MATCH_BAND/la soglia di default lato ricerca semantica.
+    eprintln!("  {}", fmt_margins("EN", &en_margins));
+    eprintln!("  {}", fmt_margins("IT", &it_margins));
 
-    // Soft ceiling check (Task 6): under 1 GiB while model runs.
+    // Stesso tetto morbido del bench MobileCLIP2 (Task 6, Fase 7): sotto 1
+    // GiB mentre il modello gira.
     if let Some(peak) = rss_peak_infer.or(rss_after_load) {
         assert!(
             peak < 1_073_741_824,

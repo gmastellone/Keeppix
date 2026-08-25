@@ -104,22 +104,11 @@ jobs:
       - name: Build keeppix-db:dev (PostGIS + pgvector)
         run: docker build -f Dockerfile.db -t keeppix-db:dev .
 
-      # Pesi CLIP (gitignored). Senza di essi i test embed saltano; con cache
-      # Actions la suite li esegue davvero dopo il primo download (~140 MB
-      # visual + text). Zero rete a runtime del binario: solo CI/dev/bake.
-      - name: Cache MobileCLIP2-S2 weights
-        uses: actions/cache@v4
-        with:
-          path: models/mobileclip2-s2
-          key: mobileclip2-s2-${{ hashFiles('scripts/download-mobileclip2-s2.sh') }}
-      - name: Download MobileCLIP2-S2 weights
-        run: ./scripts/download-mobileclip2-s2.sh
-
       # Pesi YuNet+SFace (gitignored, Task A del piano modelli IA — sostituiscono
       # SCRFD/ArcFace, mai scaricati: pesi research-only, mai eseguiti in nessun
-      # ambiente). Stesso pattern di cache di MobileCLIP2-S2 sopra: senza, i test
-      # `detect_faces` che richiedono un'inferenza reale saltano. ~9,6 MB totali
-      # (contro le decine-centinaia di MB di qualunque variante InsightFace).
+      # ambiente). Senza, i test `detect_faces` che richiedono un'inferenza
+      # reale saltano. ~9,6 MB totali (contro le decine-centinaia di MB di
+      # qualunque variante InsightFace).
       - name: Cache YuNet+SFace weights
         uses: actions/cache@v4
         with:
@@ -127,6 +116,45 @@ jobs:
           key: yunet-sface-${{ hashFiles('scripts/download-yunet-sface.sh') }}
       - name: Download YuNet+SFace weights
         run: ./scripts/download-yunet-sface.sh
+
+      # Pesi OpenCLIP XLM-R IT/EN (Task B del piano modelli IA — sostituisce
+      # MobileCLIP2-S2, rimosso: research-only, mai idoneo a un'offerta
+      # commerciale). A differenza della cache sopra, qui
+      # NON c'è uno script di download: questi pesi non vengono da un URL
+      # esterno stabile, li produce solo `export-openclip-xlmr.yml` (export
+      # Python dal checkpoint HuggingFace, minuti di compute, non qualcosa
+      # da rifare a ogni push di questo job). Questo job SOLO ripristina
+      # (nessun passo di download di fallback): con la stessa chiave usata
+      # dal passo di salvataggio cache in quel workflow, un run riuscito lì
+      # rende disponibili i pesi qui. In assenza di cache (mai girato
+      # l'export su questo branch, o voce scaduta dopo 7 giorni), i test
+      # che richiedono `first_complete_model_dir()` degradano già in modo
+      # esplicito (skip via eprintln, non fallimento) — stesso principio
+      # delle altre cache di pesi.
+      - name: Cache OpenCLIP XLM-R IT/EN weights (solo ripristino, prodotti da export-openclip-xlmr.yml)
+        uses: actions/cache@v4
+        with:
+          path: models/openclip-xlmr-it-en
+          key: openclip-xlmr-it-en-${{ hashFiles('scripts/export-openclip-xlmr-it-en.py') }}
+
+      # Foto del banco IT/EN (Fase 7 Task 2bis) — mai state scaricate in CI
+      # finora: scoperto mentre si verificava `openclip_xlmr_it_en_retrieval_bench`
+      # (Task B), che saltava senza output visibile (il test harness cattura
+      # gli `eprintln!` di un test che passa, "0.00s" e nessuna riga
+      # "skipping" in log — non un bug del test, un buco preesistente qui).
+      # Colpiva ALLO STESSO MODO il bench MobileCLIP2-S2 (Fase 7, rimosso in
+      # Task B): i numeri IT/EN citati nel ledger di quel task sono sempre
+      # stati misurati a mano ("questo host", non CI). Le foto vengono da
+      # Wikimedia Commons (`scripts/download-ai-bench.sh`), non da un mirror
+      # gitignored come i pesi modello — stesso pattern di cache comunque,
+      # chiave sul contenuto di script+caption.
+      - name: Cache foto del banco IT/EN
+        uses: actions/cache@v4
+        with:
+          path: models/bench-it-en
+          key: ai-bench-${{ hashFiles('scripts/download-ai-bench.sh', 'crates/keeppix-media/testdata/ai-bench/captions.json') }}
+      - name: Scarica foto del banco IT/EN
+        run: ./scripts/download-ai-bench.sh
 
       # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
       # in locale i test usano testcontainers e senza quel limite parte un
@@ -153,6 +181,17 @@ jobs:
       # scoperti uno alla volta, invece che tutti insieme in un solo run.
       - name: Test
         run: cargo test --workspace --no-fail-fast
+
+      # Il passo sopra passa anche quando questo bench salta (pesi o foto
+      # assenti): `eprintln!` di un test che PASSA viene catturato dal test
+      # harness e scartato, mai visibile nel log — sia lo "skipping" sia,
+      # quando gira per davvero, il blocco "MEASUREMENT" con recall/mrr/ms/RSS
+      # reali (scoperto verificando Task B). Rieseguire qui il binario con
+      # `--nocapture` è quasi gratis (già compilato dal passo Test sopra) e
+      # rende quei numeri leggibili in ogni run, non solo quando un dev li
+      # rilancia a mano in locale.
+      - name: Banco di recupero IT/EN (numeri reali in log, pesi+foto permettendo)
+        run: cargo test -p keeppix-media --test openclip_xlmr_retrieval_bench -- --nocapture
 
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json

@@ -139,15 +139,17 @@ async fn the_favorite_search_chip_finds_only_the_callers_favorites() {
 }
 
 /// Round-trip completo del Task 10: l'API embedda la query di testo via
-/// MobileCLIP (`keeppix-db` non conosce ort), la passa alla subquery pgvector,
-/// e il risultato torna nella pagina di ricerca. Modello deterministico:
-/// stesso testo → stesso embedding sia per il "finto asset" seminato qui sia
-/// per la query, quindi l'asset finisce nei K più vicini.
+/// `OpenClipXlmr` (`keeppix-db` non conosce ort), la passa alla subquery
+/// pgvector, e il risultato torna nella pagina di ricerca. Modello
+/// deterministico: stesso testo → stesso embedding sia per il "finto asset"
+/// seminato qui sia per la query, quindi l'asset finisce nei K più vicini.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn semantic_search_finds_the_asset_embedded_with_the_same_text() {
-    let Some(model_dir) = keeppix_media::first_complete_model_dir() else {
-        eprintln!("skipping: MobileCLIP2-S2 incomplete (run scripts/download-mobileclip2-s2.sh)");
+    let Some(model_dir) = keeppix_media::openclip_xlmr::first_complete_model_dir() else {
+        eprintln!(
+            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+        );
         return;
     };
 
@@ -159,7 +161,8 @@ async fn semantic_search_finds_the_asset_embedded_with_the_same_text() {
         let model_dir = model_dir.clone();
         let text = query.to_owned();
         tokio::task::spawn_blocking(move || {
-            let mut clip = keeppix_media::MobileClip::load(&model_dir).expect("load model");
+            let mut clip =
+                keeppix_media::openclip_xlmr::OpenClipXlmr::load(&model_dir).expect("load model");
             clip.embed_text(&text).expect("embed text")
         })
         .await

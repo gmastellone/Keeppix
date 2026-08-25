@@ -1,0 +1,108 @@
+name: Export OpenCLIP XLM-R IT/EN
+
+# Task B (piano modelli IA, docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md):
+# produce i pesi ONNX di sostituzione per MobileCLIP2-S2 (research-only).
+#
+# `workflow_dispatch` soltanto, non `push`: a differenza degli script
+# `download-*.sh` (un curl verso un file già pronto), questo scarica un
+# checkpoint torch da HuggingFace, lo esporta, lo quantizza e potatura il
+# vocabolario — minuti di compute e centinaia di MB di rete a ogni run, non
+# qualcosa da far girare a ogni push su un branch di fase. Trigger manuale
+# finché il Task B non è chiuso e questo passo entra (se entra) nel bake
+# dell'immagine Docker, non nel job `backend` di `ci.yml`.
+#
+# Verificato PRIMA di scrivere questo file, nella sandbox di sviluppo (senza
+# rete verso huggingface.co, quindi senza i pesi reali): la meccanica
+# dell'intera pipeline (export torre visione, export torre testo con
+# potatura+remap del vocabolario, quant_pre_process, quantize_dynamic,
+# round-trip in onnxruntime) su un'architettura XLM-RoBERTa-base sintetica a
+# pesi casuali — stessa architettura pubblica nota, stesse chiamate API di
+# `scripts/export-openclip-xlmr-it-en.py`, verificata byte per byte fino a
+# 7e-8 di differenza fra output eager PyTorch e ONNX Runtime. Non verificato
+# lì (e verificato qui per la prima volta): il checkpoint REALE
+# (`laion/CLIP-ViT-B-32-xlm-roberta-base-laion5B-s13B-b90k`), quindi la
+# qualità reale del modello e i numeri di peso/RSS/ms che il piano chiede.
+#
+# `push` qui sotto, scoped al SOLO branch di questo task (non un wildcard
+# `fase-*`, quello resta a `ci.yml`): `workflow_dispatch` da solo richiede
+# che il file sia già sul branch di default per essere invocabile via API
+# (verificato: 404 provando a lanciarlo appena pushato su questo branch,
+# limite reale di GitHub, non un bug qui) — inutile finché questo branch
+# non è mergiato. Il push-trigger scoped è il modo per far girare l'export
+# per davvero durante lo sviluppo del Task B, senza mergiare a `main` del
+# lavoro a metà solo per sbloccare il dispatch. Da togliere quando il
+# trigger `workflow_dispatch` torna effettivamente utilizzabile (dopo il
+# merge) o quando il Task B chiude.
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [fase-8-task-b-clip-it-en]
+    paths:
+      - scripts/export-openclip-xlmr-it-en.py
+      - .github/workflows/export-openclip-xlmr.yml
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - name: Installa le dipendenze Python dell'export (solo qui, mai a runtime)
+        run: |
+          pip install --quiet torch open_clip_torch transformers onnx onnxruntime wordfreq
+
+      - name: Esporta, potatura vocabolario IT/EN, quantizza int8
+        run: python3 scripts/export-openclip-xlmr-it-en.py --out models/openclip-xlmr-it-en
+
+      - name: Dimensioni e hash degli artefatti
+        run: |
+          ls -lh models/openclip-xlmr-it-en/
+          sha256sum models/openclip-xlmr-it-en/*.onnx models/openclip-xlmr-it-en/*.json
+
+      # Rende questi pesi riusabili dal job `backend` di `ci.yml` (test
+      # embed/bench reali su Rust) senza rifare l'intero export lì — sarebbe
+      # minuti di compute e rete verso HuggingFace a ogni push, esattamente
+      # ciò che questo workflow evita di proposito (vedi commento in testa
+      # al file). Stessa chiave del passo "Cache OpenCLIP XLM-R IT/EN
+      # weights" in `ci.yml`: la cache Actions è condivisa per branch a
+      # prescindere dal workflow che l'ha popolata.
+      - name: Cache pesi per riuso da ci.yml
+        uses: actions/cache@v4
+        with:
+          path: models/openclip-xlmr-it-en
+          key: openclip-xlmr-it-en-${{ hashFiles('scripts/export-openclip-xlmr-it-en.py') }}
+
+      # Il download dell'artefatto (Azure Blob Storage) non è raggiungibile
+      # dal proxy della sandbox di sviluppo — stesso tipo di blocco già
+      # visto per huggingface.co, dominio diverso. I due file JSON qui sono
+      # piccoli e la struttura è nota (scritta da questo stesso script), ma
+      # stampare i valori REALI nel log evita di doverli dedurre a mano.
+      - name: Contenuto dei manifest (evita di scaricare l'artefatto solo per leggerli)
+        run: |
+          echo "--- export_manifest.json ---"
+          cat models/openclip-xlmr-it-en/export_manifest.json
+          echo
+          echo "--- id_remap.json: metadati (senza la mappa intera, è grande) ---"
+          python3 -c "
+          import json
+          d = json.load(open('models/openclip-xlmr-it-en/id_remap.json'))
+          print('original_vocab_size:', d['original_vocab_size'])
+          print('pruned_vocab_size:', d['pruned_vocab_size'])
+          print('unk_new_index:', d['unk_new_index'])
+          print('pad_token_id:', d['pad_token_id'])
+          print('kept entries:', len(d['kept']))
+          sample = list(d['kept'].items())[:5]
+          print('sample kept (old_id -> new_index):', sample)
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openclip-xlmr-it-en
+          path: models/openclip-xlmr-it-en/
+          retention-days: 14

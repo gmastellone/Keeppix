@@ -7,7 +7,7 @@
 fn db_and_media_agree_on_the_embedding_model_version() {
     assert_eq!(
         keeppix_db::MODEL_VERSION,
-        keeppix_media::MODEL_VERSION,
+        keeppix_media::openclip_xlmr::MODEL_VERSION,
         "keeppix-db::MODEL_VERSION è duplicato da keeppix-media::MODEL_VERSION: \
          se divergono, gli embedding scritti da keeppix-jobs (media) smettono \
          di essere trovati dalla ricerca (db)"

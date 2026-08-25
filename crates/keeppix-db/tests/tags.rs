@@ -361,14 +361,17 @@ async fn patching_stores_a_text_embedding_without_touching_asset_embeddings() {
                 color: None,
                 threshold: None,
                 embedding: Some(Some(vector.clone())),
-                model_version: Some(Some("mobileclip2-s2".to_owned())),
+                model_version: Some(Some("openclip-xlmr-it-en".to_owned())),
             },
         )
         .await
         .unwrap();
     assert!(updated.has_embedding);
     assert_eq!(updated.prompt.as_deref(), Some("fresh snow on mountains"));
-    assert_eq!(updated.model_version.as_deref(), Some("mobileclip2-s2"));
+    assert_eq!(
+        updated.model_version.as_deref(),
+        Some("openclip-xlmr-it-en")
+    );
 
     let stored: String = sqlx::query_scalar("SELECT embedding::text FROM tags WHERE id = $1")
         .bind(tag.id.as_uuid())
