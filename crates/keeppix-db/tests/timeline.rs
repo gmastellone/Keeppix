@@ -312,10 +312,13 @@ async fn geometry_pages_match_the_whole_view_concatenated() {
 
     let mut paged = Vec::new();
     let mut after = None;
-    let mut pages = 0;
+    let mut page_count = 0;
     loop {
-        pages += 1;
-        assert!(pages <= 10, "la paginazione non converge, possibile ciclo");
+        page_count += 1;
+        assert!(
+            page_count <= 10,
+            "la paginazione non converge, possibile ciclo"
+        );
         let page = repo
             .geometry(
                 &ctx,
@@ -334,7 +337,7 @@ async fn geometry_pages_match_the_whole_view_concatenated() {
             None => break,
         }
     }
-    assert_eq!(pages, 3, "7 record a limit=3 sono tre pagine: 3+3+1");
+    assert_eq!(page_count, 3, "7 record a limit=3 sono tre pagine: 3+3+1");
     assert_eq!(
         paged, whole.records,
         "le pagine concatenate devono combaciare byte per byte con la vista intera, stesso ordine"

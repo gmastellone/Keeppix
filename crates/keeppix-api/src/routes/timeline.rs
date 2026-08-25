@@ -600,9 +600,9 @@ pub async fn geometry(
     if page.is_none() {
         set_etag(&mut response, &geometry_etag(&geometry));
     }
-    if let Some(cursor) = next_cursor {
-        let value = HeaderValue::from_str(&encode_geometry_cursor(cursor))
-            .expect("rfc3339 timestamp + uuid are always valid header bytes");
+    if let Some(cursor) = next_cursor
+        && let Ok(value) = HeaderValue::from_str(&encode_geometry_cursor(cursor))
+    {
         response.headers_mut().insert(GEOMETRY_CURSOR_HEADER, value);
     }
     Ok(response)
