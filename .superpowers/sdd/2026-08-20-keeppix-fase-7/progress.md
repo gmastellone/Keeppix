@@ -832,3 +832,27 @@ precedente testuale usata in questa sessione per anticipare
 `doc_markdown` non è affidabile al 100%, è un lint sensibile al
 contesto della frase). Corretto in `687e6a2`, ancora da confermare via
 CI reale se il bench gira e produce numeri IT/EN reali.
+
+Scoperto verificando quel bench (commit `3406373`): `ci.yml` non ha mai
+scaricato le foto del banco IT/EN (`models/bench-it-en`) — solo i pesi
+modello avevano cache/download. Colpisce ALLO STESSO MODO
+`ai_retrieval_bench.rs`/MobileCLIP2 (mai girato per davvero in CI dal
+Task 2bis in poi). Aggiunta cache+download (`scripts/download-ai-bench.sh`,
+Wikimedia Commons) e un passo `--nocapture` dedicato per rendere
+visibili i blocchi `MEASUREMENT` (altrimenti catturati/scartati dal
+test harness quando il test passa). Il primo run reale con questo
+passo (`32870297867`) ha preso un HTTP 429 da Commons al tredicesimo
+file — ~40 richieste ravvicinate senza pause bastano al rate limit
+anonimo, mai capitato prima perché lo script girava solo in locale.
+Corretto in `760e6d1` (backoff su 429/5xx + pausa 0.5s fra le foto,
+verificato con `urlopen` mockato). Ancora da confermare via CI reale.
+
+Nel frattempo, preparazione per il confronto quantizzazione chiesto dal
+piano ("l'int8 dinamico costa un colpo IT sul visual: provare QDQ
+statica o fp16 e scegliere col numero", commit `9d3380d`):
+`scripts/export-openclip-xlmr-it-en.py` produce ora anche
+`visual_fp16.onnx` accanto al default int8 dinamico, stesso contratto
+I/O (verificato offline su grafo sintetico, `keep_io_types=True`) —
+il consumatore Rust non richiede modifiche per caricarlo. Non ancora
+fatto: il confronto Rust reale (serve prima i numeri del bench IT/EN
+sul default, ancora in corso).
