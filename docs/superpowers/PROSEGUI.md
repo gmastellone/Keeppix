@@ -1,21 +1,20 @@
 # Keeppix — vai fino alla fine
 
-**Fasi 0-6, 10 e 7 chiuse e mergiate in `main`** (PR #3-#11 per 0-6; merge diretti via git dove
-le PR GitHub erano rotte, CI reale ottenuta con push su `fase-*`). Fai `git pull` su `main`: c'è
-tutto quello che ti serve, IA compresa. Da qui in avanti procedi da solo, con quattro sole
-eccezioni elencate in fondo.
+**Aggiornamento 25 agosto: tutte le Fasi 0-11 sono chiuse e mergiate in `main`** (PR #3-#11 per
+0-6; merge diretti via git per 7-11, dove le PR GitHub erano rotte, CI reale ottenuta con push su
+`fase-*`). Fai `git pull` su `main`: c'è tutto quello che ti serve, IA compresa. Il lavoro aperto
+non è più una fase del roadmap, ma il debito di licenza dei modelli IA (vedi §"modelli IA" più
+sotto): Task A (volti, YuNet+SFace) chiuso e mergiato; Task B (embedding CLIP, OpenCLIP-XLM-R
+int8 potato IT/EN) in corso. Da qui in avanti procedi da solo, con quattro sole eccezioni elencate
+in fondo.
 
 ---
 
-## 1. L'ordine, e perché è quello
+## 1. L'ordine, e perché è quello (storico — tutte le fasi sotto sono chiuse)
 
 ```
-Fase 10 (✅ main)  →  Fase 7 (✅ main)  →  Fase 8  →  Fase 9  →  Fase 11 (A→B→C→D)
+Fase 10 (✅ main)  →  Fase 7 (✅ main)  →  Fase 8 (✅ main)  →  Fase 9 (✅ main)  →  Fase 11 (✅ main, A→B→C→D)
 ```
-
-**La Fase 7 è chiusa e mergiata in `main`.** **La prossima è la Fase 8 — ma prima leggi il §9:
-i piani di 8/9 vanno ripassati col codice vero di 10+7 davanti.** Branch nuovo da `main`, non da
-un branch di fase precedente.
 
 **La Fase 10 è andata prima della 7, 8 e 9, e non era un'opinione.** Ha fissato l'involucro di
 riuscita parziale, la tassonomia chiusa degli errori, `SearchNode` come unico modello di filtro

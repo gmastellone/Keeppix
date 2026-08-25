@@ -154,11 +154,11 @@ PostGIS instance per crate and will eat your RAM and disk.
 | 4 | Maps, geocoding, timezones, offline PMTiles | ✅ shipped |
 | 5 | WebDAV, resumable upload | ✅ shipped |
 | 6 | Video, backup, TOTP, installable PWA | ✅ shipped |
-| **10** | **API surface for the redesigned interface** | **plan written — up next** |
-| 7 | AI scenes & tags, semantic search | plan written |
-| 8 | Face recognition, clustering | plan written |
-| 9 | Physical culling folders, safe move, rename-by-formula | plan written |
-| 11 | The redesigned interface | plan written |
+| 10 | API surface for the redesigned interface | ✅ shipped |
+| 7 | AI scenes & tags, semantic search | ✅ shipped |
+| 8 | Face recognition, clustering | ✅ shipped |
+| 9 | Physical culling folders, safe move, rename-by-formula | ✅ shipped |
+| 11 | The redesigned interface | ✅ shipped |
 
 Full roadmap with frozen contracts and phase dependencies:
 [`docs/superpowers/plans/2026-08-13-keeppix-roadmap.md`](docs/superpowers/plans/2026-08-13-keeppix-roadmap.md).
