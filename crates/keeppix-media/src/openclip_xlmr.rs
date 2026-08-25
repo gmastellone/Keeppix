@@ -4,11 +4,11 @@
 //! Research Model License, research-only — mai idoneo a un'offerta
 //! commerciale).
 //!
-//! **Non sostituisce `clip.rs` in place**: `MobileClip` resta funzionante
-//! finché questo modello non è dimostrato equivalente-o-meglio per davvero
-//! (bench di regressione IT/EN, RSS, ms) — stesso principio già seguito
-//! per SCRFD/`ArcFace` nel Task A (`crates/keeppix-media/src/face.rs`): il
-//! fallback funzionante non si toglie prima che il sostituto sia provato.
+//! MobileCLIP2-S2 (`clip.rs`) è stato rimosso solo dopo la controprova: bench
+//! di regressione IT/EN reale, stesso harness, numeri equivalenti-o-migliori
+//! e ~3x più veloce — stesso principio già seguito per SCRFD/`ArcFace` nel
+//! Task A (`crates/keeppix-media/src/face.rs`): il fallback non si toglie
+//! prima che il sostituto sia provato.
 //!
 //! Pesi prodotti da `scripts/export-openclip-xlmr-it-en.py` (Python, unico
 //! punto della pipeline dove gira — vincolo esplicito del piano). Numeri
@@ -50,11 +50,10 @@ use ort::value::Tensor;
 use serde::Deserialize;
 use tokenizers::{Tokenizer, TruncationParams};
 
-/// Identità stabile del checkpoint usato da probe, job e DB. Distinta da
-/// `clip::MODEL_VERSION` ("mobileclip2-s2"): i due modelli possono
-/// coesistere nel DB durante la transizione (embed dim identica, 512,
-/// nessuna migrazione di schema — il `model_version` per riga distingue
-/// quali embedding vengono da quale checkpoint).
+/// Identità stabile del checkpoint usato da probe, job e DB. Righe più
+/// vecchie con `model_version = "mobileclip2-s2"` (MobileCLIP2-S2, rimosso)
+/// restano nel DB finché non vengono ricalcolate: embed dim identica, 512,
+/// nessuna migrazione di schema necessaria.
 pub const MODEL_VERSION: &str = "openclip-xlmr-it-en";
 const EMBED_DIM: usize = 512;
 
@@ -123,8 +122,8 @@ struct ExportManifest {
 }
 
 /// Sessioni `OpenCLIP` XLM-R caricate in memoria (visual + text).
-/// Dropparle libera la RAM (stesso limite di `MobileClip`: onnxruntime non
-/// restituisce tutte le pagine al SO subito dopo `Drop`).
+/// Dropparle libera la RAM (limite di onnxruntime: non restituisce tutte le
+/// pagine al SO subito dopo `Drop`).
 #[derive(Debug)]
 pub struct OpenClipXlmr {
     visual: Session,
@@ -203,8 +202,7 @@ impl OpenClipXlmr {
 
     /// Embedding 512-d L2-normalizzato da tensor NCHW float già a
     /// `image_size`, pixel in \[0,1\] (mean/std reali del checkpoint
-    /// applicati qui — `visual.onnx` non li include, stesso contratto di
-    /// `MobileClip::embed_image_nchw`).
+    /// applicati qui — `visual.onnx` non li include).
     ///
     /// # Errors
     /// Lunghezza NCHW errata, fallimento ort, o embedding non 512-d.
@@ -283,11 +281,7 @@ impl OpenClipXlmr {
     }
 
     /// Preprocessa RGB8 (`H`×`W` interleaved) → NCHW float \[0,1\] con
-    /// resize "shortest" + center crop a `image_size`. Stessa logica di
-    /// `MobileClip::rgb_to_nchw` (duplicata di proposito finché i due
-    /// modelli coesistono — vedi commento di modulo: refactorizzarla in
-    /// una funzione condivisa ora accoppierebbe due strutture che devono
-    /// poter divergere ed essere rimosse indipendentemente).
+    /// resize "shortest" + center crop a `image_size`.
     ///
     /// # Errors
     /// Buffer RGB la cui lunghezza non coincide con `width * height * 3`.
@@ -352,14 +346,6 @@ mod tests {
     #[test]
     fn model_version_constant_is_stable() {
         assert_eq!(MODEL_VERSION, "openclip-xlmr-it-en");
-    }
-
-    #[test]
-    fn model_version_differs_from_mobileclip() {
-        // Devono poter coesistere nel DB durante la transizione — se mai
-        // finissero per coincidere, insert_detected/le query per
-        // model_version smetterebbero di distinguere le due sorgenti.
-        assert_ne!(MODEL_VERSION, crate::clip::MODEL_VERSION);
     }
 
     #[test]

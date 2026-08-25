@@ -14,10 +14,10 @@ pub struct InferenceProbe {
     pub runtime: Option<String>,
 }
 
-/// Percorsi candidati per `visual.onnx` (MobileCLIP2-S2), in ordine.
+/// Percorsi candidati per `visual.onnx` (OpenCLIP XLM-R IT/EN), in ordine.
 ///
 /// Override: `KEEPPIX_AI_VISUAL_ONNX` (file) o `KEEPPIX_MODELS_DIR` (directory
-/// che contiene `mobileclip2-s2/visual.onnx`).
+/// che contiene `openclip-xlmr-it-en/visual.onnx`).
 #[must_use]
 pub fn visual_model_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -25,13 +25,13 @@ pub fn visual_model_candidates() -> Vec<PathBuf> {
         out.push(PathBuf::from(p));
     }
     if let Ok(dir) = std::env::var("KEEPPIX_MODELS_DIR") {
-        out.push(PathBuf::from(dir).join("mobileclip2-s2/visual.onnx"));
+        out.push(PathBuf::from(dir).join("openclip-xlmr-it-en/visual.onnx"));
     }
-    out.push(PathBuf::from("models/mobileclip2-s2/visual.onnx"));
+    out.push(PathBuf::from("models/openclip-xlmr-it-en/visual.onnx"));
     if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
         let crate_dir = PathBuf::from(manifest);
         if let Some(workspace) = crate_dir.parent().and_then(Path::parent) {
-            out.push(workspace.join("models/mobileclip2-s2/visual.onnx"));
+            out.push(workspace.join("models/openclip-xlmr-it-en/visual.onnx"));
         }
     }
     out
@@ -84,15 +84,15 @@ fn run_ort_probe(model_path: &Path) -> Result<f64, String> {
         .commit_from_file(model_path)
         .map_err(|e| format!("load: {e}"))?;
 
-    let zeros = vec![0f32; 3 * 256 * 256];
-    let warmup = Tensor::from_array(([1usize, 3, 256, 256], zeros.clone()))
+    let zeros = vec![0f32; 3 * 224 * 224];
+    let warmup = Tensor::from_array(([1usize, 3, 224, 224], zeros.clone()))
         .map_err(|e| format!("tensor: {e}"))?;
     let _ = session
         .run(ort::inputs![warmup])
         .map_err(|e| format!("warmup: {e}"))?;
 
     let input =
-        Tensor::from_array(([1usize, 3, 256, 256], zeros)).map_err(|e| format!("tensor: {e}"))?;
+        Tensor::from_array(([1usize, 3, 224, 224], zeros)).map_err(|e| format!("tensor: {e}"))?;
     let started = Instant::now();
     let outputs = session
         .run(ort::inputs![input])
@@ -122,7 +122,7 @@ mod tests {
         unsafe {
             std::env::set_var(
                 "KEEPPIX_AI_VISUAL_ONNX",
-                "/no/such/keeppix/mobileclip/visual.onnx",
+                "/no/such/keeppix/openclip/visual.onnx",
             );
         }
         let probe = measure_image_inference();
@@ -141,12 +141,12 @@ mod tests {
             .into_iter()
             .find(|p| p.is_file())
             .or_else(|| {
-                let p = PathBuf::from("/workspace/models/mobileclip2-s2/visual.onnx");
+                let p = PathBuf::from("/workspace/models/openclip-xlmr-it-en/visual.onnx");
                 p.is_file().then_some(p)
             });
         let Some(model) = model else {
             eprintln!(
-                "skipping: MobileCLIP2-S2 visual.onnx not on disk (run scripts/download-mobileclip2-s2.sh)"
+                "skipping: openclip-xlmr-it-en visual.onnx not on disk (girare .github/workflows/export-openclip-xlmr.yml)"
             );
             return;
         };

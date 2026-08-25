@@ -104,22 +104,11 @@ jobs:
       - name: Build keeppix-db:dev (PostGIS + pgvector)
         run: docker build -f Dockerfile.db -t keeppix-db:dev .
 
-      # Pesi CLIP (gitignored). Senza di essi i test embed saltano; con cache
-      # Actions la suite li esegue davvero dopo il primo download (~140 MB
-      # visual + text). Zero rete a runtime del binario: solo CI/dev/bake.
-      - name: Cache MobileCLIP2-S2 weights
-        uses: actions/cache@v4
-        with:
-          path: models/mobileclip2-s2
-          key: mobileclip2-s2-${{ hashFiles('scripts/download-mobileclip2-s2.sh') }}
-      - name: Download MobileCLIP2-S2 weights
-        run: ./scripts/download-mobileclip2-s2.sh
-
       # Pesi YuNet+SFace (gitignored, Task A del piano modelli IA — sostituiscono
       # SCRFD/ArcFace, mai scaricati: pesi research-only, mai eseguiti in nessun
-      # ambiente). Stesso pattern di cache di MobileCLIP2-S2 sopra: senza, i test
-      # `detect_faces` che richiedono un'inferenza reale saltano. ~9,6 MB totali
-      # (contro le decine-centinaia di MB di qualunque variante InsightFace).
+      # ambiente). Senza, i test `detect_faces` che richiedono un'inferenza
+      # reale saltano. ~9,6 MB totali (contro le decine-centinaia di MB di
+      # qualunque variante InsightFace).
       - name: Cache YuNet+SFace weights
         uses: actions/cache@v4
         with:
@@ -129,7 +118,8 @@ jobs:
         run: ./scripts/download-yunet-sface.sh
 
       # Pesi OpenCLIP XLM-R IT/EN (Task B del piano modelli IA — sostituisce
-      # MobileCLIP2-S2, research-only). A differenza delle cache sopra, qui
+      # MobileCLIP2-S2, rimosso: research-only, mai idoneo a un'offerta
+      # commerciale). A differenza della cache sopra, qui
       # NON c'è uno script di download: questi pesi non vengono da un URL
       # esterno stabile, li produce solo `export-openclip-xlmr.yml` (export
       # Python dal checkpoint HuggingFace, minuti di compute, non qualcosa
@@ -152,12 +142,12 @@ jobs:
       # (Task B), che saltava senza output visibile (il test harness cattura
       # gli `eprintln!` di un test che passa, "0.00s" e nessuna riga
       # "skipping" in log — non un bug del test, un buco preesistente qui).
-      # Colpisce ALLO STESSO MODO `mobileclip2_s2_it_en_retrieval_bench`
-      # (esistente da Fase 7): i numeri IT/EN citati nel ledger di quel task
-      # sono sempre stati misurati a mano ("questo host", non CI). Le foto
-      # vengono da Wikimedia Commons (`scripts/download-ai-bench.sh`), non
-      # da un mirror gitignored come i pesi modello — stesso pattern di
-      # cache comunque, chiave sul contenuto di script+caption.
+      # Colpiva ALLO STESSO MODO il bench MobileCLIP2-S2 (Fase 7, rimosso in
+      # Task B): i numeri IT/EN citati nel ledger di quel task sono sempre
+      # stati misurati a mano ("questo host", non CI). Le foto vengono da
+      # Wikimedia Commons (`scripts/download-ai-bench.sh`), non da un mirror
+      # gitignored come i pesi modello — stesso pattern di cache comunque,
+      # chiave sul contenuto di script+caption.
       - name: Cache foto del banco IT/EN
         uses: actions/cache@v4
         with:
@@ -192,16 +182,16 @@ jobs:
       - name: Test
         run: cargo test --workspace --no-fail-fast
 
-      # Il passo sopra passa anche quando questi due bench saltano (pesi o
-      # foto assenti): `eprintln!` di un test che PASSA viene catturato dal
-      # test harness e scartato, mai visibile nel log — sia lo "skipping"
-      # sia, quando girano per davvero, il blocco "MEASUREMENT" con
-      # recall/mrr/ms/RSS reali (scoperto verificando Task B). Rieseguire
-      # qui i due binari con `--nocapture` è quasi gratis (già compilati
-      # dal passo Test sopra) e rende quei numeri leggibili in ogni run,
-      # non solo quando un dev li rilancia a mano in locale.
+      # Il passo sopra passa anche quando questo bench salta (pesi o foto
+      # assenti): `eprintln!` di un test che PASSA viene catturato dal test
+      # harness e scartato, mai visibile nel log — sia lo "skipping" sia,
+      # quando gira per davvero, il blocco "MEASUREMENT" con recall/mrr/ms/RSS
+      # reali (scoperto verificando Task B). Rieseguire qui il binario con
+      # `--nocapture` è quasi gratis (già compilato dal passo Test sopra) e
+      # rende quei numeri leggibili in ogni run, non solo quando un dev li
+      # rilancia a mano in locale.
       - name: Banco di recupero IT/EN (numeri reali in log, pesi+foto permettendo)
-        run: cargo test -p keeppix-media --test ai_retrieval_bench --test openclip_xlmr_retrieval_bench -- --nocapture
+        run: cargo test -p keeppix-media --test openclip_xlmr_retrieval_bench -- --nocapture
 
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json

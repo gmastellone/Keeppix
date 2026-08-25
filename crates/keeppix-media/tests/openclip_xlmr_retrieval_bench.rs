@@ -1,14 +1,16 @@
 //! Task B (piano modelli IA, `docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`):
-//! banco di recupero IT/EN su `OpenCLIP` XLM-R IT/EN, analogo a
-//! `ai_retrieval_bench.rs` (MobileCLIP2-S2) — il piano chiede esplicitamente
-//! i numeri Rust sul target, non solo il round-trip Python del 22 agosto.
+//! banco di recupero IT/EN su `OpenCLIP` XLM-R IT/EN — il piano chiede
+//! esplicitamente i numeri Rust sul target, non solo il round-trip Python
+//! del 22 agosto. Sostituisce il bench MobileCLIP2-S2 (`ai_retrieval_bench.rs`,
+//! rimosso: numeri reali confermati equivalenti-o-migliori, licenza
+//! permissiva contro Apple ML Research Model License research-only).
 //!
 //! Richiede i pesi locali (prodotti da
 //! `.github/workflows/export-openclip-xlmr.yml`, non ancora un vero
 //! `scripts/download-*.sh`: non c'è un URL esterno stabile per questo
-//! checkpoint potato+quantizzato, solo un export occasionale) e le stesse
-//! foto del banco `MobileCLIP2` (`./scripts/download-ai-bench.sh`,
-//! `captions.json` condiviso). Senza di essi il test si salta.
+//! checkpoint potato+quantizzato, solo un export occasionale) e le foto del
+//! banco (`./scripts/download-ai-bench.sh`, `captions.json` condiviso).
+//! Senza di essi il test si salta.
 
 #![allow(
     clippy::unwrap_used,
@@ -20,10 +22,10 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use keeppix_media::clip;
+use keeppix_media::current_rss_bytes;
 use keeppix_media::decode_to_rgb8;
 use keeppix_media::openclip_xlmr::{self, OpenClipXlmr};
-use keeppix_media::retrieval::{RetrievalScore, score_retrieval};
+use keeppix_media::retrieval::{RetrievalScore, cosine_similarity, score_retrieval};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -33,9 +35,6 @@ struct BenchFile {
 
 #[derive(Debug, Deserialize)]
 struct BenchPair {
-    // Non letto qui: la validazione della fixture (unicità/lunghezza degli
-    // id) resta in ai_retrieval_bench.rs, non duplicata per ogni modello.
-    #[allow(dead_code)]
     id: String,
     image: String,
     en: String,
@@ -122,6 +121,79 @@ fn fmt_score(lang: &str, score: &RetrievalScore) -> String {
     )
 }
 
+/// Per ogni query: cosine similarity con l'immagine corretta (stesso indice)
+/// vs. la migliore fra le immagini sbagliate. Serve a ricalibrare
+/// `TAG_MATCH_BAND`/la soglia di default (0.75) su punteggi reali, non solo
+/// ranghi — un rank=1 con margine minuscolo è un match fragile.
+fn score_margins(queries: &[Vec<f32>], gallery: &[Vec<f32>]) -> Vec<(f32, f32)> {
+    queries
+        .iter()
+        .enumerate()
+        .map(|(i, q)| {
+            let correct = cosine_similarity(q, &gallery[i]);
+            let best_wrong = gallery
+                .iter()
+                .enumerate()
+                .filter(|&(j, _)| j != i)
+                .map(|(_, g)| cosine_similarity(q, g))
+                .fold(f32::NEG_INFINITY, f32::max);
+            (correct, best_wrong)
+        })
+        .collect()
+}
+
+fn fmt_margins(lang: &str, margins: &[(f32, f32)]) -> String {
+    let gaps: Vec<f32> = margins.iter().map(|&(c, w)| c - w).collect();
+    let min_gap = gaps.iter().copied().fold(f32::INFINITY, f32::min);
+    let avg_gap = gaps.iter().sum::<f32>() / gaps.len() as f32;
+    let min_correct = margins
+        .iter()
+        .map(|&(c, _)| c)
+        .fold(f32::INFINITY, f32::min);
+    let max_wrong = margins
+        .iter()
+        .map(|&(_, w)| w)
+        .fold(f32::NEG_INFINITY, f32::max);
+    format!(
+        "{lang}: correct_score min={min_correct:.3} | best_wrong_score max={max_wrong:.3} | gap min={min_gap:.3} avg={avg_gap:.3}"
+    )
+}
+
+/// Come `captions_fixture_has_twenty_distinguishable_it_en_pairs` in
+/// `ai_retrieval_bench.rs` (MobileCLIP2, rimosso): la validazione della
+/// fixture non dipende dal modello, ma vive qui ora che è l'unico bench.
+#[test]
+fn captions_fixture_has_twenty_distinguishable_it_en_pairs() {
+    let raw = std::fs::read_to_string(captions_path()).expect("captions.json");
+    let bench: BenchFile = serde_json::from_str(&raw).expect("parse captions");
+    assert_eq!(bench.pairs.len(), 20, "Task 2bis asks for ~20 pairs");
+    for p in &bench.pairs {
+        assert!(!p.en.is_empty() && !p.it.is_empty());
+        assert_ne!(p.en, p.it, "IT and EN captions must differ for {}", p.id);
+        // Non banali: più di una parola.
+        assert!(
+            p.en.split_whitespace().count() >= 6,
+            "EN too short: {}",
+            p.en
+        );
+        assert!(
+            p.it.split_whitespace().count() >= 6,
+            "IT too short: {}",
+            p.it
+        );
+    }
+    let ens: Vec<_> = bench.pairs.iter().map(|p| p.en.as_str()).collect();
+    let its: Vec<_> = bench.pairs.iter().map(|p| p.it.as_str()).collect();
+    let mut ens_sorted = ens.clone();
+    ens_sorted.sort_unstable();
+    ens_sorted.dedup();
+    assert_eq!(ens_sorted.len(), ens.len(), "duplicate EN captions");
+    let mut its_sorted = its.clone();
+    its_sorted.sort_unstable();
+    its_sorted.dedup();
+    assert_eq!(its_sorted.len(), its.len(), "duplicate IT captions");
+}
+
 #[test]
 fn openclip_xlmr_it_en_retrieval_bench() {
     let Some(model_dir) = openclip_xlmr::first_complete_model_dir() else {
@@ -139,12 +211,12 @@ fn openclip_xlmr_it_en_retrieval_bench() {
         return;
     };
 
-    let rss_before = clip::current_rss_bytes();
+    let rss_before = current_rss_bytes();
     let mut model = OpenClipXlmr::load(&model_dir).expect("load OpenClipXlmr");
-    let rss_after_load = clip::current_rss_bytes();
+    let rss_after_load = current_rss_bytes();
 
     let (gallery, ms_per_image) = embed_gallery(&mut model, &paths);
-    let rss_peak_infer = clip::current_rss_bytes();
+    let rss_peak_infer = current_rss_bytes();
 
     let en_texts: Vec<String> = bench.pairs.iter().map(|p| p.en.clone()).collect();
     let it_texts: Vec<String> = bench.pairs.iter().map(|p| p.it.clone()).collect();
@@ -153,6 +225,8 @@ fn openclip_xlmr_it_en_retrieval_bench() {
 
     let en = score_retrieval(&en_q, &gallery);
     let it = score_retrieval(&it_q, &gallery);
+    let en_margins = score_margins(&en_q, &gallery);
+    let it_margins = score_margins(&it_q, &gallery);
 
     // Sanity come nel bench MobileCLIP2: se l'inglese è sotto soglia,
     // preprocess/tokenizer/remap sono rotti — non un "gap linguistico".
@@ -164,7 +238,7 @@ fn openclip_xlmr_it_en_retrieval_bench() {
     );
 
     drop(model);
-    let rss_after_drop = clip::current_rss_bytes();
+    let rss_after_drop = current_rss_bytes();
 
     eprintln!("MEASUREMENT OpenCLIP-XLMR-IT/EN retrieval (this host, debug+opt-level=2):");
     eprintln!("  {}", fmt_score("EN", &en));
@@ -179,6 +253,10 @@ fn openclip_xlmr_it_en_retrieval_bench() {
     eprintln!(
         "  RSS bytes: before={rss_before:?} after_load={rss_after_load:?} peak_infer={rss_peak_infer:?} after_drop={rss_after_drop:?}"
     );
+    // Punteggi coseno reali (non solo ranghi), per ricalibrare
+    // TAG_MATCH_BAND/la soglia di default lato ricerca semantica.
+    eprintln!("  {}", fmt_margins("EN", &en_margins));
+    eprintln!("  {}", fmt_margins("IT", &it_margins));
 
     // Stesso tetto morbido del bench MobileCLIP2 (Task 6, Fase 7): sotto 1
     // GiB mentre il modello gira.

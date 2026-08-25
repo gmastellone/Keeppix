@@ -62,7 +62,7 @@ async fn seed_hashed_asset(
     asset.id
 }
 
-const MODEL: &str = "mobileclip2-s2";
+const MODEL: &str = "openclip-xlmr-it-en";
 
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]

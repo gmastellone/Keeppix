@@ -10,9 +10,9 @@ use std::fmt::Write as _;
 
 use crate::{Db, DbError};
 
-/// Allineato a `keeppix_media::MODEL_VERSION`. Duplicato qui perché
-/// `keeppix-db` non può dipendere da `keeppix-media` (`deny.toml`).
-pub const MODEL_VERSION: &str = "mobileclip2-s2";
+/// Allineato a `keeppix_media::openclip_xlmr::MODEL_VERSION`. Duplicato qui
+/// perché `keeppix-db` non può dipendere da `keeppix-media` (`deny.toml`).
+pub const MODEL_VERSION: &str = "openclip-xlmr-it-en";
 
 /// Candidato all'inferenza: ha `content_hash` (quindi può avere miniatura).
 #[derive(Debug, Clone, PartialEq, Eq)]
