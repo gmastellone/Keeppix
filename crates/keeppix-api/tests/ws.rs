@@ -306,7 +306,7 @@ async fn a_proposed_face_is_pushed_as_suggestions_changed() {
             embedding: None,
             detect_score: 0.9,
             quality: Some(0.5),
-            model_version: "scrfd-500mf+arcface".to_owned(),
+            model_version: "yunet+sface".to_owned(),
         })
         .await
         .unwrap();

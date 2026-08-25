@@ -191,7 +191,7 @@ mod tests {
             rejected_at: None,
             proposed_person_id: None,
             proposed_score: None,
-            model_version: "scrfd-500mf+arcface".to_owned(),
+            model_version: "yunet+sface".to_owned(),
             created_at: Utc::now(),
         };
         assert!(face.is_human_assigned());

@@ -1,4 +1,4 @@
-//! `JobKind::DetectFaces`: rilevamento SCRFD + impronta `ArcFace` +
+//! `JobKind::DetectFaces`: rilevamento `YuNet` + impronta `SFace` +
 //! raggruppamento incrementale a lotto (Fase 8 Task 4/5).
 //!
 //! Stesso pattern di `embed.rs`: `keeppix-db` elenca i pending (escluso
@@ -16,9 +16,9 @@
 //! **Raggruppamento incrementale** (Task 5, spec §4.1): per ogni volto con
 //! impronta calcolata, si cerca il centroide più vicino fra le persone
 //! esistenti. Soglie non ancora calibrate su dati reali (nessun peso
-//! SCRFD/ArcFace scaricabile in questa sandbox — vedi ledger di fase):
+//! `YuNet`/`SFace` scaricabile in questa sandbox — vedi ledger di fase):
 //! `ASSIGN_SIMILARITY`/`PROPOSE_SIMILARITY` sono punti di partenza
-//! ragionevoli per una similarità coseno `ArcFace`, non numeri misurati. Una
+//! ragionevoli per una similarità coseno `SFace`, non numeri misurati. Una
 //! persona con almeno una separazione registrata (spec §4.3) non riceve mai
 //! un'assegnazione certa: va sempre in proposta, anche sopra
 //! `ASSIGN_SIMILARITY` — vedi il Ruling nel ledger.

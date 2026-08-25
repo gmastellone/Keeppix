@@ -28,7 +28,7 @@ pub enum JobKind {
     IntegrityScrub,
     /// Fase 7: calcolo embeddings CLIP a lotto dalle miniature.
     EmbedAssets,
-    /// Fase 8: rilevamento SCRFD + impronta `ArcFace` + raggruppamento
+    /// Fase 8: rilevamento `YuNet` + impronta `SFace` + raggruppamento
     /// incrementale a lotto.
     DetectFaces,
 }

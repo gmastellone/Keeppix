@@ -91,7 +91,7 @@ async fn seed_confirmed_face(
             embedding: None,
             detect_score: 0.9,
             quality: Some(0.5),
-            model_version: "scrfd-500mf+arcface".to_owned(),
+            model_version: "yunet+sface".to_owned(),
         })
         .await
         .unwrap();
@@ -320,7 +320,7 @@ async fn review_queue_confirm_and_reject_via_http() {
             embedding: None,
             detect_score: 0.9,
             quality: Some(0.5),
-            model_version: "scrfd-500mf+arcface".to_owned(),
+            model_version: "yunet+sface".to_owned(),
         })
         .await
         .unwrap();
@@ -341,7 +341,7 @@ async fn review_queue_confirm_and_reject_via_http() {
             embedding: None,
             detect_score: 0.9,
             quality: Some(0.5),
-            model_version: "scrfd-500mf+arcface".to_owned(),
+            model_version: "yunet+sface".to_owned(),
         })
         .await
         .unwrap();
@@ -460,7 +460,7 @@ async fn bootstrap_badge_counts_pending_face_proposals() {
             embedding: None,
             detect_score: 0.9,
             quality: Some(0.5),
-            model_version: "scrfd-500mf+arcface".to_owned(),
+            model_version: "yunet+sface".to_owned(),
         })
         .await
         .unwrap();
