@@ -940,3 +940,16 @@ hardware reale, calibrare, Ruling a ledger) prima che quei due numeri
 possano dirsi affidabili — non bloccante per mergiare la sostituzione dei
 pesi (la licenza è il problema urgente, la calibrazione è ottimizzazione
 successiva), ma non va dimenticato.
+
+## Task A: MERGIATA in `main`, CI verde sul commit di merge stesso
+
+`git merge --no-ff fase-8-task-a-volti` (commit `4a1f0b0`), dopo
+`git merge-tree` a secco (nessun conflitto). CI reale sul commit di
+merge stesso (run 32840402742): verde su tutti e 5 i job, incluso
+`Test` — non solo la CI isolata del branch, verificato di proposito
+perché un merge può introdurre problemi che nessuna delle due CI
+isolate avrebbe visto (già successo una volta in questa sessione, sul
+merge di Fase 11). Branch `fase-8-task-a-volti` non cancellabile da
+questa sessione (`git push origin --delete` → HTTP 403, stessa
+limitazione di permessi già vista su altri due branch in questa
+sessione) — va cancellato a mano.
