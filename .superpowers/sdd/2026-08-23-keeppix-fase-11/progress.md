@@ -6731,3 +6731,39 @@ performance su un runner condiviso, che **precede** il Task 17 di ore
 a comparire e sparire su commit che non toccano ricerca vettoriale/
 embeddings. Nessuna modifica di questo Task 17 tocca quel codice — trattato
 come flakiness ambientale pre-esistente, non un regresso da inseguire qui.
+
+## Fix di CI (2/2) — `docs/api/openapi.json`: descrizione di campo mai propagata
+
+**Il primo fix (elenchi statici) non bastava**: il commit successivo
+(`ef5f378`) è tornato rosso su CI, ma su un solo test —
+`openapi_snapshot_matches_the_committed_file` — non più sui due elenchi.
+**Errore di lettura mio nel diagnosticarlo la prima volta**: guardando
+l'output del test avevo scambiato `left`/`right`; la firma reale è
+`assert_eq!(committed.trim(), generated.trim(), ...)`, quindi **`left` è
+il file committato, `right` è il codice dal vivo** — l'opposto di quanto
+letto di getto. Isolato lo scarto vero confrontando i due blob JSON per
+intero (395 KB ciascuno): un solo campo diverge in tutto il documento,
+`components.schemas.BadgeCountsView.properties.culling.description`. Il
+codice Rust (`crates/keeppix-api/src/routes/bootstrap.rs`, il commento
+doc sopra `pub culling: i64`) ha già il testo giusto — aggiornato nel
+Task 17 (3/N) insieme al calcolo reale del badge — ma quell'aggiornamento
+non era mai stato propagato nell'hand-edit di `docs/api/openapi.json`
+dello stesso task: il documento committato era rimasto con la vecchia
+frase dell'epoca Fase 9 ("Zero finché i lotti non esistono nel backend").
+
+**Nota a margine, non un problema**: durante questa diagnosi il working
+tree locale di questa sessione si è trovato per un momento disallineato
+da `origin/fase-11` (`git log` locale mostrava `015e3e7`, ben prima del
+Task 17, mentre la vera cima del branch su GitHub — confermata via
+`mcp__github__get_commit` — era già `ef5f378`). Non una perdita di
+lavoro: un `git fetch` + `git merge --ff-only origin/fase-11` ha
+riallineato il locale senza toccare nulla di remoto. Causa più probabile:
+uno snapshot/restart del container di questa sessione fra un push e il
+successivo. Prima di fidarsi di nuovo di un `git log` locale dopo un
+salto di tempo, confrontarlo con la cima reale su GitHub.
+
+**Fix**: aggiornata la sola stringa `description` nel JSON committato
+(via lo stesso script Python usato nel Task 17 1/N, con diff verificato
+riga per riga: **una sola riga cambiata in tutto il file**, nessun altro
+campo toccato). JSON validato con `json.load`. Push e verifica su CI
+reale, non ipotesi.

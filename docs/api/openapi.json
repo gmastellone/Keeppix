@@ -11813,7 +11813,7 @@
           "culling": {
             "type": "integer",
             "format": "int64",
-            "description": "Foto ancora da valutare nel culling (Fase 9). Zero finché i lotti non\nesistono nel backend."
+            "description": "Foto ancora da valutare nel culling, sommate su tutti i lotti di\ntutte le librerie con una radice designata (Fase 9, esposto in Fase\n11 Task 17). `list_lots` è già owner/admin-scoped per costruzione —\nuna libreria senza radice designata contribuisce zero senza una\nquery in più (`list_lots` la salta subito)."
           },
           "revision": {
             "type": "integer",
