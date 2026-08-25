@@ -806,3 +806,29 @@ run 32861710678, verde): popola la cache ma non ancora consumabile
 dallo stesso run di `ci.yml` (job paralleli, nessun ordine garantito) —
 un run `ci.yml` successivo deve confermare un vero cache hit prima di
 poter scrivere il bench di regressione IT/EN con numeri reali.
+
+**Confermato** (run `ci.yml` 32861710680, stesso commit `fee003d`, job
+`backend`): cache hit reale — log del passo Post-cache: "Cache hit
+occurred on the primary key openclip-xlmr-it-en-..., not saving cache."
+Di conseguenza i due test che richiedono il modello reale sono girati
+per davvero (non skip): `embed_text_and_image_agree_on_a_trivial_match_when_model_present`
+e `unmapped_token_falls_back_to_unk_without_erroring` — entrambi `ok`.
+Prima verifica reale in Rust (non solo Python) che `visual.onnx`/
+`text.onnx`/tokenizer/remap prodotti dall'export funzionano davvero
+insieme, incluso il fallback esplicito sugli id fuori corpus. Il
+meccanismo di cache condivisa fra i due file workflow funziona come
+progettato.
+
+Il bench di regressione IT/EN dedicato
+(`crates/keeppix-media/tests/openclip_xlmr_retrieval_bench.rs`, commit
+`1a194de`) ha invece fallito al primo giro — non per un problema del
+modello, due errori di lint puntuali nel file nuovo: `field 'id' is
+never read` (questo file non duplica la validazione fixture che in
+`ai_retrieval_bench.rs` legge `p.id`, quindi qui il campo è davvero
+morto — `#[allow(dead_code)]`) e `doc_markdown` su `MobileCLIP2` bare
+(sorprendente: lo stesso token bare passa altrove nello stesso branch,
+`openclip_xlmr.rs` righe 3/35, CI verde — la scansione euristica per
+precedente testuale usata in questa sessione per anticipare
+`doc_markdown` non è affidabile al 100%, è un lint sensibile al
+contesto della frase). Corretto in `687e6a2`, ancora da confermare via
+CI reale se il bench gira e produce numeri IT/EN reali.
