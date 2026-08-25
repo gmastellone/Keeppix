@@ -350,23 +350,40 @@ def main() -> None:
     # `quant_pre_process` (shape inference + constant folding) prima della
     # quantizzazione vera: raccomandato dallo strumento stesso (warning a
     # runtime altrimenti — verificato su un giro sintetico in questa
-    # sessione), non un passo facoltativo aggiunto a caso.
+    # sessione), non un passo facoltativo aggiunto a caso. Sul grafo REALE
+    # (non sintetico) `SymbolicShapeInference` fallisce con
+    # `AssertionError: assert is_literal(shape_rank)` dentro il suo stesso
+    # gestore del nodo `Reshape` — un limite noto dello strumento sui grafi
+    # con asse batch dinamico (`dynamic_axes` sopra), non un errore nel
+    # grafo esportato. `skip_symbolic_shape=True` disattiva solo quel passo
+    # avanzato, tenendo l'inferenza di forma ONNX base e il constant
+    # folding — verificato qui per la prima volta contro il grafo reale
+    # (non testabile prima: serviva l'export reale per riprodurlo). Se
+    # anche questo fallisse, si preferisce quantizzare senza preprocessing
+    # piuttosto che bloccare l'intero export per un passo "raccomandato",
+    # non "richiesto" — da rivedere se la qualità post-quantizzazione ne
+    # risente (si misura, non si assume).
+    def preprocess_then_quantize(fp32_path: Path, preproc_path: Path, int8_path: Path) -> None:
+        try:
+            quant_pre_process(str(fp32_path), str(preproc_path), skip_symbolic_shape=True)
+            source = preproc_path
+        except Exception as e:  # pylint: disable=broad-except
+            log(f"ATTENZIONE: quant_pre_process fallito ({e!r}), quantizzo senza preprocessing")
+            source = fp32_path
+        quantize_dynamic(str(source), str(int8_path), weight_type=QuantType.QInt8)
+
     log("pre-processing + quantizzazione int8 dinamica: visual")
-    quant_pre_process(str(args.out / "visual_fp32.onnx"), str(args.out / "visual_preproc.onnx"))
-    quantize_dynamic(
-        str(args.out / "visual_preproc.onnx"),
-        str(args.out / "visual.onnx"),
-        weight_type=QuantType.QInt8,
+    preprocess_then_quantize(
+        args.out / "visual_fp32.onnx", args.out / "visual_preproc.onnx", args.out / "visual.onnx"
     )
     log("pre-processing + quantizzazione int8 dinamica: text")
-    quant_pre_process(str(args.out / "text_fp32.onnx"), str(args.out / "text_preproc.onnx"))
-    quantize_dynamic(
-        str(args.out / "text_preproc.onnx"),
-        str(args.out / "text.onnx"),
-        weight_type=QuantType.QInt8,
+    preprocess_then_quantize(
+        args.out / "text_fp32.onnx", args.out / "text_preproc.onnx", args.out / "text.onnx"
     )
     for tmp in ("visual_fp32.onnx", "text_fp32.onnx", "visual_preproc.onnx", "text_preproc.onnx"):
-        (args.out / tmp).unlink()
+        path = args.out / tmp
+        if path.is_file():
+            path.unlink()
 
     # --- Tokenizer: NON potato (stessa segmentazione per qualunque input,
     # vedi docstring) — copiato così com'è, il consumatore Rust lo usa per
