@@ -1,9 +1,9 @@
-//! YuNet (rilevamento) + `SFace` (impronta) via `ort` (Fase 8 Task 2/4,
+//! `YuNet` (rilevamento) + `SFace` (impronta) via `ort` (Fase 8 Task 2/4,
 //! sostituiti dal Task A del piano modelli IA — vedi
-//! `docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`). SCRFD/ArcFace
-//! (InsightFace) non sono mai stati usati in produzione: pesi
+//! `docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`). SCRFD/`ArcFace`
+//! (`InsightFace`) non sono mai stati usati in produzione: pesi
 //! research-only, mai scaricati, mai eseguiti — sostituiti prima di
-//! qualunque rilascio. YuNet è MIT, `SFace` è Apache 2.0: entrambi liberi
+//! qualunque rilascio. `YuNet` è MIT, `SFace` è Apache 2.0: entrambi liberi
 //! anche per uso commerciale.
 //!
 //! Stesso stack di `clip.rs`: pesi ONNX locali sotto `models/`, zero rete a
@@ -20,14 +20,14 @@
 //! della precedente implementazione SCRFD**, però, i due file `.onnx` reali
 //! sono stati scaricati e ispezionati direttamente (`onnx.load`, grafo
 //! Python) durante la stesura di questo modulo: gli shape di input/output
-//! sotto (nomi, dimensioni, l'input fisso 640×640 di YuNet, l'output
+//! sotto (nomi, dimensioni, l'input fisso 640×640 di `YuNet`, l'output
 //! 128-d `fc1` di `SFace`, l'unico input realmente richiesto `data` — gli
 //! altri ~144 nomi nel grafo `SFace` hanno tutti un initializer, sono
-//! parametri di BatchNorm/PReLU congelati dall'export, non vanno forniti a
+//! parametri di `BatchNorm`/`PReLU` congelati dall'export, non vanno forniti a
 //! `Session::run`) sono **verificati sul file reale**, non dedotti. Le
 //! formule di decodifica (stride, `score = sqrt(cls·obj)`, box in stile
 //! YOLO) vengono invece dalla lettura diretta di
-//! `modules/objdetect/src/face_detect.cpp` di OpenCV — nomi di output letti
+//! `modules/objdetect/src/face_detect.cpp` di `OpenCV` — nomi di output letti
 //! per **nome** (non per posizione), così un ordine diverso fallisce in modo
 //! esplicito invece di produrre riquadri sbagliati in silenzio. Resta da
 //! verificare in CI reale: che l'inferenza converga su una foto vera (il
@@ -46,20 +46,20 @@ use crate::align::{self, SFACE_REFERENCE_112};
 pub const MODEL_VERSION: &str = "yunet+sface";
 
 const STRIDES: [u32; 3] = [8, 16, 32];
-/// Lato dell'input del rilevatore YuNet: **non** una scelta di
+/// Lato dell'input del rilevatore `YuNet`: **non** una scelta di
 /// implementazione come lo era per SCRFD — è la dimensione fissa dichiarata
 /// dal grafo ONNX del checkpoint `2023mar_int8` pinnato dal piano
 /// (`input: [1, 3, 640, 640]`, verificato caricando il file reale). `ort`
 /// rifiuta un tensore di dimensione diversa: non è un parametro tunabile.
 const DETECTOR_INPUT_SIZE: u32 = 640;
-/// Soglie ufficiali del wrapper Python di OpenCV Zoo per YuNet
+/// Soglie ufficiali del wrapper Python di `OpenCV` Zoo per `YuNet`
 /// (`models/face_detection_yunet/yunet.py`: `confThreshold=0.6`,
 /// `nmsThreshold=0.3`) — non i valori SCRFD del checkpoint precedente.
 const SCORE_THRESHOLD: f32 = 0.6;
 const NMS_IOU_THRESHOLD: f32 = 0.3;
 /// Dimensione dell'impronta `SFace`: 128, **non** 512 come `ArcFace`
 /// (verificato sia sull'output `fc1` del grafo ONNX reale, sia sul
-/// commento ufficiale OpenCV `samples/dnn/js_face_recognition.html`, "Get
+/// commento ufficiale `OpenCV` `samples/dnn/js_face_recognition.html`, "Get
 /// 128 floating points feature vector"). La migrazione dello schema che
 /// segue da questo numero è in
 /// `crates/keeppix-db/migrations/0050_faces_embedding_dim_128.sql`.
@@ -143,7 +143,7 @@ pub fn first_complete_model_dir() -> Option<PathBuf> {
 pub struct DetectedFace {
     pub bbox: FaceBBox,
     /// Occhio destro, occhio sinistro, naso, angolo bocca destro, angolo
-    /// bocca sinistro — ordine nativo di YuNet (`demo.py`,
+    /// bocca sinistro — ordine nativo di `YuNet` (`demo.py`,
     /// `landmark_color`: indici 0..4 etichettati esattamente così), passato
     /// **senza permutazioni** a [`align::SFACE_REFERENCE_112`]: verificato
     /// su `objdetect/src/face_recognize.cpp`, `FaceRecognizerSF::alignCrop`
@@ -155,7 +155,7 @@ pub struct DetectedFace {
     pub score: f32,
 }
 
-/// Sessioni YuNet + `SFace` caricate in memoria. Dropparle libera la RAM
+/// Sessioni `YuNet` + `SFace` caricate in memoria. Dropparle libera la RAM
 /// (stesso pattern di `MobileClip`, che a sua volta ha lo stesso limite:
 /// onnxruntime non restituisce tutte le pagine al SO subito dopo `Drop`).
 #[derive(Debug)]
@@ -165,7 +165,7 @@ pub struct FaceModels {
 }
 
 impl FaceModels {
-    /// Carica `detect.onnx` (YuNet) + `embed.onnx` (`SFace`) dalla directory
+    /// Carica `detect.onnx` (`YuNet`) + `embed.onnx` (`SFace`) dalla directory
     /// modello.
     ///
     /// # Errors
@@ -192,7 +192,7 @@ impl FaceModels {
     /// Rileva volti in un'immagine RGB8 interleaved (`width`×`height`).
     /// Applica un letterbox (ridimensiona mantenendo l'aspect ratio, riempie
     /// il resto di nero) verso [`DETECTOR_INPUT_SIZE`] — l'unica dimensione
-    /// che il grafo YuNet accetta — poi decodifica le tre teste (stride
+    /// che il grafo `YuNet` accetta — poi decodifica le tre teste (stride
     /// 8/16/32, un rilevamento per cella, niente ancore multiple a
     /// differenza di SCRFD) e applica soppressione dei non massimi.
     ///
@@ -378,19 +378,19 @@ fn named_output_f32(
 /// Letterbox: scala mantenendo l'aspect ratio così il lato più lungo diventi
 /// `target`, poi centra il risultato su un canvas `target`×`target`
 /// riempito di nero. Torna il tensore NCHW con pixel **grezzi** 0..255
-/// (`dnn::blobFromImage` di YuNet non normalizza: scalefactor 1, mean 0,
+/// (`dnn::blobFromImage` di `YuNet` non normalizza: scalefactor 1, mean 0,
 /// letto da `face_detect.cpp`) e i parametri per invertire la
 /// trasformazione sulle coordinate rilevate.
 ///
 /// **Canali scambiati R↔B** (nome della funzione: produce BGR, non RGB): il
-/// sorgente OpenCV chiama `blobFromImage` con `swapRB=false` su
+/// sorgente `OpenCV` chiama `blobFromImage` con `swapRB=false` su
 /// un'immagine BGR-nativa (da `cv::imread`) — cioè la rete riceve BGR senza
 /// alcuno scambio. Il nostro buffer sorgente è RGB (convenzione di questo
 /// crate): per dare alla rete lo stesso ordine di canali con cui è stata
 /// addestrata, scambiamo qui, non lasciamo l'ordine RGB invariato come
 /// faceva il letterbox SCRFD precedente (quello alimentava RGB grezzo —
-/// scelta ragionevole per la famiglia InsightFace, che nelle demo ufficiali
-/// inverte esplicitamente BGR→RGB prima dell'inferenza; per YuNet l'evidenza
+/// scelta ragionevole per la famiglia `InsightFace`, che nelle demo ufficiali
+/// inverte esplicitamente BGR→RGB prima dell'inferenza; per `YuNet` l'evidenza
 /// del sorgente dice il contrario). Non verificato empiricamente in questa
 /// sandbox (nessuna inferenza reale eseguibile) — da confermare quando CI
 /// esegue per la prima volta il test end-to-end con i pesi veri.
@@ -441,9 +441,9 @@ struct Candidate {
     score: f32,
 }
 
-/// Decodifica una testa YuNet a uno stride: un rilevamento per cella
+/// Decodifica una testa `YuNet` a uno stride: un rilevamento per cella
 /// (anchor-free, a differenza delle 2 ancore per cella di SCRFD), formule
-/// lette da `face_detect.cpp` di OpenCV:
+/// lette da `face_detect.cpp` di `OpenCV`:
 /// `cx=(c+bbox[0])·stride`, `cy=(r+bbox[1])·stride`,
 /// `w=exp(bbox[2])·stride`, `h=exp(bbox[3])·stride`,
 /// `score=√(cls·obj)`, `kp_n=((kps[2n]+c)·stride, (kps[2n+1]+r)·stride)`.

@@ -4,7 +4,7 @@
 //! rilevamento, preview 2048px per l'impronta, esclusione culling,
 //! raggruppamento incrementale.
 //!
-//! Senza pesi YuNet/SFace su disco (questa sandbox non ha rete verso
+//! Senza pesi `YuNet`/`SFace` su disco (questa sandbox non ha rete verso
 //! `cdn.pyke.io` per compilare `ort-sys`, stesso limite di `embed.rs` per
 //! MobileCLIP2-S2), i test che richiedono un'inferenza reale saltano — vedi
 //! il ledger di fase. Restano verificabili senza pesi: la coda vuota,

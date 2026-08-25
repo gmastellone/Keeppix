@@ -11,12 +11,12 @@
 //! standard, non un caso speciale ad hoc.
 
 /// I cinque punti di riferimento su un ritaglio 112×112, ordine nativo
-/// YuNet (occhio destro, occhio sinistro, naso, angolo bocca destro,
+/// `YuNet` (occhio destro, occhio sinistro, naso, angolo bocca destro,
 /// angolo bocca sinistro — vedi il commento su
 /// [`crate::face::DetectedFace::landmarks`]). Numericamente identico alla
 /// costante `ArcFace`/insightface usata dalla precedente implementazione
 /// SCRFD: verificato leggendo `FaceRecognizerSF::alignCrop`
-/// (`objdetect/src/face_recognize.cpp` di OpenCV), che usa lo stesso
+/// (`objdetect/src/face_recognize.cpp` di `OpenCV`), che usa lo stesso
 /// identico array per `SFace` — stesso template di riferimento, modello di
 /// impronta diverso. Il nome è cambiato, i numeri no.
 pub const SFACE_REFERENCE_112: [(f32, f32); 5] = [
