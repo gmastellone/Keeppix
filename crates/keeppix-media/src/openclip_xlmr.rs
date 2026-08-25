@@ -25,17 +25,24 @@
 //! vincolo esplicito del piano ("le altre 107 lingue non sono un
 //! requisito: se la potatura le rompe, va bene" — qui la segmentazione
 //! *non* si rompe affatto, cambia solo quale embedding la cella di
-//! vocabolario riceve). Un remap sparso (`id_remap.json`, id-tokenizer →
-//! indice-tabella-potata) va applicato ai token PRIMA di alimentare
-//! `text.onnx`: un id assente dalla mappa (parola fuori dal corpus
-//! IT/EN usato per la potatura) diventa `unk_new_index` — degradazione
-//! esplicita, non un errore.
+//! vocabolario riceve). **Il remap vive dentro il grafo ONNX**, non qui:
+//! `text.onnx` accetta in ingresso gli id ORIGINALI del tokenizer non
+//! potato e li rimappa internamente su un `gather` con una costante
+//! `[vocab_size_originale]` cotta nel grafo all'export (vedi
+//! `scripts/export-openclip-xlmr-it-en.py`, `TextTowerExport.forward`:
+//! "deve esistere PRIMA dell'export, non essere applicato lato Rust
+//! dopo") — un id fuori dal corpus IT/EN usato per la potatura diventa
+//! l'embedding di `<unk>` dentro il grafo stesso, mai un errore qui.
+//! Rimapparli di nuovo qui (come una prima stesura di questo file
+//! faceva, leggendo `id_remap.json`) applicherebbe il remap due volte —
+//! bug reale trovato dal primo bench IT/EN girato per davvero in CI
+//! (EN recall@1 crollato a 0.05, praticamente casuale): `id_remap.json`
+//! non serve al consumatore Rust, resta solo per diagnostica Python.
 //!
 //! `text.onnx` ha l'asse sequenza dinamico (nessun padding a lunghezza
 //! fissa necessario, a differenza di MobileCLIP2): la tokenizzazione usa
 //! solo troncamento a `text_max_position_embeddings`.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use ort::session::Session;
@@ -96,9 +103,6 @@ fn missing_pieces(dir: &Path) -> Vec<&'static str> {
     if !dir.join("tokenizer.json").is_file() {
         missing.push("tokenizer.json");
     }
-    if !dir.join("id_remap.json").is_file() {
-        missing.push("id_remap.json");
-    }
     if !dir.join("export_manifest.json").is_file() {
         missing.push("export_manifest.json");
     }
@@ -118,16 +122,7 @@ struct ExportManifest {
     text_max_position_embeddings: usize,
 }
 
-/// Rispecchia `remap_out = {...}` nello stesso script: `kept` è sparso
-/// (solo gli id tenuti dopo la potatura), qualunque id del tokenizer
-/// assente da questa mappa va rimappato su `unk_new_index`.
-#[derive(Debug, Deserialize)]
-struct IdRemapFile {
-    unk_new_index: u32,
-    kept: HashMap<String, u32>,
-}
-
-/// Sessioni `OpenCLIP` XLM-R caricate in memoria (visual + text + remap).
+/// Sessioni `OpenCLIP` XLM-R caricate in memoria (visual + text).
 /// Dropparle libera la RAM (stesso limite di `MobileClip`: onnxruntime non
 /// restituisce tutte le pagine al SO subito dopo `Drop`).
 #[derive(Debug)]
@@ -138,13 +133,11 @@ pub struct OpenClipXlmr {
     image_size: usize,
     mean: [f32; 3],
     std: [f32; 3],
-    remap: HashMap<u32, u32>,
-    unk_new_index: u32,
 }
 
 impl OpenClipXlmr {
-    /// Carica `visual.onnx` + `text.onnx` + tokenizer + remap dalla
-    /// directory modello.
+    /// Carica `visual.onnx` + `text.onnx` + tokenizer dalla directory
+    /// modello.
     ///
     /// # Errors
     /// Directory incompleta, JSON illeggibile/malformato, o fallimento di
@@ -168,18 +161,6 @@ impl OpenClipXlmr {
                 "expected {EMBED_DIM}-d embed_dim in export_manifest.json, got {}",
                 manifest.embed_dim
             ));
-        }
-
-        let remap_raw = std::fs::read_to_string(model_dir.join("id_remap.json"))
-            .map_err(|e| format!("read id_remap.json: {e}"))?;
-        let remap_file: IdRemapFile =
-            serde_json::from_str(&remap_raw).map_err(|e| format!("parse id_remap.json: {e}"))?;
-        let mut remap = HashMap::with_capacity(remap_file.kept.len());
-        for (old_str, new_idx) in remap_file.kept {
-            let old_id: u32 = old_str
-                .parse()
-                .map_err(|_| format!("non-numeric id_remap.json key: {old_str}"))?;
-            remap.insert(old_id, new_idx);
         }
 
         let visual = Session::builder()
@@ -211,8 +192,6 @@ impl OpenClipXlmr {
                 .map_err(|_| "image_size does not fit usize".to_owned())?,
             mean: manifest.image_mean,
             std: manifest.image_std,
-            remap,
-            unk_new_index: remap_file.unk_new_index,
         })
     }
 
@@ -262,9 +241,12 @@ impl OpenClipXlmr {
     }
 
     /// Embedding 512-d L2-normalizzato di una stringa di testo: tokenizza
-    /// con il tokenizer non potato, rimappa ogni id sulla tabella potata
-    /// (`unk_new_index` per gli id assenti dalla mappa), alimenta
-    /// `text.onnx` senza padding (lunghezza = numero di token reali).
+    /// con il tokenizer non potato e alimenta `text.onnx` con gli id
+    /// ORIGINALI (senza padding, lunghezza = numero di token reali) — il
+    /// remap sul vocabolario potato vive dentro il grafo ONNX stesso
+    /// (`TextTowerExport.forward` nello script di export), non qui:
+    /// rimapparlo di nuovo lato Rust lo applicherebbe due volte (bug
+    /// reale, vedi commento di modulo).
     ///
     /// # Errors
     /// Tokenizzazione fallita, fallimento ort, o embedding non 512-d.
@@ -277,14 +259,11 @@ impl OpenClipXlmr {
         if original_ids.is_empty() {
             return Err("tokenizer produced zero ids".to_owned());
         }
-        let remapped: Vec<i64> = original_ids
-            .iter()
-            .map(|id| i64::from(*self.remap.get(id).unwrap_or(&self.unk_new_index)))
-            .collect();
-        let seq_len = remapped.len();
+        let ids: Vec<i64> = original_ids.iter().map(|id| i64::from(*id)).collect();
+        let seq_len = ids.len();
         let attention_mask: Vec<i64> = vec![1; seq_len];
 
-        let ids_tensor = Tensor::from_array(([1usize, seq_len], remapped))
+        let ids_tensor = Tensor::from_array(([1usize, seq_len], ids))
             .map_err(|e| format!("text input_ids tensor: {e}"))?;
         let mask_tensor = Tensor::from_array(([1usize, seq_len], attention_mask))
             .map_err(|e| format!("text attention_mask tensor: {e}"))?;
@@ -432,7 +411,8 @@ mod tests {
     #[serial]
     fn unmapped_token_falls_back_to_unk_without_erroring() {
         // Un id fuori dal vocabolario potato non deve mai far fallire
-        // l'inferenza — solo degradare sull'embedding di <unk>.
+        // l'inferenza — il remap dentro il grafo ONNX lo fa collassare
+        // sull'embedding di <unk>, non un errore Rust.
         let Some(dir) = first_complete_model_dir() else {
             eprintln!("skipping: complete openclip-xlmr-it-en dir missing");
             return;
