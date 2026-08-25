@@ -55,7 +55,7 @@ jobs:
 
       - name: Installa le dipendenze Python dell'export (solo qui, mai a runtime)
         run: |
-          pip install --quiet torch open_clip_torch transformers onnx onnxruntime wordfreq
+          pip install --quiet torch open_clip_torch transformers onnx onnxruntime onnxconverter-common wordfreq
 
       - name: Esporta, potatura vocabolario IT/EN, quantizza int8
         run: python3 scripts/export-openclip-xlmr-it-en.py --out models/openclip-xlmr-it-en
