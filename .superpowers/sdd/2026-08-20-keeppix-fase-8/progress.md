@@ -882,3 +882,61 @@ Prossimo passo: push su un branch con CI reale (rete completa), lettura
 dell'esito di `detects_and_groups_faces_when_weights_are_present` (mai
 girato, nemmeno adesso) e, se verde, misura ms/rilevamento,
 ms/impronta, RSS a ledger.
+
+### Conferma su CI reale (branch `fase-8-task-a-volti`, commit `6231878`)
+
+Tre round di push, non uno — onesto, non smussato:
+
+1. `3c7bda2` (l'implementazione sopra) → **Lint FAILED**:
+   `clippy::doc_markdown` su `crates/keeppix-domain/src/job.rs:31`,
+   `` `YuNet` `` senza backtick in un commento di documentazione. Corretto
+   con un controllo sistematico (non solo il punto segnalato): audit di
+   ogni file toccato per la stessa classe di identificatori misti-caso
+   nudi nei commenti `///`/`//!` (`YuNet`, `SFace`, `OpenCV`,
+   `BatchNorm`/`PReLU`, `ArcFace`, `InsightFace`), confrontati contro il
+   precedente reale del codice già passante (`ArcFace` era già fra
+   backtick ovunque nel vecchio `face.rs`; `SCRFD` e `MobileCLIP2`
+   restano nudi altrove nel repo e passano — non toccati).
+2. `7cb68b0` (il fix sopra) → **Lint FAILED ancora**, errore diverso:
+   `clippy::identity_op`/`erasing_op` su due test nuovi in `face.rs`
+   (`1 * feat_w`, `0 + pad_y`, `0 + pad_x`, `0 * plane` — aritmetica nulla
+   usata per leggibilità/simmetria). Prima volta che `keeppix-media`
+   compila per davvero in questa fase (CI ha rete verso `cdn.pyke.io`,
+   `ort-sys` costruisce senza problemi — il blocco è solo di questa
+   sandbox di sviluppo). Corretto semplificando l'aritmetica, verificato
+   a mano che l'indice resti lo stesso (`idx = r*feat_w+c` con `r=1` si
+   riduce a `feat_w+c`).
+3. `6231878` (il fix sopra) → **verde**, tutti i job. `Test`
+   (`cargo test --workspace --no-fail-fast`) da 10:18:28 a 10:48:05 UTC.
+
+**Il risultato che conta**: `detects_and_groups_faces_when_weights_are_present`
+(mai eseguito prima, nemmeno con SCRFD/ArcFace) — `... ok`. Non uno skip:
+il guard di quel test (`let Some(_dir) = first_complete_model_dir() else
+{ skip }`) prende il ramo reale solo se i pesi sono sul disco, e lo step
+"Download YuNet+SFace weights" li ha scaricati e verificati (sha256) con
+successo poco prima. Il corpo del test chiama `FaceModels::load` (due
+sessioni ONNX reali), `detect_faces::run` (inferenza YuNet reale sulla
+miniatura della fixture, decodifica, NMS), tutto dietro un `.unwrap()`:
+qualunque incoerenza di shape o nome di output nel decode scritto in
+questa sessione (mai eseguito prima contro pesi reali) avrebbe fatto
+panicare il test con il messaggio d'errore scritto a mano in
+`decode_stride`/`named_output_f32` — non è successo. `assets_scanned ==
+1` e coda vuota alla fine, come atteso (la fixture `tiny.jpg` non
+contiene necessariamente un volto reale, quindi il test non verifica un
+conteggio di volti — solo che la passata converga senza errori). Prima
+conferma reale, mai avuta nemmeno per SCRFD/ArcFace, che il decode
+funziona contro un grafo ONNX vero, non solo contro tensori sintetici.
+
+**Ancora aperto, onestamente** (Task A punto 4 del piano — non assorbito
+in silenzio): nessuna istrumentazione di ms/rilevamento, ms/impronta, RSS
+esiste ancora per YuNet/`SFace` — il log di CI non contiene questi numeri
+perché il codice non li misura (a differenza di
+`measure_face_detection_inference`, usato solo per il caso
+`model_missing`). `ASSIGN_SIMILARITY`/`PROPOSE_SIMILARITY` restano le
+stesse stime ragionate di prima, non calibrate — stesso limite già
+accettato per SCRFD/ArcFace, non peggiorato da questo task ma nemmeno
+risolto. Serve un passo dedicato (istrumentare, misurare su CI reale o
+hardware reale, calibrare, Ruling a ledger) prima che quei due numeri
+possano dirsi affidabili — non bloccante per mergiare la sostituzione dei
+pesi (la licenza è il problema urgente, la calibrazione è ottimizzazione
+successiva), ma non va dimenticato.
