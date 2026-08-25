@@ -9,6 +9,16 @@ import type { TimelineAsset } from '@/api/timeline'
 // di componente di più parole per non confondersi con futuri elementi HTML.
 defineOptions({ name: 'CullingFilmstrip' })
 
+// Corpo della miniatura e checkbox sono due `<button>` **fratelli**, non
+// annidati: il documento funzionale (§15.5) descrive solo la checkbox
+// come raggiungibile da Tab nel mockup, ma quella è una descrizione del
+// prototipo — e l'eccezione dichiarata all'inizio del documento stesso
+// ("l'accessibilità da tastiera del prototipo è rotta e non va
+// replicata") vince sul Ruling generale del piano ("ogni cosa cliccabile
+// è un pulsante vero"). Annidare la checkbox dentro il pulsante di
+// navigazione sarebbe comunque HTML non valido (controlli interattivi
+// annidati); da fratelli, un click sulla checkbox non deve nemmeno
+// fermare la propagazione — non ha un pulsante genitore da cui risalire.
 const props = defineProps<{
   assets: TimelineAsset[]
   currentId?: string
@@ -55,22 +65,27 @@ function onCheckboxClick(event: MouseEvent, id: string) {
     <div
       v-for="(asset, i) in assets"
       :key="asset.id"
-      role="option"
-      class="group/thumb relative h-[58px] w-[58px] shrink-0 cursor-pointer overflow-hidden rounded-md border-2"
-      :class="[
-        asset.id === currentId ? 'border-accent' : 'border-transparent',
-        isSelected(asset.id) ? 'shadow-[0_0_0_2px_var(--color-accent)]' : ''
-      ]"
-      :aria-selected="asset.id === currentId"
-      :aria-label="asset.filename"
-      @click="onThumbClick($event, asset.id)"
+      class="group/thumb relative h-[58px] w-[58px] shrink-0"
     >
-      <img
-        v-if="thumbSrc(asset)"
-        :src="thumbSrc(asset)"
-        :alt="asset.filename"
-        class="h-full w-full object-cover"
+      <button
+        type="button"
+        role="option"
+        class="block h-full w-full overflow-hidden rounded-md border-2"
+        :class="[
+          asset.id === currentId ? 'border-accent' : 'border-transparent',
+          isSelected(asset.id) ? 'shadow-[0_0_0_2px_var(--color-accent)]' : ''
+        ]"
+        :aria-selected="asset.id === currentId"
+        :aria-label="asset.filename"
+        @click="onThumbClick($event, asset.id)"
       >
+        <img
+          v-if="thumbSrc(asset)"
+          :src="thumbSrc(asset)"
+          :alt="asset.filename"
+          class="h-full w-full object-cover"
+        >
+      </button>
       <button
         type="button"
         role="checkbox"
@@ -82,7 +97,7 @@ function onCheckboxClick(event: MouseEvent, id: string) {
             ? 'border-accent bg-accent opacity-100'
             : 'border-white bg-black/40 opacity-0 group-hover/thumb:opacity-100 focus-visible:opacity-100'
         "
-        @click.stop="onCheckboxClick($event, asset.id)"
+        @click="onCheckboxClick($event, asset.id)"
       >
         <svg
           v-if="isSelected(asset.id)"

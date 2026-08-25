@@ -6767,3 +6767,49 @@ salto di tempo, confrontarlo con la cima reale su GitHub.
 riga per riga: **una sola riga cambiata in tutto il file**, nessun altro
 campo toccato). JSON validato con `json.load`. Push e verifica su CI
 reale, non ipotesi.
+
+## Pre-merge (§10): trovato e corretto un vero scarto dal Ruling del piano
+
+**Cominciando la verifica di §10 punto 2** (le 2-3 cose che il piano
+dichiara più importanti di tutto il resto), il piano ne dichiara una
+sola in modo esplicito, in cima al documento, prima ancora delle
+tranche: *"Ruling: ogni cosa cliccabile è un pulsante vero — raggiungibile
+con Tab, attivabile con Invio e Spazio... Costo se sbagliato: è l'unico
+punto in cui si diverge deliberatamente dal prototipo."* Il documento
+funzionale (fonte sotto il piano nell'ordine di precedenza) dichiara
+anche un'eccezione che vale ovunque: *"l'accessibilità da tastiera del
+prototipo è dichiaratamente rotta... e non va replicata."*
+
+**Lo scarto trovato leggendo il codice, non il ledger**: `Filmstrip.vue`
+(Task 17 4/N) aveva il corpo della miniatura come un `<div>` — non un
+pulsante — con `@click` ma senza `tabindex`/attivazione da tastiera.
+Motivazione originale (nel commento del file): il documento funzionale
+§15.5 elenca esplicitamente le miniature fra ciò che **non** è
+focusabile nel mockup. Ma quell'elenco descrive il comportamento **del
+prototipo**, che è esattamente l'eccezione che il documento stesso dice
+di non replicare — non un requisito. Il Ruling generale del piano vince.
+
+**Fix**: corpo della miniatura e checkbox riscritti come due `<button>`
+**fratelli** (non annidati — annidare un controllo interattivo dentro
+un altro sarebbe comunque HTML non valido), entrambi raggiungibili da
+Tab e attivabili con Invio/Spazio per costruzione (semantica nativa del
+`<button>`, nessun `role="button"`/gestore tastiera scritto a mano).
+Aggiunto un test che pinna la regressione (`Filmstrip.spec.ts`: il corpo
+della miniatura è un `<button type="button">`, mai un `tabindex="-1"`).
+
+**Verifica completa dopo il fix**: `npx vue-tsc -b` pulito, `npx eslint`
+sull'intero repo invariato (1 solo errore preesistente, non correlato),
+`npx vitest run` → **102 file, 899/899** verdi (1 test nuovo), `npm run
+build` + calcolo manuale del bundle iniziale gzip → 143.898 byte, sotto
+il budget di 153.600.
+
+**Nota a margine, di nuovo**: il working tree locale si è ritrovato una
+seconda volta disallineato da `origin/fase-11` (`git log` locale a
+`015e3e7`) fra un turno e l'altro di questa stessa sessione — stessa
+causa sospetta (snapshot/restart del container), stesso fix (`git fetch`
++ `git merge --ff-only`). Non più una sorpresa isolata: un pattern di
+questo sandbox. Prima regola aggiunta a questa nota: **prima di leggere
+un file locale per diagnosticare qualcosa, se è passato tempo reale dal
+turno precedente, confrontare `git log` locale con la cima vera su
+GitHub** (`mcp__github__get_commit` o equivalente) — non fidarsi del
+working tree per default.

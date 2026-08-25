@@ -84,4 +84,16 @@ describe('Filmstrip — §15.C filmino e checkbox di selezione', () => {
     const checkbox = wrapper.get('[role="checkbox"]')
     expect(checkbox.attributes('aria-checked')).toBe('true')
   })
+
+  it('Ruling del piano ("ogni cosa cliccabile è un pulsante vero"): il corpo della miniatura è un <button> reale, raggiungibile da Tab — non un <div> solo cliccabile col mouse', () => {
+    const wrapper = mount(Filmstrip, {
+      props: { assets: [asset('a')], currentId: 'a' },
+      global: { plugins: [i18n] }
+    })
+
+    const thumb = wrapper.get('[role="option"]')
+    expect(thumb.element.tagName).toBe('BUTTON')
+    expect(thumb.attributes('type')).toBe('button')
+    expect(thumb.attributes('tabindex')).not.toBe('-1')
+  })
 })
