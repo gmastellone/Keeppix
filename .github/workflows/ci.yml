@@ -147,6 +147,25 @@ jobs:
           path: models/openclip-xlmr-it-en
           key: openclip-xlmr-it-en-${{ hashFiles('scripts/export-openclip-xlmr-it-en.py') }}
 
+      # Foto del banco IT/EN (Fase 7 Task 2bis) — mai state scaricate in CI
+      # finora: scoperto mentre si verificava `openclip_xlmr_it_en_retrieval_bench`
+      # (Task B), che saltava senza output visibile (il test harness cattura
+      # gli `eprintln!` di un test che passa, "0.00s" e nessuna riga
+      # "skipping" in log — non un bug del test, un buco preesistente qui).
+      # Colpisce ALLO STESSO MODO `mobileclip2_s2_it_en_retrieval_bench`
+      # (esistente da Fase 7): i numeri IT/EN citati nel ledger di quel task
+      # sono sempre stati misurati a mano ("questo host", non CI). Le foto
+      # vengono da Wikimedia Commons (`scripts/download-ai-bench.sh`), non
+      # da un mirror gitignored come i pesi modello — stesso pattern di
+      # cache comunque, chiave sul contenuto di script+caption.
+      - name: Cache foto del banco IT/EN
+        uses: actions/cache@v4
+        with:
+          path: models/bench-it-en
+          key: ai-bench-${{ hashFiles('scripts/download-ai-bench.sh', 'crates/keeppix-media/testdata/ai-bench/captions.json') }}
+      - name: Scarica foto del banco IT/EN
+        run: ./scripts/download-ai-bench.sh
+
       # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
       # in locale i test usano testcontainers e senza quel limite parte un
       # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres di
@@ -172,6 +191,17 @@ jobs:
       # scoperti uno alla volta, invece che tutti insieme in un solo run.
       - name: Test
         run: cargo test --workspace --no-fail-fast
+
+      # Il passo sopra passa anche quando questi due bench saltano (pesi o
+      # foto assenti): `eprintln!` di un test che PASSA viene catturato dal
+      # test harness e scartato, mai visibile nel log — sia lo "skipping"
+      # sia, quando girano per davvero, il blocco "MEASUREMENT" con
+      # recall/mrr/ms/RSS reali (scoperto verificando Task B). Rieseguire
+      # qui i due binari con `--nocapture` è quasi gratis (già compilati
+      # dal passo Test sopra) e rende quei numeri leggibili in ogni run,
+      # non solo quando un dev li rilancia a mano in locale.
+      - name: Banco di recupero IT/EN (numeri reali in log, pesi+foto permettendo)
+        run: cargo test -p keeppix-media --test ai_retrieval_bench --test openclip_xlmr_retrieval_bench -- --nocapture
 
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json
