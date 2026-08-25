@@ -939,3 +939,16 @@ contro il default int8 per il "colpo IT sul visual" citato dal piano
 (qui non osservato in modo allarmante — IT già a 0.95, pari a
 MobileCLIP2 — ma il piano chiede comunque il confronto), e solo alla
 fine rimuovere il codice MobileCLIP2 morto.
+
+Ruling: **int8 dinamico confermato, chiusa l'esplorazione
+quantizzazione.** — Preparato un confronto reale fp16 vs int8 sul
+visual (commit `9d3380d` export + `589833b` test Rust, stesso banco,
+stessa run) ma l'utente ha deciso prima che il giro CI finisse:
+"confermo openclip [int]8, vai diretto con quello" — niente ulteriore
+tempo su fp16/QDQ statica. Entrambi i commit revertiti (`7925a34`,
+`615f7a6`): l'export torna a produrre solo `visual.onnx` int8
+dinamico, nessun file/test in più da mantenere. Non un problema
+tecnico col fp16 in sé (il round-trip offline era pulito, diff 4.8e-5)
+— una scelta di scope, IT già a 0.95 pari a MobileCLIP2 non
+giustificava altri round CI. QDQ statica resta non esplorata e non
+pianificata.

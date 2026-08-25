@@ -364,10 +364,14 @@ def main() -> None:
     )
 
     # --- Quantizzazione int8 dinamica (il candidato scelto dal bench del
-    # 22 agosto). QDQ statica / fp16 restano un confronto futuro (il piano
-    # lo segnala esplicitamente: "provare QDQ statica o fp16 e scegliere
-    # col numero") — richiede un giro di calibrazione con dati reali che
-    # non ha senso scrivere alla cieca qui: si misura, poi si decide. ---
+    # 22 agosto). Confermato per davvero il 25 agosto su numeri Rust reali
+    # (bench IT/EN same-harness contro MobileCLIP2-S2, dopo aver corretto
+    # un doppio remap del vocabolario che falsava i primi numeri): qualità
+    # identica a MobileCLIP2-S2 (EN r@1=1.00, IT r@1=0.95, stessa unica
+    # didascalia mancata), ~3x più veloce. Un confronto fp16 del solo
+    # visual è stato provato e scartato dopo — decisione esplicita
+    # dell'utente di restare su int8 senza ulteriori giri, non un problema
+    # tecnico col fp16 in sé. QDQ statica resta non esplorata. ---
     # `quant_pre_process` (shape inference + constant folding) prima della
     # quantizzazione vera: raccomandato dallo strumento stesso (warning a
     # runtime altrimenti — verificato su un giro sintetico in questa
