@@ -65,6 +65,19 @@ jobs:
           ls -lh models/openclip-xlmr-it-en/
           sha256sum models/openclip-xlmr-it-en/*.onnx models/openclip-xlmr-it-en/*.json
 
+      # Rende questi pesi riusabili dal job `backend` di `ci.yml` (test
+      # embed/bench reali su Rust) senza rifare l'intero export lì — sarebbe
+      # minuti di compute e rete verso HuggingFace a ogni push, esattamente
+      # ciò che questo workflow evita di proposito (vedi commento in testa
+      # al file). Stessa chiave del passo "Cache OpenCLIP XLM-R IT/EN
+      # weights" in `ci.yml`: la cache Actions è condivisa per branch a
+      # prescindere dal workflow che l'ha popolata.
+      - name: Cache pesi per riuso da ci.yml
+        uses: actions/cache@v4
+        with:
+          path: models/openclip-xlmr-it-en
+          key: openclip-xlmr-it-en-${{ hashFiles('scripts/export-openclip-xlmr-it-en.py') }}
+
       # Il download dell'artefatto (Azure Blob Storage) non è raggiungibile
       # dal proxy della sandbox di sviluppo — stesso tipo di blocco già
       # visto per huggingface.co, dominio diverso. I due file JSON qui sono

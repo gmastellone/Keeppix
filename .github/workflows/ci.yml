@@ -128,6 +128,25 @@ jobs:
       - name: Download YuNet+SFace weights
         run: ./scripts/download-yunet-sface.sh
 
+      # Pesi OpenCLIP XLM-R IT/EN (Task B del piano modelli IA — sostituisce
+      # MobileCLIP2-S2, research-only). A differenza delle cache sopra, qui
+      # NON c'è uno script di download: questi pesi non vengono da un URL
+      # esterno stabile, li produce solo `export-openclip-xlmr.yml` (export
+      # Python dal checkpoint HuggingFace, minuti di compute, non qualcosa
+      # da rifare a ogni push di questo job). Questo job SOLO ripristina
+      # (nessun passo di download di fallback): con la stessa chiave usata
+      # dal passo di salvataggio cache in quel workflow, un run riuscito lì
+      # rende disponibili i pesi qui. In assenza di cache (mai girato
+      # l'export su questo branch, o voce scaduta dopo 7 giorni), i test
+      # che richiedono `first_complete_model_dir()` degradano già in modo
+      # esplicito (skip via eprintln, non fallimento) — stesso principio
+      # delle altre cache di pesi.
+      - name: Cache OpenCLIP XLM-R IT/EN weights (solo ripristino, prodotti da export-openclip-xlmr.yml)
+        uses: actions/cache@v4
+        with:
+          path: models/openclip-xlmr-it-en
+          key: openclip-xlmr-it-en-${{ hashFiles('scripts/export-openclip-xlmr-it-en.py') }}
+
       # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
       # in locale i test usano testcontainers e senza quel limite parte un
       # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres di
