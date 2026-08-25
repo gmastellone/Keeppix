@@ -676,7 +676,7 @@ Non ancora chiuso qui, verificato in CI dopo il push: CI reale verde
 sul commit pushato (non solo locale) prima di considerare il debito
 davvero pagato.
 
-## 25 agosto: Task A del piano modelli IA — primo export reale
+## 25 agosto: Task B del piano modelli IA — primo export reale
 
 `scripts/export-openclip-xlmr-it-en.py` (branch `fase-8-task-b-clip-it-en`):
 sostituisce MobileCLIP2-S2 (Apple ML Research Model License,
@@ -753,11 +753,11 @@ smussato:
 
 **Ancora aperto** (Task B è lontano dall'essere chiuso — non fraintendere
 questo primo export riuscito per "fatto"):
-- Consumatore Rust (`crates/keeppix-media/src/clip.rs`): caricare
-  `visual.onnx`/`text.onnx`, applicare il remap di `id_remap.json`
-  PRIMA di alimentare `text.onnx` (qualunque id assente dalla mappa va
-  su `unk_new_index`), il tokenizer non potato resta invariato per la
-  segmentazione.
+- ~~Consumatore Rust~~ — fatto (vedi sezione successiva): non in
+  `clip.rs` in place, ma in un nuovo modulo separato
+  `crates/keeppix-media/src/openclip_xlmr.rs`. `clip.rs`/`MobileClip`
+  restano intatti finché il nuovo modello non è provato
+  equivalente-o-meglio.
 - Bench di regressione IT/EN reale in Rust (analogo a
   `ai_retrieval_bench.rs`), non solo il numero Python del 22 agosto —
   il piano lo chiede esplicitamente (punto B: "i numeri che chiudono il
@@ -771,3 +771,38 @@ questo primo export riuscito per "fatto"):
   funzionante fino ad allora (stesso principio già seguito per
   SCRFD/ArcFace nel Task A: il fallback funzionante non si toglie prima
   che il sostituto sia provato).
+
+## 25 agosto: Task B — consumatore Rust, verde al primo colpo
+
+`crates/keeppix-media/src/openclip_xlmr.rs` (commit `e40e247`, run CI
+32857414862): carica `visual.onnx`+`text.onnx`+`tokenizer.json`+
+`id_remap.json`+`export_manifest.json` dalla directory modello, rimappa
+ogni id del tokenizer non potato sulla tabella potata (fallback a
+`unk_new_index` per gli id fuori dal corpus IT/EN — degradazione, non
+errore), nessun padding a lunghezza fissa (`text.onnx` ha asse sequenza
+dinamico, a differenza del `context_length` fisso di MobileCLIP2).
+
+Compilato/lintato/testato correttamente al primo push — nessun round di
+fix necessario, a differenza di ogni altro file toccato finora in
+questo piano modelli IA. La parte a rischio più alto (sintassi
+`ort::inputs!["input_ids" => ..., "attention_mask" => ...]`, input
+multipli per nome, mai usata prima nel codebase — sempre un solo input
+posizionale) era stata verificata PRIMA del push leggendo la sorgente
+reale del crate `ort` pinnato in `Cargo.lock` (`2.0.0-rc.13`, cache
+locale in `~/.cargo/registry/src/.../ort-2.0.0-rc.13/src/session/input.rs`,
+`macro_rules! inputs`), non assunta dalla sola documentazione — questa
+sandbox non compila `ort-sys` (bloccato), quindi era l'unica verifica
+possibile prima di CI reale.
+
+Aggiunta anche una cache Actions condivisa fra `export-openclip-xlmr.yml`
+(salva `models/openclip-xlmr-it-en/` dopo un export riuscito) e `ci.yml`
+(la ripristina, sola lettura, stessa chiave = hash dello script di
+export): senza, i test che richiedono un modello reale
+(`embed_text_and_image_agree_on_a_trivial_match_when_model_present`,
+`unmapped_token_falls_back_to_unk_without_erroring`) degradano sempre
+in skip via `first_complete_model_dir() == None`, mai eseguiti per
+davvero in CI. Primo push con questa chiave (commit `fee003d`, export
+run 32861710678, verde): popola la cache ma non ancora consumabile
+dallo stesso run di `ci.yml` (job paralleli, nessun ordine garantito) —
+un run `ci.yml` successivo deve confermare un vero cache hit prima di
+poter scrivere il bench di regressione IT/EN con numeri reali.
