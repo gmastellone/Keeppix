@@ -43,7 +43,7 @@ pub fn default_night_window() -> (NaiveTime, NaiveTime) {
 pub const DEFAULT_ANALYSIS_IDLE_MS: u64 = 4000;
 
 /// I tre livelli di velocità dell'analisi IA (Fase 7 Task 6). I millisecondi
-/// per foto sono **misurati** su OpenCLIP XLM-R IT/EN via ort (Task B, bench
+/// per foto sono **misurati** su `OpenCLIP` XLM-R IT/EN via ort (Task B, bench
 /// reale CI `bcf9b4a`), non gli obiettivi provvisori della Fase 10. `Off`
 /// spegne l'analisi (pgvector assente, RAM insufficiente, o scelta
 /// dell'operatore).
@@ -57,7 +57,7 @@ pub enum AnalysisLevel {
 impl AnalysisLevel {
     /// Tempo misurato per foto, in millisecondi. `None` se l'analisi è spenta.
     ///
-    /// `Full` ≈ 57 ms (vision OpenCLIP XLM-R IT/EN, Task B). `Reduced` ≈ 6×
+    /// `Full` ≈ 57 ms (vision `OpenCLIP` XLM-R IT/EN, Task B). `Reduced` ≈ 6×
     /// (`Full`), come dichiarato dal documento funzionale UI.
     #[must_use]
     pub const fn ms_per_photo(self) -> Option<u64> {

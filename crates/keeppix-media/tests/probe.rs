@@ -69,7 +69,7 @@ fn probe_extra_includes_measured_ai_host_facts() {
     }
 }
 
-/// Quando i pesi OpenCLIP XLM-R IT/EN sono su disco, il probe deve misurare ms > 0.
+/// Quando i pesi `OpenCLIP` XLM-R IT/EN sono su disco, il probe deve misurare ms > 0.
 #[test]
 fn probe_records_inference_ms_when_visual_model_is_present() {
     let model = keeppix_media::ai::visual_model_candidates()

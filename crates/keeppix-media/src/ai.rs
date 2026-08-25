@@ -14,7 +14,7 @@ pub struct InferenceProbe {
     pub runtime: Option<String>,
 }
 
-/// Percorsi candidati per `visual.onnx` (OpenCLIP XLM-R IT/EN), in ordine.
+/// Percorsi candidati per `visual.onnx` (`OpenCLIP` XLM-R IT/EN), in ordine.
 ///
 /// Override: `KEEPPIX_AI_VISUAL_ONNX` (file) o `KEEPPIX_MODELS_DIR` (directory
 /// che contiene `openclip-xlmr-it-en/visual.onnx`).

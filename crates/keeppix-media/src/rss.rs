@@ -1,7 +1,7 @@
 //! Misura RSS del processo (Linux `/proc/self/status`). Generico — non legato
 //! a un modello AI specifico: usato dai bench e dai job di embedding per
 //! verificare il tetto duro di RAM durante l'inferenza (Task 6, Fase 7).
-//! Spostato qui da `clip.rs` (rimosso con MobileCLIP2) perché resta
+//! Spostato qui da `clip.rs` (rimosso con `MobileCLIP2`) perché resta
 //! necessario anche al solo `openclip_xlmr.rs`.
 
 use std::time::Instant;

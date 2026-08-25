@@ -44,7 +44,7 @@ const PROBE_CPU_SECS: u64 = 3;
 /// ogni backend candidato, in ordine di preferenza per il `SoC` rilevato.
 ///
 /// Aggiunge sempre `extra.ai` (Fase 7): RAM libera, core, e una prova di
-/// inferenza sull'OpenCLIP XLM-R IT/EN locale quando i pesi sono presenti.
+/// inferenza sull'`OpenCLIP` XLM-R IT/EN locale quando i pesi sono presenti.
 #[must_use]
 pub fn probe() -> Capabilities {
     let mut caps = if crate::video::ffprobe_available() {

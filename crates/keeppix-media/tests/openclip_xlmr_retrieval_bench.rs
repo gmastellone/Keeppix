@@ -1,7 +1,7 @@
 //! Task B (piano modelli IA, `docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`):
 //! banco di recupero IT/EN su `OpenCLIP` XLM-R IT/EN — il piano chiede
 //! esplicitamente i numeri Rust sul target, non solo il round-trip Python
-//! del 22 agosto. Sostituisce il bench MobileCLIP2-S2 (`ai_retrieval_bench.rs`,
+//! del 22 agosto. Sostituisce il bench `MobileCLIP2`-S2 (`ai_retrieval_bench.rs`,
 //! rimosso: numeri reali confermati equivalenti-o-migliori, licenza
 //! permissiva contro Apple ML Research Model License research-only).
 //!
@@ -160,7 +160,7 @@ fn fmt_margins(lang: &str, margins: &[(f32, f32)]) -> String {
 }
 
 /// Come `captions_fixture_has_twenty_distinguishable_it_en_pairs` in
-/// `ai_retrieval_bench.rs` (MobileCLIP2, rimosso): la validazione della
+/// `ai_retrieval_bench.rs` (`MobileCLIP2`, rimosso): la validazione della
 /// fixture non dipende dal modello, ma vive qui ora che è l'unico bench.
 #[test]
 fn captions_fixture_has_twenty_distinguishable_it_en_pairs() {

@@ -1,10 +1,10 @@
 //! `OpenCLIP` XLM-R `ViT-B-32` IT/EN (Task B, piano modelli IA
 //! `docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`): embedding
-//! immagine e testo via `ort`, sostituisce MobileCLIP2-S2 (Apple ML
+//! immagine e testo via `ort`, sostituisce `MobileCLIP2`-S2 (Apple ML
 //! Research Model License, research-only — mai idoneo a un'offerta
 //! commerciale).
 //!
-//! MobileCLIP2-S2 (`clip.rs`) è stato rimosso solo dopo la controprova: bench
+//! `MobileCLIP2`-S2 (`clip.rs`) è stato rimosso solo dopo la controprova: bench
 //! di regressione IT/EN reale, stesso harness, numeri equivalenti-o-migliori
 //! e ~3x più veloce — stesso principio già seguito per SCRFD/`ArcFace` nel
 //! Task A (`crates/keeppix-media/src/face.rs`): il fallback non si toglie
@@ -40,7 +40,7 @@
 //! non serve al consumatore Rust, resta solo per diagnostica Python.
 //!
 //! `text.onnx` ha l'asse sequenza dinamico (nessun padding a lunghezza
-//! fissa necessario, a differenza di MobileCLIP2): la tokenizzazione usa
+//! fissa necessario, a differenza di `MobileCLIP2`): la tokenizzazione usa
 //! solo troncamento a `text_max_position_embeddings`.
 
 use std::path::{Path, PathBuf};
@@ -51,7 +51,7 @@ use serde::Deserialize;
 use tokenizers::{Tokenizer, TruncationParams};
 
 /// Identità stabile del checkpoint usato da probe, job e DB. Righe più
-/// vecchie con `model_version = "mobileclip2-s2"` (MobileCLIP2-S2, rimosso)
+/// vecchie con `model_version = "mobileclip2-s2"` (`MobileCLIP2`-S2, rimosso)
 /// restano nel DB finché non vengono ricalcolate: embed dim identica, 512,
 /// nessuna migrazione di schema necessaria.
 pub const MODEL_VERSION: &str = "openclip-xlmr-it-en";

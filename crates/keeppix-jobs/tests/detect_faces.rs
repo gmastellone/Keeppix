@@ -6,7 +6,7 @@
 //!
 //! Senza pesi `YuNet`/`SFace` su disco (questa sandbox non ha rete verso
 //! `cdn.pyke.io` per compilare `ort-sys`, stesso limite di `embed.rs` per
-//! OpenCLIP XLM-R IT/EN), i test che richiedono un'inferenza reale saltano —
+//! `OpenCLIP` XLM-R IT/EN), i test che richiedono un'inferenza reale saltano —
 //! vedi il ledger di fase. Restano verificabili senza pesi: la coda vuota,
 //! l'errore esplicito a coda piena senza modello, e la validazione di
 //! `limit_from_payload`.
