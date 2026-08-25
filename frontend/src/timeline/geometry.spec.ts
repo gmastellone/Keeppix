@@ -58,4 +58,50 @@ describe('TimelineGeometry', () => {
     expect(geometry.height(0)).toBe(65535)
     expect(geometry.month(0)).toBe(65535)
   })
+
+  describe('concat', () => {
+    it('merges page buffers into one geometry with a summed count and records in order', () => {
+      const page1 = encode([
+        { w: 100, h: 200, month: 1 },
+        { w: 101, h: 201, month: 1 }
+      ])
+      const page2 = encode([{ w: 102, h: 202, month: 2 }])
+      const page3 = encode([
+        { w: 103, h: 203, month: 3 },
+        { w: 104, h: 204, month: 3 }
+      ])
+
+      const merged = TimelineGeometry.concat([page1, page2, page3])
+
+      expect(merged.count).toBe(5)
+      for (const [i, expected] of [
+        [100, 200, 1],
+        [101, 201, 1],
+        [102, 202, 2],
+        [103, 203, 3],
+        [104, 204, 3]
+      ].entries()) {
+        expect(merged.width(i)).toBe(expected[0])
+        expect(merged.height(i)).toBe(expected[1])
+        expect(merged.month(i)).toBe(expected[2])
+      }
+    })
+
+    it('returns the single buffer unchanged (as a real TimelineGeometry) when there is only one page', () => {
+      const only = encode([{ w: 1, h: 2, month: 3 }])
+      const merged = TimelineGeometry.concat([only])
+      expect(merged.count).toBe(1)
+      expect(merged.width(0)).toBe(1)
+    })
+
+    it('handles an empty page in the middle without corrupting the records after it', () => {
+      const page1 = encode([{ w: 1, h: 1, month: 1 }])
+      const empty = encode([])
+      const page3 = encode([{ w: 2, h: 2, month: 2 }])
+      const merged = TimelineGeometry.concat([page1, empty, page3])
+      expect(merged.count).toBe(2)
+      expect(merged.width(0)).toBe(1)
+      expect(merged.width(1)).toBe(2)
+    })
+  })
 })

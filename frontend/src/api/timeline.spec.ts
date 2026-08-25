@@ -3,6 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiProblem } from './client'
 import { fetchGeometry } from './timeline'
 
+/** 8 byte di intestazione (versione=1, conteggio) + `count` record da 6
+ * byte a zero — basta a decodificare, il contenuto dei record non conta
+ * per questi test. */
+function geometryBody(count: number): ArrayBuffer {
+  const out = new Uint8Array(8 + count * 6)
+  new DataView(out.buffer).setUint32(0, 1, true)
+  new DataView(out.buffer).setUint32(4, count, true)
+  return out.buffer
+}
+
 afterEach(() => vi.unstubAllGlobals())
 
 describe('fetchGeometry', () => {
@@ -34,7 +44,7 @@ describe('fetchGeometry', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 304 })))
 
     const result = await fetchGeometry(undefined, '"same-etag"')
-    expect(result).toEqual({ buffer: null, etag: '"same-etag"' })
+    expect(result).toEqual({ buffer: null, etag: '"same-etag"', nextCursor: null })
   })
 
   it('throws ApiProblem on a problem+json error response, same as apiFetch', async () => {
@@ -51,5 +61,37 @@ describe('fetchGeometry', () => {
 
     await expect(fetchGeometry()).rejects.toMatchObject({ type: 'keeppix/forbidden', status: 403 })
     await expect(fetchGeometry()).rejects.toBeInstanceOf(ApiProblem)
+  })
+
+  it('sends limit/cursor as query params and never sends If-None-Match on a paged request', async () => {
+    const fetchMock = vi.fn(async () => new Response(geometryBody(0), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchGeometry('1,2,3,4', '"an-etag-that-must-be-ignored"', {
+      limit: 4000,
+      cursor: '2026-01-01T00:00:00.000000Z,abc'
+    })
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(
+      '/api/v1/timeline/geometry?bbox=1%2C2%2C3%2C4&limit=4000&cursor=2026-01-01T00%3A00%3A00.000000Z%2Cabc'
+    )
+    expect(init.headers).not.toHaveProperty('if-none-match')
+  })
+
+  it('reads the next-page cursor from the response header', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(geometryBody(1), {
+            status: 200,
+            headers: { 'x-keeppix-geometry-cursor': '2026-01-01T00:00:00.000000Z,abc' }
+          })
+      )
+    )
+
+    const result = await fetchGeometry(undefined, undefined, { limit: 1 })
+    expect(result.nextCursor).toBe('2026-01-01T00:00:00.000000Z,abc')
   })
 })

@@ -23,7 +23,7 @@ import TimelineView from './TimelineView.vue'
 vi.mock('@/api/timeline', () => ({
   fetchBuckets: vi.fn(async () => []),
   fetchPage: vi.fn(async () => ({ assets: [] })),
-  fetchGeometry: vi.fn(async () => ({ buffer: null, etag: null })),
+  fetchGeometry: vi.fn(async () => ({ buffer: null, etag: null, nextCursor: null })),
   promoteViewport: vi.fn(async () => null),
   // `AssetViewer.vue` (Task 8 3/N) chiama `fetchAsset` per `full_exif` —
   // instrada sullo stesso `apiFetch` già mockato in questo file, così i
@@ -198,7 +198,7 @@ describe('TimelineView buckets + geometry', () => {
   it('follows next_cursor until the month is complete, once its row enters the mounted range', async () => {
     const buckets = [{ month: '2024-07', count: 3 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage)
       .mockResolvedValueOnce({ assets: [photo('a'), photo('b')], next_cursor: 'c1' })
       .mockResolvedValueOnce({ assets: [photo('c')] })
@@ -216,7 +216,7 @@ describe('TimelineView buckets + geometry', () => {
     const buckets = [{ month: '2024-07', count: 5 }]
     const buffer = geometryFor(buckets)
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer, etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer, etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [] })
 
     const { wrapper } = await mountTimeline()
@@ -232,7 +232,7 @@ describe('TimelineView buckets + geometry', () => {
   it('groups by month only — no per-day sub-heading (documento funzionale §8: "nessun raggruppamento per giorno")', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({
       assets: [photo('a'), { ...photo('b'), taken_at_utc: '2024-07-02T12:00:00Z' }]
     })
@@ -243,17 +243,123 @@ describe('TimelineView buckets + geometry', () => {
   })
 })
 
+// Task 4-bis (Fase 10 §5bis, mai portata avanti nel piano di Fase 11 finché
+// non l'ha trovato il ripasso del 25 agosto): il primo caricamento del mount
+// pagina la geometria invece di aspettare la vista intera — 3,4s misurati
+// su rete lenta a 214.000 scatti, oltre il budget di 2s dichiarato.
+describe('TimelineView cold-start geometry pagination (Task 4-bis)', () => {
+  it('requests only the first page on mount, and paints from it without waiting for more', async () => {
+    const buckets = [{ month: '2024-07', count: 1 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+
+    const { wrapper } = await mountTimeline()
+
+    expect(fetchGeometry).toHaveBeenCalledTimes(1)
+    expect(fetchGeometry).toHaveBeenCalledWith(undefined, undefined, { limit: 4000 })
+    expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
+  })
+
+  it('fetches continuation pages by cursor and merges them in once they arrive, without blocking the first paint', async () => {
+    const buckets = [{ month: '2024-07', count: 2 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a'), photo('b')] })
+
+    let resolveSecondPage: (value: { buffer: ArrayBuffer; etag: null; nextCursor: null }) => void = () => {}
+    const secondPage = new Promise<{ buffer: ArrayBuffer; etag: null; nextCursor: null }>((resolve) => {
+      resolveSecondPage = resolve
+    })
+    vi.mocked(fetchGeometry).mockImplementation(async (_bbox, _etag, page) => {
+      if (!page?.cursor) {
+        return {
+          buffer: geometryFor([{ month: '2024-07', count: 1 }]),
+          etag: null,
+          nextCursor: 'cursor-1'
+        }
+      }
+      return secondPage
+    })
+
+    const { wrapper } = await mountTimeline()
+    // Il primo scatto è già disegnato prima che la seconda pagina risponda:
+    // è esattamente il punto di questa paginazione, non solo un dettaglio.
+    expect(fetchGeometry).toHaveBeenCalledTimes(2)
+    expect(fetchGeometry).toHaveBeenNthCalledWith(2, undefined, undefined, {
+      limit: 4000,
+      cursor: 'cursor-1'
+    })
+    expect(wrapper.findAllComponents(PhotoTile).length).toBe(1)
+
+    resolveSecondPage({ buffer: geometryFor([{ month: '2024-07', count: 1 }]), etag: null, nextCursor: null })
+    await flushPromises()
+
+    expect(wrapper.findAllComponents(PhotoTile).length).toBe(2)
+  })
+
+  it('keeps showing the already-painted first page if the background continuation fails', async () => {
+    const buckets = [{ month: '2024-07', count: 1 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+    vi.mocked(fetchGeometry).mockImplementation(async (_bbox, _etag, page) => {
+      if (!page?.cursor) {
+        return { buffer: geometryFor(buckets), etag: null, nextCursor: 'cursor-1' }
+      }
+      throw new Error('network dropped mid-background-fetch')
+    })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const { wrapper } = await mountTimeline()
+
+    expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Unexpected error')
+    expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it('does not re-page on a later refresh (e.g. a live event): that call uses the whole-view ETag path', async () => {
+    let onEvent: ((msg: LiveMessage) => void) | undefined
+    vi.mocked(startLiveEvents).mockImplementation((cb) => {
+      onEvent = cb
+      return { close: vi.fn() }
+    })
+    const buckets = [{ month: '2024-07', count: 1 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: '"v1"', nextCursor: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+
+    await mountTimeline()
+    expect(fetchGeometry).toHaveBeenNthCalledWith(1, undefined, undefined, { limit: 4000 })
+
+    onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['a'], count: 1 } })
+    await flushPromises()
+
+    // Il secondo refresh non pagina più: due argomenti (bbox, etag), non tre
+    // — è la vecchia firma a vista intera, non {limit: ...}. Nessun etag da
+    // mandare ancora: il primo caricamento (paginato) non ne cattura uno —
+    // è esattamente il compromesso deliberato descritto in refreshTimeline.
+    expect(fetchGeometry).toHaveBeenNthCalledWith(2, undefined, undefined)
+
+    // Il terzo refresh, invece, ha l'etag catturato dal secondo — quello sì
+    // può tornare a beneficiare di un 304.
+    onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['a'], count: 1 } })
+    await flushPromises()
+    expect(fetchGeometry).toHaveBeenNthCalledWith(3, undefined, '"v1"')
+  })
+})
+
 describe('TimelineView bbox filter', () => {
   it('passes bbox query param to fetchBuckets, fetchGeometry and fetchPage', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('rome')] })
 
     await mountTimeline('/?bbox=10,40,13,43')
 
     expect(fetchBuckets).toHaveBeenCalledWith('10,40,13,43')
-    expect(fetchGeometry).toHaveBeenCalledWith('10,40,13,43', undefined)
+    // Il primissimo caricamento di un mount è sempre paginato (Task 4-bis):
+    // 4000 è FIRST_GEOMETRY_PAGE_LIMIT in TimelineView.vue.
+    expect(fetchGeometry).toHaveBeenCalledWith('10,40,13,43', undefined, { limit: 4000 })
     expect(fetchPage).toHaveBeenCalledWith('2024-07', undefined, '10,40,13,43')
   })
 })
@@ -262,7 +368,7 @@ describe('TimelineView lightbox in the URL', () => {
   it('clicking a tile pushes ?photo= and opens the viewer', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
 
     const { wrapper, router } = await mountTimeline()
@@ -279,7 +385,7 @@ describe('TimelineView lightbox in the URL', () => {
     // istante, quindi un ricaricamento passa sempre da `maps.loadAsset`
     // — non un difetto, la pagina non ha ancora nulla in memoria.
     vi.mocked(fetchBuckets).mockResolvedValue([])
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null, nextCursor: null })
     vi.mocked(apiFetch).mockImplementation(async (url: string) => (url === '/api/v1/assets/a' ? photo('a') : []))
 
     const { wrapper } = await mountTimeline('/?photo=a')
@@ -291,7 +397,7 @@ describe('TimelineView lightbox in the URL', () => {
   it('closing the viewer removes ?photo= from the URL', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
 
     const { wrapper, router } = await mountTimeline()
@@ -315,7 +421,7 @@ describe('TimelineView live events', () => {
       return { close }
     })
     vi.mocked(fetchBuckets).mockResolvedValue([])
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null, nextCursor: null })
 
     const { wrapper } = await mountTimeline()
     expect(startLiveEvents).toHaveBeenCalledTimes(1)
@@ -324,7 +430,7 @@ describe('TimelineView live events', () => {
 
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('live')] })
     onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['live'], count: 1 } })
     await flushPromises()
@@ -347,7 +453,7 @@ describe('TimelineView virtualization', () => {
     }))
     const totalShots = buckets.reduce((sum, b) => sum + b.count, 0)
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockImplementation(async (month: string) => ({
       assets: Array.from({ length: buckets.find((b) => b.month === month)!.count }, (_, i) => photo(`${month}-${i}`))
     }))
@@ -366,7 +472,7 @@ describe('TimelineView virtualization', () => {
       count: 50
     }))
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockImplementation(async (month: string) => ({
       assets: Array.from({ length: buckets.find((b) => b.month === month)!.count }, (_, i) => photo(`${month}-${i}`))
     }))
@@ -392,7 +498,7 @@ describe('TimelineView scrubber', () => {
       { month: '2024-06', count: 1 }
     ]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [] })
 
     const { wrapper } = await mountTimeline()
@@ -409,7 +515,7 @@ describe('TimelineView scrubber', () => {
 describe('TimelineView error state', () => {
   it('shows a full-view ErrorState, classified from the failure, in place of the grid', async () => {
     vi.mocked(fetchBuckets).mockRejectedValue(new ApiProblem('service-unavailable', 'Service temporarily unavailable', 503))
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null, nextCursor: null })
 
     const { wrapper } = await mountTimeline()
 
@@ -422,14 +528,14 @@ describe('TimelineView error state', () => {
 
   it('"Riprova" calls refreshTimeline again — a subsequent success clears the error and shows the grid', async () => {
     vi.mocked(fetchBuckets).mockRejectedValueOnce(new ApiProblem('service-unavailable', 'unavailable', 503))
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null, nextCursor: null })
 
     const { wrapper } = await mountTimeline()
     expect(wrapper.findComponent(ErrorState).exists()).toBe(true)
 
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [] })
 
     await wrapper.findComponent(ErrorState).vm.$emit('retry')
@@ -441,7 +547,7 @@ describe('TimelineView error state', () => {
 
   it('a non-retryable nature (file-missing) renders no "Riprova" button inside the real view', async () => {
     vi.mocked(fetchBuckets).mockRejectedValue(new ApiProblem('not-found', 'Resource not found', 404))
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null, nextCursor: null })
 
     const { wrapper } = await mountTimeline()
 
@@ -458,7 +564,7 @@ describe('TimelineView favorites (SP-1)', () => {
   it('the heart button on a tile toggles the favorite flag, merging it into the current server flags', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
 
     const { wrapper } = await mountTimeline()
@@ -475,7 +581,7 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
   it('checking a tile enters selection mode: the toolbar row is replaced by the "N selezionate" bar', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
 
     const { wrapper } = await mountTimeline()
@@ -495,7 +601,7 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
   it('clicking a tile body while selection is active toggles selection instead of opening the lightbox', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a'), photo('b')] })
 
     const { wrapper, router } = await mountTimeline()
@@ -513,7 +619,7 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
   it('"Seleziona tutto quello che vedi" (SP-4) selects every currently loaded photo', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a'), photo('b')] })
 
     const { wrapper } = await mountTimeline()
@@ -527,7 +633,7 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
   it('the × in the selection bar clears the selection and restores the normal toolbar', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
 
     const { wrapper } = await mountTimeline()
@@ -545,7 +651,7 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
   it('the selection bar carries the actual selected TimelineAsset objects into LibrarySelectionActions, not just ids', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a'), photo('b')] })
 
     const { wrapper } = await mountTimeline()
@@ -569,7 +675,7 @@ describe('TimelineView quick filter (SP-3)', () => {
   it('activating a filter leaves the month/geometry grid for FlatAssetGrid, narrowed to the matches', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({
       assets: [{ ...photo('a'), raw_kind: 'jpeg' }, { ...photo('b'), raw_kind: 'raw' }]
     })
@@ -588,7 +694,7 @@ describe('TimelineView quick filter (SP-3)', () => {
   it('a filter matching nothing shows the shared "filtered empty" state instead of any grid', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [{ ...photo('a'), raw_kind: 'jpeg' }] })
 
     const { wrapper } = await mountTimeline()
@@ -603,7 +709,7 @@ describe('TimelineView quick filter (SP-3)', () => {
   it('"Seleziona tutto quello che vedi" while a filter is active selects only what the filter lets through (SP-4)', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null })
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({
       assets: [{ ...photo('a'), raw_kind: 'jpeg' }, { ...photo('b'), raw_kind: 'raw' }]
     })

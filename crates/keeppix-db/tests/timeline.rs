@@ -206,7 +206,7 @@ async fn geometry_orders_records_like_the_timeline_and_encodes_nulls_as_none() {
     .unwrap();
 
     let geometry = TimelineRepo::new(test.db())
-        .geometry(&ctx, None)
+        .geometry(&ctx, None, None)
         .await
         .unwrap();
     assert_eq!(geometry.records.len(), 2);
@@ -255,7 +255,7 @@ async fn geometry_matches_bucket_counts() {
     let repo = TimelineRepo::new(test.db());
     let buckets = repo.buckets(&ctx, Some(library)).await.unwrap();
     let bucket_total: i64 = buckets.iter().map(|b| b.count).sum();
-    let geometry = repo.geometry(&ctx, Some(library)).await.unwrap();
+    let geometry = repo.geometry(&ctx, Some(library), None).await.unwrap();
     assert_eq!(
         geometry.records.len(),
         usize::try_from(bucket_total).unwrap()
@@ -268,6 +268,77 @@ async fn geometry_matches_bucket_counts() {
         "stamp count must match geometry so If-None-Match can short-circuit"
     );
     assert_eq!(stamp.last_modified, geometry.last_modified);
+}
+
+/// Task 4-bis (Fase 10 §5bis, la contingenza mai portata avanti in Fase 11):
+/// una vista a schermo freddo chiede solo i primi scatti, non l'intera
+/// geometria, per non far aspettare un client su rete lenta. Verifica sia
+/// che la paginazione funzioni sia che sia **equivalente** alla vista
+/// intera, non solo "non vuota": concatenando le pagine si deve ottenere
+/// esattamente lo stesso `Vec` di `geometry(..., None)`, stesso ordine.
+#[tokio::test]
+async fn geometry_pages_match_the_whole_view_concatenated() {
+    let test = TestDb::start().await;
+    let (admin, library, folder) = seed(&test).await;
+    let assets = AssetRepo::new(test.db());
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    // 7 scatti, tutti in mesi diversi così l'ordine è inequivocabile anche
+    // solo sul timestamp (nessun pareggio da risolvere sull'id).
+    for month in 1_u32..=7 {
+        let asset = assets
+            .upsert_discovered(photo(folder, &format!("p{month}.jpg")))
+            .await
+            .unwrap()
+            .unwrap();
+        assets
+            .set_indexed(
+                asset.id,
+                Utc.with_ymd_and_hms(2024, month, 1, 12, 0, 0).unwrap(),
+                100 + i32::try_from(month).unwrap(),
+                200,
+            )
+            .await
+            .unwrap();
+    }
+
+    let repo = TimelineRepo::new(test.db());
+    let whole = repo.geometry(&ctx, Some(library), None).await.unwrap();
+    assert_eq!(whole.records.len(), 7);
+    assert!(
+        whole.next_cursor.is_none(),
+        "la vista intera non pagina, non porta un cursore"
+    );
+
+    let mut paged = Vec::new();
+    let mut after = None;
+    let mut pages = 0;
+    loop {
+        pages += 1;
+        assert!(pages <= 10, "la paginazione non converge, possibile ciclo");
+        let page = repo
+            .geometry(
+                &ctx,
+                Some(library),
+                Some(keeppix_db::GeometryPage { limit: 3, after }),
+            )
+            .await
+            .unwrap();
+        assert!(
+            page.records.len() <= 3,
+            "una pagina non deve mai superare il limit richiesto"
+        );
+        paged.extend(page.records.iter().copied());
+        match page.next_cursor {
+            Some(cursor) => after = Some(cursor),
+            None => break,
+        }
+    }
+    assert_eq!(pages, 3, "7 record a limit=3 sono tre pagine: 3+3+1");
+    assert_eq!(
+        paged, whole.records,
+        "le pagine concatenate devono combaciare byte per byte con la vista intera, stesso ordine"
+    );
 }
 
 #[tokio::test]
@@ -317,7 +388,7 @@ async fn geometry_omits_unknown_kind_assets_when_filtering_by_bbox() {
         north: 43.0,
     };
     let geometry = TimelineRepo::new(test.db())
-        .geometry_in_bounds(&ctx, None, bounds)
+        .geometry_in_bounds(&ctx, None, bounds, None)
         .await
         .unwrap();
     assert_eq!(
@@ -348,7 +419,7 @@ async fn geometry_omits_unknown_kind_assets_without_a_bbox_filter() {
 
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let geometry = TimelineRepo::new(test.db())
-        .geometry(&ctx, None)
+        .geometry(&ctx, None, None)
         .await
         .unwrap();
     assert_eq!(
@@ -457,7 +528,7 @@ async fn geometry_collapses_a_raw_jpeg_stack_into_one_record() {
 
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let geometry = TimelineRepo::new(test.db())
-        .geometry(&ctx, None)
+        .geometry(&ctx, None, None)
         .await
         .unwrap();
     assert_eq!(
@@ -492,7 +563,11 @@ async fn probing_someone_elses_library_geometry_is_forbidden() {
     let (admin, library, _) = seed(&test).await;
     let user = harness::seed_user(&test, admin, "luca").await;
     let err = TimelineRepo::new(test.db())
-        .geometry(&AuthContext::user(user, SystemRole::User), Some(library))
+        .geometry(
+            &AuthContext::user(user, SystemRole::User),
+            Some(library),
+            None,
+        )
         .await
         .unwrap_err();
     assert!(matches!(err, DbError::Forbidden));

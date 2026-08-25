@@ -49,4 +49,32 @@ export class TimelineGeometry {
   month(index: number): number {
     return this.view.getUint16(HEADER_BYTES + index * RECORD_BYTES + 4, true)
   }
+
+  /**
+   * Unisce i buffer di più pagine (Task 4-bis, caricamento a schermo
+   * freddo) in una `TimelineGeometry` sola — un'unica intestazione con il
+   * conteggio sommato, i record concatenati nell'ordine di arrivo. Le pagine
+   * arrivano già in ordine (`taken_at_utc DESC, id DESC`, lo stesso cursore
+   * lato server), quindi qui basta copiare i byte, senza ricontrollare
+   * l'ordinamento.
+   */
+  static concat(buffers: readonly ArrayBuffer[]): TimelineGeometry {
+    if (buffers.length === 1) return new TimelineGeometry(buffers[0])
+    let totalRecords = 0
+    for (const buffer of buffers) {
+      totalRecords += new DataView(buffer).getUint32(4, true)
+    }
+    const out = new Uint8Array(HEADER_BYTES + totalRecords * RECORD_BYTES)
+    const outView = new DataView(out.buffer)
+    outView.setUint32(0, SUPPORTED_FORMAT_VERSION, true)
+    outView.setUint32(4, totalRecords, true)
+    let offset = HEADER_BYTES
+    for (const buffer of buffers) {
+      const count = new DataView(buffer).getUint32(4, true)
+      const recordBytes = count * RECORD_BYTES
+      out.set(new Uint8Array(buffer, HEADER_BYTES, recordBytes), offset)
+      offset += recordBytes
+    }
+    return new TimelineGeometry(out.buffer)
+  }
 }

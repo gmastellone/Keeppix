@@ -163,6 +163,16 @@ un album aperto lo riapre.
 1. Consumare `GET /timeline/geometry` (Fase 10) in un `ArrayBuffer`, letto con una `DataView`
    incapsulata in una classe di ~30 righe. **Mai** 214.000 oggetti JavaScript: costerebbero
    ~50 MB di heap e metterebbero sotto pressione il GC a ogni scroll.
+
+   **Emendamento 25 agosto — l'impegno di Fase 10 chiuso davvero.** Il ledger di Fase 10 (Task
+   18) misura 3,4s di primo disegno su rete lenta a 214.000 scatti — oltre il proprio budget di
+   2s — e conclude *"pianificare geometria per mese in Fase 11"*: la frase non era mai arrivata
+   qui. Risolto senza dividere per mese esplicito (avrebbe richiesto coordinare `/timeline/
+   geometry` e `/timeline/buckets` su un confine condiviso): paginazione keyset generica sulla
+   stessa richiesta, cursore opaco in un'intestazione (mai nel payload binario — la geometria
+   resta senza identificativi). Il primo caricamento del mount chiede solo le prime ~4000 righe
+   (bastano per molti schermi), disegna, poi completa in background. Dettagli, Ruling e numeri
+   nel ledger di questa fase.
 2. Layout giustificato: accumulare scatti finché la somma dei rapporti d'aspetto per l'altezza
    obiettivo supera la larghezza, poi scalare la riga perché la riempia esattamente.
    **L'ultima riga non si stira.** Deterministico, `O(n)`, nessuna misura del DOM.

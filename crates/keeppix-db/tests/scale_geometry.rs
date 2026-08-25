@@ -124,10 +124,10 @@ async fn geometry_of_two_hundred_thousand_assets_stays_within_budget_and_index_o
     );
 
     // Un giro a freddo scalda pool/piano; la misura che conta è il successivo.
-    let _warmup = repo.geometry(&ctx, Some(library_id)).await.unwrap();
+    let _warmup = repo.geometry(&ctx, Some(library_id), None).await.unwrap();
 
     let t0 = Instant::now();
-    let geometry = repo.geometry(&ctx, Some(library_id)).await.unwrap();
+    let geometry = repo.geometry(&ctx, Some(library_id), None).await.unwrap();
     let elapsed = t0.elapsed();
     eprintln!(
         "MEASUREMENT geometry (whole view) {N}: {elapsed:?} ({} record)",
