@@ -1217,7 +1217,7 @@ async fn timeline_page_includes_confirmed_tags_and_faces_with_vector() {
             embedding: None,
             detect_score: 0.95,
             quality: Some(0.8),
-            model_version: "scrfd-500mf+arcface".to_owned(),
+            model_version: "yunet+sface".to_owned(),
         })
         .await
         .unwrap();

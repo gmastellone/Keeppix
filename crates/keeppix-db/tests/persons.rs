@@ -14,7 +14,7 @@ use keeppix_domain::{
 };
 
 fn unit_axis(axis: usize) -> Vec<f32> {
-    let mut v = vec![0.0_f32; 512];
+    let mut v = vec![0.0_f32; 128];
     v[axis] = 1.0;
     v
 }
@@ -84,7 +84,7 @@ async fn confirmed_face(
             embedding: Some(embedding),
             detect_score: 0.9,
             quality: Some(0.8),
-            model_version: "scrfd-500mf+arcface".to_owned(),
+            model_version: "yunet+sface".to_owned(),
         })
         .await
         .unwrap();

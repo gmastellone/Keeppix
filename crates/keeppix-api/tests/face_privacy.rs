@@ -132,7 +132,7 @@ async fn seed_asset_with_confirmed_face(server: &TestServer) -> (AssetId, String
             embedding: None,
             detect_score: 0.99,
             quality: Some(0.9),
-            model_version: "scrfd-500mf+arcface".to_owned(),
+            model_version: "yunet+sface".to_owned(),
         })
         .await
         .unwrap();

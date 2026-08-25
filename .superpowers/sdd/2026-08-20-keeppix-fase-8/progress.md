@@ -772,3 +772,113 @@ pesi ONNX raggiungibile da questa sessione. `ASSIGN_SIMILARITY`/
 `PROPOSE_SIMILARITY` restano stime ragionate, non calibrate. Serve una
 decisione umana su quale checkpoint usare prima che questi numeri possano
 dirsi affidabili.
+
+## 25 agosto: Task A del piano modelli IA — SCRFD/ArcFace → YuNet/SFace
+
+Decisione presa il 22 agosto
+(`docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`): i pesi SCRFD/
+ArcFace non sono mai stati scaricati (research-only, licenza incompatibile
+con l'offerta commerciale pianificata di Keeppix) — sostituiti prima di
+qualunque rilascio, non dopo. YuNet (MIT) + `SFace` (Apache 2.0), OpenCV
+Zoo: liberi anche per uso commerciale, ~9,5 MB contro 16-264 MB di
+qualunque variante InsightFace.
+
+**A differenza dell'implementazione SCRFD, mai verificata contro pesi
+reali**, questa volta i due file `.onnx` reali sono stati scaricati e
+ispezionati per davvero, dentro questa sandbox — non dedotti dalla
+documentazione:
+
+- `curl` diretto a `media.githubusercontent.com/media/opencv/opencv_zoo/
+  main/models/.../*.onnx` (non `raw.githubusercontent.com`, che per un
+  percorso tracciato Git LFS torna il pointer testuale di ~130 byte, non
+  il binario — scoperto e verificato con un confronto diretto fra i due
+  host prima di scegliere quale usare nello script di download).
+  `sha256sum` di entrambi i file scaricati identico byte-per-byte ai
+  valori del piano (`321aa5a6…` YuNet, `2b0e941e…` `SFace`, dimensioni
+  100.416 e 9.896.933 byte esatte).
+- `onnx.load()` (pacchetto Python `onnx`, installato per l'occasione) sul
+  grafo reale ha dato la risposta empirica a ogni ambiguità che la sola
+  lettura della documentazione aveva lasciato aperta:
+  - **YuNet**: input `[1, 3, 640, 640]` — dimensione **fissa** dichiarata
+    dal grafo (non 256px come la precedente scelta SCRFD, non 320px come
+    il default Python del modello *dinamico* più recente, che aveva
+    inizialmente confuso la ricerca: quel default appartiene alla variante
+    2026may, non alla `2023mar_int8` pinnata dal piano).
+  - **`SFace`**: output `fc1: [1, 128]` — **128 dimensioni, non 512**
+    come `ArcFace`. Confermato anche dal commento ufficiale OpenCV
+    `samples/dnn/js_face_recognition.html` ("Get 128 floating points
+    feature vector"). Il grafo dichiara ~144 input aggiuntivi oltre a
+    `data` (parametri BatchNorm/PReLU): tutti con un initializer nel
+    grafo stesso, quindi non vanno forniti a `Session::run` — comportamento
+    ONNX standard, verificato programmaticamente (`data` è l'unico input
+    del grafo privo di initializer).
+- Formule di decodifica (nomi output `cls_{8,16,32}`/`obj_{8,16,32}`/
+  `bbox_{8,16,32}`/`kps_{8,16,32}`, box in stile YOLO con
+  `score=√(cls·obj)`, un rilevamento per cella — anchor-free, a differenza
+  delle 2 ancore/cella di SCRFD) lette direttamente da
+  `modules/objdetect/src/face_detect.cpp` di OpenCV, non da un riassunto.
+  Soglie `confThreshold=0.6`/`nmsThreshold=0.3` dal wrapper Python
+  ufficiale di OpenCV Zoo (`yunet.py`), non i valori SCRFD ereditati.
+- **Ordine dei 5 landmark**: verificato che `FaceRecognizerSF::alignCrop`
+  (`face_recognize.cpp`) — la funzione ufficiale che fa da ponte fra
+  questi due modelli — legge i punti del rilevatore **in ordine stretto,
+  senza permutazioni**, dentro lo stesso identico array di riferimento
+  112×112 già usato per `ArcFace` (`{38.29,51.70},{73.53,51.50},…` —
+  numericamente identico, verificato leggendo il sorgente C++: cambia il
+  nome della costante — `align::SFACE_REFERENCE_112`, prima
+  `ARCFACE_REFERENCE_112` — non i numeri). Nessun riordino necessario nel
+  codice.
+- **Canali RGB/BGR**: `blobFromImage` per YuNet chiama con `swapRB=false`
+  su una sorgente BGR-nativa (`cv::imread`) — la rete riceve BGR. Il
+  buffer di questo crate è RGB: il letterbox del rilevatore ora scambia
+  R↔B esplicitamente (`letterbox_to_nchw_bgr`, con commento che ne spiega
+  il motivo — il letterbox SCRFD precedente non lo faceva, ragionevole per
+  la famiglia InsightFace ma non per YuNet). Per `SFace`,
+  `swapRB=true` nel sorgente originale converte l'ingresso BGR-nativo di
+  OpenCV in RGB per la rete: il nostro buffer è già RGB, quindi
+  `embed_aligned` non scambia nulla — comportamento equivalente, non un
+  bug per omissione.
+
+**Migrazione di schema** (non nei 5 punti originali del piano — scoperta
+necessaria durante l'implementazione, non assorbita in silenzio):
+`0050_faces_embedding_dim_128.sql` porta `faces.embedding` e
+`persons.centroid` da `vector(512)` a `vector(128)` (nessuna riga reale
+esisteva a 512 dimensioni: i pesi precedenti non sono mai stati eseguiti,
+in nessun ambiente). **Verificata per davvero**, non solo scritta: le
+migrazioni 0001→0050 applicate in ordine numerico contro un Postgres 16 +
+pgvector 0.6.0 reale installato in questa sandbox (`postgresql-16-pgvector`
+via apt, dockerd non disponibile ma non serviva) — tutte le 51 vanno a
+buon fine, `\d faces`/`\d persons` confermano `vector(128)` e l'indice
+`faces_embedding_ivfflat_idx` ricreato correttamente.
+
+Con lo stesso Postgres reale (auth `trust` locale, non solo peer),
+`KEEPPIX_TEST_DATABASE_URL` puntato a quel server: **`cargo test -p
+keeppix-db --test faces` (22/22 ok) e `--test persons` (12/12 ok) passano
+per davvero**, non in teoria — la prima volta in questa sessione che del
+codice toccato da un task sui volti gira contro un database reale con
+schema a 128 dimensioni, non solo contro `cargo fmt`/lettura manuale.
+`cargo check -p keeppix-domain --tests` e `-p keeppix-db --tests` puliti;
+`cargo test -p keeppix-domain` 94/94 ok. `cargo fmt --all --check` pulito
+sull'intero workspace dopo le modifiche.
+
+`scripts/download-yunet-sface.sh` (nuovo, a differenza del template
+MobileCLIP2 verifica lo sha256 — l'errore silenzioso dell'URL sbagliato
+sopra è esattamente il motivo) **eseguito per davvero** contro la sorgente
+reale, due volte: la prima scarica ed estrae, la seconda conferma il path
+di cache (hash già corretto, nessun download ripetuto). Cache + step di
+download aggiunti a `.github/workflows/ci.yml`, stesso pattern di
+MobileCLIP2-S2.
+
+**Non ancora verificabile in questa sandbox** (stesso limite dichiarato
+da sempre: `ort-sys` non compila senza rete verso `cdn.pyke.io`, `CONNECT
+proxy failed: 403`): che l'inferenza YuNet/`SFace` converga per davvero
+dentro `cargo test` (il decode è verificato sul grafo ONNX reale e sul
+sorgente C++ di OpenCV, non contro un'esecuzione reale del grafo stesso —
+la differenza fra "le shape e le formule sono quelle giuste" e "il
+risultato numerico è quello giusto" resta aperta), e la calibrazione di
+`ASSIGN_SIMILARITY`/`PROPOSE_SIMILARITY` (Task A punto 4 del piano) — che
+richiede proprio quell'inferenza reale per avere un numero da calibrare.
+Prossimo passo: push su un branch con CI reale (rete completa), lettura
+dell'esito di `detects_and_groups_faces_when_weights_are_present` (mai
+girato, nemmeno adesso) e, se verde, misura ms/rilevamento,
+ms/impronta, RSS a ledger.

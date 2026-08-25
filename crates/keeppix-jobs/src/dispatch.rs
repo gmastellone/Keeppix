@@ -34,7 +34,7 @@ impl crate::JobHandler for IngestHandler {
         match job.kind {
             JobKind::DeriveAsset => DEFAULT_RAM_HINT,
             // DeriveRaw: demosaic out-of-process. EmbedAssets: MobileCLIP ~400 MB
-            // RSS a lotto (Task 2bis). DetectFaces: SCRFD+ArcFace, stesso
+            // RSS a lotto (Task 2bis). DetectFaces: YuNet+SFace, stesso
             // ordine di grandezza di un secondo stack ort. Stesso tetto di gate.
             JobKind::DeriveRaw | JobKind::EmbedAssets | JobKind::DetectFaces => 512 * 1024 * 1024,
             JobKind::TranscodeVideo => 1024 * 1024 * 1024,

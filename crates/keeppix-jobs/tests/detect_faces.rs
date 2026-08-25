@@ -4,11 +4,12 @@
 //! rilevamento, preview 2048px per l'impronta, esclusione culling,
 //! raggruppamento incrementale.
 //!
-//! Senza pesi SCRFD/ArcFace su disco (questa sandbox non ha rete verso
-//! `HuggingFace`, stesso limite di `embed.rs` per MobileCLIP2-S2), i test che
-//! richiedono un'inferenza reale saltano — vedi il ledger di fase. Restano
-//! verificabili senza pesi: la coda vuota, l'errore esplicito a coda piena
-//! senza modello, e la validazione di `limit_from_payload`.
+//! Senza pesi YuNet/SFace su disco (questa sandbox non ha rete verso
+//! `cdn.pyke.io` per compilare `ort-sys`, stesso limite di `embed.rs` per
+//! MobileCLIP2-S2), i test che richiedono un'inferenza reale saltano — vedi
+//! il ledger di fase. Restano verificabili senza pesi: la coda vuota,
+//! l'errore esplicito a coda piena senza modello, e la validazione di
+//! `limit_from_payload`.
 
 mod harness;
 
@@ -102,7 +103,7 @@ async fn run_is_a_no_op_when_nothing_is_pending() {
 #[tokio::test]
 async fn run_fails_explicitly_when_work_is_pending_but_weights_are_missing() {
     if keeppix_media::face::first_complete_model_dir().is_some() {
-        eprintln!("skipping: real SCRFD/ArcFace weights are present on this machine");
+        eprintln!("skipping: real YuNet/SFace weights are present on this machine");
         return;
     }
 
@@ -157,7 +158,7 @@ fn limit_from_payload_accepts_a_positive_override() {
 #[tokio::test]
 async fn detects_and_groups_faces_when_weights_are_present() {
     let Some(_dir) = keeppix_media::face::first_complete_model_dir() else {
-        eprintln!("skipping: SCRFD/ArcFace weights missing (see fase-8 ledger)");
+        eprintln!("skipping: YuNet/SFace weights missing (see fase-8 ledger)");
         return;
     };
 

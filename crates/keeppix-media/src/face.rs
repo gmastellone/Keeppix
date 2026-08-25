@@ -1,4 +1,10 @@
-//! SCRFD (rilevamento) + `ArcFace` (impronta) via `ort` (Fase 8 Task 2/4).
+//! YuNet (rilevamento) + `SFace` (impronta) via `ort` (Fase 8 Task 2/4,
+//! sostituiti dal Task A del piano modelli IA — vedi
+//! `docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`). SCRFD/ArcFace
+//! (InsightFace) non sono mai stati usati in produzione: pesi
+//! research-only, mai scaricati, mai eseguiti — sostituiti prima di
+//! qualunque rilascio. YuNet è MIT, `SFace` è Apache 2.0: entrambi liberi
+//! anche per uso commerciale.
 //!
 //! Stesso stack di `clip.rs`: pesi ONNX locali sotto `models/`, zero rete a
 //! runtime, sessione viva solo per la finestra di analisi. **Niente crate
@@ -8,14 +14,25 @@
 //! ledger di fase.
 //!
 //! **Limite dichiarato di questa implementazione**: senza rete verso
-//! `HuggingFace` da questa sandbox di sviluppo (stesso limite già noto per
-//! MobileCLIP2-S2, Fase 7), il decode SCRFD qui sotto non è mai stato
-//! eseguito contro pesi ONNX reali — solo contro tensori sintetici nei test.
-//! La convenzione di output (`score_{8,16,32}`, `bbox_{8,16,32}`,
-//! `kps_{8,16,32}`, distanze l/t/r/b scalate per lo stride) è quella
-//! documentata dall'export ufficiale insightface/SCRFD, letta per **nome**
-//! di output (non per posizione) così un ordine diverso fallisce in modo
-//! esplicito invece di produrre riquadri sbagliati in silenzio.
+//! `cdn.pyke.io` (per compilare `ort-sys`) da questa sandbox di sviluppo, il
+//! decode qui sotto non è mai stato eseguito contro pesi ONNX reali dentro
+//! `cargo test` — solo contro tensori sintetici nei test. **A differenza
+//! della precedente implementazione SCRFD**, però, i due file `.onnx` reali
+//! sono stati scaricati e ispezionati direttamente (`onnx.load`, grafo
+//! Python) durante la stesura di questo modulo: gli shape di input/output
+//! sotto (nomi, dimensioni, l'input fisso 640×640 di YuNet, l'output
+//! 128-d `fc1` di `SFace`, l'unico input realmente richiesto `data` — gli
+//! altri ~144 nomi nel grafo `SFace` hanno tutti un initializer, sono
+//! parametri di BatchNorm/PReLU congelati dall'export, non vanno forniti a
+//! `Session::run`) sono **verificati sul file reale**, non dedotti. Le
+//! formule di decodifica (stride, `score = sqrt(cls·obj)`, box in stile
+//! YOLO) vengono invece dalla lettura diretta di
+//! `modules/objdetect/src/face_detect.cpp` di OpenCV — nomi di output letti
+//! per **nome** (non per posizione), così un ordine diverso fallisce in modo
+//! esplicito invece di produrre riquadri sbagliati in silenzio. Resta da
+//! verificare in CI reale: che l'inferenza converga su una foto vera (il
+//! test end-to-end lo fa girare per la prima volta, Task A punto 3) e la
+//! calibrazione delle soglie di similarità (Task A punto 4).
 
 use std::path::{Path, PathBuf};
 
@@ -23,20 +40,30 @@ use keeppix_domain::FaceBBox;
 use ort::session::Session;
 use ort::value::Tensor;
 
-use crate::align::{self, ARCFACE_REFERENCE_112};
+use crate::align::{self, SFACE_REFERENCE_112};
 
 /// Identità stabile del checkpoint usato da probe, job e DB.
-pub const MODEL_VERSION: &str = "scrfd-500mf+arcface";
+pub const MODEL_VERSION: &str = "yunet+sface";
 
 const STRIDES: [u32; 3] = [8, 16, 32];
-const NUM_ANCHORS: usize = 2;
-/// Lato dell'input del rilevatore: multiplo di 32 (i tre stride della FPN
-/// devono dividere esattamente la mappa di feature), ≥ 240px (la miniatura
-/// su cui gira il rilevamento, spec §2.3 emendamento).
-const DETECTOR_INPUT_SIZE: u32 = 256;
-const SCORE_THRESHOLD: f32 = 0.5;
-const NMS_IOU_THRESHOLD: f32 = 0.4;
-const ARCFACE_EMBED_DIM: usize = 512;
+/// Lato dell'input del rilevatore YuNet: **non** una scelta di
+/// implementazione come lo era per SCRFD — è la dimensione fissa dichiarata
+/// dal grafo ONNX del checkpoint `2023mar_int8` pinnato dal piano
+/// (`input: [1, 3, 640, 640]`, verificato caricando il file reale). `ort`
+/// rifiuta un tensore di dimensione diversa: non è un parametro tunabile.
+const DETECTOR_INPUT_SIZE: u32 = 640;
+/// Soglie ufficiali del wrapper Python di OpenCV Zoo per YuNet
+/// (`models/face_detection_yunet/yunet.py`: `confThreshold=0.6`,
+/// `nmsThreshold=0.3`) — non i valori SCRFD del checkpoint precedente.
+const SCORE_THRESHOLD: f32 = 0.6;
+const NMS_IOU_THRESHOLD: f32 = 0.3;
+/// Dimensione dell'impronta `SFace`: 128, **non** 512 come `ArcFace`
+/// (verificato sia sull'output `fc1` del grafo ONNX reale, sia sul
+/// commento ufficiale OpenCV `samples/dnn/js_face_recognition.html`, "Get
+/// 128 floating points feature vector"). La migrazione dello schema che
+/// segue da questo numero è in
+/// `crates/keeppix-db/migrations/0050_faces_embedding_dim_128.sql`.
+const SFACE_EMBED_DIM: usize = 128;
 
 #[must_use]
 pub fn model_dir_candidates() -> Vec<PathBuf> {
@@ -45,13 +72,13 @@ pub fn model_dir_candidates() -> Vec<PathBuf> {
         out.push(PathBuf::from(p));
     }
     if let Ok(dir) = std::env::var("KEEPPIX_MODELS_DIR") {
-        out.push(PathBuf::from(dir).join("scrfd-arcface"));
+        out.push(PathBuf::from(dir).join("yunet-sface"));
     }
-    out.push(PathBuf::from("models/scrfd-arcface"));
+    out.push(PathBuf::from("models/yunet-sface"));
     if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
         let crate_dir = PathBuf::from(manifest);
         if let Some(workspace) = crate_dir.parent().and_then(Path::parent) {
-            out.push(workspace.join("models/scrfd-arcface"));
+            out.push(workspace.join("models/yunet-sface"));
         }
     }
     out
@@ -115,13 +142,20 @@ pub fn first_complete_model_dir() -> Option<PathBuf> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DetectedFace {
     pub bbox: FaceBBox,
-    /// Occhio sinistro, occhio destro, naso, angolo bocca sinistro, angolo
-    /// bocca destro — stesso ordine di [`align::ARCFACE_REFERENCE_112`].
+    /// Occhio destro, occhio sinistro, naso, angolo bocca destro, angolo
+    /// bocca sinistro — ordine nativo di YuNet (`demo.py`,
+    /// `landmark_color`: indici 0..4 etichettati esattamente così), passato
+    /// **senza permutazioni** a [`align::SFACE_REFERENCE_112`]: verificato
+    /// su `objdetect/src/face_recognize.cpp`, `FaceRecognizerSF::alignCrop`
+    /// — la stessa funzione ufficiale che fa da ponte fra questi due
+    /// modelli legge i 5 punti del rilevatore in ordine stretto
+    /// (`src_point[row][col] = face_mat.at<float>(0, row*2+col+4)`, nessun
+    /// riordino) dentro lo stesso identico array di riferimento.
     pub landmarks: [(f32, f32); 5],
     pub score: f32,
 }
 
-/// Sessioni SCRFD + `ArcFace` caricate in memoria. Dropparle libera la RAM
+/// Sessioni YuNet + `SFace` caricate in memoria. Dropparle libera la RAM
 /// (stesso pattern di `MobileClip`, che a sua volta ha lo stesso limite:
 /// onnxruntime non restituisce tutte le pagine al SO subito dopo `Drop`).
 #[derive(Debug)]
@@ -131,7 +165,7 @@ pub struct FaceModels {
 }
 
 impl FaceModels {
-    /// Carica `detect.onnx` (SCRFD) + `embed.onnx` (`ArcFace`) dalla directory
+    /// Carica `detect.onnx` (YuNet) + `embed.onnx` (`SFace`) dalla directory
     /// modello.
     ///
     /// # Errors
@@ -157,9 +191,10 @@ impl FaceModels {
 
     /// Rileva volti in un'immagine RGB8 interleaved (`width`×`height`).
     /// Applica un letterbox (ridimensiona mantenendo l'aspect ratio, riempie
-    /// il resto di nero) verso [`DETECTOR_INPUT_SIZE`], poi decodifica le
-    /// tre teste SCRFD (stride 8/16/32) e applica soppressione dei non
-    /// massimi.
+    /// il resto di nero) verso [`DETECTOR_INPUT_SIZE`] — l'unica dimensione
+    /// che il grafo YuNet accetta — poi decodifica le tre teste (stride
+    /// 8/16/32, un rilevamento per cella, niente ancore multiple a
+    /// differenza di SCRFD) e applica soppressione dei non massimi.
     ///
     /// # Errors
     /// Buffer RGB incoerente con `width`×`height`, o fallimento di ort.
@@ -174,7 +209,7 @@ impl FaceModels {
             return Err("rgb buffer length mismatch".to_owned());
         }
         let (nchw, scale, pad_x, pad_y) =
-            letterbox_to_nchw(rgb, width, height, DETECTOR_INPUT_SIZE);
+            letterbox_to_nchw_bgr(rgb, width, height, DETECTOR_INPUT_SIZE);
         let input = Tensor::from_array((
             [
                 1usize,
@@ -192,11 +227,21 @@ impl FaceModels {
 
         let mut candidates = Vec::new();
         for &stride in &STRIDES {
-            let scores = named_output_f32(&outputs, &format!("score_{stride}"))?;
+            let cls = named_output_f32(&outputs, &format!("cls_{stride}"))?;
+            let obj = named_output_f32(&outputs, &format!("obj_{stride}"))?;
             let bboxes = named_output_f32(&outputs, &format!("bbox_{stride}"))?;
             let kpss = named_output_f32(&outputs, &format!("kps_{stride}"))?;
             let feat = DETECTOR_INPUT_SIZE / stride;
-            decode_stride(feat, feat, stride, &scores, &bboxes, &kpss, &mut candidates)?;
+            decode_stride(
+                feat,
+                feat,
+                stride,
+                &cls,
+                &obj,
+                &bboxes,
+                &kpss,
+                &mut candidates,
+            )?;
         }
 
         let kept = nms(&candidates, NMS_IOU_THRESHOLD);
@@ -233,10 +278,10 @@ impl FaceModels {
     }
 
     /// Allinea (Umeyama/similarità) e incornicia il volto dalla preview a
-    /// 112×112, poi ne calcola l'impronta `ArcFace` a 512 dimensioni, **non**
-    /// L2-normalizzata dal modello (a differenza di `MobileClip`): la
-    /// normalizzazione è responsabilità del chiamante, per poterla applicare
-    /// anche a un centroide medio senza ricalcolare l'impronta.
+    /// 112×112, poi ne calcola l'impronta `SFace` a 128 dimensioni, **non**
+    /// L2-normalizzata dal modello: la normalizzazione è responsabilità del
+    /// chiamante, per poterla applicare anche a un centroide medio senza
+    /// ricalcolare l'impronta.
     ///
     /// `landmarks_rel` sono le 5 coordinate relative (0..1) **rispetto a
     /// `preview_w`×`preview_h`**, non alla miniatura di [`Self::detect`] —
@@ -259,13 +304,12 @@ impl FaceModels {
             .iter()
             .map(|&(x, y)| (x * preview_w as f32, y * preview_h as f32))
             .collect();
-        let transform =
-            align::similarity_transform_from_points(&src_points, &ARCFACE_REFERENCE_112);
+        let transform = align::similarity_transform_from_points(&src_points, &SFACE_REFERENCE_112);
         let aligned = align::warp_aligned_face(preview_rgb, preview_w, preview_h, &transform)?;
         self.embed_aligned(&aligned)
     }
 
-    /// Impronta `ArcFace` da un ritaglio già allineato 112×112 RGB8.
+    /// Impronta `SFace` da un ritaglio già allineato 112×112 RGB8.
     ///
     /// # Errors
     /// Dimensione errata, o fallimento di ort.
@@ -277,17 +321,30 @@ impl FaceModels {
                 aligned_rgb_112.len()
             ));
         }
-        // ArcFace: (pixel - 127.5) / 128.0, NCHW.
+        // `SFace` (dnn::blobFromImage(_aligned_img, 1, Size(112,112),
+        // Scalar(0,0,0), true, false), letto dal sorgente C++ di
+        // face_recognize.cpp): scalefactor 1 e mean 0 → pixel grezzi 0..255,
+        // NESSUNA normalizzazione (a differenza di ArcFace, che divideva per
+        // (pixel-127.5)/128). swapRB=true nel sorgente originale converte il
+        // sorgente BGR-nativo di OpenCV in RGB per la rete — il nostro
+        // buffer è già RGB, quindi va bene così com'è, senza scambiare i
+        // canali (a differenza del rilevatore YuNet sotto, che invece li
+        // scambia — vedi commento su `letterbox_to_nchw_bgr`).
         let mut nchw = vec![0.0_f32; 3 * size * size];
         let plane = size * size;
         for i in 0..plane {
             for c in 0..3 {
-                let v = f32::from(aligned_rgb_112[i * 3 + c]);
-                nchw[c * plane + i] = (v - 127.5) / 128.0;
+                nchw[c * plane + i] = f32::from(aligned_rgb_112[i * 3 + c]);
             }
         }
         let input = Tensor::from_array(([1usize, 3, size, size], nchw))
             .map_err(|e| format!("embedder input tensor: {e}"))?;
+        // Il grafo `SFace` dichiara ~144 input aggiuntivi (parametri
+        // BatchNorm/PReLU congelati dall'export) oltre a `data`: hanno
+        // tutti un initializer nel grafo ONNX (verificato caricando il file
+        // reale), quindi onnxruntime li usa come default senza che vadano
+        // forniti qui — comportamento ONNX standard per input con
+        // initializer, non un'omissione.
         let outputs = self
             .embedder
             .run(ort::inputs![input])
@@ -295,9 +352,9 @@ impl FaceModels {
         let (_shape, data) = outputs[0]
             .try_extract_tensor::<f32>()
             .map_err(|e| format!("embedder output: {e}"))?;
-        if data.len() != ARCFACE_EMBED_DIM {
+        if data.len() != SFACE_EMBED_DIM {
             return Err(format!(
-                "expected {ARCFACE_EMBED_DIM}-d embedding, got {}",
+                "expected {SFACE_EMBED_DIM}-d embedding, got {}",
                 data.len()
             ));
         }
@@ -320,15 +377,29 @@ fn named_output_f32(
 
 /// Letterbox: scala mantenendo l'aspect ratio così il lato più lungo diventi
 /// `target`, poi centra il risultato su un canvas `target`×`target`
-/// riempito di nero. Torna il tensore NCHW normalizzato
-/// `(pixel - 127.5) / 128.0` (convenzione SCRFD standard) e i parametri per
-/// invertire la trasformazione sulle coordinate rilevate.
+/// riempito di nero. Torna il tensore NCHW con pixel **grezzi** 0..255
+/// (`dnn::blobFromImage` di YuNet non normalizza: scalefactor 1, mean 0,
+/// letto da `face_detect.cpp`) e i parametri per invertire la
+/// trasformazione sulle coordinate rilevate.
+///
+/// **Canali scambiati R↔B** (nome della funzione: produce BGR, non RGB): il
+/// sorgente OpenCV chiama `blobFromImage` con `swapRB=false` su
+/// un'immagine BGR-nativa (da `cv::imread`) — cioè la rete riceve BGR senza
+/// alcuno scambio. Il nostro buffer sorgente è RGB (convenzione di questo
+/// crate): per dare alla rete lo stesso ordine di canali con cui è stata
+/// addestrata, scambiamo qui, non lasciamo l'ordine RGB invariato come
+/// faceva il letterbox SCRFD precedente (quello alimentava RGB grezzo —
+/// scelta ragionevole per la famiglia InsightFace, che nelle demo ufficiali
+/// inverte esplicitamente BGR→RGB prima dell'inferenza; per YuNet l'evidenza
+/// del sorgente dice il contrario). Non verificato empiricamente in questa
+/// sandbox (nessuna inferenza reale eseguibile) — da confermare quando CI
+/// esegue per la prima volta il test end-to-end con i pesi veri.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::cast_precision_loss
 )]
-fn letterbox_to_nchw(
+fn letterbox_to_nchw_bgr(
     rgb: &[u8],
     width: u32,
     height: u32,
@@ -341,7 +412,7 @@ fn letterbox_to_nchw(
     let pad_y = (target - scaled_h.min(target)) / 2;
 
     let plane = (target * target) as usize;
-    let mut nchw = vec![-127.5_f32 / 128.0; 3 * plane]; // nero dopo normalizzazione
+    let mut nchw = vec![0.0_f32; 3 * plane]; // nero: pixel grezzo 0
 
     for oy in 0..scaled_h.min(target) {
         for ox in 0..scaled_w.min(target) {
@@ -349,9 +420,11 @@ fn letterbox_to_nchw(
             let sy = ((oy as f32 + 0.5) / scale).clamp(0.0, (height - 1) as f32) as u32;
             let src = ((sy * width + sx) * 3) as usize;
             let dst = ((oy + pad_y) * target + (ox + pad_x)) as usize;
-            for c in 0..3 {
-                let v = (f32::from(rgb[src + c]) - 127.5) / 128.0;
-                nchw[c * plane + dst] = v;
+            // src+0=R, src+1=G, src+2=B (buffer RGB) → canale di rete
+            // c=0 (B), c=1 (G), c=2 (R): scambio R↔B, vedi doc sopra.
+            let bgr = [rgb[src + 2], rgb[src + 1], rgb[src]];
+            for (c, &v) in bgr.iter().enumerate() {
+                nchw[c * plane + dst] = f32::from(v);
             }
         }
     }
@@ -368,90 +441,67 @@ struct Candidate {
     score: f32,
 }
 
-/// Centri delle ancore per una mappa di feature `feat_w`×`feat_h` a questo
-/// `stride`, ripetuti `NUM_ANCHORS` volte per cella — stessa convenzione
-/// SCRFD ufficiale (`anchor_centers`).
-#[allow(clippy::cast_precision_loss)]
-fn anchor_centers(feat_w: u32, feat_h: u32, stride: u32) -> Vec<(f32, f32)> {
-    let mut out = Vec::with_capacity((feat_w * feat_h) as usize * NUM_ANCHORS);
-    for iy in 0..feat_h {
-        for ix in 0..feat_w {
-            let cx = (ix as f32 + 0.5) * stride as f32;
-            let cy = (iy as f32 + 0.5) * stride as f32;
-            for _ in 0..NUM_ANCHORS {
-                out.push((cx, cy));
-            }
-        }
-    }
-    out
-}
-
-/// `distance2bbox`: `bbox_pred` sono le quattro distanze (sinistra, alto,
-/// destra, basso) dal centro dell'ancora, scalate per lo stride — stessa
-/// decodifica FCOS-style usata dall'export ufficiale SCRFD.
-const fn distance2bbox(center: (f32, f32), d: [f32; 4], stride: f32) -> (f32, f32, f32, f32) {
-    (
-        center.0 - d[0] * stride,
-        center.1 - d[1] * stride,
-        center.0 + d[2] * stride,
-        center.1 + d[3] * stride,
-    )
-}
-
-fn distance2kps(center: (f32, f32), d: [f32; 10], stride: f32) -> [(f32, f32); 5] {
-    let mut out = [(0.0_f32, 0.0_f32); 5];
-    for (k, slot) in out.iter_mut().enumerate() {
-        *slot = (
-            center.0 + d[2 * k] * stride,
-            center.1 + d[2 * k + 1] * stride,
-        );
-    }
-    out
-}
-
-#[allow(clippy::cast_precision_loss)]
+/// Decodifica una testa YuNet a uno stride: un rilevamento per cella
+/// (anchor-free, a differenza delle 2 ancore per cella di SCRFD), formule
+/// lette da `face_detect.cpp` di OpenCV:
+/// `cx=(c+bbox[0])·stride`, `cy=(r+bbox[1])·stride`,
+/// `w=exp(bbox[2])·stride`, `h=exp(bbox[3])·stride`,
+/// `score=√(cls·obj)`, `kp_n=((kps[2n]+c)·stride, (kps[2n+1]+r)·stride)`.
+/// `c`/`r` sono gli indici (colonna, riga) della cella nella mappa
+/// `feat_w`×`feat_h`, in ordine riga-per-riga come gli output del grafo.
+#[allow(clippy::cast_precision_loss, clippy::too_many_arguments)]
 fn decode_stride(
     feat_w: u32,
     feat_h: u32,
     stride: u32,
-    scores: &[f32],
+    cls: &[f32],
+    obj: &[f32],
     bboxes: &[f32],
     kpss: &[f32],
     out: &mut Vec<Candidate>,
 ) -> Result<(), String> {
-    let centers = anchor_centers(feat_w, feat_h, stride);
-    let n = centers.len();
-    if scores.len() != n || bboxes.len() != n * 4 || kpss.len() != n * 10 {
+    let n = (feat_w * feat_h) as usize;
+    if cls.len() != n || obj.len() != n || bboxes.len() != n * 4 || kpss.len() != n * 10 {
         return Err(format!(
-            "stride {stride}: shape mismatch — {n} anchors, scores={}, bboxes={}, kps={}",
-            scores.len(),
+            "stride {stride}: shape mismatch — {n} cells, cls={}, obj={}, bboxes={}, kps={}",
+            cls.len(),
+            obj.len(),
             bboxes.len(),
             kpss.len()
         ));
     }
-    for i in 0..n {
-        let score = scores[i];
-        if score < SCORE_THRESHOLD {
-            continue;
+    let stride_f = stride as f32;
+    for r in 0..feat_h {
+        for c in 0..feat_w {
+            let idx = (r * feat_w + c) as usize;
+            let score = (cls[idx].max(0.0) * obj[idx].max(0.0)).sqrt();
+            if score < SCORE_THRESHOLD {
+                continue;
+            }
+            let bd = &bboxes[idx * 4..idx * 4 + 4];
+            let cx = (c as f32 + bd[0]) * stride_f;
+            let cy = (r as f32 + bd[1]) * stride_f;
+            let w = bd[2].exp() * stride_f;
+            let h = bd[3].exp() * stride_f;
+            let x1 = cx - w / 2.0;
+            let y1 = cy - h / 2.0;
+            let kd = &kpss[idx * 10..idx * 10 + 10];
+            let mut kps = [(0.0_f32, 0.0_f32); 5];
+            for (k, slot) in kps.iter_mut().enumerate() {
+                *slot = (
+                    (kd[2 * k] + c as f32) * stride_f,
+                    (kd[2 * k + 1] + r as f32) * stride_f,
+                );
+            }
+            out.push(Candidate {
+                x1,
+                y1,
+                x2: x1 + w,
+                y2: y1 + h,
+                kps,
+                score,
+            });
         }
-        let bd: [f32; 4] = [
-            bboxes[i * 4],
-            bboxes[i * 4 + 1],
-            bboxes[i * 4 + 2],
-            bboxes[i * 4 + 3],
-        ];
-        let (x1, y1, x2, y2) = distance2bbox(centers[i], bd, stride as f32);
-        let mut kd = [0.0_f32; 10];
-        kd.copy_from_slice(&kpss[i * 10..i * 10 + 10]);
-        let kps = distance2kps(centers[i], kd, stride as f32);
-        out.push(Candidate {
-            x1,
-            y1,
-            x2,
-            y2,
-            kps,
-            score,
-        });
     }
     Ok(())
 }
@@ -508,43 +558,70 @@ mod tests {
 
     #[test]
     fn model_version_constant_is_stable() {
-        assert_eq!(MODEL_VERSION, "scrfd-500mf+arcface");
+        assert_eq!(MODEL_VERSION, "yunet+sface");
     }
 
     #[test]
-    fn anchor_centers_cover_the_whole_feature_map_with_two_anchors_each() {
-        let centers = anchor_centers(4, 3, 8);
-        assert_eq!(centers.len(), 4 * 3 * NUM_ANCHORS);
-        // Prima cella: centro a (4,4) per stride 8, ripetuto due volte.
-        assert_eq!(centers[0], (4.0, 4.0));
-        assert_eq!(centers[1], (4.0, 4.0));
-        // Seconda cella (ix=1): centro a (12,4).
-        assert_eq!(centers[2], (12.0, 4.0));
+    fn decode_stride_recovers_a_known_box_and_score() {
+        // Cella (c=2, r=1), stride 8: cx=(2+0)*8=16, cy=(1+0)*8=8,
+        // w=exp(0)*8=8, h=exp(0)*8=8 → box (12,4,20,12). score=√(0.81)=0.9.
+        let feat_w = 4;
+        let feat_h = 4;
+        let n = (feat_w * feat_h) as usize;
+        let mut cls = vec![0.0_f32; n];
+        let mut obj = vec![0.0_f32; n];
+        let mut bboxes = vec![0.0_f32; n * 4];
+        let kpss = vec![0.0_f32; n * 10];
+        let idx = (1 * feat_w + 2) as usize;
+        cls[idx] = 0.9;
+        obj[idx] = 0.9;
+        bboxes[idx * 4] = 0.0;
+        bboxes[idx * 4 + 1] = 0.0;
+        bboxes[idx * 4 + 2] = 0.0;
+        bboxes[idx * 4 + 3] = 0.0;
+        let mut out = Vec::new();
+        decode_stride(feat_w, feat_h, 8, &cls, &obj, &bboxes, &kpss, &mut out).unwrap();
+        assert_eq!(out.len(), 1);
+        let c = out[0];
+        assert!((c.x1 - 12.0).abs() < 1e-3);
+        assert!((c.y1 - 4.0).abs() < 1e-3);
+        assert!((c.x2 - 20.0).abs() < 1e-3);
+        assert!((c.y2 - 12.0).abs() < 1e-3);
+        assert!((c.score - 0.9).abs() < 1e-4);
     }
 
     #[test]
-    fn distance2bbox_recovers_a_known_box() {
-        // Centro (100,100), distanze (10,20,30,40), stride 1 → box
-        // (90,80,130,140).
-        let (x1, y1, x2, y2) = distance2bbox((100.0, 100.0), [10.0, 20.0, 30.0, 40.0], 1.0);
-        assert_eq!((x1, y1, x2, y2), (90.0, 80.0, 130.0, 140.0));
+    fn decode_stride_rejects_a_shape_mismatch() {
+        let mut out = Vec::new();
+        let err = decode_stride(
+            2, 2, 8, &[0.9; 3], &[0.9; 4], &[0.0; 16], &[0.0; 40], &mut out,
+        )
+        .unwrap_err();
+        assert!(err.contains("shape mismatch"));
     }
 
     #[test]
-    fn distance2bbox_scales_by_stride() {
-        let (x1, y1, x2, y2) = distance2bbox((100.0, 100.0), [1.0, 1.0, 1.0, 1.0], 8.0);
-        assert_eq!((x1, y1, x2, y2), (92.0, 92.0, 108.0, 108.0));
+    fn decode_stride_filters_below_threshold() {
+        let n = 2 * 2;
+        let cls = vec![0.1_f32; n]; // sqrt(0.1*0.1)=0.1, sotto soglia 0.6
+        let obj = vec![0.1_f32; n];
+        let bboxes = vec![0.0_f32; n * 4];
+        let kpss = vec![0.0_f32; n * 10];
+        let mut out = Vec::new();
+        decode_stride(2, 2, 8, &cls, &obj, &bboxes, &kpss, &mut out).unwrap();
+        assert!(out.is_empty());
     }
 
     #[test]
-    fn distance2kps_places_five_points_relative_to_center() {
-        let d = [1.0, 0.0, 0.0, 1.0, -1.0, 0.0, 0.0, -1.0, 2.0, 2.0];
-        let kps = distance2kps((50.0, 50.0), d, 2.0);
-        assert_eq!(kps[0], (52.0, 50.0));
-        assert_eq!(kps[1], (50.0, 52.0));
-        assert_eq!(kps[2], (48.0, 50.0));
-        assert_eq!(kps[3], (50.0, 48.0));
-        assert_eq!(kps[4], (54.0, 54.0));
+    fn decode_stride_keeps_detections_above_threshold() {
+        let cls = vec![0.99_f32];
+        let obj = vec![0.99_f32];
+        let bboxes = vec![0.0_f32; 4];
+        let kpss = vec![0.0_f32; 10];
+        let mut out = Vec::new();
+        decode_stride(1, 1, 8, &cls, &obj, &bboxes, &kpss, &mut out).unwrap();
+        assert_eq!(out.len(), 1);
+        assert!((out[0].score - 0.99).abs() < 1e-6);
     }
 
     fn candidate(x1: f32, y1: f32, x2: f32, y2: f32, score: f32) -> Candidate {
@@ -593,56 +670,37 @@ mod tests {
     }
 
     #[test]
-    fn decode_stride_rejects_a_shape_mismatch() {
-        let mut out = Vec::new();
-        let err = decode_stride(2, 2, 8, &[0.9; 3], &[0.0; 16], &[0.0; 40], &mut out).unwrap_err();
-        assert!(err.contains("shape mismatch"));
-    }
-
-    #[test]
-    fn decode_stride_filters_below_threshold() {
-        let n = 2 * 2 * NUM_ANCHORS;
-        let scores = vec![0.1_f32; n]; // tutti sotto soglia
-        let bboxes = vec![0.0_f32; n * 4];
-        let kpss = vec![0.0_f32; n * 10];
-        let mut out = Vec::new();
-        decode_stride(2, 2, 8, &scores, &bboxes, &kpss, &mut out).unwrap();
-        assert!(out.is_empty());
-    }
-
-    #[test]
-    fn decode_stride_keeps_detections_above_threshold() {
-        let n = NUM_ANCHORS;
-        let mut scores = vec![0.1_f32; n];
-        scores[0] = 0.99;
-        let bboxes = vec![0.0_f32; n * 4];
-        let kpss = vec![0.0_f32; n * 10];
-        let mut out = Vec::new();
-        decode_stride(1, 1, 8, &scores, &bboxes, &kpss, &mut out).unwrap();
-        assert_eq!(out.len(), 1);
-        assert!((out[0].score - 0.99).abs() < 1e-6);
-    }
-
-    #[test]
     fn letterbox_centers_a_landscape_image_vertically() {
         let w = 240_u32;
         let h = 120_u32;
         let rgb = vec![255_u8; (w * h * 3) as usize];
-        let (nchw, scale, pad_x, pad_y) = letterbox_to_nchw(&rgb, w, h, 256);
-        assert!((scale - 256.0 / 240.0).abs() < 1e-4);
+        let (nchw, scale, pad_x, pad_y) = letterbox_to_nchw_bgr(&rgb, w, h, 640);
+        assert!((scale - 640.0 / 240.0).abs() < 1e-4);
         assert_eq!(pad_x, 0);
         assert!(pad_y > 0);
-        assert_eq!(nchw.len(), 3 * 256 * 256);
+        assert_eq!(nchw.len(), 3 * 640 * 640);
+    }
+
+    #[test]
+    fn letterbox_swaps_red_and_blue_channels() {
+        // Un pixel rosso puro (255,0,0) in RGB deve arrivare nel piano 0
+        // (che il commento della funzione dichiara essere B) come 0, e nel
+        // piano 2 (R) come 255 — lo scambio R↔B verso BGR.
+        let w = 2_u32;
+        let h = 2_u32;
+        let mut rgb = vec![0_u8; (w * h * 3) as usize];
+        rgb[0] = 255; // R del pixel (0,0)
+        let (nchw, _scale, pad_x, pad_y) = letterbox_to_nchw_bgr(&rgb, w, h, 4);
+        let plane = 4 * 4;
+        let dst = ((0 + pad_y) * 4 + (0 + pad_x)) as usize;
+        assert!((nchw[0 * plane + dst] - 0.0).abs() < 1e-6, "piano B");
+        assert!((nchw[2 * plane + dst] - 255.0).abs() < 1e-6, "piano R");
     }
 
     #[test]
     fn model_dir_candidates_include_the_models_directory() {
         let candidates = model_dir_candidates();
-        assert!(
-            candidates
-                .iter()
-                .any(|p| p.ends_with("models/scrfd-arcface"))
-        );
+        assert!(candidates.iter().any(|p| p.ends_with("models/yunet-sface")));
     }
 
     #[test]
@@ -660,13 +718,13 @@ mod tests {
 
     #[test]
     fn measure_reports_model_missing_without_weights_on_disk() {
-        // In questa sandbox di sviluppo i pesi SCRFD/ArcFace non ci sono
-        // (nessuna rete verso HuggingFace) — stesso limite dichiarato di
-        // MobileCLIP2-S2 in Fase 7. Se un giorno girasse con i pesi veri
-        // presenti, il probe riporterebbe "ok"; qui verifichiamo solo che il
-        // percorso degradato non inventi un numero.
+        // In questa sandbox di sviluppo i pesi YuNet/SFace non ci sono
+        // (nessuna rete verso `cdn.pyke.io` per compilare `ort-sys`) — stesso
+        // limite dichiarato di MobileCLIP2-S2 in Fase 7. Se un giorno girasse
+        // con i pesi veri presenti, il probe riporterebbe "ok"; qui
+        // verifichiamo solo che il percorso degradato non inventi un numero.
         if first_complete_model_dir().is_some() {
-            eprintln!("skipping: real SCRFD/ArcFace weights are present, probe would report ok");
+            eprintln!("skipping: real YuNet/SFace weights are present, probe would report ok");
             return;
         }
         let probe = measure_face_detection_inference();

@@ -37,7 +37,7 @@ struct ConfirmedFaceRow {
 /// Allineato a `keeppix_media::face::MODEL_VERSION`. Duplicato qui perché
 /// `keeppix-db` non può dipendere da `keeppix-media` (`deny.toml`) — stessa
 /// ragione di `EmbeddingRepo::MODEL_VERSION` per Fase 7.
-pub const MODEL_VERSION: &str = "scrfd-500mf+arcface";
+pub const MODEL_VERSION: &str = "yunet+sface";
 
 /// Candidato al rilevamento: ha `content_hash` (quindi può avere miniatura).
 #[derive(Debug, Clone, PartialEq, Eq)]

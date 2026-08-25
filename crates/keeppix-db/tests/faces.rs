@@ -55,7 +55,7 @@ async fn fetch_face_state(test: &TestDb, id: keeppix_domain::FaceId) -> FaceStat
     }
 }
 
-const MODEL: &str = "scrfd-500mf+arcface";
+const MODEL: &str = "yunet+sface";
 
 fn bbox() -> FaceBBox {
     FaceBBox {
@@ -66,10 +66,10 @@ fn bbox() -> FaceBBox {
     }
 }
 
-/// Vettore unitario lungo l'asse `axis` (0..511) — stesso trucco di
+/// Vettore unitario lungo l'asse `axis` (0..127) — stesso trucco di
 /// `asset_tags.rs` per confronti di similarità deterministici.
 fn unit_axis(axis: usize) -> Vec<f32> {
-    let mut v = vec![0.0_f32; 512];
+    let mut v = vec![0.0_f32; 128];
     v[axis] = 1.0;
     v
 }
@@ -326,7 +326,7 @@ async fn seed_hashed_asset(
     asset.id
 }
 
-const FACE_MODEL: &str = "scrfd-500mf+arcface";
+const FACE_MODEL: &str = "yunet+sface";
 
 #[tokio::test]
 async fn list_pending_scan_excludes_the_entire_culling_subtree() {

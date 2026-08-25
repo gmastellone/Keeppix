@@ -1,6 +1,6 @@
 //! Allineamento del volto (Fase 8 §2.1): i cinque punti di riferimento
 //! (occhi, naso, angoli bocca) verso una posa canonica 112×112, prima
-//! dell'impronta `ArcFace`. Un volto storto produce un embedding peggiore, e
+//! dell'impronta `SFace`. Un volto storto produce un embedding peggiore, e
 //! la qualità del raggruppamento dipende quasi tutta da qui.
 //!
 //! Niente SVD generica: una trasformazione di similarità 2D (rotazione +
@@ -10,10 +10,16 @@
 //! `q_i ≈ w·p_i + t`. La soluzione chiusa è la proiezione complessa
 //! standard, non un caso speciale ad hoc.
 
-/// I cinque punti di riferimento `ArcFace` su un ritaglio 112×112 (occhio
-/// sinistro, occhio destro, naso, angolo bocca sinistro, angolo bocca
-/// destro) — costanti standard del checkpoint ArcFace/insightface.
-pub const ARCFACE_REFERENCE_112: [(f32, f32); 5] = [
+/// I cinque punti di riferimento su un ritaglio 112×112, ordine nativo
+/// YuNet (occhio destro, occhio sinistro, naso, angolo bocca destro,
+/// angolo bocca sinistro — vedi il commento su
+/// [`crate::face::DetectedFace::landmarks`]). Numericamente identico alla
+/// costante `ArcFace`/insightface usata dalla precedente implementazione
+/// SCRFD: verificato leggendo `FaceRecognizerSF::alignCrop`
+/// (`objdetect/src/face_recognize.cpp` di OpenCV), che usa lo stesso
+/// identico array per `SFace` — stesso template di riferimento, modello di
+/// impronta diverso. Il nome è cambiato, i numeri no.
+pub const SFACE_REFERENCE_112: [(f32, f32); 5] = [
     (38.2946, 51.6963),
     (73.5318, 51.5014),
     (56.0252, 71.7366),
@@ -206,7 +212,7 @@ mod tests {
 
     #[test]
     fn identical_points_yield_the_identity() {
-        let pts = ARCFACE_REFERENCE_112;
+        let pts = SFACE_REFERENCE_112;
         let t = similarity_transform_from_points(&pts, &pts);
         assert!(approx(t.a, 1.0, 1e-4));
         assert!(approx(t.b, 0.0, 1e-4));

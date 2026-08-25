@@ -115,6 +115,19 @@ jobs:
       - name: Download MobileCLIP2-S2 weights
         run: ./scripts/download-mobileclip2-s2.sh
 
+      # Pesi YuNet+SFace (gitignored, Task A del piano modelli IA — sostituiscono
+      # SCRFD/ArcFace, mai scaricati: pesi research-only, mai eseguiti in nessun
+      # ambiente). Stesso pattern di cache di MobileCLIP2-S2 sopra: senza, i test
+      # `detect_faces` che richiedono un'inferenza reale saltano. ~9,6 MB totali
+      # (contro le decine-centinaia di MB di qualunque variante InsightFace).
+      - name: Cache YuNet+SFace weights
+        uses: actions/cache@v4
+        with:
+          path: models/yunet-sface
+          key: yunet-sface-${{ hashFiles('scripts/download-yunet-sface.sh') }}
+      - name: Download YuNet+SFace weights
+        run: ./scripts/download-yunet-sface.sh
+
       # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
       # in locale i test usano testcontainers e senza quel limite parte un
       # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres di
