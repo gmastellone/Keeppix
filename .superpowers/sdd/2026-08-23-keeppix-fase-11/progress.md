@@ -6813,3 +6813,81 @@ un file locale per diagnosticare qualcosa, se è passato tempo reale dal
 turno precedente, confrontare `git log` locale con la cima vera su
 GitHub** (`mcp__github__get_commit` o equivalente) — non fidarsi del
 working tree per default.
+
+## Pre-merge (§10 punto 5): `scripts/wired-exceptions.txt` — un buco vero e 34 voci scadute
+
+**Metodo**: riusate le funzioni interne di `check-wired.py` per rigirare
+il controllo su ogni voce marcata `fase-11` **senza** la sua eccezione —
+esattamente la stessa logica che gira in CI, non una nuova euristica.
+Delegata a un agente in background l'indagine di dettaglio sui tre buchi
+che quel giro ha trovato, mentre in parallelo verificavo CI e il
+merge-tree a secco.
+
+**Tre buchi apparenti, tre esiti diversi dopo la verifica**:
+
+1. **`count_by_status` (keeppix-db)** — davvero morta. La voce diceva che
+   `scan.progress` (WS) la espone; falso, verificato leggendo
+   `drain_scan_progress` (`routes/ws.rs`): usa `count_in_library`, una
+   funzione diversa, con un commento che lo dichiara di proposito ("non un
+   secondo stato inventato"). Stessa forma di `get_for_user` già in
+   Debiti — un secondo percorso mai collegato, non lo stesso codice con un
+   altro nome. Nessuna schermata mostra un conteggio per-stato (verificato
+   su `ProblemsView.vue` e le altre viste libreria). **Spostata in
+   Debiti**, `non-rivendicata`.
+
+2. **`/operations/{id}/cancel` + `fn set_phase`** — due voci diverse,
+   esiti opposti. `set_phase` ha chiamate interne reali (`rename.rs`,
+   `keeppix-jobs/embed.rs`, `detect_faces.rs`) — la voce era scaduta,
+   **rimossa**. La rotta HTTP invece no: zero riferimenti a
+   "operation.progress"/cancel in tutto `frontend/src`, nessun wrapper
+   API, nessun Task del piano la rivendica esplicitamente — e il "Task 16"
+   citato dalla vecchia voce è Fase **10**, non Fase 11 (il Task 16 della
+   Fase 11 è "Persone", tutt'altra cosa: confuso nella voce originale).
+   Non un rinvio piccolo: manca l'intero pannello "operazioni in corso"
+   (avanzamento + annulla), mai assegnato a nessun Task dei 23 del piano.
+   **Spostata in Debiti**, `non-rivendicata` — non un fix rimandabile a
+   poche righe, un'intera superficie UI non ancora scoping-ata.
+
+3. **`/assets/batch/delete` + `LibrarySelectionActions.vue`** — non solo
+   un buco, un difetto di sicurezza reale. Il componente eliminava la
+   selezione con un **ciclo** su `DELETE /assets/{id}`, una chiamata alla
+   volta. La rotta batch (`routes/trash.rs::batch_delete`) esiste apposta
+   perché per `purged` l'autorizzazione è **all-or-nothing**, verificata
+   sull'intero lotto **prima** di toccare un solo file (commento del
+   codice: *"un solo id non purgabile rifiuta l'intero lotto prima che
+   qualunque file venga toccato"* — Fase 10, *"l'unico dialog dell'app che
+   distrugge dati"*). Il ciclo per-asset perdeva esattamente quella
+   garanzia: selezionando N asset e scegliendo "elimina dal disco",
+   poteva purgare per davvero gli asset 1..k prima di incontrare un 403
+   sul k+1-esimo — un purge parziale e irreversibile silenzioso, non solo
+   un'inefficienza. **Corretto ora, non rimandato** (spec §6, "l'unico
+   dialog... irreversibile" non è il posto per un debito):
+   `frontend/src/api/culling.ts` guadagna `deleteAssetsBatch` (stesso
+   pattern di `emptySkipped`, risposta `BulkOutcome`);
+   `LibrarySelectionActions.vue::confirmDelete` ora chiama la rotta batch
+   una volta sola, propaga `succeeded`/`failed` dalla risposta invece di
+   contarli a mano, e tratta un rifiuto dell'intera chiamata (autorizzazione
+   negata) come fallimento totale, non parziale — nessun file toccato in
+   quel caso. Quattro test in `LibrarySelectionActions.spec.ts`: la
+   chiamata unica invece del ciclo, il toast di successo pieno, il toast
+   di riuscita parziale via `BulkOutcome.failed`, e il caso di rifiuto
+   totale (la promise va in reject, nessun file toccato, stesso messaggio
+   del fallimento totale).
+
+**Pulizia delle 32 voci scadute**: tutte le altre rotte `fase-11` in
+Rinvii (tag/proposte, volti/persone/gruppi, `/bootstrap`,
+`/timeline/geometry`, `/users/me/*`, `/shared-with-me`, rinomina in blocco,
+più `fn extract_poster`) risultano ora davvero consumate dal frontend
+(verificato con la stessa `frontend_mentions()` che usa `check-wired.py`
+in CI) — rimosse dal file invece di lasciarle a mentire sullo stato
+vero. `python3 scripts/check-wired.py` resta pulito dopo la riscrittura
+(non solo "non si è rotto": rigirato apposta il controllo mirato sulle
+34 voci una per una, sopra).
+
+**Verifica completa**: `npx vue-tsc -b` pulito, `npx eslint` sull'intero
+repo invariato (1 solo errore preesistente), `npx vitest run` → **102
+file, 901/901** verdi (2 test nuovi rispetto all'ultima verifica), `npm
+run build` + bundle iniziale gzip → 143.901 byte, sotto il budget di
+153.600. Nessun file Rust toccato da questa sotto-unità (la rotta batch
+esisteva già, solo il frontend ora la chiama) — `cargo fmt`/CI non
+applicabili qui.

@@ -17,11 +17,6 @@
 # =============================================================================
 # Rinvii — consumatore in una fase non ancora eseguita
 # =============================================================================
-# extract_poster (video.rs): estrae il fotogramma di copertina. Il consumatore
-# è la tessera video con badge di durata — non disegnata: il documento
-# funzionale dichiara "l'intero disegno assume fotografie". Arriva con la UI
-# video minima decisa il 20 agosto 2026 (vedi costo-beneficio-funzioni.md).
-fn extract_poster fase-11
 # move_asset (assets.rs, Fase 9 Task 1): la primitiva di spostamento sicuro.
 # check-wired.py la vede erroneamente "wired" — count_ident conta anche le
 # menzioni testuali nei commenti di documentazione (in assets.rs stesso ed
@@ -32,13 +27,6 @@ fn extract_poster fase-11
 # stato — i consumatori arrivano con il Task 4 (Scegliere/Scartare nel
 # culling) e il Task 8 (motore di rinomina) della stessa fase.
 fn move_asset fase-9
-# ensure_culling_child, set_culling_root, list_lots, set_pick, empty_skipped
-# (Fase 9 Task 2-4): tutti e cinque avevano solo consumatori di test fino a
-# Fase 11 Task 17, che ha scritto le rotte HTTP mancanti (routes/culling.rs,
-# più PATCH /libraries/{id}/culling-root) — chiamate reali di produzione ora
-# esistono per tutti e cinque, quindi l'eccezione non descrive più lo stato
-# vero e va tolta. Le rotte stesse restano in Rinvii più sotto finché la UI
-# (schermata Culling) non le consuma a sua volta.
 # render_filename / resolve_place_label (keeppix-domain/src/rename.rs, Task
 # 6): il motore puro delle formule di rinomina. check-wired.py non li segnala
 # — falso positivo, stesso motivo di move_asset (Task 1): count_ident conta
@@ -52,66 +40,6 @@ fn render_filename fase-9
 fn resolve_place_label fase-9
 route /health ops
 route /api/openapi.json ci
-
-# Fase 10 — superficie API per l'interfaccia: i consumatori sono le 70
-# schermate della Fase 11 (tranche A/B subito dopo la 10).
-route /bootstrap fase-11
-route /timeline/geometry fase-11
-route /operations/{id}/cancel fase-11
-route /users/me/preferences fase-11
-route /users/me/sessions fase-11
-route /users/me/sessions/revoke-others fase-11
-route /users/me/sessions/{id} fase-11
-route /assets/batch/delete fase-11
-route /shared-with-me fase-11
-# Rinomina con formula in blocco (Fase 9 Task 10): API pronta, montata su
-# RenameRepo::preview/apply/undo (rename.rs) — nessun falso positivo qui,
-# check-wired.py la segnala correttamente. Consumatore: la schermata di
-# rinomina di massa della Fase 11, stessa forma delle altre rotte batch qui
-# sopra.
-route /assets/batch/rename/preview fase-11
-route /assets/batch/rename fase-11
-route /assets/batch/rename/{batch_id}/undo fase-11
-# set_phase: avanzamento operazioni lunghe (Task 16); il frontend legge lo
-# stato via WS operation.progress e cancel, non chiama set_phase direttamente.
-fn set_phase fase-11
-
-# Fase 7 Task 7 — CRUD tag/categorie: API pronta; la pagina "Tag e categorie"
-# (e la coda di revisione) è UI Fase 11. Matching/coda = Task 8–9 stesso
-# branch, ma i consumatori HTTP restano i componenti Vue della 11.
-route /tags fase-11
-route /tags/{id} fase-11
-# Fase 7 Task 9 — coda di revisione delle proposte IA: stessa UI Fase 11
-# di /tags e /tags/{id} qui sopra.
-route /tags/proposals fase-11
-route /tags/{id}/proposals/confirm fase-11
-route /tags/{id}/proposals/reject fase-11
-route /tags/{id}/assets/{asset_id}/confirm fase-11
-route /tags/{id}/assets/{asset_id}/reject fase-11
-
-# Fase 8 — volti/persone: API pronta (assegnazione, coda di revisione,
-# gruppi, merge/separazione); i consumatori sono le schermate "Persone" e
-# la coda di revisione volti della Fase 11, stessa forma delle proposte tag
-# sopra.
-route /faces/proposals fase-11
-route /faces/{id}/assign fase-11
-route /faces/{id}/reject fase-11
-route /faces/{id}/confirm fase-11
-route /persons fase-11
-route /persons/{id} fase-11
-route /persons/{id}/merge fase-11
-route /persons/{id}/separate fase-11
-route /persons/{id}/proposals/confirm fase-11
-route /persons/{id}/proposals/reject fase-11
-route /person-groups fase-11
-route /person-groups/{id} fase-11
-route /person-groups/{id}/members fase-11
-route /person-groups/{id}/members/{person_id} fase-11
-# Task 10: "Elimina tutti i dati dei volti" — l'interruttore per libreria
-# (faces_enabled, già su /libraries/{id}) resta distinto da questa purga
-# globale e irreversibile; il pulsante che la invoca è nella stessa UI
-# Fase 11 delle voci sopra.
-route /faces/data fase-11
 
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore
@@ -129,11 +57,37 @@ fn ping non-rivendicata
 # _taken/_skipped di un lotto di culling (folders.culling_role).
 fn ensure_child fase-9
 
-# origine fase-1b. count_by_status / set_status: contano/impostano lo stato di
-# scansione di una libreria. L'evento `scan.progress` (Fase 10) li espone in
-# WS; il consumatore UI è la Fase 11.
-fn count_by_status fase-11
-fn set_status fase-11
+# origine fase-1b. count_by_status (keeppix-db/src/assets.rs): conta gli
+# asset per stato di scansione, scoped alla visibilità del chiamante. La
+# vecchia voce qui diceva che l'evento `scan.progress` (Fase 10) la
+# espone in WS — falso, verificato leggendo `drain_scan_progress`
+# (crates/keeppix-api/src/routes/ws.rs): quell'evento usa
+# `AssetRepo::count_in_library`, una funzione diversa, con un commento
+# che lo dichiara di proposito ("stessa fonte già usata da GET
+# /libraries/{id}/scan... non un secondo stato inventato"). `count_by_status`
+# è un secondo percorso rimasto scollegato fin dall'origine, non lo stesso
+# codice con un nome diverso — stessa forma di `get_for_user` più sotto.
+# Nessuna schermata di Fase 11 mostra un conteggio per-stato ("N indexed,
+# M pending, K failed"): verificato su `ProblemsView.vue` e sulle altre
+# viste che elencano librerie. Non riassegnata a una fase specifica di
+# proposito — va decisa (wired per davvero, o rimossa se ridondante) la
+# prossima volta che si tocca lo stato di scansione, non lasciata scorrere
+# in silenzio.
+fn count_by_status non-rivendicata
+
+# origine fase-10 Task 16 (non Fase 11: il Task 16 della Fase 11 è
+# "Persone", tutt'altra cosa). `POST /operations/{id}/cancel` e l'intero
+# canale WS `operation.progress` (avanzamento dei job lunghi — rinomina in
+# blocco, embedding, rilevamento volti) sono pronti dal backend dalla Fase
+# 10, ma nessun Task della Fase 11 ha mai davvero costruito il pannello
+# "operazioni in corso" che li consumerebbe: verificato — zero riferimenti
+# a "operation.progress"/"cancelOperation" in tutto `frontend/src`, nessun
+# wrapper API per questa rotta, nessun Task del piano (docs/superpowers/
+# plans/2026-08-20-keeppix-fase-11.md) la rivendica esplicitamente. Non un
+# rinvio piccolo: manca un'intera superficie UI (avanzamento + annulla),
+# non una chiamata isolata. Non riassegnata a una fase specifica di
+# proposito — va decisa la prossima volta che si tocca quest'area.
+route /operations/{id}/cancel non-rivendicata
 
 # origine fase-4 (mappe/geotag). get_for_user: legge la posizione "casa" di un
 # utente (si scrive con /users/me/home ma non si rilegge da nessuna route).

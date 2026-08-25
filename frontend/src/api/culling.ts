@@ -44,6 +44,20 @@ export function deleteAsset(assetId: string, diskAction: DiskAction): Promise<nu
   })
 }
 
+/** Cancellazione a tre opzioni sull'intero lotto (`routes::trash::batch_delete`).
+ * Per `purged` l'autorizzazione è **all-or-nothing**, verificata dal
+ * server prima di toccare qualunque file — un solo asset non purgabile
+ * rifiuta l'intero lotto (il `Promise` va in reject, `BulkOutcome` non
+ * torna affatto). Va chiamata una volta sola sull'intera selezione, mai
+ * in un ciclo per-asset su `deleteAsset`: un ciclo perderebbe esattamente
+ * quella garanzia atomica sull'unica azione distruttiva dell'app. */
+export function deleteAssetsBatch(assetIds: string[], diskAction: DiskAction): Promise<BulkOutcome> {
+  return apiFetch('/api/v1/assets/batch/delete', {
+    method: 'POST',
+    body: JSON.stringify({ asset_ids: assetIds, disk_action: diskAction })
+  })
+}
+
 /** §14 griglia dei lotti, §64 "<N> lotti attivi": un lotto è una cartella
  * di primo livello sotto la radice di culling della libreria
  * (`CullingRepo::list_lots`, Fase 9 Task 3, esposta via HTTP in Fase 11

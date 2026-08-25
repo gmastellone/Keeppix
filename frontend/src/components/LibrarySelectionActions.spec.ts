@@ -11,12 +11,12 @@ import { useToastStore } from '@/stores/toast'
 
 const fetchFlagsMock = vi.fn()
 const setFlagsMock = vi.fn()
-const deleteAssetMock = vi.fn()
+const deleteAssetsBatchMock = vi.fn()
 
 vi.mock('@/api/culling', () => ({
   fetchFlags: (...args: unknown[]) => fetchFlagsMock(...args),
   setFlags: (...args: unknown[]) => setFlagsMock(...args),
-  deleteAsset: (...args: unknown[]) => deleteAssetMock(...args),
+  deleteAssetsBatch: (...args: unknown[]) => deleteAssetsBatchMock(...args),
   unvotedFlags: { rating: null, pick: 'none', color_label: null, favorite: false }
 }))
 
@@ -101,7 +101,7 @@ beforeEach(() => {
   i18n.global.locale.value = 'it'
   fetchFlagsMock.mockResolvedValue({ rating: null, pick: 'none', color_label: null, favorite: false })
   setFlagsMock.mockResolvedValue(null)
-  deleteAssetMock.mockResolvedValue(null)
+  deleteAssetsBatchMock.mockResolvedValue({ succeeded: [], failed: [], batch_id: null })
   fetchAlbumsMock.mockResolvedValue([])
   fetchAlbumMock.mockResolvedValue({ id: 'x', name: '', assets: [] })
   createAlbumMock.mockResolvedValue({ id: 'album-1', name: 'x', cover_hash: null, created_at: '' })
@@ -202,7 +202,8 @@ describe('LibrarySelectionActions — Modifica (§12.3)', () => {
 })
 
 describe('LibrarySelectionActions — Elimina (§12.3, three-way dialog + selection cleared)', () => {
-  it('deletes every selected asset with the chosen disk action and clears the selection', async () => {
+  it('deletes the whole selection with one batch call, not a per-asset loop, and clears the selection', async () => {
+    deleteAssetsBatchMock.mockResolvedValue({ succeeded: ['a', 'b'], failed: [], batch_id: null })
     const w = await mountActions([photo('a'), photo('b')])
     const selection = useSelectionStore()
     selection.library.toggle('a')
@@ -217,12 +218,13 @@ describe('LibrarySelectionActions — Elimina (§12.3, three-way dialog + select
     diskOption?.click()
     await tick()
 
-    expect(deleteAssetMock).toHaveBeenCalledWith('a', 'purged')
-    expect(deleteAssetMock).toHaveBeenCalledWith('b', 'purged')
+    expect(deleteAssetsBatchMock).toHaveBeenCalledTimes(1)
+    expect(deleteAssetsBatchMock).toHaveBeenCalledWith(['a', 'b'], 'purged')
     expect(selection.library.selectedIds.size).toBe(0)
   })
 
   it('shows the exact documented toast on full success — §12.3 "N foto eliminate."', async () => {
+    deleteAssetsBatchMock.mockResolvedValue({ succeeded: ['a'], failed: [], batch_id: null })
     const w = await mountActions([photo('a')])
     const toast = useToastStore()
 
@@ -234,7 +236,52 @@ describe('LibrarySelectionActions — Elimina (§12.3, three-way dialog + select
     indexOption?.click()
     await tick()
 
-    expect(deleteAssetMock).toHaveBeenCalledWith('a', 'kept')
+    expect(deleteAssetsBatchMock).toHaveBeenCalledWith(['a'], 'kept')
     expect(toast.toasts.at(-1)?.message).toBe('1 foto eliminata.')
+  })
+
+  it('shows a partial-failure toast when the batch outcome reports some failures', async () => {
+    deleteAssetsBatchMock.mockResolvedValue({
+      succeeded: ['a'],
+      failed: [{ id: 'b', reason: 'forbidden' }],
+      batch_id: null
+    })
+    const w = await mountActions([photo('a'), photo('b')])
+    const toast = useToastStore()
+
+    await w.get('[aria-label="Elimina selezione"]').trigger('click')
+    await tick()
+    const trashOption = Array.from(document.body.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Sposta nel cestino')
+    )
+    trashOption?.click()
+    await tick()
+
+    expect(toast.toasts.at(-1)?.message).toBe('1 su 2 completate — 1 non è riuscita.')
+  })
+
+  it('§10 pre-merge: a rejected all-or-nothing purge (server 403 on the whole batch) touches no file and shows the error toast, not a partial one', async () => {
+    // `purged` è l'unica opzione con l'autorizzazione all-or-nothing sul
+    // server (`routes::trash::batch_delete`): un asset non purgabile
+    // rifiuta l'intero lotto PRIMA che qualunque file venga toccato — la
+    // promise va in reject, nessun `BulkOutcome` torna affatto.
+    deleteAssetsBatchMock.mockRejectedValue(new Error('403 forbidden'))
+    const w = await mountActions([photo('a'), photo('b')])
+    const selection = useSelectionStore()
+    selection.library.toggle('a')
+    selection.library.toggle('b')
+    const toast = useToastStore()
+
+    await w.get('[aria-label="Elimina selezione"]').trigger('click')
+    await tick()
+    const diskOption = Array.from(document.body.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Elimina dal disco adesso')
+    )
+    diskOption?.click()
+    await tick()
+
+    expect(deleteAssetsBatchMock).toHaveBeenCalledTimes(1)
+    expect(toast.toasts.at(-1)?.message).toBe("Non è stato possibile completare l'eliminazione. Riprova.")
+    expect(selection.library.selectedIds.size).toBe(0)
   })
 })

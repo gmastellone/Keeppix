@@ -15,7 +15,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
-import { deleteAsset, type DiskAction } from '@/api/culling'
+import { deleteAssetsBatch, type DiskAction } from '@/api/culling'
 import type { TimelineAsset } from '@/api/timeline'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useSelectionStore } from '@/stores/selection'
@@ -66,28 +66,36 @@ const DISK_ACTION: Record<DeleteChoice, DiskAction> = {
  * contabilità del prototipo (uno stato client-side che sopravvive nella
  * demo dopo la rimozione dalla lista visibile) — qui l'asset smette di
  * esistere nell'indice (o va in cestino/su disco), quindi non c'è alcun
- * voto da preservare: stesso comportamento già in uso da
- * `CullingStore.removeMany`, che chiama `deleteAsset` da solo, senza un
- * voto separato prima.
+ * voto da preservare.
+ *
+ * Una sola chiamata a `deleteAssetsBatch`, non un ciclo su `deleteAsset`
+ * (pre-merge Fase 11, trovato riaudendo §10 del piano): per `purged` il
+ * server verifica l'autorizzazione **su tutto il lotto prima di toccare
+ * un solo file** (`routes::trash::batch_delete`) — un ciclo per-asset
+ * perderebbe quella garanzia, potendo eliminare per davvero alcuni file
+ * prima di incontrare il 403 su uno non autorizzato. `purged` è l'unica
+ * azione distruttiva e irreversibile dell'app: non è il posto per
+ * un'ottimizzazione rimandabile.
  */
 async function confirmDelete(choice: DeleteChoice) {
   const diskAction = DISK_ACTION[choice]
   const ids = props.assets.map((asset) => asset.id)
-  let failed = 0
-  for (const id of ids) {
-    try {
-      await deleteAsset(id, diskAction)
-    } catch {
-      failed++
+  try {
+    const outcome = await deleteAssetsBatch(ids, diskAction)
+    selection.library.clear()
+    const okCount = outcome.succeeded.length
+    const failedCount = outcome.failed.length
+    if (failedCount === 0) {
+      toast.show(t('librarySelectionActions.deleted', { n: okCount }, { plural: okCount }))
+    } else if (okCount > 0) {
+      toast.showPartial(okCount, failedCount)
+    } else {
+      toast.showError(t('librarySelectionActions.deleteError'))
     }
-  }
-  selection.library.clear()
-  const okCount = ids.length - failed
-  if (failed === 0) {
-    toast.show(t('librarySelectionActions.deleted', { n: okCount }, { plural: okCount }))
-  } else if (okCount > 0) {
-    toast.showPartial(okCount, failed)
-  } else {
+  } catch {
+    // `purged` respinto sull'intero lotto (autorizzazione all-or-nothing):
+    // nessun file è stato toccato, stesso messaggio del fallimento totale.
+    selection.library.clear()
     toast.showError(t('librarySelectionActions.deleteError'))
   }
 }
