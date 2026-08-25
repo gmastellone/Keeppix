@@ -23,8 +23,8 @@ use keeppix_db::{
 };
 use keeppix_domain::{AssetId, JobKind, JobPriority, OperationId, OperationKind};
 use keeppix_media::{
-    MODEL_VERSION, MobileClip, current_rss_bytes, decode_to_rgb8, derivative_paths,
-    first_complete_model_dir, measure_rss_peak_during,
+    current_rss_bytes, decode_to_rgb8, derivative_paths, measure_rss_peak_during,
+    openclip_xlmr::{self, MODEL_VERSION, OpenClipXlmr},
 };
 use serde_json::json;
 
@@ -71,7 +71,7 @@ pub async fn enqueue_after_ingest(db: &Db) -> Result<(), JobError> {
 /// # Errors
 /// Database.
 pub async fn schedule_backfill(db: &Db) -> Result<(), JobError> {
-    if first_complete_model_dir().is_none() {
+    if openclip_xlmr::first_complete_model_dir().is_none() {
         return Ok(());
     }
     JobRepo::new(db)
@@ -109,9 +109,9 @@ pub async fn run(
         });
     }
 
-    let model_dir = first_complete_model_dir().ok_or_else(|| {
+    let model_dir = openclip_xlmr::first_complete_model_dir().ok_or_else(|| {
         JobError::Worker(format!(
-            "MobileCLIP model missing (expected {MODEL_VERSION} under models/)"
+            "OpenCLIP model missing (expected {MODEL_VERSION} under models/)"
         ))
     })?;
 
@@ -123,7 +123,7 @@ pub async fn run(
     // per la vita del processo (docs.rs/ort; onnxruntime#11627) — non cresce
     // fra i lotti, sotto il tetto 1 GiB; accettato.
     let rss_before = current_rss_bytes();
-    let (load_result, rss_after_load) = measure_rss_peak_during(|| MobileClip::load(&model_dir));
+    let (load_result, rss_after_load) = measure_rss_peak_during(|| OpenClipXlmr::load(&model_dir));
     let mut clip = load_result.map_err(JobError::Worker)?;
 
     let mut total = EmbedOutcome {
@@ -234,7 +234,7 @@ async fn maybe_requeue_backfill(db: &Db) -> Result<(), JobError> {
 async fn embed_pending(
     db: &Db,
     data_dir: &Path,
-    clip: &mut MobileClip,
+    clip: &mut OpenClipXlmr,
     pending: &[PendingEmbedding],
     rss_after_load: Option<u64>,
 ) -> Result<(EmbedOutcome, Option<u64>, Vec<AssetId>), JobError> {
@@ -269,14 +269,19 @@ async fn embed_pending(
         ));
     }
 
-    let batch = prepared.len();
-    let mut stacked = Vec::with_capacity(batch * prepared[0].1.len());
-    for (_, nchw) in &prepared {
-        stacked.extend_from_slice(nchw);
-    }
-
-    let (infer_result, rss_peak_infer) =
-        measure_rss_peak_during(|| clip.embed_images_nchw_batch(&stacked, batch));
+    // `OpenClipXlmr` non ha (ancora) un metodo batch a livello ONNX come
+    // aveva `MobileClip::embed_images_nchw_batch` — un `session.run()` per
+    // immagine, non uno solo per l'intero lotto. Corretto (ogni immagine è
+    // indipendente, nessuna cross-talk fra esempi in un ViT/BatchNorm-free),
+    // solo più chiamate ort — il visual tower è comunque ~3x più veloce per
+    // immagine di MobileCLIP2 (confermato su bench reale, Fase 7 ledger), il
+    // costo netto del lotto resta minore anche senza batching a livello ONNX.
+    let (infer_result, rss_peak_infer) = measure_rss_peak_during(|| {
+        prepared
+            .iter()
+            .map(|(_, nchw)| clip.embed_image_nchw(nchw))
+            .collect::<Result<Vec<Vec<f32>>, String>>()
+    });
     let embeddings = infer_result.map_err(JobError::Worker)?;
 
     if let Some(peak) = rss_peak_infer
@@ -322,7 +327,7 @@ enum ThumbLoadError {
 fn load_thumb_nchw(
     data_dir: &Path,
     hash: &[u8; 32],
-    clip: &MobileClip,
+    clip: &OpenClipXlmr,
 ) -> Result<Vec<f32>, ThumbLoadError> {
     let (thumb, _) = derivative_paths(data_dir, hash);
     if !thumb.is_file() {

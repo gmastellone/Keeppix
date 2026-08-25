@@ -13,16 +13,14 @@ pub mod openclip_xlmr;
 pub mod probe;
 pub mod raw;
 pub mod retrieval;
+pub mod rss;
 pub mod sandbox;
 pub mod transcode;
 pub mod video;
 pub mod walk;
 pub mod xmp;
 
-pub use clip::{
-    MODEL_VERSION, MobileClip, current_rss_bytes, first_complete_model_dir,
-    measure_rss_peak_during, model_dir_candidates,
-};
+pub use clip::{MODEL_VERSION, MobileClip, first_complete_model_dir, model_dir_candidates};
 pub use derive::{
     DEFAULT_FULL_CACHE_BYTES, DEFAULT_WEBP_METHOD, DEFAULT_WEBP_QUALITY, DERIVATIVE_VERSION,
     DeriveError, DeriveResult, PREVIEW_LONG_SIDE, decode_to_rgb8, derivative_paths,
@@ -38,6 +36,7 @@ pub use raw::{
     PreviewSource, RawError, RawPreview, dcraw_emu_available, demosaic_half,
     extract_embedded_preview,
 };
+pub use rss::{current_rss_bytes, measure_rss_peak_during};
 pub use transcode::{
     PlaybackMode, TranscodeProfile, VideoStreamInfo, cache_is_ready, client_accepts_direct,
     ensure_poster, extract_animated_preview, playback_mode, playlist_path, probe_stream,

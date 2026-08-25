@@ -10,7 +10,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use keeppix_db::{AssetTagRepo, NewTag, TagPatch, TagRepo};
 use keeppix_domain::{AssetId, TagId, TagKind};
-use keeppix_media::{MODEL_VERSION, MobileClip, first_complete_model_dir};
+use keeppix_media::openclip_xlmr::{self, MODEL_VERSION, OpenClipXlmr};
 use serde::{Deserialize, Serialize};
 
 use crate::bulk::BulkOutcome;
@@ -709,12 +709,12 @@ fn parse_optional_tag_id(raw: Option<&str>) -> Result<Option<TagId>, Problem> {
 /// il tag resta creato e l'abbinamento (Task 8) lo salterà finché non c'è
 /// un embedding.
 async fn embed_tag_text(text: &str) -> Result<(Option<Vec<f32>>, Option<String>), Problem> {
-    let Some(model_dir) = first_complete_model_dir() else {
+    let Some(model_dir) = openclip_xlmr::first_complete_model_dir() else {
         return Ok((None, None));
     };
     let text = text.to_owned();
     let embedding = tokio::task::spawn_blocking(move || -> Result<Vec<f32>, String> {
-        let mut clip = MobileClip::load(&model_dir)?;
+        let mut clip = OpenClipXlmr::load(&model_dir)?;
         clip.embed_text(&text)
     })
     .await
