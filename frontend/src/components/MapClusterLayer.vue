@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type {
   Map as LibreMap,
@@ -9,6 +9,7 @@ import type {
 import type { RangeResponse, Source } from 'pmtiles'
 
 import { ApiProblem } from '@/api/client'
+import { fetchAllFolders } from '@/api/folders'
 import { thumbSrc } from '@/api/media'
 import type { MapBounds, MapCluster, MapScope } from '@/stores/maps'
 import { mapErrorKey, useMapsStore } from '@/stores/maps'
@@ -32,6 +33,11 @@ const props = withDefaults(
 const emit = defineEmits<{
   'asset-click': [id: string]
   'area-selected': [bounds: MapBounds]
+  /** §27, "Apri cartella" — nessuna vista "Foto scoperta su una
+   * cartella" esiste ancora nell'app reale (stessa lacuna già
+   * dichiarata in `SearchView.vue`, Task 9 3/N): il chiamante decide
+   * dove andare, oggi sempre `/folders`. */
+  'open-folder': [id: string]
 }>()
 
 const { t } = useI18n()
@@ -39,6 +45,23 @@ const maps = useMapsStore()
 const container = ref<HTMLElement>()
 const drawing = ref(false)
 const errorKey = ref('')
+
+// --- popover di un marker aggregato (§27) — solo fuori da `compact`
+// (la mini-mappa del lightbox è alta 176px con `overflow-hidden`: una
+// card popover da 76px di sola copertina ci starebbe a stento e
+// verrebbe tagliata; lì il click su un marker aggregato resta il solo
+// zoom, comportamento preesistente invariato). Un marker **non**
+// aggregato apre ancora la foto direttamente (`asset-click`,
+// comportamento preesistente): il popover di §27 rappresenta una
+// cartella/luogo con più foto, non una singola foto — un punto già
+// alla granularità minima non ha nulla in più da mostrare che aprirlo.
+const popoverCluster = ref<MapCluster | null>(null)
+const popoverPos = ref<{ x: number; y: number } | null>(null)
+const popoverFolderName = ref('')
+const popoverButtonEl = ref<HTMLButtonElement | null>(null)
+let popoverMarkerEl: HTMLElement | null = null
+const folderNames = new Map<string, string>()
+let folderNamesLoaded = false
 
 let map: LibreMap | undefined
 let markers: LibreMarker[] = []
@@ -191,6 +214,58 @@ async function coverHash(assetId: string): Promise<string | undefined> {
   }
 }
 
+async function folderName(folderId: string): Promise<string> {
+  if (!folderNamesLoaded) {
+    folderNamesLoaded = true
+    try {
+      for (const folder of await fetchAllFolders()) folderNames.set(folder.id, folder.name)
+    } catch {
+      // Riprovato al prossimo popover — `folderNamesLoaded` resta true
+      // solo se la richiesta è andata a buon fine, per non insistere a
+      // vuoto a ogni marker cliccato in caso di errore di rete.
+      folderNamesLoaded = false
+    }
+  }
+  return folderNames.get(folderId) ?? ''
+}
+
+function updatePopoverPosition() {
+  if (!map || !popoverCluster.value) return
+  const p = map.project([popoverCluster.value.lon, popoverCluster.value.lat])
+  popoverPos.value = { x: p.x, y: p.y }
+}
+
+async function openClusterPopover(cluster: MapCluster, markerEl: HTMLElement) {
+  popoverCluster.value = cluster
+  popoverMarkerEl = markerEl
+  updatePopoverPosition()
+  popoverFolderName.value = await folderName(cluster.folder_id)
+  await nextTick()
+  popoverButtonEl.value?.focus()
+}
+
+function closePopover(returnFocus: boolean) {
+  if (!popoverCluster.value) return
+  const marker = popoverMarkerEl
+  popoverCluster.value = null
+  popoverPos.value = null
+  popoverMarkerEl = null
+  if (returnFocus) marker?.focus()
+}
+
+function onPopoverKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.stopPropagation()
+    closePopover(true)
+  }
+}
+
+function openFolder() {
+  if (!popoverCluster.value) return
+  emit('open-folder', popoverCluster.value.folder_id)
+  closePopover(false)
+}
+
 async function refreshClusters() {
   if (!map || !maplibreModule) return
   const bounds = map.getBounds()
@@ -247,9 +322,13 @@ async function refreshClusters() {
         ? t('maps.cluster', { count: cluster.count })
         : t('maps.openPhoto')
     )
-    element.addEventListener('click', () => {
+    element.addEventListener('click', (event) => {
       if (!map) return
-      if (cluster.clustered) {
+      closePopover(false)
+      if (cluster.clustered && !props.compact) {
+        event.stopPropagation()
+        void openClusterPopover(cluster, element)
+      } else if (cluster.clustered) {
         map.easeTo({
           center: [cluster.lon, cluster.lat],
           zoom: Math.min(map.getZoom() + 2, 20)
@@ -339,6 +418,16 @@ onMounted(async () => {
   map.on('moveend', refreshClusters)
   map.on('load', refreshClusters)
   map.on('error', mapFailure)
+  if (!props.compact) {
+    // §26/§27: "clic altrove chiude" — un clic sulla base della mappa
+    // (non su un marker, che chiude e riapre per conto proprio) chiude
+    // il popover; l'inizio di un trascinamento fa lo stesso, altrimenti
+    // il popover resterebbe fermo sullo schermo mentre la mappa scorre
+    // sotto — non è previsto un riposizionamento continuo durante il
+    // pan, solo alla fine (`moveend` → `refreshClusters`).
+    map.on('click', () => closePopover(false))
+    map.on('movestart', () => closePopover(false))
+  }
   await refreshClusters()
 })
 
@@ -389,5 +478,48 @@ watch(
     >
       {{ t(errorKey) }}
     </p>
+
+    <!-- §27, popover di un marker aggregato: cartella/luogo, non una
+         singola foto — vedi il commento sopra `popoverCluster` per il
+         perché non appare in modalità `compact`. -->
+    <div
+      v-if="popoverCluster && popoverPos"
+      role="dialog"
+      :aria-label="popoverFolderName || t('maps.cluster', { count: popoverCluster.count })"
+      class="absolute z-20 w-[190px] -translate-x-1/2 overflow-hidden rounded-[10px] border border-border bg-surface-elevated shadow-lg"
+      :style="{ left: `${popoverPos.x}px`, top: `${popoverPos.y + 18}px` }"
+      @keydown="onPopoverKeydown"
+    >
+      <img
+        v-if="coverHashes.get(popoverCluster.cover_asset_id)"
+        :src="thumbSrc(coverHashes.get(popoverCluster.cover_asset_id)!)"
+        alt=""
+        class="h-[76px] w-full object-cover"
+      >
+      <div
+        v-else
+        class="h-[76px] w-full bg-chip-bg"
+      />
+      <div class="p-2">
+        <p class="truncate text-[13px] font-bold">
+          {{ popoverFolderName }}
+        </p>
+        <p class="truncate text-[11px] text-content-muted">
+          {{
+            popoverCluster.place_label
+              ? t('maps.popoverSubtitle', { count: popoverCluster.count, place: popoverCluster.place_label })
+              : t('maps.cluster', { count: popoverCluster.count })
+          }}
+        </p>
+        <button
+          ref="popoverButtonEl"
+          type="button"
+          class="mt-2 w-full rounded-lg border border-border py-1.5 text-center text-[12.5px] font-semibold hover:bg-border/40"
+          @click="openFolder"
+        >
+          {{ t('maps.openFolder') }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>

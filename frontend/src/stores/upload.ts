@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import * as uploadApi from '@/api/upload'
+import { classifyFiles } from '@/upload/classify'
 
 export type UploadStatus = 'queued' | 'uploading' | 'paused' | 'done' | 'error' | 'skipped'
 export type CollisionOutcome = 'created' | 'skipped_duplicate' | 'renamed'
@@ -75,6 +76,12 @@ function readStorage(): PersistedSession[] {
  */
 export const useUploadStore = defineStore('upload', () => {
   const sessions = ref<UploadSessionState[]>([])
+  /** Nomi dei file scartati all'ingresso (§4) — mai persistiti: solo il
+   * testo per il blocco di rifiuto del pannello, non i `File` stessi (non
+   * servono più, non entrano mai in coda). Si accumulano fra più
+   * trascinamenti/selezioni successive, come `sessions`. */
+  const rejectedRaw = ref<string[]>([])
+  const rejectedUnsupported = ref<string[]>([])
 
   /** File in memoria per id di sessione — mai persistiti, mai in `sessions`. */
   const files = new Map<string, File>()
@@ -82,7 +89,54 @@ export const useUploadStore = defineStore('upload', () => {
   /** Hash blake3 già calcolato dal pre-check, per id di sessione locale —
    * evita di richiedere di nuovo il file al browser per `expected_hash`. */
   const expectedHashes = new Map<string, string>()
+  /** Id (locali o del server, quello attuale di `session.id`) marcati da
+   * `cancelAll()`: il ciclo a blocchi in `runUpload` li controlla a ogni
+   * giro e si ferma, anche se la sessione è già stata tolta da `sessions`
+   * (la promessa in corso continua a tenere il proprio riferimento
+   * all'oggetto, rimuoverlo dall'array non la interrompe da sola). */
+  const cancelledIds = new Set<string>()
   let activeCount = 0
+
+  /**
+   * Fase 11, sottosistema di caricamento (`caricamento-nuove-foto.md` §5,
+   * "Ordine di precedenza"): se una coda è ancora in corso (una sessione
+   * non ancora conclusa ha già una cartella assegnata), la sua
+   * destinazione resta quella per i file aggiunti dopo, senza chiederla di
+   * nuovo — "non si ridirigono file già partiti". Se nessuna sessione
+   * attiva ha ancora una cartella, non c'è nulla da ereditare: chi chiama
+   * `addFiles` senza un contesto esplicito resta con `null` (il chip
+   * destinazione lo chiederà).
+   */
+  const stickyDestination = computed<string | null>(() => {
+    const active = sessions.value.find(
+      (s) => s.targetFolderId !== null && (s.status === 'queued' || s.status === 'uploading' || s.status === 'paused')
+    )
+    return active?.targetFolderId ?? null
+  })
+
+  /** Striscia e pannello (`caricamento-nuove-foto.md` §6.1/§6.2,
+   * `needsDest` del prototipo, riga 2915: `!u.dest && c.pending>0`) —
+   * nessuna destinazione risolta per il lotto attuale **e** qualcosa è
+   * ancora in sospeso. Non basta guardare solo le sessioni "queued": una
+   * sessione senza cartella può restare "paused" (messa in pausa prima
+   * che `pump()` la prendesse in carico, `pauseAll`/`pause` non
+   * controllano la cartella) — bug reale trovato scrivendo i test del
+   * pannello (`UploadPanel.spec.ts`), non assunto. */
+  const needsDestination = computed(
+    () =>
+      stickyDestination.value === null &&
+      sessions.value.some((s) => s.status === 'queued' || s.status === 'uploading' || s.status === 'paused')
+  )
+
+  /** Stato di apertura del pannello (§6.2): letto/scritto sia dalla
+   * striscia (`UploadQueueStrip.vue`) sia dal pulsante "Chiudi" del
+   * pannello stesso — vive qui, non in un componente, perché entrambi
+   * devono vederlo. */
+  const panelOpen = ref(false)
+
+  function togglePanel(): void {
+    panelOpen.value = !panelOpen.value
+  }
 
   function persist(): void {
     const toPersist: PersistedSession[] = sessions.value
@@ -137,9 +191,16 @@ export const useUploadStore = defineStore('upload', () => {
    * Pre-check in batch (spec §1.2), poi accoda solo i file che il server non
    * ha già. I duplicati restano visibili nel pannello come "skipped" —
    * l'utente vede che non sono stati ignorati per errore.
+   *
+   * `explicitFolderId` copre la prima precedenza del §5 (contesto esplicito
+   * del comando premuto): quando è `null` — sempre, oggi, perché nessuna
+   * vista porta un "dentro una cartella" osservabile (stesso debito già
+   * dichiarato nel Task 6 per la timeline filtrata) — si ricade sulla
+   * seconda/terza precedenza tramite `stickyDestination`.
    */
-  async function addFiles(fileList: File[], folderId: string | null): Promise<void> {
+  async function addFiles(fileList: File[], explicitFolderId: string | null = null): Promise<void> {
     if (fileList.length === 0) return
+    const folderId = explicitFolderId ?? stickyDestination.value
 
     const hashes = await Promise.all(fileList.map((file) => uploadApi.hashFile(file)))
     const { unknown_hashes: unknownHashes } = await uploadApi.checkHashes(hashes)
@@ -180,16 +241,43 @@ export const useUploadStore = defineStore('upload', () => {
   /**
    * Usata dalla vista `/share-target` (Fase 5, Task 10): riceve i file
    * condivisi dal sistema operativo (es. "Condividi -> Keeppix" dalla
-   * galleria) e li accoda come un upload normale. `null` come cartella di
-   * destinazione perché non esiste, in questo codebase, un modo per
-   * scegliere la cartella prima dell'upload — nemmeno per gli upload
-   * "normali" avviati da `addFiles` (vedi il commento su
-   * `UploadSessionState.targetFolderId`): i file restano "queued" senza mai
-   * partire, finché una futura interfaccia non permette di assegnare la
-   * cartella.
+   * galleria) e li accoda come un upload normale. Nessun contesto esplicito
+   * possibile da lì (il sistema operativo non sa di cartelle Keeppix):
+   * `addFiles` ricade su `stickyDestination`, e se anche quella è vuota la
+   * sessione resta "queued" senza cartella finché non arriva da
+   * `setDestination()` — il chip destinazione del pannello, non più "senza
+   * modo di assegnarla" (Fase 5).
    */
   async function addSharedFiles(files: File[]): Promise<void> {
     await addFiles(files, null)
+  }
+
+  /**
+   * Punto d'ingresso comune per trascinamento (§3.1), comando "Carica"
+   * (§3.2) e `+` mobile (§3.3): divide il lotto con `classifyFiles` (§4)
+   * prima di toccare la coda — i RAW e i formati non supportati non
+   * diventano mai sessioni, restano solo nomi per il blocco di rifiuto.
+   * "Rifiutare l'intero rilascio sarebbe ostile" (§4): solo gli accettati
+   * passano da `addFiles`, il resto non blocca gli altri.
+   *
+   * Due dettagli verificati contro `uploadAddFiles()` del prototipo
+   * (righe 2733-2773), non assunti dalla sola prosa del documento:
+   * - I rifiuti **sostituiscono** quelli del lotto precedente, non si
+   *   accumulano (`state.upload.rejected = ... : null`, riga 2754) — un
+   *   nuovo trascinamento racconta solo se stesso, non la storia di
+   *   tutti quelli prima.
+   * - Aggiungere file **apre sempre il pannello** (`state.upload.open =
+   *   true`, riga 2770), anche per un lotto di soli rifiuti: è così che
+   *   il blocco di rifiuto RAW resta visibile senza dover cliccare la
+   *   striscia — la striscia stessa, infatti, si basa solo su `items`
+   *   (`sessions` qui), mai sui rifiuti (`renderUploadDock`, riga 2913).
+   */
+  async function addFilesFromPicker(fileList: File[], explicitFolderId: string | null = null): Promise<void> {
+    const { accepted, rejectedRaw: raw, rejectedUnsupported: unsupported } = classifyFiles(fileList)
+    rejectedRaw.value = raw.map((f) => f.name)
+    rejectedUnsupported.value = unsupported.map((f) => f.name)
+    panelOpen.value = true
+    await addFiles(accepted, explicitFolderId)
   }
 
   function schedulePump(): void {
@@ -198,9 +286,10 @@ export const useUploadStore = defineStore('upload', () => {
 
   /**
    * Avvia fino a `MAX_CONCURRENT_UPLOADS` upload in coda, tutti insieme.
-   * Una sessione "queued" senza `targetFolderId` (condivisa dall'OS, vedi
-   * `addSharedFiles`) resta visibile ma non viene mai presa in carico: non
-   * c'è ancora modo di assegnarle una cartella.
+   * Una sessione "queued" senza `targetFolderId` resta visibile ma non
+   * viene mai presa in carico finché `setDestination()` non gliene assegna
+   * una — il "difetto tecnico reso spina dorsale dell'interfaccia" del
+   * documento (§1).
    */
   function pump(): void {
     while (activeCount < MAX_CONCURRENT_UPLOADS) {
@@ -257,6 +346,12 @@ export const useUploadStore = defineStore('upload', () => {
       let chunkSize = chunkSizes.get(remoteId) ?? START_CHUNK_BYTES
       while (session.receivedBytes < session.expectedSize) {
         if (session.status === 'paused') return
+        // `cancelAll()` non può interrompere il `fetch()` già in volo (nessun
+        // `AbortController` in `api/upload.ts`), ma può fermare il prossimo
+        // giro — l'oggetto `session` resta valido anche dopo essere stato
+        // tolto da `sessions.value`, quindi il controllo va sul suo id, non
+        // sulla presenza nell'array.
+        if (cancelledIds.has(session.id)) return
 
         const end = Math.min(session.receivedBytes + chunkSize, session.expectedSize)
         const chunk = file.slice(session.receivedBytes, end)
@@ -334,19 +429,105 @@ export const useUploadStore = defineStore('upload', () => {
     resume(id)
   }
 
+  /**
+   * §6.4: "Rimuove concluse, saltate **ed errate**" — le tre, non solo le
+   * prime due. Bug reale trovato rileggendo la riga esatta del documento:
+   * l'implementazione precedente lasciava le sessioni in errore in coda
+   * anche dopo "Pulisci completate", quindi "a coda vuota il pannello si
+   * chiude da solo" non si sarebbe mai verificato con anche un solo errore
+   * presente.
+   */
   function removeCompleted(): void {
-    sessions.value = sessions.value.filter((s) => s.status !== 'done' && s.status !== 'skipped')
+    sessions.value = sessions.value.filter(
+      (s) => s.status !== 'done' && s.status !== 'skipped' && s.status !== 'error'
+    )
+    persist()
+  }
+
+  /** §5, "stato che blocca": assegna la cartella a ogni sessione ancora in
+   * coda senza una destinazione, poi avvia la coda — l'unica azione che la
+   * sblocca. Non tocca le sessioni che una destinazione ce l'hanno già
+   * (rule 3: "non si ridirigono file già partiti"). */
+  function setDestination(folderId: string): void {
+    let assigned = false
+    for (const session of sessions.value) {
+      if (session.targetFolderId === null && session.status === 'queued') {
+        session.targetFolderId = folderId
+        assigned = true
+      }
+    }
+    persist()
+    if (assigned) schedulePump()
+  }
+
+  /** §6.4, comando di coda `Pausa`: ferma tutta la coda, non una sessione
+   * sola — il file in corso passa a "in pausa" (il ciclo a blocchi in
+   * `runUpload` lo nota al prossimo giro). */
+  function pauseAll(): void {
+    for (const session of sessions.value) {
+      if (session.status === 'queued' || session.status === 'uploading') {
+        session.status = 'paused'
+      }
+    }
+    persist()
+  }
+
+  /** §6.4, comando di coda `Riprendi`. Stessa cautela di `resume()`: una
+   * sessione ripresa da `localStorage` non ha mai il `File` in memoria. */
+  function resumeAll(): void {
+    let didResume = false
+    for (const session of sessions.value) {
+      if (session.status !== 'paused') continue
+      if (!files.has(session.id)) {
+        session.status = 'error'
+        session.error = 'upload.errors.missingFile'
+        continue
+      }
+      session.status = 'queued'
+      session.error = undefined
+      didResume = true
+    }
+    persist()
+    if (didResume) schedulePump()
+  }
+
+  /** §6.4, `Annulla tutto`: "Svuota la coda e azzera la destinazione" — la
+   * seconda parte non è un'azione a parte, è una conseguenza: con
+   * `sessions` vuoto, `stickyDestination` torna da sola a `null`. Non può
+   * interrompere un `fetch()` già in volo (v. commento su `cancelledIds`
+   * in `runUpload`), solo impedire il prossimo blocco. */
+  function cancelAll(): void {
+    for (const session of sessions.value) {
+      cancelledIds.add(session.id)
+      files.delete(session.id)
+      chunkSizes.delete(session.id)
+      expectedHashes.delete(session.id)
+    }
+    sessions.value = []
+    rejectedRaw.value = []
+    rejectedUnsupported.value = []
     persist()
   }
 
   return {
     sessions,
+    rejectedRaw,
+    rejectedUnsupported,
+    stickyDestination,
+    needsDestination,
+    panelOpen,
+    togglePanel,
     initFromStorage,
     addFiles,
+    addFilesFromPicker,
     addSharedFiles,
     pause,
     resume,
     retry,
-    removeCompleted
+    removeCompleted,
+    setDestination,
+    pauseAll,
+    resumeAll,
+    cancelAll
   }
 })

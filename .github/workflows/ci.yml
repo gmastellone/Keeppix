@@ -134,8 +134,12 @@ jobs:
       # loro. Misurato: 34s di lint contro 23m08s di test sul run
       # 32236974676 — il collo di bottiglia era la serializzazione globale,
       # non la compilazione né i test in sé.
+      # `--no-fail-fast`: senza, cargo si ferma al primo target che fallisce
+      # e ogni bug successivo resta nascosto finché non si corregge quello
+      # prima — tre cicli di CI da ~15-20 minuti l'uno per tre bug distinti,
+      # scoperti uno alla volta, invece che tutti insieme in un solo run.
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
 
       - name: La specifica OpenAPI è aggiornata
         run: git diff --exit-code docs/api/openapi.json

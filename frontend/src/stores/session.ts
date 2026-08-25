@@ -93,6 +93,24 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   /**
+   * §61.1 "Dati account", pulsante "Salva modifiche" — a differenza del
+   * mockup ("non è collegato a nulla: nessun `id`, nessun gestore"), qui
+   * scrive per davvero via la stessa `PATCH /users/{id}` già usata da
+   * `changeLocale`. Solo `display_name`: l'email non ha un percorso di
+   * scrittura sul backend (`UserView` la espone in sola lettura, Fase 11
+   * Task 14 2/N).
+   */
+  async function updateDisplayName(displayName: string): Promise<void> {
+    const current = user.value
+    if (!current) return
+    const updated = await updateUser(current.id, { display_name: displayName })
+    user.value = {
+      ...current,
+      display_name: updated.display_name
+    }
+  }
+
+  /**
    * Il logout è un'azione di sicurezza: se la revoca server-side fallisce
    * (quasi certamente un errore di rete — il backend risponde comunque
    * `204` sui fallimenti che riesce a gestire), l'utente non deve restare
@@ -172,6 +190,7 @@ export const useSessionStore = defineStore('session', () => {
     login,
     setup,
     changeLocale,
+    updateDisplayName,
     logout,
     stopWatchdog
   }

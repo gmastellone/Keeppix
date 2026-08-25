@@ -50,15 +50,24 @@ export async function apiFetch<T = unknown>(
   }
 
   if (!response.ok) {
-    const contentType = response.headers.get('content-type') ?? ''
-    if (contentType.includes('application/problem+json')) {
-      const problem = await response.json()
-      throw new ApiProblem(problem.type, problem.title, problem.status, problem.detail)
-    }
-    throw new ApiProblem('keeppix/unexpected', response.statusText, response.status)
+    await throwProblem(response)
   }
 
   return (await response.json()) as T
+}
+
+/**
+ * Estratta da `apiFetch` per un endpoint binario (`/timeline/geometry`, Fase
+ * 11 Task 4) che non può passare dal ramo `.json()` di sopra ma deve
+ * comunque riconoscere lo stesso corpo `application/problem+json` su 401/403.
+ */
+export async function throwProblem(response: Response): Promise<never> {
+  const contentType = response.headers.get('content-type') ?? ''
+  if (contentType.includes('application/problem+json')) {
+    const problem = await response.json()
+    throw new ApiProblem(problem.type, problem.title, problem.status, problem.detail)
+  }
+  throw new ApiProblem('keeppix/unexpected', response.statusText, response.status)
 }
 
 /**

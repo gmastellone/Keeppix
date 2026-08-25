@@ -150,17 +150,9 @@ function isSelf(id: string): boolean {
 
 <template>
   <main class="mx-auto max-w-3xl p-6">
-    <p class="mb-4 text-sm">
-      <RouterLink
-        class="underline"
-        to="/"
-      >
-        {{ t('folders.back') }}
-      </RouterLink>
-    </p>
-    <h1 class="text-2xl font-semibold">
-      {{ t('users.title') }}
-    </h1>
+    <!-- Fase 11 Task 6 (6/N): link "indietro" e titolo tolti — copre
+         AppSidebar (voce "Utenti", gruppo Amministrazione) e AppTopbar
+         (briciola "Utenti"). -->
     <p
       v-if="loadError"
       class="mt-6 text-content-muted"

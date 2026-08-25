@@ -36,7 +36,8 @@ const {
     off: vi.fn(),
     remove: vi.fn(),
     setStyle: vi.fn(),
-    unproject: vi.fn()
+    unproject: vi.fn(),
+    project: vi.fn(() => ({ x: 100, y: 50 }))
   }
   return {
     apiFetch: vi.fn(),
@@ -91,6 +92,8 @@ afterEach(() => {
   map.easeTo.mockReset()
   map.setStyle.mockReset()
   map.remove.mockReset()
+  map.project.mockReset()
+  map.project.mockReturnValue({ x: 100, y: 50 })
   MapConstructor.mockClear()
   addProtocol.mockClear()
   vi.unstubAllGlobals()
@@ -114,31 +117,39 @@ function installMatchMedia() {
   )
 }
 
+function clusterFixtures(path: string) {
+  if (path.startsWith('/api/v1/map/clusters')) {
+    return Promise.resolve(
+      path.includes('scope_id=library-1')
+        ? [{
+            lat: 41,
+            lon: 11,
+            count: 8,
+            cover_asset_id: 'cluster-cover',
+            clustered: true,
+            folder_id: 'folder-1',
+            place_label: 'Lago di Braies, Trentino-AA'
+          }]
+        : [{
+            lat: 41.5,
+            lon: 11.5,
+            count: 1,
+            cover_asset_id: 'asset-1',
+            clustered: false,
+            folder_id: 'folder-1'
+          }]
+    )
+  }
+  if (path.startsWith('/api/v1/folders/tree')) {
+    return Promise.resolve([{ id: 'folder-1', library_id: 'lib', parent_id: null, name: 'Lago di Braies', depth: 0 }])
+  }
+  return Promise.resolve({ content_hash: 'a'.repeat(64) })
+}
+
 describe('MapClusterLayer', () => {
-  it('loads visible clusters, zooms clusters, and emits a single asset', async () => {
+  it('loads visible clusters and emits a single asset for an unclustered marker', async () => {
     installMatchMedia()
-    apiFetch.mockImplementation((path: string) => {
-      if (path.startsWith('/api/v1/map/clusters')) {
-        return Promise.resolve(
-          path.includes('scope_id=library-1')
-            ? [{
-                lat: 41,
-                lon: 11,
-                count: 8,
-                cover_asset_id: 'cluster-cover',
-                clustered: true
-              }]
-            : [{
-                lat: 41.5,
-                lon: 11.5,
-                count: 1,
-                cover_asset_id: 'asset-1',
-                clustered: false
-              }]
-        )
-      }
-      return Promise.resolve({ content_hash: 'a'.repeat(64) })
-    })
+    apiFetch.mockImplementation(clusterFixtures)
 
     const wrapper = mount(MapClusterLayer, {
       props: {
@@ -155,11 +166,108 @@ describe('MapClusterLayer', () => {
     expect(markerElements).toHaveLength(2)
     expect(markerElements[0]!.querySelector('img')?.getAttribute('src')).toContain('/media/thumb/')
 
-    markerElements[0]!.click()
-    expect(map.easeTo).toHaveBeenCalledWith({ center: [11, 41], zoom: 9 })
-
     markerElements[1]!.click()
     expect(wrapper.emitted('asset-click')).toEqual([['asset-1']])
+  })
+
+  it('a compact map (lightbox mini-map) keeps the old zoom-on-click behavior, no popover', async () => {
+    installMatchMedia()
+    apiFetch.mockImplementation(clusterFixtures)
+
+    const wrapper = mount(MapClusterLayer, {
+      props: {
+        scope: 'library',
+        scopeId: ['library-1', 'library-2'],
+        regionIds: ['IT'],
+        compact: true
+      },
+      global: { plugins: [createPinia(), i18n] }
+    })
+    await flushPromises()
+
+    markerElements[0]!.click()
+    expect(map.easeTo).toHaveBeenCalledWith({ center: [11, 41], zoom: 9 })
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('§27: a clustered marker opens a popover (cover, folder name, count + place, "Apri cartella") instead of zooming', async () => {
+    installMatchMedia()
+    apiFetch.mockImplementation(clusterFixtures)
+
+    const wrapper = mount(MapClusterLayer, {
+      props: {
+        scope: 'library',
+        scopeId: ['library-1', 'library-2'],
+        regionIds: ['IT']
+      },
+      global: { plugins: [createPinia(), i18n] }
+    })
+    await flushPromises()
+
+    markerElements[0]!.click()
+    await flushPromises()
+
+    expect(map.easeTo).not.toHaveBeenCalled()
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.text()).toContain('Lago di Braies')
+    expect(dialog.text()).toContain('8 photos · Lago di Braies, Trentino-AA')
+
+    await dialog.get('button').trigger('click')
+    expect(wrapper.emitted('open-folder')).toEqual([['folder-1']])
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('Escape closes the popover; a click on the base map also closes it', async () => {
+    installMatchMedia()
+    apiFetch.mockImplementation(clusterFixtures)
+
+    const wrapper = mount(MapClusterLayer, {
+      props: {
+        scope: 'library',
+        scopeId: 'library-1',
+        regionIds: ['IT']
+      },
+      global: { plugins: [createPinia(), i18n] }
+    })
+    await flushPromises()
+
+    markerElements[0]!.click()
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+
+    await wrapper.get('[role="dialog"]').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+
+    markerElements[0]!.click()
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+
+    for (const handler of mapHandlers.get('click') ?? []) handler()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('starting a pan (movestart) closes the popover, so it does not float detached mid-drag', async () => {
+    installMatchMedia()
+    apiFetch.mockImplementation(clusterFixtures)
+
+    const wrapper = mount(MapClusterLayer, {
+      props: {
+        scope: 'library',
+        scopeId: 'library-1',
+        regionIds: ['IT']
+      },
+      global: { plugins: [createPinia(), i18n] }
+    })
+    await flushPromises()
+
+    markerElements[0]!.click()
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+
+    for (const handler of mapHandlers.get('movestart') ?? []) handler()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
   it('replaces the local map style when the system theme changes', async () => {

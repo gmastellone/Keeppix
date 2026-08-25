@@ -502,6 +502,185 @@ pub async fn reject_all_proposals(
     Ok(Json(BulkOutcome::from_partition(rejected, &[], None)))
 }
 
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct BatchAssignRequest {
+    #[schema(value_type = Vec<String>)]
+    pub asset_ids: Vec<AssetId>,
+}
+
+/// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…"): un'aggiunta manuale è
+/// già una conferma, non passa dalla coda di revisione (SP-12) — stessa
+/// forma di [`confirm_all_proposals`], ma sull'insieme di asset che il
+/// chiamante sceglie (la selezione corrente), non su "tutte le proposte in
+/// attesa per questo tag". [`keeppix_db::AssetTagRepo::assign`] scrive
+/// sempre `state='confirmed', source='user'`, anche sopra un rifiuto
+/// precedente — a differenza di `confirm_proposal`.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tags/{id}/assets/batch",
+    tag = "tags",
+    operation_id = "tags_assign_batch",
+    summary = "Assign a tag to multiple assets directly (source=user, bulk)",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id tag")),
+    request_body = BatchAssignRequest,
+    responses(
+        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
+        (status = 400, description = "batch troppo grande", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn assign_batch(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(id): Path<TagId>,
+    Json(body): Json<BatchAssignRequest>,
+) -> Result<Json<BulkOutcome>, Problem> {
+    crate::batch::reject_oversized_batch(&body.asset_ids)?;
+    let repo = AssetTagRepo::new(&state.db);
+    let mut succeeded = Vec::new();
+    let mut failed = Vec::new();
+    for asset_id in &body.asset_ids {
+        match repo.assign(&ctx, id, *asset_id).await {
+            Ok(()) => succeeded.push(*asset_id),
+            Err(error) => failed.push((*asset_id, error)),
+        }
+    }
+    Ok(Json(BulkOutcome::from_partition(succeeded, &failed, None)))
+}
+
+/// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…" — verificato sul
+/// prototipo reale, `openTagPickerDialog` in `docs/ui/keeppix-mockup.html`:
+/// lo stesso pulsante attiva/disattiva, aggiunge **o toglie**): la freccia
+/// opposta di [`assign_batch`], stessa forma esatta. [`keeppix_db::
+/// AssetTagRepo::unassign`] cancella la riga invece di deciderla
+/// `'rejected'` — quello stato è la coda di revisione IA, permanente per
+/// costruzione, semantica sbagliata per un tag manuale su cui si è
+/// ripensato.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tags/{id}/assets/batch/remove",
+    tag = "tags",
+    operation_id = "tags_unassign_batch",
+    summary = "Remove a tag from multiple assets directly (bulk)",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id tag")),
+    request_body = BatchAssignRequest,
+    responses(
+        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
+        (status = 400, description = "batch troppo grande", body = Problem),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn unassign_batch(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(id): Path<TagId>,
+    Json(body): Json<BatchAssignRequest>,
+) -> Result<Json<BulkOutcome>, Problem> {
+    crate::batch::reject_oversized_batch(&body.asset_ids)?;
+    let repo = AssetTagRepo::new(&state.db);
+    let mut succeeded = Vec::new();
+    let mut failed = Vec::new();
+    for asset_id in &body.asset_ids {
+        match repo.unassign(&ctx, id, *asset_id).await {
+            Ok(()) => succeeded.push(*asset_id),
+            Err(error) => failed.push((*asset_id, error)),
+        }
+    }
+    Ok(Json(BulkOutcome::from_partition(succeeded, &failed, None)))
+}
+
+/// Un tag come lo mostra il pannello informazioni del lightbox (Fase 11
+/// Task 8, §19.2 campi 14-17) — `state`/`source` grezzi, la vista sceglie
+/// la resa (piena / `.ai-applied` / tratteggiata), non questa risposta.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AssetTagDetailView {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category_id: Option<String>,
+    pub state: String,
+    pub source: String,
+}
+
+impl From<keeppix_db::AssetTagDetail> for AssetTagDetailView {
+    fn from(t: keeppix_db::AssetTagDetail) -> Self {
+        Self {
+            id: t.tag_id.to_string(),
+            name: t.name,
+            color: t.color,
+            category_id: t.category_id.map(|id| id.to_string()),
+            state: t.state,
+            source: t.source,
+        }
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/assets/{id}/tags",
+    tag = "tags",
+    operation_id = "assets_list_tags",
+    summary = "List an asset's tags — confirmed and pending, never rejected",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id asset")),
+    responses(
+        (status = 200, description = "Tag confermati e in attesa, ordinati per nome", body = Vec<AssetTagDetailView>),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Asset non visibile al chiamante", body = Problem)
+    )
+)]
+pub async fn list_tags_for_asset(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(asset_id): Path<AssetId>,
+) -> Result<Json<Vec<AssetTagDetailView>>, Problem> {
+    let tags = AssetTagRepo::new(&state.db)
+        .for_asset(&ctx, asset_id)
+        .await?;
+    Ok(Json(
+        tags.into_iter().map(AssetTagDetailView::from).collect(),
+    ))
+}
+
+/// Fase 11 Task 8 (§19.3, la `×` sui chip confermati): rimuove un tag già
+/// confermato, permanentemente — non una `DELETE` come [`unassign_batch`]
+/// (che serve solo l'aggiunta manuale di Modifica in blocco). Vedi
+/// [`keeppix_db::AssetTagRepo::remove_confirmed`] per il perché della
+/// transizione a `'rejected'` invece della cancellazione della riga.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tags/{id}/assets/{asset_id}/remove",
+    tag = "tags",
+    operation_id = "tags_remove_confirmed",
+    summary = "Permanently remove an already-confirmed tag from an asset",
+    security(("session_cookie" = [])),
+    params(
+        ("id" = String, Path, description = "Id tag"),
+        ("asset_id" = String, Path, description = "Id asset")
+    ),
+    responses(
+        (status = 204, description = "Rimosso (idempotente se già rimosso)"),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Asset non visibile al chiamante", body = Problem),
+        (status = 404, description = "Il tag non è mai stato assegnato a questo asset", body = Problem),
+        (status = 409, description = "È ancora in attesa di conferma: va deciso dalla coda, non rimosso", body = Problem)
+    )
+)]
+pub async fn remove_confirmed_tag(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path((id, asset_id)): Path<(TagId, AssetId)>,
+) -> Result<StatusCode, Problem> {
+    AssetTagRepo::new(&state.db)
+        .remove_confirmed(&ctx, id, asset_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 fn parse_kind(raw: &str) -> Result<TagKind, Problem> {
     raw.parse().map_err(|_| {
         Problem::new(

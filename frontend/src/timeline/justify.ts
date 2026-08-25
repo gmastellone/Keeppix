@@ -27,7 +27,9 @@ export function justify(
   if (containerWidth <= 0 || targetRowHeight <= 0 || items.length === 0) {
     return []
   }
-  const gap = 4
+  // GRID_GAP del prototipo (keeppix-mockup.html riga 4593) — non un valore
+  // stimato: 4 non aveva alcuna fonte nel mockup.
+  const gap = 6
   const rows: JustifiedRow[] = []
   let row: AspectItem[] = []
   let rowWidth = 0
@@ -67,17 +69,11 @@ export function justify(
   return rows
 }
 
-export function clampDensity(n: number): number {
-  return Math.min(12, Math.max(2, Math.round(n)))
-}
-
-/** Altezza riservata per un bucket non ancora caricato (scrollbar stabile). */
-export function bucketMinHeight(
-  count: number,
-  containerWidth: number,
-  density: number
-): number {
-  const cols = Math.max(1, clampDensity(density))
-  const rowH = Math.max(48, containerWidth / cols)
-  return Math.ceil(Math.max(0, count) / cols) * rowH
+/** §60.2 "Densità griglia" (Task 14, 1/N): due intervalli distinti,
+ * desktop 2-12 e mobile 2-6 — la stessa funzione serviva prima solo il
+ * caso desktop (`useDensity`, unico consumatore fino a questo task, mai
+ * usato su un intervallo diverso). */
+export function clampDensity(n: number, mobile = false): number {
+  const max = mobile ? 6 : 12
+  return Math.min(max, Math.max(2, Math.round(n)))
 }

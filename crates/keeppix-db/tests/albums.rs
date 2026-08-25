@@ -510,3 +510,168 @@ async fn refreshing_a_foreign_album_is_forbidden() {
         Err(DbError::Forbidden)
     ));
 }
+
+// Fase 11 Task 8 (§19.2 campo 18, sezione ALBUM del pannello informazioni
+// del lightbox): la freccia opposta di `list_assets` — dato un asset, a
+// quali album appartiene già.
+
+#[tokio::test]
+async fn for_asset_lists_every_album_the_asset_is_a_member_of() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let lib = seed_library(&test, admin, "/mnt/for-asset").await;
+    let folder = seed_folder(&test, lib, "2024").await;
+    let photo = index_photo(&test, folder, "photo.jpg").await;
+    let other_photo = index_photo(&test, folder, "other.jpg").await;
+
+    let repo = AlbumRepo::new(test.db());
+    let album_a = repo
+        .create(
+            &ctx,
+            NewAlbum {
+                name: "Vacanze".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
+        .await
+        .unwrap();
+    let album_b = repo
+        .create(
+            &ctx,
+            NewAlbum {
+                name: "Famiglia".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
+        .await
+        .unwrap();
+    // Un terzo album di cui la foto NON fa parte: non deve comparire.
+    repo.create(
+        &ctx,
+        NewAlbum {
+            name: "Altro".into(),
+            description: String::new(),
+            rule: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    repo.add_asset(&ctx, album_a.id, photo).await.unwrap();
+    repo.add_asset(&ctx, album_b.id, photo).await.unwrap();
+    repo.add_asset(&ctx, album_a.id, other_photo).await.unwrap();
+
+    let albums = repo.for_asset(&ctx, photo).await.unwrap();
+    let names: Vec<&str> = albums.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["Famiglia", "Vacanze"],
+        "ordinati per nome, solo i due di cui la foto è membro"
+    );
+}
+
+#[tokio::test]
+async fn for_asset_is_empty_when_the_asset_is_in_no_album() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let lib = seed_library(&test, admin, "/mnt/for-asset-empty").await;
+    let folder = seed_folder(&test, lib, "2024").await;
+    let photo = index_photo(&test, folder, "solo.jpg").await;
+
+    let albums = AlbumRepo::new(test.db())
+        .for_asset(&ctx, photo)
+        .await
+        .unwrap();
+    assert!(albums.is_empty());
+}
+
+#[tokio::test]
+async fn for_asset_hides_albums_the_caller_cannot_see_but_still_lists_the_shared_one() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let mario = harness::seed_user(&test, admin, "mario-albums").await;
+    let ctx_admin = AuthContext::user(admin, SystemRole::Admin);
+    let ctx_mario = AuthContext::user(mario, SystemRole::User);
+
+    let lib = seed_library(&test, admin, "/mnt/for-asset-shared").await;
+    let folder = seed_folder(&test, lib, "2024").await;
+    let photo = index_photo(&test, folder, "condivisa.jpg").await;
+
+    let repo = AlbumRepo::new(test.db());
+    let private = repo
+        .create(
+            &ctx_admin,
+            NewAlbum {
+                name: "Privato".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
+        .await
+        .unwrap();
+    let shared = repo
+        .create(
+            &ctx_admin,
+            NewAlbum {
+                name: "Condiviso".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
+        .await
+        .unwrap();
+    repo.add_asset(&ctx_admin, private.id, photo).await.unwrap();
+    repo.add_asset(&ctx_admin, shared.id, photo).await.unwrap();
+    grant_album(&test, admin, mario, shared.id, ObjectRole::Viewer).await;
+
+    let albums = repo.for_asset(&ctx_mario, photo).await.unwrap();
+    let names: Vec<&str> = albums.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["Condiviso"],
+        "solo l'album con permesso condiviso, mai quello privato altrui"
+    );
+}
+
+#[tokio::test]
+async fn for_asset_is_forbidden_on_an_asset_the_caller_cannot_see_at_all() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let stranger = harness::seed_user(&test, admin, "estraneo-albums").await;
+    let ctx_admin = AuthContext::user(admin, SystemRole::Admin);
+    let ctx_stranger = AuthContext::user(stranger, SystemRole::User);
+
+    let lib = seed_library(&test, admin, "/mnt/for-asset-forbidden").await;
+    let folder = seed_folder(&test, lib, "2024").await;
+    let photo = index_photo(&test, folder, "privata.jpg").await;
+
+    // La visibilità dell'asset viene controllata **prima** di quella
+    // dell'album: anche se `stranger` avesse un album proprio in cui
+    // infilare questo id (non qui, l'album è di admin), l'appartenenza a
+    // un album non deve mai rivelare l'esistenza di un asset altrimenti
+    // invisibile al chiamante.
+    let repo = AlbumRepo::new(test.db());
+    let album = repo
+        .create(
+            &ctx_admin,
+            NewAlbum {
+                name: "Vacanze".into(),
+                description: String::new(),
+                rule: None,
+            },
+        )
+        .await
+        .unwrap();
+    repo.add_asset(&ctx_admin, album.id, photo).await.unwrap();
+
+    assert!(matches!(
+        repo.for_asset(&ctx_stranger, photo).await,
+        Err(DbError::Forbidden)
+    ));
+}

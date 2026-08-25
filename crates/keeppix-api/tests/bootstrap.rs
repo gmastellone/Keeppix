@@ -148,6 +148,16 @@ async fn load_individual_repos(db: &Db, ctx: &AuthContext) {
             .await
             .expect("storage");
     }
+    // Fase 11 Task 17: metà culling del badge — stessa query di `compose`,
+    // saltata per le librerie senza radice designata (nessuna in questo
+    // test, quindi zero query in più oggi; qui per parità con le librerie
+    // che nel mondo reale ne hanno una).
+    let culling_repo = keeppix_db::CullingRepo::new(db);
+    for library in &libraries {
+        if library.culling_root_folder_id.is_some() {
+            culling_repo.list_lots(ctx, library.id).await.expect("lots");
+        }
+    }
     // Fase 7 Task 9: metà tag del badge `revision` — stessa query di `compose`.
     keeppix_db::AssetTagRepo::new(db)
         .count_proposed_visible(ctx)

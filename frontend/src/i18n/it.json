@@ -1,5 +1,100 @@
 {
-  "app": { "name": "Keeppix" },
+  "app": {
+    "name": "Keeppix"
+  },
+  "librarySelectionActions": {
+    "favoritesLabel": "Aggiungi o rimuovi dai preferiti",
+    "favoritesTip": "Preferiti",
+    "albumLabel": "Aggiungi ad album",
+    "albumTip": "Album",
+    "shareLabel": "Condividi selezione",
+    "shareTip": "Condividi",
+    "editLabel": "Modifica in blocco",
+    "editTip": "Modifica",
+    "deleteLabel": "Elimina selezione",
+    "deleteTip": "Elimina",
+    "deleteDialogTitle": "Eliminare {n} foto?",
+    "deleted": "{n} foto eliminata. | {n} foto eliminate.",
+    "deleteError": "Non è stato possibile completare l'eliminazione. Riprova."
+  },
+  "ui": {
+    "dialog": {
+      "close": "Chiudi",
+      "cancel": "Annulla"
+    },
+    "toast": {
+      "retry": "Riprova",
+      "retryRemaining": "Riprova le {n} rimaste",
+      "partial": "{ok} su {total} completate — {n} non è riuscita. | {ok} su {total} completate — {n} non sono riuscite."
+    },
+    "deleteDialog": {
+      "description": "Keeppix chiede sempre come procedere — non c'è un comportamento predefinito implicito.",
+      "index": {
+        "label": "Rimuovi solo dall'indice",
+        "hint": "Il file resta sul disco, verrà re-indicizzato alla prossima scansione della cartella."
+      },
+      "trash": {
+        "label": "Sposta nel cestino di Keeppix",
+        "hint": "Spostato in .keeppix-trash nella stessa libreria. Recuperabile per 30 giorni."
+      },
+      "disk": {
+        "label": "Elimina dal disco adesso",
+        "hint": "Azione irreversibile: il file viene cancellato definitivamente."
+      }
+    },
+    "loadingSkeleton": {
+      "streamLabel": "Caricamento delle foto in corso"
+    },
+    "provenanceBadge": {
+      "label": "IA",
+      "description": "Assegnato dall'intelligenza artificiale, non ancora confermato da una persona."
+    },
+    "selectionBar": {
+      "ariaLabel": "Azioni sulla selezione",
+      "cancel": "Annulla selezione",
+      "count": "{n} selezionata | {n} selezionate",
+      "selectAll": "Seleziona tutte",
+      "announceSelected": "{n} foto selezionata | {n} foto selezionate",
+      "announceCleared": "Selezione annullata",
+      "favoritesAdded": "Aggiunti ai preferiti.",
+      "favoritesRemoved": "Rimossi dai preferiti."
+    },
+    "favorites": {
+      "toggleError": "Non è stato possibile aggiornare i preferiti. Riprova."
+    },
+    "filteredEmpty": {
+      "title": "Nessuna foto corrisponde ai filtri",
+      "subtitle": "Prova ad allargare i filtri, o cancellali dal pannello qui sopra."
+    },
+    "selectAllVisible": {
+      "tooltip": "Seleziona tutto",
+      "ariaLabel": "Seleziona tutto quello che vedi"
+    },
+    "suggestionQueue": {
+      "count": "{n} proposta | {n} proposte",
+      "confirmAll": "Conferma tutte",
+      "rejectAll": "Rifiuta tutte",
+      "confirm": "Conferma",
+      "reject": "Rifiuta",
+      "aiBadge": "IA"
+    },
+    "photoTile": {
+      "open": "Apri {label}",
+      "select": "Seleziona {label}",
+      "addFavorite": "Aggiungi ai preferiti",
+      "removeFavorite": "Rimuovi dai preferiti",
+      "favoriteSuffix": ", preferita"
+    },
+    "quickFilter": {
+      "trigger": "Filtra",
+      "title": "Filtri",
+      "clearAll": "Cancella tutto",
+      "searchPlaceholder": "Cerca in {n}…",
+      "noResults": "Nessun risultato per \"{term}\"",
+      "resultCountFiltered": "{n} foto con questi filtri",
+      "resultCountTotal": "{n} foto in totale"
+    }
+  },
   "setup": {
     "title": "Benvenuto in Keeppix",
     "subtitle": "Crea l'account amministratore per iniziare.",
@@ -62,28 +157,371 @@
       "signedOutOffline": "Sei uscito localmente; non siamo riusciti a confermarlo con il server (probabile problema di rete)."
     }
   },
-  "home": { "greeting": "Ciao, {name}", "logout": "Esci" },
+  "settings": {
+    "entry": "Impostazioni",
+    "title": "Impostazioni",
+    "appearance": {
+      "title": "Aspetto",
+      "subtitle": "Chiaro, scuro, o segui il sistema operativo",
+      "light": "Chiaro",
+      "dark": "Scuro",
+      "system": "Sistema"
+    },
+    "density": {
+      "title": "Densità griglia",
+      "subtitleDesktop": "Colonne nella Timeline su questo dispositivo (Desktop) — salvata separatamente da desktop e mobile ({n} colonne)",
+      "subtitleMobile": "Colonne nella Timeline su questo dispositivo (Mobile) — salvata separatamente da desktop e mobile ({n} colonne)"
+    },
+    "maps": {
+      "title": "Mappe offline",
+      "subtitle": "Le tile sono servite da questo server Keeppix, mai da provider esterni — nessuna richiesta lascia la tua rete",
+      "manage": "Gestisci mappe offline"
+    },
+    "notifications": {
+      "title": "Notifiche",
+      "digest": "Riepilogo settimanale",
+      "shares": "Nuove condivisioni ricevute",
+      "problems": "Problemi rilevati"
+    },
+    "language": {
+      "title": "Lingua"
+    },
+    "faces": {
+      "title": "Riconoscimento volti",
+      "subtitle": "I volti sono dati biometrici — un trattamento diverso da un tag \"tramonto\". Non compaiono mai su un link pubblico condiviso: non è configurabile, vale sempre.",
+      "toggleLabel": "Riconoscimento facciale attivo — {name}",
+      "adminOnly": "Solo un amministratore può cambiare questa impostazione.",
+      "deleteAll": "Elimina tutti i dati dei volti",
+      "deleteConfirmTitle": "Eliminare tutti i dati dei volti?",
+      "deleteConfirmDescription": "Persone, gruppi e volti riconosciuti verranno cancellati per sempre — non tocca le foto, solo i dati di riconoscimento facciale. Non è recuperabile.",
+      "deleteConfirmButton": "Elimina tutto",
+      "deleteDone": "Dati dei volti eliminati.",
+      "actionError": "Non è stato possibile completare l'operazione. Riprova."
+    },
+    "cullingRoot": {
+      "title": "Cartella di culling",
+      "subtitle": "La cartella radice sul disco dentro cui vivono i lotti — una sottocartella per importazione. Serve anche a poterla sincronizzare da un altro computer (es. via WebDAV) dopo aver scelto le foto.",
+      "notSet": "Non impostata",
+      "lotsCount": "{n} lotto attivo | {n} lotti attivi",
+      "change": "Cambia…",
+      "updated": "Cartella di culling aggiornata.",
+      "actionError": "Non è stato possibile completare l'operazione. Riprova."
+    }
+  },
+  "profile": {
+    "entry": "Profilo",
+    "title": "Profilo",
+    "subtitleServer": "account su questo server Keeppix",
+    "account": {
+      "title": "Dati account",
+      "displayName": "Nome visualizzato",
+      "email": "Email",
+      "emailReadonly": "Non modificabile da qui.",
+      "save": "Salva modifiche",
+      "saveDone": "Modifiche salvate.",
+      "saveError": "Non è stato possibile salvare le modifiche. Riprova."
+    },
+    "avatarColor": {
+      "title": "Colore avatar",
+      "subtitle": "Solo per te — cambia il colore di sfondo delle tue iniziali, ovunque compaiano nell'app."
+    },
+    "security": {
+      "title": "Sicurezza",
+      "passwordLabel": "Password",
+      "changePassword": "Cambia password",
+      "twoFactorLabel": "Autenticazione a due fattori",
+      "twoFactorSubtitle": "Consigliata per proteggere l'accesso al tuo account.",
+      "twoFactorOn": "Attiva",
+      "twoFactorOff": "Non attiva",
+      "twoFactorManage": "Gestisci",
+      "twoFactorEnable": "Attiva"
+    },
+    "sessions": {
+      "title": "Sessioni attive",
+      "subtitle": "Dispositivi collegati con il tuo account",
+      "currentSuffix": " · questa sessione",
+      "activeNow": "Attiva ora",
+      "unknownDevice": "Dispositivo sconosciuto",
+      "logout": "Esci",
+      "logoutOthers": "Esci da tutti gli altri dispositivi",
+      "logoutOthersConfirmTitle": "Uscire da tutti gli altri dispositivi?",
+      "logoutOthersConfirmDescription": "Le altre sessioni attive verranno chiuse immediatamente.",
+      "logoutOthersConfirmButton": "Esci da tutti",
+      "logoutOthersDone": "Uscito dalle altre sessioni.",
+      "revokeDone": "Sessione chiusa.",
+      "actionError": "Non è stato possibile completare l'operazione. Riprova."
+    },
+    "passwordDialog": {
+      "title": "Cambia password",
+      "current": "Password attuale",
+      "new": "Nuova password",
+      "confirm": "Conferma nuova password",
+      "hint": "Almeno 10 caratteri.",
+      "save": "Salva",
+      "mismatch": "Le due password non coincidono.",
+      "wrongCurrent": "Password attuale errata.",
+      "tooShort": "La password deve avere almeno 10 caratteri.",
+      "done": "Password aggiornata."
+    }
+  },
+  "tags": {
+    "entry": "Tag e categorie",
+    "title": "Tag e categorie",
+    "subtitle": "Tu crei i tag, l'IA li abbina soltanto alle foto — non può inventarne di nuovi",
+    "newCategory": "Nuova categoria",
+    "newTag": "Nuovo tag",
+    "tagCount": "{n} tag | {n} tag",
+    "edit": "Modifica",
+    "delete": "Elimina",
+    "editTag": "Modifica tag {name}",
+    "deleteTag": "Elimina tag {name}",
+    "renameCategory": "Rinomina categoria {name}",
+    "deleteCategory": "Elimina categoria {name}",
+    "promptLine": "Prompt: «{prompt}»",
+    "photoCount": "{n} foto | {n} foto",
+    "thresholdTooltip": "Sopra questa confidenza l'IA lo assegna in automatico",
+    "noCategoryTitle": "Senza categoria",
+    "emptyCategory": "Nessun tag qui ancora — crealo con \"Nuovo tag\" e assegnalo a questa categoria.",
+    "emptyOrphans": "Nessun tag fuori da una categoria.",
+    "loadError": "Non è stato possibile caricare i tag. Riprova.",
+    "deleteError": "Non è stato possibile completare l'operazione. Riprova.",
+    "tagDeletedToast": "Tag \"{name}\" eliminato.",
+    "categoryDeletedToast": "Categoria \"{name}\" eliminata.",
+    "deleteTagConfirmTitle": "Eliminare il tag \"{name}\"?",
+    "deleteTagConfirmDescriptionWithPhotos": "Verrà rimosso da {n} foto. Le foto restano, perdono solo questo tag. Questa azione non elimina alcun file. | Verrà rimosso da {n} foto. Le foto restano, perdono solo questo tag. Questa azione non elimina alcun file.",
+    "deleteTagConfirmDescriptionEmpty": "Non è ancora assegnato a nessuna foto. Questa azione non elimina alcun file.",
+    "deleteCategoryConfirmTitle": "Eliminare la categoria \"{name}\"?",
+    "deleteCategoryConfirmDescription": "I tag al suo interno non vengono eliminati: restano, semplicemente \"senza categoria\"."
+  },
+  "tagEditor": {
+    "newTitle": "Nuovo tag",
+    "editTitle": "Modifica tag «{name}»",
+    "name": "Nome",
+    "prompt": "Prompt per il modello",
+    "optional": "opzionale",
+    "hint": "Il nome è quello che vedi tu ovunque nell'app. Il prompt è cosa deve riconoscere l'IA nella foto — usalo solo per essere più preciso, es. nome «Regate», prompt «barche a vela in regata».",
+    "category": "Categoria",
+    "noCategory": "Nessuna categoria",
+    "color": "Colore",
+    "threshold": "Soglia di confidenza — {n}%",
+    "thresholdHint": "Sopra il {n}% l'IA assegna il tag in automatico. Sotto, lo propone soltanto — resta in attesa della tua conferma nella coda di revisione.",
+    "create": "Crea tag",
+    "save": "Salva",
+    "delete": "Elimina tag",
+    "nameRequired": "Dai un nome al tag prima di salvarlo.",
+    "nameConflict": "Esiste già un tag con questo nome.",
+    "savedToast": "Tag \"{name}\" salvato.",
+    "createdToast": "Tag \"{name}\" creato.",
+    "deletedToast": "Tag \"{name}\" eliminato.",
+    "deleteError": "Non è stato possibile eliminare il tag. Riprova.",
+    "deleteConfirmTitle": "Eliminare il tag \"{name}\"?",
+    "deleteConfirmDescriptionWithPhotos": "Verrà rimosso da {n} foto. Le foto restano, perdono solo questo tag. Questa azione non elimina alcun file. | Verrà rimosso da {n} foto. Le foto restano, perdono solo questo tag. Questa azione non elimina alcun file.",
+    "deleteConfirmDescriptionEmpty": "Non è ancora assegnato a nessuna foto. Questa azione non elimina alcun file."
+  },
+  "categoryEditor": {
+    "newTitle": "Nuova categoria",
+    "renameTitle": "Rinomina categoria",
+    "subtitle": "Le categorie sono solo un raggruppamento per i tag — un livello solo, niente sotto-categorie.",
+    "name": "Nome",
+    "create": "Crea categoria",
+    "save": "Salva",
+    "nameRequired": "Dai un nome alla categoria prima di salvarla.",
+    "nameConflict": "Esiste già una categoria con questo nome.",
+    "createdToast": "Categoria \"{name}\" creata.",
+    "renamedToast": "Categoria rinominata in \"{name}\"."
+  },
+  "review": {
+    "entry": "Revisione",
+    "title": "Revisione",
+    "subtitle": "{n} proposta in attesa, raggruppata per tag — nessuna è ancora applicata | {n} proposte in attesa, raggruppate per tag — nessuna è ancora applicata",
+    "proposalCount": "{n} proposta | {n} proposte",
+    "confirmAll": "Conferma tutte",
+    "rejectAll": "Rifiuta tutte",
+    "confirmOne": "Conferma",
+    "rejectOne": "Rifiuta",
+    "aiBadge": "IA",
+    "confirmedOne": "Tag confermato.",
+    "rejectedOne": "Suggerimento rifiutato — non verrà riproposto.",
+    "confirmedAll": "{n} proposta confermata. | {n} proposte confermate.",
+    "rejectedAll": "{n} proposta rifiutata. | {n} proposte rifiutate.",
+    "actionError": "Non è stato possibile completare l'operazione. Riprova.",
+    "loadError": "Non è stato possibile caricare la coda di revisione. Riprova.",
+    "emptyTitle": "Nessun suggerimento in attesa",
+    "emptyText": "Quando l'IA troverà corrispondenze a confidenza intermedia per i tuoi tag, appariranno qui per la tua conferma — mai applicate da sole.",
+    "tabsAriaLabel": "Cosa revisionare",
+    "tabTag": "Tag",
+    "tabFaces": "Volti",
+    "tabFacesCount": "Volti ({n})",
+    "facesTitle": "Revisione volti",
+    "facesSubtitle": "{n} proposta in attesa, raggruppata per persona — nessuna è ancora confermata | {n} proposte in attesa, raggruppate per persona — nessuna è ancora confermata",
+    "facesGroupPrefix": "Questi volti sembrano",
+    "faceConfirmedOne": "Volto confermato.",
+    "rejectFaceOne": "Non è {name}",
+    "faceRejectedOne": "Proposta rifiutata — il volto resta tra le persone senza nome.",
+    "notAFaceOne": "Non è un volto",
+    "notAFaceToast": "Segnato come \"non è un volto\" — non verrà più riproposto.",
+    "faceConfirmedAll": "{n} proposta confermata. | {n} proposte confermate.",
+    "faceRejectedAll": "{n} proposta rifiutata. | {n} proposte rifiutate.",
+    "facesEmptyTitle": "Nessuna proposta in attesa",
+    "facesEmptyText": "Quando l'IA troverà volti che sembrano corrispondere a una persona già nominata, appariranno qui per la tua conferma — mai applicati da soli."
+  },
+  "persons": {
+    "entry": "Persone",
+    "title": "Persone",
+    "subtitle": "Riconosciute automaticamente dalle tue foto — mai su un link pubblico, mai fuori da questo server.",
+    "emptyText": "Nessuna persona riconosciuta ancora.",
+    "unnamed": "Persona senza nome",
+    "unnamedHint": "da nominare",
+    "photoCount": "{n} foto | {n} foto",
+    "hiddenFooter": "{n} persona nascosta non mostrata qui. | {n} persone nascoste non mostrate qui.",
+    "backLink": "Tutte le persone",
+    "rename": "Rinomina",
+    "renameTitle": "Rinomina persona",
+    "name": "Nome",
+    "save": "Salva",
+    "show": "Mostra di nuovo",
+    "hide": "Nascondi",
+    "hiddenLabel": "nascosta",
+    "hiddenToast": "Persona nascosta.",
+    "shownToast": "Persona di nuovo visibile.",
+    "loadError": "Non è stato possibile caricare le persone. Riprova.",
+    "renameError": "Non è stato possibile rinominare la persona. Riprova.",
+    "hideError": "Non è stato possibile aggiornare la persona. Riprova.",
+    "emptyPhotosTitle": "Nessuna foto qui",
+    "emptyPhotosSubtitle": "Questa persona non ha (più) volti confermati.",
+    "newGroup": "Nuovo gruppo",
+    "cancelSelection": "Annulla selezione",
+    "selectedCount": "{n} selezionata | {n} selezionate",
+    "mergeAction": "Unisci",
+    "assignGroupAction": "Assegna a gruppo",
+    "groupCount": "{n} persona | {n} persone",
+    "edit": "Rinomina",
+    "delete": "Elimina",
+    "renameGroup": "Rinomina gruppo {name}",
+    "deleteGroup": "Elimina gruppo {name}",
+    "emptyGroupText": "Nessuno qui ancora — assegna una persona a questo gruppo dal suo dettaglio, o dalla selezione multipla qui sopra.",
+    "noGroupTitle": "Senza gruppo",
+    "selectAriaLabel": "Seleziona {name}",
+    "groupLabel": "gruppo {name}",
+    "noGroupLabel": "senza gruppo",
+    "assignGroup": "Assegna a gruppo",
+    "changeGroup": "Cambia gruppo",
+    "groupDeletedToast": "Gruppo eliminato.",
+    "deleteGroupError": "Non è stato possibile eliminare il gruppo. Riprova.",
+    "deleteGroupConfirmTitle": "Eliminare il gruppo \"{name}\"?",
+    "deleteGroupConfirmDescription": "Le persone al suo interno restano, tornano solo in \"Senza gruppo\".",
+    "deleteGroupConfirmButton": "Elimina gruppo",
+    "chooseCover": "Scegli copertina",
+    "split": "Dividi…"
+  },
+  "chooseCover": {
+    "title": "Scegli copertina",
+    "subtitle": "{name} — quale foto la rappresenta nella griglia",
+    "empty": "Nessun volto confermato per questa persona.",
+    "setCover": "Imposta come copertina",
+    "updatedToast": "Copertina aggiornata.",
+    "close": "Chiudi",
+    "error": "Non è stato possibile aggiornare la copertina. Riprova."
+  },
+  "splitPerson": {
+    "title": "Dividi {name}",
+    "subtitle": "Questo gruppo contiene due persone diverse? Seleziona i volti che vanno estratti in una persona a parte — gli altri restano qui.",
+    "countLine": "{n} volto selezionato da estrarre — {remaining} resta con \"{name}\" | {n} volti selezionati da estrarre — {remaining} restano con \"{name}\"",
+    "allSelectedWarning": "Non puoi estrarli tutti: non resterebbe nessun volto con questo nome.",
+    "name": "Nome della nuova persona",
+    "optional": "opzionale, puoi nominarla anche dopo",
+    "confirmButton": "Dividi in una nuova persona",
+    "splitToast": "{n} volto estratto in una nuova persona. | {n} volti estratti in una nuova persona.",
+    "tooFewFaces": "Servono almeno due volti per poter dividere questa persona.",
+    "error": "Non è stato possibile dividere la persona. Riprova."
+  },
+  "groupEditor": {
+    "newTitle": "Nuovo gruppo",
+    "renameTitle": "Rinomina gruppo",
+    "subtitle": "Un gruppo raccoglie più persone fotografate (es. \"Famiglia\", \"Amici\") — non è un gruppo di utenti dell'app, quello esiste già altrove per i permessi.",
+    "name": "Nome gruppo",
+    "save": "Salva",
+    "create": "Crea",
+    "nameRequired": "Il nome è obbligatorio.",
+    "nameConflict": "Esiste già un gruppo con questo nome.",
+    "createdToast": "Gruppo \"{name}\" creato.",
+    "renamedToast": "Gruppo rinominato."
+  },
+  "assignGroup": {
+    "title": "Assegna a gruppo",
+    "noGroup": "Nessun gruppo",
+    "assignedToast": "Gruppo assegnato.",
+    "removedToast": "Rimosso dal gruppo."
+  },
+  "mergePeople": {
+    "title": "Unisci {n} persone",
+    "subtitle": "Sono la stessa persona: verranno unite in una sola, {n} foto in tutto. Scegli quale nome deve sopravvivere.",
+    "radiogroupLabel": "Nome che sopravvive",
+    "confirm": "Unisci",
+    "mergedToast": "{n} persona unita. | {n} persone unite.",
+    "error": "Non è stato possibile unire le persone. Riprova."
+  },
+  "home": {
+    "logout": "Esci"
+  },
   "folders": {
     "entry": "Cartelle",
     "title": "Cartelle",
-    "back": "Foto",
     "empty": "Nessuna cartella da mostrare.",
     "move": "Sposta"
   },
+  "favorites": {
+    "entry": "Preferiti",
+    "title": "Preferiti",
+    "subtitle": "{n} foto, da tutte le cartelle",
+    "emptyTitle": "Nessun preferito ancora",
+    "emptySubtitle": "Premi il cuore su una foto per ritrovarla qui."
+  },
+  "browseFilter": {
+    "type": "Tipo",
+    "typeOption": {
+      "raw+jpeg": "RAW+JPEG",
+      "raw": "RAW",
+      "jpeg": "JPEG"
+    },
+    "person": "Persone",
+    "unnamedPerson": "Persona senza nome",
+    "tag": "Tag",
+    "category": "Categorie",
+    "camera": "Fotocamera",
+    "folder": "Luogo"
+  },
+  "nav": {
+    "foto": "Foto",
+    "cerca": "Cerca",
+    "libraryGroup": "Libreria",
+    "manutenzione": "Manutenzione",
+    "ia": "IA",
+    "amministrazione": "Amministrazione",
+    "more": "Altro"
+  },
+  "sidebar": {
+    "storageLabel": "Spazio libero",
+    "storageValue": "{free} su {total}"
+  },
+  "topbar": {
+    "allPhotos": "Tutte le foto",
+    "searchPlaceholder": "Cerca per data, luogo, persona…"
+  },
   "timeline": {
-    "kind": "Tipo",
-    "kinds": { "all": "Tutti", "photo": "Foto", "video": "Video" },
     "empty": "Nessuna foto in questa libreria.",
     "densityDown": "Meno colonne",
     "densityUp": "Più colonne",
     "mapFilter": "Foto nell'area selezionata sulla mappa.",
-    "clearMapFilter": "Rimuovi area"
+    "clearMapFilter": "Rimuovi area",
+    "monthCount": "{n} scatto | {n} scatti",
+    "scrubber": "Salta a un mese"
   },
   "maps": {
     "entry": "Mappa",
-    "title": "Mappa delle foto",
-    "back": "Foto",
     "cluster": "{count} foto",
+    "popoverSubtitle": "{count} foto · {place}",
+    "openFolder": "Apri cartella",
     "openPhoto": "Apri foto",
     "drawArea": "Disegna area",
     "drawCancel": "Annulla disegno",
@@ -142,15 +580,130 @@
       "apply": "Applica",
       "downloadRegionAction": "Scarica regione",
       "downloadRegion": "Scarica {region}",
-      "regionDownloading": "Download della regione in corso…"
+      "regionDownloading": "Download della regione in corso…",
+      "dialogTitle": "Imposta posizione",
+      "dialogSubtitle": "Cerca una località nota, oppure cancella la posizione attuale.",
+      "clear": "Nessuna posizione",
+      "clearError": "Non è stato possibile cancellare la posizione. Riprova."
     }
   },
   "search": {
-    "placeholder": "Cerca foto…",
-    "submit": "Cerca",
-    "invalid": "Query non valida."
+    "placeholder": "Descrivi cosa cerchi, o scegli un tag, una fotocamera, una cartella…",
+    "clearAll": "Cancella la ricerca",
+    "removePill": "Rimuovi filtro {label}",
+    "error": "Non è stato possibile completare la ricerca.",
+    "group": {
+      "tag": "Tag",
+      "camera": "Fotocamera",
+      "folder": "Cartella",
+      "iso": "ISO",
+      "year": "Anno",
+      "gps": "Posizione",
+      "country": "Paese"
+    },
+    "suggest": {
+      "gps": "Ha coordinate GPS",
+      "freeTextLabel": "Come descrizione libera:",
+      "empty": "Scrivi per cercare per tag, fotocamera, cartella, ISO… oppure descrivi la foto («tramonto con casa»)."
+    },
+    "pill": {
+      "tag": "Tag: {name}",
+      "iso": "ISO {n}",
+      "year": "Anno {n}",
+      "gps": "Con posizione GPS"
+    },
+    "type": {
+      "all": "Tutti i tipi",
+      "raw": "RAW",
+      "jpeg": "JPEG",
+      "favorite": "Preferiti",
+      "person": "Persona",
+      "personTitle": "Richiede riconoscimento volti — vedi Gruppo B"
+    },
+    "results": {
+      "title": "Risultati",
+      "savedTitle": "Ricerche salvate",
+      "savedSubtitle": "Raccolte \"vive\": si aggiornano da sole quando arrivano nuove foto che corrispondono",
+      "foldersTitle": "Cartelle",
+      "foldersSubtitle": "Accesso rapido ai tuoi viaggi",
+      "folderCount": "{n} foto | {n} foto",
+      "recentTitle": "Aggiunti di recente",
+      "emptyTitle": "Nessun risultato",
+      "emptySubtitle": "Prova a togliere un filtro, o descrivi la foto in un altro modo."
+    },
+    "recap": {
+      "prefix": "Ricerca:",
+      "freeText": "descrizione libera «{text}»",
+      "count": "{n} risultato | {n} risultati",
+      "save": "Salva questa ricerca",
+      "saved": "Salvata ✓",
+      "saveDisabledTitle": "Non è possibile salvare ricerche con pillole tag/paese o il filtro Preferiti (limite del formato di salvataggio)."
+    }
   },
-  "viewer": { "title": "Foto", "close": "Chiudi"   },
+  "viewer": {
+    "title": "Foto",
+    "close": "Chiudi",
+    "favoriteOn": "Rimuovi dai preferiti",
+    "favoriteOff": "Aggiungi ai preferiti",
+    "info": "Informazioni",
+    "moreActions": "Altre azioni",
+    "prev": "Foto precedente",
+    "next": "Foto successiva",
+    "menu": {
+      "download": "Scarica originale",
+      "rotate": "Ruota",
+      "rotateToast": "Solo demo — ruoterebbe il file (l'originale sul disco non viene mai modificato).",
+      "share": "Condividi…",
+      "addToAlbum": "Aggiungi ad album",
+      "rename": "Rinomina…",
+      "delete": "Elimina…"
+    },
+    "panel": {
+      "dateTime": "{date}, ore {time}",
+      "titleLabel": "Titolo",
+      "titleOptional": "(opzionale)",
+      "titlePlaceholder": "Senza titolo",
+      "titleError": "Non è stato possibile salvare il titolo. Riprova.",
+      "ratingError": "Non è stato possibile salvare la valutazione. Riprova.",
+      "shot": "Scatto",
+      "camera": "Fotocamera",
+      "lens": "Obiettivo",
+      "exposure": "Esposizione",
+      "dimensions": "Dimensioni",
+      "rawChip": "RAW · {size} MB",
+      "jpegChip": "JPEG · {size} MB",
+      "rawOnlyChip": "RAW · {size} MB · nessun JPEG associato",
+      "position": "Posizione",
+      "noPosition": "Nessuna posizione impostata.",
+      "editPosition": "Modifica posizione…",
+      "setPosition": "Imposta posizione…",
+      "people": "Persone",
+      "faceMenu": {
+        "goToPerson": "Vai alla persona",
+        "goToPersonHint": "Apre tutte le sue foto",
+        "correct": "Correggi persona…",
+        "correctHint": "Questo volto appartiene a qualcun altro",
+        "notAFace": "Non è un volto",
+        "notAFaceHint": "Falso positivo — non verrà mai più riproposto"
+      },
+      "personCorrected": "Persona corretta.",
+      "notAFaceToast": "Segnato come \"non è un volto\" — non verrà più riproposto.",
+      "tags": "Tag",
+      "tagsPending": "In attesa di conferma",
+      "tagNoCategory": "Senza categoria",
+      "tagAdd": "+ aggiungi",
+      "tagRemove": "Rimuovi tag {name}",
+      "tagConfirm": "Conferma tag {name}",
+      "tagReject": "Rifiuta suggerimento {name}",
+      "tagConfirmedToast": "Tag confermato.",
+      "tagRejectedToast": "Suggerimento rifiutato — non verrà riproposto.",
+      "tagRemovedToast": "Tag rimosso.",
+      "tagError": "Non è stato possibile completare l'operazione. Riprova.",
+      "albums": "Album",
+      "albumAdd": "+ aggiungi",
+      "actions": "Azioni"
+    }
+  },
   "player": {
     "close": "Chiudi",
     "loading": "Preparazione riproduzione…",
@@ -160,64 +713,105 @@
   },
   "culling": {
     "entry": "Culling",
-    "title": "Culling",
-    "close": "Chiudi",
-    "ofTotal": "su {total}",
-    "empty": "Nessuna foto da rivedere.",
     "rating": {
       "group": "Valutazione",
       "star": "{n} stelle"
     },
-    "stats": {
-      "picks": "Scelte",
-      "rejects": "Scarti",
-      "pending": "Da vedere"
+    "filmstrip": {
+      "label": "Miniature del lotto",
+      "selectPhoto": "Seleziona foto {n}"
+    },
+    "selectAll": {
+      "tip": "Seleziona tutto",
+      "ariaLabel": "Seleziona tutte le foto in questo lotto (o in questo filtro, se attivo)"
+    },
+    "selectionBar": {
+      "ariaLabel": "Azioni sulla selezione del lotto",
+      "renameTip": "Rinomina…"
+    },
+    "renameLot": {
+      "button": "Rinomina lotto…",
+      "subtitle": "Tutta la cartella \"{name}\" ({n} foto)"
+    },
+    "bulk": {
+      "taken": "{n} foto presa. | {n} foto prese.",
+      "skipped": "{n} foto scartata. | {n} foto scartate."
+    },
+    "switcher": {
+      "ariaLabel": "Passa a un altro lotto"
+    },
+    "infoButton": "Dettagli foto — EXIF, posizione, rinomina",
+    "noRootConfigured": "Nessuna libreria ha ancora una cartella di culling designata.",
+    "rootLine": "Cartella di culling: {path}",
+    "rootChangeLink": "Cambia in Impostazioni",
+    "lotsTitle": "Lotti",
+    "lotsSubtitle": "Un lotto per ogni importazione — scegli e scarta, poi sincronizza la sottocartella dei presi quando arrivi in studio.",
+    "empty": "Nessun lotto qui.",
+    "lotSubtitle": "{date} · {n} foto",
+    "lotTodo": "{n} da vedere",
+    "backToLots": "Tutti i lotti",
+    "counters": {
+      "taken": "presi",
+      "skipped": "scartati",
+      "pending": "da vedere"
     },
     "filters": {
-      "label": "Filtro",
       "all": "Tutte",
-      "pending": "Da vedere",
-      "picks": "Scelte",
-      "rejects": "Scarti"
+      "todo": "Da vedere",
+      "taken": "Presi",
+      "skipped": "Scartati"
     },
-    "badges": { "pick": "Scelta", "reject": "Scarto" },
-    "filmstrip": { "label": "Miniature della sessione" },
-    "zoomLoading": "Caricamento della risoluzione piena…",
-    "deleteRejects": "Elimina i {count} scarti",
-    "deleteDialog": {
-      "title": "Elimina {count} foto",
-      "cancel": "Annulla",
-      "confirm": "Elimina",
-      "options": {
-        "kept": {
-          "label": "Rimuovi solo dall'indice",
-          "hint": "I file restano sul disco. Keeppix li reindicizzerà alla prossima scansione."
-        },
-        "moved_to_trash": {
-          "label": "Sposta nel cestino di Keeppix",
-          "hint": "Recuperabili per 30 giorni. I file vengono spostati in .keeppix-trash/ dentro la stessa libreria."
-        },
-        "purged": {
-          "label": "Elimina dal disco adesso",
-          "hint": "Irreversibile."
-        }
-      }
+    "state": {
+      "pending": "Da valutare",
+      "taken": "Presi",
+      "skipped": "Scartati"
+    },
+    "prev": "Foto precedente",
+    "next": "Foto successiva",
+    "keyhint": "← → naviga · shift+← → seleziona intervallo · 1-5 rating · P scegli · X scarta",
+    "pick": "Scelta",
+    "reject": "Scarta",
+    "emptyFilter": {
+      "title": "Niente da mostrare con questo filtro",
+      "subtitle": "Cambia filtro qui sopra, oppure torna a \"Tutte\"."
+    },
+    "emptySkipped": {
+      "button": "Svuota scartati ({n})",
+      "title": "Svuotare gli scartati di \"{name}\"?",
+      "description": "{n} foto verranno eliminate definitivamente da questo lotto. Le foto già prese non sono toccate — è pensato apposta come passaggio prima di sincronizzare il lotto in studio.",
+      "done": "Foto scartate eliminate dal lotto.",
+      "partialError": "Non è stato possibile eliminare {n} foto. Riprova."
     }
   },
   "problems": {
     "title": "Problemi",
-    "offlineLibraries": "Librerie offline",
-    "failedJobs": "Job falliti",
-    "errorAssets": "File illeggibili",
-    "duplicates": "Duplicati",
-    "none": "Niente da segnalare.",
-    "reclaimable": "{count} copie, {bytes} byte recuperabili",
+    "subtitle": "{n} elemento richiede attenzione | {n} elementi richiedono attenzione",
+    "emptyTitle": "Nessun problema rilevato",
+    "emptySubtitle": "File corrotti, librerie offline o job falliti compariranno qui.",
+    "ignored": "Problema ignorato.",
+    "verifying": "Verifica della connessione in corso…",
+    "reconnected": "Connessione ripristinata — {name} di nuovo online.",
+    "stillOffline": "{name} è ancora offline. Riprova più tardi.",
+    "details": {
+      "title": "Libreria offline: dettagli",
+      "intro": "Keeppix indicizza questa libreria da un percorso specifico sul disco; se quel percorso non è raggiungibile, la libreria risulta offline.",
+      "lastContact": "Ultimo contatto riuscito: {when}",
+      "never": "mai",
+      "path": "Percorso:",
+      "explain": "Le foto già indicizzate restano visibili dalla cache locale; import e culling di nuovi file sono sospesi finché il percorso non torna raggiungibile.",
+      "close": "Chiudi"
+    },
     "timezones": "Ricalcolo fusi orari",
     "tzLibrary": "Libreria",
     "tzPreview": "Anteprima",
     "tzCount": "{count} foto da correggere",
     "tzApply": "Applica correzioni",
     "tzDone": "{count} foto corrette."
+  },
+  "problemFiles": {
+    "openLabel": "Apri",
+    "open": "Apri {name}",
+    "close": "Chiudi"
   },
   "groups": {
     "entry": "Gruppi",
@@ -231,21 +825,139 @@
   "albums": {
     "entry": "Album",
     "title": "Album",
-    "namePlaceholder": "Nome dell'album",
-    "create": "Crea",
-    "empty": "Nessun album.",
-    "assetCount": "{count} foto",
-    "delete": "Elimina"
+    "subtitle": "Selezioni curate, trasversali alle cartelle",
+    "createButton": "Crea album",
+    "create": {
+      "title": "Crea album",
+      "subtitle": "Selezione trasversale alle cartelle — manuale, oppure basata su un filtro applicato subito: le condizioni restano salvate, potrai rilanciarle in seguito con \"Aggiorna album\".",
+      "nameLabel": "Nome album",
+      "namePlaceholderHint": "Es. Migliori scatti, Tramonti, Ritratti…",
+      "collectionTypeLabel": "Tipo di raccolta",
+      "manual": "Manuale",
+      "filterBased": "Basato su filtro",
+      "manualExplain": "Album vuoto: aggiungerai le foto in un secondo momento, dalla selezione multipla → \"Aggiungi ad album\".",
+      "filterExplain": "Il filtro viene applicato subito: le foto corrispondenti entrano nell'album. Le condizioni restano salvate — potrai rilanciarle in qualsiasi momento con \"Aggiorna album\" nel dettaglio.",
+      "operatorLabel": "Operatore tra condizioni",
+      "operatorAnd": "Tutte le condizioni (AND)",
+      "operatorOr": "Almeno una (OR)",
+      "fieldLabel": {
+        "folder": "Cartella",
+        "date_range": "Intervallo di date",
+        "country": "Paese",
+        "camera": "Fotocamera",
+        "lens": "Obiettivo",
+        "type": "Tipo file",
+        "favorite": "Preferiti",
+        "rating": "Valutazione minima",
+        "pick": "Pick / Scarta"
+      },
+      "choose": "Scegli…",
+      "dateFrom": "Da",
+      "dateTo": "A",
+      "countryPlaceholder": "Es. IT",
+      "cameraPlaceholder": "Es. Canon EOS R5",
+      "lensPlaceholder": "Es. RF 24-70mm",
+      "typeRaw": "RAW",
+      "typeJpeg": "JPEG",
+      "favoriteYes": "È un preferito",
+      "favoriteNo": "Non è un preferito",
+      "pickPick": "Pick",
+      "pickReject": "Scarta",
+      "pickNone": "Non ancora deciso",
+      "folderPicklistAll": "Tutte — cartella",
+      "folderPicklistN": "{n} selezionate",
+      "addCondition": "Aggiungi condizione",
+      "removeCondition": "Rimuovi questa condizione",
+      "previewSuffix": "foto corrispondono al filtro attuale",
+      "submit": "Crea album",
+      "cancel": "Annulla",
+      "errorName": "Dai un nome all'album prima di crearlo.",
+      "errorCondition": "Aggiungi almeno una condizione, oppure passa a \"Manuale\".",
+      "success": "Album \"{name}\" creato.",
+      "error": "Non è stato possibile creare l'album. Riprova."
+    },
+    "sharedBadge": "condiviso",
+    "dynamicBadge": "dinamico",
+    "dynamicBadgeTooltip": "Album dinamico: l'appartenenza si aggiorna da sola in base al filtro",
+    "cardSubtitle": "{count} foto · {range}",
+    "noMatch": "nessuna foto corrisponde",
+    "noPhotosYet": "nessuna foto ancora",
+    "emptyTitle": "Nessun album ancora",
+    "emptySubtitle": "Crea il tuo primo album per raccogliere foto trasversalmente alle cartelle.",
+    "backLink": "Tutti gli album",
+    "detail": {
+      "sharedSuffix": " · condiviso",
+      "dynamicSuffix": " · si aggiorna da solo in base al filtro",
+      "refresh": "Aggiorna album",
+      "refreshDone": "Album aggiornato.",
+      "refreshError": "Non è stato possibile aggiornare l'album. Riprova.",
+      "emptyDynamicTitle": "Nessuna foto corrisponde al filtro",
+      "emptyDynamicSubtitle": "Torna indietro e allarga le condizioni — per esempio passando da \"Tutte\" ad \"Almeno una\".",
+      "emptyManualTitle": "Album vuoto",
+      "emptyManualSubtitle": "Seleziona una o più foto in Timeline, poi \"Aggiungi ad album\" dalla barra di selezione."
+    }
+  },
+  "albumPicker": {
+    "title": "Aggiungi ad album",
+    "subtitle": "{n} elemento selezionato — attiva/disattiva un album per aggiungere o rimuovere tutti gli elementi | {n} elementi selezionati — attiva/disattiva un album per aggiungere o rimuovere tutti gli elementi",
+    "done": "Fatto",
+    "error": "Non è stato possibile aggiornare l'album. Riprova."
+  },
+  "cullingRootPicker": {
+    "title": "Scegli la cartella radice di culling",
+    "subtitle": "Dentro, ogni sottocartella diventa un lotto — Keeppix crea da sola le sottocartelle dei presi/scartati quando servono.",
+    "rootCrumb": "/",
+    "empty": "Nessuna sottocartella qui.",
+    "confirm": "Usa questa cartella",
+    "cancel": "Annulla"
+  },
+  "personPicker": {
+    "title": "Assegna persona",
+    "searchLabel": "Cerca o crea una persona",
+    "placeholder": "Cerca o crea una persona…",
+    "empty": "Nessuna persona trovata.",
+    "unnamed": "Persona senza nome",
+    "create": "Crea persona \"{name}\"",
+    "error": "Non è stato possibile completare l'operazione. Riprova."
   },
   "shares": {
     "entry": "Condivisioni",
-    "title": "Condivisioni",
+    "tabs": {
+      "mine": "Le mie condivisioni",
+      "shared": "Condivisi con me"
+    },
+    "mine": {
+      "peopleTitle": "Persone",
+      "peopleSubtitle": "Ruoli: Visualizzatore (solo consultazione) o Editor (può modificare, caricare, spostare nel cestino)",
+      "invite": "Invita",
+      "inheritedFrom": "Ereditato in {on}",
+      "linksSubtitle": "Chiunque abbia il link può vedere questi contenuti; metadati ed EXIF nascosti di default senza password",
+      "copy": "Copia",
+      "copied": "Link copiato negli appunti.",
+      "copyError": "Non è stato possibile copiare il link.",
+      "noExpiry": "nessuna scadenza",
+      "expiresOn": "scade il {date}",
+      "passwordActive": "password attiva",
+      "originalOn": "download originale attivo",
+      "originalOff": "download originale off",
+      "itemCount": "{n} elemento | {n} elementi",
+      "foldersTitle": "Cartelle e album condivisi",
+      "sharedBadge": "condiviso",
+      "typeFolder": "Cartella",
+      "typeAlbum": "Album",
+      "typeAsset": "Foto",
+      "unknownObject": "Elemento non più disponibile"
+    },
+    "shared": {
+      "title": "Condivisi con te",
+      "emptyTitle": "Niente condiviso con te",
+      "emptySubtitle": "Quando qualcuno ti invita a una cartella o un album, comparirà qui — senza mai esporre il percorso reale sul disco.",
+      "fromOwner": "da {owner}",
+      "subtitle": "{type} · {n} elementi · tu: {role}"
+    },
     "linksTitle": "Link pubblici",
-    "peopleTitle": "Persone e gruppi",
     "empty": "Nessun link condiviso.",
-    "expires": "Scade il {date}",
     "revoke": "Revoca",
-    "views": "{count} visite",
     "folder": "Cartella",
     "chooseFolder": "Scegli una cartella",
     "subjectType": "Condividi con",
@@ -263,7 +975,22 @@
     "explain": "Spiega",
     "explainNone": "Nessun accesso.",
     "explainLink": "{subject} ha ruolo {role} su {on}",
-    "explainLinkInherited": "{subject} ha ruolo {role} su {on}, ereditato in {inherited}"
+    "explainLinkInherited": "{subject} ha ruolo {role} su {on}, ereditato in {inherited}",
+    "dialog": {
+      "title": "Condividi {n} elemento | Condividi {n} elementi",
+      "subtitle": "Concedi accesso a persone già invitate, oppure crea un link pubblico solo per questa selezione.",
+      "peopleTitle": "Persone",
+      "linkSectionTitle": "Link pubblico",
+      "linkSectionSubtitle": "Sola visualizzazione, senza condividere l'intera cartella o album di provenienza.",
+      "createLink": "Crea link di condivisione",
+      "done": "Fatto",
+      "granted": "Condiviso con {name}.",
+      "revoked": "Accesso rimosso a {name}.",
+      "linkCreated": "Link creato e copiato negli appunti.",
+      "error": "Non è stato possibile completare l'operazione.",
+      "role": "Visualizzatore",
+      "autoAlbumName": "Selezione condivisa del {date}"
+    }
   },
   "users": {
     "entry": "Utenti",
@@ -452,28 +1179,113 @@
       "disableFailed": "Impossibile disattivare il 2FA."
     }
   },
+  "duplicates": {
+    "entry": "Duplicati",
+    "title": "Duplicati",
+    "subtitle": "{n} gruppo · {m} file coinvolti · fino a {mb} MB recuperabili tenendo una sola copia per gruppo | {n} gruppi · {m} file coinvolti · fino a {mb} MB recuperabili tenendo una sola copia per gruppo",
+    "emptyTitle": "Nessun duplicato trovato",
+    "emptySubtitle": "Keeppix confronta l'hash del contenuto dei file, non solo il nome — trova copie identiche anche se rinominate o in cartelle diverse.",
+    "groupTitle": "{n} file identici (stesso hash del contenuto)",
+    "groupSubtitle": "{mb} MB recuperabili se tieni solo la copia evidenziata",
+    "keepLabel": "Mantieni {name}",
+    "discardLabel": "Segna come duplicato da eliminare, mantieni invece {name}",
+    "resolve": "Risolvi gruppo",
+    "ignore": "Ignora",
+    "resolveTitle": "Eliminare {n} copia duplicata? | Eliminare {n} copie duplicate?",
+    "resolved": "{n} copia rimossa, mantenuta {name}. | {n} copie rimosse, mantenuta {name}.",
+    "ignored": "Gruppo ignorato — non verrà più segnalato.",
+    "actionError": "Non è stato possibile completare l'operazione. Riprova."
+  },
   "trash": {
     "entry": "Cestino",
     "title": "Cestino",
-    "empty": "Il cestino è vuoto.",
+    "subtitle": "{n} elemento · eliminazione definitiva dopo 30 giorni | {n} elementi · eliminazione definitiva dopo 30 giorni",
     "emptyAll": "Svuota cestino",
+    "emptyTitle": "Il cestino è vuoto",
+    "emptySubtitle": "Gli elementi spostati qui — dal visualizzatore o dalla barra di selezione, scegliendo \"Sposta nel cestino di Keeppix\" — restano recuperabili per 30 giorni.",
+    "daysRemaining": "{n} giorno rimanente | {n} giorni rimanenti",
     "restore": "Ripristina",
     "purge": "Elimina definitivamente",
-    "expires": "Scade il {date}"
+    "actionError": "Non è stato possibile completare l'operazione. Riprova."
   },
   "batchEdit": {
-    "title": "Modifica in blocco",
-    "count": "{count} foto selezionate",
-    "fieldPlaceholder": "Nome campo",
-    "valuePlaceholder": "Nuovo valore",
-    "place": "Posizione",
+    "title": "Modifica multipla",
+    "subtitle": "{n} foto selezionata — ogni campo si applica a tutte, lasciane uno \"invariato\" per non toccarlo. | {n} foto selezionate — ogni campo si applica a tutte, lasciane uno \"invariato\" per non toccarlo.",
+    "emptyTitle": "Nessuna foto selezionata",
+    "emptySubtitle": "Torna alla Timeline, seleziona una o più foto, poi premi \"Modifica\".",
+    "unchanged": "Non modificare",
+    "rating": {
+      "label": "Valutazione",
+      "hint": "Imposta lo stesso rating per tutte — 0 stelle = non modificare",
+      "star": "{n} stelle"
+    },
+    "pickReject": {
+      "label": "Pick / Scarta",
+      "hint": "Segna soltanto — per eliminare davvero le foto usa \"Elimina\" nella barra di selezione",
+      "pick": "Pick",
+      "reject": "Scarta",
+      "none": "Nessuno"
+    },
+    "favorites": {
+      "label": "Preferiti",
+      "add": "Aggiungi",
+      "remove": "Rimuovi"
+    },
+    "album": {
+      "label": "Album",
+      "hint": "Aggiungi o rimuovi tutte le foto selezionate da uno o più album",
+      "button": "Scegli album…"
+    },
+    "tag": {
+      "label": "Tag",
+      "hint": "Aggiungi o rimuovi tag da tutte le foto selezionate — un'aggiunta manuale è già una conferma, non passa dalla coda di revisione",
+      "button": "Aggiungi tag…"
+    },
+    "titleField": {
+      "label": "Titolo",
+      "hint": "Imposta lo stesso titolo per tutte — lascia vuoto per non modificarlo"
+    },
+    "rename": {
+      "label": "Rinomina file",
+      "hint": "Rinomina tutte le foto selezionate con una formula — data, fotocamera, titolo, numero progressivo…",
+      "button": "Rinomina con formula…"
+    },
+    "folder": {
+      "label": "Sposta in cartella",
+      "ariaLabel": "Sposta le foto selezionate in questa cartella"
+    },
+    "apply": "Applica a {n} foto",
+    "cancel": "Annulla",
+    "appliedToast": "Modifiche applicate a {n} foto."
+  },
+  "tagPicker": {
+    "title": "Aggiungi tag",
+    "subtitle": "{n} elemento selezionato — attiva/disattiva un tag per aggiungerlo o toglierlo da tutti | {n} elementi selezionati — attiva/disattiva un tag per aggiungerlo o toglierlo da tutti",
+    "done": "Fatto",
+    "error": "Non è stato possibile aggiornare il tag. Riprova."
+  },
+  "renameFormula": {
+    "title": "Rinomina con formula",
+    "subtitle": "{n} foto selezionata | {n} foto selezionate",
+    "subtitleSingle": "1 foto — {filename}",
+    "includeSubfolders": "Includi anche presi e scartati, non solo da valutare",
+    "schemaLabel": "Schema del nome file",
+    "token": {
+      "data": "Data",
+      "fotocamera": "Fotocamera",
+      "obiettivo": "Obiettivo",
+      "luogo": "Luogo",
+      "titolo": "Titolo",
+      "counter": "Numero (001)"
+    },
+    "previewLabel": "Anteprima",
+    "previewHint": "(prime foto)",
+    "emptyScope": "Nessuna foto in questo ambito.",
+    "collisionWarning": "{n} nomi risulterebbero uguali tra loro — aggiungi {'{'}n:3{'}'} o un altro campo che li distingua prima di applicare.",
     "apply": "Applica",
-    "copyLocation": "Copia posizione da un'altra foto",
-    "copySourcePlaceholder": "ID della foto sorgente",
-    "importGpx": "Importa traccia GPX",
-    "gpxPlaceholder": "Incolla il contenuto GPX…",
-    "gpxTolerance": "Tolleranza (min)",
-    "done": "Modifiche applicate."
+    "cancel": "Annulla",
+    "renamedToast": "{n} foto rinominata. | {n} foto rinominate.",
+    "error": "Non è stato possibile rinominare le foto. Riprova."
   },
   "shared": {
     "title": "Contenuto condiviso",
@@ -489,26 +1301,65 @@
     "createLink": "Crea link"
   },
   "upload": {
-    "title": "Caricamenti",
-    "collapse": "Riduci",
-    "expand": "Espandi",
-    "clearCompleted": "Rimuovi completati",
+    "title": "Caricamento di nuove foto",
+    "clearCompleted": "Pulisci completate",
+    "cancelAll": "Annulla tutto",
     "retry": "Riprova",
     "pause": "Pausa",
     "resume": "Riprendi",
-    "progress": "{received} di {total}",
-    "status": {
-      "queued": "In attesa…",
-      "uploading": "Caricamento…",
+    "close": "Chiudi il pannello",
+    "destination": {
+      "label": "Destinazione",
+      "missing": "Scegli una cartella",
+      "missingHint": "Le foto restano in coda finché non scegli dove metterle."
+    },
+    "drop": {
+      "title": "Rilascia le foto qui",
+      "subtitle": "Poi scegli in quale cartella metterle. Foto sviluppate e video: i RAW si caricano dal Culling."
+    },
+    "dropRejectedInCulling": "Il Culling ha un suo percorso di importazione: qui non si rilasciano file.",
+    "uploadButton": "Carica",
+    "uploadTooltip": "Carica foto o video",
+    "dock": {
+      "needsDestination": "Scegli dove",
       "paused": "In pausa",
-      "done": "Completato",
-      "error": "Non riuscito",
-      "skipped": "Già in libreria"
+      "uploading": "Caricamento",
+      "done": "Caricate",
+      "ariaLabel": "{label}, {finished} di {total}. Apri il pannello dei caricamenti"
+    },
+    "panel": {
+      "titleNeedsDestination": "In attesa di una destinazione",
+      "titlePaused": "Caricamento in pausa",
+      "titleUploading": "Caricamento in corso",
+      "titleDone": "Caricamento completato"
+    },
+    "row": {
+      "queued": "in coda",
+      "paused": "in pausa",
+      "badgeDone": "Completato",
+      "badgeSkipped": "Saltato",
+      "badgeError": "Errore"
+    },
+    "footer": {
+      "done": "{n} caricata | {n} caricate",
+      "skipped": "{n} saltata | {n} saltate",
+      "error": "{n} non riuscita | {n} non riuscite"
+    },
+    "rejectedRaw": {
+      "title": "1 file RAW non caricato | {n} file RAW non caricati",
+      "explanation": "I RAW entrano in Keeppix dal Culling, dove li scegli prima di importarli. Da qui si caricano solo foto già sviluppate e video.",
+      "openCulling": "Apri Culling",
+      "andMore": "e un altro | e altri {n}"
+    },
+    "rejectedUnsupported": {
+      "title": "1 file di formato non supportato | {n} file di formato non supportato",
+      "explanation": "Keeppix accetta JPEG, PNG, TIFF, WebP, HEIF/HEIC e video MP4 o MOV."
     },
     "collision": {
-      "skipped_duplicate": "Già presente in libreria",
+      "skipped_duplicate": "già in libreria",
       "renamed": "Salvato come {filename}"
     },
+    "seeExisting": "Vedi quella presente",
     "errors": {
       "expired": "Questo caricamento è scaduto e non può essere ripreso.",
       "missingFile": "Seleziona di nuovo il file per riprendere questo caricamento.",
@@ -524,6 +1375,29 @@
     "retry": "Riprova",
     "language": "Lingua",
     "languageIt": "Italiano",
-    "languageEn": "English"
+    "languageEn": "English",
+    "back": "Indietro"
+  },
+  "errors": {
+    "unreachable": {
+      "title": "Impossibile raggiungere il server",
+      "reassurance": "Le foto restano al sicuro: è la connessione ad aver fallito, non i file."
+    },
+    "permission-denied": {
+      "title": "Permesso negato",
+      "reassurance": "Le foto restano al sicuro: manca solo il permesso per leggerle da qui."
+    },
+    "file-missing": {
+      "title": "File non trovato",
+      "reassurance": "Il resto della libreria non è interessato: solo questo file risulta assente sul disco."
+    },
+    "timeout": {
+      "title": "La richiesta ha impiegato troppo tempo",
+      "reassurance": "Le foto restano al sicuro: la richiesta è scaduta, non ha modificato nulla."
+    },
+    "unknown": {
+      "title": "Errore imprevisto",
+      "reassurance": "Le foto restano al sicuro: il problema riguarda solo questa richiesta."
+    }
   }
 }

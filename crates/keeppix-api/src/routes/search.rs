@@ -1,7 +1,7 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use keeppix_db::{FlagRepo, SearchNode, SearchRepo, Suggestion, SuggestionKind};
+use keeppix_db::{SearchNode, SearchRepo, Suggestion, SuggestionKind};
 use keeppix_domain::AssetId;
 use keeppix_media::{MobileClip, first_complete_model_dir};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::extract::{Auth, SessionNotShare};
 use crate::json::Json;
 use crate::problem::Problem;
-use crate::routes::timeline::{AssetView, encode_cursor};
+use crate::routes::timeline::{AssetView, encode_cursor, enrich_views};
 use crate::state::AppState;
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -133,13 +133,8 @@ pub async fn run(
     let next_cursor = filled
         .then(|| assets.last().map(|a| encode_cursor(a)))
         .flatten();
-    let ids: Vec<AssetId> = assets.iter().map(|a| a.id).collect();
-    let favorites = FlagRepo::new(&state.db).favorites_among(&ctx, &ids).await?;
     Ok(Json(SearchPage {
-        assets: assets
-            .iter()
-            .map(|a| AssetView::from_asset_with_stack(a).with_favorite(favorites.contains(&a.id)))
-            .collect(),
+        assets: enrich_views(&state, &ctx, &assets).await?,
         next_cursor,
     }))
 }

@@ -416,3 +416,51 @@ pub async fn refresh(
     succeeded.extend(refresh.removed);
     Ok(Json(BulkOutcome::from_partition(succeeded, &[], None)))
 }
+
+/// Un album di cui un asset è membro, come lo mostra la sezione ALBUM del
+/// pannello informazioni del lightbox (Fase 11 Task 8, §19.2 campo 18) —
+/// solo id e nome: i chip non sono cliccabili e non distinguono manuale da
+/// dinamico (il documento è esplicito su questo).
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AlbumBadgeView {
+    pub id: String,
+    pub name: String,
+}
+
+impl From<keeppix_db::AlbumBadge> for AlbumBadgeView {
+    fn from(a: keeppix_db::AlbumBadge) -> Self {
+        Self {
+            id: a.id.to_string(),
+            name: a.name,
+        }
+    }
+}
+
+/// Fase 11 Task 8 (§19.2 campo 18): la freccia opposta di
+/// [`list_assets`] — dato un asset, a quali album appartiene già. Nessuna
+/// ricerca del genere esisteva prima d'ora (verificato: [`AlbumRepo`] va
+/// solo album→asset).
+///
+/// # Errors
+/// `401` se non autenticato.
+#[utoipa::path(
+    get,
+    path = "/api/v1/assets/{id}/albums",
+    tag = "albums",
+    operation_id = "assets_list_albums",
+    summary = "List the albums (manual and dynamic) an asset already belongs to",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id asset")),
+    responses(
+        (status = 200, description = "Album di cui l'asset è membro, per nome", body = Vec<AlbumBadgeView>),
+        (status = 401, description = "Non autenticato", body = Problem)
+    )
+)]
+pub async fn list_for_asset(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    Path(asset_id): Path<AssetId>,
+) -> Result<Json<Vec<AlbumBadgeView>>, Problem> {
+    let albums = AlbumRepo::new(&state.db).for_asset(&ctx, asset_id).await?;
+    Ok(Json(albums.into_iter().map(AlbumBadgeView::from).collect()))
+}

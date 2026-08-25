@@ -4,10 +4,10 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, Utc};
 use keeppix_db::{
-    AssetRepo, AssetWithStack, FlagRepo, Geometry, GeometryRecord, GeometryStamp, OverrideRepo,
-    TimelineRepo,
+    AssetRepo, AssetTagRepo, AssetWithStack, ConfirmedFace, ConfirmedTag, FaceRepo, FlagRepo,
+    Geometry, GeometryRecord, GeometryStamp, OverrideRepo, TimelineRepo,
 };
-use keeppix_domain::{Asset, AssetId, AssetKind, LibraryId};
+use keeppix_domain::{Asset, AssetId, AssetKind, AuthContext, LibraryId};
 use serde::{Deserialize, Serialize};
 
 use crate::extract::SessionNotShare;
@@ -77,6 +77,27 @@ pub struct AssetView {
     /// [`Self::with_favorite`] usando il set del chiamante
     /// (`FlagRepo::get`/`favorites_among`). Campo additivo.
     pub favorite: bool,
+    /// Fotocamera confermata sull'exif (Fase 11 Task 7, SP-3 §11,
+    /// dimensione "Fotocamera"). `None` se l'asset non ha `asset_exif`
+    /// leggibile o l'exif non porta il modello. Campo additivo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_model: Option<String>,
+    /// Tag confermati (Fase 11 Task 7, SP-3 §11, dimensioni "Tag"/
+    /// "Categorie") — solo `state='confirmed'`, mai proposte in attesa.
+    /// Vuoto, mai assente: `[]` se l'asset non ha tag o se pgvector non è
+    /// installato. Campo additivo.
+    pub tags: Vec<AssetTagBadgeView>,
+    /// Volti confermati (Fase 11 Task 7, SP-3 §11, dimensione "Persone") —
+    /// `person_id IS NOT NULL AND rejected_at IS NULL`, assegnato a mano o
+    /// dal raggruppamento automatico. Vuoto, mai assente. Campo additivo.
+    pub faces: Vec<AssetFaceBadgeView>,
+    /// EXIF completo (Fase 11 Task 8, §19.2 sezione "SCATTO") — popolato
+    /// **solo** da [`asset`] (dettaglio di un asset alla volta, il
+    /// lightbox), mai da [`page`]/`/search`: un giro di query in più per
+    /// ogni riga di ogni pagina della timeline non serve a nessuno lì.
+    /// Campo additivo, sempre assente (non `null`) sulle viste bulk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_exif: Option<AssetExifDetailView>,
 }
 
 impl AssetView {
@@ -98,6 +119,10 @@ impl AssetView {
             stack_size: 1,
             raw_kind: default_raw_kind(a.kind).map(str::to_owned),
             favorite: false,
+            camera_model: None,
+            tags: Vec::new(),
+            faces: Vec::new(),
+            full_exif: None,
         }
     }
 
@@ -125,6 +150,154 @@ impl AssetView {
         self.favorite = favorite;
         self
     }
+
+    pub(crate) fn with_camera(mut self, camera_model: Option<String>) -> Self {
+        self.camera_model = camera_model;
+        self
+    }
+
+    pub(crate) fn with_tags(mut self, tags: Vec<AssetTagBadgeView>) -> Self {
+        self.tags = tags;
+        self
+    }
+
+    pub(crate) fn with_faces(mut self, faces: Vec<AssetFaceBadgeView>) -> Self {
+        self.faces = faces;
+        self
+    }
+
+    pub(crate) fn with_full_exif(mut self, full_exif: Option<AssetExifDetailView>) -> Self {
+        self.full_exif = full_exif;
+        self
+    }
+}
+
+/// EXIF completo di un asset (Fase 11 Task 8, §19.2 campi 6-9) — a
+/// differenza di [`AssetView::camera_model`] (una stringa sola, per SP-3),
+/// il lightbox mostra obiettivo, esposizione (diaframma/tempo/ISO) e
+/// focale.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct AssetExifDetailView {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_make: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lens: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iso: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub f_number: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exposure: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focal_length: Option<f32>,
+}
+
+impl From<keeppix_db::AssetExifDetail> for AssetExifDetailView {
+    fn from(e: keeppix_db::AssetExifDetail) -> Self {
+        Self {
+            camera_make: e.camera_make,
+            camera_model: e.camera_model,
+            lens: e.lens,
+            iso: e.iso,
+            f_number: e.f_number,
+            exposure: e.exposure,
+            focal_length: e.focal_length,
+        }
+    }
+}
+
+/// Un tag confermato, come SP-3 §11 lo mostra: nome e colore per la chip,
+/// `category_id` per l'AND fra le dimensioni "Tag"/"Categorie" — mai
+/// bisogno di un secondo giro sul tag per risolvere la sua categoria.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct AssetTagBadgeView {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category_id: Option<String>,
+}
+
+impl From<ConfirmedTag> for AssetTagBadgeView {
+    fn from(tag: ConfirmedTag) -> Self {
+        Self {
+            id: tag.tag_id.to_string(),
+            name: tag.name,
+            color: tag.color,
+            category_id: tag.category_id.map(|id| id.to_string()),
+        }
+    }
+}
+
+/// Un volto confermato, come SP-3 §11 lo mostra: solo l'identità della
+/// persona (bbox/punteggi non servono a un chip di filtro).
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct AssetFaceBadgeView {
+    pub person_id: String,
+    /// `None` per una persona senza nome ("Persona 4" — l'etichetta di
+    /// fallback è compito del frontend, come già per le altre schermate
+    /// Persone).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_name: Option<String>,
+}
+
+impl From<ConfirmedFace> for AssetFaceBadgeView {
+    fn from(face: ConfirmedFace) -> Self {
+        Self {
+            person_id: face.person_id.to_string(),
+            person_name: face.person_name,
+        }
+    }
+}
+
+/// Arricchisce una pagina di `AssetWithStack` con tutto ciò che `AssetView`
+/// porta per-chiamante o fuori dalla tabella `assets` — preferito,
+/// fotocamera, tag e volti confermati (Fase 11 Task 7, SP-3). Una query
+/// bulk per ciascuno, mai una per riga (stesso idioma di
+/// `FlagRepo::favorites_among`). Estratta qui perché `/timeline` e
+/// `/search` costruivano questa stessa sequenza duplicata prima di questa
+/// funzione — non duplicata di nuovo aggiungendo i tre nuovi campi.
+///
+/// # Errors
+/// Propaga l'errore del primo bulk-fetch che fallisce.
+pub(crate) async fn enrich_views(
+    state: &AppState,
+    ctx: &AuthContext,
+    assets: &[AssetWithStack],
+) -> Result<Vec<AssetView>, Problem> {
+    let ids: Vec<AssetId> = assets.iter().map(|a| a.id).collect();
+    let favorites = FlagRepo::new(&state.db).favorites_among(ctx, &ids).await?;
+    let cameras = AssetRepo::new(&state.db).camera_models_among(&ids).await?;
+    let tags = AssetTagRepo::new(&state.db).confirmed_among(&ids).await?;
+    let faces = FaceRepo::new(&state.db).confirmed_among(&ids).await?;
+    Ok(assets
+        .iter()
+        .map(|a| {
+            AssetView::from_asset_with_stack(a)
+                .with_favorite(favorites.contains(&a.id))
+                .with_camera(cameras.get(&a.id).cloned())
+                .with_tags(
+                    tags.get(&a.id)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .with_faces(
+                    faces
+                        .get(&a.id)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+        })
+        .collect())
 }
 
 /// Badge di un asset non impilato, derivato dal suo `kind`: nessun aggregato
@@ -183,12 +356,39 @@ pub async fn asset(
     let asset = AssetRepo::new(&state.db).find_by_id(&ctx, id).await?;
     let effective = OverrideRepo::new(&state.db).effective(&ctx, id).await?;
     let flags = FlagRepo::new(&state.db).get(&ctx, id).await?;
+    let ids = [id];
+    let camera = AssetRepo::new(&state.db)
+        .camera_models_among(&ids)
+        .await?
+        .remove(&id);
+    let tags = AssetTagRepo::new(&state.db).confirmed_among(&ids).await?;
+    let faces = FaceRepo::new(&state.db).confirmed_among(&ids).await?;
+    let full_exif = AssetRepo::new(&state.db).exif_for(id).await?;
     let view = AssetView::from_asset(&asset)
         .with_location(
             effective.location.map(GeoPointView::from),
             effective.place_id,
         )
-        .with_favorite(flags.favorite);
+        .with_favorite(flags.favorite)
+        .with_camera(camera)
+        .with_tags(
+            tags.get(&id)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        )
+        .with_faces(
+            faces
+                .get(&id)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        )
+        .with_full_exif(full_exif.map(AssetExifDetailView::from));
     Ok(Json(view))
 }
 
@@ -456,13 +656,8 @@ pub async fn page(
     let next_cursor = filled
         .then(|| assets.last().map(|a| encode_cursor(a)))
         .flatten();
-    let ids: Vec<AssetId> = assets.iter().map(|a| a.id).collect();
-    let favorites = FlagRepo::new(&state.db).favorites_among(&ctx, &ids).await?;
     Ok(Json(TimelinePage {
-        assets: assets
-            .iter()
-            .map(|a| AssetView::from_asset_with_stack(a).with_favorite(favorites.contains(&a.id)))
-            .collect(),
+        assets: enrich_views(&state, &ctx, &assets).await?,
         next_cursor,
     }))
 }

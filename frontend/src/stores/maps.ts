@@ -19,6 +19,13 @@ export interface MapCluster {
   count: number
   cover_asset_id: string
   clustered: boolean
+  /** Id della cartella di `cover_asset_id` — per "Apri cartella" dal
+   * popover della mappa (Task 10, §27) senza una seconda richiesta. */
+  folder_id: string
+  /** Etichetta leggibile del luogo (geocodifica inversa) — assente
+   * (`serde(skip_serializing_if)`, mai `null`) finché l'asset di
+   * copertina non ha un luogo assegnato. */
+  place_label?: string
 }
 
 export interface MapRegion {

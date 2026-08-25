@@ -1,9 +1,11 @@
 pub mod albums;
+pub mod asset_move;
 pub mod audit;
 pub mod auth;
 pub mod backup;
 pub mod bootstrap;
 pub mod credentials;
+pub mod culling;
 pub mod duplicates;
 pub mod faces;
 pub mod flags;

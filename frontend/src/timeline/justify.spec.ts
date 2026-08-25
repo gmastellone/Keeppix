@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { bucketMinHeight, clampDensity, justify } from './justify'
+import { clampDensity, justify } from './justify'
 
 describe('justify', () => {
   it('keeps a panorama wider than a portrait in the same row', () => {
@@ -35,16 +35,15 @@ describe('justify', () => {
 })
 
 describe('clampDensity', () => {
-  it('stays inside 2–12', () => {
+  it('stays inside 2–12 on desktop (default)', () => {
     expect(clampDensity(1)).toBe(2)
     expect(clampDensity(12.4)).toBe(12)
     expect(clampDensity(7.2)).toBe(7)
   })
-})
 
-describe('bucketMinHeight', () => {
-  it('reserves a row per density-worth of assets before photos load', () => {
-    expect(bucketMinHeight(12, 600, 6)).toBe(200)
-    expect(bucketMinHeight(13, 600, 6)).toBe(300)
+  it('stays inside 2–6 on mobile (§60.2)', () => {
+    expect(clampDensity(1, true)).toBe(2)
+    expect(clampDensity(9, true)).toBe(6)
+    expect(clampDensity(4.4, true)).toBe(4)
   })
 })

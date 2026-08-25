@@ -244,8 +244,8 @@ async fn documented_operations_are_all_mounted() {
     // Senza questo, un documento vuoto — o un `paths` che smette di essere un
     // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
     assert_eq!(
-        checked, 174,
-        "il documento deve descrivere centosettantaquattro operazioni"
+        checked, 184,
+        "il documento deve descrivere centottantaquattro operazioni"
     );
 }
 
@@ -304,19 +304,23 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/albums/{id}/assets/{asset_id}/position",
             "/api/v1/albums/{id}/refresh",
             "/api/v1/assets/batch/delete",
+            "/api/v1/assets/batch/move",
             "/api/v1/assets/batch/rename",
             "/api/v1/assets/batch/rename/preview",
             "/api/v1/assets/batch/rename/{batch_id}/undo",
             "/api/v1/assets/{id}",
             "/api/v1/assets/{id}",
+            "/api/v1/assets/{id}/albums",
             "/api/v1/assets/{id}/faces",
             "/api/v1/assets/{id}/flags",
             "/api/v1/assets/{id}/flags",
             "/api/v1/assets/{id}/metadata",
             "/api/v1/assets/{id}/metadata",
+            "/api/v1/assets/{id}/pick",
             "/api/v1/assets/{id}/restore",
             "/api/v1/assets/{id}/stack",
             "/api/v1/assets/{id}/stack/primary",
+            "/api/v1/assets/{id}/tags",
             "/api/v1/audit",
             "/api/v1/auth/me",
             "/api/v1/auth/refresh",
@@ -334,6 +338,7 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/backup/run",
             "/api/v1/backup/runs",
             "/api/v1/bootstrap",
+            "/api/v1/culling/lots/{id}/empty-skipped",
             "/api/v1/duplicates",
             "/api/v1/duplicates/{content_hash}",
             "/api/v1/duplicates/{content_hash}/resolve",
@@ -360,6 +365,8 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/libraries/{id}",
             "/api/v1/libraries/{id}",
             "/api/v1/libraries/{id}",
+            "/api/v1/libraries/{id}/culling-root",
+            "/api/v1/libraries/{id}/culling/lots",
             "/api/v1/libraries/{id}/probe",
             "/api/v1/libraries/{id}/scan",
             "/api/v1/libraries/{id}/scan",
@@ -419,8 +426,11 @@ fn security_requirements_name_a_declared_scheme() {
             "/api/v1/tags/{id}",
             "/api/v1/tags/{id}",
             "/api/v1/tags/{id}",
+            "/api/v1/tags/{id}/assets/batch",
+            "/api/v1/tags/{id}/assets/batch/remove",
             "/api/v1/tags/{id}/assets/{asset_id}/confirm",
             "/api/v1/tags/{id}/assets/{asset_id}/reject",
+            "/api/v1/tags/{id}/assets/{asset_id}/remove",
             "/api/v1/tags/{id}/proposals/confirm",
             "/api/v1/tags/{id}/proposals/reject",
             "/api/v1/timeline",
@@ -504,9 +514,12 @@ fn operation_ids_are_explicit_and_unique() {
             "app_passwords_list",
             "app_passwords_revoke",
             "assets_batch_delete",
+            "assets_batch_move",
             "assets_delete",
             "assets_get",
+            "assets_list_albums",
             "assets_list_faces",
+            "assets_list_tags",
             "assets_restore",
             "assets_stack_get",
             "assets_stack_set_primary",
@@ -524,6 +537,9 @@ fn operation_ids_are_explicit_and_unique() {
             "backup_run_now",
             "backup_runs_list",
             "bootstrap_get",
+            "culling_empty_skipped",
+            "culling_list_lots",
+            "culling_set_pick",
             "delta",
             "duplicates_list",
             "duplicates_members",
@@ -557,6 +573,7 @@ fn operation_ids_are_explicit_and_unique() {
             "libraries_probe",
             "libraries_scan_start",
             "libraries_scan_status",
+            "libraries_set_culling_root",
             "libraries_storage",
             "map_clusters",
             "map_regions_cancel",
@@ -627,6 +644,7 @@ fn operation_ids_are_explicit_and_unique() {
             "share_public_auth",
             "share_public_info",
             "share_public_upload",
+            "tags_assign_batch",
             "tags_confirm_all_proposals",
             "tags_confirm_proposal",
             "tags_create",
@@ -637,6 +655,8 @@ fn operation_ids_are_explicit_and_unique() {
             "tags_patch",
             "tags_reject_all_proposals",
             "tags_reject_proposal",
+            "tags_remove_confirmed",
+            "tags_unassign_batch",
             "timeline_buckets",
             "timeline_geometry",
             "timeline_page",
@@ -709,8 +729,8 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
         }
     }
     assert_eq!(
-        checked, 174,
-        "il documento deve descrivere centosettantaquattro operazioni"
+        checked, 184,
+        "il documento deve descrivere centottantaquattro operazioni"
     );
 }
 

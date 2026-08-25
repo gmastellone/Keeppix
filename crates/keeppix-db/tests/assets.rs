@@ -682,6 +682,43 @@ mod move_asset {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// Fase 11 Task 7 (§13.3 campo 8, "Sposta in cartella"): il wrapper
+    /// dietro la rotta di massa — sposta senza rinominare.
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    async fn move_to_folder_keeps_the_filename_unchanged() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let ctx = AuthContext::user(admin, SystemRole::Admin);
+        let root = temp_library_root("move-to-folder");
+        let library = seed_library_at(&test, admin, &root).await;
+        let folders = FolderRepo::new(test.db());
+        let src = folders.ensure_path(library, &["2024"]).await.unwrap();
+        let dst = folders
+            .ensure_path(library, &["2024", "Scelte"])
+            .await
+            .unwrap();
+        fs::create_dir_all(root.join("2024").join("Scelte")).unwrap();
+        fs::write(root.join("2024").join("foto.jpg"), b"contenuto").unwrap();
+
+        let asset = AssetRepo::new(test.db())
+            .upsert_discovered(discovered(src.id, "foto.jpg", 9))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let moved = AssetRepo::new(test.db())
+            .move_to_folder(&ctx, asset.id, dst.id)
+            .await
+            .unwrap();
+
+        assert_eq!(moved.folder_id, dst.id);
+        assert_eq!(moved.filename.as_str(), "foto.jpg", "il nome non cambia");
+        assert!(root.join("2024").join("Scelte").join("foto.jpg").is_file());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[tokio::test]
     #[allow(clippy::unwrap_used, clippy::expect_used)]
     async fn preserves_flags_across_the_move() {
@@ -926,5 +963,155 @@ mod move_asset {
         );
 
         let _ = fs::remove_dir_all(&root);
+    }
+}
+
+// Fase 11 Task 7 (SP-3 §11, dimensione "Fotocamera" — `AssetView`).
+mod camera_models_among {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used)]
+    async fn returns_only_assets_with_a_readable_camera_model() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let library = seed_library(&test, admin, "Foto", "/mnt/camera-models").await;
+        let folder = FolderRepo::new(test.db())
+            .ensure_path(library, &["2024"])
+            .await
+            .unwrap();
+        let repo = AssetRepo::new(test.db());
+        let with_camera = repo
+            .upsert_discovered(discovered(folder.id, "a.jpg", 1))
+            .await
+            .unwrap()
+            .unwrap();
+        let no_exif_row = repo
+            .upsert_discovered(discovered(folder.id, "b.jpg", 1))
+            .await
+            .unwrap()
+            .unwrap();
+        let exif_without_camera = repo
+            .upsert_discovered(discovered(folder.id, "c.jpg", 1))
+            .await
+            .unwrap()
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO asset_exif (asset_id, raw, camera_model) VALUES ($1, '{}'::jsonb, $2)",
+        )
+        .bind(with_camera.id.as_uuid())
+        .bind("FUJIFILM X-T5")
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO asset_exif (asset_id, raw, camera_model) VALUES ($1, '{}'::jsonb, NULL)",
+        )
+        .bind(exif_without_camera.id.as_uuid())
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+        let map = repo
+            .camera_models_among(&[with_camera.id, no_exif_row.id, exif_without_camera.id])
+            .await
+            .unwrap();
+
+        assert_eq!(map.len(), 1);
+        assert_eq!(map[&with_camera.id], "FUJIFILM X-T5");
+        assert!(
+            !map.contains_key(&no_exif_row.id),
+            "no asset_exif row at all"
+        );
+        assert!(
+            !map.contains_key(&exif_without_camera.id),
+            "an asset_exif row exists but camera_model is NULL"
+        );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used)]
+    async fn is_empty_for_an_empty_id_list() {
+        let test = TestDb::start().await;
+        let map = AssetRepo::new(test.db())
+            .camera_models_among(&[])
+            .await
+            .unwrap();
+        assert!(map.is_empty());
+    }
+}
+
+// Fase 11 Task 8 (§19.2 campi 6-9, sezione "SCATTO" del pannello
+// informazioni): a differenza di `camera_models_among` (bulk, un solo
+// campo), qui il dettaglio pieno per un asset alla volta.
+mod exif_for {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used)]
+    async fn returns_the_full_row_when_one_exists() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let library = seed_library(&test, admin, "Foto", "/mnt/exif-for-full").await;
+        let folder = FolderRepo::new(test.db())
+            .ensure_path(library, &["2024"])
+            .await
+            .unwrap();
+        let asset = AssetRepo::new(test.db())
+            .upsert_discovered(discovered(folder.id, "a.jpg", 1))
+            .await
+            .unwrap()
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO asset_exif (asset_id, raw, camera_make, camera_model, lens, iso, \
+                                      f_number, exposure, focal_length) \
+             VALUES ($1, '{}', $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(asset.id.as_uuid())
+        .bind("Sony")
+        .bind("Sony A7 IV")
+        .bind("FE 24-70mm f/2.8")
+        .bind(400_i32)
+        .bind(3.5_f32)
+        .bind("1/250")
+        .bind(70.0_f32)
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+        let exif = AssetRepo::new(test.db())
+            .exif_for(asset.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(exif.camera_make.as_deref(), Some("Sony"));
+        assert_eq!(exif.camera_model.as_deref(), Some("Sony A7 IV"));
+        assert_eq!(exif.lens.as_deref(), Some("FE 24-70mm f/2.8"));
+        assert_eq!(exif.iso, Some(400));
+        assert_eq!(exif.f_number, Some(3.5));
+        assert_eq!(exif.exposure.as_deref(), Some("1/250"));
+        assert_eq!(exif.focal_length, Some(70.0));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used)]
+    async fn is_none_without_an_asset_exif_row() {
+        let test = TestDb::start().await;
+        let admin = harness::seed_admin(&test).await;
+        let library = seed_library(&test, admin, "Foto", "/mnt/exif-for-none").await;
+        let folder = FolderRepo::new(test.db())
+            .ensure_path(library, &["2024"])
+            .await
+            .unwrap();
+        let asset = AssetRepo::new(test.db())
+            .upsert_discovered(discovered(folder.id, "b.jpg", 1))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let exif = AssetRepo::new(test.db()).exif_for(asset.id).await.unwrap();
+        assert!(exif.is_none());
     }
 }

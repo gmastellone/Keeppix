@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -153,6 +154,46 @@ pub struct DirectPutOutcome {
     /// collisione risolta con un suffisso.
     pub filename: String,
     pub collision: CollisionOutcome,
+}
+
+/// EXIF completo di un asset (Fase 11 Task 8, §19.2 "SCATTO") — a
+/// differenza di [`AssetRepo::camera_models_among`], che espone solo
+/// `camera_model` per la dimensione SP-3, questo è il dettaglio pieno per
+/// un singolo asset aperto nel lightbox.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssetExifDetail {
+    pub camera_make: Option<String>,
+    pub camera_model: Option<String>,
+    pub lens: Option<String>,
+    pub iso: Option<i32>,
+    pub f_number: Option<f32>,
+    pub exposure: Option<String>,
+    pub focal_length: Option<f32>,
+}
+
+#[derive(sqlx::FromRow)]
+struct AssetExifDetailRow {
+    camera_make: Option<String>,
+    camera_model: Option<String>,
+    lens: Option<String>,
+    iso: Option<i32>,
+    f_number: Option<f32>,
+    exposure: Option<String>,
+    focal_length: Option<f32>,
+}
+
+impl AssetExifDetailRow {
+    fn into_domain(self) -> AssetExifDetail {
+        AssetExifDetail {
+            camera_make: self.camera_make,
+            camera_model: self.camera_model,
+            lens: self.lens,
+            iso: self.iso,
+            f_number: self.f_number,
+            exposure: self.exposure,
+            focal_length: self.focal_length,
+        }
+    }
 }
 
 impl<'a> AssetRepo<'a> {
@@ -964,6 +1005,82 @@ impl<'a> AssetRepo<'a> {
         .execute(self.db.pool())
         .await?;
         Ok(())
+    }
+
+    /// Modelli di fotocamera per un insieme di asset (Fase 11 Task 7, SP-3
+    /// §11: dimensione "Fotocamera"). Un asset senza `asset_exif` leggibile
+    /// (o senza `camera_model` nell'exif) semplicemente non compare nella
+    /// mappa — nessun `None` esplicito da propagare. Stesso idioma di
+    /// [`crate::FlagRepo::favorites_among`]: una query sola per l'intera
+    /// pagina, non una per asset — non prende `AuthContext` per lo stesso
+    /// motivo di quel metodo, il chiamante ha già filtrato `asset_ids` sul
+    /// visibile.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn camera_models_among(
+        &self,
+        asset_ids: &[AssetId],
+    ) -> Result<HashMap<AssetId, String>, DbError> {
+        if asset_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let ids: Vec<uuid::Uuid> = asset_ids.iter().map(AssetId::as_uuid).collect();
+        let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(
+            "SELECT asset_id, camera_model FROM asset_exif \
+              WHERE asset_id = ANY($1) AND camera_model IS NOT NULL",
+        )
+        .bind(&ids)
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, model)| (AssetId::from_uuid(id), model))
+            .collect())
+    }
+
+    /// L'intera riga `asset_exif` di **un** asset (Fase 11 Task 8, §19.2
+    /// campi 6-9, sezione "SCATTO" del pannello informazioni): a differenza
+    /// di [`Self::camera_models_among`] (bulk, un solo campo, per SP-3),
+    /// qui il lightbox apre una foto alla volta e ha bisogno di tutto —
+    /// obiettivo, esposizione, ISO, focale — colonne già scritte da
+    /// [`Self::insert_exif`] fin dalla Fase 5, mai lette per intero finora.
+    /// `None` se l'asset non ha una riga `asset_exif` (mai analizzato, o
+    /// senza EXIF leggibile) — non un errore.
+    ///
+    /// # Errors
+    /// `Connection` se la query fallisce.
+    pub async fn exif_for(&self, asset_id: AssetId) -> Result<Option<AssetExifDetail>, DbError> {
+        let row: Option<AssetExifDetailRow> = sqlx::query_as(
+            "SELECT camera_make, camera_model, lens, iso, f_number, exposure, focal_length \
+               FROM asset_exif WHERE asset_id = $1",
+        )
+        .bind(asset_id.as_uuid())
+        .fetch_optional(self.db.pool())
+        .await?;
+        Ok(row.map(AssetExifDetailRow::into_domain))
+    }
+
+    /// Sposta l'asset in una cartella diversa **senza rinominarlo** — il
+    /// campo "Sposta in cartella" di Modifica in blocco (Fase 11 Task 7,
+    /// §13.3, campo 8), a differenza di [`Self::move_asset`] che prende
+    /// anche un nuovo nome per il caso "Rinomina cartella…"/spostamento con
+    /// rinomina contestuale. Wrapper sottile: legge il nome corrente e lo
+    /// passa invariato — [`Self::move_asset`] fa comunque un secondo
+    /// `find_by_id` al suo interno (già così prima di questo metodo, non
+    /// una regressione introdotta qui) per il proprio controllo di no-op.
+    ///
+    /// # Errors
+    /// Come [`Self::move_asset`].
+    pub async fn move_to_folder(
+        &self,
+        ctx: &AuthContext,
+        asset_id: AssetId,
+        new_folder_id: FolderId,
+    ) -> Result<Asset, DbError> {
+        let current = self.find_by_id(ctx, asset_id).await?;
+        self.move_asset(ctx, asset_id, new_folder_id, current.filename)
+            .await
     }
 }
 

@@ -10,7 +10,7 @@ use harness::TestDb;
 use keeppix_db::{FaceRepo, FolderRepo, NewDetectedFace, PersonRepo};
 use keeppix_domain::{
     AssetId, AssetKind, AssetName, AuthContext, Face, FaceBBox, FolderId, NewAsset, NewLibrary,
-    PersonId, SystemRole, UserId,
+    PersonId, PersonName, SystemRole, UserId,
 };
 
 async fn seed_person(test: &TestDb) -> PersonId {
@@ -561,4 +561,78 @@ async fn delete_all_data_wipes_faces_persons_groups_and_scan_state() {
     assert_eq!(groups_left, 0);
     assert_eq!(scans_left, 0, "wiped scan state so re-detection can happen");
     let _ = (face.id, person, group.id);
+}
+
+// Fase 11 Task 7 (SP-3 §11, dimensione "Persone" — `AssetView`).
+
+#[tokio::test]
+async fn confirmed_among_includes_both_manual_and_auto_assignments() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_asset_in_new_library(&test, admin, "confirmed-among").await;
+    let manual_face = detect_face(&test, asset, None).await;
+    let auto_face = detect_face(&test, asset, None).await;
+    let manual_person = PersonRepo::new(test.db())
+        .create(Some(PersonName::parse("Marta").unwrap()))
+        .await
+        .unwrap();
+    let auto_person = seed_person(&test).await;
+
+    let repo = FaceRepo::new(test.db());
+    repo.assign(&ctx, manual_face.id, manual_person.id)
+        .await
+        .unwrap();
+    repo.auto_assign(auto_face.id, auto_person).await.unwrap();
+
+    let map = repo.confirmed_among(&[asset]).await.unwrap();
+
+    let badges = &map[&asset];
+    assert_eq!(
+        badges.len(),
+        2,
+        "both the manual and the auto assignment count as confirmed"
+    );
+    assert!(
+        badges
+            .iter()
+            .any(|b| b.person_id == manual_person.id && b.person_name.as_deref() == Some("Marta"))
+    );
+    assert!(
+        badges
+            .iter()
+            .any(|b| b.person_id == auto_person && b.person_name.is_none())
+    );
+}
+
+#[tokio::test]
+async fn confirmed_among_excludes_rejected_and_proposed_only_faces() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_asset_in_new_library(&test, admin, "confirmed-among-excl").await;
+    let rejected_face = detect_face(&test, asset, None).await;
+    let proposed_face = detect_face(&test, asset, Some(unit_axis(2))).await;
+    let person = seed_person(&test).await;
+    let candidate = seed_person(&test).await;
+    let repo = FaceRepo::new(test.db());
+    repo.assign(&ctx, rejected_face.id, person).await.unwrap();
+    repo.reject(&ctx, rejected_face.id).await.unwrap();
+    repo.propose(proposed_face.id, candidate, 0.62)
+        .await
+        .unwrap();
+
+    let map = repo.confirmed_among(&[asset]).await.unwrap();
+
+    assert!(
+        !map.contains_key(&asset),
+        "neither a rejected assignment nor an undecided proposal counts as confirmed"
+    );
+}
+
+#[tokio::test]
+async fn confirmed_among_is_empty_for_an_empty_id_list() {
+    let test = TestDb::start().await;
+    let map = FaceRepo::new(test.db()).confirmed_among(&[]).await.unwrap();
+    assert!(map.is_empty());
 }

@@ -225,6 +225,18 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::libraries::probe),
         )
         .route(
+            "/libraries/{id}/culling-root",
+            axum::routing::patch(routes::libraries::set_culling_root),
+        )
+        .route(
+            "/libraries/{id}/culling/lots",
+            get(routes::culling::list_lots),
+        )
+        .route(
+            "/culling/lots/{id}/empty-skipped",
+            axum::routing::post(routes::culling::empty_skipped),
+        )
+        .route(
             "/groups",
             get(routes::groups::list).post(routes::groups::create),
         )
@@ -343,8 +355,16 @@ fn api_routes(state: AppState) -> Router<AppState> {
             axum::routing::post(routes::rename::undo_batch),
         )
         .route(
+            "/assets/batch/move",
+            axum::routing::post(routes::asset_move::batch_move),
+        )
+        .route(
             "/assets/{id}/flags",
             get(routes::flags::get).put(routes::flags::set),
+        )
+        .route(
+            "/assets/{id}/pick",
+            axum::routing::post(routes::culling::pick),
         )
         .route(
             "/flags/batch",
@@ -397,6 +417,20 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/tags/{id}/assets/{asset_id}/reject",
             axum::routing::post(routes::tags::reject_proposal),
         )
+        .route(
+            "/tags/{id}/assets/{asset_id}/remove",
+            axum::routing::post(routes::tags::remove_confirmed_tag),
+        )
+        .route(
+            "/tags/{id}/assets/batch",
+            axum::routing::post(routes::tags::assign_batch),
+        )
+        .route(
+            "/tags/{id}/assets/batch/remove",
+            axum::routing::post(routes::tags::unassign_batch),
+        )
+        .route("/assets/{id}/tags", get(routes::tags::list_tags_for_asset))
+        .route("/assets/{id}/albums", get(routes::albums::list_for_asset))
         .route("/assets/{id}/faces", get(routes::faces::list_for_asset))
         .route("/faces/proposals", get(routes::faces::list_proposals))
         .route(

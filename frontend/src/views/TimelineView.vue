@@ -1,131 +1,205 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
-import {
-  fetchBuckets,
-  fetchPage,
-  promoteViewport,
-  type MonthBucket,
-  type TimelineAsset
-} from '@/api/timeline'
+import { fetchBuckets, fetchGeometry, fetchPage, promoteViewport, type MonthBucket, type TimelineAsset } from '@/api/timeline'
+import { ApiProblem } from '@/api/client'
 import { startLiveEvents, type LiveSocket } from '@/api/events'
 import { thumbSrc as mediaThumbSrc } from '@/api/media'
-import Button from '@/components/ui/Button.vue'
+import FlatAssetGrid from '@/components/FlatAssetGrid.vue'
+import ErrorState from '@/components/ui/ErrorState.vue'
+import PhotoTile, { type StackType } from '@/components/ui/PhotoTile.vue'
+import QuickFilter from '@/components/ui/QuickFilter.vue'
+import SelectAllVisible from '@/components/ui/SelectAllVisible.vue'
+import SelectionBar from '@/components/ui/SelectionBar.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
-import { useCullingStore } from '@/stores/culling'
+import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
+import { useBrowseFilters } from '@/composables/useBrowseFilters'
+import { useDensity } from '@/composables/useDensity'
+import { useIsMobile } from '@/composables/useIsMobile'
+import { useLightboxRoute } from '@/composables/useLightboxRoute'
+import { useScrollRestoration } from '@/composables/useScrollRestoration'
+import { useFavoritesStore } from '@/stores/favorites'
 import { useMapsStore } from '@/stores/maps'
-import { useSessionStore } from '@/stores/session'
-import { clampDensity, justify, bucketMinHeight } from '@/timeline/justify'
-import { monthAtOffset, yearLabel } from '@/timeline/scrubber'
+import { useSelectionStore } from '@/stores/selection'
+import { classifyError } from '@/errors/classify'
+import { activeFilterCount } from '@/design/quickFilter'
+import { TimelineGeometry } from '@/timeline/geometry'
+import { LruPageCache } from '@/timeline/pageCache'
+import { monthAbbrev, monthAtOffset, monthFull } from '@/timeline/scrubber'
+import { planStream, STREAM_OVERSCAN, type GridCell, type GridRow, type StreamRow } from '@/timeline/stream'
 import { thumbhashToDataURL } from '@/timeline/thumbhash'
+import { RowVirtualizer } from '@/timeline/virtualize'
 
-const DENSITY_KEY = 'keeppix.density'
-const KIND_KEY = 'keeppix.kindFilter'
+// Fase 11 Task 4 (§66/§8 del documento funzionale): la timeline a scala
+// reale. Riscrittura, non affiancamento — la Ruling della spec
+// fase-11-interfaccia.md §1 lo impone esplicitamente. Due comportamenti
+// dell'implementazione precedente non sono nella definizione canonica e
+// non sono stati portati avanti: il raggruppamento per giorno dentro il
+// mese ("Nessun raggruppamento per giorno", §8, testuale) e
+// l'intestazione di mese appiccicata durante lo scroll ("le .month-head
+// scorrono via normalmente", §8). Il filtro "Tutti/Foto/Video" è stato
+// tolto insieme a loro: non è nel documento per questa vista, non è una
+// delle sei dimensioni di SP-3 (che usa "Tipo" per RAW/JPEG, un asse
+// diverso — §11), e non ha senso strutturale qui: la geometria che guida
+// il layout non porta il kind dello scatto, solo w/h/mese.
 
-type KindFilter = 'all' | 'photo' | 'video'
+// Il documento funzionale (riga 1745) mette la densità in Impostazioni
+// (Task 14, non ancora costruito), non in un controllo di vista. Il +/-
+// qui è un ripiego temporaneo pre-Task-14: rimosso quando la vista
+// Impostazioni reale esisterà, non prima — toglierlo ora senza
+// sostituto lascerebbe la densità fissa a 6 per chiunque. Estratto in
+// `useDensity()` nel Task 7 (comparso il secondo consumatore, Preferiti).
+/** Fino a 50 mesi residenti, ~10.000 asset attesi (piano §4.8) — solo le
+ * pagine, mai la geometria stessa, che vive fuori da questa cache e non
+ * si sfratta mai. */
+const PAGE_CACHE_CAPACITY = 50
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const session = useSessionStore()
-const culling = useCullingStore()
 const maps = useMapsStore()
+const favorites = useFavoritesStore()
+const selection = useSelectionStore()
+const { isMobile } = useIsMobile()
 
 const buckets = ref<MonthBucket[]>([])
-const assetsByBucket = ref<Record<string, TimelineAsset[]>>({})
-const density = ref(clampDensity(Number(localStorage.getItem(DENSITY_KEY) ?? 6)))
-const kind = ref<KindFilter>((localStorage.getItem(KIND_KEY) as KindFilter) || 'all')
-const gridWidth = ref(800)
-const gridEl = ref<HTMLElement | null>(null)
-const scrubY = ref<string | undefined>()
-const empty = ref(false)
-const query = ref('')
-const viewing = ref<TimelineAsset | null>(null)
-const bbox = computed(() => (typeof route.query.bbox === 'string' ? route.query.bbox : undefined))
+// shallowRef, non ref: TimelineGeometry incapsula un DataView e non deve
+// mai passare per UnwrapRef (che smonterebbe l'istanza campo per campo,
+// perdendo il campo privato `view`) — è anche semanticamente corretto,
+// un blob binario immutabile una volta caricato non ha bisogno di
+// reattività profonda.
+const geometry = shallowRef<TimelineGeometry | null>(null)
+const geometryEtag = ref<string | null>(null)
+const pageCache = new LruPageCache<string, TimelineAsset[]>(PAGE_CACHE_CAPACITY)
+const loadingMonths = new Set<string>()
+/** Bump esplicito: `pageCache` è una classe imperativa, non reattiva —
+ * questo ref è l'unico modo per dire a Vue "qualcosa dentro è cambiato". */
+const cacheTick = ref(0)
 
-const visibleHashes = new Set<string>()
+const { density, setDensity } = useDensity()
+const gridEl = ref<HTMLElement | null>(null)
+const contentEl = ref<HTMLElement | null>(null)
+const scrubberEl = ref<HTMLElement | null>(null)
+const gridWidth = ref(800)
+const viewportHeight = ref(600)
+const scrollTop = ref(0)
+const empty = ref(false)
+const loadError = ref<unknown>(null)
 const placeholders = new Map<string, string>()
+const bbox = computed(() => (typeof route.query.bbox === 'string' ? route.query.bbox : undefined))
+const errorNature = computed(() => (loadError.value ? classifyError(loadError.value) : null))
+/** Riga tecnica facoltativa (§68.3, "per chi amministra il server") —
+ * solo quando l'errore porta davvero un `Problem` RFC 9457, non per un
+ * `TypeError` di rete generico che non ha nulla di più preciso da dire. */
+const errorDetail = computed(() =>
+  loadError.value instanceof ApiProblem ? `${loadError.value.type} · ${loadError.value.status}` : undefined
+)
+
 let promoteTimer: ReturnType<typeof setTimeout> | undefined
 let live: LiveSocket | undefined
+let resizeObserver: ResizeObserver | undefined
+let scrollRaf = 0
 
-function isKind(asset: TimelineAsset): boolean {
-  if (kind.value === 'all') return true
-  if (kind.value === 'video') return asset.kind === 'video'
-  return asset.kind === 'image' || asset.kind === 'raw_image'
+const plan = computed(() => {
+  if (!geometry.value) return { rows: [] as StreamRow[], rowHeights: [] as number[], totalHeight: 0 }
+  return planStream(geometry.value, buckets.value, gridWidth.value, density.value)
+})
+const virtualizer = computed(() => new RowVirtualizer(plan.value.rowHeights))
+const overscanPx = computed(() => viewportHeight.value * STREAM_OVERSCAN)
+const mountedRange = computed(() =>
+  virtualizer.value.visibleRange(scrollTop.value, viewportHeight.value, overscanPx.value)
+)
+const mountedRows = computed(() => {
+  const { start, end } = mountedRange.value
+  const out: { index: number; top: number; row: StreamRow }[] = []
+  for (let i = start; i < end; i++) {
+    const row = plan.value.rows[i]
+    if (row) out.push({ index: i, top: virtualizer.value.rowTop(i), row })
+  }
+  return out
+})
+const mountedMonths = computed(() => {
+  const months = new Set<string>()
+  for (const entry of mountedRows.value) months.add(entry.row.month)
+  return months
+})
+
+function assetFor(month: string, offsetInMonth: number): TimelineAsset | undefined {
+  void cacheTick.value
+  return pageCache.get(month)?.[offsetInMonth]
 }
 
-const days = computed(() => {
-  const items: { key: string; label: string; assets: TimelineAsset[] }[] = []
+async function ensureMonthLoaded(month: string) {
+  if (pageCache.has(month) || loadingMonths.has(month)) return
+  loadingMonths.add(month)
+  try {
+    const collected: TimelineAsset[] = []
+    let cursor: string | undefined
+    do {
+      const page = bbox.value ? await fetchPage(month, cursor, bbox.value) : await fetchPage(month, cursor)
+      collected.push(...page.assets)
+      cursor = page.next_cursor
+    } while (cursor)
+    pageCache.set(month, collected)
+    cacheTick.value++
+  } finally {
+    loadingMonths.delete(month)
+  }
+}
+
+watch(mountedMonths, (months) => {
+  months.forEach((month) => void ensureMonthLoaded(month))
+}, { immediate: true })
+
+// Concatenazione dei mesi attualmente residenti in cache, nello stesso
+// ordine di `buckets` (dal più recente): l'equivalente di un "tutte le
+// foto caricate finora", non l'intera libreria — usato dalla navigazione
+// prev/next del lightbox (debito dichiarato nel ledger: ai bordi di un
+// mese caricato, "successiva" può non trovare nulla anche se esiste,
+// semplicemente non è ancora in cache).
+const loadedAssets = computed(() => {
+  void cacheTick.value
+  const out: TimelineAsset[] = []
   for (const bucket of buckets.value) {
-    const assets = (assetsByBucket.value[bucket.month] ?? []).filter(isKind)
-    const groups = new Map<string, TimelineAsset[]>()
-    for (const asset of assets) {
-      const day = asset.taken_at_utc?.slice(0, 10) ?? bucket.month
-      const list = groups.get(day) ?? []
-      list.push(asset)
-      groups.set(day, list)
-    }
-    for (const [key, group] of groups) {
-      items.push({ key, label: key, assets: group })
-    }
-  }
-  return items
-})
-
-const daysByMonth = computed(() => {
-  const map = new Map<string, typeof days.value>()
-  for (const day of days.value) {
-    const month = day.key.slice(0, 7)
-    const list = map.get(month) ?? []
-    list.push(day)
-    map.set(month, list)
-  }
-  return map
-})
-
-const grids = computed(() => {
-  const out = new Map<string, ReturnType<typeof cellsFor>>()
-  for (const day of days.value) {
-    out.set(day.key, cellsFor(day.assets))
+    const cached = pageCache.get(bucket.month)
+    if (cached) out.push(...cached)
   }
   return out
 })
 
-const flatAssets = computed(() => days.value.flatMap((d) => d.assets))
+// Task 7 (7/N) — SP-3: "N è calcolato sulla lista di questa vista"
+// (§11), qui `loadedAssets` — lo stesso "quanto già caricato finora" già
+// dichiarato sopra per il lightbox, non un limite nuovo di questa unità.
+// Il blob di geometria server-side presume l'intero mese: un
+// filtro attivo passa a `FlatAssetGrid` (Task 7, 6/N), la stessa griglia
+// giustificata piatta già usata da Preferiti, invece di provare a
+// ritagliare celle dentro righe pensate per un mese intero.
+const { selection: filterSelection, dimensions: filterDimensions, filteredAssets } = useBrowseFilters(loadedAssets)
+const filterActive = computed(() => activeFilterCount(filterSelection.value) > 0)
+/** L'insieme "attualmente a schermo": tutto il caricato senza filtro,
+ * solo ciò che passa altrimenti — governa sia `FlatAssetGrid` sia la
+ * navigazione prev/next del lightbox, che deve restare dentro a ciò che
+ * si vede (stesso principio già di Preferiti). */
+const displayedAssets = computed(() => (filterActive.value ? filteredAssets.value : loadedAssets.value))
 
-function viewingNeighbour(delta: number): TimelineAsset | undefined {
-  const list = flatAssets.value
-  const i = list.findIndex((a) => a.id === viewing.value?.id)
-  if (i < 0) return undefined
-  return list[i + delta]
+const lightbox = useLightboxRoute<TimelineAsset>(
+  (id) => displayedAssets.value.find((asset) => asset.id === id),
+  (id) => maps.loadAsset(id)
+)
+
+useScrollRestoration(gridEl)
+
+function stepViewer(asset: TimelineAsset) {
+  void lightbox.step(asset)
 }
 
-function rowHeight(): number {
-  return Math.max(48, gridWidth.value / density.value)
+function openViewerAsset(id: string) {
+  void lightbox.openById(id)
 }
 
-function cellsFor(assets: TimelineAsset[]) {
-  const byId = new Map(assets.map((asset) => [asset.id, asset]))
-  return justify(
-    assets.map((a) => ({
-      id: a.id,
-      width: a.width ?? 3,
-      height: a.height ?? 2
-    })),
-    gridWidth.value,
-    rowHeight()
-  ).map((row) => ({
-    ...row,
-    cells: row.cells.flatMap((cell) => {
-      const asset = byId.get(cell.id)
-      return asset ? [{ ...cell, asset, placeholder: placeholder(asset) }] : []
-    })
-  }))
-}
-
-function placeholder(asset: TimelineAsset): string | undefined {
+function placeholderFor(asset: TimelineAsset): string | undefined {
   if (!asset.thumbhash) return undefined
   const cached = placeholders.get(asset.id)
   if (cached) return cached
@@ -135,148 +209,232 @@ function placeholder(asset: TimelineAsset): string | undefined {
   return url
 }
 
-function reserveHeight(bucket: MonthBucket): number {
-  return bucketMinHeight(bucket.count, gridWidth.value, density.value)
+function stackTypeOf(asset: TimelineAsset): StackType {
+  if (asset.raw_kind === 'raw+jpeg') return 'raw_jpeg'
+  if (asset.raw_kind === 'raw') return 'raw_only'
+  return 'jpeg'
 }
 
-function thumbSrc(asset: TimelineAsset): string | undefined {
-  return asset.content_hash ? mediaThumbSrc(asset.content_hash) : undefined
-}
-
-async function signOut() {
-  await session.logout()
-  await router.push('/login')
-}
-
-async function goSearch() {
-  await router.push({ path: '/search', query: { q: query.value } })
+function dateLabelOf(asset: TimelineAsset): string {
+  if (!asset.taken_at_utc) return ''
+  return new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'long', year: 'numeric' }).format(
+    new Date(asset.taken_at_utc)
+  )
 }
 
 async function clearMapFilter() {
-  const query = { ...route.query }
-  delete query.bbox
-  await router.replace({ path: '/', query })
+  const q = { ...route.query }
+  delete q.bbox
+  await router.replace({ path: '/', query: q })
   await refreshTimeline()
 }
 
 /**
- * Unico punto d'ingresso al culling (spec §4.2, hard rule del piano): un
- * pulsante, non scorciatoie sparse. In assenza di una vista per cartella o
- * di una selezione multipla in questa fase del frontend, l'insieme di
- * lavoro è quanto già caricato in timeline — coerente con "cartella o
- * selezione" finché quelle viste non esistono.
+ * Fase 11 Task 5 (SP-28, forma a piena vista): "nessuna schermata assume
+ * che i dati ci siano". Un fallimento qui sostituisce l'intera griglia
+ * con `ErrorState` — è il contenuto principale della vista, non un
+ * pezzo — e "Riprova" richiama di nuovo questa stessa funzione (§68.4:
+ * "rimette l'insieme di dati in caricamento e lo richiede da capo").
  */
-async function startCulling() {
-  culling.start(flatAssets.value)
-  await router.push('/culling')
-}
-
-function setDensity(next: number) {
-  density.value = clampDensity(next)
-  localStorage.setItem(DENSITY_KEY, String(density.value))
-}
-
-function setKind(next: KindFilter) {
-  kind.value = next
-  localStorage.setItem(KIND_KEY, next)
-}
-
-async function loadBucket(month: string) {
-  if (assetsByBucket.value[month]) return
-  const collected: TimelineAsset[] = []
-  let cursor: string | undefined
-  do {
-    const page = bbox.value
-      ? await fetchPage(month, cursor, bbox.value)
-      : await fetchPage(month, cursor)
-    collected.push(...page.assets)
-    cursor = page.next_cursor
-  } while (cursor)
-  assetsByBucket.value = { ...assetsByBucket.value, [month]: collected }
-}
-
 async function refreshTimeline() {
-  const list = bbox.value ? await fetchBuckets(bbox.value) : await fetchBuckets()
-  buckets.value = list
-  empty.value = list.length === 0
-  assetsByBucket.value = {}
-  await Promise.all(list.slice(0, 2).map((b) => loadBucket(b.month)))
-}
-
-function onScrubMove(event: MouseEvent) {
-  if (event.buttons & 1) onScrub(event)
-}
-
-function stepViewer(delta: number) {
-  const next = viewingNeighbour(delta)
-  if (next) viewing.value = next
-}
-
-async function openViewerAsset(id: string) {
-  viewing.value = await maps.loadAsset(id)
-}
-
-function onScrub(event: MouseEvent) {
-  const track = event.currentTarget as HTMLElement
-  const rect = track.getBoundingClientRect()
-  const month = monthAtOffset(buckets.value, event.clientY - rect.top, rect.height)
-  scrubY.value = month
-  if (month) {
-    document.getElementById(`bucket-${month}`)?.scrollIntoView({ block: 'start' })
+  loadError.value = null
+  try {
+    const [bucketList, geo] = await Promise.all([
+      bbox.value ? fetchBuckets(bbox.value) : fetchBuckets(),
+      fetchGeometry(bbox.value, geometryEtag.value ?? undefined)
+    ])
+    buckets.value = bucketList
+    empty.value = bucketList.length === 0
+    if (geo.buffer) {
+      geometry.value = new TimelineGeometry(geo.buffer)
+    }
+    geometryEtag.value = geo.etag
+    pageCache.clear()
+    loadingMonths.clear()
+    cacheTick.value++
+    if (gridEl.value) gridEl.value.scrollTop = 0
+    scrollTop.value = 0
+  } catch (error) {
+    loadError.value = error
   }
 }
 
-let observer: IntersectionObserver | undefined
+// Priorità di generazione (POST /viewport, piano Task 4.6): calcolata
+// dalla stessa matematica esatta del virtualizzatore con overscan 0
+// (la vera finestra visibile, non il margine montato) invece di un
+// IntersectionObserver — la geometria dà già posizione e dimensione
+// esatte di ogni riga, osservare il DOM per la stessa informazione
+// sarebbe un giro più lungo per lo stesso risultato, non più preciso.
+const trueVisibleHashes = computed(() => {
+  const { start, end } = virtualizer.value.visibleRange(scrollTop.value, viewportHeight.value, 0)
+  const hashes = new Set<string>()
+  for (let i = start; i < end; i++) {
+    const row = plan.value.rows[i]
+    if (row?.type !== 'grid') continue
+    for (const cell of row.cells) {
+      const hash = assetFor(row.month, cell.offsetInMonth)?.content_hash
+      if (hash) hashes.add(hash)
+    }
+  }
+  return hashes
+})
 
-function schedulePromote() {
+watch(trueVisibleHashes, (hashes) => {
   if (promoteTimer) clearTimeout(promoteTimer)
   promoteTimer = setTimeout(() => {
-    void promoteViewport([...visibleHashes].slice(0, 200))
+    void promoteViewport([...hashes].slice(0, 200))
   }, 250)
+})
+
+function measure() {
+  if (!gridEl.value) return
+  viewportHeight.value = gridEl.value.clientHeight
+  if (contentEl.value) gridWidth.value = contentEl.value.clientWidth
 }
 
-function observe() {
-  observer?.disconnect()
-  if (typeof IntersectionObserver === 'undefined') return
-  observer = new IntersectionObserver(
-    (entries) => {
-      let hashesChanged = false
-      for (const entry of entries) {
-        const month = (entry.target as HTMLElement).dataset.month
-        if (entry.isIntersecting && month) {
-          void loadBucket(month)
-        }
-        const hash = (entry.target as HTMLElement).dataset.hash
-        if (hash) {
-          hashesChanged = true
-          if (entry.isIntersecting) visibleHashes.add(hash)
-          else visibleHashes.delete(hash)
-        }
-      }
-      if (hashesChanged) schedulePromote()
-    },
-    { root: gridEl.value, rootMargin: '200px' }
-  )
-  nextTick(() => {
-    gridEl.value?.querySelectorAll('[data-month],[data-hash]').forEach((el) => observer?.observe(el))
+function onScroll() {
+  if (scrollRaf) return
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0
+    if (gridEl.value) scrollTop.value = gridEl.value.scrollTop
   })
 }
 
-function measure() {
-  if (gridEl.value) gridWidth.value = gridEl.value.clientWidth
+/** Punto di attenzione esplicito del documento funzionale (§66.5): una
+ * tessera smontata mentre aveva il fuoco lo perderebbe, e la navigazione
+ * da tastiera "cadrebbe" a inizio pagina — non coperto dal prototipo.
+ * Sposta il fuoco sul contenitore di scorrimento (`tabindex="-1"`, mai
+ * nell'ordine di tabulazione normale) prima che Vue rimuova dal DOM la
+ * riga che sta per uscire dall'intervallo montato. */
+watch(mountedRange, (next) => {
+  const active = document.activeElement
+  if (!gridEl.value || !active || !gridEl.value.contains(active)) return
+  const rowEl = active.closest('[data-row-index]')
+  if (!rowEl) return
+  const index = Number((rowEl as HTMLElement).dataset.rowIndex)
+  if (index < next.start || index >= next.end) {
+    gridEl.value.focus()
+  }
+})
+
+// --- Scrubber dei mesi -----------------------------------------------
+// Documento funzionale §8.3: click ovunque sulla barra salta subito al
+// mese (non serve trascinare), targhetta solo durante il trascinamento,
+// salto istantaneo (mai behavior:'smooth'), sincronizzazione inversa
+// allo scroll. "Da rendere raggiungibile da tastiera, cosa che il
+// prototipo non fa" (piano, Task 4.5): frecce/Home/End con
+// role="slider", assente nel prototipo.
+const dragging = ref(false)
+
+const monthTop = computed(() => {
+  const map = new Map<string, number>()
+  plan.value.rows.forEach((row, i) => {
+    if (row.type === 'header' && !map.has(row.month)) map.set(row.month, virtualizer.value.rowTop(i))
+  })
+  return map
+})
+
+function jumpToMonth(month: string) {
+  const top = monthTop.value.get(month)
+  if (top === undefined || !gridEl.value) return
+  gridEl.value.scrollTop = top
+  scrollTop.value = top
 }
 
+// Il mese "corrente" è quello in cui si è effettivamente scrollati (l'ultimo
+// la cui intestazione ha già superato la cima del viewport), non una
+// stima per rapporto sull'intervallo di scroll totale: quella stima
+// azzererebbe sempre l'indice quando il contenuto caricato è più basso
+// del viewport (una libreria corta, o poche pagine ancora caricate) — un
+// caso reale, non solo di test — e non è l'inverso esatto di
+// `jumpToMonth`, che scrolla a una posizione in pixel precisa.
+const currentIndex = computed(() => {
+  if (buckets.value.length === 0) return 0
+  let index = 0
+  for (let i = 0; i < buckets.value.length; i++) {
+    const top = monthTop.value.get(buckets.value[i].month)
+    if (top !== undefined && top <= scrollTop.value) index = i
+  }
+  return index
+})
+
+const dragMonth = ref<string | undefined>()
+
+function updateScrub(clientY: number) {
+  const track = scrubberEl.value
+  if (!track) return
+  const rect = track.getBoundingClientRect()
+  const month = monthAtOffset(buckets.value, clientY - rect.top, rect.height)
+  if (month) {
+    dragMonth.value = month
+    jumpToMonth(month)
+  }
+}
+
+function onScrubberDown(event: MouseEvent) {
+  dragging.value = true
+  updateScrub(event.clientY)
+  window.addEventListener('mousemove', onScrubberMove)
+  window.addEventListener('mouseup', onScrubberUp)
+}
+function onScrubberMove(event: MouseEvent) {
+  if (dragging.value) updateScrub(event.clientY)
+}
+function onScrubberUp() {
+  dragging.value = false
+  dragMonth.value = undefined
+  window.removeEventListener('mousemove', onScrubberMove)
+  window.removeEventListener('mouseup', onScrubberUp)
+}
+
+function onScrubberKeydown(event: KeyboardEvent) {
+  if (buckets.value.length === 0) return
+  let next: number | undefined
+  if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') next = Math.max(0, currentIndex.value - 1)
+  else if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+    next = Math.min(buckets.value.length - 1, currentIndex.value + 1)
+  } else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = buckets.value.length - 1
+  if (next === undefined) return
+  event.preventDefault()
+  const month = buckets.value[next]?.month
+  if (month) jumpToMonth(month)
+}
+
+const thumbRatio = computed(() => {
+  if (buckets.value.length <= 1) return 0
+  if (dragging.value && dragMonth.value) {
+    const idx = buckets.value.findIndex((b) => b.month === dragMonth.value)
+    return idx < 0 ? 0 : idx / (buckets.value.length - 1)
+  }
+  return currentIndex.value / (buckets.value.length - 1)
+})
+
+// Task 7 (7/N): `gridEl` non è più garantito montato per tutta la vita
+// del componente — un filtro attivo (SP-3) smonta questo contenitore a
+// favore di `FlatAssetGrid` (il proprio, indipendente). Un `watch`
+// invece di un `addEventListener` una tantum in `onMounted` segue ogni
+// comparsa/scomparsa del nodo, non solo la prima.
+watch(gridEl, (el, prevEl) => {
+  prevEl?.removeEventListener('scroll', onScroll)
+  resizeObserver?.disconnect()
+  resizeObserver = undefined
+  if (el) {
+    measure()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => measure())
+      resizeObserver.observe(el)
+    }
+  }
+}, { immediate: true, flush: 'post' })
+
 onMounted(async () => {
-  measure()
   await refreshTimeline()
-  observe()
-  window.addEventListener('resize', measure)
+  await nextTick()
+  measure()
   live = startLiveEvents((msg) => {
-    if (
-      msg.type === 'resync' ||
-      msg.type === 'assets.upserted' ||
-      msg.type === 'assets.deleted'
-    ) {
+    if (msg.type === 'resync' || msg.type === 'assets.upserted' || msg.type === 'assets.deleted') {
       void refreshTimeline()
     }
   })
@@ -284,105 +442,98 @@ onMounted(async () => {
 
 onUnmounted(() => {
   live?.close()
-  observer?.disconnect()
+  resizeObserver?.disconnect()
+  gridEl.value?.removeEventListener('scroll', onScroll)
+  window.removeEventListener('mousemove', onScrubberMove)
+  window.removeEventListener('mouseup', onScrubberUp)
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
   if (promoteTimer) clearTimeout(promoteTimer)
-  window.removeEventListener('resize', measure)
 })
 
-watch([days, density, gridWidth], () => observe())
+function cellProps(month: string, cell: GridCell, priority: 'high' | 'auto') {
+  const asset = assetFor(month, cell.offsetInMonth)
+  if (!asset) return undefined
+  return {
+    asset,
+    thumbnailUrl: asset.content_hash ? mediaThumbSrc(asset.content_hash) : '',
+    placeholderUrl: placeholderFor(asset),
+    filename: asset.filename,
+    dateLabel: dateLabelOf(asset),
+    isFavorite: favorites.isFavorite(asset),
+    stackType: stackTypeOf(asset),
+    priority
+  }
+}
+
+/** Solo le celle il cui asset è già in cache: se il mese è mostrato ma
+ * non ancora caricato (raro — `mountedMonths` avvia già il caricamento),
+ * la riga resta semplicemente più vuota per un istante — l'altezza è già
+ * riservata dalla geometria, nessuno spostamento di layout.
+ *
+ * `rowTop` decide la priorità di scaricamento (Task 5bis, tabella §5bis):
+ * una riga che ricade nella prima schermata (`rowTop < viewportHeight`)
+ * scarica la propria miniatura subito e con `fetchpriority="high"`, le
+ * altre restano pigre — non è un'approssimazione dello scroll corrente,
+ * è letteralmente cosa c'è già a schermo al primo paint.
+ */
+function resolvedTiles(row: GridRow, rowTop: number) {
+  const priority: 'high' | 'auto' = rowTop < viewportHeight.value ? 'high' : 'auto'
+  const out: { cell: GridCell; props: NonNullable<ReturnType<typeof cellProps>> }[] = []
+  for (const cell of row.cells) {
+    const props = cellProps(row.month, cell, priority)
+    if (props) out.push({ cell, props })
+  }
+  return out
+}
+
+// SP-2 (§12): un solo pool di selezione, condiviso da Foto/Preferiti/Cerca/
+// Album/Persona (`stores/selection.ts`, già costruito nel Task 2) — "si
+// entra selezionando la prima foto… si esce deselezionando l'ultima",
+// implicito, nessun pulsante "Seleziona" dedicato. `selectionMode` è
+// derivato dal conteggio, non un flag separato da tenere sincronizzato.
+const selectionMode = computed(() => selection.library.selectedIds.size > 0)
+function isSelected(id: string): boolean {
+  return selection.library.selectedIds.has(id)
+}
+const selectedAssets = computed(() =>
+  loadedAssets.value.filter((asset) => selection.library.selectedIds.has(asset.id))
+)
+
+/** SP-4: "ciò che è visibile in quel momento", mai l'intera libreria
+ * sottostante — `displayedAssets`, che si restringe da sola quando un
+ * filtro rapido (SP-3) è attivo. */
+function selectAllVisible() {
+  selection.library.selectAllVisible(displayedAssets.value.map((asset) => asset.id))
+}
 </script>
 
 <template>
   <div class="flex h-full flex-col">
-    <header class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-      <h1 class="text-lg font-semibold">
-        {{ t('home.greeting', { name: session.user?.display_name ?? '' }) }}
-      </h1>
-      <form
-        class="flex min-w-48 flex-1 gap-2"
-        @submit.prevent="goSearch"
-      >
-        <input
-          v-model="query"
-          class="w-full rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-sm"
-          :placeholder="t('search.placeholder')"
-          type="search"
-        >
-      </form>
-      <RouterLink
-        class="text-sm underline"
-        to="/folders"
-      >
-        {{ t('folders.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/map"
-      >
-        {{ t('maps.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/trash"
-      >
-        {{ t('trash.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/albums"
-      >
-        {{ t('albums.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/shares"
-      >
-        {{ t('shares.entry') }}
-      </RouterLink>
-      <RouterLink
-        v-if="session.user?.role === 'admin'"
-        class="text-sm underline"
-        to="/users"
-      >
-        {{ t('users.entry') }}
-      </RouterLink>
-      <RouterLink
-        v-if="session.user?.role === 'admin'"
-        class="text-sm underline"
-        to="/groups"
-      >
-        {{ t('groups.entry') }}
-      </RouterLink>
-      <RouterLink
-        class="text-sm underline"
-        to="/problems"
-      >
-        {{ t('problems.title') }}
-      </RouterLink>
-      <button
-        v-if="flatAssets.length > 0"
-        type="button"
-        class="rounded-lg border border-border px-3 py-1 text-sm"
-        @click="startCulling"
-      >
-        {{ t('culling.entry') }}
-      </button>
-      <div
-        class="flex rounded-lg border border-border text-sm"
-        role="group"
-        :aria-label="t('timeline.kind')"
-      >
-        <button
-          v-for="option in (['all', 'photo', 'video'] as const)"
-          :key="option"
-          class="px-3 py-1"
-          :class="kind === option ? 'bg-accent text-white' : ''"
-          @click="setKind(option)"
-        >
-          {{ t(`timeline.kinds.${option}`) }}
-        </button>
-      </div>
+    <!-- Fase 11 Task 6 (5/N): la navigazione globale (saluto, ricerca,
+         Cartelle/Mappa/Cestino/Album/Condivisioni/Utenti/Gruppi/Problemi,
+         Esci) è ora in AppSidebar/AppTopbar (App.vue) — tolta da qui, non
+         duplicata. Il culling (Task 17) non ha più un ingresso da questa
+         vista: è un'area separata, per cartella (nav "Culling"), non più
+         una sessione sopra "quanto già caricato in timeline" (Ruling nel
+         ledger del 24 agosto 2026). Resta solo la densità (ripiego
+         pre-Impostazioni, v. commento su DENSITY_KEY). "Rinomina
+         cartella…" (§8.3, a sinistra quando è aperta una cartella) non si
+         applica ancora: questa vista non ha un concetto di "cartella
+         aperta" (debito già dichiarato). -->
+    <div
+      v-if="!selectionMode"
+      class="flex items-center gap-3 border-b border-border px-4 py-3"
+    >
       <div class="ml-auto flex items-center gap-2">
+        <SelectAllVisible
+          :visible-count="displayedAssets.length"
+          @select-all="selectAllVisible"
+        />
+        <QuickFilter
+          v-model:selection="filterSelection"
+          :dimensions="filterDimensions"
+          :result-count="displayedAssets.length"
+        />
         <button
           class="rounded-lg border border-border px-2 py-1"
           :aria-label="t('timeline.densityDown')"
@@ -398,13 +549,28 @@ watch([days, density, gridWidth], () => observe())
         >
           +
         </button>
-        <div class="w-28">
-          <Button @click="signOut">
-            {{ t('home.logout') }}
-          </Button>
-        </div>
       </div>
-    </header>
+    </div>
+    <!-- SP-2 (§12.2): sostituisce l'intera riga strumenti quando la
+         selezione è attiva. I cinque pulsanti d'azione (Preferiti/Album/
+         Condividi/Modifica/Elimina) e i dialog che aprono sono la
+         prossima unità di questo stesso Task: qui solo × / conteggio /
+         "Seleziona tutte", già completi in SelectionBar.vue.
+         Mai `v-if`/`v-else` su `<SelectionBar>` stessa (commento vincolante
+         nel suo stesso file): la sua regione d'annuncio per screen reader
+         deve restare montata anche nell'istante esatto in cui la selezione
+         si azzera, altrimenti "Selezione annullata" non potrebbe mai
+         scattare — solo il padding visivo del contenitore è condizionale. -->
+    <div :class="selectionMode && 'border-b border-border px-4 py-3'">
+      <SelectionBar
+        :count="selection.library.selectedIds.size"
+        :ariaLabel="t('ui.selectionBar.ariaLabel')"
+        @clear="selection.library.clear()"
+        @select-all="selectAllVisible"
+      >
+        <LibrarySelectionActions :assets="selectedAssets" />
+      </SelectionBar>
+    </div>
 
     <div
       v-if="bbox"
@@ -420,12 +586,42 @@ watch([days, density, gridWidth], () => observe())
       </button>
     </div>
 
+    <ErrorState
+      v-if="errorNature"
+      :nature="errorNature"
+      :technical-detail="errorDetail"
+      @retry="refreshTimeline"
+    />
+
     <p
-      v-if="empty"
+      v-else-if="empty"
       class="p-6 text-content-muted"
     >
       {{ t('timeline.empty') }}
     </p>
+
+    <!-- Task 7 (7/N) — SP-3: un filtro attivo esce dal terreno del blob
+         di geometria (che presume il mese intero) e passa alla griglia
+         piatta giustificata già usata da Preferiti (`FlatAssetGrid.vue`,
+         Task 7 6/N) sull'insieme filtrato — mai un ritaglio di celle
+         dentro righe pensate per un mese intero. -->
+    <div
+      v-else-if="filterActive && displayedAssets.length === 0"
+      class="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center"
+    >
+      <p class="text-sm font-semibold">
+        {{ t('ui.filteredEmpty.title') }}
+      </p>
+      <p class="text-sm text-content-muted">
+        {{ t('ui.filteredEmpty.subtitle') }}
+      </p>
+    </div>
+    <FlatAssetGrid
+      v-else-if="filterActive"
+      :assets="displayedAssets"
+      :density="density"
+      @open="lightbox.open"
+    />
 
     <div
       v-else
@@ -433,91 +629,92 @@ watch([days, density, gridWidth], () => observe())
     >
       <div
         ref="gridEl"
-        class="min-h-0 flex-1 overflow-auto px-4 py-3"
+        class="relative min-h-0 flex-1 overflow-auto"
+        tabindex="-1"
       >
-        <section
-          v-for="bucket in buckets"
-          :id="`bucket-${bucket.month}`"
-          :key="bucket.month"
-          :data-month="bucket.month"
-          :style="{ minHeight: `${reserveHeight(bucket)}px` }"
-        >
-          <h2 class="sticky top-0 z-10 bg-surface py-2 text-sm font-medium">
-            {{ bucket.month }} · {{ bucket.count }}
-          </h2>
+        <div class="px-4 py-3">
           <div
-            v-for="day in daysByMonth.get(bucket.month) ?? []"
-            :key="day.key"
+            ref="contentEl"
+            :style="{ position: 'relative', height: `${plan.totalHeight}px` }"
           >
-            <h3 class="py-1 text-xs text-content-muted">
-              {{ day.label }}
-            </h3>
             <div
-              v-for="(row, index) in grids.get(day.key) ?? []"
-              :key="index"
-              class="relative mb-1"
-              :style="{ height: `${row.height}px` }"
+              v-for="entry in mountedRows"
+              :key="entry.index"
+              class="stream-row absolute left-0 right-0"
+              :data-row-index="entry.index"
+              :style="{ transform: `translateY(${entry.top}px)`, height: `${entry.row.height}px` }"
             >
-              <article
-                v-for="cell in row.cells"
-                :key="cell.id"
-                class="absolute cursor-pointer overflow-hidden"
-                :data-hash="cell.asset.content_hash ?? undefined"
-                :style="{
-                  left: `${cell.x}px`,
-                  width: `${cell.w}px`,
-                  height: `${cell.h}px`
-                }"
-                @click="viewing = cell.asset"
+              <h2
+                v-if="entry.row.type === 'header'"
+                class="flex items-baseline gap-2 text-sm font-medium"
               >
-                <img
-                  v-if="cell.placeholder"
-                  :src="cell.placeholder"
-                  alt=""
-                  class="absolute inset-0 h-full w-full object-cover"
-                >
-                <img
-                  v-if="thumbSrc(cell.asset)"
-                  :src="thumbSrc(cell.asset)"
-                  :alt="cell.asset.filename"
-                  class="absolute inset-0 h-full w-full object-cover"
-                  :width="cell.w"
-                  :height="cell.h"
-                >
-              </article>
+                <span>{{ monthFull(entry.row.month, locale) }}</span>
+                <span class="text-xs text-content-muted">
+                  {{ t('timeline.monthCount', { n: entry.row.count }, { plural: entry.row.count }) }}
+                </span>
+              </h2>
+              <template v-else>
+                <PhotoTile
+                  v-for="{ cell, props } in resolvedTiles(entry.row, entry.top)"
+                  :key="cell.offsetInMonth"
+                  v-bind="props"
+                  :selected="isSelected(props.asset.id)"
+                  :selection-mode="selectionMode"
+                  :enable-long-press="isMobile"
+                  :style="{ position: 'absolute', left: `${cell.x}px`, top: 0, width: `${cell.w}px`, height: `${cell.h}px` }"
+                  @open="lightbox.open(props.asset)"
+                  @toggle-select="selection.library.toggle(props.asset.id)"
+                  @toggle-favorite="favorites.toggleOne(props.asset)"
+                />
+              </template>
             </div>
           </div>
-        </section>
+        </div>
       </div>
       <aside
-        class="relative w-10 shrink-0 cursor-ns-resize border-l border-border"
-        @mousedown="onScrub"
-        @mousemove="onScrubMove"
+        ref="scrubberEl"
+        class="relative w-9 shrink-0 cursor-ns-resize border-l border-border py-2"
+        role="slider"
+        tabindex="0"
+        aria-orientation="vertical"
+        :aria-valuemin="0"
+        :aria-valuemax="Math.max(0, buckets.length - 1)"
+        :aria-valuenow="currentIndex"
+        :aria-valuetext="buckets[currentIndex] ? monthFull(buckets[currentIndex].month, locale) : undefined"
+        :aria-label="t('timeline.scrubber')"
+        @mousedown="onScrubberDown"
+        @keydown="onScrubberKeydown"
       >
         <div
           v-for="bucket in buckets"
           :key="bucket.month"
-          class="px-1 text-[10px] text-content-muted"
+          class="px-1 text-center text-[10px] text-content-muted"
+          style="writing-mode: vertical-rl"
         >
-          {{ yearLabel(bucket.month) }}
+          {{ monthAbbrev(bucket.month, locale) }}
         </div>
+        <div
+          class="absolute right-0.5 h-6 w-2.5 rounded-full bg-accent"
+          :style="{ top: `calc(${thumbRatio * 100}% - 12px)` }"
+        />
         <p
-          v-if="scrubY"
-          class="absolute right-full mr-1 rounded bg-surface-elevated px-1 text-xs"
+          v-if="dragging && dragMonth"
+          class="absolute right-full mr-1 rounded bg-content px-2 py-1 text-xs text-surface"
+          :style="{ top: `${thumbRatio * 100}%` }"
         >
-          {{ scrubY }}
+          {{ monthFull(dragMonth, locale) }}
         </p>
       </aside>
     </div>
     <AssetViewer
-      v-if="viewing"
-      :asset="viewing"
-      :prev="viewingNeighbour(-1)"
-      :next="viewingNeighbour(1)"
-      @close="viewing = null"
-      @prev="stepViewer(-1)"
-      @next="stepViewer(1)"
+      v-if="lightbox.viewing.value"
+      :asset="lightbox.viewing.value"
+      :neighbors="displayedAssets"
+      :is-favorite="favorites.isFavorite(lightbox.viewing.value)"
+      @close="lightbox.close"
+      @step="stepViewer"
       @open-asset="openViewerAsset"
+      @toggle-favorite="favorites.toggleOne(lightbox.viewing.value)"
     />
   </div>
 </template>

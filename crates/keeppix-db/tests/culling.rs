@@ -645,7 +645,11 @@ mod empty_skipped {
 
         let purged = culling.empty_skipped(&ctx, lot.id).await.unwrap();
 
-        assert_eq!(purged, 2);
+        assert_eq!(purged.len(), 2);
+        assert!(
+            purged.iter().all(|(_, result)| result.is_ok()),
+            "{purged:?}"
+        );
         let skipped_dir = root.join("Culling").join("Vacanze").join("_skipped");
         assert!(
             skipped_dir.read_dir().unwrap().next().is_none(),

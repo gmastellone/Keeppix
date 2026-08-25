@@ -412,3 +412,257 @@ async fn review_queue_lists_confirms_rejects_and_updates_bootstrap_revision() {
 
     let _ = fs::remove_dir_all(&root);
 }
+
+/// Fase 11 Task 7 (§13.3 campo 5, dialog di scelta tag): assegna un tag a
+/// mano a più asset in un colpo solo — `state='confirmed', source='user'`,
+/// mai una proposta in attesa — poi lo toglie di nuovo con la freccia
+/// opposta dello stesso pulsante (`unassign_batch`), che deve cancellare la
+/// riga invece di lasciarla decisa.
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn assign_batch_confirms_the_tag_as_user_sourced_on_every_asset() {
+    use chrono::{TimeZone, Utc};
+    use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
+    use keeppix_domain::{
+        AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, UserId,
+    };
+    use std::fs;
+
+    let server = TestServer::start_with_vector().await;
+    setup_admin(&server).await;
+    let admin_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+    let admin = UserId::from_uuid(admin_id);
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let root = std::env::temp_dir().join(format!("kpx-assign-batch-{}", uuid::Uuid::now_v7()));
+    fs::create_dir_all(root.join("2024")).unwrap();
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Assegna".into(),
+                owner_id: admin,
+                root_path: root.clone(),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(&server.db)
+        .ensure_path(library.id, &["2024"])
+        .await
+        .unwrap();
+    fs::write(root.join("2024/a.jpg"), b"a").unwrap();
+    fs::write(root.join("2024/b.jpg"), b"b").unwrap();
+    let a = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("a.jpg").unwrap(),
+            size_bytes: 1,
+            mtime: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let b = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("b.jpg").unwrap(),
+            size_bytes: 1,
+            mtime: Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap(),
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+
+    let tag: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/tags"))
+        .json(&json!({ "name": "Montagna", "kind": "tag" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let tag_id = tag["id"].as_str().unwrap();
+
+    let outcome: serde_json::Value = server
+        .client
+        .post(server.url(&format!("/api/v1/tags/{tag_id}/assets/batch")))
+        .json(&json!({ "asset_ids": [a.to_string(), b.to_string()] }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(outcome["succeeded"].as_array().unwrap().len(), 2);
+    assert!(outcome["failed"].as_array().unwrap().is_empty());
+
+    for asset in [a, b] {
+        let row: (String, String) = sqlx::query_as(
+            "SELECT state, source FROM asset_tags WHERE asset_id = $1 AND tag_id = $2",
+        )
+        .bind(asset.as_uuid())
+        .bind(uuid::Uuid::parse_str(tag_id).unwrap())
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+        assert_eq!(row.0, "confirmed");
+        assert_eq!(row.1, "user");
+    }
+
+    // Fase 11 Task 7 (§13.3 campo 5, dialog di scelta tag): la freccia
+    // opposta dello stesso pulsante — verificato sul prototipo reale
+    // (`openTagPickerDialog`, `docs/ui/keeppix-mockup.html`) — deve
+    // cancellare la riga, non lasciarla `'rejected'`.
+    let remove_outcome: serde_json::Value = server
+        .client
+        .post(server.url(&format!("/api/v1/tags/{tag_id}/assets/batch/remove")))
+        .json(&json!({ "asset_ids": [a.to_string(), b.to_string()] }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(remove_outcome["succeeded"].as_array().unwrap().len(), 2);
+    assert!(remove_outcome["failed"].as_array().unwrap().is_empty());
+
+    for asset in [a, b] {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT state FROM asset_tags WHERE asset_id = $1 AND tag_id = $2")
+                .bind(asset.as_uuid())
+                .bind(uuid::Uuid::parse_str(tag_id).unwrap())
+                .fetch_optional(server.db.pool())
+                .await
+                .unwrap();
+        assert!(row.is_none(), "unassign_batch must delete the row");
+    }
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// Fase 11 Task 8 (§19.2 campi 14-17): `GET /assets/{id}/tags` per il
+/// pannello informazioni, verificato end-to-end via HTTP — la logica di
+/// stato/provenienza è già coperta a fondo dai test di
+/// `AssetTagRepo::for_asset` in `keeppix-db`.
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn list_tags_for_asset_reflects_confirmed_state_and_source() {
+    use chrono::{TimeZone, Utc};
+    use keeppix_db::{AssetRepo, FolderRepo, LibraryRepo};
+    use keeppix_domain::{
+        AssetKind, AssetName, AuthContext, NewAsset, NewLibrary, SystemRole, UserId,
+    };
+    use std::fs;
+
+    let server = TestServer::start_with_vector().await;
+    setup_admin(&server).await;
+    let admin_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+    let admin = UserId::from_uuid(admin_id);
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+
+    let root = std::env::temp_dir().join(format!("kpx-list-tags-{}", uuid::Uuid::now_v7()));
+    fs::create_dir_all(root.join("2024")).unwrap();
+    let library = LibraryRepo::new(&server.db)
+        .create(
+            &ctx,
+            NewLibrary {
+                name: "Elenco".into(),
+                owner_id: admin,
+                root_path: root.clone(),
+                exclude_patterns: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    let folder = FolderRepo::new(&server.db)
+        .ensure_path(library.id, &["2024"])
+        .await
+        .unwrap();
+    fs::write(root.join("2024/a.jpg"), b"a").unwrap();
+    let asset = AssetRepo::new(&server.db)
+        .upsert_discovered(NewAsset {
+            folder_id: folder.id,
+            filename: AssetName::parse("a.jpg").unwrap(),
+            size_bytes: 1,
+            mtime: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            inode: None,
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+
+    let tag: serde_json::Value = server
+        .client
+        .post(server.url("/api/v1/tags"))
+        .json(&json!({ "name": "Montagna", "kind": "tag" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let tag_id = tag["id"].as_str().unwrap();
+
+    server
+        .client
+        .post(server.url(&format!("/api/v1/tags/{tag_id}/assets/batch")))
+        .json(&json!({ "asset_ids": [asset.to_string()] }))
+        .send()
+        .await
+        .unwrap();
+
+    let response = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset}/tags")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let tags = body.as_array().unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0]["name"], "Montagna");
+    assert_eq!(tags[0]["state"], "confirmed");
+    assert_eq!(tags[0]["source"], "user");
+
+    // §19.3: la `×` sui chip confermati rimuove permanentemente — mai
+    // più nell'elenco dopo.
+    let remove = server
+        .client
+        .post(server.url(&format!("/api/v1/tags/{tag_id}/assets/{asset}/remove")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(remove.status(), 204);
+
+    let after: serde_json::Value = server
+        .client
+        .get(server.url(&format!("/api/v1/assets/{asset}/tags")))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(after.as_array().unwrap().is_empty());
+
+    let _ = fs::remove_dir_all(&root);
+}

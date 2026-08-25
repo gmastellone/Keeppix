@@ -7,12 +7,14 @@ import { fetchLibraries, type Library } from '@/api/libraries'
 import type { TimelineAsset } from '@/api/timeline'
 import AssetViewer from '@/components/AssetViewer.vue'
 import MapClusterLayer from '@/components/MapClusterLayer.vue'
+import { useFavoritesStore } from '@/stores/favorites'
 import { mapErrorKey, type MapBounds, useMapsStore } from '@/stores/maps'
 import MapsOfflineView from '@/views/settings/MapsOfflineView.vue'
 
 const { t } = useI18n()
 const router = useRouter()
 const maps = useMapsStore()
+const favorites = useFavoritesStore()
 const libraries = ref<Library[]>([])
 const viewing = ref<TimelineAsset>()
 const loading = ref(true)
@@ -45,6 +47,14 @@ async function openAsset(id: string) {
   }
 }
 
+// §27, "Apri cartella": nessuna vista "Foto scoperta su una cartella"
+// esiste ancora nell'app reale (stessa lacuna già dichiarata in
+// SearchView.vue, Task 9 3/N) — `/folders` è la destinazione reale più
+// vicina, non un salto diretto ma non un link morto.
+function openFolder() {
+  void router.push('/folders')
+}
+
 async function showArea(bounds: MapBounds) {
   await router.push({
     path: '/',
@@ -59,25 +69,22 @@ onMounted(load)
 
 <template>
   <main class="flex h-full min-h-0 flex-col">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-3">
-      <RouterLink
-        class="text-sm underline"
-        to="/"
-      >
-        {{ t('maps.back') }}
-      </RouterLink>
-      <h1 class="text-xl font-semibold">
-        {{ t('maps.title') }}
-      </h1>
+    <!-- Fase 11 Task 6 (6/N): il link "indietro" e il titolo di vista
+         improvvisati sono tolti — AppSidebar copre già "Foto" e
+         AppTopbar mostra già "Mappa" nel breadcrumb (App.vue). Resta
+         solo il controllo reale di questa vista senz'altra sede. -->
+    <div
+      v-if="availableRegions.length > 0"
+      class="flex items-center border-b border-border px-4 py-3"
+    >
       <button
-        v-if="availableRegions.length > 0"
         type="button"
         class="ml-auto rounded-lg border border-border px-3 py-1.5 text-sm"
         @click="managingRegions = !managingRegions"
       >
         {{ t('maps.regionManager') }}
       </button>
-    </header>
+    </div>
 
     <p
       v-if="loading"
@@ -123,6 +130,7 @@ onMounted(load)
         allow-draw
         @asset-click="openAsset"
         @area-selected="showArea"
+        @open-folder="openFolder"
       />
       <aside
         v-if="managingRegions"
@@ -135,8 +143,10 @@ onMounted(load)
     <AssetViewer
       v-if="viewing"
       :asset="viewing"
+      :is-favorite="favorites.isFavorite(viewing)"
       @close="viewing = undefined"
       @open-asset="openAsset"
+      @toggle-favorite="favorites.toggleOne(viewing)"
     />
   </main>
 </template>

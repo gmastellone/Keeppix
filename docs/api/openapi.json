@@ -643,6 +643,62 @@
         ]
       }
     },
+    "/api/v1/assets/batch/move": {
+      "post": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Move multiple assets to a folder",
+        "operationId": "assets_batch_move",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchMoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/batch/rename": {
       "post": {
         "tags": [
@@ -990,6 +1046,57 @@
         ]
       }
     },
+    "/api/v1/assets/{id}/albums": {
+      "get": {
+        "tags": [
+          "albums"
+        ],
+        "summary": "List the albums (manual and dynamic) an asset already belongs to",
+        "description": "# Errors\n`401` se non autenticato.",
+        "operationId": "assets_list_albums",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Album di cui l'asset è membro, per nome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AlbumBadgeView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/{id}/faces": {
       "get": {
         "tags": [
@@ -1290,6 +1397,84 @@
         ]
       }
     },
+    "/api/v1/assets/{id}/pick": {
+      "post": {
+        "tags": [
+          "culling"
+        ],
+        "summary": "Pick, reject, or clear an asset's culling vote",
+        "description": "# Errors\n`401` se non autenticato; `403` se l'asset non è visibile, o se è dentro\nun lotto e il chiamante non è editor sia della cartella di origine sia di\nquella di destinazione; `409` su collisione di nome nella cartella di\ndestinazione.",
+        "operationId": "culling_set_pick",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id dell'asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PickRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Asset aggiornato (folder_id nuovo se si è mosso)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile, o permesso insufficiente per lo spostamento",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Collisione di nome nella cartella di destinazione",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/assets/{id}/restore": {
       "post": {
         "tags": [
@@ -1481,6 +1666,66 @@
           },
           "500": {
             "description": "Errore del database",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/assets/{id}/tags": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "List an asset's tags — confirmed and pending, never rejected",
+        "operationId": "assets_list_tags",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tag confermati e in attesa, ordinati per nome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssetTagDetailView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
             "content": {
               "application/json": {
                 "schema": {
@@ -2456,6 +2701,64 @@
           },
           "401": {
             "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/culling/lots/{id}/empty-skipped": {
+      "post": {
+        "tags": [
+          "culling"
+        ],
+        "summary": "Permanently delete every asset in a lot's _skipped folder",
+        "description": "# Errors\n`401` se non autenticato; `403` se il chiamante non può distruggere\nanche un solo asset del lotto (owner/admin richiesti).",
+        "operationId": "culling_empty_skipped",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della cartella del lotto",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non owner/admin di almeno un asset del lotto",
             "content": {
               "application/json": {
                 "schema": {
@@ -4080,6 +4383,155 @@
           },
           "403": {
             "description": "Non consentito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/libraries/{id}/culling-root": {
+      "patch": {
+        "tags": [
+          "libraries"
+        ],
+        "summary": "Set or clear a library's culling root folder",
+        "description": "# Errors\n`401` se non autenticato; `403` se il chiamante vede la libreria ma non\nne è proprietario/admin; `409` se `folder_id` non appartiene a questa\nlibreria; `422` se `folder_id` non è un id leggibile.",
+        "operationId": "libraries_set_culling_root",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchCullingRootRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Libreria aggiornata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non owner/admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La cartella non appartiene a questa libreria",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Id cartella illeggibile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/libraries/{id}/culling/lots": {
+      "get": {
+        "tags": [
+          "culling"
+        ],
+        "summary": "List culling lots for a library",
+        "description": "# Errors\n`401` se non autenticato; `403` se il chiamante non vede la libreria, o\nla vede ma non ne è proprietario/admin.",
+        "operationId": "culling_list_lots",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id della libreria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lotti, più recenti prima",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CullingLotView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Non owner/admin di questa libreria",
             "content": {
               "application/json": {
                 "schema": {
@@ -8064,6 +8516,140 @@
         ]
       }
     },
+    "/api/v1/tags/{id}/assets/batch": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Assign a tag to multiple assets directly (source=user, bulk)",
+        "operationId": "tags_assign_batch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchAssignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tags/{id}/assets/batch/remove": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Remove a tag from multiple assets directly (bulk)",
+        "operationId": "tags_unassign_batch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchAssignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Esito per asset (riuscita parziale ammessa)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batch troppo grande",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/tags/{id}/assets/{asset_id}/confirm": {
       "post": {
         "tags": [
@@ -8206,6 +8792,85 @@
           },
           "409": {
             "description": "Già confermato: la decisione è permanente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tags/{id}/assets/{asset_id}/remove": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Permanently remove an already-confirmed tag from an asset",
+        "operationId": "tags_remove_confirmed",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "description": "Id asset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Rimosso (idempotente se già rimosso)"
+          },
+          "401": {
+            "description": "Non autenticato",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Asset non visibile al chiamante",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Il tag non è mai stato assegnato a questo asset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "È ancora in attesa di conferma: va deciso dalla coda, non rimosso",
             "content": {
               "application/json": {
                 "schema": {
@@ -10487,6 +11152,22 @@
           }
         ]
       },
+      "AlbumBadgeView": {
+        "type": "object",
+        "description": "Un album di cui un asset è membro, come lo mostra la sezione ALBUM del\npannello informazioni del lightbox (Fase 11 Task 8, §19.2 campo 18) —\nsolo id e nome: i chip non sono cliccabili e non distinguono manuale da\ndinamico (il documento è esplicito su questo).",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "AlbumView": {
         "type": "object",
         "required": [
@@ -10607,6 +11288,76 @@
           }
         }
       },
+      "AssetExifDetailView": {
+        "type": "object",
+        "description": "EXIF completo di un asset (Fase 11 Task 8, §19.2 campi 6-9) — a\ndifferenza di [`AssetView::camera_model`] (una stringa sola, per SP-3),\nil lightbox mostra obiettivo, esposizione (diaframma/tempo/ISO) e\nfocale.",
+        "properties": {
+          "camera_make": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "camera_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exposure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "f_number": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "focal_length": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "iso": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "lens": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AssetFaceBadgeView": {
+        "type": "object",
+        "description": "Un volto confermato, come SP-3 §11 lo mostra: solo l'identità della\npersona (bbox/punteggi non servono a un chip di filtro).",
+        "required": [
+          "person_id"
+        ],
+        "properties": {
+          "person_id": {
+            "type": "string"
+          },
+          "person_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` per una persona senza nome (\"Persona 4\" — l'etichetta di\nfallback è compito del frontend, come già per le altre schermate\nPersone)."
+          }
+        }
+      },
       "AssetFlagsBody": {
         "type": "object",
         "properties": {
@@ -10637,6 +11388,70 @@
           }
         }
       },
+      "AssetTagBadgeView": {
+        "type": "object",
+        "description": "Un tag confermato, come SP-3 §11 lo mostra: nome e colore per la chip,\n`category_id` per l'AND fra le dimensioni \"Tag\"/\"Categorie\" — mai\nbisogno di un secondo giro sul tag per risolvere la sua categoria.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "AssetTagDetailView": {
+        "type": "object",
+        "description": "Un tag come lo mostra il pannello informazioni del lightbox (Fase 11\nTask 8, §19.2 campi 14-17) — `state`/`source` grezzi, la vista sceglie\nla resa (piena / `.ai-applied` / tratteggiata), non questa risposta.",
+        "required": [
+          "id",
+          "name",
+          "state",
+          "source"
+        ],
+        "properties": {
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
       "AssetView": {
         "type": "object",
         "required": [
@@ -10647,14 +11462,30 @@
           "kind",
           "status",
           "stack_size",
-          "favorite"
+          "favorite",
+          "tags",
+          "faces"
         ],
         "properties": {
+          "camera_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fotocamera confermata sull'exif (Fase 11 Task 7, SP-3 §11,\ndimensione \"Fotocamera\"). `None` se l'asset non ha `asset_exif`\nleggibile o l'exif non porta il modello. Campo additivo."
+          },
           "content_hash": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "faces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetFaceBadgeView"
+            },
+            "description": "Volti confermati (Fase 11 Task 7, SP-3 §11, dimensione \"Persone\") —\n`person_id IS NOT NULL AND rejected_at IS NULL`, assegnato a mano o\ndal raggruppamento automatico. Vuoto, mai assente. Campo additivo."
           },
           "favorite": {
             "type": "boolean",
@@ -10665,6 +11496,17 @@
           },
           "folder_id": {
             "type": "string"
+          },
+          "full_exif": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssetExifDetailView",
+                "description": "EXIF completo (Fase 11 Task 8, §19.2 sezione \"SCATTO\") — popolato\n**solo** da [`asset`] (dettaglio di un asset alla volta, il\nlightbox), mai da [`page`]/`/search`: un giro di query in più per\nogni riga di ogni pagina della timeline non serve a nessuno lì.\nCampo additivo, sempre assente (non `null`) sulle viste bulk."
+              }
+            ]
           },
           "height": {
             "type": [
@@ -10715,6 +11557,13 @@
           },
           "status": {
             "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetTagBadgeView"
+            },
+            "description": "Tag confermati (Fase 11 Task 7, SP-3 §11, dimensioni \"Tag\"/\n\"Categorie\") — solo `state='confirmed'`, mai proposte in attesa.\nVuoto, mai assente: `[]` se l'asset non ha tag o se pgvector non è\ninstallato. Campo additivo."
           },
           "taken_at_utc": {
             "type": [
@@ -10964,7 +11813,7 @@
           "culling": {
             "type": "integer",
             "format": "int64",
-            "description": "Foto ancora da valutare nel culling (Fase 9). Zero finché i lotti non\nesistono nel backend."
+            "description": "Foto ancora da valutare nel culling, sommate su tutti i lotti di\ntutte le librerie con una radice designata (Fase 9, esposto in Fase\n11 Task 17). `list_lots` è già owner/admin-scoped per costruzione —\nuna libreria senza radice designata contribuisce zero senza una\nquery in più (`list_lots` la salta subito)."
           },
           "revision": {
             "type": "integer",
@@ -10989,6 +11838,20 @@
           },
           "patch": {
             "$ref": "#/components/schemas/MetadataPatchRequest"
+          }
+        }
+      },
+      "BatchAssignRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -11032,6 +11895,24 @@
             }
           }
         ]
+      },
+      "BatchMoveRequest": {
+        "type": "object",
+        "required": [
+          "asset_ids",
+          "folder_id"
+        ],
+        "properties": {
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "folder_id": {
+            "type": "string"
+          }
+        }
       },
       "BatchShiftRequest": {
         "type": "object",
@@ -11471,6 +12352,41 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "CullingLotView": {
+        "type": "object",
+        "required": [
+          "folder_id",
+          "name",
+          "created_at",
+          "pending",
+          "taken",
+          "skipped"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "skipped": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "taken": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -12211,6 +13127,13 @@
           "created_at": {
             "type": "string"
           },
+          "culling_root_folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Radice del culling a cartelle (Fase 9 Task 2, esposta via HTTP in\nFase 11 Task 17). `None` finché il proprietario non ne designa una —\nculling si comporta come oggi, nessun comportamento nuovo forzato."
+          },
           "exclude_patterns": {
             "type": "array",
             "items": {
@@ -12577,6 +13500,18 @@
           }
         }
       },
+      "PatchCullingRootRequest": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Id della cartella scelta come radice, o `null` per rimuoverla."
+          }
+        }
+      },
       "PatchGroupRequest": {
         "type": "object",
         "required": [
@@ -12813,6 +13748,18 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "PickRequest": {
+        "type": "object",
+        "required": [
+          "pick"
+        ],
+        "properties": {
+          "pick": {
+            "type": "string",
+            "example": "pick"
           }
         }
       },
@@ -13086,6 +14033,101 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "PublicAssetView": {
+        "type": "object",
+        "description": "Sottoinsieme di [`AssetView`] sicuro per un guest anonimo — **non**\n`AssetView` stessa, apposta: quel tipo è condiviso con timeline/ricerca ed\nè pensato per crescere di campi \"additivi\" (`tags`, `faces`, `full_exif`,\n…, vedi i commenti su `AssetView`), e riusarlo qui esporrebbe ogni futura\naggiunta a un utente anonimo senza che nessuno se ne accorga. `face_\nprivacy.rs` lo impone strutturalmente: cammina l'intero corpo e rifiuta\nqualunque chiave \"face\"/\"person\", quindi anche `faces:[]` (vuoto, mai\npopolato da questa rotta) lo fa fallire — di proposito, perché un domani\nchi copia `.with_faces(...)` da `timeline.rs` in questa rotta lo farebbe\nfallire lo stesso, non solo il caso con dati veri.",
+        "required": [
+          "id",
+          "folder_id",
+          "filename",
+          "size_bytes",
+          "kind",
+          "status",
+          "stack_size"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "location": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GeoPointView"
+              }
+            ]
+          },
+          "place_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "raw_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "stack_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string"
+          },
+          "taken_at_utc": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "thumbhash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -13721,7 +14763,7 @@
           "assets": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/AssetView"
+              "$ref": "#/components/schemas/PublicAssetView"
             }
           },
           "object_type": {
@@ -14368,6 +15410,10 @@
     {
       "name": "flags",
       "description": "Voti di culling per utente: rating, pick, etichetta colore"
+    },
+    {
+      "name": "culling",
+      "description": "Lotti di culling a cartelle: elenco, scelta/scarto fisico, svuota scartati"
     },
     {
       "name": "health",

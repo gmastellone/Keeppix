@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use keeppix_db::{JobRepo, LibraryRepo, OperationsRepo};
-use keeppix_domain::{JobStatus, Library, LibraryId, NewLibrary, OperationKind};
+use keeppix_domain::{FolderId, JobStatus, Library, LibraryId, NewLibrary, OperationKind};
 use serde::{Deserialize, Serialize};
 
 use crate::extract::{AdminAuth, Auth};
@@ -29,6 +29,10 @@ pub struct LibraryView {
     pub status: String,
     pub last_scan_at: Option<String>,
     pub created_at: String,
+    /// Radice del culling a cartelle (Fase 9 Task 2, esposta via HTTP in
+    /// Fase 11 Task 17). `None` finché il proprietario non ne designa una —
+    /// culling si comporta come oggi, nessun comportamento nuovo forzato.
+    pub culling_root_folder_id: Option<String>,
 }
 
 impl LibraryView {
@@ -41,6 +45,7 @@ impl LibraryView {
             scan_enabled: lib.scan_enabled,
             faces_enabled: lib.faces_enabled,
             exclude_patterns: lib.exclude_patterns.clone(),
+            culling_root_folder_id: lib.culling_root_folder_id.map(|id| id.to_string()),
             status: match lib.status {
                 keeppix_domain::LibraryStatus::Active => "active".to_owned(),
                 keeppix_domain::LibraryStatus::Offline => "offline".to_owned(),
@@ -234,6 +239,64 @@ pub async fn patch(
             body.faces_enabled,
             body.exclude_patterns.as_deref(),
         )
+        .await?;
+    Ok(Json(LibraryView::from_library(&library)))
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct PatchCullingRootRequest {
+    /// Id della cartella scelta come radice, o `null` per rimuoverla.
+    pub folder_id: Option<String>,
+}
+
+/// Designa (o rimuove, con `folder_id: null`) la radice del culling a
+/// cartelle (§17/§64). Rotta dedicata invece di un campo su `PATCH
+/// /libraries/{id}`: `LibraryRepo::set_culling_root` pretende owner/admin
+/// esplicito, più stretto del permesso generale di `update` — mescolarli in
+/// un solo handler renderebbe silenziosamente più permissivo un campo che
+/// decide dove finiscono fisicamente i file scelti/scartati.
+///
+/// # Errors
+/// `401` se non autenticato; `403` se il chiamante vede la libreria ma non
+/// ne è proprietario/admin; `409` se `folder_id` non appartiene a questa
+/// libreria; `422` se `folder_id` non è un id leggibile.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/libraries/{id}/culling-root",
+    tag = "libraries",
+    operation_id = "libraries_set_culling_root",
+    summary = "Set or clear a library's culling root folder",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Id della libreria")),
+    request_body = PatchCullingRootRequest,
+    responses(
+        (status = 200, description = "Libreria aggiornata", body = LibraryView),
+        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 403, description = "Non owner/admin", body = Problem),
+        (status = 409, description = "La cartella non appartiene a questa libreria", body = Problem),
+        (status = 422, description = "Id cartella illeggibile", body = Problem)
+    )
+)]
+pub async fn set_culling_root(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    AxumPath(id): AxumPath<LibraryId>,
+    Json(body): Json<PatchCullingRootRequest>,
+) -> Result<Json<LibraryView>, Problem> {
+    let folder_id = body
+        .folder_id
+        .map(|raw| {
+            raw.parse::<FolderId>().map_err(|_| {
+                Problem::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "invalid-id",
+                    "Invalid folder id",
+                )
+            })
+        })
+        .transpose()?;
+    let library = LibraryRepo::new(&state.db)
+        .set_culling_root(&ctx, id, folder_id)
         .await?;
     Ok(Json(LibraryView::from_library(&library)))
 }
