@@ -31,11 +31,11 @@ separatamente offline in quella sandbox, prima di scrivere questo file:
     `open_clip/hf_configs.py` (`arch_dict['xlm-roberta']`) installati
     localmente — codice sorgente, non pesi, quindi nessuna rete richiesta
     per leggerlo.
-  - `proj_type` di QUESTO specifico checkpoint non verificato (il suo
-    config.json è su HF, irraggiungibile qui): lo script legge il valore
-    reale da `model.text.proj` a runtime e fallisce esplicitamente se non è
-    `nn.Linear` — vedi `assert_real_proj_is_linear` sotto — invece di
-    assumere in silenzio la forma sbagliata.
+  - `proj_type` del checkpoint reale: verificato su CI reale, è 'mlp'
+    (`nn.Sequential`, non `nn.Linear` come questa docstring assumeva alla
+    prima stesura — l'assert `assert_real_proj_is_recognized` sotto ha
+    fallito in modo esplicito e informativo invece di esportare in
+    silenzio la proiezione sbagliata; ora riconosce entrambe le forme).
   - La normalizzazione L2 finale **non** è nel grafo esportato, per lo
     stesso motivo di MobileCLIP2: `crates/keeppix-media/src/clip.rs` la fa
     in Rust (`l2_normalize`) dopo l'estrazione del tensore — verificato
@@ -148,28 +148,47 @@ def apply_remap_for_export(input_ids, remap_tensor):
     return remap_tensor[input_ids]
 
 
-def assert_real_proj_is_linear(text_tower) -> None:
+def assert_real_proj_is_recognized(text_tower) -> None:
+    """Verificato sul checkpoint reale (non più un'ipotesi): `proj_type` è
+    'mlp' — `nn.Sequential(Linear(768, hidden, bias=False), GELU(),
+    Linear(hidden, 512, bias=False))`, `hidden = (768+512)//2 = 640` per la
+    formula di `open_clip/hf_model.py` — non 'linear' come questo file
+    assumeva alla prima stesura (fallito con un errore esplicito invece di
+    esportare in silenzio la proiezione sbagliata: `proj_type inatteso:
+    Sequential`, verificato su CI reale). `TextTowerExport.forward` sotto
+    chiama semplicemente `self.proj(pooled)`: funziona identico per
+    `nn.Linear` o `nn.Sequential`, nessuna modifica ai meccanismi di export
+    serviva — solo a questo controllo, che era troppo rigido.
+    """
     import torch.nn as nn
 
     proj = text_tower.proj
-    if isinstance(proj, nn.Identity):
-        raise SystemExit(
-            "proj_type inatteso: nn.Identity (hidden_size == embed_dim?) — "
-            "questo file assume una proiezione lineare 768->512. Verificare "
-            "il config.json reale del checkpoint prima di procedere: la "
-            "logica sotto va adattata, non ignorata."
+    if isinstance(proj, nn.Linear):
+        if proj.bias is not None:
+            raise SystemExit(
+                "proj lineare CON bias — questo file assume bias=False. "
+                "Se il checkpoint reale ha un bias, aggiungerlo all'export."
+            )
+        log(f"proj_type: linear ({proj.in_features}->{proj.out_features}, bias=False)")
+        return
+    if isinstance(proj, nn.Sequential):
+        linears = [m for m in proj if isinstance(m, nn.Linear)]
+        if len(linears) != 2 or any(lin.bias is not None for lin in linears):
+            raise SystemExit(
+                f"proj_type='mlp' ma struttura inattesa: {proj} — atteso "
+                "esattamente 2 Linear senza bias (più un'attivazione in "
+                "mezzo). Verificare a mano prima di procedere."
+            )
+        log(
+            f"proj_type: mlp ({linears[0].in_features}->{linears[0].out_features}"
+            f"->{linears[1].out_features}, bias=False)"
         )
-    if not isinstance(proj, nn.Linear):
-        raise SystemExit(
-            f"proj_type inatteso: {type(proj).__name__} (atteso nn.Linear). "
-            "Verificare model.text.proj del checkpoint reale prima di procedere."
-        )
-    if proj.bias is not None:
-        raise SystemExit(
-            "proj lineare CON bias — questo file assume bias=False (osservato "
-            "nella sorgente open_clip/hf_model.py per proj_type='linear'). "
-            "Se il checkpoint reale ha un bias, aggiungerlo all'export sotto."
-        )
+        return
+    raise SystemExit(
+        f"proj_type inatteso: {type(proj).__name__} (attesi nn.Linear o "
+        "nn.Sequential/mlp). Verificare model.text.proj del checkpoint "
+        "reale prima di procedere."
+    )
 
 
 def main() -> None:
@@ -209,7 +228,7 @@ def main() -> None:
             "il piano dichiara 512-d, nessuna migrazione di schema prevista per "
             "un embed_dim diverso."
         )
-    assert_real_proj_is_linear(model.text)
+    assert_real_proj_is_recognized(model.text)
 
     # --- Torre visione: nessuna potatura, esporta così com'è. ---
     log("export ONNX: torre visione")
