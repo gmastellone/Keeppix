@@ -23,20 +23,21 @@ name: Export OpenCLIP XLM-R IT/EN
 # (`laion/CLIP-ViT-B-32-xlm-roberta-base-laion5B-s13B-b90k`), quindi la
 # qualità reale del modello e i numeri di peso/RSS/ms che il piano chiede.
 #
-# `push` qui sotto, scoped al SOLO branch di questo task (non un wildcard
-# `fase-*`, quello resta a `ci.yml`): `workflow_dispatch` da solo richiede
-# che il file sia già sul branch di default per essere invocabile via API
-# (verificato: 404 provando a lanciarlo appena pushato su questo branch,
-# limite reale di GitHub, non un bug qui) — inutile finché questo branch
-# non è mergiato. Il push-trigger scoped è il modo per far girare l'export
-# per davvero durante lo sviluppo del Task B, senza mergiare a `main` del
-# lavoro a metà solo per sbloccare il dispatch. Da togliere quando il
-# trigger `workflow_dispatch` torna effettivamente utilizzabile (dopo il
-# merge) o quando il Task B chiude.
+# `push` qui sotto, scoped a `main`: le cache di Actions sono scoped al
+# branch che le ha salvate (più il branch di default) — un cache hit dal
+# branch di sviluppo di Task B non è mai stato visibile a un run su `main`
+# (scoperto per davvero al primo merge: `Test` falliva su `main` con i pesi
+# assenti nonostante lo stesso commit fosse verde sul branch). Un push su
+# `main` che tocca lo script di export ripopola la cache scoped a `main`,
+# che è quella che conta per `ci.yml` da qui in avanti. Prima del merge
+# questo trigger era scoped al branch di sviluppo (`workflow_dispatch` da
+# solo richiede che il file sia già sul branch di default per essere
+# invocabile via API — verificato: 404 provando a lanciarlo appena pushato
+# su un branch non di default).
 on:
   workflow_dispatch: {}
   push:
-    branches: [fase-8-task-b-clip-it-en]
+    branches: [main]
     paths:
       - scripts/export-openclip-xlmr-it-en.py
       - .github/workflows/export-openclip-xlmr.yml
