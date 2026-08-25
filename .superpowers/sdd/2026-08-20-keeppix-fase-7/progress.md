@@ -896,3 +896,46 @@ da confermare: il prossimo run CI deve mostrare un EN recall@1
 ragionevole (vicino a 1.00, come per MobileCLIP2 e come atteso dal
 piano) prima di considerare il bug davvero chiuso — non solo che il
 codice compili.
+
+**Confermato** (run CI 32879434237, stesso commit `bcf9b4a`, verde su
+tutte le fasi incluso il passo `--nocapture` dedicato): il fix ha
+risolto il problema per davvero. Primo confronto reale, stesso
+processo, stesso host, side-by-side — mai stato possibile prima d'ora:
+
+| | MobileCLIP2-S2 | OpenCLIP XLM-R int8 |
+|---|---|---|
+| EN recall@1 / recall@5 / MRR | 1.00 / 1.00 / 1.000 | 1.00 / 1.00 / 1.000 |
+| IT recall@1 / recall@5 / MRR | 0.95 / 1.00 / 0.967 | 0.95 / 1.00 / 0.967 |
+| ms/foto (vision) | 163,0 | **57,0** (2,9× più veloce) |
+| ms/testo EN / IT | 51,7 / 50,0 | **16,8 / 17,5** (~3× più veloce) |
+| RSS after_load / peak_infer | 388 MB / 420 MB | 532 MB / 546 MB |
+
+Qualità **identica** — entrambi i modelli mancano esattamente la
+STESSA didascalia IT (rank 3, non 1: coincidenza che suggerisce una
+didascalia genuinamente ambigua nel banco, non una debolezza
+specifica di un modello). Combina quasi esattamente le stime del
+benchmark di selezione del 22 agosto (piano: "~2,7× più leggero e ~4×
+più veloce" sul solo visual) — confermato per la prima volta con
+numeri Rust reali, non solo Python.
+
+RSS più alta per OpenCLIP qui (532-546 MB contro 388-420 MB): non una
+sorpresa nuova, il piano stesso lo documentava già il 22 agosto ("Text:
+pesi/RSS picco/ms | 248 MB/452 MB/26,9 vs 279 MB/754 MB/16,6" —
+OpenCLIP ha SEMPRE avuto un text tower più pesante in RAM di
+MobileCLIP2, nonostante pesi su disco comparabili). Questo bench carica
+visual+text insieme nello stesso processo per comodità di test; in
+produzione i due non sono mai concorrenti (una ricerca pausa il lotto
+foto, per design già esistente), quindi il numero rilevante per le
+finestre notturne resta quello del solo visual — quello ~2,7× più
+leggero. Sotto il tetto duro 1 GiB in ogni caso (546 MB peak,
+combinato).
+
+Task B sostanzialmente de-rischiato: OpenCLIP XLM-R int8 è ora provato
+equivalente-o-meglio per davvero (stessa qualità, molto più veloce,
+licenza permissiva) — non più solo una promessa del benchmark Python.
+Resta aperto: ricalibrare `TAG_MATCH_BAND` sui punteggi reali,
+confrontare `visual_fp16.onnx` (già preparato, commit `9d3380d`)
+contro il default int8 per il "colpo IT sul visual" citato dal piano
+(qui non osservato in modo allarmante — IT già a 0.95, pari a
+MobileCLIP2 — ma il piano chiede comunque il confronto), e solo alla
+fine rimuovere il codice MobileCLIP2 morto.
