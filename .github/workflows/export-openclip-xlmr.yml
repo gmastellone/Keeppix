@@ -65,6 +65,29 @@ jobs:
           ls -lh models/openclip-xlmr-it-en/
           sha256sum models/openclip-xlmr-it-en/*.onnx models/openclip-xlmr-it-en/*.json
 
+      # Il download dell'artefatto (Azure Blob Storage) non è raggiungibile
+      # dal proxy della sandbox di sviluppo — stesso tipo di blocco già
+      # visto per huggingface.co, dominio diverso. I due file JSON qui sono
+      # piccoli e la struttura è nota (scritta da questo stesso script), ma
+      # stampare i valori REALI nel log evita di doverli dedurre a mano.
+      - name: Contenuto dei manifest (evita di scaricare l'artefatto solo per leggerli)
+        run: |
+          echo "--- export_manifest.json ---"
+          cat models/openclip-xlmr-it-en/export_manifest.json
+          echo
+          echo "--- id_remap.json: metadati (senza la mappa intera, è grande) ---"
+          python3 -c "
+          import json
+          d = json.load(open('models/openclip-xlmr-it-en/id_remap.json'))
+          print('original_vocab_size:', d['original_vocab_size'])
+          print('pruned_vocab_size:', d['pruned_vocab_size'])
+          print('unk_new_index:', d['unk_new_index'])
+          print('pad_token_id:', d['pad_token_id'])
+          print('kept entries:', len(d['kept']))
+          sample = list(d['kept'].items())[:5]
+          print('sample kept (old_id -> new_index):', sample)
+          "
+
       - uses: actions/upload-artifact@v4
         with:
           name: openclip-xlmr-it-en

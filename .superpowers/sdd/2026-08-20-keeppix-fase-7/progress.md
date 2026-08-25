@@ -675,3 +675,99 @@ con pgvector 0.6.0 installato, non testcontainers):
 Non ancora chiuso qui, verificato in CI dopo il push: CI reale verde
 sul commit pushato (non solo locale) prima di considerare il debito
 davvero pagato.
+
+## 25 agosto: Task A del piano modelli IA — primo export reale
+
+`scripts/export-openclip-xlmr-it-en.py` (branch `fase-8-task-b-clip-it-en`):
+sostituisce MobileCLIP2-S2 (Apple ML Research Model License,
+research-only) con OpenCLIP XLM-R ViT-B-32 int8
+(`laion/CLIP-ViT-B-32-xlm-roberta-base-laion5B-s13B-b90k`, permissivo),
+potato al vocabolario IT/EN — decisione presa il 22 agosto
+(`docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`, Task B).
+
+Non eseguibile in questa sandbox di sviluppo (il checkpoint è ospitato
+solo su `huggingface.co`, bloccata a livello di proxy — stesso limite
+già noto per MobileCLIP2). Verificato offline, prima di scrivere lo
+script, tutto ciò che non richiede il checkpoint reale: architettura
+`XLM-RobertaModel` pubblica nota costruita a pesi casuali via
+`transformers.XLMRobertaConfig`, export ONNX di entrambe le torri,
+logica di pooling/proiezione letta dal sorgente `open_clip` installato
+(non indovinata), round-trip completo in onnxruntime (differenza max
+7e-8 rispetto all'eager PyTorch).
+
+**Tre round di CI reale** (workflow dedicato
+`.github/workflows/export-openclip-xlmr.yml`, `push` scoped a questo
+branch — `workflow_dispatch` da solo non è invocabile finché il file
+non è sul branch di default, verificato con un 404 reale) — onesto, non
+smussato:
+
+1. **FAILED** — `proj_type inatteso: Sequential (atteso nn.Linear)`.
+   L'assert difensivo scritto apposta (`assert_real_proj_is_linear`) ha
+   fatto il suo lavoro: il checkpoint reale usa `proj_type='mlp'`
+   (`nn.Sequential` a due `Linear` senza bias + GELU in mezzo), non
+   `'linear'` come la prima stesura assumeva. Corretto riconoscendo
+   entrambe le forme (`assert_real_proj_is_recognized`) — nessun
+   cambiamento ai meccanismi di export, `self.proj(pooled)` funziona
+   identico per entrambi i tipi.
+2. **FAILED**, un passo più avanti — entrambe le torri esportano in
+   ONNX con successo (prima conferma reale: `proj_type: mlp
+   (768->640->512, bias=False)`; potatura vocabolario reale: corpus di
+   37.032 voci (parole comuni IT/EN via `wordfreq` più le 20 coppie di
+   `captions.json`) produce 15.580 id di token distinti, vocabolario
+   250.002 → 15.583 righe tenute, 6,2%) — poi
+   `onnxruntime.quantization.shape_inference.quant_pre_process` fallisce
+   con `AssertionError` dentro il suo stesso `SymbolicShapeInference`
+   (`_infer_Reshape`, `assert is_literal(shape_rank)`): limite noto
+   dello strumento sui grafi con asse batch dinamico
+   (`dynamic_axes`), non riproducibile sul grafo sintetico usato per
+   verificare la meccanica (serviva il grafo vero per emergere).
+   Corretto passando `skip_symbolic_shape=True` (disattiva solo
+   l'inferenza di forma avanzata, tiene quella base + constant
+   folding), con un fallback esplicito a "quantizza senza
+   preprocessing" se anche questo fallisse.
+3. **SUCCESS** — tutte le fasi pulite, nessun fallback necessario
+   (`skip_symbolic_shape=True` ha risolto il problema per davvero, non
+   solo mascherato). Numeri reali finali (run 32848473669, commit
+   `d598294`):
+   - `visual.onnx`: 88.929.475 byte (~85 MB) — vicinissimo alla stima
+     del piano per la torre visione int8 (~89 MB).
+   - `text.onnx`: 101.118.421 byte (~96 MB) — molto sotto la stima del
+     piano per la torre testo int8 non potata (~279 MB): l'effetto
+     combinato di potatura (6,2% del vocabolario) e quantizzazione.
+   - `tokenizer.json`: 17.098.086 byte (non potato di proposito —
+     stessa segmentazione per qualunque lingua, vedi vincolo A del
+     piano).
+   - `id_remap.json`: 240.218 byte (mappa sparsa id-originale →
+     indice-nuovo, solo le voci tenute).
+   - sha256 di tutti e cinque i file registrati nel log di CI.
+   - Artefatto caricato come artifact CI (`openclip-xlmr-it-en`,
+     retention 14 giorni) — lo zip stesso (Azure Blob Storage) non è
+     scaricabile da questa sandbox (stesso tipo di blocco di
+     `huggingface.co`, dominio diverso), quindi non ispezionato byte
+     per byte qui: la struttura di `id_remap.json`/`export_manifest.json`
+     è comunque nota per certo, perché scritta da questo stesso script,
+     e la riuscita del passo di salvataggio (nessun errore alla fase
+     "salvataggio tokenizer e tabella di remap") conferma che serializza
+     senza eccezioni. Aggiunto un passo di CI che stampa questi due file
+     nel log per i run futuri, invece di doverli scaricare per leggerli.
+
+**Ancora aperto** (Task B è lontano dall'essere chiuso — non fraintendere
+questo primo export riuscito per "fatto"):
+- Consumatore Rust (`crates/keeppix-media/src/clip.rs`): caricare
+  `visual.onnx`/`text.onnx`, applicare il remap di `id_remap.json`
+  PRIMA di alimentare `text.onnx` (qualunque id assente dalla mappa va
+  su `unk_new_index`), il tokenizer non potato resta invariato per la
+  segmentazione.
+- Bench di regressione IT/EN reale in Rust (analogo a
+  `ai_retrieval_bench.rs`), non solo il numero Python del 22 agosto —
+  il piano lo chiede esplicitamente (punto B: "i numeri che chiudono il
+  task sono quelli Rust sul target").
+- Ricalibrare `TAG_MATCH_BAND` sui nuovi punteggi.
+- Confrontare la quantizzazione dinamica (questa) con QDQ statica o
+  fp16 — il piano lo segnala come confronto ancora da fare, non deciso
+  a priori.
+- Rimuovere il codice MobileCLIP2 morto solo DOPO che il nuovo modello
+  è dimostrato equivalente-o-meglio per davvero — MobileCLIP2 resta
+  funzionante fino ad allora (stesso principio già seguito per
+  SCRFD/ArcFace nel Task A: il fallback funzionante non si toglie prima
+  che il sostituto sia provato).
