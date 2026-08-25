@@ -6891,3 +6891,31 @@ run build` + bundle iniziale gzip → 143.901 byte, sotto il budget di
 153.600. Nessun file Rust toccato da questa sotto-unità (la rotta batch
 esisteva già, solo il frontend ora la chiama) — `cargo fmt`/CI non
 applicabili qui.
+
+## Merge in `main` — Fase 11 chiusa
+
+CI reale verde su `fase-11` (`d57afce`, l'ultimo commit di pre-merge)
+confermata via `mcp__github__actions_list` prima di procedere — non
+un'ipotesi. Prima del merge, `main` era avanzato di un commit
+(`9f36b74`, dell'utente stesso) che pinnava due debiti di Fase 9 dentro
+il Task 17: entrambi già verificati come chiusi da questa sessione —
+`RenameFormulaDialog.vue` disattiva davvero `"Applica"` (`disabled`
+HTML reale, non solo `opacity`) sulla collisione, e `journeys.rs`
+esercita `POST /assets/{id}/pick` end-to-end sul server reale,
+verificando il `folder_id` che cambia. `git merge-tree` a secco contro
+la cima aggiornata di `main`: nessun conflitto.
+
+`git checkout main && git merge --no-ff origin/fase-11` (commit di
+merge riscritto a mano con un messaggio che riassume le quattro
+tranche, non il messaggio automatico di git), push su `origin/main` →
+**`01d9ee5`**. CI reale confermata verde anche sul commit di merge
+risultante (non solo sul branch — `mcp__github__actions_list`,
+run `32825170829`, tutti e cinque i job `completed`/`success`).
+
+**Fase 11 è chiusa**: le quattro tranche (A fondamenta, B grosso delle
+schermate, C Fase 7 tag/categorie, D Fase 8/9 volti/persone/culling)
+sono tutte in `main`, verificate — non solo asserite — da CI reale sia
+sul branch sia sul merge. Prossimo passo, per istruzione permanente
+dell'utente: pulizia del branch di lavoro non-`fase-N`
+(`claude/keeppix-phases-8-11-shi9fl`), poi avanti su Task A (Volti:
+YuNet+SFace).
