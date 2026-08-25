@@ -213,9 +213,30 @@ def main() -> None:
     torch.backends.mha.set_fastpath_enabled(False)  # difensivo, vedi docstring sopra
 
     log(f"caricamento {CHECKPOINT_MODEL} / {CHECKPOINT_TAG} da HuggingFace (richiede rete)")
-    model, _, _ = open_clip.create_model_and_transforms(CHECKPOINT_MODEL, pretrained=CHECKPOINT_TAG)
+    model, _, preprocess = open_clip.create_model_and_transforms(CHECKPOINT_MODEL, pretrained=CHECKPOINT_TAG)
     tokenizer_wrapper = open_clip.get_tokenizer(CHECKPOINT_MODEL)
     model.eval()
+
+    # Normalizzazione immagine REALE di questo checkpoint, non assunta: il
+    # consumatore Rust (crates/keeppix-media) deve applicare la stessa
+    # media/deviazione standard prima di alimentare visual.onnx, e
+    # indovinarla (anche se "CLIP standard" è un'ipotesi ragionevole, quasi
+    # sempre vera per i checkpoint LAION) sarebbe esattamente l'errore che
+    # `assert_real_proj_is_recognized` sopra è servito a evitare per la
+    # proiezione testo. Letta dalla pipeline `torchvision.Compose` reale
+    # tornata da `create_model_and_transforms`, non da una costante.
+    normalize_transforms = [t for t in preprocess.transforms if hasattr(t, "mean") and hasattr(t, "std")]
+    if len(normalize_transforms) != 1:
+        raise SystemExit(
+            f"pipeline di preprocessing inattesa: {len(normalize_transforms)} stadi con "
+            f"mean/std (atteso esattamente 1 — Normalize). Pipeline reale: {preprocess}. "
+            "Verificare a mano prima di procedere."
+        )
+    image_mean = tuple(float(v) for v in normalize_transforms[0].mean)
+    image_std = tuple(float(v) for v in normalize_transforms[0].std)
+    if len(image_mean) != 3 or len(image_std) != 3:
+        raise SystemExit(f"mean/std non a 3 canali: mean={image_mean} std={image_std}")
+    log(f"normalizzazione immagine reale: mean={image_mean} std={image_std}")
 
     if model.visual.image_size not in ((IMAGE_SIZE, IMAGE_SIZE), IMAGE_SIZE):
         raise SystemExit(
@@ -421,11 +442,22 @@ def main() -> None:
     }
     (args.out / "id_remap.json").write_text(json.dumps(remap_out), encoding="utf-8")
 
+    # `max_position_embeddings` reale del transformer testo: la tabella di
+    # posizione esiste solo fino a quell'indice, l'ONNX ha l'asse sequenza
+    # dinamico (nessun limite imposto dal grafo) ma alimentarlo oltre
+    # questo numero farebbe fallire l'inferenza — il consumatore Rust deve
+    # troncare la tokenizzazione a questo valore, letto dal config reale,
+    # non da una costante indovinata.
+    text_max_position_embeddings = model.text.transformer.config.max_position_embeddings
+
     manifest = {
         "checkpoint_model": CHECKPOINT_MODEL,
         "checkpoint_tag": CHECKPOINT_TAG,
         "embed_dim": EMBED_DIM,
         "image_size": IMAGE_SIZE,
+        "image_mean": image_mean,
+        "image_std": image_std,
+        "text_max_position_embeddings": text_max_position_embeddings,
         "opset": args.opset,
         "quantization": "dynamic_int8",
     }
