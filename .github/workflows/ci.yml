@@ -9,6 +9,13 @@ on:
   # del merge.
   push: { branches: [main, 'fase-*'] }
   pull_request:
+  # Valvola di sfogo manuale: durante Fase 8 Task B il trigger push di questo
+  # file specifico è rimasto senza run registrate per due commit consecutivi
+  # su main mentre il resto della piattaforma Actions era di nuovo operativo
+  # (confermato con un workflow_dispatch su export-openclip-xlmr.yml) — un
+  # problema di consegna webhook lato GitHub, non locale. workflow_dispatch
+  # dà un modo per far girare comunque la CI senza aspettare quel percorso.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
