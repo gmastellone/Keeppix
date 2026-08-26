@@ -13024,9 +13024,14 @@
         "type": "object",
         "required": [
           "status",
-          "version"
+          "version",
+          "database"
         ],
         "properties": {
+          "database": {
+            "type": "string",
+            "description": "`\"ok\"`, `\"unreachable\"`, o `\"not checked\"`."
+          },
           "status": {
             "type": "string"
           },

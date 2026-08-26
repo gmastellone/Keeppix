@@ -17,45 +17,38 @@
 # =============================================================================
 # Rinvii — consumatore in una fase non ancora eseguita
 # =============================================================================
-# move_asset (assets.rs, Fase 9 Task 1): la primitiva di spostamento sicuro.
-# check-wired.py la vede erroneamente "wired" — count_ident conta anche le
-# menzioni testuali nei commenti di documentazione (in assets.rs stesso ed
-# error.rs), non solo le chiamate reali: verificato con
-# `grep -rn '\.move_asset(' crates` che gli unici sei call-site sono nei test
-# di questo stesso task, zero in codice di produzione. Eccezione esplicita
-# invece di lasciare che il falso negativo dello strumento nasconda il vero
-# stato — i consumatori arrivano con il Task 4 (Scegliere/Scartare nel
-# culling) e il Task 8 (motore di rinomina) della stessa fase.
-fn move_asset fase-9
-# render_filename / resolve_place_label (keeppix-domain/src/rename.rs, Task
-# 6): il motore puro delle formule di rinomina. check-wired.py non li segnala
-# — falso positivo, stesso motivo di move_asset (Task 1): count_ident conta
-# le menzioni testuali nei commenti di documentazione (il modulo ne parla
-# diffusamente, incluso un link `[`resolve_place_label`]`), non solo le
-# chiamate reali. `grep -rn 'render_filename(\|resolve_place_label('
-# crates --include=*.rs` conferma zero call-site fuori da rename.rs stesso e
-# dal suo modulo di test. Consumatori reali: Task 7 (le cinque convalide,
-# che orchestrano il motore su un batch vero) e Task 8 (i tre ambiti).
-fn render_filename fase-9
-fn resolve_place_label fase-9
 route /health ops
 route /api/openapi.json ci
+
+# move_asset, render_filename, resolve_place_label: erano qui in attesa dei
+# consumatori di Fase 9 (Task 4/8 e 7/8). Fase 9 è chiusa e mergiata —
+# verificato il 26 agosto 2026 rimuovendo temporaneamente queste tre righe e
+# rilanciando `check-wired.py`: passa lo stesso, e `grep` conferma call-site
+# reali fuori dai test (`move_asset` in `culling.rs`/`rename.rs`/`assets.rs`;
+# `render_filename`/`resolve_place_label` nel motore di rinomina di
+# `rename.rs`). Rimosse, non più eccezioni.
 
 # =============================================================================
 # Debiti — spediti in una fase già chiusa senza consumatore
 # =============================================================================
 # origine fase-0 (sessioni). /auth/refresh: pagato in 12b (watchdog SPA).
-# ping (keeppix-db/src/lib.rs): /health oggi risponde senza controllare il
-# database. Wiring minimo — va fatto quando si tocca /health per altro.
-# Fase 10 ha chiuso senza collegarlo: debito non rivendicato.
-fn ping non-rivendicata
+# ping (keeppix-db/src/lib.rs): pagato il 26 agosto — GET /health (router con
+# stato) ora chiama `Db::ping` per davvero e riporta `database: "ok"` o
+# `"unreachable"` nel corpo della risposta (routes/health.rs). La variante
+# senza stato (router_without_state, usata dai test che non vogliono
+# Postgres) resta senza database, onestamente `"not checked"`, non `"ok"`
+# finto.
 
 # origine fase-1a. get_json: pagato — `transcode.rs` rilegge `capabilities`
 # (Fase 6) e Fase 7 Task 1 estende quel JSON con `extra.ai`. Non è più un rinvio.
-# ensure_child (folders.rs): crea UNA sottocartella sotto un genitore — la
-# stessa firma di cui la Fase 9 ha bisogno per creare le sottocartelle
-# _taken/_skipped di un lotto di culling (folders.culling_role).
-fn ensure_child fase-9
+# ensure_child (folders.rs): era qui in attesa che Fase 9 lo riusasse per le
+# sottocartelle _taken/_skipped del culling — non è successo, Fase 9 ha
+# scritto una funzione privata separata (`ensure_culling_child_on`, marca
+# anche `culling_role`) invece di riusare questa. Ma `ensure_child` ha un
+# consumatore reale indipendente e pre-esistente, mai notato quando questa
+# voce fu scritta: `crates/keeppix-api/src/dav/write.rs` (MKCOL via WebDAV,
+# da Fase 5, commit `4d2564e`, 19 agosto). Verificato il 26 agosto rimuovendo
+# la riga e rilanciando `check-wired.py`: passa. Rimossa, non più eccezione.
 
 # origine fase-1b. count_by_status (keeppix-db/src/assets.rs): conta gli
 # asset per stato di scansione, scoped alla visibilità del chiamante. La

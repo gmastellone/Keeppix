@@ -1,9 +1,15 @@
+mod harness;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
+use harness::TestServer;
 use keeppix_test_support::assert_security_headers;
 use tower::ServiceExt as _;
 
-/// `/health` non tocca il database, quindi il test non ha bisogno di Postgres.
+/// La variante senza stato di `/health` non tocca il database (usata qui per
+/// non richiedere Postgres) — il router *con* stato lo controlla per davvero
+/// (`Db::ping`, debito chiuso il 26 agosto: verificato sotto in
+/// `health_reports_the_real_database_status`).
 fn app() -> axum::Router {
     keeppix_api::router_without_state()
 }
@@ -22,6 +28,35 @@ async fn health_returns_ok() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+    let body = http_body_util::BodyExt::collect(response.into_body())
+        .await
+        .unwrap()
+        .to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["database"], "not checked");
+}
+
+/// Il router *con* stato (quello reale, montato in produzione) deve
+/// controllare per davvero il database, non limitarsi a rispondere vivo —
+/// altrimenti un umano che fa `curl /health` per capire perché Keeppix non
+/// funziona vede "ok" anche con Postgres giù. `Db::ping` esisteva dalla Fase
+/// 0 senza consumatore (`scripts/wired-exceptions.txt`, chiuso il 26
+/// agosto).
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn health_reports_the_real_database_status() {
+    let server = TestServer::start().await;
+
+    let response = server
+        .client
+        .get(server.url("/health"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let json: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(json["database"], "ok");
 }
 
 #[tokio::test]

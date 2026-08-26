@@ -70,7 +70,7 @@ pub fn router(state: AppState) -> Router {
 pub fn router_without_state() -> Router {
     with_common_layers(
         Router::new()
-            .route("/health", get(routes::health::get))
+            .route("/health", get(routes::health::get_without_db))
             .route("/api/openapi.json", get(openapi::serve))
             .method_not_allowed_fallback(method_not_allowed)
             .fallback(not_found),
