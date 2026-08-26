@@ -1020,3 +1020,62 @@ tutta la pipeline di embedding. Branch `fase-8-task-b-clip-it-en`
 cancellato dopo il merge verificato. Ancora aperto, non urgente:
 ricalibrare `TAG_MATCH_BAND`/la soglia di default (0.75) sui punteggi
 coseno reali ora loggati dal bench.
+
+## Ultimo punto aperto chiuso — ricalibrazione TAG_MATCH_BAND/soglia default
+
+Dati reali dal banco CI (run `bcf9b4a`, OpenCLIP XLM-R IT/EN,
+diagnostica aggiunta al bench in questa stessa sessione):
+`correct_score` minimo osservato 0,126 (IT) / 0,132 (EN),
+`best_wrong_score` massimo osservato 0,174 (IT) / 0,177 (EN). La
+cosine similarity testo-immagine vera in questo spazio di embedding
+sta a 0,10-0,20 anche per abbinamenti corretti — con la vecchia soglia
+di default 0.75 nessuna proposta di tag sarebbe MAI stata generata
+(gli score reali restano sempre ben sotto).
+
+Modifiche (`crates/keeppix-db`):
+- `tags.rs`: soglia di default in `TagRepo::create` da 0.75 a 0.20,
+  sopra il tetto osservato dei falsi positivi più confondibili.
+- `asset_tags.rs`: `TAG_MATCH_BAND` da 0.01 a 0.05 — era
+  implicitamente calibrata per una scala "confidenza" 0-1, troppo
+  stretta per la scala reale ~0,10-0,20.
+- `migrations/0051_tag_threshold_default_openclip.sql`: allinea il
+  default della colonna (no-op se pgvector/tags assenti, stesso
+  contratto di 0043/0044/0045). Doveva essere `0050`, ma quel prefisso
+  era già preso da `0050_faces_embedding_dim_128.sql` (Task A, arrivato
+  su `main` fra un controllo della cartella migrazioni e il successivo)
+  — sqlx chiave le migrazioni sul prefisso numerico del nome file, non
+  sul nome intero, e la collisione ha rotto il setup DB per l'intera
+  matrice di test (~37 target), non solo tags/asset_tags. Lezione:
+  ricontrollare `crates/keeppix-db/migrations/` da un `git fetch`
+  fresco appena prima di scegliere un numero, mai fidarsi di un
+  elenco locale già letto in precedenza nella stessa sessione — questa
+  sandbox ha ripetutamente ripristinato lo stato locale del branch a
+  momenti precedenti senza preavviso.
+
+Numeri di partenza da un banco sintetico di 20 coppie IT/EN, non una
+calibrazione definitiva — la soglia resta modificabile per tag.
+
+**Verifica locale pulita** (build + `cargo fmt`; `ort`/`ort-sys`
+restano bloccati in questa sandbox, non compilabili qui): commit
+`9bfbc60` → `83e03e8` (fix lint `clippy::doc_markdown`, stesso schema
+già visto più volte in questa sessione: identificatori bare
+mixed-case/snake_case in un doc comment `///`) → `4503cb3` (fix
+collisione migrazione). La CI reale su `4503cb3` non si è mai
+registrata dopo il push (~30 minuti, nessun run comparso per quel
+commit su nessun branch, workflow `CI` comunque `active` e trigger
+corretto) — stallo di piattaforma, non un fallimento reale: questa
+voce di ledger stessa serve da commit di sblocco per far ripartire un
+run reale. Con questo si chiude l'ultimo punto aperto del checklist
+Task B nel piano modelli IA, in attesa solo della conferma CI finale.
+
+**Domanda aperta, non affrontata qui**: `docs/ui/documento-funzionale-ui.md`
+(§51, riga ~7738) descrive `tags.threshold` come uno slider IA
+lato UI — "soglia di confidenza 30-95" con un badge in stile "78%".
+Questo non combacia con la scala reale di cosine similarity
+raw (~0,10-0,20) ora usata come default. Verificato via grep:
+`frontend/src` non ha ancora nessun controllo UI per la soglia dei tag
+(la pagina "Tag e categorie" e il dialog "modifica tag" descritti nella
+spec non sono ancora costruiti), quindi oggi non c'è nulla di rotto
+lato utente — ma chi costruirà quello slider dovrà scegliere fra
+rimappare gli score su una scala percentuale o rivedere il range
+30-95 documentato. Decisione rimandata, non presa qui.
