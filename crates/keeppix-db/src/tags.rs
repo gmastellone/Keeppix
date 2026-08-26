@@ -156,7 +156,17 @@ impl<'a> TagRepo<'a> {
         let created_by = Self::require_user(ctx)?;
         self.validate_parent(new.kind, new.parent_id).await?;
 
-        let threshold = new.threshold.unwrap_or(0.75);
+        // Ricalibrato su OpenCLIP XLM-R IT/EN (Task B): la cosine similarity
+        // testo-immagine reale in questo spazio di embedding sta a
+        // 0,10-0,20 anche per abbinamenti corretti (banco CI reale, run
+        // bcf9b4a: correct_score min 0,126-0,132, best_wrong max
+        // 0,174-0,177) — 0.75 non avrebbe MAI prodotto una proposta.
+        // 0.20 sta sopra il tetto osservato dei falsi positivi più
+        // confondibili, con margine reale per i casi tipici. Numero di
+        // partenza da un banco sintetico di 20 coppie, non una
+        // calibrazione definitiva — resta modificabile per tag
+        // (`tags.threshold`), qui solo il default.
+        let threshold = new.threshold.unwrap_or(0.20);
         let embedding_lit = match new.embedding.as_deref() {
             Some(v) => Some(Self::embedding_literal(v)?),
             None => None,

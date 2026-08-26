@@ -84,7 +84,7 @@ async fn creating_a_category_and_a_child_tag_round_trips() {
         .unwrap();
     assert_eq!(nature.kind, TagKind::Category);
     assert!(nature.parent_id.is_none());
-    assert!((nature.threshold - 0.75).abs() < f32::EPSILON);
+    assert!((nature.threshold - 0.20).abs() < f32::EPSILON);
     assert_eq!(nature.assignment_count, 0);
 
     let wildlife = TagRepo::new(test.db())

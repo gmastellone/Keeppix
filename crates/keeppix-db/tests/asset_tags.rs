@@ -198,7 +198,7 @@ async fn propose_for_tag_skips_assets_below_threshold_minus_band() {
     let asset = seed_asset(&test, folder.id, "nope.jpg").await;
 
     let threshold = 0.75_f32;
-    let too_low = threshold - TAG_MATCH_BAND - 0.02; // 0.72
+    let too_low = threshold - TAG_MATCH_BAND - 0.02; // 0.68
     let tag_id =
         create_tag_with_embedding(&test, &ctx, "Gruppo", threshold, unit_axis(0), MODEL).await;
     EmbeddingRepo::new(test.db())
