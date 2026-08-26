@@ -103,17 +103,17 @@ describe('TagEditorDialog — §53 "Dialog modifica tag"', () => {
     await tick()
 
     expect(createTagMock).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Tramonti', kind: 'tag', threshold: 0.75 })
+      expect.objectContaining({ name: 'Tramonti', kind: 'tag', threshold: 0.2 })
     )
     const toast = useToastStore()
     expect(toast.toasts.some((t) => t.message === 'Tag "Tramonti" creato.')).toBe(true)
   })
 
   it('edit mode pre-fills fields and shows the threshold percent from the fraction', async () => {
-    mountHost({ tag: tag({ threshold: 0.6, prompt: 'un prompt' }) })
+    mountHost({ tag: tag({ threshold: 0.18, prompt: 'un prompt' }) })
     await tick()
 
-    expect(document.body.textContent).toContain('Soglia di confidenza — 60%')
+    expect(document.body.textContent).toContain('Soglia di confidenza — 18%')
     const promptInput = Array.from(document.body.querySelectorAll('input')).find(
       (el) => (el as HTMLInputElement).value === 'un prompt'
     )

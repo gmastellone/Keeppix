@@ -53,7 +53,7 @@ function onKeydown(event: KeyboardEvent) {
     <span
       class="shrink-0 rounded-full bg-border/40 px-1.5 py-0.5 text-[10.5px] font-bold"
       :title="t('tags.thresholdTooltip')"
-    >{{ Math.round((tag.threshold ?? 0.75) * 100) }}%</span>
+    >{{ Math.round((tag.threshold ?? 0.2) * 100) }}%</span>
     <button
       type="button"
       class="shrink-0 rounded-md px-1.5 py-1 text-[12px] text-content-muted hover:bg-danger/10 hover:text-danger"

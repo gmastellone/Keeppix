@@ -2,11 +2,17 @@
 // Fase 11 Task 15 (1/N), §53 "Dialog 'modifica tag'" — documento
 // funzionale verificato riga per riga (righe 7925-8058).
 //
-// **Soglia — conversione percentuale ↔ frazione**: lo slider del
-// documento è 30-95 (%), ma `Tag.threshold` sul backend è una frazione
-// 0-1 (colonna `real DEFAULT 0.75`, confrontata direttamente col punteggio
-// di coseno in `AssetTagRepo`) — mai una percentuale. Convertita qui, non
-// sul backend: `threshold * 100` in lettura, `/100` in scrittura.
+// **Soglia — non una confidenza 0-100%, `threshold * 100` diretto**: il
+// documento originale immaginava uno slider 30-95 (%) letto come
+// confidenza, ma `Tag.threshold` è il cosine score grezzo di OpenCLIP
+// XLM-R IT/EN (Task B, piano modelli IA) — 0,10-0,20 anche per
+// abbinamenti corretti, mai vicino a 1,0 (ricalibrato in
+// `migrations/0051_tag_threshold_default_openclip.sql`, che porta anche
+// il default a 0.20). Range 5-40%, non 30-95: coprire lo score reale con
+// margine sopra e sotto, non la scala di confidenza che il documento
+// assumeva prima che si scoprisse quale fosse davvero la distribuzione
+// dei punteggi. Convertita qui, non sul backend: `threshold * 100` in
+// lettura, `/100` in scrittura.
 //
 // **Duplicati NON permessi qui, a differenza del mockup**: `TagRepo`
 // applica `UNIQUE(name, kind)` per davvero (409 Conflict) — "i nomi
@@ -36,7 +42,14 @@ import TextField from '@/components/ui/TextField.vue'
 import { useToastStore } from '@/stores/toast'
 
 const TAG_SWATCH_HUES = [24, 150, 205, 340, 270, 34, 195, 0, 120, 290]
-const DEFAULT_THRESHOLD_PERCENT = 75
+// La soglia non è una "confidenza" 0-100%: è `threshold * 100` diretto,
+// stessa scala grezza del cosine score reale di OpenCLIP XLM-R IT/EN
+// (Task B, piano modelli IA) — punteggi 0,10-0,20 anche per abbinamenti
+// corretti, mai vicini a 1,0. 20 combacia col default di
+// `migrations/0051_tag_threshold_default_openclip.sql`.
+const DEFAULT_THRESHOLD_PERCENT = 20
+const THRESHOLD_PERCENT_MIN = 5
+const THRESHOLD_PERCENT_MAX = 40
 
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ tag: Tag | null; categories: Tag[]; tagCount: number }>()
@@ -66,7 +79,7 @@ function reset() {
     prompt.value = props.tag.prompt ?? ''
     categoryId.value = props.tag.parent_id ?? ''
     color.value = props.tag.color ?? ''
-    thresholdPercent.value = Math.round((props.tag.threshold ?? 0.75) * 100)
+    thresholdPercent.value = Math.round((props.tag.threshold ?? 0.2) * 100)
   } else {
     name.value = ''
     prompt.value = ''
@@ -216,8 +229,8 @@ async function confirmDelete() {
         <input
           v-model.number="thresholdPercent"
           type="range"
-          min="30"
-          max="95"
+          :min="THRESHOLD_PERCENT_MIN"
+          :max="THRESHOLD_PERCENT_MAX"
           class="mt-1.5 w-full"
         >
         <p class="mt-1.5 text-[11.5px] leading-normal text-content-muted">
