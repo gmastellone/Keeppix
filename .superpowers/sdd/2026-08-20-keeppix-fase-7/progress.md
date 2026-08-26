@@ -1060,13 +1060,22 @@ restano bloccati in questa sandbox, non compilabili qui): commit
 `9bfbc60` → `83e03e8` (fix lint `clippy::doc_markdown`, stesso schema
 già visto più volte in questa sessione: identificatori bare
 mixed-case/snake_case in un doc comment `///`) → `4503cb3` (fix
-collisione migrazione). La CI reale su `4503cb3` non si è mai
-registrata dopo il push (~30 minuti, nessun run comparso per quel
-commit su nessun branch, workflow `CI` comunque `active` e trigger
-corretto) — stallo di piattaforma, non un fallimento reale: questa
-voce di ledger stessa serve da commit di sblocco per far ripartire un
-run reale. Con questo si chiude l'ultimo punto aperto del checklist
-Task B nel piano modelli IA, in attesa solo della conferma CI finale.
+collisione migrazione) → `8339ab3` (questa voce di ledger).
+
+Il trigger push di `ci.yml` è rimasto senza run registrate per due
+commit consecutivi su `main` (`4503cb3`, `8339ab3`) nonostante il
+resto della piattaforma Actions fosse di nuovo operativo — confermato
+con un `workflow_dispatch` di prova su `export-openclip-xlmr.yml`,
+partito regolarmente. Stallo di piattaforma specifico del webhook push
+di quel file, non un problema locale né un fallimento reale. Aggiunto
+un trigger `workflow_dispatch` a `ci.yml` (commit `7ffb848`) come
+valvola di sfogo permanente; il push di quel commit ha infine
+registrato una run reale (`32998294663`), che copre anche tutto
+l'albero di `8339ab3` sottostante.
+
+**CI verificata verde**: run `32998294663`, `conclusion: "success"`.
+Con questo si chiude definitivamente l'ultimo punto aperto del
+checklist Task B nel piano modelli IA.
 
 **Domanda aperta, non affrontata qui**: `docs/ui/documento-funzionale-ui.md`
 (§51, riga ~7738) descrive `tags.threshold` come uno slider IA
