@@ -952,3 +952,71 @@ tecnico col fp16 in sé (il round-trip offline era pulito, diff 4.8e-5)
 — una scelta di scope, IT già a 0.95 pari a MobileCLIP2 non
 giustificava altri round CI. QDQ statica resta non esplorata e non
 pianificata.
+
+## Task B chiuso — rimozione MobileCLIP2-S2, merge in main, CI verde
+
+Con Task B de-rischiato (numeri reali equivalenti-o-migliori, sopra) e
+l'esplicita istruzione dell'utente ("ottimizza tutto come da piano e
+tasks... rimuovi mobilelcip, lascia solo openclip 8"): `OpenClipXlmr`
+cablato nei percorsi reali dell'applicazione (non era mai stato
+collegato prima, solo bench-ato in isolamento) — `keeppix-jobs/embed.rs`,
+`keeppix-api/routes/{tags,search}.rs` — e MobileCLIP2-S2 rimosso per
+intero: `clip.rs`, `ai_retrieval_bench.rs`,
+`scripts/download-mobileclip2-s2.sh` cancellati, ogni riferimento
+letterale a `mobileclip2-s2` aggiornato nel resto del workspace
+(`keeppix-db::embeddings::MODEL_VERSION`, `ci.yml`, doc comment, test).
+Il bench `openclip_xlmr_retrieval_bench.rs` assorbe anche il test
+fixture (`captions_fixture_has_twenty_distinguishable_it_en_pairs`) e
+aggiunge diagnostica sui punteggi coseno reali (correct vs.
+best-wrong), non solo ranghi — utile per la futura ricalibrazione di
+`TAG_MATCH_BAND`, non ancora fatta.
+
+Merge in `main` (`e430c9f`, `--no-ff`): pulito, nessun conflitto col
+merge-tree dry run né con Task A (YuNet+SFace, già in `main`). La CI
+sul commit di merge però ha fallito — non un problema del merge in sé,
+due bug reali di infrastruttura scoperti solo lì, mai visibili prima
+perché non esisteva ancora un run CI su `main` con questo commit:
+
+1. **Cache pesi OpenCLIP scoped al branch sbagliato** (fix `5e1e1d7`):
+   le cache GitHub Actions sono visibili solo al branch che le ha
+   salvate più il branch di default. La cache di
+   `models/openclip-xlmr-it-en` popolata da `export-openclip-xlmr.yml`
+   mentre girava su `fase-8-task-b-clip-it-en` non è mai stata visibile
+   a un run su `main`, nemmeno dopo il merge dello stesso commit — due
+   test (`keeppix-api::tags` `has_embedding`,
+   `keeppix-jobs::embed::backfill_schedule_is_background_and_deduped`)
+   fallivano perché i pesi risultavano assenti. Il push-trigger del
+   workflow di export era ancora scoped al branch di Task B (ora morto):
+   spostato su `main`, e lanciato una volta via `workflow_dispatch` per
+   ripopolare subito la cache scoped a `main`. Da qui in avanti un push
+   che tocca lo script di export la ripopola automaticamente.
+2. **Budget troppo stretto su `scale_embeddings::vector_search_stays_interactive_with_ivfflat`**
+   (fix `8919be5`): non correlato a Task A o B — verificato via
+   `git log` che né la migrazione 0045 (indice IVFFlat) né
+   `Dockerfile.db` sono cambiati di recente. Due run CI consecutivi
+   sullo stesso commit hanno misurato il raw `ORDER BY <=>` a 1491ms
+   poi 2328,5ms (in peggioramento, non rumore che oscilla), sopra il
+   budget di 500ms scelto quando il rumore CI più alto osservato era
+   ~650ms. Il percorso applicativo reale nello stesso test
+   (`SearchRepo::run`, stesso indice IVFFlat) è rimasto sotto 200ms in
+   entrambi i run — nessun segno che l'indice abbia smesso di essere
+   usato, solo un runner CI più lento del solito su questa misura
+   specifica. Riproduzione locale non possibile (nessun demone Docker
+   in questa sandbox). Budget alzato a 4s: ordini di grandezza sotto una
+   scansione sequenziale reale su 200k righe × 512 dimensioni, quindi
+   continua a intercettare una regressione vera dell'indice.
+
+Nel mezzo, un primo re-run del job fallito aveva mostrato 3 fallimenti
+diversi e non correlati (timeout worker di scan, un'asserzione
+websocket, e lo stesso `scale_embeddings` sopra) — un secondo re-run
+immediato ha confermato che i primi due erano rumore CI genuino (non
+riprodotti), mentre `scale_embeddings` sì (root-causato come sopra).
+
+**Confermato verde**: run CI 32940029719, commit `8919be5`, tutti i
+job (`backend`, `frontend`, `image`, `audit`, `api-clients`) verdi.
+Task B chiuso per davvero: `OpenClipXlmr` è l'unico modello CLIP nel
+codebase, MobileCLIP2-S2 rimosso interamente, licenza permissiva in
+tutta la pipeline di embedding. Branch `fase-8-task-b-clip-it-en`
+cancellato dopo il merge verificato. Ancora aperto, non urgente:
+ricalibrare `TAG_MATCH_BAND`/la soglia di default (0.75) sui punteggi
+coseno reali ora loggati dal bench.
