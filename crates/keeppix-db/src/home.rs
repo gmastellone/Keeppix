@@ -1,6 +1,6 @@
 //! Punto "casa" per utente e geofence sui payload pubblici.
 
-use keeppix_domain::{AssetId, AuthContext, GeoPoint, UserId};
+use keeppix_domain::{AssetId, AuthContext, GeoPoint};
 
 use crate::{Db, DbError};
 
@@ -134,25 +134,6 @@ impl<'a> HomeRepo<'a> {
         rows.into_iter()
             .map(PublicAssetLocation::try_from)
             .collect()
-    }
-
-    /// Casa di un utente arbitrario — solo per test interni e amministratori
-    /// che verificano il geofence del proprietario di libreria.
-    ///
-    /// # Errors
-    /// `Connection` su errore DB.
-    pub async fn get_for_user(&self, user_id: UserId) -> Result<Option<HomeLocation>, DbError> {
-        let row: Option<(f64, f64, i32)> = sqlx::query_as(
-            "SELECT ST_Y(location::geometry), ST_X(location::geometry), radius_m \
-             FROM user_home_locations WHERE user_id = $1",
-        )
-        .bind(user_id.as_uuid())
-        .fetch_optional(self.db.pool())
-        .await?;
-        Ok(row.map(|(lat, lon, radius_m)| HomeLocation {
-            point: GeoPoint { lat, lon },
-            radius_m,
-        }))
     }
 }
 

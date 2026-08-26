@@ -60,13 +60,20 @@ route /api/openapi.json ci
 # /libraries/{id}/scan... non un secondo stato inventato"). `count_by_status`
 # è un secondo percorso rimasto scollegato fin dall'origine, non lo stesso
 # codice con un nome diverso — stessa forma di `get_for_user` più sotto.
-# Nessuna schermata di Fase 11 mostra un conteggio per-stato ("N indexed,
-# M pending, K failed"): verificato su `ProblemsView.vue` e sulle altre
-# viste che elencano librerie. Non riassegnata a una fase specifica di
-# proposito — va decisa (wired per davvero, o rimossa se ridondante) la
-# prossima volta che si tocca lo stato di scansione, non lasciata scorrere
-# in silenzio.
-fn count_by_status non-rivendicata
+#
+# Decisione presa il 26 agosto, non più rinviata: nessuna schermata del
+# documento funzionale chiede un conteggio per-stato ("N indexed, M
+# pending, K failed") — verificato di nuovo, sia su `ProblemsView.vue`
+# (riscritta riga-per-riga contro §47, non lo prevede) sia sull'intero
+# `docs/ui/documento-funzionale-ui.md` (nessuna occorrenza). Costruire una
+# UI apposta significherebbe inventare una schermata che il disegno non ha
+# mai chiesto. **Non è però codice morto**: `count_by_status` è la sonda
+# usata da sei asserzioni reali in `tests/albums.rs`, `tests/assets.rs` e
+# `tests/permissions.rs` per verificare `VisibilityScope` (chi vede cosa
+# multi-tenant) da più angolazioni — toglierla indebolirebbe quella
+# copertura senza un sostituto equivalente. Resta come API interna
+# testata, senza rotta HTTP: non un debito, un'eccezione permanente.
+fn count_by_status permanente
 
 # origine fase-10 Task 16 (non Fase 11: il Task 16 della Fase 11 è
 # "Persone", tutt'altra cosa). `POST /operations/{id}/cancel` e l'intero
@@ -82,18 +89,37 @@ fn count_by_status non-rivendicata
 # proposito — va decisa la prossima volta che si tocca quest'area.
 route /operations/{id}/cancel non-rivendicata
 
-# origine fase-4 (mappe/geotag). get_for_user: legge la posizione "casa" di un
-# utente (si scrive con /users/me/home ma non si rilegge da nessuna route).
-# timezone_for / timezone_changes / apply_taken_at_batch: verificate il 20
-# agosto 2026 — apply_timezone_changes (nome diverso, geotag.rs) è la funzione
-# davvero wired dietro /metadata/batch/recalculate-timezones; queste tre sono
-# un secondo percorso rimasto scollegato, non lo stesso codice con un nome
-# diverso. Nessuna fase del roadmap le rivendica: l'amministrazione del server
-# è dichiarata fuori dal disegno dell'interfaccia (Parte XII del documento
-# funzionale). Non riassegnate a una fase specifica di proposito — vanno
-# decise (wired per davvero, o rimosse se ridondanti) la prossima volta che
-# si tocca home/timezone, non lasciate scorrere in silenzio.
-fn get_for_user non-rivendicata
-fn timezone_for non-rivendicata
-fn timezone_changes non-rivendicata
-fn apply_taken_at_batch non-rivendicata
+# origine fase-4 (mappe/geotag). Decisione presa il 26 agosto, non più
+# rinviata — le quattro erano raggruppate insieme ma non sono lo stesso
+# caso:
+#
+# get_for_user (home.rs) e timezone_changes (geo.rs) erano duplicati morti
+# per davvero — zero chiamate ovunque, nemmeno nei test (verificato con
+# grep sull'intero albero `crates/`). `get_for_user` duplicava
+# `HomeRepo::get` (che legge la casa dell'utente *autenticato*; questa
+# prendeva un `UserId` arbitrario, mai usata da alcuna rotta admin).
+# `timezone_changes` duplicava `timezone_changes_on`, la stessa
+# `timezone_changes_sql()` dietro un wrapper pubblico mai chiamato — il
+# vero percorso di anteprima passa da `GeoRepo::timezone_change_preview`,
+# un terzo nome ancora. Rimosse entrambe, non più eccezioni.
+#
+# timezone_for e apply_taken_at_batch invece NON sono morte: stesso caso
+# di `count_by_status` sopra. `timezone_for` e la vera
+# `timezone_candidates_sql()` (dietro `apply_timezone_changes`, wired)
+# chiamano entrambe `timezone_match_sql()` — lo stesso predicato spaziale
+# `ST_Covers`. I test di `timezone_for` in `tests/geo.rs` (Tokyo trovato,
+# oceano non trovato, punto su un confine condiviso senza doppio match né
+# errore) sono l'unica copertura reale di quel predicato — `tests/
+# timezones.rs` (il percorso vero) verifica solo permessi/autenticazione,
+# mai la geometria del confine. `apply_taken_at_batch` e la vera
+# `apply_timezone_changes` chiamano entrambe
+# `apply_taken_at_assignments_in_transaction`; il test di
+# `apply_taken_at_batch` in `tests/overrides.rs`
+# (`timezone_writer_preserves_a_taken_at_override_present_at_write_time`)
+# è l'unica copertura della regola «un override manuale precedente non
+# va sovrascritto dalla correzione fuso orario in blocco» — non replicata
+# altrove. Cancellarle perderebbe copertura reale su codice di produzione
+# senza un sostituto equivalente: restano API interne testate, senza
+# rotta HTTP propria, eccezioni permanenti.
+fn timezone_for permanente
+fn apply_taken_at_batch permanente

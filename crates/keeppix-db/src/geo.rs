@@ -289,32 +289,6 @@ impl<'a> GeoRepo<'a> {
         Ok((changed_count, batch_id, succeeded))
     }
 
-    /// Calcola le correzioni applicabili a una libreria senza scrivere nulla.
-    ///
-    /// Il timestamp originale viene trattato come quadrante ingenuo salvato
-    /// in UTC: `14:00Z` presso Tokyo significa «14:00 locale», quindi diventa
-    /// `05:00Z`. Gli override di posizione precedono il GPS EXIF; un override
-    /// `taken_at` esistente appartiene invece all'utente e viene escluso.
-    ///
-    /// # Errors
-    /// `Forbidden` se la libreria non appartiene al chiamante; `NotFound` solo
-    /// per un admin su un id inesistente; `Connection` se la query fallisce.
-    pub async fn timezone_changes(
-        &self,
-        ctx: &AuthContext,
-        library_id: LibraryId,
-    ) -> Result<Vec<TimezoneChange>, DbError> {
-        crate::LibraryRepo::new(self.db)
-            .find_by_id(ctx, library_id)
-            .await?;
-
-        let rows: Vec<TimezoneChangeRow> = sqlx::query_as(&timezone_changes_sql())
-            .bind(library_id.as_uuid())
-            .fetch_all(self.db.pool())
-            .await?;
-        Ok(rows.into_iter().map(timezone_change_from_row).collect())
-    }
-
     /// Restituisce celle a griglia fino allo zoom 14. Dallo zoom 15 restituisce
     /// punti singoli se sono al massimo 500, altrimenti torna alla griglia.
     ///
