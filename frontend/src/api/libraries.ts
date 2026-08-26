@@ -61,7 +61,16 @@ export function createLibrary(payload: CreateLibraryPayload): Promise<Library> {
   })
 }
 
-export function startLibraryScan(libraryId: string): Promise<{ library_id: string; status: string }> {
+export interface ScanAccepted {
+  library_id: string
+  status: string
+  /** Presente solo se questa richiesta è quella che segue davvero il job
+   * accodato (Fase 10 Task 16) — `null` se una scansione per la stessa
+   * libreria era già in corso (vince quella per `dedup_key` condivisa). */
+  operation_id: string | null
+}
+
+export function startLibraryScan(libraryId: string): Promise<ScanAccepted> {
   return apiFetch(`/api/v1/libraries/${libraryId}/scan`, { method: 'POST' })
 }
 

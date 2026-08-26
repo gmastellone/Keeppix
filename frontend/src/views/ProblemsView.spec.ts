@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { ApiProblem } from '@/api/client'
-import type { Library } from '@/api/libraries'
+import { startLiveEvents, type LiveMessage } from '@/api/events'
+import type { Library, ScanAccepted } from '@/api/libraries'
 import type { ProblemView, Problems } from '@/api/library'
 import type { FolderChildren } from '@/api/folders'
 import { i18n } from '@/i18n'
@@ -16,9 +17,11 @@ import ProblemsView from './ProblemsView.vue'
 const fetchProblemsMock = vi.fn()
 const fetchLibrariesMock = vi.fn()
 const probeLibraryMock = vi.fn()
+const startLibraryScanMock = vi.fn()
 const fetchChildrenMock = vi.fn()
 const previewTimezonesMock = vi.fn()
 const applyTimezonesMock = vi.fn()
+const cancelOperationMock = vi.fn()
 
 vi.mock('@/api/library', () => ({
   fetchProblems: (...args: unknown[]) => fetchProblemsMock(...args)
@@ -26,7 +29,8 @@ vi.mock('@/api/library', () => ({
 
 vi.mock('@/api/libraries', () => ({
   fetchLibraries: (...args: unknown[]) => fetchLibrariesMock(...args),
-  probeLibrary: (...args: unknown[]) => probeLibraryMock(...args)
+  probeLibrary: (...args: unknown[]) => probeLibraryMock(...args),
+  startLibraryScan: (...args: unknown[]) => startLibraryScanMock(...args)
 }))
 
 vi.mock('@/api/folders', () => ({
@@ -37,6 +41,18 @@ vi.mock('@/api/metadata', () => ({
   previewTimezones: (...args: unknown[]) => previewTimezonesMock(...args),
   applyTimezones: (...args: unknown[]) => applyTimezonesMock(...args)
 }))
+
+vi.mock('@/api/operations', () => ({
+  cancelOperation: (...args: unknown[]) => cancelOperationMock(...args)
+}))
+
+vi.mock('@/api/events', () => ({
+  startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
+}))
+
+function scanAccepted(overrides: Partial<ScanAccepted> = {}): ScanAccepted {
+  return { library_id: 'lib-1', status: 'accepted', operation_id: 'op-1', ...overrides }
+}
 
 function library(overrides: Partial<Library> = {}): Library {
   return {
@@ -105,9 +121,11 @@ beforeEach(() => {
   fetchProblemsMock.mockResolvedValue(problemsResult([]))
   fetchLibrariesMock.mockResolvedValue([])
   probeLibraryMock.mockResolvedValue(library({ status: 'active' }))
+  startLibraryScanMock.mockResolvedValue(scanAccepted())
   fetchChildrenMock.mockResolvedValue({ folders: [], assets: [] } satisfies FolderChildren)
   previewTimezonesMock.mockResolvedValue({ count: 0, example: null, preview_token: 't' })
   applyTimezonesMock.mockResolvedValue({ changed_count: 0 })
+  cancelOperationMock.mockResolvedValue({ succeeded: [], failed: [], batch_id: null })
 })
 
 afterEach(() => {
@@ -252,5 +270,124 @@ describe('ProblemsView — §47 Problemi', () => {
 
     expect(wrapper.text()).toContain('Ricalcolo fusi orari')
     expect(wrapper.text()).toContain('Urbino')
+  })
+
+  describe('avanzamento reale della scansione dopo una riconnessione (debito wired-exceptions chiuso il 26 agosto)', () => {
+    it('a successful reconnect starts a real scan and shows its progress card', async () => {
+      fetchProblemsMock.mockResolvedValue(problemsResult([offlineProblem()]))
+      probeLibraryMock.mockResolvedValue(library({ status: 'active' }))
+      const { wrapper } = await mountProblems()
+
+      const retryBtn = wrapper.findAll('button').find((b) => b.text() === 'Riprova connessione')
+      await retryBtn!.trigger('click')
+      await flushPromises()
+
+      expect(startLibraryScanMock).toHaveBeenCalledWith('lib-1')
+      expect(wrapper.text()).toContain('Scansione di Lago di Braies in corso')
+    })
+
+    it('does not show a progress card when a scan was already running (operation_id null on dedup)', async () => {
+      fetchProblemsMock.mockResolvedValue(problemsResult([offlineProblem()]))
+      startLibraryScanMock.mockResolvedValue(scanAccepted({ operation_id: null }))
+      const { wrapper } = await mountProblems()
+
+      const retryBtn = wrapper.findAll('button').find((b) => b.text() === 'Riprova connessione')
+      await retryBtn!.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('in corso')
+    })
+
+    it('updates the progress card live from operation.progress WebSocket events', async () => {
+      fetchProblemsMock.mockResolvedValue(problemsResult([offlineProblem()]))
+      let onEvent: ((msg: LiveMessage) => void) | undefined
+      vi.mocked(startLiveEvents).mockImplementation((cb) => {
+        onEvent = cb
+        return { close: vi.fn() }
+      })
+      const { wrapper } = await mountProblems()
+
+      const retryBtn = wrapper.findAll('button').find((b) => b.text() === 'Riprova connessione')
+      await retryBtn!.trigger('click')
+      await flushPromises()
+
+      onEvent?.({
+        v: 1,
+        type: 'operation.progress',
+        payload: { operation_id: 'op-1', done: 40, total: 100, phase: 'scanning' }
+      })
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('40 di 100')
+    })
+
+    it('a "done" progress event removes the card and shows a completion toast', async () => {
+      fetchProblemsMock.mockResolvedValue(problemsResult([offlineProblem()]))
+      let onEvent: ((msg: LiveMessage) => void) | undefined
+      vi.mocked(startLiveEvents).mockImplementation((cb) => {
+        onEvent = cb
+        return { close: vi.fn() }
+      })
+      const { wrapper } = await mountProblems()
+
+      const retryBtn = wrapper.findAll('button').find((b) => b.text() === 'Riprova connessione')
+      await retryBtn!.trigger('click')
+      await flushPromises()
+
+      onEvent?.({
+        v: 1,
+        type: 'operation.progress',
+        payload: { operation_id: 'op-1', done: 100, total: 100, phase: 'done' }
+      })
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('in corso')
+      const toast = useToastStore()
+      expect(toast.toasts.some((t) => t.message.includes('completata'))).toBe(true)
+    })
+
+    it('a "failed" progress event removes the card and shows an error toast', async () => {
+      fetchProblemsMock.mockResolvedValue(problemsResult([offlineProblem()]))
+      let onEvent: ((msg: LiveMessage) => void) | undefined
+      vi.mocked(startLiveEvents).mockImplementation((cb) => {
+        onEvent = cb
+        return { close: vi.fn() }
+      })
+      const { wrapper } = await mountProblems()
+
+      const retryBtn = wrapper.findAll('button').find((b) => b.text() === 'Riprova connessione')
+      await retryBtn!.trigger('click')
+      await flushPromises()
+
+      onEvent?.({
+        v: 1,
+        type: 'operation.progress',
+        payload: { operation_id: 'op-1', done: 12, total: 100, phase: 'failed' }
+      })
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('in corso')
+      const toast = useToastStore()
+      expect(toast.toasts.some((t) => t.kind === 'error' && t.message.includes('interrotta'))).toBe(true)
+    })
+
+    it('clicking "Annulla" cancels the operation, removes the card and shows the succeeded count', async () => {
+      fetchProblemsMock.mockResolvedValue(problemsResult([offlineProblem()]))
+      cancelOperationMock.mockResolvedValue({ succeeded: ['a1', 'a2'], failed: [], batch_id: null })
+      const { wrapper } = await mountProblems()
+
+      const retryBtn = wrapper.findAll('button').find((b) => b.text() === 'Riprova connessione')
+      await retryBtn!.trigger('click')
+      await flushPromises()
+
+      const cancelBtn = wrapper.findAll('button').find((b) => b.text() === 'Annulla')
+      await cancelBtn!.trigger('click')
+      await flushPromises()
+
+      expect(cancelOperationMock).toHaveBeenCalledWith('op-1')
+      expect(wrapper.text()).not.toContain('in corso')
+      const toast = useToastStore()
+      expect(toast.toasts.some((t) => t.message.includes('annullata') && t.message.includes('2 foto'))).toBe(true)
+    })
   })
 })

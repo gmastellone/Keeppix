@@ -806,7 +806,15 @@
     "tzPreview": "Preview",
     "tzCount": "{count} photos to fix",
     "tzApply": "Apply corrections",
-    "tzDone": "{count} photos corrected."
+    "tzDone": "{count} photos corrected.",
+    "scanTitle": "Scanning {name}",
+    "scanProgressKnown": "{done} of {total}",
+    "scanProgressUnknown": "{done} so far",
+    "scanCancel": "Cancel",
+    "scanCancelling": "Cancelling…",
+    "scanCancelled": "Scan of {name} cancelled — {n} photo already indexed. | Scan of {name} cancelled — {n} photos already indexed.",
+    "scanFailed": "Scan of {name} stopped due to an error.",
+    "scanDone": "Scan of {name} complete — {n} photo indexed. | Scan of {name} complete — {n} photos indexed."
   },
   "problemFiles": {
     "openLabel": "Open",

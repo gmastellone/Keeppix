@@ -75,19 +75,32 @@ route /api/openapi.json ci
 # testata, senza rotta HTTP: non un debito, un'eccezione permanente.
 fn count_by_status permanente
 
-# origine fase-10 Task 16 (non Fase 11: il Task 16 della Fase 11 è
-# "Persone", tutt'altra cosa). `POST /operations/{id}/cancel` e l'intero
-# canale WS `operation.progress` (avanzamento dei job lunghi — rinomina in
-# blocco, embedding, rilevamento volti) sono pronti dal backend dalla Fase
-# 10, ma nessun Task della Fase 11 ha mai davvero costruito il pannello
-# "operazioni in corso" che li consumerebbe: verificato — zero riferimenti
-# a "operation.progress"/"cancelOperation" in tutto `frontend/src`, nessun
-# wrapper API per questa rotta, nessun Task del piano (docs/superpowers/
-# plans/2026-08-20-keeppix-fase-11.md) la rivendica esplicitamente. Non un
-# rinvio piccolo: manca un'intera superficie UI (avanzamento + annulla),
-# non una chiamata isolata. Non riassegnata a una fase specifica di
-# proposito — va decisa la prossima volta che si tocca quest'area.
-route /operations/{id}/cancel non-rivendicata
+# origine fase-10 Task 16. Pagato in parte il 26 agosto — non tutto,
+# onestamente: erano tre feature diverse dietro un'unica voce, non un
+# rinvio piccolo, e la loro forma tecnica non è la stessa.
+#
+# LibraryScan: chiuso per davvero. `POST /libraries/{id}/scan` risponde
+# `202` con `operation_id` **subito** (job reale in background) — in
+# `ProblemsView.vue`, un riavvio di connessione riuscito (`retryConnection`)
+# ora avvia una scansione vera e ne segue `operation.progress` sul
+# WebSocket con una barra reale e un `[Annulla]` che chiama davvero questa
+# rotta (`api/operations.ts::cancelOperation`). Non più un'eccezione.
+#
+# BulkRename e AiAnalysis/FaceDetection: NON costruiti, di proposito —
+# non sono la stessa forma di LibraryScan.
+# - `BulkRename` (`POST /assets/batch/rename`, `RenameFormulaDialog.vue`):
+#   la rinomina intera gira dentro la richiesta HTTP
+#   (`RenameRepo::apply`, sincrona) e `operation_id` torna solo a batch
+#   già finito — un annullamento reale non è realizzabile lato client
+#   senza cambiare la forma della risposta (farla tornare subito e far
+#   girare il batch altrove), che non è stato fatto qui.
+# - `AiAnalysis`/`FaceDetection`: nessuna rotta le innesca (finestre
+#   automatiche in background, verificato — zero `OperationKind::AiAnalysis`/
+#   `FaceDetection` fuori da `keeppix-jobs`), quindi non c'è un punto
+#   d'ingresso utente a cui agganciare un dialog di progresso: servirebbe
+#   un indicatore ambiente separato, non costruito qui.
+# Nessuna fase le rivendica esplicitamente — restano decise così finché
+# qualcuno non decide di investire nella forma diversa che richiedono.
 
 # origine fase-4 (mappe/geotag). Decisione presa il 26 agosto, non più
 # rinviata — le quattro erano raggruppate insieme ma non sono lo stesso

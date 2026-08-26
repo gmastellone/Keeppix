@@ -36,12 +36,13 @@
 // non ha alcuna controparte nel documento (§47 non lo menziona) — non
 // è oggetto di questa riscrittura, solo riposizionato sotto ai problemi
 // veri e propri invece di essere frammisto ai vecchi elenchi grezzi.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import { isUnauthenticated } from '@/api/client'
-import { fetchLibraries, probeLibrary, type Library } from '@/api/libraries'
+import { startLiveEvents, type LiveSocket } from '@/api/events'
+import { fetchLibraries, probeLibrary, startLibraryScan, type Library } from '@/api/libraries'
 import { fetchProblems, type ProblemView } from '@/api/library'
 import {
   applyTimezones,
@@ -49,6 +50,7 @@ import {
   type TimezoneApplyResult,
   type TimezonePreview
 } from '@/api/metadata'
+import { cancelOperation } from '@/api/operations'
 import Dialog from '@/components/ui/Dialog.vue'
 import ProblemFilesDialog from '@/components/ProblemFilesDialog.vue'
 import { useSessionStore } from '@/stores/session'
@@ -88,7 +90,115 @@ async function load() {
   }
 }
 
-onMounted(load)
+// Debito chiuso il 26 agosto (`scripts/wired-exceptions.txt`,
+// `POST /operations/{id}/cancel` mai consumato): quando una libreria
+// riconnessa (`retryConnection`) riparte con una scansione vera, questa
+// vista ne segue l'avanzamento reale sul WebSocket (`operation.progress`,
+// Task 16 Fase 10) invece di limitarsi al toast "riconnessa". Solo per
+// LibraryScan — l'unico dei quattro tipi di operazione il cui
+// `operation_id` è disponibile subito (`202 Accepted`): `BulkRename` è
+// sincrona dentro la richiesta HTTP (`operation_id` noto solo a batch già
+// finito, annullamento non realizzabile lato client) e `AiAnalysis`/
+// `FaceDetection` non hanno alcun innesco utente (finestre automatiche in
+// background), due casi diversi non affrontati qui.
+interface ActiveScan {
+  operationId: string
+  libraryId: string
+  libraryName: string
+  done: number
+  total: number | null
+  cancelling: boolean
+}
+const activeScans = ref<Map<string, ActiveScan>>(new Map())
+const activeScanList = computed(() => Array.from(activeScans.value.values()))
+let live: LiveSocket | undefined
+
+async function startRescan(library: Library) {
+  try {
+    const accepted = await startLibraryScan(library.id)
+    // `operation_id` è `null` se una scansione per questa libreria era già
+    // in corso (dedup su un'altra richiesta o sul watcher): niente da
+    // seguire qui, non un errore.
+    if (!accepted.operation_id) return
+    activeScans.value = new Map(activeScans.value).set(accepted.operation_id, {
+      operationId: accepted.operation_id,
+      libraryId: library.id,
+      libraryName: library.name,
+      done: 0,
+      total: null,
+      cancelling: false
+    })
+  } catch {
+    // Best-effort: la libreria è comunque tornata online, un errore qui
+    // nell'avvio della scansione non deve interrompere nient'altro.
+  }
+}
+
+async function cancelScan(scan: ActiveScan) {
+  activeScans.value = new Map(activeScans.value).set(scan.operationId, { ...scan, cancelling: true })
+  try {
+    const outcome = await cancelOperation(scan.operationId)
+    const next = new Map(activeScans.value)
+    next.delete(scan.operationId)
+    activeScans.value = next
+    const n = outcome.succeeded.length
+    toast.show(t('problems.scanCancelled', { name: scan.libraryName, n }, { plural: n }))
+  } catch {
+    const current = activeScans.value.get(scan.operationId)
+    if (current) {
+      activeScans.value = new Map(activeScans.value).set(scan.operationId, { ...current, cancelling: false })
+    }
+    toast.showError(t('common.unexpectedError'))
+  }
+}
+
+interface OperationProgressPayload {
+  operation_id: string
+  done: number
+  total: number | null
+  phase: string
+}
+
+const TERMINAL_PHASES = new Set(['done', 'cancelled', 'failed'])
+
+function handleOperationProgress(payload: OperationProgressPayload) {
+  const scan = activeScans.value.get(payload.operation_id)
+  if (!scan) return
+  if (TERMINAL_PHASES.has(payload.phase)) {
+    const next = new Map(activeScans.value)
+    next.delete(payload.operation_id)
+    activeScans.value = next
+    // "cancelled" arriva anche dopo un annullamento riuscito da qui
+    // stesso: quel percorso mostra già il suo toast in `cancelScan`, un
+    // secondo qui duplicherebbe il messaggio.
+    if (payload.phase === 'done') {
+      toast.show(
+        t('problems.scanDone', { name: scan.libraryName, n: payload.done }, { plural: payload.done })
+      )
+    } else if (payload.phase === 'failed') {
+      toast.showError(t('problems.scanFailed', { name: scan.libraryName }))
+    }
+    return
+  }
+  activeScans.value = new Map(activeScans.value).set(payload.operation_id, {
+    ...scan,
+    done: payload.done,
+    total: payload.total
+  })
+}
+
+onMounted(() => {
+  void load()
+  live = startLiveEvents((msg) => {
+    if (msg.type === 'operation.progress') {
+      handleOperationProgress(msg.payload as OperationProgressPayload)
+    }
+  })
+})
+
+onUnmounted(() => {
+  live?.close()
+})
 
 function removeProblem(id: string) {
   problems.value = problems.value.filter((p) => p.id !== id)
@@ -109,6 +219,7 @@ async function retryConnection(problem: ProblemView) {
     if (library.status === 'active') {
       removeProblem(problem.id)
       toast.show(t('problems.reconnected', { name: library.name }))
+      void startRescan(library)
     } else {
       toast.showError(t('problems.stillOffline', { name: library.name }))
     }
@@ -184,6 +295,45 @@ async function tzApplyAction() {
 
 <template>
   <main class="flex h-full flex-col">
+    <div
+      v-if="activeScanList.length > 0"
+      class="flex flex-col gap-2 border-b border-border p-4"
+    >
+      <div
+        v-for="scan in activeScanList"
+        :key="scan.operationId"
+        class="flex items-center gap-3 rounded-[10px] border border-border p-3"
+      >
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-[13px] font-semibold">
+            {{ t('problems.scanTitle', { name: scan.libraryName }) }}
+          </p>
+          <p class="text-[12px] text-content-muted">
+            {{
+              scan.total !== null
+                ? t('problems.scanProgressKnown', { done: scan.done, total: scan.total })
+                : t('problems.scanProgressUnknown', { done: scan.done })
+            }}
+          </p>
+          <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-border/40">
+            <div
+              class="h-full rounded-full bg-accent transition-[width]"
+              :class="{ 'animate-pulse': scan.total === null }"
+              :style="{ width: scan.total ? `${Math.min(100, (scan.done / scan.total) * 100)}%` : '30%' }"
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          class="shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-[12px] font-semibold
+                 text-content-muted hover:bg-border/20 disabled:opacity-60"
+          :disabled="scan.cancelling"
+          @click="cancelScan(scan)"
+        >
+          {{ scan.cancelling ? t('problems.scanCancelling') : t('problems.scanCancel') }}
+        </button>
+      </div>
+    </div>
     <div
       v-if="loadError"
       class="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center"

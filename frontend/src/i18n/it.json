@@ -806,7 +806,15 @@
     "tzPreview": "Anteprima",
     "tzCount": "{count} foto da correggere",
     "tzApply": "Applica correzioni",
-    "tzDone": "{count} foto corrette."
+    "tzDone": "{count} foto corrette.",
+    "scanTitle": "Scansione di {name} in corso",
+    "scanProgressKnown": "{done} di {total}",
+    "scanProgressUnknown": "{done} finora",
+    "scanCancel": "Annulla",
+    "scanCancelling": "Annullamento…",
+    "scanCancelled": "Scansione di {name} annullata — {n} foto già indicizzata. | Scansione di {name} annullata — {n} foto già indicizzate.",
+    "scanFailed": "Scansione di {name} interrotta per un errore.",
+    "scanDone": "Scansione di {name} completata — {n} foto indicizzata. | Scansione di {name} completata — {n} foto indicizzate."
   },
   "problemFiles": {
     "openLabel": "Apri",

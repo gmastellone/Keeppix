@@ -43,7 +43,7 @@ async function mountStep() {
 
 describe('ScanStep', () => {
   it('progress updates', async () => {
-    vi.mocked(startLibraryScan).mockResolvedValue({ library_id: LIBRARY_ID, status: 'accepted' })
+    vi.mocked(startLibraryScan).mockResolvedValue({ library_id: LIBRARY_ID, status: 'accepted', operation_id: null })
     vi.mocked(fetchLibraryScanStatus)
       .mockResolvedValueOnce({
         library_id: LIBRARY_ID,
@@ -77,7 +77,7 @@ describe('ScanStep', () => {
   })
 
   it('network error during scan does not blank the page', async () => {
-    vi.mocked(startLibraryScan).mockResolvedValue({ library_id: LIBRARY_ID, status: 'accepted' })
+    vi.mocked(startLibraryScan).mockResolvedValue({ library_id: LIBRARY_ID, status: 'accepted', operation_id: null })
     vi.mocked(fetchLibraryScanStatus)
       .mockResolvedValueOnce({
         library_id: LIBRARY_ID,
