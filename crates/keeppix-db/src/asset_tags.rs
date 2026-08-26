@@ -141,11 +141,11 @@ impl ProposalRow {
 /// una proposta (score più basso → fondo coda). Costante di sistema, non
 /// esposta in API.
 ///
-/// Ricalibrata su OpenCLIP XLM-R IT/EN (Task B, banco CI reale run
+/// Ricalibrata su `OpenCLIP` XLM-R IT/EN (Task B, banco CI reale run
 /// `bcf9b4a`): la cosine similarity testo-immagine vera in questo spazio
 /// sta a 0,10-0,20, non 0-1 — 0.01 (un punto percentuale sulla vecchia
 /// scala implicita) era troppo stretta per intercettare abbinamenti
-/// corretti ma deboli (correct_score minimo osservato: 0,126-0,132).
+/// corretti ma deboli (`correct_score` minimo osservato: 0,126-0,132).
 pub const TAG_MATCH_BAND: f32 = 0.05;
 
 pub struct AssetTagRepo<'a> {
