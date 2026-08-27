@@ -13,15 +13,12 @@ fn probe_reports_a_concrete_backend() {
     assert!(caps.extra.is_object());
 }
 
-/// Fase 7 Task 1+2: `extra.ai` porta i fatti host e, se i pesi sono presenti,
-/// i ms di una inferenza reale (altrimenti `model_missing` esplicito).
+/// `extra.ai` carries host facts and, if weights are present, the ms of a
+/// real inference (otherwise an explicit `model_missing`).
 #[test]
 fn probe_extra_includes_measured_ai_host_facts() {
     let caps = keeppix_media::probe();
-    let ai = caps
-        .extra
-        .get("ai")
-        .expect("extra.ai must exist after Fase 7 Task 1");
+    let ai = caps.extra.get("ai").expect("extra.ai must exist");
     let free_ram = ai
         .get("free_ram_bytes")
         .and_then(serde_json::Value::as_u64)
@@ -42,11 +39,11 @@ fn probe_extra_includes_measured_ai_host_facts() {
         .expect("inference_status");
     assert!(
         matches!(status, "ok" | "model_missing" | "failed"),
-        "Task 2 replaces pending_runtime with a concrete status, got {status}: {ai}"
+        "status must be concrete, not the old placeholder, got {status}: {ai}"
     );
     assert_ne!(
         status, "pending_runtime",
-        "Task 2 must leave pending_runtime behind"
+        "the old pending_runtime placeholder must not resurface"
     );
 
     if status == "ok" {
@@ -69,7 +66,8 @@ fn probe_extra_includes_measured_ai_host_facts() {
     }
 }
 
-/// Quando i pesi `OpenCLIP` XLM-R IT/EN sono su disco, il probe deve misurare ms > 0.
+/// When the `OpenCLIP` XLM-R IT/EN weights are on disk, the probe must
+/// measure ms > 0.
 #[test]
 fn probe_records_inference_ms_when_visual_model_is_present() {
     let model = keeppix_media::ai::visual_model_candidates()
@@ -77,7 +75,7 @@ fn probe_records_inference_ms_when_visual_model_is_present() {
         .find(|p| p.is_file());
     let Some(_model) = model else {
         eprintln!(
-            "skipping: models/openclip-xlmr-it-en/visual.onnx missing — girare .github/workflows/export-openclip-xlmr.yml"
+            "skipping: models/openclip-xlmr-it-en/visual.onnx missing — run .github/workflows/export-openclip-xlmr.yml"
         );
         return;
     };

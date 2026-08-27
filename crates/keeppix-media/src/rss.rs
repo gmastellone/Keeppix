@@ -1,12 +1,12 @@
-//! Misura RSS del processo (Linux `/proc/self/status`). Generico — non legato
-//! a un modello AI specifico: usato dai bench e dai job di embedding per
-//! verificare il tetto duro di RAM durante l'inferenza (Task 6, Fase 7).
-//! Spostato qui da `clip.rs` (rimosso con `MobileCLIP2`) perché resta
-//! necessario anche al solo `openclip_xlmr.rs`.
+//! Process RSS measurement (Linux `/proc/self/status`). Generic — not tied
+//! to a specific AI model: used by benches and embedding jobs to verify
+//! the hard RAM ceiling during inference. Moved here from `clip.rs`
+//! (removed along with `MobileCLIP2`) because it's still needed by
+//! `openclip_xlmr.rs` alone.
 
 use std::time::Instant;
 
-/// RSS del processo corrente in byte (`None` fuori da Linux/`/proc`).
+/// Current process RSS in bytes (`None` outside Linux/`/proc`).
 #[must_use]
 pub fn current_rss_bytes() -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
@@ -19,8 +19,8 @@ pub fn current_rss_bytes() -> Option<u64> {
     None
 }
 
-/// Picco RSS (byte) osservato durante `f`, campionato all'inizio, a metà e alla fine
-/// se `f` espone un hook; qui misuriamo prima/dopo e il massimo visto.
+/// Peak RSS (bytes) observed during `f`, sampled at the start, middle, and
+/// end if `f` exposes a hook; here we measure before/after and the maximum seen.
 pub fn measure_rss_peak_during<T>(mut f: impl FnMut() -> T) -> (T, Option<u64>) {
     let before = current_rss_bytes();
     let started = Instant::now();

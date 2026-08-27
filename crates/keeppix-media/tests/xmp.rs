@@ -2,9 +2,9 @@ use chrono::{TimeZone, Utc};
 use keeppix_domain::GeoPoint;
 use keeppix_media::xmp::{SidecarData, read_sidecar, write_sidecar};
 
-/// Sidecar come lo esporta Lightroom: valori di sviluppo (`crs:*`) che
-/// Keeppix non conosce affatto, più un rating che Keeppix *deve* poter
-/// aggiornare senza portarsi via il resto.
+/// Sidecar as Lightroom exports it: development values (`crs:*`) that
+/// Keeppix doesn't know about at all, plus a rating that Keeppix *must* be
+/// able to update without taking the rest along with it.
 const LIGHTROOM_SIDECAR: &str = r#"<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 6.0-c002">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -24,9 +24,9 @@ const LIGHTROOM_SIDECAR: &str = r#"<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTc
 <?xpacket end="w"?>
 "#;
 
-/// Sidecar come lo scriverebbe darktable: copre tutta la mappatura dei
-/// campi (spec §3.4) più un elemento che Keeppix non gestisce affatto
-/// (`darktable:xmp_version`, sia come attributo sia come elemento figlio).
+/// Sidecar as darktable would write it: covers the whole field mapping
+/// plus an element Keeppix doesn't manage at all (`darktable:xmp_version`,
+/// both as an attribute and as a child element).
 const DARKTABLE_SIDECAR: &str = r#"<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="darktable 4.6.1">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -67,10 +67,10 @@ const DARKTABLE_SIDECAR: &str = r#"<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTc
 #[test]
 #[allow(clippy::unwrap_used)]
 fn writing_preserves_fields_we_do_not_manage() {
-    // Un sidecar prodotto da Lightroom contiene campi che Keeppix non
-    // conosce (crs:Exposure2012, crs:Temperature, …). Riscriverlo da zero
-    // li cancellerebbe: perdere il lavoro di sviluppo altrui è peggio che
-    // non scrivere affatto.
+    // A sidecar produced by Lightroom contains fields Keeppix doesn't know
+    // about (crs:Exposure2012, crs:Temperature, …). Rewriting it from
+    // scratch would erase them: losing someone else's development work is
+    // worse than not writing at all.
     let dir = tempfile::tempdir().unwrap();
     let sidecar = dir.path().join("IMG_0001.ARW.xmp");
     std::fs::write(&sidecar, LIGHTROOM_SIDECAR).unwrap();
@@ -87,29 +87,26 @@ fn writing_preserves_fields_we_do_not_manage() {
     let after = std::fs::read_to_string(&sidecar).unwrap();
     assert!(
         after.contains("crs:Exposure2012"),
-        "i campi altrui sopravvivono"
+        "fields belonging to other tools survive"
     );
     assert!(
         after.contains("crs:Exposure2012=\"+0.35\""),
-        "non solo il nome: anche il valore altrui è intatto"
+        "not just the name: the other tool's value is intact too"
     );
     assert!(after.contains("crs:Temperature=\"5500\""));
-    assert!(
-        after.contains("xmp:Rating=\"4\""),
-        "il nostro campo è aggiornato"
-    );
+    assert!(after.contains("xmp:Rating=\"4\""), "our field is updated");
     assert!(
         !after.contains("xmp:Rating=\"2\""),
-        "il vecchio rating non deve restare da nessuna parte"
+        "the old rating must not remain anywhere"
     );
 }
 
 #[test]
 #[allow(clippy::unwrap_used)]
 fn writing_preserves_child_elements_we_do_not_manage() {
-    // Non solo attributi: anche un elemento figlio di un namespace altrui
-    // (qui darktable:history_end) deve sopravvivere quando riscriviamo
-    // dc:title accanto ad esso.
+    // Not just attributes: a child element from another namespace (here
+    // darktable:history_end) must also survive when we rewrite dc:title
+    // next to it.
     let dir = tempfile::tempdir().unwrap();
     let sidecar = dir.path().join("IMG_0002.NEF.xmp");
     std::fs::write(&sidecar, DARKTABLE_SIDECAR).unwrap();
@@ -127,7 +124,7 @@ fn writing_preserves_child_elements_we_do_not_manage() {
     assert!(after.contains("darktable:history_end"));
     assert!(after.contains("3</darktable:history_end>"));
     assert!(after.contains("Nuovo titolo"));
-    // Il vecchio titolo non deve restare accanto a quello nuovo.
+    // The old title must not remain alongside the new one.
     assert!(!after.contains("Tramonto sul lago"));
 }
 
@@ -202,9 +199,8 @@ fn invalid_utf8_is_an_error_not_a_panic() {
 #[test]
 #[allow(clippy::unwrap_used)]
 fn writing_to_a_malformed_existing_sidecar_leaves_it_untouched() {
-    // Non si rischia di sovrascrivere alla cieca un file che non si sa
-    // interpretare: meglio fallire che perdere dati che potrebbero essere
-    // recuperabili da un altro strumento.
+    // We avoid blindly overwriting a file we can't interpret: better to
+    // fail than lose data that might be recoverable with another tool.
     let dir = tempfile::tempdir().unwrap();
     let sidecar = dir.path().join("broken.xmp");
     let garbage: &[u8] = b"<rdf:Description not even closed";
@@ -222,7 +218,7 @@ fn writing_to_a_malformed_existing_sidecar_leaves_it_untouched() {
     assert_eq!(std::fs::read(&sidecar).unwrap(), garbage);
     assert!(
         std::fs::read_dir(dir.path()).unwrap().count() == 1,
-        "nessun file temporaneo deve restare in giro"
+        "no temp file should remain behind"
     );
 }
 
@@ -291,9 +287,9 @@ fn round_trip_preserves_every_field() {
 #[test]
 #[allow(clippy::unwrap_used)]
 fn writing_default_data_clears_every_managed_field() {
-    // `SidecarData` rappresenta lo stato corrente completo, non una patch:
-    // un campo `None` deve sparire dal file, non restare con il valore
-    // precedente.
+    // `SidecarData` represents the full current state, not a patch: a
+    // `None` field must disappear from the file, not stay at its previous
+    // value.
     let dir = tempfile::tempdir().unwrap();
     let sidecar = dir.path().join("clear.xmp");
     std::fs::write(&sidecar, DARKTABLE_SIDECAR).unwrap();
@@ -309,7 +305,7 @@ fn writing_default_data_clears_every_managed_field() {
     assert_eq!(data.description, None);
     assert!(data.tags.is_empty());
 
-    // Ma i campi altrui restano, esattamente come nel test di scrittura.
+    // But fields belonging to other tools remain, exactly as in the write test.
     let after = std::fs::read_to_string(&sidecar).unwrap();
     assert!(after.contains("darktable:xmp_version=\"4\""));
     assert!(after.contains("darktable:history_end"));
@@ -359,15 +355,15 @@ fn writing_to_a_read_only_directory_fails_without_corrupting_anything() {
         },
     );
 
-    // Ripristina i permessi prima di ogni assert/panic, altrimenti tempfile
-    // non riesce a pulire la cartella alla fine del test.
+    // Restore permissions before any assert/panic, otherwise tempfile
+    // can't clean up the directory at the end of the test.
     let mut restored = std::fs::metadata(dir.path()).unwrap().permissions();
     restored.set_mode(0o755);
     std::fs::set_permissions(dir.path(), restored).unwrap();
 
     assert!(
         result.is_err(),
-        "una cartella in sola lettura è un errore, non un panico"
+        "a read-only directory is an error, not a panic"
     );
     assert_eq!(
         std::fs::read_to_string(&sidecar).unwrap(),
@@ -388,7 +384,7 @@ fn blake3_file(path: &std::path::Path) -> blake3::Hash {
     }
 }
 
-/// Criterio Fase 2: dopo un ciclo di editing via sidecar, i RAW sono bit-identici.
+/// After a sidecar-based editing cycle, the RAW files must be bit-identical.
 #[test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 fn writing_sidecars_never_rewrites_real_raw_files() {
@@ -430,14 +426,14 @@ fn writing_sidecars_never_rewrites_real_raw_files() {
         assert_eq!(
             &blake3_file(path),
             hash,
-            "RAW riscritto: {}",
+            "RAW rewritten: {}",
             path.display()
         );
     }
 }
 
-/// Sessione su ≥1000 file reali in cartella: 995 JPEG (fixture) + 5 RAW.
-/// Verifica che i sidecar non tocchino i RAW e che la cartella sia navigabile.
+/// Session over ≥1000 real files in a folder: 995 JPEG (fixture) + 5 RAW.
+/// Verifies the sidecars don't touch the RAWs and the folder stays navigable.
 #[test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 fn one_thousand_real_files_survive_sidecar_editing_without_raw_rewrite() {
@@ -495,7 +491,7 @@ fn one_thousand_real_files_survive_sidecar_editing_without_raw_rewrite() {
     }
     let elapsed = started.elapsed();
     eprintln!(
-        "MEASUREMENT sidecar write su {} file: {elapsed:?}",
+        "MEASUREMENT sidecar write across {} files: {elapsed:?}",
         JPEG_COUNT + raw_names.len()
     );
 
@@ -503,12 +499,12 @@ fn one_thousand_real_files_survive_sidecar_editing_without_raw_rewrite() {
         assert_eq!(
             &blake3_file(path),
             hash,
-            "RAW riscritto: {}",
+            "RAW rewritten: {}",
             path.display()
         );
     }
     assert!(
         elapsed.as_secs() < 30,
-        "1000 sidecar devono restare snelli, impiegati {elapsed:?}"
+        "1000 sidecars must stay lean, took {elapsed:?}"
     );
 }

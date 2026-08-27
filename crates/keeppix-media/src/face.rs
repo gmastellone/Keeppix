@@ -1,38 +1,32 @@
-//! `YuNet` (rilevamento) + `SFace` (impronta) via `ort` (Fase 8 Task 2/4,
-//! sostituiti dal Task A del piano modelli IA — vedi
-//! `docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`). SCRFD/`ArcFace`
-//! (`InsightFace`) non sono mai stati usati in produzione: pesi
-//! research-only, mai scaricati, mai eseguiti — sostituiti prima di
-//! qualunque rilascio. `YuNet` è MIT, `SFace` è Apache 2.0: entrambi liberi
-//! anche per uso commerciale.
+//! `YuNet` (detection) + `SFace` (embedding) via `ort`. SCRFD/`ArcFace`
+//! (`InsightFace`) were never used in production: research-only weights,
+//! never downloaded, never run — replaced before any release. `YuNet` is
+//! MIT, `SFace` is Apache 2.0: both free even for commercial use.
 //!
-//! Stesso stack di `clip.rs`: pesi ONNX locali sotto `models/`, zero rete a
-//! runtime, sessione viva solo per la finestra di analisi. **Niente crate
-//! `face_id`**: pinnerebbe una seconda versione di `ort` (0.4.4 vuole
-//! `2.0.0-rc.13`) invece di riusare quella già in questo crate — esattamente
-//! l'opposto di "un solo stack di inferenza" che la spec chiede. Ruling nel
-//! ledger di fase.
+//! Same stack as `clip.rs`: local ONNX weights under `models/`, zero
+//! network at runtime, session alive only for the analysis window. **No
+//! `face_id` crate**: it would pin a second `ort` version (0.4.4 wants
+//! `2.0.0-rc.13`) instead of reusing the one already in this crate — the
+//! exact opposite of the single-inference-stack goal.
 //!
-//! **Limite dichiarato di questa implementazione**: senza rete verso
-//! `cdn.pyke.io` (per compilare `ort-sys`) da questa sandbox di sviluppo, il
-//! decode qui sotto non è mai stato eseguito contro pesi ONNX reali dentro
-//! `cargo test` — solo contro tensori sintetici nei test. **A differenza
-//! della precedente implementazione SCRFD**, però, i due file `.onnx` reali
-//! sono stati scaricati e ispezionati direttamente (`onnx.load`, grafo
-//! Python) durante la stesura di questo modulo: gli shape di input/output
-//! sotto (nomi, dimensioni, l'input fisso 640×640 di `YuNet`, l'output
-//! 128-d `fc1` di `SFace`, l'unico input realmente richiesto `data` — gli
-//! altri ~144 nomi nel grafo `SFace` hanno tutti un initializer, sono
-//! parametri di `BatchNorm`/`PReLU` congelati dall'export, non vanno forniti a
-//! `Session::run`) sono **verificati sul file reale**, non dedotti. Le
-//! formule di decodifica (stride, `score = sqrt(cls·obj)`, box in stile
-//! YOLO) vengono invece dalla lettura diretta di
-//! `modules/objdetect/src/face_detect.cpp` di `OpenCV` — nomi di output letti
-//! per **nome** (non per posizione), così un ordine diverso fallisce in modo
-//! esplicito invece di produrre riquadri sbagliati in silenzio. Resta da
-//! verificare in CI reale: che l'inferenza converga su una foto vera (il
-//! test end-to-end lo fa girare per la prima volta, Task A punto 3) e la
-//! calibrazione delle soglie di similarità (Task A punto 4).
+//! **Declared limitation of this implementation**: without network access
+//! to `cdn.pyke.io` (to compile `ort-sys`) from this development sandbox,
+//! the decode below was never run against real ONNX weights inside `cargo
+//! test` — only against synthetic tensors in the tests. **Unlike the
+//! earlier SCRFD implementation**, though, the two real `.onnx` files were
+//! downloaded and inspected directly (`onnx.load`, Python graph) while
+//! writing this module: the input/output shapes below (names, dimensions,
+//! `YuNet`'s fixed 640×640 input, `SFace`'s 128-d `fc1` output, the only
+//! input actually required, `data` — the other ~144 names in the `SFace`
+//! graph all carry an initializer, frozen `BatchNorm`/`PReLU` parameters
+//! from the export, and must not be supplied to `Session::run`) are
+//! **verified against the real file**, not inferred. The decoding formulas
+//! (stride, `score = sqrt(cls·obj)`, YOLO-style boxes), however, come from
+//! reading `modules/objdetect/src/face_detect.cpp` in `OpenCV` directly —
+//! output names read by **name** (not by position), so a different order
+//! fails explicitly instead of silently producing wrong boxes. Still to be
+//! verified in real CI: that inference converges on a real photo, and that
+//! the similarity-threshold calibration holds up.
 
 use std::path::{Path, PathBuf};
 
@@ -42,26 +36,26 @@ use ort::value::Tensor;
 
 use crate::align::{self, SFACE_REFERENCE_112};
 
-/// Identità stabile del checkpoint usato da probe, job e DB.
+/// Stable identity of the checkpoint used by the probe, jobs, and DB.
 pub const MODEL_VERSION: &str = "yunet+sface";
 
 const STRIDES: [u32; 3] = [8, 16, 32];
-/// Lato dell'input del rilevatore `YuNet`: **non** una scelta di
-/// implementazione come lo era per SCRFD — è la dimensione fissa dichiarata
-/// dal grafo ONNX del checkpoint `2023mar_int8` pinnato dal piano
-/// (`input: [1, 3, 640, 640]`, verificato caricando il file reale). `ort`
-/// rifiuta un tensore di dimensione diversa: non è un parametro tunabile.
+/// `YuNet` detector input side: **not** an implementation choice the way it
+/// was for SCRFD — it's the fixed dimension declared by the ONNX graph of
+/// the pinned `2023mar_int8` checkpoint (`input: [1, 3, 640, 640]`,
+/// verified by loading the real file). `ort` rejects a tensor of a
+/// different size: not a tunable parameter.
 const DETECTOR_INPUT_SIZE: u32 = 640;
-/// Soglie ufficiali del wrapper Python di `OpenCV` Zoo per `YuNet`
+/// Official thresholds from `OpenCV` Zoo's Python wrapper for `YuNet`
 /// (`models/face_detection_yunet/yunet.py`: `confThreshold=0.6`,
-/// `nmsThreshold=0.3`) — non i valori SCRFD del checkpoint precedente.
+/// `nmsThreshold=0.3`) — not the SCRFD values from the previous checkpoint.
 const SCORE_THRESHOLD: f32 = 0.6;
 const NMS_IOU_THRESHOLD: f32 = 0.3;
-/// Dimensione dell'impronta `SFace`: 128, **non** 512 come `ArcFace`
-/// (verificato sia sull'output `fc1` del grafo ONNX reale, sia sul
-/// commento ufficiale `OpenCV` `samples/dnn/js_face_recognition.html`, "Get
-/// 128 floating points feature vector"). La migrazione dello schema che
-/// segue da questo numero è in
+/// `SFace` embedding dimension: 128, **not** 512 like `ArcFace` (verified
+/// both against the `fc1` output of the real ONNX graph and against
+/// `OpenCV`'s official comment in `samples/dnn/js_face_recognition.html`,
+/// "Get 128 floating points feature vector"). The schema migration that
+/// follows from this number is
 /// `crates/keeppix-db/migrations/0050_faces_embedding_dim_128.sql`.
 const SFACE_EMBED_DIM: usize = 128;
 
@@ -88,11 +82,10 @@ fn is_complete_model_dir(dir: &Path) -> bool {
     dir.join("detect.onnx").is_file() && dir.join("embed.onnx").is_file()
 }
 
-/// Prova di inferenza sul rilevatore, stesso contratto di
-/// [`crate::ai::measure_image_inference`] per CLIP (Task 1/2 della Fase 7):
-/// una passata di warm-up più una misurata, su un input nero. Se i pesi
-/// mancano torna `inference_status = "model_missing"` invece di inventare
-/// un numero — quello che Task 2 di questa fase deve mettere nel ledger.
+/// Inference probe for the detector, same contract as
+/// [`crate::ai::measure_image_inference`] for CLIP: one warm-up pass plus a
+/// measured one, on a black input. If the weights are missing, returns
+/// `inference_status = "model_missing"` instead of making up a number.
 #[must_use]
 pub fn measure_face_detection_inference() -> crate::ai::InferenceProbe {
     use crate::ai::InferenceProbe;
@@ -137,27 +130,28 @@ pub fn first_complete_model_dir() -> Option<PathBuf> {
         .find(|p| is_complete_model_dir(p))
 }
 
-/// Un volto rilevato, in coordinate **relative** (0..1) all'immagine passata
-/// a [`FaceModels::detect`] — sopravvive a derivati di dimensione diversa.
+/// A detected face, in coordinates **relative** (0..1) to the image passed
+/// to [`FaceModels::detect`] — survives derivatives of a different size.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DetectedFace {
     pub bbox: FaceBBox,
-    /// Occhio destro, occhio sinistro, naso, angolo bocca destro, angolo
-    /// bocca sinistro — ordine nativo di `YuNet` (`demo.py`,
-    /// `landmark_color`: indici 0..4 etichettati esattamente così), passato
-    /// **senza permutazioni** a [`align::SFACE_REFERENCE_112`]: verificato
-    /// su `objdetect/src/face_recognize.cpp`, `FaceRecognizerSF::alignCrop`
-    /// — la stessa funzione ufficiale che fa da ponte fra questi due
-    /// modelli legge i 5 punti del rilevatore in ordine stretto
-    /// (`src_point[row][col] = face_mat.at<float>(0, row*2+col+4)`, nessun
-    /// riordino) dentro lo stesso identico array di riferimento.
+    /// Right eye, left eye, nose, right mouth corner, left mouth corner —
+    /// `YuNet`'s native order (`demo.py`, `landmark_color`: indices 0..4
+    /// labeled exactly this way), passed **without permutation** to
+    /// [`align::SFACE_REFERENCE_112`]: verified against
+    /// `objdetect/src/face_recognize.cpp`, `FaceRecognizerSF::alignCrop` —
+    /// the same official function that bridges these two models reads the
+    /// detector's 5 points in strict order
+    /// (`src_point[row][col] = face_mat.at<float>(0, row*2+col+4)`, no
+    /// reordering) into this exact same reference array.
     pub landmarks: [(f32, f32); 5],
     pub score: f32,
 }
 
-/// Sessioni `YuNet` + `SFace` caricate in memoria. Dropparle libera la RAM
-/// (stesso pattern di `MobileClip`, che a sua volta ha lo stesso limite:
-/// onnxruntime non restituisce tutte le pagine al SO subito dopo `Drop`).
+/// `YuNet` + `SFace` sessions loaded in memory. Dropping them frees the
+/// RAM (same pattern as `MobileClip`, which has the same limitation:
+/// onnxruntime doesn't return every page to the OS immediately after
+/// `Drop`).
 #[derive(Debug)]
 pub struct FaceModels {
     detector: Session,
@@ -165,12 +159,11 @@ pub struct FaceModels {
 }
 
 impl FaceModels {
-    /// Carica `detect.onnx` (`YuNet`) + `embed.onnx` (`SFace`) dalla directory
-    /// modello.
+    /// Loads `detect.onnx` (`YuNet`) + `embed.onnx` (`SFace`) from the
+    /// model directory.
     ///
     /// # Errors
-    /// Directory incompleta, o fallimento di ort nel caricare uno dei due
-    /// grafi.
+    /// Incomplete directory, or ort failing to load either graph.
     pub fn load(model_dir: &Path) -> Result<Self, String> {
         if !is_complete_model_dir(model_dir) {
             return Err(format!(
@@ -189,15 +182,15 @@ impl FaceModels {
         Ok(Self { detector, embedder })
     }
 
-    /// Rileva volti in un'immagine RGB8 interleaved (`width`×`height`).
-    /// Applica un letterbox (ridimensiona mantenendo l'aspect ratio, riempie
-    /// il resto di nero) verso [`DETECTOR_INPUT_SIZE`] — l'unica dimensione
-    /// che il grafo `YuNet` accetta — poi decodifica le tre teste (stride
-    /// 8/16/32, un rilevamento per cella, niente ancore multiple a
-    /// differenza di SCRFD) e applica soppressione dei non massimi.
+    /// Detects faces in an interleaved RGB8 image (`width`×`height`).
+    /// Applies a letterbox (resize keeping aspect ratio, fills the rest
+    /// with black) to [`DETECTOR_INPUT_SIZE`] — the only size the `YuNet`
+    /// graph accepts — then decodes the three heads (stride 8/16/32, one
+    /// detection per cell, no multiple anchors unlike SCRFD) and applies
+    /// non-maximum suppression.
     ///
     /// # Errors
-    /// Buffer RGB incoerente con `width`×`height`, o fallimento di ort.
+    /// RGB buffer inconsistent with `width`×`height`, or ort failure.
     #[allow(clippy::cast_precision_loss)]
     pub fn detect(
         &mut self,
@@ -248,9 +241,9 @@ impl FaceModels {
         let mut out = Vec::with_capacity(kept.len());
         for idx in kept {
             let c = &candidates[idx];
-            // Da spazio letterbox a spazio immagine originale, poi a
-            // coordinate relative — l'ordine conta: prima si toglie il
-            // padding, poi si divide per la scala, infine si normalizza.
+            // From letterbox space to original image space, then to
+            // relative coordinates — order matters: first remove the
+            // padding, then divide by the scale, finally normalize.
             let unletterbox = |x: f32, y: f32| -> (f32, f32) {
                 (
                     ((x - pad_x as f32) / scale) / width as f32,
@@ -277,18 +270,19 @@ impl FaceModels {
         Ok(out)
     }
 
-    /// Allinea (Umeyama/similarità) e incornicia il volto dalla preview a
-    /// 112×112, poi ne calcola l'impronta `SFace` a 128 dimensioni, **non**
-    /// L2-normalizzata dal modello: la normalizzazione è responsabilità del
-    /// chiamante, per poterla applicare anche a un centroide medio senza
-    /// ricalcolare l'impronta.
+    /// Aligns (Umeyama/similarity) and crops the face from the preview to
+    /// 112×112, then computes its 128-d `SFace` embedding, **not**
+    /// L2-normalized by the model: normalization is the caller's
+    /// responsibility, so it can also be applied to an averaged centroid
+    /// without recomputing the embedding.
     ///
-    /// `landmarks_rel` sono le 5 coordinate relative (0..1) **rispetto a
-    /// `preview_w`×`preview_h`**, non alla miniatura di [`Self::detect`] —
-    /// spec §2.1 emendamento: rilevamento su miniatura, impronta su preview.
+    /// `landmarks_rel` are the 5 relative coordinates (0..1) **relative to
+    /// `preview_w`×`preview_h`**, not to the thumbnail used by
+    /// [`Self::detect`] — detection runs on the thumbnail, embedding on the
+    /// preview.
     ///
     /// # Errors
-    /// Buffer RGB incoerente, o fallimento di ort.
+    /// Inconsistent RGB buffer, or ort failure.
     #[allow(clippy::cast_precision_loss)]
     pub fn embed_face(
         &mut self,
@@ -309,10 +303,10 @@ impl FaceModels {
         self.embed_aligned(&aligned)
     }
 
-    /// Impronta `SFace` da un ritaglio già allineato 112×112 RGB8.
+    /// `SFace` embedding from an already-aligned 112×112 RGB8 crop.
     ///
     /// # Errors
-    /// Dimensione errata, o fallimento di ort.
+    /// Wrong size, or ort failure.
     pub fn embed_aligned(&mut self, aligned_rgb_112: &[u8]) -> Result<Vec<f32>, String> {
         let size = align::ALIGNED_FACE_SIZE as usize;
         if aligned_rgb_112.len() != size * size * 3 {
@@ -322,14 +316,14 @@ impl FaceModels {
             ));
         }
         // `SFace` (dnn::blobFromImage(_aligned_img, 1, Size(112,112),
-        // Scalar(0,0,0), true, false), letto dal sorgente C++ di
-        // face_recognize.cpp): scalefactor 1 e mean 0 → pixel grezzi 0..255,
-        // NESSUNA normalizzazione (a differenza di ArcFace, che divideva per
-        // (pixel-127.5)/128). swapRB=true nel sorgente originale converte il
-        // sorgente BGR-nativo di OpenCV in RGB per la rete — il nostro
-        // buffer è già RGB, quindi va bene così com'è, senza scambiare i
-        // canali (a differenza del rilevatore YuNet sotto, che invece li
-        // scambia — vedi commento su `letterbox_to_nchw_bgr`).
+        // Scalar(0,0,0), true, false), read from the face_recognize.cpp C++
+        // source): scalefactor 1 and mean 0 → raw 0..255 pixels, NO
+        // normalization (unlike ArcFace, which divided by
+        // (pixel-127.5)/128). swapRB=true in the original source converts
+        // OpenCV's BGR-native source to RGB for the network — our buffer
+        // is already RGB, so it's fine as-is, no channel swap needed
+        // (unlike the YuNet detector below, which does swap them — see the
+        // comment on `letterbox_to_nchw_bgr`).
         let mut nchw = vec![0.0_f32; 3 * size * size];
         let plane = size * size;
         for i in 0..plane {
@@ -339,12 +333,12 @@ impl FaceModels {
         }
         let input = Tensor::from_array(([1usize, 3, size, size], nchw))
             .map_err(|e| format!("embedder input tensor: {e}"))?;
-        // Il grafo `SFace` dichiara ~144 input aggiuntivi (parametri
-        // BatchNorm/PReLU congelati dall'export) oltre a `data`: hanno
-        // tutti un initializer nel grafo ONNX (verificato caricando il file
-        // reale), quindi onnxruntime li usa come default senza che vadano
-        // forniti qui — comportamento ONNX standard per input con
-        // initializer, non un'omissione.
+        // The `SFace` graph declares ~144 additional inputs (BatchNorm/
+        // PReLU parameters frozen at export) besides `data`: they all carry
+        // an initializer in the ONNX graph (verified by loading the real
+        // file), so onnxruntime uses them as defaults without needing them
+        // supplied here — standard ONNX behavior for inputs with an
+        // initializer, not an omission.
         let outputs = self
             .embedder
             .run(ort::inputs![input])
@@ -375,25 +369,25 @@ fn named_output_f32(
     Ok(data.to_vec())
 }
 
-/// Letterbox: scala mantenendo l'aspect ratio così il lato più lungo diventi
-/// `target`, poi centra il risultato su un canvas `target`×`target`
-/// riempito di nero. Torna il tensore NCHW con pixel **grezzi** 0..255
-/// (`dnn::blobFromImage` di `YuNet` non normalizza: scalefactor 1, mean 0,
-/// letto da `face_detect.cpp`) e i parametri per invertire la
-/// trasformazione sulle coordinate rilevate.
+/// Letterbox: scale keeping the aspect ratio so the longer side becomes
+/// `target`, then center the result on a `target`×`target` canvas filled
+/// with black. Returns the NCHW tensor with **raw** 0..255 pixels
+/// (`YuNet`'s `dnn::blobFromImage` doesn't normalize: scalefactor 1, mean
+/// 0, read from `face_detect.cpp`) and the parameters to invert the
+/// transform on the detected coordinates.
 ///
-/// **Canali scambiati R↔B** (nome della funzione: produce BGR, non RGB): il
-/// sorgente `OpenCV` chiama `blobFromImage` con `swapRB=false` su
-/// un'immagine BGR-nativa (da `cv::imread`) — cioè la rete riceve BGR senza
-/// alcuno scambio. Il nostro buffer sorgente è RGB (convenzione di questo
-/// crate): per dare alla rete lo stesso ordine di canali con cui è stata
-/// addestrata, scambiamo qui, non lasciamo l'ordine RGB invariato come
-/// faceva il letterbox SCRFD precedente (quello alimentava RGB grezzo —
-/// scelta ragionevole per la famiglia `InsightFace`, che nelle demo ufficiali
-/// inverte esplicitamente BGR→RGB prima dell'inferenza; per `YuNet` l'evidenza
-/// del sorgente dice il contrario). Non verificato empiricamente in questa
-/// sandbox (nessuna inferenza reale eseguibile) — da confermare quando CI
-/// esegue per la prima volta il test end-to-end con i pesi veri.
+/// **R↔B channels swapped** (the function name: it produces BGR, not RGB):
+/// the `OpenCV` source calls `blobFromImage` with `swapRB=false` on a
+/// BGR-native image (from `cv::imread`) — i.e. the network receives BGR
+/// with no swap at all. Our source buffer is RGB (this crate's
+/// convention): to feed the network the same channel order it was trained
+/// on, we swap here, rather than leaving the RGB order unchanged as the
+/// earlier SCRFD letterbox did (that one fed raw RGB — a reasonable choice
+/// for the `InsightFace` family, whose official demos explicitly convert
+/// BGR→RGB before inference; for `YuNet` the source evidence says the
+/// opposite). Not verified empirically in this sandbox (no real inference
+/// can be run here) — to be confirmed the first time CI runs the
+/// end-to-end test with real weights.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -412,7 +406,7 @@ fn letterbox_to_nchw_bgr(
     let pad_y = (target - scaled_h.min(target)) / 2;
 
     let plane = (target * target) as usize;
-    let mut nchw = vec![0.0_f32; 3 * plane]; // nero: pixel grezzo 0
+    let mut nchw = vec![0.0_f32; 3 * plane]; // black: raw pixel 0
 
     for oy in 0..scaled_h.min(target) {
         for ox in 0..scaled_w.min(target) {
@@ -420,8 +414,8 @@ fn letterbox_to_nchw_bgr(
             let sy = ((oy as f32 + 0.5) / scale).clamp(0.0, (height - 1) as f32) as u32;
             let src = ((sy * width + sx) * 3) as usize;
             let dst = ((oy + pad_y) * target + (ox + pad_x)) as usize;
-            // src+0=R, src+1=G, src+2=B (buffer RGB) → canale di rete
-            // c=0 (B), c=1 (G), c=2 (R): scambio R↔B, vedi doc sopra.
+            // src+0=R, src+1=G, src+2=B (RGB buffer) → network channel
+            // c=0 (B), c=1 (G), c=2 (R): R↔B swap, see doc comment above.
             let bgr = [rgb[src + 2], rgb[src + 1], rgb[src]];
             for (c, &v) in bgr.iter().enumerate() {
                 nchw[c * plane + dst] = f32::from(v);
@@ -441,14 +435,14 @@ struct Candidate {
     score: f32,
 }
 
-/// Decodifica una testa `YuNet` a uno stride: un rilevamento per cella
-/// (anchor-free, a differenza delle 2 ancore per cella di SCRFD), formule
-/// lette da `face_detect.cpp` di `OpenCV`:
+/// Decodes a `YuNet` head at one stride: one detection per cell
+/// (anchor-free, unlike SCRFD's 2 anchors per cell), formulas read from
+/// `OpenCV`'s `face_detect.cpp`:
 /// `cx=(c+bbox[0])·stride`, `cy=(r+bbox[1])·stride`,
 /// `w=exp(bbox[2])·stride`, `h=exp(bbox[3])·stride`,
 /// `score=√(cls·obj)`, `kp_n=((kps[2n]+c)·stride, (kps[2n+1]+r)·stride)`.
-/// `c`/`r` sono gli indici (colonna, riga) della cella nella mappa
-/// `feat_w`×`feat_h`, in ordine riga-per-riga come gli output del grafo.
+/// `c`/`r` are the (column, row) indices of the cell in the
+/// `feat_w`×`feat_h` map, in row-major order like the graph's outputs.
 #[allow(clippy::cast_precision_loss, clippy::too_many_arguments)]
 fn decode_stride(
     feat_w: u32,
@@ -521,9 +515,9 @@ fn iou(a: &Candidate, b: &Candidate) -> f32 {
     if union <= 0.0 { 0.0 } else { inter / union }
 }
 
-/// Soppressione dei non massimi: ordina per punteggio decrescente, tiene un
-/// riquadro e scarta ogni altro riquadro non ancora scartato con `IoU` oltre
-/// soglia rispetto a quello tenuto. Torna gli indici tenuti in `candidates`.
+/// Non-maximum suppression: sorts by descending score, keeps one box and
+/// discards every other not-yet-discarded box whose `IoU` against the kept
+/// one is above threshold. Returns the indices kept in `candidates`.
 fn nms(candidates: &[Candidate], iou_threshold: f32) -> Vec<usize> {
     let mut order: Vec<usize> = (0..candidates.len()).collect();
     order.sort_by(|&a, &b| {
@@ -563,7 +557,7 @@ mod tests {
 
     #[test]
     fn decode_stride_recovers_a_known_box_and_score() {
-        // Cella (c=2, r=1), stride 8: cx=(2+0)*8=16, cy=(1+0)*8=8,
+        // Cell (c=2, r=1), stride 8: cx=(2+0)*8=16, cy=(1+0)*8=8,
         // w=exp(0)*8=8, h=exp(0)*8=8 → box (12,4,20,12). score=√(0.81)=0.9.
         let feat_w = 4;
         let feat_h = 4;
@@ -572,7 +566,7 @@ mod tests {
         let mut obj = vec![0.0_f32; n];
         let mut bboxes = vec![0.0_f32; n * 4];
         let kpss = vec![0.0_f32; n * 10];
-        let idx = (feat_w + 2) as usize; // riga 1, colonna 2
+        let idx = (feat_w + 2) as usize; // row 1, column 2
         cls[idx] = 0.9;
         obj[idx] = 0.9;
         bboxes[idx * 4] = 0.0;
@@ -603,7 +597,7 @@ mod tests {
     #[test]
     fn decode_stride_filters_below_threshold() {
         let n = 2 * 2;
-        let cls = vec![0.1_f32; n]; // sqrt(0.1*0.1)=0.1, sotto soglia 0.6
+        let cls = vec![0.1_f32; n]; // sqrt(0.1*0.1)=0.1, below the 0.6 threshold
         let obj = vec![0.1_f32; n];
         let bboxes = vec![0.0_f32; n * 4];
         let kpss = vec![0.0_f32; n * 10];
@@ -652,7 +646,7 @@ mod tests {
     fn nms_keeps_the_higher_score_of_two_overlapping_boxes() {
         let candidates = vec![
             candidate(0.0, 0.0, 10.0, 10.0, 0.6),
-            candidate(1.0, 1.0, 11.0, 11.0, 0.9), // quasi identico, score più alto
+            candidate(1.0, 1.0, 11.0, 11.0, 0.9), // nearly identical, higher score
         ];
         let kept = nms(&candidates, 0.4);
         assert_eq!(kept, vec![1]);
@@ -683,18 +677,18 @@ mod tests {
 
     #[test]
     fn letterbox_swaps_red_and_blue_channels() {
-        // Un pixel rosso puro (255,0,0) in RGB deve arrivare nel piano 0
-        // (che il commento della funzione dichiara essere B) come 0, e nel
-        // piano 2 (R) come 255 — lo scambio R↔B verso BGR.
+        // A pure red pixel (255,0,0) in RGB must arrive in plane 0 (which
+        // the function's doc comment declares to be B) as 0, and in plane
+        // 2 (R) as 255 — the R↔B swap toward BGR.
         let w = 2_u32;
         let h = 2_u32;
         let mut rgb = vec![0_u8; (w * h * 3) as usize];
         rgb[0] = 255; // R del pixel (0,0)
         let (nchw, _scale, pad_x, pad_y) = letterbox_to_nchw_bgr(&rgb, w, h, 4);
         let plane = 4 * 4;
-        let dst = (pad_y * 4 + pad_x) as usize; // pixel sorgente (0,0), spostato dal padding
-        assert!((nchw[dst] - 0.0).abs() < 1e-6, "piano B");
-        assert!((nchw[2 * plane + dst] - 255.0).abs() < 1e-6, "piano R");
+        let dst = (pad_y * 4 + pad_x) as usize; // source pixel (0,0), shifted by padding
+        assert!((nchw[dst] - 0.0).abs() < 1e-6, "plane B");
+        assert!((nchw[2 * plane + dst] - 255.0).abs() < 1e-6, "plane R");
     }
 
     #[test]
@@ -718,11 +712,12 @@ mod tests {
 
     #[test]
     fn measure_reports_model_missing_without_weights_on_disk() {
-        // In questa sandbox di sviluppo i pesi YuNet/SFace non ci sono
-        // (nessuna rete verso `cdn.pyke.io` per compilare `ort-sys`) — stesso
-        // limite dichiarato di MobileCLIP2-S2 in Fase 7. Se un giorno girasse
-        // con i pesi veri presenti, il probe riporterebbe "ok"; qui
-        // verifichiamo solo che il percorso degradato non inventi un numero.
+        // In this development sandbox the YuNet/SFace weights aren't
+        // present (no network access to `cdn.pyke.io` to compile
+        // `ort-sys`) — the same declared limitation as MobileCLIP2-S2. If
+        // this ever runs with the real weights present, the probe would
+        // report "ok"; here we only verify that the degraded path doesn't
+        // make up a number.
         if first_complete_model_dir().is_some() {
             eprintln!("skipping: real YuNet/SFace weights are present, probe would report ok");
             return;

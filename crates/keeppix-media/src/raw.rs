@@ -1,18 +1,19 @@
-//! Estrazione della preview JPEG incorporata nei file RAW, senza demosaic.
+//! Extraction of the embedded JPEG preview from RAW files, without
+//! demosaicing.
 //!
-//! ARW, NEF, CR2 e DNG sono contenitori TIFF: la preview vive in una IFD
-//! (spesso figlia, via il tag `SubIFDs`) che punta a un JPEG completo tramite
-//! `JPEGInterchangeFormat`/`Length` oppure `StripOffsets`/`StripByteCounts`
-//! con `Compression` JPEG. CR3 è ISO-BMFF: la preview vive nel box `PRVW`,
-//! dentro un `uuid` di primo livello (non in `moov`, vedi commento su
-//! `extract_from_cr3`).
+//! ARW, NEF, CR2, and DNG are TIFF containers: the preview lives in an IFD
+//! (often a child, via the `SubIFDs` tag) that points to a complete JPEG
+//! through `JPEGInterchangeFormat`/`Length` or `StripOffsets`/
+//! `StripByteCounts` with JPEG `Compression`. CR3 is ISO-BMFF: the preview
+//! lives in the `PRVW` box, inside a top-level `uuid` (not in `moov`, see
+//! the comment on `extract_from_cr3`).
 //!
-//! In entrambi i casi si accetta un candidato solo se i suoi byte iniziano
-//! con SOI (`FFD8`) e contengono un marker SOF *baseline o progressivo*
-//! (0xC0/0xC1/0xC2): questo scarta automaticamente i dati Bayer compressi
-//! con schemi "JPEG-like" ma non decodificabili (es. NEF lossy, o gli strip
-//! JPEG-lossless dei sensori CR2), che altrimenti supererebbero il controllo
-//! SOI pur non essendo un'immagine utilizzabile.
+//! In both cases a candidate is accepted only if its bytes start with SOI
+//! (`FFD8`) and contain a *baseline or progressive* SOF marker
+//! (0xC0/0xC1/0xC2): this automatically rejects Bayer data compressed with
+//! "JPEG-like" but non-decodable schemes (e.g. lossy NEF, or the
+//! JPEG-lossless strips of CR2 sensors), which would otherwise pass the SOI
+//! check while not being a usable image.
 
 use std::collections::HashSet;
 use std::fs;
@@ -51,12 +52,12 @@ pub struct RawPreview {
     pub source: PreviewSource,
 }
 
-/// Estrae la preview JPEG più grande incorporata in un file RAW.
+/// Extracts the largest JPEG preview embedded in a RAW file.
 ///
 /// # Errors
-/// I/O, formato non riconosciuto, o struttura del contenitore corrotta al
-/// punto da non poter nemmeno leggere l'header. Un formato noto senza
-/// preview utilizzabile è `Ok(None)`, non un errore.
+/// I/O, unrecognized format, or a container structure so corrupt that even
+/// the header can't be read. A known format with no usable preview is
+/// `Ok(None)`, not an error.
 pub fn extract_embedded_preview(path: &Path) -> Result<Option<RawPreview>, RawError> {
     let buf = fs::read(path)?;
     if is_tiff(&buf) {
@@ -70,26 +71,26 @@ pub fn extract_embedded_preview(path: &Path) -> Result<Option<RawPreview>, RawEr
     ))
 }
 
-/// `false` se `dcraw_emu` non è in `PATH`: permette ai test di saltare senza
-/// fallire su una macchina/CI senza libraw installato, come già fa
-/// `video::ffprobe_available`. `dcraw_emu` non ha un flag che riesce senza un
-/// file in ingresso, quindi il segnale è che il processo sia partito
-/// affatto, non il suo exit status.
+/// `false` if `dcraw_emu` is not on `PATH`: lets tests skip cleanly on a
+/// machine/CI without libraw installed, the same way
+/// `video::ffprobe_available` does. `dcraw_emu` has no flag that succeeds
+/// without an input file, so the signal is whether the process started at
+/// all, not its exit status.
 #[must_use]
 pub fn dcraw_emu_available() -> bool {
     sandbox::run("dcraw_emu", &["-v"], 64 * 1024 * 1024, 5).is_ok()
 }
 
-/// Demosaic half-size con bilanciamento del bianco della fotocamera, via
-/// `dcraw_emu` in sandbox. Non è per l'esportazione: è per avere un'anteprima
-/// decente quando il RAW non porta una preview incorporata utilizzabile.
+/// Half-size demosaic with the camera's white balance, via sandboxed
+/// `dcraw_emu`. Not meant for export: it's for getting a decent preview
+/// when the RAW doesn't carry a usable embedded preview.
 ///
-/// `dcraw_emu` gira **sempre** in un processo separato con `rlimit`: è codice
-/// C che apre file non fidati.
+/// `dcraw_emu` **always** runs in a separate process with `rlimit`: it's C
+/// code that opens untrusted files.
 ///
 /// # Errors
-/// Il processo non parte, esce con errore (formato non supportato, file
-/// corrotto), o la sua uscita non è il PPM 8-bit atteso.
+/// The process fails to start, exits with an error (unsupported format,
+/// corrupt file), or its output isn't the expected 8-bit PPM.
 pub fn demosaic_half(
     path: &Path,
     memory_bytes: u64,
@@ -111,11 +112,11 @@ pub fn demosaic_half(
     parse_ppm(&out.stdout)
 }
 
-/// Parser minimo per il PPM binario (`P6`) che `dcraw_emu` scrive su stdout:
-/// header ASCII (magic, larghezza, altezza, valore massimo) seguito da un
-/// singolo byte di separazione e dai pixel RGB8 interleaved. Bastano tre
-/// token: non serve un parser PNM completo per un formato che generiamo e
-/// consumiamo noi stessi.
+/// Minimal parser for the binary PPM (`P6`) that `dcraw_emu` writes to
+/// stdout: ASCII header (magic, width, height, max value) followed by a
+/// single separator byte and interleaved RGB8 pixels. Three tokens are
+/// enough: no need for a full PNM parser for a format we both produce and
+/// consume ourselves.
 fn parse_ppm(bytes: &[u8]) -> Result<RawPreview, RawError> {
     if !bytes.starts_with(b"P6") {
         return Err(RawError::Corrupt("dcraw_emu: not a P6 ppm".to_owned()));
@@ -129,7 +130,7 @@ fn parse_ppm(bytes: &[u8]) -> Result<RawPreview, RawError> {
             "dcraw_emu: expected an 8-bit ppm".to_owned(),
         ));
     }
-    // Esattamente un byte di separazione fra l'header ASCII e i pixel binari.
+    // Exactly one separator byte between the ASCII header and the binary pixels.
     if pos >= bytes.len() {
         return Err(RawError::Corrupt(
             "dcraw_emu: truncated ppm header".to_owned(),
@@ -154,8 +155,8 @@ fn parse_ppm(bytes: &[u8]) -> Result<RawPreview, RawError> {
     })
 }
 
-/// Legge un token intero ASCII in un header PNM, saltando whitespace e i
-/// commenti `#...\n` che il formato ammette fra i campi.
+/// Reads an ASCII integer token in a PNM header, skipping whitespace and
+/// the `#...\n` comments the format allows between fields.
 fn read_ppm_uint(bytes: &[u8], pos: &mut usize) -> Result<u32, RawError> {
     loop {
         while bytes.get(*pos).is_some_and(u8::is_ascii_whitespace) {
@@ -227,8 +228,8 @@ struct Candidate {
     len: usize,
 }
 
-/// Byte per componente per i tipi TIFF che ci interessano (SHORT/LONG e
-/// varianti signed): 0 per i tipi che ignoriamo.
+/// Bytes per component for the TIFF types we care about (SHORT/LONG and
+/// signed variants): 0 for the types we ignore.
 fn type_size(field_type: u16) -> usize {
     match field_type {
         1 | 2 | 6 | 7 => 1,
@@ -239,8 +240,8 @@ fn type_size(field_type: u16) -> usize {
     }
 }
 
-/// Legge il primo valore di un tag TIFF, gestendo sia il caso inline
-/// (byte contenuti nel campo valore/offset da 4 byte) sia quello esterno.
+/// Reads the first value of a TIFF tag, handling both the inline case
+/// (bytes held in the 4-byte value/offset field) and the external one.
 fn resolve_first_u32(
     buf: &[u8],
     endian: Endian,
@@ -266,8 +267,8 @@ fn resolve_first_u32(
     }
 }
 
-/// Legge tutti i valori di un tag TIFF che può contenere più offset (es.
-/// `SubIFDs`). Limitato a `MAX_SUBIFD_FANOUT` elementi per sicurezza.
+/// Reads all values of a TIFF tag that can hold multiple offsets (e.g.
+/// `SubIFDs`). Capped at `MAX_SUBIFD_FANOUT` elements for safety.
 fn resolve_all_u32(
     buf: &[u8],
     endian: Endian,
@@ -373,8 +374,8 @@ fn extract_from_tiff(buf: &[u8]) -> Result<Option<RawPreview>, RawError> {
         if let (Some(start), Some(len)) = (jpeg_start, jpeg_len) {
             push_candidate(buf, &mut candidates, start as usize, len as usize);
         }
-        // Compression 6 (old-style JPEG) o 7 (JPEG): valido solo a strip
-        // singolo, altrimenti sono i dati Bayer spezzati su più strip.
+        // Compression 6 (old-style JPEG) or 7 (JPEG): only valid for a
+        // single strip, otherwise it's Bayer data split across multiple strips.
         if strip_count == 1 && matches!(compression, Some(6 | 7)) {
             if let (Some(start), Some(len)) = (strip_offset, strip_len) {
                 push_candidate(buf, &mut candidates, start as usize, len as usize);
@@ -392,13 +393,13 @@ fn extract_from_tiff(buf: &[u8]) -> Result<Option<RawPreview>, RawError> {
     Ok(pick_largest(buf, &candidates))
 }
 
-/// Il box `PRVW` non vive in `moov` ma in un box `uuid` di primo livello
-/// separato (`eaf42b5e-1c98-4b88-b9fb-b7dc406e4d16`, verificato sui
-/// campioni EOS R6/RP): il suo esatto genitore varia poco fra modelli, ma il
-/// marker ASCII "PRVW" seguito dall'header a lunghezza fissa è stabile.
-/// Si scansiona quindi l'intero file — `mdat` (i dati Bayer) arriva sempre
-/// dopo `moov`/`uuid`, ed è statisticamente irrilevante che contenga per
-/// caso la stessa sequenza di 4 byte.
+/// The `PRVW` box doesn't live in `moov` but in a separate top-level
+/// `uuid` box (`eaf42b5e-1c98-4b88-b9fb-b7dc406e4d16`, verified against EOS
+/// R6/RP samples): its exact parent varies little across models, but the
+/// ASCII marker "PRVW" followed by the fixed-length header is stable. We
+/// therefore scan the whole file — `mdat` (the Bayer data) always comes
+/// after `moov`/`uuid`, and it's statistically irrelevant if it happens to
+/// contain the same 4-byte sequence.
 fn extract_from_cr3(buf: &[u8]) -> Result<Option<RawPreview>, RawError> {
     if find_top_level_box(buf, *b"ftyp").is_none() {
         return Err(RawError::Corrupt("no ftyp box".to_owned()));
@@ -428,10 +429,10 @@ fn extract_from_cr3(buf: &[u8]) -> Result<Option<RawPreview>, RawError> {
     Ok(pick_largest(buf, &candidates))
 }
 
-/// Cerca un box di primo livello per tipo, seguendo la catena `size+type`
-/// dell'ISO-BMFF. Usato solo per confermare la presenza di `ftyp` prima di
-/// scansionare il resto del file: non gestisce size estesa a 64 bit (0/1),
-/// che in pratica riguarda solo `mdat`, box che non ci serve raggiungere.
+/// Looks up a top-level box by type, walking ISO-BMFF's `size+type` chain.
+/// Used only to confirm the presence of `ftyp` before scanning the rest of
+/// the file: doesn't handle the 64-bit extended size (0/1), which in
+/// practice only concerns `mdat`, a box we don't need to reach.
 fn find_top_level_box(buf: &[u8], want: [u8; 4]) -> Option<&[u8]> {
     let mut offset = 0usize;
     for _ in 0..MAX_BMFF_BOXES {
@@ -496,10 +497,10 @@ fn pick_largest(buf: &[u8], candidates: &[Candidate]) -> Option<RawPreview> {
     })
 }
 
-/// Legge le dimensioni da un marker SOF *baseline o progressivo*
-/// (0xC0/0xC1/0xC2). Qualsiasi altro SOF (lossless, aritmetico, ...) fa
-/// tornare `None`: non è un'immagine che i nostri decoder sanno aprire,
-/// anche se comincia con un SOI valido.
+/// Reads the dimensions from a *baseline or progressive* SOF marker
+/// (0xC0/0xC1/0xC2). Any other SOF (lossless, arithmetic, ...) makes this
+/// return `None`: it's not an image our decoders know how to open, even if
+/// it starts with a valid SOI.
 fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
         return None;

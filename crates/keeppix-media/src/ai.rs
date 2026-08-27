@@ -1,12 +1,12 @@
-//! Inferenza AI locale (Fase 7 Task 2): runtime e misura ms/foto.
+//! Local AI inference: runtime selection and ms/photo measurement.
 //!
-//! I pesi restano su disco (`models/…`); zero rete a runtime. Il probe chiama
-//! [`measure_image_inference`] una volta all'avvio.
+//! Weights stay on disk (`models/…`); zero network at runtime. The probe
+//! calls [`measure_image_inference`] once at startup.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-/// Esito della prova di inferenza sul modello visuale.
+/// Outcome of the inference probe run against the visual model.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InferenceProbe {
     pub inference_ms: Option<f64>,
@@ -14,10 +14,10 @@ pub struct InferenceProbe {
     pub runtime: Option<String>,
 }
 
-/// Percorsi candidati per `visual.onnx` (`OpenCLIP` XLM-R IT/EN), in ordine.
+/// Candidate paths for `visual.onnx` (`OpenCLIP` XLM-R IT/EN), in order.
 ///
-/// Override: `KEEPPIX_AI_VISUAL_ONNX` (file) o `KEEPPIX_MODELS_DIR` (directory
-/// che contiene `openclip-xlmr-it-en/visual.onnx`).
+/// Override: `KEEPPIX_AI_VISUAL_ONNX` (file) or `KEEPPIX_MODELS_DIR`
+/// (directory containing `openclip-xlmr-it-en/visual.onnx`).
 #[must_use]
 pub fn visual_model_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -38,8 +38,9 @@ pub fn visual_model_candidates() -> Vec<PathBuf> {
 }
 
 fn first_existing_model() -> Option<PathBuf> {
-    // Se l'override è impostato, è l'unico percorso ammesso — anche se assente
-    // (serve ai test `model_missing` e al bake Docker con path esplicito).
+    // If the override is set, it is the only path allowed — even if it
+    // doesn't exist (needed by the `model_missing` tests and by the Docker
+    // bake with an explicit path).
     if let Ok(override_path) = std::env::var("KEEPPIX_AI_VISUAL_ONNX") {
         let path = PathBuf::from(override_path);
         return path.is_file().then_some(path);
@@ -47,11 +48,11 @@ fn first_existing_model() -> Option<PathBuf> {
     visual_model_candidates().into_iter().find(|p| p.is_file())
 }
 
-/// Prova a caricare il modello e a misurare un'inferenza immagine.
+/// Tries to load the model and measure one image inference.
 ///
-/// Runtime scelto (Task 2): **ort**. Tract è stato provato per primo e gira
-/// `MobileCLIP` in isolamento (~370 ms), ma non entra nel workspace (conflitto
-/// `libm` con lo stack russh). Vedi ledger.
+/// Chosen runtime: **ort**. Tract was tried first and runs `MobileCLIP` in
+/// isolation (~370 ms), but it doesn't fit into the workspace (a `libm`
+/// conflict with the russh stack).
 #[must_use]
 pub fn measure_image_inference() -> InferenceProbe {
     let Some(path) = first_existing_model() else {
@@ -146,7 +147,7 @@ mod tests {
             });
         let Some(model) = model else {
             eprintln!(
-                "skipping: openclip-xlmr-it-en visual.onnx not on disk (girare .github/workflows/export-openclip-xlmr.yml)"
+                "skipping: openclip-xlmr-it-en visual.onnx not on disk (run .github/workflows/export-openclip-xlmr.yml)"
             );
             return;
         };

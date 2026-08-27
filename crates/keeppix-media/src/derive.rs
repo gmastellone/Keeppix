@@ -12,50 +12,50 @@ use zune_jpeg::JpegDecoder;
 
 use crate::sandbox;
 
-/// Versione della **ricetta** dei derivati, non del formato del file.
+/// Version of the derivative **recipe**, not of the file format.
 ///
-/// Le URL `/media/{thumb,preview,full}/{hash}` escono con
-/// `Cache-Control: … immutable`, che promette al browser che quell'URL non
-/// cambierà mai: non rivalida per un anno. Ma l'hash indirizza il file
-/// **sorgente**, non i byte serviti — e quelli dipendono da come li
-/// produciamo. Quando la ricetta cambia, lo stesso URL restituisce
-/// un'immagine diversa, e chi ha già in cache la vecchia se la tiene per
-/// sempre.
+/// The `/media/{thumb,preview,full}/{hash}` URLs are served with
+/// `Cache-Control: … immutable`, which promises the browser that URL will
+/// never change: it won't revalidate for a year. But the hash addresses the
+/// **source** file, not the served bytes — and those depend on how we
+/// produce them. When the recipe changes, the same URL returns a different
+/// image, and anyone who already has the old one cached keeps it forever.
 ///
-/// È già successo: passando da WebP senza perdita a 1440 px a WebP con
-/// perdita a 2048 px, e da anteprima incorporata a demosaic per `full`, un
-/// browser che aveva visitato quelle URL continuava a mostrare le immagini
-/// vecchie. Se ne è accorto solo un confronto fatto a mano fra ciò che
-/// mostrava la pagina e ciò che rispondeva `curl`.
+/// This has happened before: switching from lossless WebP at 1440 px to
+/// lossy WebP at 2048 px, and from embedded preview to demosaic for `full`,
+/// left a browser that had already visited those URLs showing the old
+/// images. It only surfaced through a manual comparison between what the
+/// page displayed and what `curl` returned.
 ///
-/// Il frontend appende `?v=` a questo numero, così una ricetta nuova produce
-/// URL nuove e la cache si invalida da sola. Il server **ignora** il
-/// parametro: serve solo come chiave di cache.
+/// The frontend appends `?v=` with this number, so a new recipe produces
+/// new URLs and the cache invalidates itself. The server **ignores** the
+/// parameter: it only serves as a cache key.
 ///
-/// **Va incrementato a ogni modifica che cambi i byte prodotti a parità di
-/// sorgente**: formato, qualità, `method`, dimensioni, encoder, o la scelta
-/// fra incorporata e demosaic. Il valore è legato a
-/// `frontend/src/api/media.ts` da un test: cambiarne uno solo fa fallire la
-/// build.
+/// **Must be incremented on any change that alters the bytes produced from
+/// the same source**: format, quality, `method`, dimensions, encoder, or
+/// the choice between embedded and demosaic. The value is tied to
+/// `frontend/src/api/media.ts` by a test: changing only one of them fails
+/// the build.
 pub const DERIVATIVE_VERSION: u32 = 2;
 
 const THUMB: u32 = 240;
-/// Lato lungo del derivato `preview`. Pubblico perché `full` usa
-/// l'incorporata solo se la supera — altrimenti è un secondo file
-/// con gli stessi pixel.
+/// Long side of the `preview` derivative. Public because `full` only uses
+/// the embedded preview if it exceeds this — otherwise it would be a
+/// second file with the same pixels.
 pub const PREVIEW_LONG_SIDE: u32 = 2048;
 const PREVIEW: u32 = PREVIEW_LONG_SIDE;
-/// Tetto della cache `full` pigra. ~200-300 zoom da 1,5-2,5 MB: una sessione
-/// di culling, non l'archivio. Senza tetto è il cestino in un'altra forma.
+/// Cap on the lazy `full` cache. ~200-300 zooms at 1.5-2.5 MB each: a
+/// culling session, not the archive. Without a cap it's just a trash can
+/// wearing a different hat.
 pub const DEFAULT_FULL_CACHE_BYTES: u64 = 512 * 1024 * 1024;
-/// Default della qualità WebP con perdita. Sotto 75 si vede; sopra 88
-/// si paga per una differenza invisibile. Sovrascrivibile con
+/// Default lossy WebP quality. Below 75 it's visible; above 88 you're
+/// paying for an invisible difference. Overridable with
 /// [`set_webp_quality`] / `KEEPPIX_WEBP_QUALITY`.
 pub const DEFAULT_WEBP_QUALITY: u8 = 82;
 static WEBP_QUALITY: AtomicU8 = AtomicU8::new(DEFAULT_WEBP_QUALITY);
-/// Default `method` di libwebp (0=veloce … 6=lento/piccolo). L'API semplice
-/// usava 4. 2 è ~2× più veloce in release con ~3% in più di peso.
-/// Sovrascrivibile con [`set_webp_method`] / `KEEPPIX_WEBP_METHOD`.
+/// Default libwebp `method` (0=fast … 6=slow/small). The simple API used
+/// 4. 2 is ~2× faster in release for ~3% more weight. Overridable with
+/// [`set_webp_method`] / `KEEPPIX_WEBP_METHOD`.
 pub const DEFAULT_WEBP_METHOD: u8 = 2;
 static WEBP_METHOD: AtomicU8 = AtomicU8::new(DEFAULT_WEBP_METHOD);
 const MAX_PIXELS: u64 = 200_000_000;
@@ -70,9 +70,9 @@ pub enum DeriveError {
     Decode(String),
     #[error("image exceeds 200 megapixels")]
     TooManyPixels,
-    /// Il livello `full` richiederebbe un demosaic e quello non è
-    /// disponibile (binario assente, timeout, file illeggibile). Non è un
-    /// 404: il file c'è, manca il dettaglio in più.
+    /// The `full` level would require a demosaic and that isn't available
+    /// (binary missing, timeout, unreadable file). Not a 404: the file
+    /// exists, just missing the extra detail.
     #[error("full resolution unavailable")]
     FullUnavailable,
 }
@@ -85,18 +85,19 @@ pub struct DeriveResult {
     pub skipped: bool,
 }
 
-/// Qualità di encoding WebP (1–100). Chiamato all'avvio da `Config`.
+/// WebP encoding quality (1-100). Called at startup by `Config`.
 pub fn set_webp_quality(quality: u8) {
     WEBP_QUALITY.store(quality.clamp(1, 100), Ordering::Relaxed);
 }
 
-/// Metodo di encode libwebp (0–6). Chiamato all'avvio da `Config`.
+/// libwebp encode method (0-6). Called at startup by `Config`.
 pub fn set_webp_method(method: u8) {
     WEBP_METHOD.store(method.min(6), Ordering::Relaxed);
 }
 
-/// L'incorporata vale come `full` solo se è **strettamente** più grande
-/// del derivato preview. Uguale o più piccola è un secondo file inutile.
+/// The embedded preview only counts as `full` if it's **strictly** larger
+/// than the preview derivative. Equal or smaller would be a useless second
+/// file.
 #[must_use]
 pub fn embedded_usable_as_full(long_side: u32) -> bool {
     long_side > PREVIEW_LONG_SIDE
@@ -118,13 +119,13 @@ fn webp_method() -> u8 {
         .unwrap_or_else(|| WEBP_METHOD.load(Ordering::Relaxed))
 }
 
-/// Una decodifica, write su `.tmp`, `rename`. Idempotente se i file ci sono già.
-/// Il nome resta storico (era JPEG-only in Fase 1b): dispatcha su
-/// [`derive_from_bytes`], che riconosce il formato dai magic byte — vedi
-/// [`decode_source`].
+/// One decode, write to `.tmp`, `rename`. Idempotent if the files already
+/// exist. The name is historical (this used to be JPEG-only): it dispatches
+/// to [`derive_from_bytes`], which recognizes the format from magic
+/// bytes — see [`decode_source`].
 ///
 /// # Errors
-/// I/O, formato non riconosciuto o illeggibile, o immagine oltre 200 MP.
+/// I/O, unrecognized or unreadable format, or image over 200 MP.
 pub fn derive_jpeg(
     src: &Path,
     data_dir: &Path,
@@ -143,15 +144,15 @@ pub fn derive_jpeg(
     derive_from_bytes(&fs::read(src)?, data_dir, hash)
 }
 
-/// Stessa pipeline di [`derive_jpeg`], ma i byte sono già in memoria. Il
-/// formato non è dato per scontato: si annusa dai magic byte (JPEG, PNG,
-/// TIFF, WebP, HEIF/HEIC) e si decodifica di conseguenza — vedi
-/// [`decode_source`]. Prima di questo task decodificava solo JPEG, e ogni
-/// altro formato che `kind::detect_kind` classifica come `Image` falliva
-/// silenziosamente a generare miniatura e preview (debito Task 22).
+/// Same pipeline as [`derive_jpeg`], but the bytes are already in memory.
+/// The format isn't assumed: it's sniffed from magic bytes (JPEG, PNG,
+/// TIFF, WebP, HEIF/HEIC) and decoded accordingly — see [`decode_source`].
+/// This used to decode JPEG only, silently failing to produce a thumbnail
+/// and preview for any other format that `kind::detect_kind` classifies as
+/// `Image`.
 ///
 /// # Errors
-/// I/O, formato non riconosciuto o illeggibile, o immagine oltre 200 MP.
+/// I/O, unrecognized or unreadable format, or image over 200 MP.
 pub fn derive_from_bytes(
     bytes: &[u8],
     data_dir: &Path,
@@ -174,14 +175,14 @@ pub fn derive_from_bytes(
     build_derivatives(&rgb, width, height, skip_preview, &thumb, &preview)
 }
 
-/// Come [`derive_from_bytes`], ma per pixel RGB8 già decodificati — l'uscita
-/// del demosaic RAW (Task 3 Fase 2), che non è un JPEG e non passa dallo
-/// `JpegDecoder`. Nessuna soglia sui byte sorgente per lo skip della preview:
-/// non esiste un "peso del file originale" per pixel già decodificati, solo
-/// le dimensioni contano.
+/// Like [`derive_from_bytes`], but for already-decoded RGB8 pixels — the
+/// output of RAW demosaicing, which isn't a JPEG and doesn't go through
+/// `JpegDecoder`. No source-byte threshold for skipping the preview: there
+/// is no "original file weight" for already-decoded pixels, only
+/// dimensions matter.
 ///
 /// # Errors
-/// I/O, o immagine oltre 200 MP.
+/// I/O, or image over 200 MP.
 pub fn derive_from_rgb(
     rgb: &[u8],
     width: u32,
@@ -206,20 +207,20 @@ pub fn derive_from_rgb(
     build_derivatives(rgb, width, height, skip_preview, &thumb, &preview)
 }
 
-/// Ceiling per il decode `heif-convert` in sandbox, stesso valore di
-/// `video::MEM`/`raw::DEMOSAIC_MEMORY_BYTES`: libheif mappa più plugin
-/// codec (libde265/aom) prima di iniziare a lavorare, e un HEIC 10 bit
-/// reale deve tenere in memoria un frame YUV/RGB pieno più i buffer di
-/// tone-mapping prima dell'encode PNG di uscita. Non rimisurato byte a
-/// byte su questo host — è lo stesso tetto già accettato per gli altri
-/// decoder in C, non uno nuovo inventato per l'occasione.
+/// Ceiling for the sandboxed `heif-convert` decode, same value as
+/// `video::MEM`/`raw::DEMOSAIC_MEMORY_BYTES`: libheif maps several codec
+/// plugins (libde265/aom) before it starts working, and a real 10-bit HEIC
+/// needs to hold a full YUV/RGB frame plus tone-mapping buffers in memory
+/// before the output PNG encode. Not remeasured byte-for-byte on this
+/// host — it's the same ceiling already accepted for the other C decoders,
+/// not a new one invented for the occasion.
 const HEIF_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 const HEIF_CPU_SECS: u64 = 30;
 
-/// `false` se `heif-convert` non è in `PATH`, sullo stesso modello di
-/// [`crate::raw::dcraw_emu_available`] / [`crate::video::ffprobe_available`]:
-/// permette ai test di saltare pulito su una macchina senza
-/// `libheif-examples` installato, invece di fallire.
+/// `false` if `heif-convert` is not on `PATH`, following the same pattern
+/// as [`crate::raw::dcraw_emu_available`] /
+/// [`crate::video::ffprobe_available`]: lets tests skip cleanly on a
+/// machine without `libheif-examples` installed, instead of failing.
 #[must_use]
 pub fn heif_convert_available() -> bool {
     sandbox::run("heif-convert", &["--version"], 64 * 1024 * 1024, 5)
@@ -227,10 +228,10 @@ pub fn heif_convert_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Formato immagine riconosciuto dai magic byte, per il dispatch di
-/// [`decode_source`]. Non è [`crate::kind::AssetKind`]: quello classifica
-/// per l'import (RAW vs Image vs Video), questo sceglie *quale decoder*
-/// usare per un byte stream già sappiamo essere un'immagine non-RAW.
+/// Image format recognized from magic bytes, for dispatching in
+/// [`decode_source`]. Not [`crate::kind::AssetKind`]: that classifies for
+/// import (RAW vs Image vs Video), this one picks *which decoder* to use
+/// for a byte stream we already know is a non-RAW image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SourceFormat {
     Jpeg,
@@ -262,9 +263,9 @@ fn sniff_source_format(bytes: &[u8]) -> Option<SourceFormat> {
     None
 }
 
-/// Sottoinsieme "immagine fissa" dei brand HEIF/HEIC (esclude `avif`/`avis`
-/// di proposito: non richiesto da questo task, e `detect_kind` li classifica
-/// comunque come `Image` — resta debito noto, non introdotto qui).
+/// The "still image" subset of HEIF/HEIC brands (deliberately excludes
+/// `avif`/`avis`: not needed here, and `detect_kind` classifies them as
+/// `Image` anyway — a known gap, not introduced by this code).
 fn is_heif_ftyp(after_ftyp: &[u8]) -> bool {
     after_ftyp.chunks_exact(4).any(|c| {
         matches!(
@@ -274,24 +275,24 @@ fn is_heif_ftyp(after_ftyp: &[u8]) -> bool {
     })
 }
 
-/// Decodifica byte di formato non noto a priori in RGB8 interleaved. Ogni
-/// ramo controlla `MAX_PIXELS` sulle sole dimensioni (header) prima di
-/// decodificare i pixel, per non pagare il costo di un decode completo su
-/// un file che verrà comunque rifiutato.
+/// Decodes bytes of a format not known in advance into interleaved RGB8.
+/// Each branch checks `MAX_PIXELS` against dimensions (header) alone before
+/// decoding pixels, to avoid paying for a full decode on a file that will
+/// be rejected anyway.
 ///
 /// # Errors
-/// Formato non riconosciuto, file corrotto, o immagine oltre 200 MP.
+/// Unrecognized format, corrupt file, or image over 200 MP.
 pub fn decode_to_rgb8(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     decode_source(bytes)
 }
 
-/// Decodifica byte di formato non noto a priori in RGB8 interleaved. Ogni
-/// ramo controlla `MAX_PIXELS` sulle sole dimensioni (header) prima di
-/// decodificare i pixel, per non pagare il costo di un decode completo su
-/// un file che verrà comunque rifiutato.
+/// Decodes bytes of a format not known in advance into interleaved RGB8.
+/// Each branch checks `MAX_PIXELS` against dimensions (header) alone before
+/// decoding pixels, to avoid paying for a full decode on a file that will
+/// be rejected anyway.
 ///
 /// # Errors
-/// Formato non riconosciuto, file corrotto, o immagine oltre 200 MP.
+/// Unrecognized format, corrupt file, or image over 200 MP.
 fn decode_source(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     match sniff_source_format(bytes) {
         Some(SourceFormat::Jpeg) => decode_jpeg(bytes),
@@ -326,7 +327,7 @@ fn decode_jpeg(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     let rgb = if pixels.len() == expected_rgb {
         pixels
     } else if pixels.len() == expected_gray {
-        // JPEG a un solo componente: espandi a RGB interleaved.
+        // Single-component JPEG: expand to interleaved RGB.
         gray8_to_rgb8(&pixels)
     } else {
         return Err(DeriveError::Decode(format!(
@@ -337,11 +338,11 @@ fn decode_jpeg(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     Ok((rgb, width, height))
 }
 
-/// Puro Rust (crate `png`), nessuna dipendenza C nuova. `normalize_to_color8`
-/// riduce sempre a 8 bit/canale (`STRIP_16`) ed espande palette/tRNS/gray a
-/// bit-depth pieno (`EXPAND`) — il colore finale resta `Grayscale`,
-/// `GrayscaleAlpha`, `Rgb` o `Rgba` secondo la sorgente, non forzato a RGB
-/// dal crate: lo facciamo a mano sotto.
+/// Pure Rust (crate `png`), no new C dependency. `normalize_to_color8`
+/// always reduces to 8 bits/channel (`STRIP_16`) and expands palette/tRNS/
+/// gray to full bit depth (`EXPAND`) — the final color stays `Grayscale`,
+/// `GrayscaleAlpha`, `Rgb`, or `Rgba` depending on the source, not forced
+/// to RGB by the crate: we do that by hand below.
 fn decode_png(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::normalize_to_color8());
@@ -375,11 +376,11 @@ fn decode_png(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     Ok((rgb, width, height))
 }
 
-/// Puro Rust (crate `tiff`, lo stesso decoder usato da `image`-rs). Copre i
-/// TIFF "fotografici" non-camera-RAW: `kind::detect_kind` manda già i RAW
-/// (Bayer, `looks_like_camera_raw`) su `AssetKind::RawImage`, che non passa
-/// da qui. Palette e CMYK non sono fotografie comuni in libreria: si
-/// rifiuta con un errore leggibile invece di produrre colori sbagliati.
+/// Pure Rust (crate `tiff`, the same decoder used by `image`-rs). Covers
+/// "photographic" non-camera-RAW TIFFs: `kind::detect_kind` already routes
+/// RAW (Bayer, `looks_like_camera_raw`) to `AssetKind::RawImage`, which
+/// doesn't come through here. Palette and CMYK aren't common library
+/// photos: reject with a readable error instead of producing wrong colors.
 fn decode_tiff(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(bytes))
         .map_err(|e| DeriveError::Decode(format!("tiff: {e}")))?;
@@ -419,9 +420,9 @@ fn tiff_samples_to_rgb8(
     }
 }
 
-/// Il binding a libwebp legge (già usato oggi solo in scrittura per i
-/// derivati) — qui si collega anche in lettura per un WebP *sorgente*
-/// caricato in libreria. Nessuna dipendenza nuova.
+/// The libwebp binding can read too (today it's only used for writing
+/// derivatives) — here it's also wired up for reading a *source* WebP
+/// imported into the library. No new dependency.
 fn decode_webp(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     let features = webp::BitstreamFeatures::new(bytes)
         .ok_or_else(|| DeriveError::Decode("webp: unreadable bitstream".to_owned()))?;
@@ -441,19 +442,19 @@ fn decode_webp(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     Ok((rgb, width, height))
 }
 
-/// HEIF/HEIC (8 e 10 bit) via `heif-convert` in sandbox — mai libheif
-/// in-process. Ruling Task 22: `libheif`/HEVC hanno una storia di CVE nei
-/// parser almeno quanto LibRaw/ffmpeg, quindi passano dallo stesso
-/// `sandbox::run` con `RLIMIT_AS`/`RLIMIT_CPU`, non ne sono esenti perché
-/// sono un binding invece di un binario invocato altrove nel codice.
+/// HEIF/HEIC (8- and 10-bit) via sandboxed `heif-convert` — never libheif
+/// in-process. `libheif`/HEVC have a CVE history in their parsers at least
+/// as bad as LibRaw/ffmpeg, so they go through the same `sandbox::run` with
+/// `RLIMIT_AS`/`RLIMIT_CPU`; being a library binding rather than a binary
+/// invoked elsewhere in the code is not an exemption.
 ///
-/// `heif-convert` legge e scrive solo file reali (non stdin/stdout: verificato
-/// contro libheif 1.17 — `-o -` fallisce con "Unknown file type in -"), quindi
-/// i byte transitano per due file temporanei che si autodistruggono al
-/// `Drop` di `NamedTempFile`. L'uscita è un PNG — 16-bit se la sorgente è
-/// 10-bit, confermato con `heif-info` sulla fixture `sample10.heic` — che
-/// rientra nel decoder PNG scritto per questo stesso task, il quale
-/// normalizza a 8 bit come tutto il resto della pipeline.
+/// `heif-convert` only reads and writes real files (not stdin/stdout:
+/// verified against libheif 1.17 — `-o -` fails with "Unknown file type in
+/// -"), so the bytes go through two temp files that self-destruct on
+/// `NamedTempFile`'s `Drop`. The output is a PNG — 16-bit if the source is
+/// 10-bit, confirmed with `heif-info` on the `sample10.heic` fixture —
+/// which feeds into the PNG decoder above, normalizing to 8 bits like the
+/// rest of the pipeline.
 fn decode_heif(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), DeriveError> {
     let mut input = tempfile::Builder::new()
         .prefix("kpx-heif-in-")
@@ -515,9 +516,9 @@ fn graya8_to_rgb8(graya: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Coda condivisa da [`derive_from_bytes`] e [`derive_from_rgb`]: resize,
-/// scrittura webp atomica dei derivati, thumbhash. Il chiamante ha già
-/// gestito idempotenza e limite di pixel.
+/// Tail shared by [`derive_from_bytes`] and [`derive_from_rgb`]: resize,
+/// atomic webp write of the derivatives, thumbhash. The caller has already
+/// handled idempotency and the pixel limit.
 fn build_derivatives(
     rgb: &[u8],
     width: u32,
@@ -532,7 +533,7 @@ fn build_derivatives(
 
     let thumb_rgb = resize_rgb(rgb, width, height, THUMB)?;
     write_webp_atomic(thumb, &thumb_rgb.pixels, thumb_rgb.width, thumb_rgb.height)?;
-    // Il livello `full` non si scrive qui: è pigro, alla prima richiesta di zoom.
+    // The `full` level isn't written here: it's lazy, generated on the first zoom request.
 
     let preview_path = if skip_preview {
         None
@@ -661,12 +662,12 @@ pub fn full_derivative_path(data_dir: &Path, hash: &[u8; 32]) -> PathBuf {
     dir.join(format!("{hex}-full.webp"))
 }
 
-/// Scrive il WebP a piena risoluzione se manca. Idempotente: se il file c'è
-/// già non si ricodifica (si aggiorna solo l'atime per lo LRU). Stesso
-/// riconoscimento del formato di [`derive_from_bytes`].
+/// Writes the full-resolution WebP if missing. Idempotent: if the file
+/// already exists it isn't re-encoded (only the atime is updated for the
+/// LRU). Same format recognition as [`derive_from_bytes`].
 ///
 /// # Errors
-/// I/O, formato non riconosciuto o illeggibile, o immagine oltre 200 MP.
+/// I/O, unrecognized or unreadable format, or image over 200 MP.
 pub fn ensure_full_from_bytes(
     bytes: &[u8],
     data_dir: &Path,
@@ -686,11 +687,11 @@ pub fn ensure_full_from_bytes(
     Ok(path)
 }
 
-/// Come [`ensure_full_from_bytes`], da pixel RGB8 già decodificati — l'uscita
-/// del demosaic, che non è un JPEG.
+/// Like [`ensure_full_from_bytes`], from already-decoded RGB8 pixels — the
+/// output of demosaicing, which isn't a JPEG.
 ///
 /// # Errors
-/// I/O, o immagine oltre 200 MP.
+/// I/O, or image over 200 MP.
 pub fn ensure_full_from_rgb(
     rgb: &[u8],
     width: u32,
@@ -720,12 +721,12 @@ fn touch_accessed(path: &Path) -> Result<(), DeriveError> {
     Ok(())
 }
 
-/// Sfratta i `*-full.webp` meno usati di recente finché il totale sta nel tetto.
-/// Cammina solo `data/full/`: il costo è O(full in cache), non O(tutto
-/// l'archivio di thumb/preview).
+/// Evicts the least recently used `*-full.webp` files until the total fits
+/// the cap. Walks only `data/full/`: the cost is O(full cache entries), not
+/// O(the whole thumb/preview archive).
 ///
 /// # Errors
-/// I/O sulla directory della cache full.
+/// I/O on the full cache directory.
 pub fn enforce_full_cache_cap(data_dir: &Path, cap_bytes: u64) -> Result<(), DeriveError> {
     let root = data_dir.join("full");
     if !root.is_dir() {

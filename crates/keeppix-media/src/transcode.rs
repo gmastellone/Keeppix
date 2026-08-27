@@ -148,7 +148,7 @@ pub fn cache_is_ready(cache_dir: &Path) -> bool {
     playlist_path(cache_dir).is_file()
 }
 
-/// Updates the cache directory mtime for 90-day cleanup (Task 8).
+/// Updates the cache directory mtime for 90-day cleanup.
 ///
 /// # Errors
 /// Filesystem.

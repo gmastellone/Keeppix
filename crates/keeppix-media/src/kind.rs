@@ -1,9 +1,9 @@
 use keeppix_domain::AssetKind;
 
-/// Tipo dell'asset dai magic number, non dall'estensione.
+/// Asset type from magic numbers, not from the extension.
 ///
-/// Un file rinominato `.jpg` che è testo resta `Unknown`. Un ARW Sony resta
-/// `RawImage` anche se il contenitore è TIFF.
+/// A text file renamed to `.jpg` stays `Unknown`. A Sony ARW stays
+/// `RawImage` even though its container is TIFF.
 #[must_use]
 pub fn detect_kind(header: &[u8]) -> AssetKind {
     if header.len() >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {

@@ -124,9 +124,9 @@ pub fn parse(bytes: &[u8]) -> Result<Track, GpxError> {
     Ok(Track { segments })
 }
 
-/// Abbina `at` alla traccia. Fra due punti dello stesso segmento interpola
-/// linearmente; nei vuoti fra segmenti e fuori dalla traccia usa l'estremo
-/// temporalmente più vicino solo entro `tolerance`.
+/// Matches `at` to the track. Between two points of the same segment it
+/// interpolates linearly; in gaps between segments and outside the track it
+/// uses the temporally nearest endpoint, only within `tolerance`.
 #[must_use]
 pub fn interpolate(track: &Track, at: DateTime<Utc>, tolerance: Duration) -> Option<GeoPoint> {
     if let Some(point) = track

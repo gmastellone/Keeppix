@@ -30,7 +30,7 @@ fn deriving_from_bytes_matches_deriving_from_a_file() {
 
     assert_eq!(
         from_bytes.thumbhash, from_file.thumbhash,
-        "la stessa immagine deve produrre lo stesso thumbhash da entrambe le vie"
+        "the same image must produce the same thumbhash via both paths"
     );
     assert_eq!(
         std::fs::read(&from_bytes.thumb).unwrap().len(),
@@ -70,9 +70,9 @@ fn vm_hwm_kb() -> u64 {
         .unwrap_or(0)
 }
 
-/// Misura di Task 1: tempo e RAM di picco della derivazione su JPEG reale
-/// (preview incorporata di un ARW). Va eseguito da solo (`--exact`) perché
-/// `VmHWM` è del processo. Prima e dopo il cambio di encoder.
+/// Measures time and peak RAM of deriving from a real JPEG (an ARW's
+/// embedded preview). Must be run alone (`--exact`) because `VmHWM` is
+/// process-wide.
 #[test]
 fn measure_derive_time_and_peak_rss() {
     let preview = extract_embedded_preview(&fixture("sample.arw"))
@@ -110,7 +110,7 @@ fn noisy_rgb(w: u32, h: u32) -> Vec<u8> {
 }
 
 fn webp_chunk_at(bytes: &[u8]) -> &[u8] {
-    assert!(bytes.len() >= 16, "webp troppo corto");
+    assert!(bytes.len() >= 16, "webp too short");
     assert_eq!(&bytes[0..4], b"RIFF");
     assert_eq!(&bytes[8..12], b"WEBP");
     &bytes[12..16]
@@ -158,20 +158,20 @@ fn derived_preview_uses_lossy_vp8_not_vp8l() {
     let dir = tempfile::tempdir().unwrap();
     let rgb = noisy_rgb(1920, 1080);
     let result = derive_from_rgb(&rgb, 1920, 1080, dir.path(), &[0x22u8; 32]).unwrap();
-    let preview = result.preview.expect("1920px deve produrre una preview");
+    let preview = result.preview.expect("1920px must produce a preview");
     let bytes = std::fs::read(preview).unwrap();
     let chunk = webp_chunk_at(&bytes);
     assert_eq!(
         chunk, b"VP8 ",
-        "il derivato deve essere WebP con perdita (VP8), non lossless (VP8L); trovato {chunk:?}"
+        "the derivative must be lossy WebP (VP8), not lossless (VP8L); found {chunk:?}"
     );
     assert_ne!(chunk, b"VP8L");
 }
 
 #[test]
 fn derived_preview_is_under_one_third_of_lossless() {
-    // Foto reale, non un pattern ad alta frequenza: il 1/3 del piano è
-    // calibrato su quello che si vede a schermo, non sul worst-case DCT.
+    // A real photo, not a high-frequency pattern: the 1/3 plan is
+    // calibrated on what's seen on screen, not on the worst-case DCT.
     let jpeg = extract_embedded_preview(&fixture("sample.arw"))
         .unwrap()
         .unwrap();
@@ -184,11 +184,11 @@ fn derived_preview_is_under_one_third_of_lossless() {
 
     let dir = tempfile::tempdir().unwrap();
     let result = derive_from_bytes(&jpeg.bytes, dir.path(), &[0x23u8; 32]).unwrap();
-    let preview = result.preview.expect("la preview Sony è oltre 1600 px");
+    let preview = result.preview.expect("the Sony preview is over 1600 px");
     let lossy = std::fs::metadata(preview).unwrap().len();
     assert!(
         lossy * 3 < lossless.len() as u64,
-        "preview lossy {lossy} deve pesare meno di 1/3 del lossless {} (soglia larga: regressione al VP8L)",
+        "lossy preview {lossy} must weigh less than 1/3 of the lossless {} (loose threshold: catches a VP8L regression)",
         lossless.len()
     );
 }
@@ -215,7 +215,7 @@ fn webp_quality_changes_the_preview_size() {
 
     assert!(
         lo_len < hi_len,
-        "q40 ({lo_len}) deve pesare meno di q90 ({hi_len})"
+        "q40 ({lo_len}) must weigh less than q90 ({hi_len})"
     );
 }
 
@@ -243,12 +243,12 @@ fn webp_method_changes_the_encoded_size() {
 
     assert_ne!(
         len0, len4,
-        "method 0 ({len0}) e method 4 ({len4}) non devono essere la stessa encode"
+        "method 0 ({len0}) and method 4 ({len4}) must not be the same encode"
     );
 }
 
-/// Curva `method` su fixture reale: i numeri vanno nel ledger, qui si
-/// verifica solo che resti VP8 con perdita a 0/2/4.
+/// `method` curve on a real fixture: here we only verify it stays lossy
+/// VP8 at 0/2/4.
 #[test]
 #[serial_test::serial]
 fn webp_method_curve_stays_lossy_vp8() {
@@ -261,14 +261,14 @@ fn webp_method_curve_stays_lossy_vp8() {
         let start = std::time::Instant::now();
         let result = derive_from_bytes(&jpeg.bytes, dir.path(), &[method; 32]).unwrap();
         let elapsed = start.elapsed();
-        let preview = result.preview.expect("preview Sony");
+        let preview = result.preview.expect("Sony preview");
         let bytes = std::fs::read(&preview).unwrap();
         let len = bytes.len() as u64;
         let chunk = webp_chunk_at(&bytes);
         eprintln!("MEASUREMENT webp method={method} {elapsed:?} {len} B");
         assert_eq!(
             chunk, b"VP8 ",
-            "method {method} deve restare lossy, trovato {chunk:?}"
+            "method {method} must stay lossy, found {chunk:?}"
         );
     }
     unsafe { std::env::remove_var("KEEPPIX_WEBP_METHOD") };
@@ -279,19 +279,19 @@ fn derived_preview_long_side_is_2048() {
     let dir = tempfile::tempdir().unwrap();
     let rgb = noisy_rgb(3000, 2000);
     let result = derive_from_rgb(&rgb, 3000, 2000, dir.path(), &[0x20u8; 32]).unwrap();
-    let preview = result.preview.expect("3000px deve produrre una preview");
+    let preview = result.preview.expect("3000px must produce a preview");
     let bytes = std::fs::read(&preview).unwrap();
-    let features = webp::BitstreamFeatures::new(&bytes).expect("preview WebP decodificabile");
+    let features = webp::BitstreamFeatures::new(&bytes).expect("decodable preview WebP");
     assert_eq!(
         features.width().max(features.height()),
         2048,
-        "l'anteprima deve essere 2048 px sul lato lungo, non 1440"
+        "the preview must be 2048 px on the long side, not 1440"
     );
 
     let full = keeppix_media::full_derivative_path(dir.path(), &[0x20u8; 32]);
     assert!(
         !full.is_file(),
-        "la derivazione iniziale non deve scrivere il livello full"
+        "the initial derivation must not write the full level"
     );
 }
 
@@ -333,7 +333,7 @@ fn ensure_full_is_lazy_and_cached() {
     let hash = [0x21u8; 32];
     derive_from_bytes(&jpeg.bytes, dir.path(), &hash).unwrap();
     let full = keeppix_media::full_derivative_path(dir.path(), &hash);
-    assert!(!full.is_file(), "nessun full prima dello zoom");
+    assert!(!full.is_file(), "no full before the zoom");
 
     keeppix_media::ensure_full_from_bytes(&jpeg.bytes, dir.path(), &hash).unwrap();
     assert!(full.is_file());
@@ -346,7 +346,7 @@ fn ensure_full_is_lazy_and_cached() {
     assert_eq!(first_len, std::fs::metadata(&full).unwrap().len());
     assert_eq!(
         first_mtime, second_mtime,
-        "la seconda richiesta non deve rigenerare il file"
+        "the second request must not regenerate the file"
     );
 }
 
@@ -368,19 +368,19 @@ fn full_cache_evicts_oldest_when_over_cap() {
     keeppix_media::enforce_full_cache_cap(dir.path(), size_b).unwrap();
     assert!(
         !path_a.is_file(),
-        "il full meno recente deve uscire quando si supera il tetto"
+        "the least recently used full must be evicted once the cap is exceeded"
     );
-    assert!(path_b.is_file(), "il più recente resta");
+    assert!(path_b.is_file(), "the most recent one remains");
     let remaining: u64 = walk_full_bytes(dir.path());
     assert!(
         remaining <= size_b,
-        "la cache full non deve superare il tetto ({remaining} > {size_b})"
+        "the full cache must not exceed the cap ({remaining} > {size_b})"
     );
 }
 
-/// Il tetto non può percorrere `derivatives/` (thumb+preview di tutto
-/// l'archivio). Un `*-full.webp` messo lì è un esca: se lo sfratto lo
-/// tocca, sta ancora camminando l'albero sbagliato.
+/// The cap must not walk `derivatives/` (thumb+preview for the whole
+/// archive). A `*-full.webp` placed there is a decoy: if eviction touches
+/// it, it's still walking the wrong tree.
 #[test]
 fn enforce_full_cache_cap_does_not_walk_the_derivatives_tree() {
     let dir = tempfile::tempdir().unwrap();
@@ -413,7 +413,7 @@ fn enforce_full_cache_cap_does_not_walk_the_derivatives_tree() {
     keeppix_media::enforce_full_cache_cap(dir.path(), size_b).unwrap();
     assert!(
         decoy.is_file(),
-        "un *-full.webp sotto derivatives/ non fa parte della cache full"
+        "a *-full.webp under derivatives/ is not part of the full cache"
     );
 }
 

@@ -5,19 +5,19 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use walkdir::{DirEntry, WalkDir};
 
-/// Un file con `mtime` più vecchio di questo non sta arrivando: un solo
-/// `stat`, nessuna attesa. Allineato a `keeppix_jobs::PRODUCTION_SETTLED_AFTER`.
+/// A file whose `mtime` is older than this isn't still arriving: one
+/// `stat`, no waiting. Matches `keeppix_jobs::PRODUCTION_SETTLED_AFTER`.
 pub const SETTLED_AFTER: Duration = Duration::from_secs(60);
 
-/// Esito di [`freshness`]: assestato (si può indicizzare) o ancora in
-/// arrivo (il chiamante rimanda, senza dormire).
+/// Outcome of [`freshness`]: settled (can be indexed) or still arriving
+/// (the caller defers it, without sleeping).
 #[derive(Debug)]
 pub enum Freshness {
     Settled(Metadata),
     InFlight,
 }
 
-/// File visto dal walker: solo `stat`, nessun open.
+/// A file seen by the walker: `stat` only, never opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalkedFile {
     pub path: PathBuf,
@@ -28,18 +28,18 @@ pub struct WalkedFile {
     pub inode: Option<i64>,
 }
 
-/// Due `stat` con `size` o `mtime` diversi: il file sta ancora arrivando.
+/// Two `stat` calls with different `size` or `mtime`: the file is still arriving.
 #[must_use]
 pub fn is_stable(first: &Metadata, second: &Metadata) -> bool {
     first.len() == second.len() && first.modified().ok() == second.modified().ok()
 }
 
-/// Non dorme mai. Un file fermo da più di `settled_after` è assestato:
-/// un solo `stat` e via. Solo i file toccati di recente sono ambigui, e
-/// quelli vengono rimandati dal chiamante invece di bloccarlo.
+/// Never sleeps. A file untouched for more than `settled_after` is
+/// settled: one `stat` and done. Only recently touched files are
+/// ambiguous, and those get deferred by the caller instead of blocking it.
 ///
 /// # Errors
-/// I/O dello `stat`.
+/// I/O from the `stat` call.
 pub fn freshness(path: &Path, settled_after: Duration) -> std::io::Result<Freshness> {
     let meta = std::fs::metadata(path)?;
     let age = meta
@@ -54,11 +54,12 @@ pub fn freshness(path: &Path, settled_after: Duration) -> std::io::Result<Freshn
     })
 }
 
-/// Ristat dopo `wait` **solo se** `wait` è zero (compat test legacy): altrimenti
-/// delega a [`freshness`] con `wait` come soglia di età. **Non dorme mai.**
+/// Re-stats after `wait` **only if** `wait` is zero (legacy test
+/// compatibility): otherwise delegates to [`freshness`] with `wait` as the
+/// age threshold. **Never sleeps.**
 ///
 /// # Errors
-/// I/O dello `stat`.
+/// I/O from the `stat` call.
 pub fn restat_if_stable(path: &Path, wait: Duration) -> std::io::Result<Option<Metadata>> {
     match freshness(path, wait)? {
         Freshness::Settled(meta) => Ok(Some(meta)),

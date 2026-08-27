@@ -1,33 +1,33 @@
-//! Sidecar XMP: lettura e scrittura senza mai toccare il file originale
-//! (spec `fase-2-raw-culling.md` §3.4).
+//! XMP sidecar: read and write without ever touching the original file.
 //!
-//! Il punto che decide tutto: **leggere, modificare i campi che Keeppix
-//! gestisce, riscrivere** — mai generare un sidecar da zero se uno esiste
-//! già. Un file prodotto da Lightroom o darktable porta campi che Keeppix
-//! non conosce (`crs:Exposure2012`, `darktable:history`, ...): perderli
-//! sarebbe peggio che non scrivere affatto.
+//! The rule that decides everything: **read, modify the fields Keeppix
+//! manages, rewrite** — never generate a sidecar from scratch if one
+//! already exists. A file produced by Lightroom or darktable carries
+//! fields Keeppix doesn't know about (`crs:Exposure2012`,
+//! `darktable:history`, ...): losing them would be worse than not writing
+//! at all.
 //!
-//! Implementazione: si legge l'intero documento come una sequenza di eventi
-//! quick-xml, si individua il primo `rdf:Description` (la convenzione usata
-//! da Lightroom, darktable e Bridge: un unico blocco con i valori semplici
-//! come attributi e le proprietà strutturate — `dc:title`, `dc:description`,
-//! `dc:subject` — come elementi figli), si sostituiscono **solo** gli
-//! attributi/elementi che compaiono nella mappa dei campi qui sotto,
-//! lasciando tutto il resto — inclusi namespace non nostri — bit a bit
-//! invariato. Documenti con più blocchi `rdf:Description` fratelli (rari)
-//! non sono supportati: si edita solo il primo trovato.
+//! Implementation: the whole document is read as a sequence of quick-xml
+//! events, the first `rdf:Description` is located (the convention used by
+//! Lightroom, darktable, and Bridge: a single block with simple values as
+//! attributes and structured properties — `dc:title`, `dc:description`,
+//! `dc:subject` — as child elements), and **only** the attributes/elements
+//! that appear in the field map below are replaced, leaving everything
+//! else — including namespaces that aren't ours — byte-for-byte unchanged.
+//! Documents with multiple sibling `rdf:Description` blocks (rare) aren't
+//! supported: only the first one found is edited.
 //!
-//! Mappatura dei campi (spec §3.4):
+//! Field mapping:
 //!
-//! | Keeppix                | XMP                                          |
-//! |-------------------------|----------------------------------------------|
-//! | rating (del proprietario) | `xmp:Rating`                                |
-//! | description              | `dc:description`                             |
-//! | title                    | `dc:title`                                   |
-//! | tag                      | `dc:subject`                                 |
-//! | GPS                      | `exif:GPSLatitude` / `exif:GPSLongitude`     |
-//! | taken_at                 | `exif:DateTimeOriginal`                      |
-//! | pick/reject               | `xmp:Label` (convenzione darktable)         |
+//! | Keeppix                   | XMP                                       |
+//! |----------------------------|-------------------------------------------|
+//! | rating (owner's)           | `xmp:Rating`                               |
+//! | description                | `dc:description`                           |
+//! | title                      | `dc:title`                                 |
+//! | tag                        | `dc:subject`                               |
+//! | GPS                        | `exif:GPSLatitude` / `exif:GPSLongitude`   |
+//! | taken_at                   | `exif:DateTimeOriginal`                    |
+//! | pick/reject                | `xmp:Label` (darktable convention)         |
 
 use std::collections::HashSet;
 use std::fs::{self, File};
@@ -52,12 +52,12 @@ pub enum XmpError {
     VerificationFailed(String),
 }
 
-/// Stato che Keeppix sincronizza su un sidecar `.xmp`. Ogni campo `None` (o
-/// vuoto per `tags`) significa "nessun valore": alla scrittura l'attributo o
-/// l'elemento XMP corrispondente viene **rimosso**, non lasciato con un
-/// valore vecchio — `SidecarData` rappresenta lo stato corrente completo,
-/// non una patch. I campi che Keeppix non conosce affatto (namespace altrui)
-/// non passano da qui: sopravvivono perché [`write_sidecar`] non li tocca.
+/// State that Keeppix syncs onto a `.xmp` sidecar. Every `None` field (or
+/// empty for `tags`) means "no value": on write, the corresponding XMP
+/// attribute or element is **removed**, not left with a stale value —
+/// `SidecarData` represents the full current state, not a patch. Fields
+/// Keeppix doesn't know about at all (other namespaces) never pass through
+/// here: they survive because [`write_sidecar`] doesn't touch them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SidecarData {
     pub rating: Option<u8>,
@@ -89,9 +89,9 @@ const ATTR_GPS_LAT: &str = "exif:GPSLatitude";
 const ATTR_GPS_LON: &str = "exif:GPSLongitude";
 const ATTR_TAKEN_AT: &str = "exif:DateTimeOriginal";
 
-/// Attributi che Keeppix riscrive interamente ad ogni scrittura. Qualunque
-/// altro attributo sullo stesso tag — comprese le dichiarazioni `xmlns:*`
-/// non nostre — passa attraverso invariato.
+/// Attributes Keeppix fully rewrites on every write. Any other attribute
+/// on the same tag — including `xmlns:*` declarations that aren't ours —
+/// passes through unchanged.
 const MANAGED_ATTRS: [&[u8]; 5] = [
     ATTR_RATING.as_bytes(),
     ATTR_LABEL.as_bytes(),
@@ -100,12 +100,12 @@ const MANAGED_ATTRS: [&[u8]; 5] = [
     ATTR_TAKEN_AT.as_bytes(),
 ];
 
-/// Legge un sidecar `.xmp` esistente. `Ok(None)` se il file non esiste — non
-/// avere un sidecar è la norma, non un errore.
+/// Reads an existing `.xmp` sidecar. `Ok(None)` if the file doesn't
+/// exist — not having a sidecar is the norm, not an error.
 ///
 /// # Errors
-/// I/O (a parte "file assente"), o XML non parsabile/non UTF-8. Mai un
-/// panico su un file corrotto.
+/// I/O (other than "file missing"), or unparsable/non-UTF-8 XML. Never a
+/// panic on a corrupt file.
 pub fn read_sidecar(path: &Path) -> Result<Option<SidecarData>, XmpError> {
     let bytes = match fs::read(path) {
         Ok(b) => b,
@@ -116,18 +116,18 @@ pub fn read_sidecar(path: &Path) -> Result<Option<SidecarData>, XmpError> {
     Ok(Some(extract(&events)))
 }
 
-/// Scrive `data` nel sidecar `path`: legge il file esistente se c'è (per
-/// preservare campi non gestiti), altrimenti parte da uno scheletro minimo.
-/// La scrittura è atomica: `.xmp.tmp` nella stessa cartella, `fsync`,
-/// rilettura e verifica, `rename()`. Se qualunque passo fallisce (inclusa
-/// una cartella in sola lettura), il file originale non viene mai toccato.
+/// Writes `data` into the sidecar at `path`: reads the existing file if
+/// there is one (to preserve unmanaged fields), otherwise starts from a
+/// minimal skeleton. The write is atomic: `.xmp.tmp` in the same folder,
+/// `fsync`, re-read and verify, `rename()`. If any step fails (including a
+/// read-only folder), the original file is never touched.
 ///
 /// # Errors
-/// `Malformed` se il sidecar esistente non è XML valido o non ha un
-/// `rdf:Description` riconoscibile — non si rischia di sovrascrivere alla
-/// cieca un file che non si sa interpretare. `Io` per fallimenti di
-/// filesystem (permessi, disco pieno, ...). `VerificationFailed` se la
-/// rilettura del file temporaneo non corrisponde a quanto scritto.
+/// `Malformed` if the existing sidecar isn't valid XML or has no
+/// recognizable `rdf:Description` — this avoids blindly overwriting a file
+/// we can't interpret. `Io` for filesystem failures (permissions, disk
+/// full, ...). `VerificationFailed` if re-reading the temp file doesn't
+/// match what was written.
 pub fn write_sidecar(path: &Path, data: &SidecarData) -> Result<(), XmpError> {
     let mut events = match fs::read(path) {
         Ok(bytes) => parse_events(&bytes)?,
@@ -149,7 +149,7 @@ pub fn write_sidecar(path: &Path, data: &SidecarData) -> Result<(), XmpError> {
 }
 
 // ---------------------------------------------------------------------
-// Parsing / serializzazione di basso livello
+// Low-level parsing / serialization
 // ---------------------------------------------------------------------
 
 fn parse_events(bytes: &[u8]) -> Result<Vec<Event<'static>>, XmpError> {
@@ -198,9 +198,9 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), XmpError> {
     result
 }
 
-/// Il corpo di [`atomic_write`], isolato per rendere ovvio che ogni via
-/// d'uscita fallita lascia `path` intonso: nessun ramo tocca `path` prima
-/// del `rename()` finale.
+/// The body of [`atomic_write`], isolated to make it obvious that every
+/// failing exit path leaves `path` untouched: no branch touches `path`
+/// before the final `rename()`.
 fn write_and_verify(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<(), XmpError> {
     {
         let mut file = File::create(tmp)?;
@@ -214,9 +214,9 @@ fn write_and_verify(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<(), XmpErro
             "re-read bytes differ from what was written".to_owned(),
         ));
     }
-    // Non solo gli stessi byte: devono anche essere un XMP che sappiamo
-    // ancora interpretare, altrimenti il prossimo giro di lettura
-    // troverebbe un file che si autoinganna come valido.
+    // Not just the same bytes: they also need to be XMP we can still
+    // parse, otherwise the next read would find a file that only looks
+    // valid at a glance.
     parse_events(&verify)?;
 
     fs::rename(tmp, path)?;
@@ -224,7 +224,7 @@ fn write_and_verify(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<(), XmpErro
 }
 
 // ---------------------------------------------------------------------
-// Lettura
+// Reading
 // ---------------------------------------------------------------------
 
 fn extract(events: &[Event<'static>]) -> SidecarData {
@@ -272,9 +272,9 @@ fn attr_str(attr: &Attribute<'_>) -> Option<String> {
         .map(std::borrow::Cow::into_owned)
 }
 
-/// Indice dell'evento (`End` per un `Start`, se stesso per un `Empty`) che
-/// chiude il sottoalbero iniziato in `start`, tracciando la profondità così
-/// da non confondersi con figli dello stesso nome del genitore.
+/// Index of the event (`End` for a `Start`, itself for an `Empty`) that
+/// closes the subtree started at `start`, tracking depth so it doesn't get
+/// confused by children with the same name as the parent.
 fn subtree_end(events: &[Event<'static>], start: usize) -> usize {
     if !matches!(events[start], Event::Start(_)) {
         return start;
@@ -307,9 +307,9 @@ fn find_child_text(events: &[Event<'static>], tag: &[u8]) -> Option<String> {
     text_of_range(&events[start..=end])
 }
 
-/// Il primo nodo di testo non vuoto nel sottoalbero, che sia avvolto in
-/// `rdf:Alt`/`rdf:li` (Lightroom, darktable) o scritto come testo diretto
-/// dell'elemento: a Keeppix basta il valore, non la struttura esatta.
+/// The first non-empty text node in the subtree, whether wrapped in
+/// `rdf:Alt`/`rdf:li` (Lightroom, darktable) or written as the element's
+/// direct text: Keeppix only needs the value, not the exact structure.
 fn text_of_range(events: &[Event<'static>]) -> Option<String> {
     for ev in events {
         if let Event::Text(t) = ev
@@ -345,7 +345,7 @@ fn find_child_list(events: &[Event<'static>], tag: &[u8]) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------
-// GPS ed EXIF datetime — formato XMP (DDD,MM.mmmmmm{N|S|E|W})
+// GPS and EXIF datetime — XMP format (DDD,MM.mmmmmm{N|S|E|W})
 // ---------------------------------------------------------------------
 
 fn gps_to_xmp(value: f64, positive: char, negative: char) -> String {
@@ -382,7 +382,7 @@ fn parse_xmp_datetime(raw: &str) -> Option<DateTime<Utc>> {
 }
 
 // ---------------------------------------------------------------------
-// Scrittura: leggere, modificare i campi gestiti, riscrivere
+// Writing: read, modify the managed fields, rewrite
 // ---------------------------------------------------------------------
 
 fn declared_namespaces(events: &[Event<'static>]) -> HashSet<Vec<u8>> {
@@ -505,10 +505,10 @@ fn apply(events: &mut Vec<Event<'static>>, data: &SidecarData) -> Result<(), Xmp
     Ok(())
 }
 
-/// Rimuove l'eventuale occorrenza esistente di `tag` fra `desc_idx` e
-/// `desc_end`, poi inserisce `new_subtree` (se presente) subito prima della
-/// chiusura di `rdf:Description`. `desc_end` viene aggiornato per riflettere
-/// gli spostamenti, così le chiamate successive vedono l'indice corretto.
+/// Removes any existing occurrence of `tag` between `desc_idx` and
+/// `desc_end`, then inserts `new_subtree` (if present) right before the
+/// closing of `rdf:Description`. `desc_end` is updated to reflect the
+/// shifts, so subsequent calls see the correct index.
 fn set_child(
     events: &mut Vec<Event<'static>>,
     desc_idx: usize,

@@ -7,10 +7,11 @@ use keeppix_domain::{ExifData, GeoPoint};
 const HEADER_BYTES: u64 = 128 * 1024;
 const ZERO_COORDINATE_EPSILON: f64 = 1e-12;
 
-/// Apre solo i primi 128 KB. Senza EXIF, `taken_at` è `mtime`.
+/// Opens only the first 128 KB. Without EXIF, `taken_at` falls back to
+/// `mtime`.
 ///
 /// # Errors
-/// I/O o EXIF illeggibile (non è un errore di dominio: si ripiega su `mtime`).
+/// I/O or unreadable EXIF (not a domain error: falls back to `mtime`).
 pub fn read_exif(path: &Path, mtime: DateTime<Utc>) -> std::io::Result<ExifData> {
     let mut file = std::fs::File::open(path)?;
     let mut buf = Vec::new();

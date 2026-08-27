@@ -1,24 +1,24 @@
-//! Allineamento del volto (Fase 8 §2.1): i cinque punti di riferimento
-//! (occhi, naso, angoli bocca) verso una posa canonica 112×112, prima
-//! dell'impronta `SFace`. Un volto storto produce un embedding peggiore, e
-//! la qualità del raggruppamento dipende quasi tutta da qui.
+//! Face alignment: the five landmark points (eyes, nose, mouth corners)
+//! warped to a canonical 112×112 pose before the `SFace` embedding. A
+//! crooked face yields a worse embedding, and clustering quality depends
+//! almost entirely on getting this right.
 //!
-//! Niente SVD generica: una trasformazione di similarità 2D (rotazione +
-//! scala uniforme, **mai** una riflessione — un volto specchiato non è lo
-//! stesso volto) ha solo 4 gradi di libertà ed è esattamente il minimo
-//! quadratico di una moltiplicazione per un numero complesso `w = a + bi`:
-//! `q_i ≈ w·p_i + t`. La soluzione chiusa è la proiezione complessa
-//! standard, non un caso speciale ad hoc.
+//! No generic SVD: a 2D similarity transform (rotation + uniform scale,
+//! **never** a reflection — a mirrored face is not the same face) has only
+//! 4 degrees of freedom and is exactly the least-squares fit of a
+//! multiplication by a complex number `w = a + bi`: `q_i ≈ w·p_i + t`. The
+//! closed-form solution is the standard complex projection, not an ad hoc
+//! special case.
 
-/// I cinque punti di riferimento su un ritaglio 112×112, ordine nativo
-/// `YuNet` (occhio destro, occhio sinistro, naso, angolo bocca destro,
-/// angolo bocca sinistro — vedi il commento su
-/// [`crate::face::DetectedFace::landmarks`]). Numericamente identico alla
-/// costante `ArcFace`/insightface usata dalla precedente implementazione
-/// SCRFD: verificato leggendo `FaceRecognizerSF::alignCrop`
-/// (`objdetect/src/face_recognize.cpp` di `OpenCV`), che usa lo stesso
-/// identico array per `SFace` — stesso template di riferimento, modello di
-/// impronta diverso. Il nome è cambiato, i numeri no.
+/// The five reference landmark points on a 112×112 crop, in `YuNet`'s
+/// native order (right eye, left eye, nose, right mouth corner, left mouth
+/// corner — see the comment on [`crate::face::DetectedFace::landmarks`]).
+/// Numerically identical to the `ArcFace`/insightface constant used by the
+/// earlier SCRFD-based implementation: verified by reading
+/// `FaceRecognizerSF::alignCrop` (`objdetect/src/face_recognize.cpp` in
+/// `OpenCV`), which uses this exact same array for `SFace` — same reference
+/// template, different embedding model. The name changed, the numbers
+/// didn't.
 pub const SFACE_REFERENCE_112: [(f32, f32); 5] = [
     (38.2946, 51.6963),
     (73.5318, 51.5014),
@@ -29,8 +29,8 @@ pub const SFACE_REFERENCE_112: [(f32, f32); 5] = [
 
 pub const ALIGNED_FACE_SIZE: u32 = 112;
 
-/// Matrice affine `[a, -b, tx; b, a, ty]` (rotazione+scala uniforme+
-/// traslazione, mai riflessione).
+/// Affine matrix `[a, -b, tx; b, a, ty]` (rotation + uniform scale +
+/// translation, never a reflection).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SimilarityTransform {
     pub a: f32,
@@ -50,7 +50,7 @@ impl SimilarityTransform {
         }
     }
 
-    /// Applica la trasformazione a un punto `(x, y)`.
+    /// Applies the transform to a point `(x, y)`.
     #[must_use]
     pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
         (
@@ -59,8 +59,8 @@ impl SimilarityTransform {
         )
     }
 
-    /// Inversa: `SimilarityTransform` è invertibile finché `a²+b² > 0`
-    /// (sempre vero per punti non tutti coincidenti).
+    /// Inverse: `SimilarityTransform` is invertible as long as `a²+b² > 0`
+    /// (always true unless every point coincides).
     #[must_use]
     #[allow(clippy::similar_names)]
     pub fn inverse(&self) -> Self {
@@ -82,10 +82,10 @@ impl SimilarityTransform {
     }
 }
 
-/// Stima ai minimi quadrati la trasformazione di similarità che porta
-/// `src` più vicino possibile a `dst` (stesso ordine dei punti nei due
-/// array). Se i punti sorgente coincidono tutti (varianza nulla), torna
-/// l'identità invece di dividere per zero.
+/// Least-squares estimate of the similarity transform that maps `src` as
+/// close as possible to `dst` (same point order in both arrays). If the
+/// source points all coincide (zero variance), returns the identity
+/// instead of dividing by zero.
 #[must_use]
 pub fn similarity_transform_from_points(
     src: &[(f32, f32)],
@@ -134,15 +134,15 @@ fn mean(points: &[(f32, f32)]) -> (f32, f32) {
     (sx / n, sy / n)
 }
 
-/// Ritaglia e allinea un volto da un'immagine RGB8 interleaved verso un
-/// buffer `ALIGNED_FACE_SIZE`×`ALIGNED_FACE_SIZE` RGB8, usando la
-/// trasformazione **inversa** (per ogni pixel di destinazione, campiona la
-/// sorgente — l'unico modo che non lascia buchi nell'immagine di uscita).
-/// Campionamento bilineare; fuori dai bordi dell'immagine sorgente il pixel
-/// è nero (0,0,0), come per un volto vicino al bordo della foto.
+/// Crops and aligns a face from an interleaved RGB8 image into an
+/// `ALIGNED_FACE_SIZE`×`ALIGNED_FACE_SIZE` RGB8 buffer, using the
+/// **inverse** transform (for each destination pixel, sample the source —
+/// the only approach that leaves no holes in the output image). Bilinear
+/// sampling; outside the source image bounds the pixel is black (0,0,0), as
+/// happens for a face near the edge of the photo.
 ///
 /// # Errors
-/// `src_rgb.len()` non coerente con `src_w * src_h * 3`.
+/// `src_rgb.len()` is inconsistent with `src_w * src_h * 3`.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -240,13 +240,13 @@ mod tests {
 
     #[test]
     fn recovers_a_known_scale_and_rotation() {
-        // Rotazione di 90° (a=0,b=1) e scala 2×, poi traslazione.
+        // 90° rotation (a=0,b=1) and 2× scale, then translation.
         let src = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.5, 0.5)];
         let scale = 2.0_f32;
         let dst: Vec<(f32, f32)> = src
             .iter()
             .map(|&(x, y)| {
-                // rotazione 90°: (x,y) -> (-y, x)
+                // 90° rotation: (x,y) -> (-y, x)
                 (scale * -y + 4.0, scale * x + 1.0)
             })
             .collect();
@@ -262,14 +262,14 @@ mod tests {
 
     #[test]
     fn never_produces_a_reflection() {
-        // Punti sorgente e destinazione a chiralità opposta: il fit ai
-        // minimi quadrati resta comunque una similarità pura (a,b), mai
-        // una matrice con determinante negativo — per costruzione, non è
-        // nemmeno rappresentabile con questo modello.
+        // Source and destination points with opposite chirality: the
+        // least-squares fit still stays a pure similarity (a,b), never a
+        // matrix with negative determinant — by construction, it isn't even
+        // representable in this model.
         let src = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)];
-        let mirrored = [(0.0, 0.0), (-1.0, 0.0), (0.0, 1.0)]; // riflessione sull'asse Y
+        let mirrored = [(0.0, 0.0), (-1.0, 0.0), (0.0, 1.0)]; // reflection across the Y axis
         let t = similarity_transform_from_points(&src, &mirrored);
-        // determinante della parte lineare [[a,-b],[b,a]] = a²+b² ≥ 0 sempre.
+        // Determinant of the linear part [[a,-b],[b,a]] = a²+b² ≥ 0 always.
         let determinant = t.a * t.a + t.b * t.b;
         assert!(determinant >= 0.0);
     }
@@ -325,8 +325,8 @@ mod tests {
         for px in rgb.chunks_mut(3) {
             px.copy_from_slice(&[200, 50, 10]);
         }
-        // Identità: il centro del ritaglio 112×112 campiona un pixel ben
-        // dentro l'immagine sorgente 200×200, colore uniforme.
+        // Identity: the center of the 112×112 crop samples a pixel well
+        // inside the 200×200 uniform-color source image.
         let t = SimilarityTransform::identity();
         let out = warp_aligned_face(&rgb, w, h, &t).unwrap();
         let center = ((56 * 112 + 56) * 3) as usize;

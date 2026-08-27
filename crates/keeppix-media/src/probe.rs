@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::sandbox;
 
-/// Accelerazione video misurata dal probe hardware (Fase 6).
+/// Video acceleration measured by the hardware probe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VideoBackend {
@@ -18,11 +18,11 @@ pub enum VideoBackend {
     Software,
 }
 
-/// Esito del probe hardware di decode/transcodifica.
+/// Outcome of the decode/transcode hardware probe.
 ///
-/// Il campo `extra` porta le estensioni: Fase 7 scrive `extra.ai` con i fatti
-/// host (RAM, core) e, da Task 2, i ms di una inferenza reale sul modello
-/// locale (o `model_missing` / `failed` se i pesi o il runtime non bastano).
+/// The `extra` field carries extensions: `extra.ai` holds host facts (RAM,
+/// cores) and the ms of a real inference on the local model (or
+/// `model_missing` / `failed` if the weights or runtime aren't available).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Capabilities {
     pub backend: VideoBackend,
@@ -40,11 +40,12 @@ const PROBE_MEM: u64 = 1024 * 1024 * 1024;
 /// Per-backend CPU budget — the whole probe must finish in ~4 seconds.
 const PROBE_CPU_SECS: u64 = 3;
 
-/// Misura l'accelerazione video disponibile provando un encode di 2 secondi con
-/// ogni backend candidato, in ordine di preferenza per il `SoC` rilevato.
+/// Measures the video acceleration available by trying a 2-second encode
+/// with each candidate backend, in preference order for the detected
+/// `SoC`.
 ///
-/// Aggiunge sempre `extra.ai` (Fase 7): RAM libera, core, e una prova di
-/// inferenza sull'`OpenCLIP` XLM-R IT/EN locale quando i pesi sono presenti.
+/// Always adds `extra.ai`: free RAM, cores, and an inference probe against
+/// the local `OpenCLIP` XLM-R IT/EN model when the weights are present.
 #[must_use]
 pub fn probe() -> Capabilities {
     let mut caps = if crate::video::ffprobe_available() {
@@ -78,19 +79,21 @@ fn software_fallback(fps: Option<f32>) -> Capabilities {
     }
 }
 
-/// Fatti host per l'analisi IA, più l'esito della prova di inferenza.
+/// Host facts for AI analysis, plus the outcome of the inference probe.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AiHostFacts {
     pub free_ram_bytes: u64,
     pub cpu_cores: u32,
     pub has_neon: bool,
-    /// Millisecondi di una inferenza immagine sul modello locale, se riuscita.
+    /// Milliseconds of one image inference on the local model, if it
+    /// succeeded.
     pub inference_ms: Option<f64>,
     pub inference_status: String,
-    /// Runtime che ha prodotto la misura (`ort`), se la prova è partita.
+    /// Runtime that produced the measurement (`ort`), if the probe ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inference_runtime: Option<String>,
-    /// Checkpoint usato per la misura; allineato a [`crate::openclip_xlmr::MODEL_VERSION`].
+    /// Checkpoint used for the measurement; matches
+    /// [`crate::openclip_xlmr::MODEL_VERSION`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_version: Option<String>,
 }
@@ -123,9 +126,9 @@ fn merge_ai_extra(extra: serde_json::Value, ai: AiHostFacts) -> serde_json::Valu
     serde_json::Value::Object(object)
 }
 
-/// RAM effettivamente disponibile per nuovi allocatori, non la sola `MemFree`
-/// (che esclude la cache reclamabile). Su Linux legge `/proc/meminfo`; altrove
-/// resta 0 e il chiamante tratta lo stato come sconosciuto.
+/// RAM actually available for new allocations, not just `MemFree` (which
+/// excludes reclaimable cache). Reads `/proc/meminfo` on Linux; elsewhere
+/// stays 0 and the caller treats the state as unknown.
 fn free_ram_bytes() -> u64 {
     #[cfg(target_os = "linux")]
     {

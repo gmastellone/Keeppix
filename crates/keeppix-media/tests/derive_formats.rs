@@ -1,10 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-//! Task 22: `derive_from_bytes`/`ensure_full_from_bytes` decodificavano solo
-//! JPEG anche se `kind::detect_kind` classifica PNG/TIFF/WebP/HEIF come
-//! `Image` fin dalla Fase 1b. Un fixture reale per formato, più uno
-//! malformato per formato: nessun crash, nessun processo orfano, fallimento
-//! pulito (`DeriveError::Decode`), non un panic o un hang.
+//! `derive_from_bytes`/`ensure_full_from_bytes` used to decode JPEG only
+//! even though `kind::detect_kind` classifies PNG/TIFF/WebP/HEIF as
+//! `Image`. One real fixture per format, plus one malformed fixture per
+//! format: no crash, no orphaned process, clean failure
+//! (`DeriveError::Decode`), not a panic or a hang.
 
 use keeppix_media::{derive_from_bytes, ensure_full_from_bytes};
 
@@ -23,21 +23,21 @@ fn assert_produces_thumb_and_preview(name: &str, seed: u8) {
     let hash = [seed; 32];
 
     let result = derive_from_bytes(&bytes, dir.path(), &hash)
-        .unwrap_or_else(|e| panic!("{name} deve decodificare, invece: {e}"));
+        .unwrap_or_else(|e| panic!("{name} must decode, instead: {e}"));
 
-    assert!(result.thumb.is_file(), "{name}: manca il thumb");
+    assert!(result.thumb.is_file(), "{name}: thumb missing");
     assert!(
         std::fs::metadata(&result.thumb).unwrap().len() > 0,
-        "{name}: thumb vuoto"
+        "{name}: empty thumb"
     );
-    assert!(!result.thumbhash.is_empty(), "{name}: thumbhash vuoto");
+    assert!(!result.thumbhash.is_empty(), "{name}: empty thumbhash");
 
     let full = ensure_full_from_bytes(&bytes, dir.path(), &hash)
         .unwrap_or_else(|e| panic!("{name}: ensure_full_from_bytes: {e}"));
-    assert!(full.is_file(), "{name}: manca il full");
+    assert!(full.is_file(), "{name}: full missing");
     assert!(
         std::fs::metadata(&full).unwrap().len() > 0,
-        "{name}: full vuoto"
+        "{name}: empty full"
     );
 }
 
@@ -49,13 +49,13 @@ fn assert_fails_cleanly(name: &str, seed: u8) {
     let err = derive_from_bytes(&bytes, dir.path(), &hash);
     assert!(
         err.is_err(),
-        "{name}: un file malformato non deve produrre un derivato"
+        "{name}: a malformed file must not produce a derivative"
     );
-    // Nessun thumb parziale lasciato sul disco: o tutto o niente (write via
-    // .tmp + rename, mai un file visibile a metà).
+    // No partial thumb left on disk: all or nothing (write via .tmp +
+    // rename, never a half-visible file).
     assert!(
         !dir.path().join("derivatives").exists() || walk_is_empty(&dir.path().join("derivatives")),
-        "{name}: non deve restare un derivato parziale"
+        "{name}: no partial derivative should remain"
     );
 }
 
@@ -98,22 +98,22 @@ fn malformed_webp_fails_cleanly() {
 #[test]
 fn heif_8bit_source_produces_thumb_and_preview() {
     if !keeppix_media::heif_convert_available() {
-        eprintln!("heif-convert assente: salto (vedi libheif-examples)");
+        eprintln!("heif-convert missing: skipping (see libheif-examples)");
         return;
     }
     assert_produces_thumb_and_preview("sample8.heic", 0x36);
 }
 
-/// Il fixture è un HEIC 10-bit *reale*, non sintetico: generato con
-/// `heif-enc -b 10 -L -p chroma=444 --matrix_coefficients=0` da un PNG RGB a
-/// 16 bit, e confermato con `heif-info` (`bit depth: 10`) prima di essere
-/// copiato nel repository — non un'assunzione, un fatto verificato. Se
-/// libheif decodesse solo Main (8 bit) e non Main10, questo fallirebbe con
-/// `DeriveError::Decode`, non silenziosamente con un'immagine sbagliata.
+/// The fixture is a *real* 10-bit HEIC, not synthetic: generated with
+/// `heif-enc -b 10 -L -p chroma=444 --matrix_coefficients=0` from a 16-bit
+/// RGB PNG, and confirmed with `heif-info` (`bit depth: 10`) before being
+/// committed to the repository — not an assumption, a verified fact. If
+/// libheif only decoded Main (8-bit) and not Main10, this would fail with
+/// `DeriveError::Decode`, not silently with a wrong image.
 #[test]
 fn heif_10bit_source_produces_thumb_and_preview() {
     if !keeppix_media::heif_convert_available() {
-        eprintln!("heif-convert assente: salto (vedi libheif-examples)");
+        eprintln!("heif-convert missing: skipping (see libheif-examples)");
         return;
     }
     assert_produces_thumb_and_preview("sample10.heic", 0x37);
@@ -122,22 +122,21 @@ fn heif_10bit_source_produces_thumb_and_preview() {
 #[test]
 fn malformed_heif_fails_cleanly() {
     if !keeppix_media::heif_convert_available() {
-        eprintln!("heif-convert assente: salto (vedi libheif-examples)");
+        eprintln!("heif-convert missing: skipping (see libheif-examples)");
         return;
     }
     assert_fails_cleanly("malformed.heic", 0x38);
 }
 
-/// Garanzia anti-orfano: un file HEIF malformato che fa fallire
-/// `heif-convert` in sandbox non deve lasciare processi in giro. Non c'è un
-/// modo diretto per contare i processi del sistema in un test portabile, ma
-/// si verifica che la chiamata ritorni in tempo utile invece di bloccarsi —
-/// un hang qui vorrebbe dire che l'`RLIMIT_CPU` della sandbox non ha
-/// funzionato.
+/// Anti-orphan guarantee: a malformed HEIF file that makes sandboxed
+/// `heif-convert` fail must not leave processes behind. There's no direct
+/// way to count system processes in a portable test, but we verify the
+/// call returns promptly instead of hanging — a hang here would mean the
+/// sandbox's `RLIMIT_CPU` didn't work.
 #[test]
 fn malformed_heif_does_not_hang() {
     if !keeppix_media::heif_convert_available() {
-        eprintln!("heif-convert assente: salto (vedi libheif-examples)");
+        eprintln!("heif-convert missing: skipping (see libheif-examples)");
         return;
     }
     let bytes = fixture("malformed.heic");
@@ -146,7 +145,7 @@ fn malformed_heif_does_not_hang() {
     let _ = derive_from_bytes(&bytes, dir.path(), &[0x39; 32]);
     assert!(
         start.elapsed() < std::time::Duration::from_secs(20),
-        "heif-convert su un file corrotto deve fallire subito, non restare appeso"
+        "heif-convert on a corrupt file must fail immediately, not hang"
     );
 }
 

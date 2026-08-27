@@ -1,15 +1,16 @@
 use std::ffi::OsStr;
 use std::process::{Command, Output};
 
-/// Esegue un binario in un processo figlio con `rlimit` su Unix.
-/// Un panic/abort nel figlio non uccide il padre. Niente rete: il figlio
-/// non eredita socket aperti di lavoro (ffmpeg/ffprobe non ne aprono).
+/// Runs a binary in a child process with `rlimit` on Unix. A panic/abort in
+/// the child does not kill the parent. No network: the child doesn't
+/// inherit any open working sockets (ffmpeg/ffprobe don't open any).
 ///
-/// Su Linux non si applica seccomp in 1b: eviterebbe una dipendenza C
-/// extra; `rlimit` è il tetto. Upgrade: `libseccomp` nel figlio.
+/// No seccomp is applied on Linux: that would add an extra C dependency;
+/// `rlimit` is the current ceiling. Possible upgrade: `libseccomp` in the
+/// child.
 ///
 /// # Errors
-/// Se il processo non parte.
+/// If the process fails to start.
 pub fn run(
     program: impl AsRef<OsStr>,
     args: &[impl AsRef<OsStr>],

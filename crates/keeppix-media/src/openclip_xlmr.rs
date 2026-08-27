@@ -1,47 +1,43 @@
-//! `OpenCLIP` XLM-R `ViT-B-32` IT/EN (Task B, piano modelli IA
-//! `docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md`): embedding
-//! immagine e testo via `ort`, sostituisce `MobileCLIP2`-S2 (Apple ML
-//! Research Model License, research-only — mai idoneo a un'offerta
-//! commerciale).
+//! `OpenCLIP` XLM-R `ViT-B-32` IT/EN: image and text embedding via `ort`,
+//! replacing `MobileCLIP2`-S2 (Apple ML Research Model License,
+//! research-only — never eligible for a commercial offering).
 //!
-//! `MobileCLIP2`-S2 (`clip.rs`) è stato rimosso solo dopo la controprova: bench
-//! di regressione IT/EN reale, stesso harness, numeri equivalenti-o-migliori
-//! e ~3x più veloce — stesso principio già seguito per SCRFD/`ArcFace` nel
-//! Task A (`crates/keeppix-media/src/face.rs`): il fallback non si toglie
-//! prima che il sostituto sia provato.
+//! `MobileCLIP2`-S2 (`clip.rs`) was removed only after a counter-check: a
+//! real IT/EN regression bench, same harness, equivalent-or-better numbers
+//! and ~3x faster — the same principle already followed for SCRFD/`ArcFace`
+//! in `crates/keeppix-media/src/face.rs`: the fallback doesn't get removed
+//! before the replacement is proven.
 //!
-//! Pesi prodotti da `scripts/export-openclip-xlmr-it-en.py` (Python, unico
-//! punto della pipeline dove gira — vincolo esplicito del piano). Numeri
-//! reali verificati su CI reale (mai in questa sandbox: il checkpoint è
-//! ospitato solo su `huggingface.co`, bloccata a livello di proxy):
-//! vocabolario 250.002 → 15.583 righe (6,2%), `visual.onnx` ~85 MB,
-//! `text.onnx` ~96 MB int8, normalizzazione immagine
-//! `mean=(0.4815,0.4578,0.4082)` `std=(0.2686,0.2613,0.2758)` (CLIP
-//! standard, ma letta dalla pipeline reale del checkpoint — non assunta),
-//! `max_position_embeddings=514`.
+//! Weights produced by `scripts/export-openclip-xlmr-it-en.py` (Python, the
+//! only place in the pipeline where it runs). Real numbers verified in real
+//! CI (never in this sandbox: the checkpoint is hosted only on
+//! `huggingface.co`, blocked at the proxy level): vocabulary 250,002 →
+//! 15,583 rows (6.2%), `visual.onnx` ~85 MB, `text.onnx` ~96 MB int8, image
+//! normalization `mean=(0.4815,0.4578,0.4082)` `std=(0.2686,0.2613,0.2758)`
+//! (standard CLIP values, but read from the checkpoint's real pipeline —
+//! not assumed), `max_position_embeddings=514`.
 //!
-//! **Il tokenizer non è potato** (`tokenizer.json`, copiato integro dal
-//! checkpoint): stessa segmentazione per qualunque lingua, coerente col
-//! vincolo esplicito del piano ("le altre 107 lingue non sono un
-//! requisito: se la potatura le rompe, va bene" — qui la segmentazione
-//! *non* si rompe affatto, cambia solo quale embedding la cella di
-//! vocabolario riceve). **Il remap vive dentro il grafo ONNX**, non qui:
-//! `text.onnx` accetta in ingresso gli id ORIGINALI del tokenizer non
-//! potato e li rimappa internamente su un `gather` con una costante
-//! `[vocab_size_originale]` cotta nel grafo all'export (vedi
-//! `scripts/export-openclip-xlmr-it-en.py`, `TextTowerExport.forward`:
-//! "deve esistere PRIMA dell'export, non essere applicato lato Rust
-//! dopo") — un id fuori dal corpus IT/EN usato per la potatura diventa
-//! l'embedding di `<unk>` dentro il grafo stesso, mai un errore qui.
-//! Rimapparli di nuovo qui (come una prima stesura di questo file
-//! faceva, leggendo `id_remap.json`) applicherebbe il remap due volte —
-//! bug reale trovato dal primo bench IT/EN girato per davvero in CI
-//! (EN recall@1 crollato a 0.05, praticamente casuale): `id_remap.json`
-//! non serve al consumatore Rust, resta solo per diagnostica Python.
+//! **The tokenizer is not pruned** (`tokenizer.json`, copied unmodified
+//! from the checkpoint): same segmentation for every language, since the
+//! other 107 languages aren't a requirement and it's fine if pruning
+//! breaks them — but here the segmentation *doesn't* break at all, only
+//! which vocabulary cell gets which embedding changes. **The remap lives
+//! inside the ONNX graph**, not here: `text.onnx` takes the ORIGINAL ids
+//! from the unpruned tokenizer as input and remaps them internally with a
+//! `gather` against a `[original_vocab_size]` constant baked into the
+//! graph at export time (see `scripts/export-openclip-xlmr-it-en.py`,
+//! `TextTowerExport.forward`: the remap must exist BEFORE export, not be
+//! applied on the Rust side afterward) — an id outside the IT/EN corpus
+//! used for pruning becomes the `<unk>` embedding inside the graph itself,
+//! never an error here. Remapping them again here (as an earlier draft of
+//! this file did, reading `id_remap.json`) would apply the remap twice — a
+//! real bug found by the first IT/EN bench actually run in CI (EN recall@1
+//! collapsed to 0.05, essentially random): `id_remap.json` isn't needed by
+//! the Rust consumer, it's kept only for Python diagnostics.
 //!
-//! `text.onnx` ha l'asse sequenza dinamico (nessun padding a lunghezza
-//! fissa necessario, a differenza di `MobileCLIP2`): la tokenizzazione usa
-//! solo troncamento a `text_max_position_embeddings`.
+//! `text.onnx` has a dynamic sequence axis (no fixed-length padding
+//! needed, unlike `MobileCLIP2`): tokenization only truncates to
+//! `text_max_position_embeddings`.
 
 use std::path::{Path, PathBuf};
 
@@ -50,10 +46,10 @@ use ort::value::Tensor;
 use serde::Deserialize;
 use tokenizers::{Tokenizer, TruncationParams};
 
-/// Identità stabile del checkpoint usato da probe, job e DB. Righe più
-/// vecchie con `model_version = "mobileclip2-s2"` (`MobileCLIP2`-S2, rimosso)
-/// restano nel DB finché non vengono ricalcolate: embed dim identica, 512,
-/// nessuna migrazione di schema necessaria.
+/// Stable identity of the checkpoint used by the probe, jobs, and DB.
+/// Older rows with `model_version = "mobileclip2-s2"` (`MobileCLIP2`-S2,
+/// removed) stay in the DB until recomputed: identical embed dim, 512, no
+/// schema migration needed.
 pub const MODEL_VERSION: &str = "openclip-xlmr-it-en";
 const EMBED_DIM: usize = 512;
 
@@ -108,10 +104,10 @@ fn missing_pieces(dir: &Path) -> Vec<&'static str> {
     missing
 }
 
-/// Rispecchia i campi scritti da `scripts/export-openclip-xlmr-it-en.py`
-/// (`manifest = {...}` in quello script) — letti a runtime, non
-/// ricopiati come costanti Rust: se l'export cambia checkpoint o
-/// normalizzazione, questo file non deve essere toccato.
+/// Mirrors the fields written by `scripts/export-openclip-xlmr-it-en.py`
+/// (`manifest = {...}` in that script) — read at runtime, not copied as
+/// Rust constants: if the export changes checkpoint or normalization, this
+/// file doesn't need to be touched.
 #[derive(Debug, Deserialize)]
 struct ExportManifest {
     embed_dim: usize,
@@ -121,9 +117,9 @@ struct ExportManifest {
     text_max_position_embeddings: usize,
 }
 
-/// Sessioni `OpenCLIP` XLM-R caricate in memoria (visual + text).
-/// Dropparle libera la RAM (limite di onnxruntime: non restituisce tutte le
-/// pagine al SO subito dopo `Drop`).
+/// `OpenCLIP` XLM-R sessions loaded in memory (visual + text). Dropping
+/// them frees the RAM (onnxruntime limitation: it doesn't return every
+/// page to the OS immediately after `Drop`).
 #[derive(Debug)]
 pub struct OpenClipXlmr {
     visual: Session,
@@ -135,12 +131,12 @@ pub struct OpenClipXlmr {
 }
 
 impl OpenClipXlmr {
-    /// Carica `visual.onnx` + `text.onnx` + tokenizer dalla directory
-    /// modello.
+    /// Loads `visual.onnx` + `text.onnx` + tokenizer from the model
+    /// directory.
     ///
     /// # Errors
-    /// Directory incompleta, JSON illeggibile/malformato, o fallimento di
-    /// ort/tokenizer.
+    /// Incomplete directory, unreadable/malformed JSON, or ort/tokenizer
+    /// failure.
     pub fn load(model_dir: &Path) -> Result<Self, String> {
         let missing = missing_pieces(model_dir);
         if !missing.is_empty() {
@@ -173,9 +169,9 @@ impl OpenClipXlmr {
 
         let mut tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json"))
             .map_err(|e| format!("load tokenizer.json: {e}"))?;
-        // Solo troncamento, niente padding a lunghezza fissa: l'asse
-        // sequenza di text.onnx è dinamico (dynamic_axes nello script di
-        // export), a differenza del context_length fisso di MobileCLIP2.
+        // Truncation only, no fixed-length padding: text.onnx's sequence
+        // axis is dynamic (dynamic_axes in the export script), unlike
+        // MobileCLIP2's fixed context_length.
         tokenizer
             .with_truncation(Some(TruncationParams {
                 max_length: manifest.text_max_position_embeddings,
@@ -194,18 +190,18 @@ impl OpenClipXlmr {
         })
     }
 
-    /// Dimensione lato dell'input visuale (224, letta dal manifest reale).
+    /// Visual input side length (224, read from the real manifest).
     #[must_use]
     pub fn image_size(&self) -> usize {
         self.image_size
     }
 
-    /// Embedding 512-d L2-normalizzato da tensor NCHW float già a
-    /// `image_size`, pixel in \[0,1\] (mean/std reali del checkpoint
-    /// applicati qui — `visual.onnx` non li include).
+    /// 512-d L2-normalized embedding from a float NCHW tensor already at
+    /// `image_size`, pixels in \[0,1\] (the checkpoint's real mean/std
+    /// applied here — `visual.onnx` doesn't include them).
     ///
     /// # Errors
-    /// Lunghezza NCHW errata, fallimento ort, o embedding non 512-d.
+    /// Wrong NCHW length, ort failure, or embedding not 512-d.
     #[allow(clippy::missing_panics_doc)]
     pub fn embed_image_nchw(&mut self, nchw: &[f32]) -> Result<Vec<f32>, String> {
         let expected = 3 * self.image_size * self.image_size;
@@ -238,16 +234,16 @@ impl OpenClipXlmr {
         l2_normalize(data)
     }
 
-    /// Embedding 512-d L2-normalizzato di una stringa di testo: tokenizza
-    /// con il tokenizer non potato e alimenta `text.onnx` con gli id
-    /// ORIGINALI (senza padding, lunghezza = numero di token reali) — il
-    /// remap sul vocabolario potato vive dentro il grafo ONNX stesso
-    /// (`TextTowerExport.forward` nello script di export), non qui:
-    /// rimapparlo di nuovo lato Rust lo applicherebbe due volte (bug
-    /// reale, vedi commento di modulo).
+    /// 512-d L2-normalized embedding of a text string: tokenizes with the
+    /// unpruned tokenizer and feeds `text.onnx` the ORIGINAL ids (no
+    /// padding, length = actual token count) — the remap onto the pruned
+    /// vocabulary lives inside the ONNX graph itself
+    /// (`TextTowerExport.forward` in the export script), not here:
+    /// remapping it again on the Rust side would apply it twice (a real
+    /// bug, see the module doc comment).
     ///
     /// # Errors
-    /// Tokenizzazione fallita, fallimento ort, o embedding non 512-d.
+    /// Tokenization failure, ort failure, or embedding not 512-d.
     pub fn embed_text(&mut self, text: &str) -> Result<Vec<f32>, String> {
         let encoding = self
             .tokenizer
@@ -265,11 +261,11 @@ impl OpenClipXlmr {
             .map_err(|e| format!("text input_ids tensor: {e}"))?;
         let mask_tensor = Tensor::from_array(([1usize, seq_len], attention_mask))
             .map_err(|e| format!("text attention_mask tensor: {e}"))?;
-        // Nomi espliciti (non posizionali): text.onnx ha due input
-        // (input_ids, attention_mask, in quest'ordine nello script di
-        // export) — legare per nome fallisce in modo esplicito se
-        // l'export cambiasse ordine, invece di alimentare il tensore
-        // sbagliato nel posto sbagliato in silenzio.
+        // Explicit names (not positional): text.onnx has two inputs
+        // (input_ids, attention_mask, in this order in the export script)
+        // — binding by name fails explicitly if the export ever changed
+        // order, instead of silently feeding the wrong tensor into the
+        // wrong slot.
         let outputs = self
             .text
             .run(ort::inputs!["input_ids" => ids_tensor, "attention_mask" => mask_tensor])
@@ -280,11 +276,11 @@ impl OpenClipXlmr {
         l2_normalize(data)
     }
 
-    /// Preprocessa RGB8 (`H`×`W` interleaved) → NCHW float \[0,1\] con
-    /// resize "shortest" + center crop a `image_size`.
+    /// Preprocesses RGB8 (`H`×`W` interleaved) → float NCHW \[0,1\] with a
+    /// "shortest side" resize + center crop to `image_size`.
     ///
     /// # Errors
-    /// Buffer RGB la cui lunghezza non coincide con `width * height * 3`.
+    /// RGB buffer whose length doesn't match `width * height * 3`.
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -396,16 +392,16 @@ mod tests {
     #[test]
     #[serial]
     fn unmapped_token_falls_back_to_unk_without_erroring() {
-        // Un id fuori dal vocabolario potato non deve mai far fallire
-        // l'inferenza — il remap dentro il grafo ONNX lo fa collassare
-        // sull'embedding di <unk>, non un errore Rust.
+        // An id outside the pruned vocabulary must never make inference
+        // fail — the remap inside the ONNX graph collapses it onto the
+        // <unk> embedding, not a Rust error.
         let Some(dir) = first_complete_model_dir() else {
             eprintln!("skipping: complete openclip-xlmr-it-en dir missing");
             return;
         };
         let mut clip = OpenClipXlmr::load(&dir).expect("load model");
-        // Testo plausibilmente fuori corpus IT/EN (parole rare/tecniche in
-        // un'altra lingua): non deve panicare né tornare Err per questo.
+        // Text plausibly outside the IT/EN corpus (rare/technical words in
+        // another language): must not panic or return Err for this.
         let out = clip.embed_text("縺薙ｌ縺ｯ繝・せ繝医〒縺・");
         assert!(
             out.is_ok(),

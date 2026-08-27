@@ -60,11 +60,10 @@ fn walker_skips_dxo_dop_sidecars() {
     assert_eq!(files[0], "foto.ARW");
 }
 
-/// Pin critico (Task 7): un asset spostato in `.keeppix-trash/` non deve
-/// tornare a comparire come "scoperto" al giro di scansione successivo —
-/// altrimenti il cestino produce un ciclo infinito di reindicizzazione su
-/// una libreria grande. `keeppix_db::TrashRepo::TRASH_DIR_NAME` **deve**
-/// restare uguale al nome qui sotto.
+/// Critical pin: an asset moved into `.keeppix-trash/` must never come back
+/// as "discovered" on the next scan pass — otherwise the trash produces an
+/// infinite reindexing loop on a large library. `keeppix_db::TrashRepo::
+/// TRASH_DIR_NAME` **must** stay equal to the name below.
 #[test]
 fn walker_excludes_the_keeppix_trash_directory() {
     let root = std::env::temp_dir().join(format!(
@@ -91,7 +90,7 @@ fn walker_excludes_the_keeppix_trash_directory() {
     assert!(files.contains(&"viva.jpg".to_owned()));
     assert!(
         !files.contains(&"cestinata.jpg".to_owned()),
-        "un file dentro .keeppix-trash non deve mai essere ridescoperto dal walker"
+        "a file inside .keeppix-trash must never be rediscovered by the walker"
     );
     assert_eq!(files.len(), 1);
 }

@@ -1,9 +1,10 @@
-//! Metriche di recupero testo→immagine (Fase 7 Task 2bis).
+//! Text-to-image retrieval metrics.
 //!
-//! Pure: nessuna dipendenza da ONNX. Usate dal banco IT/EN per confrontare
-//! la qualità di recupero tra lingue sullo stesso insieme di foto.
+//! Pure: no ONNX dependency. Used by the IT/EN bench to compare retrieval
+//! quality across languages on the same set of photos.
 
-/// Cosine similarity tra vettori L2-normalizzati (o non: normalizza al volo).
+/// Cosine similarity between L2-normalized vectors (or not: normalizes on
+/// the fly).
 #[must_use]
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     debug_assert_eq!(a.len(), b.len());
@@ -19,13 +20,14 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if denom == 0.0 { 0.0 } else { dot / denom }
 }
 
-/// Per ogni query, rango 1-based della foto corretta (indice `i` nella gallery).
+/// For each query, the 1-based rank of the correct photo (index `i` in the
+/// gallery).
 ///
-/// `queries[i]` deve corrispondere a `gallery[i]`. Ritorna i ranghi; se la
-/// gallery è vuota, vettore vuoto.
+/// `queries[i]` must correspond to `gallery[i]`. Returns the ranks; empty
+/// vector if the gallery is empty.
 ///
 /// # Panics
-/// Se `queries` e `gallery` hanno lunghezze diverse.
+/// If `queries` and `gallery` have different lengths.
 #[must_use]
 pub fn retrieval_ranks(queries: &[Vec<f32>], gallery: &[Vec<f32>]) -> Vec<usize> {
     assert_eq!(queries.len(), gallery.len());
@@ -47,7 +49,7 @@ pub fn retrieval_ranks(queries: &[Vec<f32>], gallery: &[Vec<f32>]) -> Vec<usize>
     ranks
 }
 
-/// Recall@k: frazione di query il cui match corretto è nei primi k.
+/// Recall@k: fraction of queries whose correct match is within the top k.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
 pub fn recall_at_k(ranks: &[usize], k: usize) -> f64 {
@@ -69,7 +71,7 @@ pub fn mean_reciprocal_rank(ranks: &[usize]) -> f64 {
     sum / ranks.len() as f64
 }
 
-/// Esito aggregato per una lingua.
+/// Aggregate outcome for one language.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RetrievalScore {
     pub recall_at_1: f64,
@@ -114,8 +116,8 @@ mod tests {
 
     #[test]
     fn perfect_diagonal_gallery_yields_recall_one_and_mrr_one() {
-        // Tre query allineate alle tre immagini: q_i ≈ gallery_i e ortogonale
-        // alle altre — se il ranking è sbagliato il test fallisce.
+        // Three queries aligned with the three images: q_i ≈ gallery_i and
+        // orthogonal to the others — if the ranking is wrong, the test fails.
         let gallery = vec![
             v(&[1.0, 0.0, 0.0]),
             v(&[0.0, 1.0, 0.0]),
@@ -136,7 +138,7 @@ mod tests {
             v(&[0.0, 1.0, 0.0]),
             v(&[0.0, 0.0, 1.0]),
         ];
-        // Query 0 e 1 scambiate di proposito; 2 resta allineata.
+        // Queries 0 and 1 deliberately swapped; 2 stays aligned.
         let queries = vec![gallery[1].clone(), gallery[0].clone(), gallery[2].clone()];
         let score = score_retrieval(&queries, &gallery);
         assert_eq!(score.ranks[0], 2);
