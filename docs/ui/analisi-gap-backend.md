@@ -651,7 +651,7 @@ d'istinto compie l'azione innocua.
 
 ### 18.1 I numeri misurati, non stimati
 
-`.superpowers/field-test-20260817-1855.md` riporta una prova sul campo reale:
+Una prova sul campo reale ha misurato:
 
 | Metrica | Valore |
 |---|---|

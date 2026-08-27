@@ -15,5 +15,5 @@
 # rimossi: "Apple Machine Learning Research Model License" — SOLO ricerca
 # non commerciale, incompatibile con un'offerta commerciale di Keeppix.
 # Sostituzioni decise e misurate — YuNet+SFace per i volti (MIT/Apache),
-# OpenCLIP XLM-R int8 potato IT/EN per gli embedding (permissivo):
-# piano completo in docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md
+# OpenCLIP XLM-R int8 potato IT/EN per gli embedding (permissivo), scelti
+# apposta per compatibilità con un'offerta commerciale di Keeppix.

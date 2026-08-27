@@ -160,16 +160,11 @@ PostGIS instance per crate and will eat your RAM and disk.
 | 9 | Physical culling folders, safe move, rename-by-formula | ✅ shipped |
 | 11 | The redesigned interface | ✅ shipped |
 
-Full roadmap with frozen contracts and phase dependencies:
-[`docs/superpowers/plans/2026-08-13-keeppix-roadmap.md`](docs/superpowers/plans/2026-08-13-keeppix-roadmap.md).
-
 ## Documentation
 
 | Doc | For |
 |---|---|
 | [`AGENTS.md`](AGENTS.md) | AI coding agents: invariants and method. Read before touching code. |
-| [`docs/superpowers/PROSEGUI.md`](docs/superpowers/PROSEGUI.md) | Continuation prompt: phase order, decisions already made, where to stop and ask. |
-| [`docs/superpowers/README.md`](docs/superpowers/README.md) | Index of specs, plans, ledgers. |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Installation and operations. |
 | [`docs/api/openapi.json`](docs/api/openapi.json) | The `/api/v1` HTTP contract (additive-only). |
 

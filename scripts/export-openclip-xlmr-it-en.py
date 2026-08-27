@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Esporta OpenCLIP XLM-R ViT-B-32 (checkpoint laion5b_s13b_b90k) in ONNX,
-potato al vocabolario IT/EN e quantizzato int8 — Task B del piano modelli IA
-(docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md), sostituisce
-MobileCLIP2-S2 (research-only, mai idoneo a un'offerta commerciale).
+potato al vocabolario IT/EN e quantizzato int8 — sostituisce MobileCLIP2-S2
+(research-only, mai idoneo a un'offerta commerciale).
 
 Unico punto della pipeline dove gira Python (vincolo esplicito del piano,
 punto B: "Python è ammesso SOLO nello script di export offline"). Tutto il
