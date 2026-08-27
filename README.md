@@ -66,9 +66,9 @@ without leaving the building.
 ## Where it's going
 
 The backend already speaks a versioned `/api/v1` REST API plus a WebSocket notification channel —
-neither is tied to the web frontend. That's deliberate: **native mobile and desktop clients are on
-the roadmap**, wrapping the same Vue frontend (Capacitor for mobile, Tauri for desktop) rather than
-rewriting the UI three times.
+neither is tied to the web frontend. That's deliberate: **a public website with full documentation,
+plus native desktop and mobile clients, are on the roadmap** — built to reuse this same API and
+frontend rather than reinventing the UI for each platform.
 
 ## Features
 
@@ -84,8 +84,8 @@ rewriting the UI three times.
 | Face recognition & clustering (opt-in, never on public links) | 🚧 planned — spec + plan written |
 | Physical folder-based culling, safe rename-by-formula | 🚧 planned — spec + plan written |
 | Redesigned interface | 🚧 planned — spec + plan written |
-| Native mobile app (Capacitor) | 🗺️ roadmap |
-| Native desktop app (Tauri) | 🗺️ roadmap |
+| Native desktop and mobile clients | 🗺️ roadmap |
+| Public website and documentation | 🗺️ roadmap |
 
 ## Under the hood
 
@@ -164,7 +164,7 @@ PostGIS instance per crate and will eat your RAM and disk.
 
 | Doc | For |
 |---|---|
-| [`AGENTS.md`](AGENTS.md) | AI coding agents: invariants and method. Read before touching code. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributing: invariants, working method, branch model. Read before opening a PR. |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Installation and operations. |
 | [`docs/api/openapi.json`](docs/api/openapi.json) | The `/api/v1` HTTP contract (additive-only). |
 
