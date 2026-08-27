@@ -3,15 +3,15 @@ use uuid::Uuid;
 use crate::ids::UserId;
 use crate::user::SystemRole;
 
-/// Chi sta effettuando la richiesta.
+/// Who is making the request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Actor {
     User {
         id: UserId,
         role: SystemRole,
     },
-    /// Accesso tramite link pubblico (Fase 3). Il contesto è confinato
-    /// all'oggetto del link.
+    /// Access via a public link. The context is confined to the link's
+    /// object.
     ShareLink {
         link_id: Uuid,
         object_type: String,
@@ -24,8 +24,9 @@ pub enum Actor {
     },
 }
 
-/// Parametri per costruire un `Actor::ShareLink`. Raggruppa i booleani per
-/// evitare funzioni con più di 3 bool (clippy `clippy::too_many_bool_params`).
+/// Parameters for building an `Actor::ShareLink`. Groups the booleans to
+/// avoid functions with more than 3 bools (clippy
+/// `clippy::too_many_bool_params`).
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShareLinkParams {
@@ -38,7 +39,7 @@ pub struct ShareLinkParams {
     pub upload_quota_bytes: Option<i64>,
 }
 
-/// Contesto richiesto da ogni repository che legge dati di un utente.
+/// Context required by every repository that reads a user's data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthContext {
     pub actor: Actor,
@@ -68,7 +69,7 @@ impl AuthContext {
         }
     }
 
-    /// `Some` solo per attori `User`; un link pubblico non ha `user_id`.
+    /// `Some` only for `User` actors; a public link has no `user_id`.
     #[must_use]
     pub const fn user_id(&self) -> Option<UserId> {
         match self.actor {

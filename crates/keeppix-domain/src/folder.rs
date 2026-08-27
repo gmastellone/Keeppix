@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use crate::error::DomainError;
 use crate::ids::{FolderId, LibraryId};
 
-/// Percorso materializzato di una cartella, nella forma `1.7.42`.
+/// Materialized path of a folder, in the form `1.7.42`.
 ///
-/// Le etichette sono numeri progressivi assegnati dal database, **mai** i
-/// nomi delle cartelle: `ltree` ammette solo `[A-Za-z0-9_-]`, e un nome come
-/// "Matrimonio Rossi 2024" non è un'etichetta valida. Tenere i nomi fuori dal
-/// percorso evita anche di dover interpolare testo dell'utente in una query.
+/// The labels are sequential numbers assigned by the database, **never**
+/// folder names: `ltree` only allows `[A-Za-z0-9_-]`, and a name like
+/// "Wedding Album 2024" is not a valid label. Keeping names out of the path
+/// also avoids having to interpolate user text into a query.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct FolderPath(String);
@@ -26,8 +26,8 @@ impl FolderPath {
     }
 
     /// # Errors
-    /// `DomainError::InvalidFolderPath` se il percorso non è una sequenza di
-    /// numeri separati da punti.
+    /// `DomainError::InvalidFolderPath` if the path isn't a sequence of
+    /// dot-separated numbers.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         if raw.is_empty() {
             return Err(DomainError::InvalidFolderPath("empty".to_owned()));
@@ -52,22 +52,22 @@ impl FolderPath {
         self.0.split('.').count()
     }
 
-    /// Stessa semantica dell'operatore `<@` di ltree: un percorso discende da
-    /// sé stesso.
+    /// Same semantics as ltree's `<@` operator: a path descends from
+    /// itself.
     #[must_use]
     pub fn is_descendant_of(&self, other: &Self) -> bool {
         self.0 == other.0 || self.0.starts_with(&format!("{}.", other.0))
     }
 }
 
-/// Ruolo speciale di una cartella dentro un lotto di culling (Fase 9 Task
-/// 2, spec §2.2/§2.7). `NULL` (cioè `None`) per ogni cartella normale,
-/// incluse le radici dei lotti stesse (`Vacanze 2026-07/`): solo le due
-/// sottocartelle che il culling crea e gestisce da sé portano un ruolo.
+/// Special role of a folder inside a culling lot. `NULL` (i.e. `None`) for
+/// every normal folder, including the lot roots themselves
+/// (`Vacation 2026-07/`): only the two subfolders that culling creates and
+/// manages itself carry a role.
 ///
-/// **È una colonna, non il nome della cartella** (Ruling nel ledger di
-/// fase): riconoscere `_taken`/`_skipped` dal nome renderebbe magica una
-/// cartella chiamata così per caso, e romperebbe tutto se rinominata.
+/// **It's a column, not the folder name**: recognizing `_taken`/`_skipped`
+/// by name would make a folder that happens to be named that way behave
+/// magically, and would break everything if renamed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CullingRole {
@@ -90,30 +90,29 @@ pub struct Folder {
     pub id: FolderId,
     pub library_id: LibraryId,
     pub parent_id: Option<FolderId>,
-    /// Nome sul filesystem. Vuoto per la radice della libreria.
+    /// Name on the filesystem. Empty for the library root.
     pub name: String,
     pub path: FolderPath,
     pub depth: i32,
     pub culling_role: Option<CullingRole>,
 }
 
-/// Un lotto di culling (Fase 9 Task 3, spec §2.2): la cartella di primo
-/// livello sotto la radice designata — `Vacanze 2026-07/`, non `_taken`/
-/// `_skipped`, che sono le sue due figlie speciali. I tre conteggi sono
-/// **l'unico conteggio esatto rimasto in tutta l'applicazione** (decisione
-/// del 20 agosto: gli altri cinque sono stati tolti dalle liste) perché
-/// «quante me ne restano da vedere» è letteralmente la domanda che
-/// l'utente si sta facendo mentre guarda un lotto.
+/// A culling lot: the top-level folder under the designated root —
+/// `Vacation 2026-07/`, not `_taken`/`_skipped`, which are its two special
+/// children. These three counts are **the only exact count left in the
+/// whole application** (the other five were removed from lists) because
+/// "how many do I have left to look at" is literally the question the user
+/// is asking while looking at a lot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CullingLot {
     pub folder_id: FolderId,
     pub name: String,
     pub created_at: DateTime<Utc>,
-    /// Foto ancora nella radice del lotto, non ancora scelte né scartate.
+    /// Photos still in the lot root, neither picked nor rejected yet.
     pub pending: i64,
-    /// Foto in `_taken`.
+    /// Photos in `_taken`.
     pub taken: i64,
-    /// Foto in `_skipped`.
+    /// Photos in `_skipped`.
     pub skipped: i64,
 }
 
@@ -145,9 +144,9 @@ mod tests {
 
     #[test]
     fn parsing_rejects_non_numeric_labels() {
-        // Il nome della cartella non entra MAI nel percorso: ltree non
-        // ammette spazi e accenti, e un nome interpolato sarebbe anche una
-        // via di iniezione.
+        // The folder name NEVER enters the path: ltree doesn't allow spaces
+        // or accented characters, and an interpolated name would also be an
+        // injection vector.
         assert!(FolderPath::parse("1.Matrimonio Rossi").is_err());
         assert!(FolderPath::parse("1.foto").is_err());
     }
@@ -166,6 +165,6 @@ mod tests {
         let child = root.child(7);
         assert!(child.is_descendant_of(&root));
         assert!(!root.is_descendant_of(&child));
-        assert!(root.is_descendant_of(&root), "ltree <@ include se stesso");
+        assert!(root.is_descendant_of(&root), "ltree <@ includes itself");
     }
 }

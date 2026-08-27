@@ -1,9 +1,8 @@
-//! Operazioni lunghe sul disco (Fase 10 Task 16). **Ruling**:
-//! l'infrastruttura è generica apposta — `BulkRename` (Fase 9 Task 10) si è
-//! aggiunta come quarta variante senza toccare il protocollo (`operation_id`,
-//! avanzamento sul WebSocket, `cancel`), esattamente come previsto quando
-//! `AiAnalysis`/`FaceDetection` erano già state le prime due ad arrivare
-//! dopo `LibraryScan`.
+//! Long-running disk operations. The infrastructure is deliberately
+//! generic — `BulkRename` was added as a fourth variant without touching
+//! the protocol (`operation_id`, WebSocket progress, `cancel`), the same way
+//! `AiAnalysis`/`FaceDetection` had already arrived as the first two after
+//! `LibraryScan`.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,18 +12,17 @@ use crate::error::DomainError;
 #[serde(rename_all = "snake_case")]
 pub enum OperationKind {
     LibraryScan,
-    /// Finestra di analisi CLIP (Fase 7 Task 12): embedding + abbinamento tag.
+    /// CLIP analysis pass: embedding + tag matching.
     AiAnalysis,
-    /// Passata di rilevamento/riconoscimento volti (Fase 8 Task 4) su tutta
-    /// la libreria (culling escluso). Riusa lo stesso involucro `Operation`
-    /// di `AiAnalysis`, non un sottosistema parallelo.
+    /// Face detection/recognition pass over the whole library (culling
+    /// excluded). Reuses the same `Operation` wrapper as `AiAnalysis`, not a
+    /// parallel subsystem.
     FaceDetection,
-    /// Rinomina/spostamento di massa (Fase 9 Task 10): a differenza delle
-    /// altre tre, guidata **sincrona dentro la richiesta HTTP**, non da un
-    /// job di `keeppix-jobs` — ogni passo è un `move_asset`, veloce, senza
-    /// inferenza di modello, non serve sopravvivere a un riavvio del
-    /// processo. Lo stesso involucro `Operation`/WebSocket/`cancel` resta
-    /// identico: solo chi lo pilota cambia.
+    /// Bulk rename/move: unlike the other three, driven **synchronously
+    /// inside the HTTP request**, not by a `keeppix-jobs` job — each step is
+    /// a `move_asset`, fast, no model inference, doesn't need to survive a
+    /// process restart. The same `Operation`/WebSocket/`cancel` wrapper
+    /// stays identical: only who drives it changes.
     BulkRename,
 }
 
@@ -40,7 +38,7 @@ impl OperationKind {
     }
 
     /// # Errors
-    /// `DomainError::InvalidOperationKind` se la stringa non è un tipo noto.
+    /// `DomainError::InvalidOperationKind` if the string isn't a known kind.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         match raw {
             "library_scan" => Ok(Self::LibraryScan),
@@ -52,10 +50,10 @@ impl OperationKind {
     }
 }
 
-/// **Ruling (Task 16): annullare a metà produce una riuscita parziale, non
-/// un rollback.** Non c'è uno stato "annullamento in corso" separato: il
-/// worker vede `cancel_requested` sulla riga, si ferma al prossimo elemento e
-/// scrive direttamente `Cancelled` — ciò che è già sul disco resta lì.
+/// **Cancelling midway produces a partial success, not a rollback.** There
+/// is no separate "cancelling" state: the worker sees `cancel_requested` on
+/// the row, stops at the next element, and writes `Cancelled` directly —
+/// whatever is already on disk stays there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationStatus {
@@ -82,8 +80,8 @@ impl OperationStatus {
     }
 
     /// # Errors
-    /// `DomainError::InvalidOperationStatus` se la stringa non è uno dei
-    /// quattro stati.
+    /// `DomainError::InvalidOperationStatus` if the string isn't one of the
+    /// four statuses.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         match raw {
             "running" => Ok(Self::Running),

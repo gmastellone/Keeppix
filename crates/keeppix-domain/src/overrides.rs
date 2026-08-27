@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Punto geografico WGS84, in gradi decimali — lo stesso sistema di
+/// WGS84 geographic point, in decimal degrees — the same system as
 /// `assets.location` (`geography(Point, 4326)`).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GeoPoint {
@@ -9,13 +9,12 @@ pub struct GeoPoint {
     pub lon: f64,
 }
 
-/// Modifica da applicare a `asset_overrides`. Ogni campo distingue "non
-/// toccare" da "azzera": `None` = lascia stare, `Some(None)` = azzera,
-/// `Some(Some(v))` = imposta. Un `Option<T>` da solo confonderebbe le due
-/// intenzioni — è esattamente il bug che l'annullamento con valore
-/// precedente `NULL` andrebbe a colpire senza questa distinzione. Le tre
-/// combinazioni sono deliberate: `clippy::option_option` è disattivato qui
-/// di proposito, non per pigrizia.
+/// A patch to apply to `asset_overrides`. Each field distinguishes "don't
+/// touch" from "clear": `None` = leave alone, `Some(None)` = clear,
+/// `Some(Some(v))` = set. A plain `Option<T>` alone would conflate these two
+/// intents — that's exactly the bug this distinction avoids when a previous
+/// value was `NULL`. The three combinations are deliberate:
+/// `clippy::option_option` is disabled here on purpose, not out of laziness.
 #[allow(clippy::option_option)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OverridePatch {
@@ -39,7 +38,7 @@ impl OverridePatch {
     }
 }
 
-/// La vista `COALESCE(override, exif)` mostrata all'utente (spec §3.2).
+/// The `COALESCE(override, exif)` view shown to the user.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EffectiveMetadata {
     pub title: Option<String>,

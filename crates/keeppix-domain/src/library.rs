@@ -9,9 +9,9 @@ use crate::ids::{FolderId, LibraryId, UserId};
 #[serde(rename_all = "snake_case")]
 pub enum LibraryStatus {
     Active,
-    /// Il percorso radice non è raggiungibile. In questo stato la scansione
-    /// si ferma e **nulla viene cancellato**: un disco non montato non è una
-    /// libreria svuotata.
+    /// The root path is unreachable. In this state scanning stops and
+    /// **nothing gets deleted**: an unmounted disk is not an emptied
+    /// library.
     Offline,
 }
 
@@ -22,15 +22,14 @@ pub struct Library {
     pub owner_id: UserId,
     pub root_path: PathBuf,
     pub scan_enabled: bool,
-    /// Interruttore del riconoscimento facciale per questa libreria (Fase 8
-    /// Task 10). Spento non rileva nulla — non "rileva ma non mostra".
+    /// Face recognition switch for this library. Off means nothing gets
+    /// detected — not "detects but doesn't show".
     pub faces_enabled: bool,
     pub exclude_patterns: Vec<String>,
-    /// Radice del culling a cartelle (Fase 9 Task 2), `NULL` finché il
-    /// proprietario non ne designa una nelle impostazioni della libreria.
-    /// Colonna esistente dalla migrazione 0044 (Fase 7 Task 5, che la legge
-    /// per escludere il sottoalbero dall'analisi IA) — mai esposta sul
-    /// dominio finché questa fase non ne aveva bisogno per davvero.
+    /// Root of the folder-based culling tree, `NULL` until the owner
+    /// designates one in the library settings. The column has existed since
+    /// migration 0044, which reads it to exclude the subtree from AI
+    /// analysis — never exposed on the domain until it was actually needed.
     pub culling_root_folder_id: Option<FolderId>,
     pub status: LibraryStatus,
     pub last_scan_at: Option<DateTime<Utc>>,

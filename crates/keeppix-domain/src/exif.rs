@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::GeoPoint;
 
-/// Metadati letti dalla testa del file. `raw` è immutabile una volta scritto.
+/// Metadata read from the file header. `raw` is immutable once written.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExifData {
     pub raw: serde_json::Value,

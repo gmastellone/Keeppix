@@ -12,11 +12,11 @@ const USERNAME_MAX: usize = 32;
 pub struct Username(String);
 
 impl Username {
-    /// Normalizza in minuscolo e valida lunghezza e alfabeto consentito.
+    /// Normalizes to lowercase and validates length and allowed alphabet.
     ///
     /// # Errors
-    /// Restituisce `DomainError::InvalidUsername` se fuori lunghezza o con
-    /// caratteri non ammessi.
+    /// Returns `DomainError::InvalidUsername` if out of length range or
+    /// containing disallowed characters.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         let normalised = raw.trim().to_lowercase();
 
@@ -68,8 +68,8 @@ pub struct User {
     pub locale: Option<String>,
     pub created_at: DateTime<Utc>,
     pub disabled_at: Option<DateTime<Utc>>,
-    /// Quando l'hash della password è stato scritto per l'ultima volta.
-    /// Alla creazione coincide con `created_at` (spec §61 «Ultima modifica»).
+    /// When the password hash was last written. At creation time it
+    /// coincides with `created_at`.
     pub password_changed_at: DateTime<Utc>,
 }
 
@@ -80,8 +80,8 @@ impl User {
     }
 }
 
-/// Dati necessari a creare un utente. La password arriva già come hash:
-/// il dominio non conosce l'algoritmo.
+/// Data needed to create a user. The password arrives already hashed: the
+/// domain doesn't know the algorithm.
 #[derive(Debug, Clone)]
 pub struct NewUser {
     pub username: Username,

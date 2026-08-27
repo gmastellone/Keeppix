@@ -1,11 +1,11 @@
-//! Volti, persone e gruppi di persone (Fase 8).
+//! Faces, people, and groups of people.
 //!
-//! Un volto (`Face`) è un rilevamento su UN asset: nasce senza persona,
-//! l'assegnazione arriva dal raggruppamento incrementale o da un umano. Una
-//! persona (`Person`) è un'identità che vive nel tempo attraverso più volti
-//! e più asset — distinta dai `groups` della Fase 3 (permessi utenti):
-//! `PersonGroup` raggruppa persone *fotografate*, non utenti che accedono
-//! alla galleria.
+//! A face (`Face`) is a detection on ONE asset: it's born without a person,
+//! and the assignment comes from incremental clustering or from a human. A
+//! person (`Person`) is an identity that persists over time across multiple
+//! faces and multiple assets — distinct from the `groups` used for user
+//! permissions: `PersonGroup` groups *photographed* people, not users who
+//! access the gallery.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::error::DomainError;
 use crate::ids::{AssetId, FaceId, PersonGroupId, PersonId, UserId};
 
-/// Riquadro del volto in coordinate RELATIVE (0..1): sopravvive a derivati
-/// di dimensione diversa senza ricalcolo (spec fase-8 §3).
+/// Face bounding box in RELATIVE coordinates (0..1): survives derivatives
+/// of a different size without recomputation.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct FaceBBox {
     pub x: f32,
@@ -30,21 +30,20 @@ pub struct Face {
     pub bbox: FaceBBox,
     pub landmarks: Option<serde_json::Value>,
     pub detect_score: f32,
-    /// Nitidezza/dimensione/posa: un volto sfocato di 20px non deve decidere
-    /// l'identità di un cluster (spec §3).
+    /// Sharpness/size/pose: a blurry 20px face must not decide a cluster's
+    /// identity.
     pub quality: Option<f32>,
     pub person_id: Option<PersonId>,
-    /// Decisione umana su QUESTO volto. `None` = l'automatismo può ancora
-    /// agire; una volta impostato non viene mai riassegnato da un ricalcolo
-    /// (spec §4.3).
+    /// Human decision on THIS face. `None` = the automation can still act;
+    /// once set, it is never reassigned by a recomputation.
     pub assigned_by: Option<UserId>,
     pub assigned_at: Option<DateTime<Utc>>,
-    /// Falso positivo dichiarato («non è un volto»): permanente, non
-    /// riproposto da nessuna rianalisi successiva.
+    /// Declared false positive ("not a face"): permanent, never re-proposed
+    /// by any later reanalysis.
     pub rejected_at: Option<DateTime<Utc>>,
-    /// Candidato del raggruppamento incrementale quando la distanza dal
-    /// centroide più vicino è dubbia (spec §4.1): non assegnato
-    /// (`person_id` resta `None`), ma proposto in coda di revisione.
+    /// Incremental clustering candidate when the distance to the nearest
+    /// centroid is uncertain: not assigned (`person_id` stays `None`), but
+    /// proposed in the review queue.
     pub proposed_person_id: Option<PersonId>,
     pub proposed_score: Option<f32>,
     pub model_version: String,
@@ -63,16 +62,16 @@ impl Face {
     }
 }
 
-/// Nome di una persona: se presente non può essere vuoto (Task 6 — il
-/// prototipo non lo controlla, difetto segnalato da non replicare).
+/// A person's name: if present, it cannot be blank (a defect flagged in an
+/// earlier prototype that didn't check this — not to be repeated).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PersonName(String);
 
 impl PersonName {
     /// # Errors
-    /// `DomainError::BlankPersonName` se, tolti gli spazi iniziali/finali,
-    /// la stringa è vuota.
+    /// `DomainError::BlankPersonName` if, after trimming leading/trailing
+    /// whitespace, the string is empty.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -95,12 +94,12 @@ impl PersonName {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Person {
     pub id: PersonId,
-    /// `None` = «Persona 4» con N foto è già utile (spec §3): il nome è
-    /// opzionale, non un placeholder generato lato server.
+    /// `None` = "Person 4" with N photos is already useful: the name is
+    /// optional, not a server-generated placeholder.
     pub name: Option<String>,
     pub cover_face_id: Option<FaceId>,
-    /// Per gli sconosciuti sullo sfondo che non interessano ma non sono
-    /// falsi positivi (spec §5).
+    /// For background strangers who aren't of interest but aren't false
+    /// positives either.
     pub hidden_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
@@ -120,9 +119,9 @@ pub struct PersonGroup {
     pub created_at: DateTime<Utc>,
 }
 
-/// Coppia di persone che un umano ha separato: l'automatismo non le riunisce
-/// mai più (spec §4.3) — è la tabella che distingue un sistema utilizzabile
-/// da uno frustrante.
+/// A pair of people a human has separated: the automation never reunites
+/// them again — this is the table that separates a usable system from a
+/// frustrating one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersonSeparation {
     pub person_a: PersonId,
@@ -132,9 +131,9 @@ pub struct PersonSeparation {
 }
 
 impl PersonSeparation {
-    /// Normalizza la coppia in modo che `person_a < person_b`, come richiede
-    /// il `CHECK` dello schema (spec §3): coppia non ordinata, memorizzata
-    /// sempre nello stesso verso.
+    /// Normalizes the pair so that `person_a < person_b`, as required by
+    /// the schema's `CHECK`: an unordered pair, always stored the same way
+    /// round.
     #[must_use]
     pub fn ordered(a: PersonId, b: PersonId) -> (PersonId, PersonId) {
         if a.as_uuid() < b.as_uuid() {

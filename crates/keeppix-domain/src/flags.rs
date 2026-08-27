@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::DomainError;
 
-/// Voto da 0 a 5 stelle. È **per utente**, non per asset (spec §4.1): il tuo
-/// 5 stelle non è il 5 stelle di tua moglie.
+/// Rating from 0 to 5 stars. It's **per user**, not per asset: your 5 stars
+/// isn't the same as your spouse's 5 stars.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Rating(u8);
@@ -12,7 +12,7 @@ impl Rating {
     pub const MAX: u8 = 5;
 
     /// # Errors
-    /// `DomainError::InvalidRating` se `raw` supera [`Self::MAX`].
+    /// `DomainError::InvalidRating` if `raw` exceeds [`Self::MAX`].
     pub fn parse(raw: u8) -> Result<Self, DomainError> {
         if raw > Self::MAX {
             return Err(DomainError::InvalidRating(raw));
@@ -26,12 +26,12 @@ impl Rating {
     }
 }
 
-/// Selezione di culling. Guida il filtro "scarti" e — dal Task 5 — la
-/// scrittura di `xmp:Label` (convenzione darktable).
+/// Culling selection. Drives the "rejects" filter and the writing of
+/// `xmp:Label` (darktable convention).
 ///
-/// `Pick::Pick` fa scattare `clippy::enum_variant_names` (il nome della
-/// variante coincide con quello dell'enum): è il nome di dominio richiesto
-/// dalla spec (`Pick::{None, Pick, Reject}`), non un refuso da rinominare.
+/// `Pick::Pick` triggers `clippy::enum_variant_names` (the variant name
+/// matches the enum name): it's the domain name the design calls for
+/// (`Pick::{None, Pick, Reject}`), not a typo to rename.
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -53,7 +53,7 @@ impl Pick {
     }
 
     /// # Errors
-    /// `DomainError::InvalidPick` se la stringa non è uno dei tre valori noti.
+    /// `DomainError::InvalidPick` if the string isn't one of the three known values.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         match raw {
             "none" => Ok(Self::None),
@@ -64,12 +64,12 @@ impl Pick {
     }
 }
 
-/// Flag di culling di **un** utente su un asset.
+/// Culling flags for **one** user on an asset.
 ///
-/// `favorite` è un asse **indipendente** da `pick` (spec fase-10 §7bis.1):
-/// non è un riuso di `Pick::Pick` con un altro nome. Scartare uno scatto nel
-/// culling (`pick = Reject`) non tocca `favorite`, e viceversa — sono due
-/// colonne separate, senza logica che le accoppi.
+/// `favorite` is an axis **independent** from `pick`: it isn't a reuse of
+/// `Pick::Pick` under another name. Rejecting a shot in culling
+/// (`pick = Reject`) doesn't touch `favorite`, and vice versa — they're two
+/// separate columns, with no logic coupling them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssetFlags {
     pub rating: Option<Rating>,

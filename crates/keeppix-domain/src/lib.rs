@@ -1,4 +1,4 @@
-//! Tipi ed entità pure di Keeppix. Nessun I/O, nessun SQL, nessuna rete.
+//! Keeppix's pure types and entities. No I/O, no SQL, no network.
 
 pub mod asset;
 pub mod auth;

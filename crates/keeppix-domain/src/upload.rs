@@ -1,7 +1,7 @@
-//! Sessioni di upload riprendibili in stile tus (spec §1). Il protocollo è
-//! nostro (non un crate tus): pre-check per hash, creazione con verifica di
-//! spazio e permessi, chunk con checksum, finalizzazione con verifica
-//! end-to-end e risoluzione di collisione sul nome.
+//! Resumable upload sessions, tus-style. The protocol is our own (not a tus
+//! crate): a hash pre-check, creation with space and permission checks,
+//! chunks with checksums, and finalization with end-to-end verification and
+//! name-collision resolution.
 
 use std::path::PathBuf;
 
@@ -9,9 +9,9 @@ use chrono::{DateTime, Utc};
 
 use crate::ids::{AssetId, FolderId, UploadSessionId, UserId};
 
-/// Chi possiede la sessione. Esattamente uno dei due — mai entrambi, mai
-/// nessuno — per il vincolo `upload_sessions_one_actor`: un upload
-/// appartiene a un utente autenticato oppure a un link condiviso con
+/// Who owns the session. Exactly one of the two — never both, never
+/// neither — per the `upload_sessions_one_actor` constraint: an upload
+/// belongs either to an authenticated user or to a share link with
 /// `allow_upload`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UploadOwner {
@@ -19,7 +19,7 @@ pub enum UploadOwner {
     ShareLink(uuid::Uuid),
 }
 
-/// Una sessione di upload tus in corso o completabile.
+/// A tus upload session that's in progress or completable.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UploadSession {
     pub id: UploadSessionId,
@@ -27,15 +27,15 @@ pub struct UploadSession {
     pub target_folder_id: FolderId,
     pub filename: String,
     pub expected_size: i64,
-    /// blake3 dichiarato dal client per il file intero. `None` se il client
-    /// non lo conosce in anticipo — la verifica end-to-end si salta, ma
-    /// quella di decodificabilità resta obbligatoria.
+    /// blake3 declared by the client for the whole file. `None` if the
+    /// client doesn't know it in advance — the end-to-end check is skipped,
+    /// but the decodability check remains mandatory.
     pub expected_hash: Option<[u8; 32]>,
     pub received_bytes: i64,
     pub temp_path: PathBuf,
-    /// `mtime` del file originale sul dispositivo del client, preservato
-    /// così una foto senza EXIF non perde la data reale — coerente con
-    /// l'invariante già esistente su `assets.mtime` come fallback di
+    /// `mtime` of the original file on the client's device, preserved so a
+    /// photo without EXIF doesn't lose its real date — consistent with the
+    /// existing invariant on `assets.mtime` as a fallback for
     /// `taken_at_utc`.
     pub client_mtime: Option<DateTime<Utc>>,
     pub expires_at: DateTime<Utc>,
@@ -49,9 +49,9 @@ impl UploadSession {
     }
 }
 
-/// Checksum blake3 di un singolo chunk (header `Upload-Checksum` del
-/// protocollo). Avvolge i 32 byte già decodificati: la codifica esadecimale
-/// che arriva sulla rete è un dettaglio del livello HTTP, non del dominio.
+/// blake3 checksum of a single chunk (the protocol's `Upload-Checksum`
+/// header). Wraps the already-decoded 32 bytes: the hex encoding that
+/// arrives over the network is an HTTP-layer detail, not a domain one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkChecksum(pub [u8; 32]);
 
@@ -67,18 +67,18 @@ impl ChunkChecksum {
     }
 }
 
-/// Esito della risoluzione di collisione a fine upload (spec §1.4): mai una
-/// sovrascrittura silenziosa.
+/// Outcome of collision resolution at the end of an upload: never a silent
+/// overwrite.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CollisionOutcome {
-    /// Nessuna collisione: l'asset è stato creato con il nome originale.
+    /// No collision: the asset was created with its original name.
     Created,
-    /// Stesso nome, stesso hash: il file caricato è un duplicato di uno già
-    /// presente nella cartella. Nessun secondo file, nessun nuovo asset —
-    /// `existing_asset_id` è quello già in libreria.
+    /// Same name, same hash: the uploaded file is a duplicate of one
+    /// already present in the folder. No second file, no new asset —
+    /// `existing_asset_id` is the one already in the library.
     SkippedDuplicate { existing_asset_id: AssetId },
-    /// Stesso nome, hash diverso: salvato con un suffisso numerico per non
-    /// sovrascrivere il file esistente.
+    /// Same name, different hash: saved with a numeric suffix so it doesn't
+    /// overwrite the existing file.
     RenamedTo(String),
 }
 

@@ -1,30 +1,27 @@
-//! Il motore delle formule di rinomina (Fase 9 Task 6-7, spec UI §62 "Dialog
-//! 'Rinomina con formula'"). Puro: nessuna lettura da disco o database —
-//! `crates/keeppix-db/src/rename.rs` (Task 8-9) collega questo motore a
-//! collisioni vere sul database, ambiti, e allo spostamento fisico.
-//! [`render_base`]/[`apply_base_to_filename`] esistono separati da
-//! [`render_filename`] proprio per il Task 8: i file affiancati di una
-//! pila (RAW + JPEG) prendono la stessa base, ciascuno con la propria
-//! estensione.
+//! The rename formula engine. Pure: no reads from disk or database —
+//! `crates/keeppix-db/src/rename.rs` connects this engine to real
+//! collisions on the database, scopes, and the physical move.
+//! [`render_base`]/[`apply_base_to_filename`] exist separately from
+//! [`render_filename`] precisely so that side-by-side files in a stack
+//! (RAW + JPEG) take the same base, each with its own extension.
 //!
-//! I sei segnaposto e il fallback a schema vuoto seguono esattamente
-//! `computeRenamedFilename`/`renameSlug` del prototipo (spec §62.3b). **Tre
-//! dei cinque difetti che la spec elenca esplicitamente per il prototipo**
-//! (§62.3d, Task 7 del piano) sono chiusi qui, non riprodotti: separatori
-//! orfani intorno a un valore mancante, caratteri illegali del filesystem
-//! oltre ai tre che il prototipo già sostituiva, e nessun limite di
-//! lunghezza. Gli altri due (collisione verificata anche fuori dal gruppo
-//! selezionato; `"Applica"` davvero disabilitato) non sono logica pura —
-//! il primo è Task 8/9 in `keeppix-db` (serve il database), il secondo è
-//! comportamento di interfaccia, Fase 11.
+//! The six placeholders and the empty-schema fallback follow exactly the
+//! `computeRenamedFilename`/`renameSlug` logic of an earlier prototype.
+//! **Three of the five defects that prototype had** are closed here, not
+//! reproduced: orphan separators around a missing value, illegal filesystem
+//! characters beyond the three the prototype already replaced, and no
+//! length limit. The other two (collision checked even outside the
+//! selected group; the "Apply" button actually disabled) aren't pure
+//! logic — the first needs the database (handled in `keeppix-db`), the
+//! second is UI behavior.
 
 use chrono::NaiveDate;
 
-/// I valori disponibili per una foto, già risolti (non slugificati: la
-/// slugificazione è responsabilità di questo modulo, non di chi chiama).
-/// `place` è già il risultato della precedenza posizione-foto →
-/// posizione-cartella → nome-lotto → niente ([`resolve_place_label`]) — chi
-/// costruisce questo valore lo fa con quella funzione, non a mano.
+/// The values available for a photo, already resolved (not slugified:
+/// slugification is this module's responsibility, not the caller's).
+/// `place` is already the result of the precedence photo-position →
+/// folder-position → lot-name → nothing ([`resolve_place_label`]) —
+/// whoever builds this value does it with that function, not by hand.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RenameValues {
     pub date: Option<NaiveDate>,
@@ -34,12 +31,11 @@ pub struct RenameValues {
     pub title: Option<String>,
 }
 
-/// Precedenza del "luogo" (Task 6, piano: "Il luogo si risolve con
-/// precedenza: posizione della foto → posizione della cartella → nome del
-/// lotto → niente"). Pura: le tre candidate arrivano già risolte da chi
-/// chiama (Task 7/8, che sa come leggere posizione della foto, posizione
-/// della cartella, e nome del lotto dal database) — questa funzione decide
-/// solo l'ordine, non come procurarsi i valori.
+/// Precedence of the "place" value: it resolves as photo position →
+/// folder position → lot name → nothing. Pure: the three candidates
+/// already arrive resolved from the caller (which knows how to read photo
+/// position, folder position, and lot name from the database) — this
+/// function only decides the order, not how to obtain the values.
 #[must_use]
 pub fn resolve_place_label(
     photo_position: Option<&str>,
@@ -52,27 +48,24 @@ pub fn resolve_place_label(
         .map(str::to_owned)
 }
 
-/// Limite reale di `NAME_MAX` su ext4 e sulla maggior parte dei filesystem
-/// POSIX (byte, non caratteri) — non una cifra scelta a caso: è il vincolo
-/// del filesystem stesso, verificato dal Task 7 (piano: "nessun controllo
-/// sulla lunghezza massima" era il quarto difetto elencato dalla spec).
+/// The real `NAME_MAX` limit on ext4 and most POSIX filesystems (bytes, not
+/// characters) — not an arbitrarily chosen number: it's the filesystem's
+/// own constraint. An earlier prototype had no length check at all.
 const MAX_FILENAME_BYTES: usize = 255;
 
-/// Ricompone il nome file secondo lo schema (spec §62.3b, punti 1-6), poi
-/// applica le tre correzioni del Task 7 (§62.3d) che il prototipo non ha:
-/// separatori orfani ripuliti, l'intero insieme dei caratteri illegali del
-/// filesystem sostituito (non solo `/\:`), lunghezza mai oltre
-/// [`MAX_FILENAME_BYTES`]. Nessuna validazione bloccante: qualunque schema
-/// produce un risultato, mai un errore — la spec è esplicita ("qualunque
-/// testo è accettato").
+/// Rebuilds the filename according to the schema, then applies three fixes
+/// an earlier prototype lacked: orphan separators cleaned up, the full set
+/// of illegal filesystem characters replaced (not just `/\:`), length
+/// never exceeding [`MAX_FILENAME_BYTES`]. No blocking validation: any
+/// schema produces a result, never an error — any text is accepted.
 ///
-/// `index` è 1-based (spec: "l'indice nell'elenco attivo + 1"): chi chiama
-/// passa già `posizione_nell_elenco + 1`, non un indice 0-based.
+/// `index` is 1-based: the caller already passes `position_in_list + 1`,
+/// not a 0-based index.
 ///
-/// Scompone in [`render_base`] + [`apply_base_to_filename`] per il caso
-/// del Task 8 (i file affiancati di una pila prendono lo stesso nome): la
-/// base va calcolata **una volta per pila**, non una volta per file, poi
-/// riattaccata all'estensione — diversa — di ciascun file affiancato.
+/// Split into [`render_base`] + [`apply_base_to_filename`] for the case of
+/// side-by-side files in a stack taking the same name: the base must be
+/// computed **once per stack**, not once per file, then reattached to each
+/// side-by-side file's own — different — extension.
 #[must_use]
 pub fn render_filename(
     schema: &str,
@@ -84,11 +77,11 @@ pub fn render_filename(
     apply_base_to_filename(&base, current_filename)
 }
 
-/// La parte calcolata dallo schema (spec §62.3b punti 2-5: segnaposto,
-/// contatore, pulizia separatori orfani, sanificazione), **senza**
-/// estensione — chi ha bisogno di applicare la stessa base a più file con
-/// estensioni diverse (Task 8: RAW e JPEG di una pila) chiama questa una
-/// volta sola, poi [`apply_base_to_filename`] per ciascun file.
+/// The part computed from the schema (placeholders, counter, orphan
+/// separator cleanup, sanitization), **without** an extension — whoever
+/// needs to apply the same base to multiple files with different
+/// extensions (RAW and JPEG of a stack) calls this once, then
+/// [`apply_base_to_filename`] for each file.
 #[must_use]
 pub fn render_base(schema: &str, values: &RenameValues, index: usize) -> String {
     let substituted = substitute_placeholders(schema, values, index);
@@ -96,11 +89,10 @@ pub fn render_base(schema: &str, values: &RenameValues, index: usize) -> String 
     sanitize(&collapsed)
 }
 
-/// Applica una base già calcolata (da [`render_base`]) al nome attuale di
-/// **un** file: fallback al nome attuale senza estensione se la base è
-/// vuota, taglio a [`MAX_FILENAME_BYTES`], estensione del file — la sua,
-/// non quella di un altro membro della stessa pila — riattaccata in
-/// maiuscolo.
+/// Applies an already-computed base (from [`render_base`]) to the current
+/// name of **one** file: falls back to the current name without extension
+/// if the base is empty, truncated to [`MAX_FILENAME_BYTES`], the file's
+/// own extension — not another stack member's — reattached in uppercase.
 #[must_use]
 pub fn apply_base_to_filename(computed_base: &str, current_filename: &str) -> String {
     let (stem, extension) = split_extension(current_filename);
@@ -117,21 +109,20 @@ pub fn apply_base_to_filename(computed_base: &str, current_filename: &str) -> St
     }
 }
 
-/// I caratteri considerati "separatore" ai fini della pulizia orfani —
-/// esattamente quelli che uno schema tipico usa fra segnaposto (`_`, `-`,
-/// spazio, `.`). Una run di due o più, in qualunque combinazione fra loro,
-/// è per costruzione l'effetto di un valore mancante fra due segnaposto
-/// adiacenti, mai un'intenzione dell'utente: nessuno schema reale ha
-/// bisogno di `__` letterale. — *Costo se sbagliato:* uno schema che
-/// contenesse davvero due separatori di fila apposta li vedrebbe
-/// compattati a uno; nessun caso reale osservato che lo richieda.
+/// The characters considered a "separator" for orphan-cleanup purposes —
+/// exactly the ones a typical schema uses between placeholders (`_`, `-`,
+/// space, `.`). A run of two or more, in any combination, is by
+/// construction the effect of a missing value between two adjacent
+/// placeholders, never the user's intent: no real schema needs a literal
+/// `__`. — *Cost if wrong:* a schema that deliberately contained two
+/// separators in a row would see them collapsed to one; no real case
+/// observed that needs this.
 const ORPHAN_SEPARATORS: &[char] = &['_', '-', ' ', '.'];
 
-/// Chiude il difetto 2 della spec (§62.3d): comprime ogni sequenza di due o
-/// più caratteri-separatore consecutivi in uno solo, poi rifila
-/// separatori orfani ai bordi (un segnaposto vuoto in testa o in coda allo
-/// schema lascia un solo separatore isolato, non una run — il rifilo ai
-/// bordi lo cattura comunque).
+/// Collapses every run of two or more consecutive separator characters
+/// into one, then trims orphan separators at the edges (an empty
+/// placeholder at the start or end of the schema leaves a single isolated
+/// separator, not a run — trimming the edges catches it anyway).
 fn collapse_orphan_separators(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut chars = value.chars().peekable();
@@ -149,12 +140,12 @@ fn collapse_orphan_separators(value: &str) -> String {
     out.trim_matches(ORPHAN_SEPARATORS).to_owned()
 }
 
-/// Chiude il difetto 4 della spec (§62.3d): tronca `base` così che
-/// `base + "." + ESTENSIONE` non superi mai [`MAX_FILENAME_BYTES`] byte —
-/// l'estensione non si tronca mai, solo la parte calcolata dallo schema.
-/// Rifila di nuovo i separatori orfani dopo il taglio: troncare a metà uno
-/// schema può lasciare un separatore esposto in coda (`"nome-"`), lo stesso
-/// difetto che [`collapse_orphan_separators`] chiude altrove.
+/// Truncates `base` so that `base + "." + EXTENSION` never exceeds
+/// [`MAX_FILENAME_BYTES`] bytes — the extension is never truncated, only
+/// the schema-computed part. Trims orphan separators again after
+/// truncation: cutting a schema mid-way can leave a trailing separator
+/// exposed (`"name-"`), the same defect [`collapse_orphan_separators`]
+/// closes elsewhere.
 fn cap_length(base: &str, extension: Option<&str>) -> String {
     let ext_len = extension.map_or(0, |ext| 1 + ext.len());
     let budget = MAX_FILENAME_BYTES.saturating_sub(ext_len);
@@ -163,9 +154,9 @@ fn cap_length(base: &str, extension: Option<&str>) -> String {
         .to_owned()
 }
 
-/// Il prefisso più lungo di `s` che sta in `budget` byte, tagliato su un
-/// confine di carattere valido — mai a metà di un carattere UTF-8
-/// multi-byte.
+/// The longest prefix of `s` that fits within `budget` bytes, cut on a
+/// valid character boundary — never in the middle of a multi-byte UTF-8
+/// character.
 fn truncate_to_byte_budget(s: &str, budget: usize) -> &str {
     if s.len() <= budget {
         return s;
@@ -177,10 +168,10 @@ fn truncate_to_byte_budget(s: &str, budget: usize) -> &str {
     &s[..end]
 }
 
-/// L'estensione (tutto dopo l'ultimo punto) e lo stem (tutto prima). Nessuna
-/// estensione se non c'è alcun punto — non previsto dalla spec (i nomi reali
-/// indicizzati da Keeppix ne hanno sempre una), gestito comunque senza
-/// panico: lo stem è l'intero nome, nessun punto finale nel risultato.
+/// The extension (everything after the last dot) and the stem (everything
+/// before). No extension if there's no dot at all — real filenames indexed
+/// by Keeppix always have one, but this is handled without panicking
+/// anyway: the stem is the whole name, no trailing dot in the result.
 fn split_extension(filename: &str) -> (&str, Option<&str>) {
     match filename.rsplit_once('.') {
         Some((stem, ext)) => (stem, Some(ext)),
@@ -188,12 +179,12 @@ fn split_extension(filename: &str) -> (&str, Option<&str>) {
     }
 }
 
-/// Sostituisce i cinque segnaposto testuali e il contatore, lasciando
-/// letterale qualunque `{...}` che non corrisponde esattamente a uno dei sei
-/// (spec: `{iso}` o `{Data}` maiuscolo "restano nel nome così come sono, non
-/// è un errore, non è segnalato"). Scansione lineare invece di un motore di
-/// regex: i segnaposto sono un insieme fisso e piccolo, non serve una nuova
-/// dipendenza in un crate che oggi non ne ha per il parsing di testo.
+/// Substitutes the five text placeholders and the counter, leaving any
+/// `{...}` that doesn't exactly match one of the six as a literal (e.g.
+/// `{iso}` or capitalized `{Data}` stay in the name exactly as written —
+/// not an error, not flagged). Linear scan instead of a regex engine: the
+/// placeholders are a small, fixed set, no need for a new dependency in a
+/// crate that doesn't otherwise parse text today.
 fn substitute_placeholders(schema: &str, values: &RenameValues, index: usize) -> String {
     let mut out = String::with_capacity(schema.len());
     let mut rest = schema;
@@ -211,14 +202,14 @@ fn substitute_placeholders(schema: &str, values: &RenameValues, index: usize) ->
     out
 }
 
-/// Un solo segnaposto riconosciuto all'inizio di `rest`, con quanti byte
-/// consuma — `None` se `rest` inizia per `{` ma non è nessuno dei sei (il
-/// chiamante allora copia solo il carattere `{` e prosegue, lasciando il
-/// resto letterale carattere per carattere, esattamente come una regex che
-/// non trova corrispondenza lascerebbe il testo intatto).
-/// Estrae il valore testuale (non ancora slugificato) di un segnaposto da
-/// [`RenameValues`] — alias per tenere la tabella di `match_token` sotto il
-/// tetto di complessità di tipo di clippy.
+/// A single placeholder recognized at the start of `rest`, along with how
+/// many bytes it consumes — `None` if `rest` starts with `{` but isn't one
+/// of the six (the caller then copies just the `{` character and moves on,
+/// leaving the rest of the text literal character by character, exactly
+/// like a regex that finds no match would leave the text untouched).
+/// Extracts the (not yet slugified) text value of a placeholder from
+/// [`RenameValues`] — an alias to keep `match_token`'s table under
+/// clippy's type-complexity ceiling.
 type FieldLookup = fn(&RenameValues) -> Option<&str>;
 
 fn match_token(rest: &str, values: &RenameValues, index: usize) -> Option<(String, usize)> {
@@ -243,11 +234,11 @@ fn match_token(rest: &str, values: &RenameValues, index: usize) -> Option<(Strin
     match_counter(rest, index)
 }
 
-/// `\{n(?::(\d+))?\}` — `{n}` senza riempimento, `{n:<cifre>}` con
-/// riempimento a zeri. Nessun altro carattere ammesso fra `n` e `}` (una `:`
-/// non seguita da cifre, o cifre non seguite da `}`, non è un contatore
-/// valido e non consuma nulla: resta letterale, coerente col resto della
-/// funzione).
+/// `\{n(?::(\d+))?\}` — `{n}` with no padding, `{n:<digits>}` with
+/// zero-padding. No other character allowed between `n` and `}` (a `:` not
+/// followed by digits, or digits not followed by `}`, is not a valid
+/// counter and consumes nothing: it stays literal, consistent with the
+/// rest of the function).
 fn match_counter(rest: &str, index: usize) -> Option<(String, usize)> {
     let after_n = rest.strip_prefix("{n")?;
     if after_n.starts_with('}') {
@@ -269,21 +260,20 @@ fn match_counter(rest: &str, index: usize) -> Option<(String, usize)> {
     Some((format!("{index:0width$}"), consumed))
 }
 
-/// `renameSlug` (spec §62.3b): rifila gli spazi ai bordi, elimina `.` e `,`,
-/// comprime ogni sequenza di spazi bianchi in un trattino. **Non** applicata
-/// a `{data}` — l'ISO `AAAA-MM-GG` non ha nulla da slugificare.
+/// `renameSlug`: trims whitespace at the edges, removes `.` and `,`,
+/// collapses every run of whitespace into a dash. **Not** applied to
+/// `{data}` — the ISO `YYYY-MM-DD` has nothing to slugify.
 fn slug(value: &str) -> String {
     collapse_whitespace(value.trim().chars().filter(|&c| c != '.' && c != ','), '-')
 }
 
-/// Sanificazione finale, applicata all'intera stringa dopo la sostituzione
-/// dei segnaposto, non ai singoli valori. Il prototipo (spec §62.3b punto 4)
-/// sostituiva solo `/`, `\`, `:`; il Task 7 (spec §62.3d, difetto 3) chiude
-/// il resto dell'elenco esplicito della spec — `*`, `?`, `"`, `<`, `>`, `|` —
-/// con la stessa regola invece di lasciarli passare. Ogni sequenza di spazi
-/// bianchi diventa **un solo spazio** (non un trattino: regola diversa da
-/// [`slug`], verificato riga per riga contro la spec); il risultato è
-/// rifilato ai bordi.
+/// Final sanitization, applied to the whole string after placeholder
+/// substitution, not to individual values. An earlier prototype only
+/// replaced `/`, `\`, `:`; this closes the rest of the explicit list of
+/// illegal characters — `*`, `?`, `"`, `<`, `>`, `|` — with the same rule
+/// instead of letting them through. Every run of whitespace becomes **a
+/// single space** (not a dash: a different rule from [`slug`]); the result
+/// is trimmed at the edges.
 fn sanitize(value: &str) -> String {
     let replaced = value.chars().map(|c| match c {
         '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
@@ -292,10 +282,10 @@ fn sanitize(value: &str) -> String {
     collapse_whitespace(replaced, ' ').trim().to_owned()
 }
 
-/// Comprime ogni sequenza di spazi bianchi consecutivi in un solo
-/// `separator` — condivisa da [`slug`] (trattino) e [`sanitize`] (spazio),
-/// stessa scansione lineare, unico punto che decide cosa conta come "spazio
-/// bianco" per entrambi.
+/// Collapses every run of consecutive whitespace into a single
+/// `separator` — shared by [`slug`] (dash) and [`sanitize`] (space), the
+/// same linear scan, the single place that decides what counts as
+/// "whitespace" for both.
 fn collapse_whitespace(chars: impl Iterator<Item = char>, separator: char) -> String {
     let mut out = String::new();
     let mut last_was_space = false;
@@ -368,8 +358,8 @@ mod tests {
 
     #[test]
     fn missing_value_disappears_without_orphaning_the_separators() {
-        // Il prototipo (spec §62.3b) produrrebbe "2026-08-14__001": il
-        // Task 7 (spec §62.3d, difetto 2) chiude esattamente questo caso.
+        // An earlier prototype would produce "2026-08-14__001": this
+        // closes exactly this case.
         let mut v = values();
         v.place = None;
         let got = render_filename("{data}_{luogo}_{n:3}", &v, 1, "a.jpg");
@@ -394,10 +384,9 @@ mod tests {
 
     #[test]
     fn a_genuine_double_separator_in_the_schema_is_still_collapsed() {
-        // Compromesso deliberato (Ruling nel ledger di Fase 9, Task 7): non
-        // si distingue un separatore doppio scritto apposta da uno lasciato
-        // orfano da un valore mancante — nessuno schema reale ha bisogno di
-        // `__` letterale.
+        // Deliberate trade-off: a double separator written on purpose
+        // isn't distinguished from one left orphaned by a missing value —
+        // no real schema needs a literal `__`.
         let got = render_filename("IMG__{n:3}", &values(), 1, "a.jpg");
         assert_eq!(got, "IMG_001.JPG");
     }
@@ -410,10 +399,10 @@ mod tests {
 
     #[test]
     fn a_schema_that_sanitizes_to_nothing_also_falls_back() {
-        // Solo spazi bianchi: la sanificazione finale li comprime in uno
-        // solo e poi rifila i bordi, lasciando la stringa vuota — stesso
-        // fallback dello schema vuoto (spec §62.3b punto 5). `/`/`\`/`:`
-        // NON producono questo caso: diventano `-`, non spariscono.
+        // Only whitespace: the final sanitization collapses it into one
+        // and then trims the edges, leaving an empty string — same
+        // fallback as an empty schema. `/`/`\`/`:` do NOT produce this
+        // case: they become `-`, they don't disappear.
         let got = render_filename("   \t  ", &values(), 1, "DSC08421.ARW");
         assert_eq!(got, "DSC08421.ARW");
     }
@@ -434,8 +423,9 @@ mod tests {
 
     #[test]
     fn date_is_not_slugified() {
-        // Se lo fosse, l'ISO AAAA-MM-GG non cambierebbe comunque aspetto:
-        // verifica esplicita che il ramo {data} non passi da slug().
+        // Even if it were, the ISO YYYY-MM-DD wouldn't change appearance
+        // anyway: this explicitly verifies that the {data} branch doesn't
+        // go through slug().
         let got = render_filename("{data}", &values(), 1, "a.jpg");
         assert_eq!(got, "2026-08-14.JPG");
     }
@@ -450,8 +440,8 @@ mod tests {
 
     #[test]
     fn the_remaining_illegal_filesystem_characters_are_now_sanitized_too() {
-        // Spec §62.3d, difetto 3: il prototipo non filtrava *, ?, ", <, >,
-        // | oltre a /\: — il Task 7 li chiude con la stessa regola.
+        // An earlier prototype didn't filter *, ?, ", <, >, | beyond /\: —
+        // this closes them with the same rule.
         let mut v = values();
         v.title = Some("A*B?C\"D<E>F|G".to_owned());
         let got = render_filename("{titolo}", &v, 1, "a.jpg");
@@ -465,21 +455,21 @@ mod tests {
         let got = render_filename("{titolo}", &v, 1, "a.jpg");
         assert!(
             got.len() <= 255,
-            "255 byte è NAME_MAX su ext4 e la maggior parte dei filesystem POSIX: {}",
+            "255 bytes is NAME_MAX on ext4 and most POSIX filesystems: {}",
             got.len()
         );
         assert_eq!(
             got.rsplit_once('.').map(|(_, ext)| ext),
             Some("JPG"),
-            "l'estensione non si tronca mai: {got}"
+            "the extension is never truncated: {got}"
         );
     }
 
     #[test]
     fn truncation_does_not_leave_a_trailing_separator() {
-        // Il budget per la base è 251 byte (255 - ".JPG"): un valore che
-        // mette un separatore esattamente al byte 251 non deve lasciarlo
-        // esposto in coda dopo il taglio.
+        // The budget for the base is 251 bytes (255 - ".JPG"): a value
+        // that places a separator exactly at byte 251 must not leave it
+        // exposed at the end after truncation.
         let mut v = values();
         v.title = Some(format!("{}_{}", "x".repeat(250), "y".repeat(10)));
         let got = render_filename("{titolo}", &v, 1, "a.jpg");
@@ -502,9 +492,9 @@ mod tests {
 
     #[test]
     fn stack_siblings_share_the_same_base_with_their_own_extension() {
-        // Task 8: RAW e JPEG di una stessa pila prendono lo stesso nome —
-        // una sola render_base per la pila, un apply_base_to_filename per
-        // ciascun file affiancato.
+        // RAW and JPEG of the same stack take the same name — one
+        // render_base call for the stack, one apply_base_to_filename call
+        // for each side-by-side file.
         let base = render_base("{data}_{titolo}_{n:3}", &values(), 1);
         let raw = apply_base_to_filename(&base, "DSC08421.arw");
         let jpeg = apply_base_to_filename(&base, "DSC08421.jpg");

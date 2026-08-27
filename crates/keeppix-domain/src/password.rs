@@ -7,12 +7,12 @@ use crate::error::DomainError;
 const PASSWORD_MIN: usize = 10;
 const PASSWORD_MAX: usize = 1024;
 
-// Parametri OWASP: 19 MiB di memoria, 2 iterazioni, parallelismo 1.
+// OWASP parameters: 19 MiB of memory, 2 iterations, parallelism 1.
 const ARGON_M_COST: u32 = 19_456;
 const ARGON_T_COST: u32 = 2;
 const ARGON_P_COST: u32 = 1;
 
-/// Password in chiaro, viva solo il tempo necessario a produrne l'hash.
+/// Plaintext password, alive only as long as needed to produce its hash.
 ///
 /// `ZeroizeOnDrop` clears the owned buffer. Prefer [`Password::parse_owned`]
 /// when the plaintext already lives in a `String` (e.g. after serde): that
@@ -24,7 +24,7 @@ pub struct Password(String);
 
 impl Password {
     /// # Errors
-    /// `DomainError::InvalidPassword` se fuori dai limiti di lunghezza.
+    /// `DomainError::InvalidPassword` if outside the length limits.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         Self::validate_len(raw)?;
         Ok(Self(raw.to_owned()))
@@ -35,7 +35,7 @@ impl Password {
     /// On validation failure the buffer is cleared before the error returns.
     ///
     /// # Errors
-    /// `DomainError::InvalidPassword` se fuori dai limiti di lunghezza.
+    /// `DomainError::InvalidPassword` if outside the length limits.
     pub fn parse_owned(mut raw: String) -> Result<Self, DomainError> {
         if let Err(err) = Self::validate_len(&raw) {
             raw.zeroize();
@@ -64,14 +64,14 @@ impl Password {
     }
 }
 
-// Impedisce che una password finisca nei log per distrazione.
+// Prevents a password from ending up in logs by accident.
 impl std::fmt::Debug for Password {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Password(***)")
     }
 }
 
-/// Hash PHC-encoded, pronto per la persistenza.
+/// PHC-encoded hash, ready for persistence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasswordHash(String);
 
@@ -94,7 +94,7 @@ fn argon2() -> Result<Argon2<'static>, DomainError> {
 }
 
 /// # Errors
-/// `DomainError::PasswordHashing` se i parametri o il generatore di sale falliscono.
+/// `DomainError::PasswordHashing` if the parameters or salt generator fail.
 pub fn hash_password(password: &Password) -> Result<PasswordHash, DomainError> {
     let salt = SaltString::generate(&mut OsRng);
     let hash = argon2()?
@@ -103,8 +103,8 @@ pub fn hash_password(password: &Password) -> Result<PasswordHash, DomainError> {
     Ok(PasswordHash(hash.to_string()))
 }
 
-/// Restituisce `false` — mai un errore — se l'hash memorizzato è illeggibile,
-/// così un record corrotto nega l'accesso invece di far esplodere il login.
+/// Returns `false` — never an error — if the stored hash is unreadable, so
+/// a corrupted record denies access instead of blowing up the login.
 #[must_use]
 pub fn verify_password(password: &Password, hash: &PasswordHash) -> bool {
     let Ok(parsed) = argon2::PasswordHash::new(hash.as_str()) else {
@@ -154,7 +154,7 @@ mod tests {
         assert_ne!(
             hash_password(&pw).unwrap().as_str(),
             hash_password(&pw).unwrap().as_str(),
-            "il salt deve essere casuale"
+            "the salt must be random"
         );
     }
 

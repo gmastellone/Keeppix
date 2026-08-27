@@ -60,13 +60,13 @@ id_type!(StackId);
 id_type!(TrashEntryId);
 id_type!(UploadSessionId);
 id_type!(OperationId);
-// `SessionId` identifica una famiglia di refresh token (`sessions.family_id`),
-// cioè un dispositivo/login dal punto di vista dell'utente: la stessa
-// identità attraversa ogni rotazione (`SessionRepo::rotate`) senza cambiare,
-// a differenza dell'id di riga (`sessions.id`), che cambia a ogni rotazione.
+// `SessionId` identifies a family of refresh tokens (`sessions.family_id`),
+// i.e. a device/login from the user's point of view: the same identity
+// persists across every rotation (`SessionRepo::rotate`) without changing,
+// unlike the row id (`sessions.id`), which changes on every rotation.
 id_type!(SessionId);
-// Fase 8 (volti): `FaceId` identifica un rilevamento su UN asset, `PersonId`
-// un'identità che vive nel tempo attraverso più asset e più rilevamenti.
+// `FaceId` identifies a detection on ONE asset, `PersonId` an identity that
+// persists over time across multiple assets and multiple detections.
 id_type!(FaceId);
 id_type!(PersonId);
 id_type!(PersonGroupId);

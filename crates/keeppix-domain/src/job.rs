@@ -26,18 +26,17 @@ pub enum JobKind {
     CleanupIdempotency,
     VacuumAnalyze,
     IntegrityScrub,
-    /// Fase 7: calcolo embeddings CLIP a lotto dalle miniature.
+    /// Batch computation of CLIP embeddings from thumbnails.
     EmbedAssets,
-    /// Fase 8: rilevamento `YuNet` + impronta `SFace` + raggruppamento
-    /// incrementale a lotto.
+    /// `YuNet` detection + `SFace` embedding + incremental batch clustering.
     DetectFaces,
-    /// Rinomina in blocco (Fase 9 Task 10) spostata in background — a
-    /// differenza della progettazione originale, che la teneva sincrona
-    /// dentro la richiesta HTTP perché "veloce, nessuna inferenza": un lotto
-    /// da migliaia di foto su storage lento resta comunque un blocco di
-    /// minuti senza modo di annullarlo. `operation_id` nella risposta HTTP
-    /// arriva subito (`202 Accepted`), come `LibraryScan`/`AiAnalysis`/
-    /// `FaceDetection` — non più un'eccezione di forma.
+    /// Bulk rename/move moved to run in the background — unlike the
+    /// original design, which kept it synchronous inside the HTTP request
+    /// because it was "fast, no inference": a batch of thousands of photos
+    /// on slow storage is still a multi-minute block with no way to cancel
+    /// it. `operation_id` arrives immediately in the HTTP response
+    /// (`202 Accepted`), same as `LibraryScan`/`AiAnalysis`/`FaceDetection`
+    /// — no longer a shape exception.
     BulkRename,
 }
 
@@ -72,7 +71,7 @@ impl JobKind {
     }
 
     /// # Errors
-    /// `DomainError::InvalidJobKind` se la stringa non è uno dei tipi noti.
+    /// `DomainError::InvalidJobKind` if the string isn't one of the known kinds.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         match raw {
             "discover_library" => Ok(Self::DiscoverLibrary),
@@ -124,7 +123,7 @@ impl JobStatus {
     }
 
     /// # Errors
-    /// `DomainError::InvalidJobStatus` se la stringa non è uno dei quattro stati.
+    /// `DomainError::InvalidJobStatus` if the string isn't one of the four statuses.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         match raw {
             "pending" => Ok(Self::Pending),
@@ -152,7 +151,7 @@ impl JobPriority {
     }
 
     /// # Errors
-    /// `DomainError::InvalidJobPriority` se il valore non è 0..=3.
+    /// `DomainError::InvalidJobPriority` if the value isn't in 0..=3.
     pub fn from_i16(raw: i16) -> Result<Self, DomainError> {
         match raw {
             0 => Ok(Self::Interactive),

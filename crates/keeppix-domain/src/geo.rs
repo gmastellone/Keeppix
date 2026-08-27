@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::GeoPoint;
 
-/// Località `GeoNames` indipendente da utenti e librerie.
+/// A `GeoNames` location, independent of users and libraries.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Place {
     pub id: i64,

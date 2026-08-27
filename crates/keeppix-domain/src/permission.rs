@@ -1,9 +1,9 @@
-//! Ruolo sull'oggetto, distinto dal ruolo di sistema (`admin` / `user`).
+//! Role on the object, distinct from the system role (`admin` / `user`).
 
 use serde::{Deserialize, Serialize};
 
-/// `viewer` o `editor`. L'`owner` non è un valore in `permissions`: è chi
-/// possiede la libreria. Vince il permesso più alto fra quelli applicabili.
+/// `viewer` or `editor`. `owner` is not a value in `permissions`: it's
+/// whoever owns the library. The highest applicable permission wins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ObjectRole {

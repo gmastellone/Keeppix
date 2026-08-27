@@ -5,8 +5,8 @@ use sha2::{Digest, Sha256};
 
 const TOKEN_BYTES: usize = 32;
 
-/// Token opaco di sessione. Il valore in chiaro esiste solo nel cookie del
-/// client; il database conserva soltanto `digest()`.
+/// Opaque session token. The plaintext value only exists in the client's
+/// cookie; the database only stores `digest()`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SessionToken(String);
 
@@ -28,7 +28,7 @@ impl SessionToken {
         &self.0
     }
 
-    /// SHA-256 del token. È ciò che finisce in `sessions.refresh_token_hash`.
+    /// SHA-256 of the token. This is what ends up in `sessions.refresh_token_hash`.
     #[must_use]
     pub fn digest(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
@@ -43,7 +43,7 @@ impl std::fmt::Debug for SessionToken {
     }
 }
 
-/// Token opaco per link pubblici. Stesso schema di `SessionToken`.
+/// Opaque token for public share links. Same scheme as `SessionToken`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ShareToken(String);
 
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn token_carries_at_least_256_bits() {
-        // 32 byte in base64url senza padding = 43 caratteri.
+        // 32 bytes in base64url without padding = 43 characters.
         assert_eq!(SessionToken::generate().as_str().len(), 43);
     }
 
@@ -118,7 +118,7 @@ mod tests {
         let rendered = format!("{t:?}");
         assert!(
             !rendered.contains(t.as_str()),
-            "il token non deve finire nei log"
+            "the token must not end up in logs"
         );
     }
 }

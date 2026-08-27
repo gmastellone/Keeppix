@@ -1,7 +1,7 @@
-//! App-password: credenziali dedicate per client non interattivi (`WebDAV`,
-//! Fase 5 Task 5+, spec fase-5-webdav-upload.md §2.1). Non è la password di
-//! login: nome, data di ultimo uso e revoca sono indipendenti per ciascuna,
-//! così un client `WebDAV` compromesso non porta via l'accesso all'account.
+//! App passwords: dedicated credentials for non-interactive clients
+//! (`WebDAV`). Not the login password: name, last-used date, and revocation
+//! are independent for each one, so a compromised `WebDAV` client doesn't
+//! carry away access to the account.
 
 use std::str::FromStr;
 
@@ -14,9 +14,9 @@ use uuid::Uuid;
 
 use crate::UserId;
 
-/// ID opaco di un'app-password. `#[serde(transparent)]` così axum estrae
-/// `Path<AppPasswordId>` dallo stesso `Uuid` in formato stringa che usano
-/// tutti gli altri id (vedi `crate::ids::id_type!`).
+/// Opaque ID for an app password. `#[serde(transparent)]` so axum extracts
+/// `Path<AppPasswordId>` from the same string-form `Uuid` that every other
+/// id uses (see `crate::ids::id_type!`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct AppPasswordId(Uuid);
@@ -57,10 +57,10 @@ impl FromStr for AppPasswordId {
     }
 }
 
-/// Il segreto in chiaro di un'app-password — esiste solo al momento della
-/// creazione, mai salvato nel database, mai serializzato dopo. 32 byte
-/// casuali codificati base64url, stesso schema di `SessionToken`/
-/// `ShareToken` in `crate::token`.
+/// The plaintext secret of an app password — exists only at creation time,
+/// never saved to the database, never serialized afterward. 32 random bytes
+/// encoded in base64url, same scheme as `SessionToken`/`ShareToken` in
+/// `crate::token`.
 pub struct AppPasswordSecret(String);
 
 impl AppPasswordSecret {
@@ -79,14 +79,14 @@ impl AppPasswordSecret {
     }
 }
 
-// Impedisce che un segreto finisca nei log per distrazione, come `Password`.
+// Prevents a secret from ending up in logs by accident, like `Password`.
 impl std::fmt::Debug for AppPasswordSecret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("AppPasswordSecret(***)")
     }
 }
 
-/// Metadati pubblici di un'app-password — mai il segreto, mai il suo hash.
+/// Public metadata for an app password — never the secret, never its hash.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppPasswordSummary {
     pub id: AppPasswordId,
@@ -110,8 +110,8 @@ mod tests {
 
     #[test]
     fn generated_secret_is_long_enough_to_pass_the_password_length_floor() {
-        // `Password::parse` richiede almeno 10 caratteri: un segreto troppo
-        // corto non potrebbe mai essere hashato da `hash_password`.
+        // `Password::parse` requires at least 10 characters: a secret that's
+        // too short could never be hashed by `hash_password`.
         assert!(AppPasswordSecret::generate().expose().chars().count() >= 10);
     }
 
@@ -121,7 +121,7 @@ mod tests {
         let rendered = format!("{secret:?}");
         assert!(
             !rendered.contains(secret.expose()),
-            "il segreto non deve finire nei log"
+            "the secret must not end up in logs"
         );
     }
 
@@ -129,6 +129,6 @@ mod tests {
     fn ids_are_time_ordered() {
         let a = AppPasswordId::new();
         let b = AppPasswordId::new();
-        assert!(a.as_uuid() < b.as_uuid(), "UUID v7 deve essere monotono");
+        assert!(a.as_uuid() < b.as_uuid(), "UUID v7 must be monotonic");
     }
 }

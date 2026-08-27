@@ -4,18 +4,18 @@ use serde::{Deserialize, Serialize};
 use crate::error::DomainError;
 use crate::ids::{AssetId, TrashEntryId, UserId};
 
-/// Le tre opzioni presentate ad ogni cancellazione (spec §6): nessun
-/// comportamento implicito, l'utente scelge sempre.
+/// The three options presented on every deletion: no implicit behavior, the
+/// user always chooses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiskAction {
-    /// Il file resta sul disco; l'asset sparisce dall'indice e tornerà alla
-    /// prossima scansione.
+    /// The file stays on disk; the asset disappears from the index and
+    /// will return on the next scan.
     Kept,
-    /// `rename()` in `.keeppix-trash/` dentro la stessa libreria. Recuperabile
-    /// per 30 giorni.
+    /// `rename()` into `.keeppix-trash/` within the same library.
+    /// Recoverable for 30 days.
     MovedToTrash,
-    /// Cancellazione dal disco. Irreversibile: solo owner e admin.
+    /// Deletion from disk. Irreversible: owner and admin only.
     Purged,
 }
 
@@ -30,7 +30,7 @@ impl DiskAction {
     }
 
     /// # Errors
-    /// `DomainError::InvalidDiskAction` se la stringa non è una delle tre.
+    /// `DomainError::InvalidDiskAction` if the string isn't one of the three.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         match raw {
             "kept" => Ok(Self::Kept),
@@ -41,9 +41,9 @@ impl DiskAction {
     }
 }
 
-/// Riga di audit/ripristino di un'azione di cancellazione (spec §6).
-/// `trash_path` è `Some` solo per [`DiskAction::MovedToTrash`]: è il posto
-/// da cui il ripristino e la pulizia dei 30 giorni riprendono il file.
+/// Audit/restore row for a deletion action. `trash_path` is `Some` only for
+/// [`DiskAction::MovedToTrash`]: it's the place from which restoration and
+/// the 30-day cleanup pick the file back up.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrashEntry {
     pub id: TrashEntryId,

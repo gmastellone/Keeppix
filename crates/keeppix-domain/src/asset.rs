@@ -16,21 +16,21 @@ pub enum AssetKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetStatus {
-    /// Trovato dal walker, nient'altro letto.
+    /// Found by the walker, nothing else read yet.
     Discovered,
-    /// Metadati letti e derivati generati.
+    /// Metadata read and derivatives generated.
     Indexed,
-    /// Il file non è più sul disco. Non è una cancellazione: se il disco
-    /// torna, l'asset torna con i suoi rating e album.
+    /// The file is no longer on disk. Not a deletion: if the disk comes
+    /// back, the asset comes back with its ratings and albums.
     Offline,
-    /// Illeggibile o corrotto. Compare nella pagina Problemi.
+    /// Unreadable or corrupted. Shows up on the Problems page.
     Error,
     Trashed,
 }
 
-/// Da dove arrivano le coordinate di un asset. Serve dalla Fase 4 in poi,
-/// ed è qui perché aggiungere una colonna a `assets` dopo l'indicizzazione
-/// di 200.000 righe costa molto più che prevederla.
+/// Where an asset's coordinates come from. It's here because adding a
+/// column to `assets` after indexing 200,000 rows costs a lot more than
+/// planning for it up front.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LocationSource {
@@ -54,16 +54,16 @@ impl LocationSource {
     }
 }
 
-/// Nome di file dentro una cartella. Rifiuta i separatori di percorso, così
-/// un nome non può mai far uscire dalla cartella che lo contiene.
+/// A filename inside a folder. Rejects path separators, so a name can never
+/// escape the folder that contains it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct AssetName(String);
 
 impl AssetName {
     /// # Errors
-    /// `DomainError::InvalidAssetName` se vuoto, se contiene `/`, `\` o un
-    /// byte nullo, o se è `.` / `..`.
+    /// `DomainError::InvalidAssetName` if empty, if it contains `/`, `\`, or
+    /// a null byte, or if it's `.` / `..`.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         let invalid = raw.is_empty()
             || raw.contains('/')
@@ -88,15 +88,15 @@ pub struct Asset {
     pub id: AssetId,
     pub folder_id: FolderId,
     pub filename: AssetName,
-    /// blake3. `None` finché la fase di hash non è passata.
+    /// blake3. `None` until the hashing step has run.
     pub content_hash: Option<[u8; 32]>,
     pub size_bytes: i64,
     pub mtime: DateTime<Utc>,
     pub inode: Option<i64>,
     pub kind: AssetKind,
     pub status: AssetStatus,
-    /// Data di scatto normalizzata in UTC. `None` finché gli EXIF non sono
-    /// stati letti; a quel punto si ripiega su `mtime` se il file non ne ha.
+    /// Capture date normalized to UTC. `None` until EXIF has been read; at
+    /// that point it falls back to `mtime` if the file has none.
     pub taken_at_utc: Option<DateTime<Utc>>,
     pub width: Option<i32>,
     pub height: Option<i32>,
@@ -104,8 +104,8 @@ pub struct Asset {
     pub created_at: DateTime<Utc>,
 }
 
-/// Ciò che il walker sa di un file appena trovato: nient'altro che quello
-/// che `stat()` restituisce.
+/// What the walker knows about a freshly found file: nothing more than
+/// what `stat()` returns.
 #[derive(Debug, Clone)]
 pub struct NewAsset {
     pub folder_id: FolderId,
