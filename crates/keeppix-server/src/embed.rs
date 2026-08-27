@@ -1,6 +1,6 @@
-//! Frontend incorporato nel binario: `frontend/dist` viene compilato dentro
-//! l'eseguibile a tempo di compilazione (`rust-embed`), così l'immagine
-//! Docker distribuisce un solo artefatto, senza un container Vite separato.
+//! Frontend embedded in the binary: `frontend/dist` is compiled into the
+//! executable at build time (`rust-embed`), so the Docker image ships a
+//! single artifact, without a separate Vite container.
 
 use axum::body::Body;
 use axum::http::{HeaderValue, StatusCode, Uri, header};
@@ -13,16 +13,15 @@ use rust_embed::Embed;
 #[folder = "$CARGO_MANIFEST_DIR/../../frontend/dist"]
 struct Assets;
 
-/// Serve un file incorporato oppure `index.html` come fallback SPA: il
-/// routing delle pagine è lato client (`vue-router`), quindi qualunque
-/// percorso non riconosciuto come asset deve comunque ricevere il documento
-/// che avvia l'applicazione.
+/// Serves an embedded file, or `index.html` as SPA fallback: page routing
+/// happens client-side (`vue-router`), so any path not recognized as an
+/// asset must still receive the document that boots the application.
 ///
-/// I percorsi API non arrivano qui nel binario reale: sono registrati prima
-/// nel router (vedi `mount`), quindi non cadono mai nel fallback. Il
-/// controllo su `api/` sotto è comunque difesa in profondità, non l'unico
-/// argine: se un giorno l'ordine delle rotte cambiasse, un client API non
-/// deve comunque ricevere HTML al posto di un 404 JSON.
+/// API paths never reach here in the real binary: they are registered
+/// earlier in the router (see `mount`), so they never fall through to the
+/// fallback. The check on `api/` below is still defense in depth, not the
+/// only safeguard: if the route order ever changed, an API client must
+/// still not receive HTML instead of a JSON 404.
 async fn serve(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
 
@@ -32,8 +31,8 @@ async fn serve(uri: Uri) -> Response {
 
     if let Some(file) = Assets::get(path) {
         let mime = mime_guess::from_path(path).first_or_octet_stream();
-        // I nomi dei bundle sotto `assets/` contengono l'hash del contenuto:
-        // sono immutabili, e possono essere cacheati per sempre.
+        // Bundle filenames under `assets/` contain a content hash: they are
+        // immutable, and can be cached forever.
         let cache = if path.starts_with("assets/") {
             "public, max-age=31536000, immutable"
         } else {
@@ -66,31 +65,31 @@ async fn serve(uri: Uri) -> Response {
     }
 }
 
-/// Aggiunge il fallback SPA a un router e vi applica gli strati comuni
-/// (header di sicurezza, compressione, tracing). Generica sullo stato `S`
-/// così che `mount_stateless()` possa essere `mount(Router::new())`: una
-/// sola implementazione dell'invariante sotto, esercitata sia dal binario
-/// reale (`S = AppState`, via `main.rs`) sia dai test senza database
-/// (`S = ()`), invece di due corpi di funzione separati che un refactor
-/// potrebbe far divergere senza che i test se ne accorgano.
+/// Adds the SPA fallback to a router and applies the common layers to it
+/// (security headers, compression, tracing). Generic over state `S` so that
+/// `mount_stateless()` can be `mount(Router::new())`: a single
+/// implementation of the invariant below, exercised both by the real binary
+/// (`S = AppState`, via `main.rs`) and by database-less tests (`S = ()`),
+/// instead of two separate function bodies that a refactor could let drift
+/// apart without the tests noticing.
 ///
-/// L'ordine conta: il fallback va impostato **prima** di
-/// `keeppix_api::with_common_layers`, non dopo. In axum 0.8 `.layer()`
-/// avvolge soltanto il fallback già presente al momento in cui viene
-/// chiamato — un fallback aggiunto in seguito uscirebbe senza CSP, che qui
-/// vorrebbe dire servire `index.html`, il documento che carica l'intera
-/// applicazione, senza `Content-Security-Policy` in produzione. Vedi il
-/// commento su `with_common_layers` in `keeppix-api` per i dettagli. Non
-/// riordinare.
+/// Order matters: the fallback must be set **before**
+/// `keeppix_api::with_common_layers`, not after. In axum 0.8, `.layer()`
+/// only wraps the fallback already present at the time it is called — a
+/// fallback added afterward would come out without CSP, which here would
+/// mean serving `index.html`, the document that loads the entire
+/// application, without `Content-Security-Policy` in production. See the
+/// comment on `with_common_layers` in `keeppix-api` for details. Do not
+/// reorder.
 pub fn mount<S: Clone + Send + Sync + 'static>(router: axum::Router<S>) -> axum::Router<S> {
     keeppix_api::with_common_layers(router.fallback(get(serve)))
 }
 
-/// Router senza stato, con lo stesso fallback SPA e gli stessi strati comuni
-/// di `mount`, per i test che non toccano il database. È letteralmente
-/// `mount` applicata a un router vuoto, non una seconda implementazione: i
-/// test che chiamano questa funzione esercitano lo stesso codice che
-/// `main.rs` mette in produzione.
+/// Stateless router, with the same SPA fallback and the same common layers
+/// as `mount`, for tests that don't touch the database. It is literally
+/// `mount` applied to an empty router, not a second implementation: tests
+/// that call this function exercise the same code that `main.rs` runs in
+/// production.
 pub fn mount_stateless() -> axum::Router {
     mount(axum::Router::new())
 }

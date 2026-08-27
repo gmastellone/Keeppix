@@ -1,49 +1,52 @@
-//! Asserzioni di test condivise fra i crate del workspace.
+//! Shared test assertions across the workspace crates.
 //!
-//! Esiste per una ragione meccanica: due binari di test in **crate diversi**
-//! non possono condividere codice se non attraverso un crate. Le asserzioni
-//! sugli header di sicurezza servivano a `keeppix-api` (rotte, 404, 405,
-//! documento `OpenAPI`) e a `keeppix-server` (fallback SPA), e ne esistevano
-//! **tre copie** testuali: tre posti da aggiornare quando la policy cambia,
-//! con la certezza statistica che uno resti indietro.
+//! It exists for a mechanical reason: two test binaries in **different
+//! crates** cannot share code except through a crate. The assertions on
+//! security headers were needed by `keeppix-api` (routes, 404, 405,
+//! `OpenAPI` document) and by `keeppix-server` (SPA fallback), and there
+//! used to be **three** textual copies: three places to update whenever the
+//! policy changes, with the statistical certainty that one would be left
+//! behind.
 //!
-//! Il tipo degli header è `http::HeaderMap`, che è lo stesso tipo che
-//! `axum::http` e `reqwest::header` ri-esportano: la stessa funzione serve sia
-//! i test che parlano HTTP con `reqwest` sia quelli che chiamano un `Router`
-//! con `oneshot`.
+//! The header type is `http::HeaderMap`, the same type that `axum::http`
+//! and `reqwest::header` re-export: the same function serves both the tests
+//! that speak HTTP via `reqwest` and those that call a `Router` with
+//! `oneshot`.
 
-// Il codice di test asserisce fallendo: `unwrap`/`expect` qui sono lo strumento,
-// non una dimenticanza.
+// Test code asserts by failing: `unwrap`/`expect` here are the tool, not an
+// oversight.
 #![allow(clippy::expect_used)]
 
 use http::HeaderMap;
 
-/// Policy attesa in `Content-Security-Policy`, direttiva per direttiva. Il
-/// confronto è per direttiva esatta, non `contains` sull'intero header:
-/// `default-src 'self' *` contiene `default-src 'self'` e non deve passare.
+/// Expected policy in `Content-Security-Policy`, directive by directive. The
+/// comparison is per exact directive, not a `contains` on the whole header:
+/// `default-src 'self' *` contains `default-src 'self'` and must not pass.
 const REQUIRED_CSP_DIRECTIVES: [&str; 5] = [
-    // Fondamento: tutto ciò che non è coperto da una direttiva specifica viene
-    // dall'origine stessa.
+    // Foundation: everything not covered by a specific directive comes from
+    // the origin itself.
     "default-src 'self'",
-    // La metà che conta: senza script inline, `'self'` è più forte di un nonce.
+    // The half that matters: without inline scripts, `'self'` is stronger
+    // than a nonce.
     "script-src 'self'",
-    // Anti-clickjacking. Sostituisce `X-Frame-Options`.
+    // Anti-clickjacking. Replaces `X-Frame-Options`.
     "frame-ancestors 'none'",
-    // Impedisce a un'iniezione di riscrivere la base dei percorsi relativi.
+    // Prevents an injection from rewriting the base for relative paths.
     "base-uri 'none'",
-    // Un form iniettato non può inviare le credenziali a un altro host.
+    // An injected form cannot submit credentials to another host.
     "form-action 'self'",
 ];
 
-/// Header di sicurezza attesi su **ogni** risposta, qualunque rotta la produca:
-/// una rotta esistente, il fallback 404, il fallback `405`, il fallback SPA o il
-/// documento `OpenAPI`. Sono applicati da `keeppix_api::with_common_layers`, e
-/// la trappola che questa asserzione difende è l'ordine di `.fallback(...)`
-/// rispetto ai `.layer(...)` (vedi il commento su quella funzione): sbagliarlo
-/// fa uscire proprio `index.html` senza CSP.
+/// Security headers expected on **every** response, whatever route produces
+/// it: an existing route, the 404 fallback, the `405` fallback, the SPA
+/// fallback, or the `OpenAPI` document. They are applied by
+/// `keeppix_api::with_common_layers`, and the trap this assertion guards
+/// against is the order of `.fallback(...)` relative to `.layer(...)` (see
+/// the comment on that function): getting it wrong makes `index.html`
+/// itself come out without CSP.
 ///
 /// # Panics
-/// Se un header manca o ha un valore diverso da quello atteso.
+/// If a header is missing or has a value different from the one expected.
 pub fn assert_security_headers(headers: &HeaderMap) {
     assert_eq!(
         headers
@@ -61,9 +64,10 @@ pub fn assert_security_headers(headers: &HeaderMap) {
             .expect("permissions-policy"),
         "camera=(), microphone=(), geolocation=()"
     );
-    // Spec §9.5 elenca HSTS fra gli header obbligatori. Un browser lo ignora
-    // quando arriva su HTTP, quindi l'header incondizionato non rompe l'uso in
-    // chiaro in LAN e vale dove c'è il proxy TLS.
+    // Spec §9.5 lists HSTS among the mandatory headers. A browser ignores it
+    // when it arrives over HTTP, so the unconditional header doesn't break
+    // plain-HTTP use on a LAN and is honored wherever there's a TLS proxy in
+    // front.
     assert_eq!(
         headers
             .get("strict-transport-security")
@@ -73,43 +77,43 @@ pub fn assert_security_headers(headers: &HeaderMap) {
     assert_content_security_policy(headers);
 }
 
-/// Verifica la **sostanza** della CSP, non la sua presenza. Le tre copie che
-/// questa funzione sostituisce facevano `assert!(csp.is_some())`: sostituire
-/// l'intera policy con `default-src *` lasciava la suite verde, cioè
-/// l'asserzione non asseriva niente. Qui una policy indebolita fa fallire i
-/// test.
+/// Verifies the **substance** of the CSP, not just its presence. The three
+/// copies this function replaces did `assert!(csp.is_some())`: replacing the
+/// entire policy with `default-src *` still left the suite green, i.e. the
+/// assertion asserted nothing. Here a weakened policy makes the tests fail.
 ///
 /// # Panics
-/// Se l'header manca, se una direttiva richiesta non c'è esattamente come
-/// scritta, o se ricompare una deroga `unsafe-*`.
+/// If the header is missing, if a required directive isn't present exactly
+/// as written, or if an `unsafe-*` exception reappears.
 pub fn assert_content_security_policy(headers: &HeaderMap) {
     let csp = headers
         .get("content-security-policy")
         .expect("content-security-policy")
         .to_str()
-        .expect("la CSP è ASCII");
+        .expect("CSP is ASCII");
 
     let directives: Vec<&str> = csp.split(';').map(str::trim).collect();
     for required in REQUIRED_CSP_DIRECTIVES {
         assert!(
             directives.contains(&required),
-            "la CSP non contiene la direttiva `{required}`: `{csp}`"
+            "CSP does not contain the directive `{required}`: `{csp}`"
         );
     }
 
-    // Nessuna deroga `unsafe-*` in **nessuna** direttiva. Su `script-src` è la
-    // proprietà che rende la policy efficace: senza di essa un'iniezione di
-    // `<script>` non esegue. Su `style-src` la deroga c'era, giustificata da un
-    // commento falso, e non serviva a niente: il bundle di Vite non ha stili
-    // inline (verificato su `dist/index.html`) e ciò che Vue imposta a runtime
-    // passa dal CSSOM, che la CSP non intercetta.
+    // No `unsafe-*` exception in **any** directive. On `script-src` this is
+    // the property that makes the policy effective: without it, a
+    // `<script>` injection won't execute. On `style-src` the exception used
+    // to be there, justified by a misleading comment, and served no
+    // purpose: the Vite bundle has no inline styles (verified against
+    // `dist/index.html`) and whatever Vue sets at runtime goes through the
+    // CSSOM, which CSP does not intercept.
     assert!(
         !csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"),
-        "la CSP non deve ammettere deroghe unsafe: `{csp}`"
+        "CSP must not allow unsafe exceptions: `{csp}`"
     );
     assert!(
         directives.iter().any(|d| d.starts_with("style-src")),
-        "style-src va dichiarata: senza di essa vale `default-src` e la \
-         rimozione di `unsafe-inline` non sarebbe osservabile: `{csp}`"
+        "style-src must be declared: without it, `default-src` applies and \
+         removing `unsafe-inline` would not be observable: `{csp}`"
     );
 }

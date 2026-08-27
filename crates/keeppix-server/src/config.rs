@@ -14,39 +14,43 @@ pub enum LogFormat {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Unica impostazione obbligatoria.
+    /// The only required setting.
     pub database_url: String,
     pub bind: SocketAddr,
     pub data_dir: PathBuf,
     pub db_max_connections: u32,
     pub session_ttl_secs: u64,
     pub log_format: LogFormat,
-    /// Origini ammesse per CORS e per la verifica dell'`Origin` sul WebSocket.
+    /// Allowed origins for CORS and for verifying the WebSocket `Origin`.
     pub allowed_origins: Vec<String>,
-    /// Radici sotto cui può vivere una libreria (`KEEPPIX_LIBRARY_ROOTS`).
-    /// Un `root_path` fuori da queste → `422 keeppix/path-not-allowed`.
+    /// Roots under which a library may live (`KEEPPIX_LIBRARY_ROOTS`).
+    /// A `root_path` outside these roots → `422 keeppix/path-not-allowed`.
     pub library_roots: Vec<PathBuf>,
-    /// Intervallo del watcher in modo polling (`KEEPPIX_WATCH_POLL_SECS`).
-    /// Default 15 minuti: su un Pi non si vuole una riscansione continua.
+    /// Watcher interval in polling mode (`KEEPPIX_WATCH_POLL_SECS`).
+    /// Default 15 minutes: continuous rescanning is not something you want
+    /// on a Pi.
     pub watch_poll_secs: u64,
-    /// Qualità WebP con perdita dei derivati (`KEEPPIX_WEBP_QUALITY`).
-    /// Default 82: sotto 75 si vede, sopra 88 si paga per poco.
+    /// Lossy WebP quality for derivatives (`KEEPPIX_WEBP_QUALITY`).
+    /// Default 82: below 75 the loss is visible, above 88 you're paying for
+    /// little gain.
     pub webp_quality: u8,
-    /// Metodo libwebp 0–6 (`KEEPPIX_WEBP_METHOD`). 0 è veloce e più
-    /// grosso; 4 è lento. Default 2: in release ~2× più veloce di 4 con
-    /// ~3% in più di peso, rapporto derivati ancora sotto l'1%.
+    /// libwebp method 0-6 (`KEEPPIX_WEBP_METHOD`). 0 is fast and produces
+    /// larger files; 4 is slow. Default 2: in release builds roughly 2x
+    /// faster than 4 with about 3% more weight, with the derivative ratio
+    /// still under 1%.
     pub webp_method: u8,
-    /// Tetto della cache dei derivati `full` pigri (`KEEPPIX_FULL_CACHE_BYTES`).
+    /// Cap on the lazy `full`-size derivative cache (`KEEPPIX_FULL_CACHE_BYTES`).
     pub full_cache_bytes: u64,
-    /// Giorni prima che il cestino si svuoti da solo (`KEEPPIX_TRASH_RETENTION_DAYS`).
+    /// Days before the trash empties itself (`KEEPPIX_TRASH_RETENTION_DAYS`).
     pub trash_retention_days: i64,
-    /// Nome mostrato nel Profilo (§61, `KEEPPIX_SERVER_NAME`): «account su
-    /// questo server Keeppix». Puramente cosmetico, nessun altro comportamento
-    /// dipende da questo valore.
+    /// Name shown in the Profile (`KEEPPIX_SERVER_NAME`): "account on this
+    /// Keeppix server". Purely cosmetic, no other behavior depends on this
+    /// value.
     pub server_name: String,
 }
 
-/// Valori usati quando né l'ambiente né il file dicono nulla.
+/// Values used when neither the environment nor the config file say
+/// anything.
 #[derive(Debug, Serialize)]
 struct Defaults {
     bind: SocketAddr,
@@ -85,10 +89,11 @@ impl Default for Defaults {
 }
 
 impl Config {
-    /// Precedenza: variabili d'ambiente → file toml → default.
+    /// Precedence: environment variables → toml file → defaults.
     ///
     /// # Errors
-    /// Se `DATABASE_URL` manca o se un valore non è del tipo atteso.
+    /// If `DATABASE_URL` is missing, or if a value isn't of the expected
+    /// type.
     pub fn load(config_path: Option<&Path>) -> Result<Self, anyhow::Error> {
         let mut figment = Figment::from(Serialized::defaults(Defaults::default()));
 
@@ -99,17 +104,19 @@ impl Config {
         }
 
         let figment = figment
-            // `split(",")` così `KEEPPIX_LIBRARY_ROOTS=/photos,/data/extra`
-            // (e `allowed_origins`) diventano liste senza JSON.
+            // `split(",")` so that `KEEPPIX_LIBRARY_ROOTS=/photos,/data/extra`
+            // (and `allowed_origins`) become lists without needing JSON.
             .merge(Env::prefixed("KEEPPIX_").split(","))
-            // `DATABASE_URL` senza prefisso: è la convenzione attesa da chiunque.
+            // `DATABASE_URL` without a prefix: it's the convention every
+            // operator expects.
             .merge(Env::raw().only(&["DATABASE_URL"]));
 
         figment.extract().map_err(|e| {
             if e.to_string().contains("database_url") {
-                // Messaggio interamente in inglese: è un errore di avvio
-                // rivolto all'operatore, e la localizzazione è compito del
-                // frontend. `es.` era italiano in una frase inglese.
+                // Message entirely in English: this is a startup error
+                // aimed at the operator, and localization is the frontend's
+                // job. Watch for stray non-English words creeping into this
+                // string, as has happened before.
                 anyhow::anyhow!("DATABASE_URL is required (e.g. postgres://user:pw@host/keeppix)")
             } else {
                 anyhow::Error::new(e)

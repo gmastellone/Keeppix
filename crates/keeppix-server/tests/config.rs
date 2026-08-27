@@ -3,23 +3,24 @@ use std::io::Write as _;
 use keeppix_server::config::{Config, LogFormat};
 use serial_test::serial;
 
-/// I test manipolano variabili d'ambiente di processo: vanno eseguiti in serie
-/// fra loro, non con l'intera suite — ogni test qui sotto ha `#[serial]`,
-/// non serve più `cargo test -- --test-threads=1` sul workspace intero.
+/// The tests manipulate process environment variables: they must run
+/// serially with each other, not with the whole suite — every test below
+/// has `#[serial]`, so `cargo test -- --test-threads=1` on the whole
+/// workspace is no longer needed.
 ///
-/// L'elenco non è scritto a mano. `Config::load` legge `Env::prefixed("KEEPPIX_")`
-/// più `DATABASE_URL`, cioè **qualunque** variabile con quel prefisso: la
-/// versione precedente ne azzerava quattro delle sette che la configurazione
-/// prevede oggi, e ogni campo aggiunto in Fase 1 avrebbe allargato il buco.
-/// Derivarlo dall'ambiente invece che da un elenco lo rende impossibile da
-/// lasciare indietro.
+/// The list isn't written by hand. `Config::load` reads
+/// `Env::prefixed("KEEPPIX_")` plus `DATABASE_URL`, i.e. **any** variable
+/// with that prefix: a previous version cleared only four of the seven
+/// fields the configuration has today, and every field added later would
+/// have widened the hole. Deriving the list from the environment instead of
+/// hardcoding it makes it impossible to leave one behind.
 fn clear_env() {
     let leaked: Vec<String> = std::env::vars()
         .map(|(key, _)| key)
-        // `KEEPPIX_TEST_*` non è configurazione del server ma dell'harness
-        // (vedi R9): `Config` la ignora come campo sconosciuto, e cancellarla
-        // romperebbe i test di integrazione se un giorno finissero in questo
-        // stesso binario.
+        // `KEEPPIX_TEST_*` isn't server configuration but harness
+        // configuration (see R9): `Config` ignores it as an unknown field,
+        // and clearing it would break integration tests if they ever ended
+        // up in this same binary.
         .filter(|key| {
             (key.starts_with("KEEPPIX_") && !key.starts_with("KEEPPIX_TEST_"))
                 || key == "DATABASE_URL"
@@ -37,7 +38,7 @@ fn database_url_is_required() {
     clear_env();
     assert!(
         Config::load(None).is_err(),
-        "senza DATABASE_URL il caricamento fallisce"
+        "loading fails without DATABASE_URL"
     );
 }
 
@@ -61,31 +62,31 @@ fn defaults_are_applied() {
     assert_eq!(
         cfg.watch_poll_secs,
         15 * 60,
-        "default KEEPPIX_WATCH_POLL_SECS: 15 min, sostenibile su un Pi"
+        "default KEEPPIX_WATCH_POLL_SECS: 15 min, sustainable on a Pi"
     );
     assert_eq!(
         cfg.webp_quality,
         keeppix_jobs::DEFAULT_WEBP_QUALITY,
-        "default KEEPPIX_WEBP_QUALITY: 82, visibile a schermo e piccolo sul Pi"
+        "default KEEPPIX_WEBP_QUALITY: 82, visually acceptable and small on a Pi"
     );
     assert_eq!(
         cfg.webp_method,
         keeppix_jobs::DEFAULT_WEBP_METHOD,
-        "default KEEPPIX_WEBP_METHOD: 2, ~2× più veloce di 4 con peso quasi uguale"
+        "default KEEPPIX_WEBP_METHOD: 2, ~2x faster than 4 with nearly the same size"
     );
     assert_eq!(
         cfg.full_cache_bytes,
         keeppix_jobs::DEFAULT_FULL_CACHE_BYTES,
-        "default KEEPPIX_FULL_CACHE_BYTES: 512 MiB, una sessione di culling"
+        "default KEEPPIX_FULL_CACHE_BYTES: 512 MiB, one culling session"
     );
     assert_eq!(
         cfg.trash_retention_days,
         keeppix_db::TRASH_RETENTION_DAYS,
-        "default KEEPPIX_TRASH_RETENTION_DAYS: 30, la finestra dichiarata all'utente"
+        "default KEEPPIX_TRASH_RETENTION_DAYS: 30, the window declared to the user"
     );
     assert_eq!(
         cfg.server_name, "Keeppix",
-        "default KEEPPIX_SERVER_NAME: il nome di marca, senza personalizzazione"
+        "default KEEPPIX_SERVER_NAME: the brand name, unmodified"
     );
 }
 
@@ -103,10 +104,10 @@ fn environment_overrides_the_file() {
     unsafe { std::env::set_var("KEEPPIX_BIND", "0.0.0.0:2222") };
 
     let cfg = Config::load(Some(&path)).unwrap();
-    assert_eq!(cfg.bind.port(), 2222, "l'ambiente vince sul file");
+    assert_eq!(cfg.bind.port(), 2222, "the environment wins over the file");
     assert_eq!(
         cfg.database_url, "postgres://from-file/keeppix",
-        "il file vince sul default"
+        "the file wins over the default"
     );
 }
 
