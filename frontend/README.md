@@ -1,5 +1,14 @@
-# Vue 3 + TypeScript + Vite
+# Keeppix frontend
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Vue 3 + TypeScript + Vite. Built output is embedded into the Rust binary at compile time via
+`rust-embed` — see the root [`README.md`](../README.md) for the full build and development flow.
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+```bash
+npm ci
+npm run dev     # dev server, proxies API calls to :5673
+npm run build   # required before `cargo build`/`cargo run` on the backend
+```
+
+Initial bundle budget: 150 KB gzip, checked in CI (`npm run build` reports the size). Lazy
+per-route chunks are outside that budget. See [`../CONTRIBUTING.md`](../CONTRIBUTING.md) for the
+full frontend conventions (i18n key parity, no hardcoded user-facing strings, component structure).
