@@ -64,7 +64,7 @@ fn default_webp_quality_is_eighty_two() {
         "the default must be documented for the operator"
     );
     assert!(
-        deploy.contains("| `82` | Qualità WebP"),
+        deploy.contains("| `82` | WebP quality"),
         "DEPLOY.md must cite the default of 82"
     );
 }

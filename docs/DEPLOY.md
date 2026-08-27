@@ -1,31 +1,31 @@
-# Installazione
+# Installation
 
-## Requisiti
+## Requirements
 
-- Docker 24+ con Compose v2.20+ (serve per `depends_on: … required: false`,
-  usato per rendere opzionale il servizio `db`)
-- PostgreSQL 17 con PostGIS 3.5 (incluso, oppure esterno)
-- 2 GB di RAM liberi, architettura `amd64` o `arm64`
+- Docker 24+ with Compose v2.20+ (needed for `depends_on: … required: false`,
+  used to make the `db` service optional)
+- PostgreSQL 17 with PostGIS 3.5 (bundled, or external)
+- 2 GB of free RAM, `amd64` or `arm64` architecture
 
-L'immagine include `dcraw_emu` (pacchetto Debian `libraw-bin`) con le sue
-librerie — `libraw`, `liblcms2`, `libjpeg`, `libgomp` — in
-`/usr/local/lib/keeppix`, raggiunte via `LD_LIBRARY_PATH`. Serve al demosaic
-dei RAW: senza, le fotocamere che incorporano anteprime piccole non
-otterrebbero miniature, e lo zoom a piena risoluzione nel culling
-risponderebbe `503 keeppix/full-unavailable`. Costa ~4 MB sull'immagine.
+The image includes `dcraw_emu` (Debian package `libraw-bin`) along with its
+libraries — `libraw`, `liblcms2`, `libjpeg`, `libgomp` — in
+`/usr/local/lib/keeppix`, reached via `LD_LIBRARY_PATH`. It's needed for RAW
+demosaicing: without it, cameras that embed small previews wouldn't get
+thumbnails, and full-resolution zoom in culling would respond with
+`503 keeppix/full-unavailable`. It costs ~4 MB on the image.
 
-Chi ricostruisce l'immagine per conto proprio, o la ricompone su una base
-diversa da quella del `Dockerfile`, deve portarsi dietro quel binario: gira
-sempre in un processo separato con `rlimit`, mai dentro il processo di
-Keeppix.
+Anyone who rebuilds the image themselves, or recomposes it on a base
+different from the one in the `Dockerfile`, must bring that binary along: it
+always runs in a separate process with `rlimit`, never inside the Keeppix
+process.
 
-## Avvio con tutto incluso
+## Starting with everything bundled
 
-`docker compose` legge automaticamente un file `.env` nella stessa cartella
-di `compose.yaml`: usalo per non dover reimpostare la password a ogni
-sessione di shell (un `export` vale solo per il terminale corrente — se lo
-richiudi, un `docker compose up` successivo ricadrebbe sul valore
-predefinito `changeme`, incompatibile con la password già scritta dentro
+`docker compose` automatically reads a `.env` file in the same folder as
+`compose.yaml`: use it so you don't have to reset the password every shell
+session (an `export` only applies to the current terminal — if you close
+it, a subsequent `docker compose up` would fall back to the default value
+`changeme`, incompatible with the password already written inside
 `./pgdata`).
 
 ```bash
@@ -33,96 +33,98 @@ echo "DB_PASSWORD=$(openssl rand -base64 24)" > .env
 docker compose --profile bundled up -d
 ```
 
-Aprire http://127.0.0.1:5673 e completare la creazione dell'amministratore.
+Open http://127.0.0.1:5673 and complete the administrator setup.
 
-## Avvio con un Postgres già esistente
+## Starting with an existing Postgres
 
-Il database deve avere l'estensione PostGIS disponibile. Impostare
-`DATABASE_URL` (in `.env` o nella shell) e omettere il profilo:
+The database must have the PostGIS extension available. Set
+`DATABASE_URL` (in `.env` or in the shell) and omit the profile:
 
 ```bash
-echo "DATABASE_URL=postgres://utente:password@mio-host:5432/keeppix" > .env
+echo "DATABASE_URL=postgres://user:password@my-host:5432/keeppix" > .env
 docker compose up -d
 ```
 
-`compose.yaml` fa vincere `DATABASE_URL`, quando è impostata, sul valore
-costruito per il servizio `db` bundled; il servizio `db` comunque non verrà
-avviato, perché appartiene al profilo `bundled` che qui non è passato a
-`docker compose`.
+`compose.yaml` makes `DATABASE_URL`, when set, win over the value built for
+the bundled `db` service; the `db` service still won't start, because it
+belongs to the `bundled` profile, which isn't passed to `docker compose`
+here.
 
-### pgvector (ricerca semantica e tag automatici)
+### pgvector (semantic search and automatic tags)
 
-Il Postgres bundled (`Dockerfile.db`, profilo `bundled`) include già
-**pgvector** insieme a PostGIS. La migrazione dello schema AI abilita
-`CREATE EXTENSION vector` e crea le tabelle. Con un Postgres esterno,
-installa il pacchetto della tua distribuzione per la major version in uso
-(es. `postgresql-17-pgvector` su Debian/Ubuntu) **prima** di avviare
-Keeppix con quella migrazione; altrimenti lo schema AI non viene creato
-(la galleria parte lo stesso) e all'avvio compare un avviso con:
+The bundled Postgres (`Dockerfile.db`, `bundled` profile) already includes
+**pgvector** alongside PostGIS. The AI schema migration enables
+`CREATE EXTENSION vector` and creates the tables. With an external
+Postgres, install your distribution's package for the major version in use
+(e.g. `postgresql-17-pgvector` on Debian/Ubuntu) **before** starting
+Keeppix with that migration; otherwise the AI schema won't be created (the
+gallery still starts fine) and a warning appears at startup with:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-Se installi pgvector **dopo** il primo avvio (migrazione già applicata come
-no-op), riesegui il DDL dello schema AI da
-`crates/keeppix-db/migrations/0043_ai_embeddings_tags.sql` a mano, oppure
-ripristina da un backup preso con l'estensione già presente.
+If you install pgvector **after** the first startup (migration already
+applied as a no-op), rerun the AI schema DDL from
+`crates/keeppix-db/migrations/0043_ai_embeddings_tags.sql` by hand, or
+restore from a backup taken with the extension already present.
 
-Se l'estensione **non** è installata, Keeppix **parte lo stesso**: galleria,
-upload e il resto funzionano; le funzioni AI restano spente. Non è un errore
-di configurazione bloccante.
+If the extension is **not** installed, Keeppix **starts anyway**: gallery,
+upload, and everything else work; AI features remain off. It's not a
+blocking configuration error.
 
-Attenzione se nella stessa cartella esiste già un `.env` usato per lo
-sviluppo locale (copiato da `.env.example` per `cargo run`): Compose legge
-lo stesso file, e se quel `.env` contiene un `DATABASE_URL` puntato a
-`localhost` questa sezione userebbe quel valore anche per lo stack bundled
-— dentro al container `localhost` è il suo stesso loopback, non l'host, e
-la connessione fallirebbe. In quel caso usa un file `.env` diverso (per
-esempio con `docker compose --env-file .env.docker …`) o esporta
-`DATABASE_URL` solo nella shell da cui lanci `docker compose`.
+Watch out if a `.env` used for local development (copied from
+`.env.example` for `cargo run`) already exists in the same folder: Compose
+reads that same file, and if that `.env` contains a `DATABASE_URL` pointing
+to `localhost`, this section would use that value for the bundled stack too
+— inside the container, `localhost` is its own loopback, not the host, and
+the connection would fail. In that case use a different `.env` file (for
+example with `docker compose --env-file .env.docker …`) or export
+`DATABASE_URL` only in the shell from which you launch `docker compose`.
 
-## Variabili d'ambiente
+## Environment variables
 
-| Variabile | Predefinito | Descrizione |
+| Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | — | **Obbligatoria.** Stringa di connessione a Postgres |
-| `KEEPPIX_BIND` | `0.0.0.0:5673` | Indirizzo e porta di ascolto |
-| `KEEPPIX_DATA_DIR` | `/data` | Derivati, mappe, backup, `config.toml` |
-| `KEEPPIX_DB_MAX_CONNECTIONS` | `10` | Dimensione del pool |
-| `KEEPPIX_SESSION_TTL_SECS` | `2592000` | Durata della sessione (30 giorni) |
-| `KEEPPIX_LOG_FORMAT` | `json` | `json` o `pretty` |
-| `KEEPPIX_ALLOWED_ORIGINS` | `[]` | Origini ammesse, es. `["https://foto.example.com"]` |
-| `KEEPPIX_WATCH_POLL_SECS` | `900` | Intervallo del watcher in modo polling (15 min) |
-| `KEEPPIX_WEBP_QUALITY` | `82` | Qualità WebP con perdita dei derivati (1–100). Sotto 75 si inizia a vedere; sopra 88 si paga per una differenza invisibile. Miniatura e anteprima usano lo stesso valore. |
-| `KEEPPIX_WEBP_METHOD` | `2` | Effort di encode libwebp (0–6). 0 è veloce e più grosso; 4 è il default dell'API semplice (~2× più lento). 2 tiene il rapporto derivati sotto l'1%. |
-| `KEEPPIX_FULL_CACHE_BYTES` | `536870912` | Tetto della cache dei derivati `full` (piena risoluzione, generati al primo zoom). Default 512 MiB. Senza tetto la cache crescerebbe come il cestino che non si svuota. |
-| `KEEPPIX_TRASH_RETENTION_DAYS` | `30` | Giorni prima che il cestino si svuoti da solo. Priorità bassa, un giro al giorno. |
-| `RUST_LOG` | `info,sqlx=warn,tower_http=info` | Verbosità dei log |
+| `DATABASE_URL` | — | **Required.** Postgres connection string |
+| `KEEPPIX_BIND` | `0.0.0.0:5673` | Listen address and port |
+| `KEEPPIX_DATA_DIR` | `/data` | Derivatives, maps, backups, `config.toml` |
+| `KEEPPIX_DB_MAX_CONNECTIONS` | `10` | Pool size |
+| `KEEPPIX_SESSION_TTL_SECS` | `2592000` | Session duration (30 days) |
+| `KEEPPIX_LOG_FORMAT` | `json` | `json` or `pretty` |
+| `KEEPPIX_ALLOWED_ORIGINS` | `[]` | Allowed origins, e.g. `["https://photos.example.com"]` |
+| `KEEPPIX_WATCH_POLL_SECS` | `900` | Watcher interval in polling mode (15 min) |
+| `KEEPPIX_WEBP_QUALITY` | `82` | WebP quality of lossy derivatives (1–100). Below 75 it starts to show; above 88 you pay for an invisible difference. Thumbnail and preview use the same value. |
+| `KEEPPIX_WEBP_METHOD` | `2` | libwebp encode effort (0–6). 0 is fast and larger; 4 is the simple API's default (~2x slower). 2 keeps the derivatives ratio under 1%. |
+| `KEEPPIX_FULL_CACHE_BYTES` | `536870912` | Cap on the `full` derivatives cache (full resolution, generated on the first zoom). Default 512 MiB. Without a cap the cache would grow like a trash can that never empties. |
+| `KEEPPIX_TRASH_RETENTION_DAYS` | `30` | Days before the trash empties itself. Low priority, once a day. |
+| `RUST_LOG` | `info,sqlx=warn,tower_http=info` | Log verbosity |
 
-Le stesse chiavi sono impostabili in `/data/config.toml` in minuscolo e senza
-prefisso. **L'ambiente vince sempre sul file.**
+The same keys can be set in `/data/config.toml`, in lowercase and without
+the prefix. **The environment always wins over the file.**
 
-In questo `compose.yaml` solo `DATABASE_URL` e `KEEPPIX_ALLOWED_ORIGINS` sono
-impostate esplicitamente per il servizio `keeppix`; le altre righe della
-tabella prendono il valore predefinito già scritto nel `Dockerfile`
-(`KEEPPIX_BIND`, `KEEPPIX_DATA_DIR`, `KEEPPIX_LOG_FORMAT`) o quello del
-binario (`KEEPPIX_DB_MAX_CONNECTIONS`, `KEEPPIX_SESSION_TTL_SECS`,
-`RUST_LOG`). Per cambiarne una, aggiungila sotto `environment:` del servizio
-`keeppix` in `compose.yaml` (o in un file di override separato) — non basta
-metterla in `.env`, perché `.env` alimenta solo l'interpolazione delle
-variabili già referenziate nel file di compose (`DB_PASSWORD`, `DATABASE_URL`,
-`PHOTOS_PATH`), non l'ambiente del processo `keeppix` dentro al container.
+In this `compose.yaml` only `DATABASE_URL` and `KEEPPIX_ALLOWED_ORIGINS` are
+set explicitly for the `keeppix` service; the other rows in the table take
+the default value already written in the `Dockerfile`
+(`KEEPPIX_BIND`, `KEEPPIX_DATA_DIR`, `KEEPPIX_LOG_FORMAT`) or the binary's
+default (`KEEPPIX_DB_MAX_CONNECTIONS`, `KEEPPIX_SESSION_TTL_SECS`,
+`RUST_LOG`). To change one, add it under `environment:` for the `keeppix`
+service in `compose.yaml` (or in a separate override file) — putting it in
+`.env` isn't enough, because `.env` only feeds the interpolation of
+variables already referenced in the compose file (`DB_PASSWORD`,
+`DATABASE_URL`, `PHOTOS_PATH`), not the `keeppix` process's environment
+inside the container.
 
-## Taratura Postgres (bundled)
+## Postgres tuning (bundled)
 
-Il servizio `db` bundled passa parametri GUC via `command:` — configurabili
-con variabili d'ambiente interpolate da Compose (in `.env` o nella shell).
-I valori **non sono universali**: misurarli all'installazione (il probe
-hardware della Fase 7 è il posto naturale). Qui basta documentare due
-profili tipici e rendere tutto overrideable.
+The bundled `db` service passes GUC parameters via `command:` —
+configurable with environment variables interpolated by Compose (in `.env`
+or in the shell). The values **are not universal**: measure them at
+install time (Phase 7's hardware probe is the natural place for this).
+Here it's enough to document two typical profiles and make everything
+overridable.
 
-| Parametro | Default fabbrica | SSD/NVMe (compose default) | microSD |
+| Parameter | Factory default | SSD/NVMe (compose default) | microSD |
 |---|---|---|---|
 | `random_page_cost` | 4.0 | **1.1** | 4.0 |
 | `shared_buffers` | 128 MB | ~2 GB | 128 MB |
@@ -130,104 +132,105 @@ profili tipici e rendere tutto overrideable.
 | `work_mem` | 4 MB | 32–64 MB | 4 MB |
 | `max_connections` | 100 | 20 | 100 |
 
-Variabili Compose (valori predefiniti = profilo SSD in `compose.yaml`):
+Compose variables (default values = SSD profile in `compose.yaml`):
 
-| Variabile | Predefinito compose | Descrizione |
+| Variable | Compose default | Description |
 |---|---|---|
-| `POSTGRES_RANDOM_PAGE_COST` | `1.1` | Costo pagina casuale per il pianificatore |
-| `POSTGRES_SHARED_BUFFERS` | `2GB` | Buffer condiviso Postgres |
-| `POSTGRES_EFFECTIVE_CACHE_SIZE` | `6GB` | Stima cache OS per il pianificatore |
-| `POSTGRES_WORK_MEM` | `64MB` | Memoria per sort/hash per operazione |
-| `POSTGRES_MAX_CONNECTIONS` | `20` | Connessioni massime Postgres |
+| `POSTGRES_RANDOM_PAGE_COST` | `1.1` | Random page cost for the planner |
+| `POSTGRES_SHARED_BUFFERS` | `2GB` | Postgres shared buffer |
+| `POSTGRES_EFFECTIVE_CACHE_SIZE` | `6GB` | OS cache estimate for the planner |
+| `POSTGRES_WORK_MEM` | `64MB` | Memory per sort/hash operation |
+| `POSTGRES_MAX_CONNECTIONS` | `20` | Maximum Postgres connections |
 
-Per microSD, impostare in `.env` i valori della colonna microSD (es.
-`POSTGRES_RANDOM_PAGE_COST=4.0`). Con Postgres esterno, applicare gli stessi
-parametri nella configurazione dell'istanza.
+For microSD, set the microSD column's values in `.env` (e.g.
+`POSTGRES_RANDOM_PAGE_COST=4.0`). With an external Postgres, apply the same
+parameters in the instance's configuration.
 
-La tabella `assets` ha `autovacuum_vacuum_scale_factor = 0.05` (migrazione
-`0033`): le mappe di visibilità restano fresche per gli index-only scan.
-Dopo un import massiccio, lo scheduler accoda anche un `VACUUM ANALYZE`
-immediato (oltre al giro notturno).
+The `assets` table has `autovacuum_vacuum_scale_factor = 0.05` (migration
+`0033`): visibility maps stay fresh for index-only scans. After a massive
+import, the scheduler also queues an immediate `VACUUM ANALYZE` (in
+addition to the nightly run).
 
-## Volumi
+## Volumes
 
-| Percorso | Modo | Contenuto |
+| Path | Mode | Content |
 |---|---|---|
-| `./data` → `/data` | rw | derivati, mappe, backup, configurazione |
-| `$PHOTOS_PATH` → `/photos` | **ro** | i tuoi originali |
+| `./data` → `/data` | rw | derivatives, maps, backups, configuration |
+| `$PHOTOS_PATH` → `/photos` | **ro** | your originals |
 
-In Fase 0 non esiste ancora l'indicizzazione: `/photos` è montato in sola
-lettura e nulla lo tocca. Passerà a `rw` in Fase 1, solo per le librerie su cui
-abiliterai upload o scrittura dei sidecar.
+In Phase 0 indexing doesn't exist yet: `/photos` is mounted read-only and
+nothing touches it. It will become `rw` in Phase 1, only for libraries on
+which you enable upload or sidecar writes.
 
-## Aggiornamento
+## Updating
 
 ```bash
 git pull
 docker compose --profile bundled up -d --build
 ```
 
-Le migrazioni del database vengono applicate automaticamente all'avvio, in
-transazione. `compose.yaml` costruisce l'immagine in locale (`keeppix:dev`) e
-non punta a un registro: `docker compose pull` non recupera nulla di nuovo
-finché il progetto non pubblicherà un'immagine remota su un registro.
+Database migrations are applied automatically at startup, in a
+transaction. `compose.yaml` builds the image locally (`keeppix:dev`) and
+doesn't point to a registry: `docker compose pull` won't fetch anything new
+until the project publishes a remote image to a registry.
 
-Se hai seguito il consiglio sopra e scritto `DB_PASSWORD` (o `DATABASE_URL`)
-in `.env`, l'aggiornamento non richiede di reimpostare nulla: Compose lo
-rilegge da solo a ogni `up`, anche da una sessione di shell diversa da quella
-del primo avvio.
+If you followed the advice above and wrote `DB_PASSWORD` (or
+`DATABASE_URL`) in `.env`, updating doesn't require resetting anything:
+Compose reads it again automatically on every `up`, even from a different
+shell session than the first startup.
 
-### Se l'avvio fallisce con un errore di checksum sulla migrazione
+### If startup fails with a migration checksum error
 
 ```
 error: migration 1 was previously applied but has been modified
 ```
 
-La migrazione `0001` è stata modificata durante lo sviluppo della Fase 0, prima
-di qualsiasi rilascio, per abilitare l'estensione PostGIS che serve alle mappe.
-sqlx confronta il checksum di ogni migrazione già applicata e rifiuta di
-proseguire se non coincide — è la protezione che impedisce a uno schema di
-divergere silenziosamente dal codice.
+Migration `0001` was modified during Phase 0 development, before any
+release, to enable the PostGIS extension needed for maps. sqlx compares
+the checksum of every already-applied migration and refuses to continue if
+it doesn't match — it's the safeguard that prevents a schema from silently
+diverging from the code.
 
-Se hai un database creato da un checkout precedente, non c'è nulla da salvare:
-è un'installazione di sviluppo senza foto indicizzate. Ricrealo.
+If you have a database created from an earlier checkout, there's nothing
+to save: it's a development install with no indexed photos. Recreate it.
 
 ```bash
 docker compose --profile bundled down -v
 docker compose --profile bundled up -d
 ```
 
-Questo non riguarderà mai un'installazione reale: dal primo rilascio in poi le
-migrazioni già pubblicate non vengono più toccate, e i cambiamenti di schema
-arrivano solo come nuovi file.
+This will never affect a real installation: from the first release
+onward, already-published migrations are never touched again, and schema
+changes only arrive as new files.
 
-## Arresto
+## Stopping
 
 ```bash
-# Ferma tutto: applicazione e database bundled.
+# Stops everything: the application and the bundled database.
 docker compose --profile bundled down
 
-# Come sopra, cancellando anche i volumi anonimi (i dati in ./pgdata e ./data
-# sono bind mount e restano su disco comunque).
+# Same as above, also removing anonymous volumes (the data in ./pgdata and
+# ./data are bind mounts and stay on disk regardless).
 docker compose --profile bundled down -v
 ```
 
-**Il profilo va ripetuto anche per fermare, non solo per avviare.** Un
-`docker compose down` senza `--profile bundled` rimuove il servizio `keeppix` e
-**lascia il database in esecuzione** (verificato: `keeppix-db-1` resta `Up
-(healthy)`, e la rete non viene rimossa perché ancora in uso da quel
-container). È il comportamento normale di Compose — i servizi di un profilo non
-attivo non vengono considerati — ma la conseguenza è che chi crede di aver
-spento Keeppix si ritrova Postgres acceso sui propri dati.
+**The profile must be repeated to stop too, not only to start.** A
+`docker compose down` without `--profile bundled` removes the `keeppix`
+service and **leaves the database running** (verified: `keeppix-db-1`
+stays `Up (healthy)`, and the network isn't removed because it's still in
+use by that container). This is normal Compose behavior — services in an
+inactive profile aren't considered — but the consequence is that anyone
+who thinks they've shut down Keeppix ends up with Postgres still running
+on their data.
 
-Con un Postgres esterno il profilo non serve, né all'avvio né all'arresto:
-`docker compose down` è sufficiente.
+With an external Postgres the profile isn't needed, either to start or to
+stop: `docker compose down` is enough.
 
-## Dietro un reverse proxy
+## Behind a reverse proxy
 
-Keeppix parla HTTP in chiaro e si aspetta che la terminazione TLS avvenga a
-monte. Il cookie di sessione usa il prefisso `__Host-`, che **richiede HTTPS**:
-senza TLS l'accesso funziona solo da `localhost`.
+Keeppix speaks plain HTTP and expects TLS termination to happen upstream.
+The session cookie uses the `__Host-` prefix, which **requires HTTPS**:
+without TLS, access only works from `localhost`.
 
 ```nginx
 location / {
@@ -248,24 +251,24 @@ location /api/v1/ws {
 }
 ```
 
-## Diagnosi
+## Diagnostics
 
 ```bash
 docker compose logs -f keeppix
 curl -s http://127.0.0.1:5673/health
 ```
 
-Il container espone un `HEALTHCHECK` che esegue `keeppix healthcheck`. Questo
-sottocomando carica la stessa configurazione del server e quindi richiede
-anch'esso `DATABASE_URL`: se la variabile manca, il container risulta
-`unhealthy` per un errore di configurazione, non di rete. Nello stack di
-`compose.yaml` la variabile è sempre impostata dal servizio `keeppix`; se
-esegui l'immagine "nuda" (senza compose), impostala tu.
+The container exposes a `HEALTHCHECK` that runs `keeppix healthcheck`.
+This subcommand loads the same configuration as the server and therefore
+also requires `DATABASE_URL`: if the variable is missing, the container
+shows as `unhealthy` due to a configuration error, not a network one. In
+the `compose.yaml` stack the variable is always set by the `keeppix`
+service; if you run the "bare" image (without compose), set it yourself.
 
-L'immagine è distroless e **non contiene shell**: `docker exec ... sh` non
-funziona, ed è voluto (nessuna pipeline di questo progetto pubblica al
-momento una variante "debug" con shell). Per ispezionare un container in
-esecuzione, condividi il suo namespace di processo da un'immagine con shell:
+The image is distroless and **contains no shell**: `docker exec ... sh`
+doesn't work, and that's intentional (no pipeline of this project
+currently publishes a "debug" variant with a shell). To inspect a running
+container, share its process namespace from an image that has a shell:
 
 ```bash
 docker run --rm -it --pid container:keeppix-keeppix-1 --network container:keeppix-keeppix-1 busybox sh
