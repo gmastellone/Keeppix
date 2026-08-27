@@ -1,11 +1,11 @@
-//! Vocabolario condiviso di tag e categorie (Fase 7).
+//! Shared vocabulary of tags and categories.
 
 use std::fmt;
 use std::str::FromStr;
 
 use crate::error::DomainError;
 
-/// `tags.kind`: categoria (contenitore) o tag (assegnabile alle foto).
+/// `tags.kind`: category (a container) or tag (assignable to photos).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TagKind {

@@ -12,7 +12,7 @@ const TZ_BOUNDARIES_CSV_PATH: &str = "/usr/share/keeppix/tz_boundaries.csv";
 #[derive(Parser)]
 #[command(name = "keeppix", version)]
 struct Cli {
-    /// Percorso del file di configurazione.
+    /// Path to the configuration file.
     #[arg(long, env = "KEEPPIX_CONFIG", default_value = "/data/config.toml")]
     config: PathBuf,
 
@@ -22,12 +22,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Avvia il server (comportamento predefinito).
+    /// Start the server (default behavior).
     Serve,
-    /// Applica le migrazioni ed esce.
+    /// Apply migrations and exit.
     Migrate,
-    /// Verifica che il server locale risponda. Usato da HEALTHCHECK in Docker,
-    /// dove non esistono né shell né curl.
+    /// Check that the local server responds. Used by HEALTHCHECK in Docker,
+    /// where neither a shell nor curl is available.
     Healthcheck,
 }
 
@@ -46,10 +46,8 @@ async fn main() -> anyhow::Result<()> {
 
     let db = Db::connect(&config.database_url, config.db_max_connections)
         .await
-        .context("connessione al database")?;
-    db.migrate()
-        .await
-        .context("applicazione delle migrazioni")?;
+        .context("database connection")?;
+    db.migrate().await.context("applying migrations")?;
 
     match cli.command {
         Some(Command::Migrate) => {
@@ -180,9 +178,10 @@ async fn log_hardware_probe(db: &Db) {
     }
 }
 
-/// Fase 7 Task 3: se pgvector manca (Postgres esterno senza l'estensione)
-/// Keeppix parte comunque; AI resta spenta e il log spiega il comando da
-/// eseguire. Una galleria non deve rifiutarsi di avviarsi per i tag.
+/// If pgvector is missing (e.g. an external Postgres without the
+/// extension), Keeppix still starts: AI stays disabled and the log explains
+/// which command to run. A photo gallery should not refuse to start over
+/// tagging support.
 async fn log_pgvector_status(db: &Db) {
     match keeppix_db::persist_pgvector_status(db).await {
         Ok(status) if status.ai_disabled() => {
@@ -266,9 +265,9 @@ async fn spawn_maintenance(db: Db) {
         });
     }
     {
-        // Un'ora, non 24h come il cestino: un temporaneo scaduto occupa
-        // spazio reale su disco (fino a `expected_size` per sessione), non
-        // solo una riga di manutenzione da smaltire con calma.
+        // One hour, not 24h like the trash: an expired temp file occupies
+        // real disk space (up to `expected_size` per session), not just a
+        // maintenance row that can wait.
         let db = db.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
@@ -341,7 +340,7 @@ async fn spawn_maintenance(db: Db) {
     });
 }
 
-/// Chiusura garbata su SIGTERM (Docker) e Ctrl-C (sviluppo).
+/// Graceful shutdown on SIGTERM (Docker) and Ctrl-C (development).
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c().await.ok();
