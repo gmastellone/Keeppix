@@ -13,3 +13,4 @@ frontend/dist
 .env
 *.kpxb
 __pycache__/
+.worktrees/
