@@ -498,7 +498,14 @@
     "manutenzione": "Maintenance",
     "ia": "AI",
     "amministrazione": "Administration",
-    "more": "More"
+    "more": "More",
+    "backgroundActivity": "Background activity"
+  },
+  "backgroundOps": {
+    "aiAnalysisKnown": "AI analysis running — {done} of {total}",
+    "aiAnalysisUnknown": "AI analysis running — {done} so far",
+    "faceDetectionKnown": "Face detection running — {done} of {total}",
+    "faceDetectionUnknown": "Face detection running — {done} so far"
   },
   "sidebar": {
     "storageLabel": "Free space",

@@ -43,14 +43,79 @@
 // lì — lo è qui). Ogni riga è un vero <RouterLink>, raggiungibile da
 // tastiera per costruzione — il prototipo non lo è (§6.5: le righe
 // sono `<div>` senza `tabindex` né `bindActivatable`).
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { startLiveEvents, type LiveSocket } from '@/api/events'
 import { useSessionStore } from '@/stores/session'
 import { useShellStore } from '@/stores/shell'
 
 const { t } = useI18n()
 const session = useSessionStore()
 const shell = useShellStore()
+
+// Aggiunto, non nel documento funzionale (§6 non lo prevede): indicatore
+// di sola visualizzazione per le due operazioni automatiche senza alcun
+// innesco utente — `AiAnalysis`/`FaceDetection` (finestre in background,
+// mai una rotta HTTP a differenza di `LibraryScan`/`BulkRename`, vedi
+// `scripts/wired-exceptions.txt`, Task 16 Fase 10). Nessun pulsante
+// pausa/annulla di proposito: solo visibilità di cosa sta succedendo in
+// background, non un controllo. `operation.progress` non porta `kind`
+// (Task 16, spec originale) — il tipo si legge dalla stringa `phase`,
+// l'unica che i due job impostano davvero (`embed.rs`: "embedding",
+// `detect_faces.rs`: "detecting"); `LibraryScan` resta a `''` per tutta
+// la corsa e `BulkRename` usa "renaming"/"undoing" — entrambi ignorati
+// qui, hanno già una superficie propria altrove (`ProblemsView.vue`,
+// `RenameFormulaDialog.vue`).
+type BackgroundKind = 'ai_analysis' | 'face_detection'
+const PHASE_TO_KIND: Record<string, BackgroundKind> = {
+  embedding: 'ai_analysis',
+  detecting: 'face_detection'
+}
+interface BackgroundOp {
+  operationId: string
+  kind: BackgroundKind
+  done: number
+  total: number | null
+}
+const backgroundOps = ref<Map<string, BackgroundOp>>(new Map())
+const backgroundOpList = computed(() => Array.from(backgroundOps.value.values()))
+let live: LiveSocket | undefined
+
+interface OperationProgressPayload {
+  operation_id: string
+  done: number
+  total: number | null
+  phase: string
+}
+
+onMounted(() => {
+  live = startLiveEvents((msg) => {
+    if (msg.type !== 'operation.progress') return
+    const payload = msg.payload as OperationProgressPayload
+    const kind = PHASE_TO_KIND[payload.phase]
+    if (kind) {
+      backgroundOps.value = new Map(backgroundOps.value).set(payload.operation_id, {
+        operationId: payload.operation_id,
+        kind,
+        done: payload.done,
+        total: payload.total
+      })
+      return
+    }
+    // Fase terminale ("done"/"cancelled"/"failed") o di un altro tipo di
+    // operazione: se la conoscevamo, esce dal riquadro.
+    if (backgroundOps.value.has(payload.operation_id)) {
+      const next = new Map(backgroundOps.value)
+      next.delete(payload.operation_id)
+      backgroundOps.value = next
+    }
+  })
+})
+
+onUnmounted(() => {
+  live?.close()
+})
 
 const LIBRARY_ITEMS = [
   { to: '/folders', labelKey: 'folders.entry' },
@@ -79,6 +144,38 @@ const IA_ITEMS = [
 
 <template>
   <main class="p-3.5">
+    <template v-if="backgroundOpList.length > 0">
+      <p class="mb-2 mt-0.5 px-0.5 text-[11px] font-bold uppercase tracking-wide text-content-muted">
+        {{ t('nav.backgroundActivity') }}
+      </p>
+      <ul class="mb-[18px] overflow-hidden rounded-xl border border-border">
+        <li
+          v-for="op in backgroundOpList"
+          :key="op.operationId"
+          class="border-b border-border px-3.5 py-3 last:border-b-0"
+        >
+          <p class="text-[13px] font-semibold">
+            {{
+              op.total !== null
+                ? t(`backgroundOps.${op.kind === 'ai_analysis' ? 'aiAnalysisKnown' : 'faceDetectionKnown'}`, {
+                  done: op.done,
+                  total: op.total
+                })
+                : t(`backgroundOps.${op.kind === 'ai_analysis' ? 'aiAnalysisUnknown' : 'faceDetectionUnknown'}`, {
+                  done: op.done
+                })
+            }}
+          </p>
+          <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-border/40">
+            <div
+              class="h-full rounded-full bg-accent transition-[width]"
+              :class="{ 'animate-pulse': op.total === null }"
+              :style="{ width: op.total ? `${Math.min(100, (op.done / op.total) * 100)}%` : '30%' }"
+            />
+          </div>
+        </li>
+      </ul>
+    </template>
     <p class="mb-2 mt-0.5 px-0.5 text-[11px] font-bold uppercase tracking-wide text-content-muted">
       {{ t('nav.libraryGroup') }}
     </p>

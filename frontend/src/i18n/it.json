@@ -498,7 +498,14 @@
     "manutenzione": "Manutenzione",
     "ia": "IA",
     "amministrazione": "Amministrazione",
-    "more": "Altro"
+    "more": "Altro",
+    "backgroundActivity": "Attività in background"
+  },
+  "backgroundOps": {
+    "aiAnalysisKnown": "Analisi IA in corso — {done} di {total}",
+    "aiAnalysisUnknown": "Analisi IA in corso — {done} finora",
+    "faceDetectionKnown": "Riconoscimento volti in corso — {done} di {total}",
+    "faceDetectionUnknown": "Riconoscimento volti in corso — {done} finora"
   },
   "sidebar": {
     "storageLabel": "Spazio libero",
