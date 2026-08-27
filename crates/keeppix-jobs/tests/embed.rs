@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-//! Fase 7 Task 5: job `embed_assets` — miniature 240px, esclusione culling,
-//! inferenza a lotto, niente ricalcolo sullo stesso `model_version`.
+//! `embed_assets` job: 240px thumbnails, culling exclusion, batched
+//! inference, no recompute on the same `model_version`.
 
 mod harness;
 
@@ -81,7 +81,7 @@ async fn ingest_until_thumb(
 async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
     if first_complete_model_dir().is_none() {
         eprintln!(
-            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+            "skipping: openclip-xlmr-it-en incomplete (run .github/workflows/export-openclip-xlmr.yml)"
         );
         return;
     }
@@ -97,7 +97,7 @@ async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
     let a = ingest_until_thumb(&test, admin, &lib_a, &data_dir, "a.jpg").await;
     let b = ingest_until_thumb(&test, admin, &lib_b, &data_dir, "b.jpg").await;
 
-    // Corrompe gli originali: se il job li decodificasse fallirebbe.
+    // Corrupts the originals: if the job decoded them it would fail.
     fs::write(lib_a.join("a.jpg"), b"not-a-jpeg").unwrap();
     fs::write(lib_b.join("b.jpg"), b"not-a-jpeg").unwrap();
 
@@ -121,7 +121,7 @@ async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
         .unwrap();
     assert_eq!(
         again.embedded, 0,
-        "stesso model_version non deve ricalcolare: {again:?}"
+        "same model_version must not recompute: {again:?}"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -131,7 +131,7 @@ async fn embed_job_writes_embeddings_from_thumbs_in_one_batch() {
 async fn embed_job_skips_culling_subtree_entirely() {
     if first_complete_model_dir().is_none() {
         eprintln!(
-            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+            "skipping: openclip-xlmr-it-en incomplete (run .github/workflows/export-openclip-xlmr.yml)"
         );
         return;
     }
@@ -205,7 +205,7 @@ async fn embed_job_skips_culling_subtree_entirely() {
         .unwrap();
     assert_eq!(
         outcome.embedded, 1,
-        "solo keep.jpg fuori dal culling: {outcome:?}"
+        "only keep.jpg is outside culling: {outcome:?}"
     );
 
     let keep_id: uuid::Uuid =
@@ -232,7 +232,7 @@ async fn embed_job_skips_culling_subtree_entirely() {
                 .await
                 .unwrap()
                 .is_none(),
-            "{name} nel culling non deve avere embedding"
+            "{name} in culling must not have an embedding"
         );
     }
 
@@ -243,7 +243,7 @@ async fn embed_job_skips_culling_subtree_entirely() {
 async fn one_run_drains_multiple_batches_without_requeueing() {
     if first_complete_model_dir().is_none() {
         eprintln!(
-            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+            "skipping: openclip-xlmr-it-en incomplete (run .github/workflows/export-openclip-xlmr.yml)"
         );
         return;
     }
@@ -254,8 +254,9 @@ async fn one_run_drains_multiple_batches_without_requeueing() {
     let data_dir = root.join("data");
     fs::create_dir_all(&data_dir).unwrap();
 
-    // Cinque foto, lotto da 2 → tre giri interni; un solo `run` deve
-    // svuotare la coda senza riaccodare backfill (sessione viva per finestra).
+    // Five photos, batch of 2 → three internal rounds; a single `run` must
+    // drain the queue without re-enqueueing a backfill (session stays alive
+    // for the window).
     for i in 0..5 {
         let lib = root.join(format!("lib-{i}"));
         let _ = ingest_until_thumb(&test, admin, &lib, &data_dir, &format!("{i}.jpg")).await;
@@ -266,7 +267,7 @@ async fn one_run_drains_multiple_batches_without_requeueing() {
         .unwrap();
     assert_eq!(
         outcome.embedded, 5,
-        "una finestra deve drenare tutti i pending a lotti piccoli: {outcome:?}"
+        "a window must drain all pending items across small batches: {outcome:?}"
     );
 
     let backfill: i64 = sqlx::query_scalar(
@@ -278,7 +279,7 @@ async fn one_run_drains_multiple_batches_without_requeueing() {
     .unwrap();
     assert_eq!(
         backfill, 0,
-        "coda vuota → nessun riaccodo backfill; riaccodare ricaricherebbe il modello"
+        "empty queue → no backfill re-enqueue; re-enqueueing would reload the model"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -288,7 +289,7 @@ async fn one_run_drains_multiple_batches_without_requeueing() {
 async fn pause_between_batches_stops_and_requeues_backfill() {
     if first_complete_model_dir().is_none() {
         eprintln!(
-            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+            "skipping: openclip-xlmr-it-en incomplete (run .github/workflows/export-openclip-xlmr.yml)"
         );
         return;
     }
@@ -306,7 +307,7 @@ async fn pause_between_batches_stops_and_requeues_backfill() {
 
     let batches_after = std::sync::atomic::AtomicU32::new(0);
     let outcome = embed_job::run(test.db(), &data_dir, 2, || {
-        // Chiamato fra un lotto e l'altro: al primo check la vista riprende.
+        // Called between batches: on the first check the view resumes.
         batches_after.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         false
     })
@@ -314,12 +315,12 @@ async fn pause_between_batches_stops_and_requeues_backfill() {
     .unwrap();
     assert_eq!(
         outcome.embedded, 2,
-        "la pausa fra lotti deve fermare dopo il primo lotto da 2: {outcome:?}"
+        "the pause between batches must stop after the first batch of 2: {outcome:?}"
     );
     assert_eq!(
         batches_after.load(std::sync::atomic::Ordering::Relaxed),
         1,
-        "il gate si valuta una volta fra il primo e il secondo lotto"
+        "the gate is evaluated once between the first and second batch"
     );
 
     let backfill: i64 = sqlx::query_scalar(
@@ -331,14 +332,14 @@ async fn pause_between_batches_stops_and_requeues_backfill() {
     .unwrap();
     assert_eq!(
         backfill, 1,
-        "con pending rimanenti la pausa deve riaccodare il backfill"
+        "with pending items remaining, the pause must re-enqueue the backfill"
     );
 
     let remaining = EmbeddingRepo::new(test.db())
         .list_pending(MODEL_VERSION, 32)
         .await
         .unwrap();
-    assert_eq!(remaining.len(), 3, "tre foto ancora da embeddare");
+    assert_eq!(remaining.len(), 3, "three photos still to embed");
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -347,7 +348,7 @@ async fn pause_between_batches_stops_and_requeues_backfill() {
 async fn embed_window_opens_and_finishes_an_ai_analysis_operation() {
     if first_complete_model_dir().is_none() {
         eprintln!(
-            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+            "skipping: openclip-xlmr-it-en incomplete (run .github/workflows/export-openclip-xlmr.yml)"
         );
         return;
     }

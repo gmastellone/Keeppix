@@ -1,15 +1,16 @@
-//! `JobKind::DeriveRaw`: preview incorporata prima, demosaic solo se serve.
+//! `JobKind::DeriveRaw`: embedded preview first, demosaic only if needed.
 //!
-//! Cascata (spec `fase-2-raw-culling.md` §2.1, sidecar XMP escluso — Task 5):
-//! 1. `extract_embedded_preview`: quasi gratis (1-6 ms), zero demosaic.
-//! 2. Se la preview ha il lato lungo ≥1440 px, è la preview finale. Fine.
-//! 3. Altrimenti (piccola, assente, o file non decodificabile come RAW
-//!    riconosciuto) si tenta il demosaic half-size in sandbox.
-//! 4. Se anche quello fallisce, l'asset va in errore: non blocca la coda.
+//! Cascade (XMP sidecar handling excluded):
+//! 1. `extract_embedded_preview`: nearly free (1-6 ms), zero demosaic.
+//! 2. If the preview's long side is ≥1440 px, it's the final preview. Done.
+//! 3. Otherwise (small, missing, or a file not decodable as a recognized
+//!    RAW) half-size demosaic is attempted in a sandbox.
+//! 4. If that also fails, the asset goes into error state: it does not
+//!    block the queue.
 //!
-//! Il demosaic è iniettato tramite [`Demosaic`] proprio per rendere
-//! verificabile — contando le chiamate, non misurando i tempi — che il passo
-//! 2 evita davvero libraw quando la preview basta.
+//! The demosaic step is injected through [`Demosaic`] precisely to make it
+//! verifiable — by counting calls, not timing — that step 2 really avoids
+//! libraw when the preview is good enough.
 
 use std::path::Path;
 
@@ -21,32 +22,34 @@ use keeppix_media::{
 
 use crate::JobError;
 
-/// Lato lungo minimo, in pixel, perché la preview incorporata basti da sola.
-/// Resta 1440, non 2048: alzarlo forzerebbero il demosaic su fixture (e su
-/// macchine) la cui JPEG incorporata sta fra 1440 e 2047, che è già usabile.
+/// Minimum long side, in pixels, for the embedded preview to be sufficient
+/// on its own. Stays at 1440, not 2048: raising it would force demosaic on
+/// fixtures (and on machines) whose embedded JPEG sits between 1440 and
+/// 2047, which is already usable.
 const MIN_PREVIEW_LONG_SIDE: u32 = 1440;
 
-/// `dcraw_emu` gira su ARM in ~1,5-4 s su un RAW reale (spec §2.1); 30 s di
-/// CPU è generoso ma finito. Il tetto di memoria è 1 GiB (non 512): lo stesso
-/// bug trovato su ffmpeg distro — `RLIMIT_AS` troppo basso fallisce il
-/// mapping delle shared libs prima di toccare il Bayer — e `dcraw_emu`
-/// (libraw + lcms/jpeg) è lo stesso profilo di binario. Floor non rimisurato
-/// byte-a-byte su ogni host; 1 GiB allinea al tetto di `video::MEM`.
+/// `dcraw_emu` runs on ARM in ~1.5-4 s on a real RAW file; 30 s of CPU is
+/// generous but finite. The memory ceiling is 1 GiB (not 512): the same bug
+/// found on distro ffmpeg — a too-low `RLIMIT_AS` fails to map the shared
+/// libraries before ever touching the Bayer data — and `dcraw_emu` (libraw
+/// + lcms/jpeg) has the same binary profile. The floor hasn't been
+/// remeasured byte-for-byte on every host; 1 GiB aligns with the
+/// `video::MEM` ceiling.
 const DEMOSAIC_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 const DEMOSAIC_CPU_SECS: u64 = 30;
 
-/// Punto di iniezione del demosaic. In produzione avvia `dcraw_emu` in
-/// sandbox; nei test si sostituisce con un contatore che non avvia mai un
-/// processo esterno.
+/// Injection point for demosaic. In production it launches `dcraw_emu` in a
+/// sandbox; tests substitute it with a counter that never spawns an
+/// external process.
 pub trait Demosaic: Send + Sync {
     /// # Errors
-    /// Il RAW non è demosaicabile: file corrotto, formato non supportato, o
-    /// timeout della sandbox.
+    /// The RAW file isn't demosaicable: corrupt file, unsupported format,
+    /// or sandbox timeout.
     fn demosaic(&self, path: &Path) -> Result<RawPreview, JobError>;
 }
 
-/// Implementazione di produzione: `dcraw_emu` in sandbox, half-size, WB
-/// camera. Mai in-process: vedi `keeppix_media::raw::demosaic_half`.
+/// Production implementation: `dcraw_emu` in a sandbox, half-size, camera
+/// white balance. Never in-process: see `keeppix_media::raw::demosaic_half`.
 pub struct SandboxDemosaic;
 
 impl Demosaic for SandboxDemosaic {
@@ -57,19 +60,19 @@ impl Demosaic for SandboxDemosaic {
 }
 
 /// # Errors
-/// File assente per l'hash, o database.
+/// No file for the hash, or database failure.
 pub async fn run(db: &Db, data_dir: &Path, hash: [u8; 32]) -> Result<(), JobError> {
     run_with(db, data_dir, hash, &SandboxDemosaic).await
 }
 
-/// Stessa pipeline di [`run`], col demosaic iniettato. I test la chiamano
-/// direttamente per contare le invocazioni senza mai toccare libraw.
+/// Same pipeline as [`run`], with the demosaic step injected. Tests call it
+/// directly to count invocations without ever touching libraw.
 ///
 /// # Errors
-/// File assente per l'hash, o database. Un RAW che non produce derivati
-/// (preview inutilizzabile *e* demosaic fallito) non è un errore di job: gli
-/// asset con quell'hash vanno in `error` e la funzione ritorna `Ok`, perché
-/// il job successivo in coda deve comunque partire.
+/// No file for the hash, or database failure. A RAW file that produces no
+/// derivatives (unusable preview *and* failed demosaic) is not a job error:
+/// the assets with that hash go to `error` and the function returns `Ok`,
+/// because the next job in the queue still needs to run.
 pub async fn run_with(
     db: &Db,
     data_dir: &Path,
@@ -94,8 +97,9 @@ pub async fn run_with(
         return Err(JobError::Worker("no file for content hash".to_owned()));
     };
 
-    // Idempotenza: se il derivato esiste già, niente da rifare — soprattutto
-    // niente demosaic, che è l'unico passo davvero costoso qui.
+    // Idempotency: if the derivative already exists, there's nothing to
+    // redo — most importantly, no demosaic, which is the only genuinely
+    // expensive step here.
     let (thumb_path, _) = derivative_paths(data_dir, &hash);
     if thumb_path.is_file() {
         assets.propagate_thumbhash_for_hash(&hash).await?;

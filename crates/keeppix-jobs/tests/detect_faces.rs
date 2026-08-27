@@ -1,15 +1,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-//! Fase 8 Task 4/5: job `detect_faces` — miniature 240px per il
-//! rilevamento, preview 2048px per l'impronta, esclusione culling,
-//! raggruppamento incrementale.
+//! `detect_faces` job: 240px thumbnails for detection, 2048px preview for
+//! the embedding, culling exclusion, incremental grouping.
 //!
-//! Senza pesi `YuNet`/`SFace` su disco (questa sandbox non ha rete verso
-//! `cdn.pyke.io` per compilare `ort-sys`, stesso limite di `embed.rs` per
-//! `OpenCLIP` XLM-R IT/EN), i test che richiedono un'inferenza reale saltano —
-//! vedi il ledger di fase. Restano verificabili senza pesi: la coda vuota,
-//! l'errore esplicito a coda piena senza modello, e la validazione di
-//! `limit_from_payload`.
+//! Without `YuNet`/`SFace` weights on disk (this sandbox has no network
+//! access to `cdn.pyke.io` to compile `ort-sys`, the same limitation as
+//! `embed.rs` has for `OpenCLIP` XLM-R IT/EN), tests that require real
+//! inference are skipped. What stays verifiable without weights: the empty
+//! queue, the explicit error on a full queue with no model, and
+//! `limit_from_payload` validation.
 
 mod harness;
 
@@ -87,8 +86,8 @@ async fn ingest_until_thumb(
 
 #[tokio::test]
 async fn run_is_a_no_op_when_nothing_is_pending() {
-    // Non serve alcun peso: `run` controlla la coda prima di richiedere il
-    // modello, esattamente come `embed::run`.
+    // No weights needed: `run` checks the queue before requesting the
+    // model, exactly like `embed::run`.
     let test = TestDb::start_with_vector().await;
     let data_dir = std::env::temp_dir().join(format!("kpx-detect-empty-{}", uuid::Uuid::now_v7()));
     fs::create_dir_all(&data_dir).unwrap();
@@ -123,8 +122,8 @@ async fn run_fails_explicitly_when_work_is_pending_but_weights_are_missing() {
         "expected an explicit missing-model error, got: {message}"
     );
 
-    // Niente è stato segnato come analizzato: un errore esplicito non deve
-    // far sparire silenziosamente il lavoro dalla coda.
+    // Nothing was marked as scanned: an explicit error must not silently
+    // make work vanish from the queue.
     assert_eq!(
         FaceRepo::new(test.db())
             .count_pending_scan(MODEL_VERSION)
@@ -158,7 +157,7 @@ fn limit_from_payload_accepts_a_positive_override() {
 #[tokio::test]
 async fn detects_and_groups_faces_when_weights_are_present() {
     let Some(_dir) = keeppix_media::face::first_complete_model_dir() else {
-        eprintln!("skipping: YuNet/SFace weights missing (see fase-8 ledger)");
+        eprintln!("skipping: YuNet/SFace weights missing");
         return;
     };
 
@@ -173,9 +172,9 @@ async fn detects_and_groups_faces_when_weights_are_present() {
         .await
         .unwrap();
     assert_eq!(outcome.assets_scanned, 1);
-    // La fixture `tiny.jpg` non contiene necessariamente un volto reale:
-    // qui verifichiamo solo che la passata converga (l'asset esce dalla
-    // coda), non un conteggio di volti specifico.
+    // The `tiny.jpg` fixture doesn't necessarily contain a real face: here
+    // we only verify that the pass converges (the asset leaves the queue),
+    // not a specific face count.
     assert_eq!(
         FaceRepo::new(test.db())
             .count_pending_scan(MODEL_VERSION)

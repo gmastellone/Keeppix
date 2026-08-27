@@ -8,11 +8,11 @@ use uuid::Uuid;
 
 use crate::JobError;
 
-/// Quanti byte bastano a `detect_kind` (magic TIFF + stringa produttore).
+/// How many bytes are enough for `detect_kind` (TIFF magic + maker string).
 const KIND_HEADER_BYTES: u64 = 4096;
 
 /// # Errors
-/// I/O sul file, o database.
+/// I/O on the file, or database.
 pub async fn run(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
     let assets = AssetRepo::new(db);
     let asset = assets.get_for_scan(asset_id).await?;
@@ -60,7 +60,7 @@ fn classify(path: &Path) -> Result<AssetKind, JobError> {
 }
 
 /// # Errors
-/// `JobError::Worker` se manca `asset_id` o non è un UUID.
+/// `JobError::Worker` if `asset_id` is missing or not a UUID.
 pub fn asset_id_from_payload(payload: &serde_json::Value) -> Result<AssetId, JobError> {
     let raw = payload
         .get("asset_id")

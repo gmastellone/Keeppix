@@ -120,7 +120,7 @@ async fn missing_root_marks_the_library_offline_without_deleting() {
             .await
             .unwrap(),
         1,
-        "un disco smontato non è una libreria svuotata"
+        "an unmounted disk is not an emptied library"
     );
 }
 
@@ -142,7 +142,7 @@ async fn mass_disappearance_stops_without_marking_offline() {
 
     let err = discover::run(test.db(), library.id, Duration::ZERO)
         .await
-        .expect_err("più del 20% è sparito");
+        .expect_err("more than 20% disappeared");
     assert!(matches!(err, keeppix_jobs::JobError::MassDisappearance));
 
     let library = LibraryRepo::new(test.db())
@@ -190,10 +190,10 @@ async fn mark_extract_metadata_done(test: &TestDb) {
         .unwrap();
 }
 
-/// D2: una seconda discovery su file fermi non deve riaccodare nulla.
-/// I job vanno marcati `done` prima del secondo giro: `dedup_key` protegge
-/// solo `pending`/`running`, quindi senza questo passo il test passerebbe
-/// anche con l'accodamento incondizionato.
+/// A second discovery over unchanged files must not re-enqueue anything.
+/// The jobs need to be marked `done` before the second pass: `dedup_key`
+/// only protects `pending`/`running`, so without this step the test would
+/// pass even with unconditional enqueueing.
 #[tokio::test]
 async fn a_second_discover_on_unchanged_files_does_not_enqueue_metadata() {
     let test = TestDb::start().await;
@@ -207,7 +207,7 @@ async fn a_second_discover_on_unchanged_files_does_not_enqueue_metadata() {
         .await
         .unwrap();
     let after_first = count_extract_metadata(&test).await;
-    assert_eq!(after_first, 2, "prima discovery: un job per file");
+    assert_eq!(after_first, 2, "first discovery: one job per file");
 
     mark_extract_metadata_done(&test).await;
     let pending: i64 = sqlx::query_scalar(
@@ -218,7 +218,7 @@ async fn a_second_discover_on_unchanged_files_does_not_enqueue_metadata() {
     .unwrap();
     assert_eq!(
         pending, 0,
-        "senza job pending il dedup non maschera D2: se questo assert fallisce il test non sta provando il difetto"
+        "without pending jobs the dedup can't be masking a regression: if this assert fails the test isn't proving what it claims"
     );
 
     discover::run(test.db(), library.id, Duration::ZERO)
@@ -228,7 +228,7 @@ async fn a_second_discover_on_unchanged_files_does_not_enqueue_metadata() {
     let _ = fs::remove_dir_all(&root);
     assert_eq!(
         after_second, after_first,
-        "riscansione a libreria ferma non deve creare nuovi extract_metadata (D2)"
+        "rescanning an idle library must not create new extract_metadata jobs"
     );
 }
 
@@ -258,12 +258,13 @@ async fn touching_one_mtime_enqueues_exactly_one_metadata_job() {
     assert_eq!(
         after_touch,
         after_first + 1,
-        "un solo mtime cambiato → un solo extract_metadata nuovo"
+        "a single changed mtime → a single new extract_metadata"
     );
 }
 
-/// D1+D2: `SET kind = EXCLUDED.kind` a ogni riscansione azzererebbe la
-/// classificazione. Un asset già `raw_image` deve restarlo se il file è fermo.
+/// `SET kind = EXCLUDED.kind` on every rescan would reset the
+/// classification. An asset already `raw_image` must stay that way if the
+/// file is unchanged.
 #[tokio::test]
 async fn rescan_of_unchanged_file_does_not_reset_kind_to_unknown() {
     let test = TestDb::start().await;
@@ -292,7 +293,7 @@ async fn rescan_of_unchanged_file_does_not_reset_kind_to_unknown() {
     let _ = fs::remove_dir_all(&root);
     assert_eq!(
         kind, "raw_image",
-        "riscansione ferma non deve azzerare kind (D1+D2)"
+        "rescanning an idle file must not reset kind"
     );
 }
 

@@ -12,31 +12,30 @@ use uuid::Uuid;
 
 use crate::{JobError, PRODUCTION_BATCH_SIZE, PRODUCTION_STABILITY_WAIT, maintenance};
 
-/// Scansiona l'albero. Non apre i file: solo `stat` e insert a lotti.
+/// Scans the tree. Never opens files: only `stat` and batched inserts.
 ///
-/// `settled_after`: età minima di `mtime` perché un file conti come fermo.
-/// I file più recenti sono `InFlight`: non bloccano il ciclo; si accoda un
-/// ricontrollo con `run_after = now() + PRODUCTION_STABILITY_WAIT`.
+/// `settled_after`: minimum `mtime` age for a file to count as settled.
+/// More recent files are `InFlight`: they don't block the cycle; a recheck
+/// is enqueued with `run_after = now() + PRODUCTION_STABILITY_WAIT`.
 ///
 /// # Errors
-/// `MassDisappearance` se è sparito più del 20% dei file noti; errori di I/O
-/// o di database.
+/// `MassDisappearance` if more than 20% of known files have disappeared;
+/// I/O or database errors.
 pub async fn run(db: &Db, library_id: LibraryId, settled_after: Duration) -> Result<(), JobError> {
     run_with_operation(db, library_id, settled_after, None).await
 }
 
-/// Come [`run`], ma segue un'operazione (Fase 10 Task 16): avanzamento e
-/// annullamento (`operations`, letta dal poll del WebSocket) invece di una
-/// scansione muta. La rinomina di massa della Fase 9 non esiste ancora nel
-/// codice — questa è l'infrastruttura generica agganciata all'unico long-op
-/// reale già presente, la scansione di libreria (vedi Ruling nel ledger).
+/// Like [`run`], but tracks an operation: progress and cancellation
+/// (`operations`, read by the WebSocket poll) instead of a silent scan.
+/// This is generic long-running-operation infrastructure hung off the one
+/// real long-op already present — library scanning.
 ///
-/// **Ruling (Task 16): annullare a metà produce una riuscita parziale, non
-/// un rollback.** Gli asset già scritti in questo giro restano; l'operazione
-/// si chiude come `Cancelled` elencandoli, non tenta di disfarli.
+/// **Ruling: cancelling midway produces a partial success, not a
+/// rollback.** Assets already written in this pass stay; the operation
+/// closes as `Cancelled` listing them, it does not attempt to undo them.
 ///
 /// # Errors
-/// Come [`run`].
+/// Same as [`run`].
 pub async fn run_with_operation(
     db: &Db,
     library_id: LibraryId,
@@ -51,10 +50,10 @@ pub async fn run_with_operation(
 
     let existing = assets.count_in_library(library_id).await?;
     if let Some(op_id) = operation_id {
-        // Onesto, non inventato: una prima importazione non sa quanti file
-        // troverà finché non li ha trovati, quindi resta `None` — il
-        // frontend disegna un avanzamento indeterminato invece di un
-        // rapporto falso (stessa scelta di `FailureReason::Unknown`).
+        // Honest, not made up: a first import doesn't know how many files
+        // it will find until it has found them, so this stays `None` — the
+        // frontend draws an indeterminate progress bar instead of a fake
+        // one (same choice as `FailureReason::Unknown`).
         ops.set_total(op_id, (existing > 0).then_some(existing))
             .await?;
     }
@@ -74,9 +73,8 @@ pub async fn run_with_operation(
     let mut present: i64 = 0;
     let mut had_inflight = false;
     let mut cancelled = false;
-    // Copre l'intera scansione, non solo il lotto in corso: file nella
-    // stessa cartella (il caso comune) non pagano `ensure_path` una seconda
-    // volta (Fase 10 Task 21).
+    // Covers the whole scan, not just the current batch: files in the same
+    // folder (the common case) don't pay for `ensure_path` a second time.
     let mut folder_cache: HashMap<Vec<String>, FolderId> = HashMap::new();
 
     for walked in iter_entries(root, &library.exclude_patterns) {
@@ -121,8 +119,8 @@ pub async fn run_with_operation(
     }
 
     if existing > 0 && present.saturating_mul(5) < existing.saturating_mul(4) {
-        // Errore, non completamento: l'operazione resta `running` — la
-        // riprova del job la riprenderà con lo stesso `operation_id`.
+        // An error, not a completion: the operation stays `running` — the
+        // job retry will resume it with the same `operation_id`.
         return Err(JobError::MassDisappearance);
     }
 
@@ -155,8 +153,8 @@ pub async fn run_with_operation(
 
     libraries.mark_scanned(library_id).await?;
     maintenance::schedule_vacuum_analyze(db).await?;
-    // Con `had_inflight` c'è ancora lavoro in arrivo con questo stesso
-    // `operation_id`: chiuderla `Done` ora mentirebbe sull'avanzamento.
+    // With `had_inflight` there's still work coming with this same
+    // `operation_id`: closing it `Done` now would lie about progress.
     if !had_inflight {
         finish_done_if_tracked(&ops, operation_id).await?;
     }
@@ -183,26 +181,26 @@ async fn finish_cancelled_if_tracked(
     Ok(())
 }
 
-/// Scrive il lotto in poche istruzioni multi-riga invece che una query per
-/// file (Fase 10 Task 21: l'overhead per-file misurato in Fase 1b — ~272 ms
-/// di coda e database — è la voce più grossa del tempo di importazione, ed
-/// è l'unica fatta di lavoro raggruppabile). Un solo `INSERT` risolve tutti
-/// gli asset del lotto, un solo `INSERT` accoda i job di metadati per quelli
-/// davvero nuovi/cambiati, un solo `UPDATE` avanza l'operazione tracciata.
+/// Writes the batch in a handful of multi-row statements instead of one
+/// query per file (per-file overhead — queueing plus database round-trips —
+/// is the largest share of import time, and the only part made of
+/// groupable work). A single `INSERT` upserts all assets in the batch, a
+/// single `INSERT` enqueues metadata jobs for the ones that are actually
+/// new/changed, a single `UPDATE` advances the tracked operation.
 ///
-/// Il trigger `assets_change_log` scrive comunque una riga di `change_log`
-/// per asset (entità-per-entità, come richiede il sync mobile, spec §2.6):
-/// qui si riduce il numero di **giri di rete**, non il numero di righe nel
-/// log — vedi Ruling nel ledger.
+/// The `assets_change_log` trigger still writes one `change_log` row per
+/// asset (entity-per-entity, as required by mobile sync): what's reduced
+/// here is the number of **network round-trips**, not the number of rows in
+/// the log.
 ///
-/// Il controllo di annullamento avviene una volta per lotto (fino a
-/// `PRODUCTION_BATCH_SIZE` file), non una volta per file come prima: più
-/// grezzo, ma il punto del batching è esattamente evitare una query per
-/// file, e questo controllo non fa eccezione.
+/// The cancellation check happens once per batch (up to
+/// `PRODUCTION_BATCH_SIZE` files), not once per file as before: coarser,
+/// but the whole point of batching is avoiding a query per file, and this
+/// check is no exception.
 ///
-/// Ritorna `true` se l'operazione tracciata è stata annullata prima di
-/// scrivere questo lotto: il chiamante deve fermarsi subito, senza
-/// proseguire con altri file.
+/// Returns `true` if the tracked operation was cancelled before writing
+/// this batch: the caller must stop immediately, without continuing with
+/// more files.
 async fn flush_batch(
     db: &Db,
     library_id: LibraryId,
@@ -269,11 +267,10 @@ async fn flush_batch(
     Ok(false)
 }
 
-/// Cartella di `relative` sotto `library_id`, con una cache che copre
-/// l'intera scansione (non solo il lotto in corso): file nella stessa
-/// cartella — il caso comune, un import è di solito un pugno di cartelle
-/// con centinaia di file ciascuna — non pagano `FolderRepo::ensure_path`
-/// una seconda volta.
+/// Folder for `relative` under `library_id`, with a cache that covers the
+/// whole scan (not just the current batch): files in the same folder — the
+/// common case, an import is usually a handful of folders with hundreds of
+/// files each — don't pay for `FolderRepo::ensure_path` a second time.
 async fn resolve_folder(
     folders: &FolderRepo<'_>,
     library_id: LibraryId,
@@ -290,7 +287,7 @@ async fn resolve_folder(
 }
 
 /// # Errors
-/// `JobError::Worker` se manca `library_id` o non è un UUID.
+/// `JobError::Worker` if `library_id` is missing or not a UUID.
 pub fn library_id_from_payload(payload: &serde_json::Value) -> Result<LibraryId, JobError> {
     let raw = payload
         .get("library_id")
@@ -301,8 +298,8 @@ pub fn library_id_from_payload(payload: &serde_json::Value) -> Result<LibraryId,
     Ok(LibraryId::from_uuid(uuid))
 }
 
-/// `None` quando il payload non porta un `operation_id` — il caso normale
-/// per una riscansione partita dal watcher, senza un utente in attesa.
+/// `None` when the payload carries no `operation_id` — the normal case for
+/// a rescan triggered by the watcher, with no user waiting on it.
 #[must_use]
 pub fn operation_id_from_payload(payload: &serde_json::Value) -> Option<OperationId> {
     payload

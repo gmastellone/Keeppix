@@ -1,27 +1,26 @@
-//! `JobKind::DetectFaces`: rilevamento `YuNet` + impronta `SFace` +
-//! raggruppamento incrementale a lotto (Fase 8 Task 4/5).
+//! `JobKind::DetectFaces`: `YuNet` detection + `SFace` embedding +
+//! incremental batch grouping.
 //!
-//! Stesso pattern di `embed.rs`: `keeppix-db` elenca i pending (escluso
-//! culling, escluse le librerie con `faces_enabled = false`),
-//! `keeppix-media` fa l'inferenza, poi si persiste. Gli originali non
-//! vengono mai decodificati — rilevamento sulla miniatura 240px, impronta
-//! sulla preview 2048px (spec §2.1 emendamento: i 240px della miniatura
-//! possono non bastare a distinguere due persone, ma bastano a trovare
-//! *dove* sono i volti).
+//! Same pattern as `embed.rs`: `keeppix-db` lists the pending items
+//! (excluding culled assets, excluding libraries with `faces_enabled =
+//! false`), `keeppix-media` runs inference, then results are persisted.
+//! Originals are never decoded — detection runs on the 240px thumbnail,
+//! embedding on the 2048px preview (the 240px thumbnail may not carry
+//! enough detail to tell two people apart, but it is enough to find
+//! *where* the faces are).
 //!
-//! La sessione ONNX vive per l'intera finestra di analisi, stesso motivo di
-//! `embed.rs`. Ogni finestra apre un'`Operation` `FaceDetection`: il poll WS
-//! esistente emette `operation.progress` senza eventi nuovi.
+//! The ONNX session lives for the whole scan window, for the same reason as
+//! in `embed.rs`. Each window opens a `FaceDetection` `Operation`: the
+//! existing WS poll emits `operation.progress` with no new events needed.
 //!
-//! **Raggruppamento incrementale** (Task 5, spec §4.1): per ogni volto con
-//! impronta calcolata, si cerca il centroide più vicino fra le persone
-//! esistenti. Soglie non ancora calibrate su dati reali (nessun peso
-//! `YuNet`/`SFace` scaricabile in questa sandbox — vedi ledger di fase):
-//! `ASSIGN_SIMILARITY`/`PROPOSE_SIMILARITY` sono punti di partenza
-//! ragionevoli per una similarità coseno `SFace`, non numeri misurati. Una
-//! persona con almeno una separazione registrata (spec §4.3) non riceve mai
-//! un'assegnazione certa: va sempre in proposta, anche sopra
-//! `ASSIGN_SIMILARITY` — vedi il Ruling nel ledger.
+//! **Incremental grouping**: for each face with a computed embedding, the
+//! nearest centroid among existing people is looked up. The thresholds are
+//! not yet calibrated against real data (no `YuNet`/`SFace` weights were
+//! downloadable in the sandbox this was built in):
+//! `ASSIGN_SIMILARITY`/`PROPOSE_SIMILARITY` are reasonable starting points
+//! for an `SFace` cosine similarity, not measured numbers. A person with at
+//! least one recorded separation never receives a certain assignment: it
+//! always goes to the proposal queue, even above `ASSIGN_SIMILARITY`.
 
 use std::path::Path;
 
@@ -35,23 +34,21 @@ use serde_json::json;
 
 use crate::JobError;
 
-/// Dimensione di lotto di default — stesso valore e stessa ragione di
-/// `embed::DEFAULT_BATCH_SIZE`: il gate di pausa si valuta fra un lotto e
-/// l'altro.
+/// Default batch size — same value and same reason as
+/// `embed::DEFAULT_BATCH_SIZE`: the pause gate is evaluated between batches.
 pub const DEFAULT_BATCH_SIZE: i64 = 16;
 
-/// Un volto sotto questa frazione del lato corto del riquadro (relativo
-/// all'immagine) resta **non riconosciuto di proposito** (spec Task 4 punto
-/// 4): niente impronta calcolata, quindi non diventa mai candidato al
-/// raggruppamento. Un'attribuzione sbagliata costa più di un volto mancato.
+/// A face below this fraction of the bounding box's short side (relative to
+/// the image) stays **deliberately unrecognized**: no embedding is
+/// computed, so it never becomes a grouping candidate. A wrong attribution
+/// costs more than a missed face.
 const MIN_FACE_SIZE_REL: f32 = 0.03;
 
-/// Similarità coseno oltre la quale un volto è assegnato con certezza al
-/// centroide più vicino.
+/// Cosine similarity above which a face is assigned with certainty to the
+/// nearest centroid.
 const ASSIGN_SIMILARITY: f32 = 0.62;
-/// Similarità coseno oltre la quale, senza raggiungere la certezza, il volto
-/// va comunque proposto in coda di revisione invece di aprire una persona
-/// nuova.
+/// Cosine similarity above which, without reaching certainty, the face is
+/// still proposed in the review queue instead of opening a new person.
 const PROPOSE_SIMILARITY: f32 = 0.45;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -60,7 +57,7 @@ pub struct DetectOutcome {
     pub faces_found: u32,
 }
 
-/// Accoda un lotto ad alta priorità dopo l'ingest — stesso motivo di
+/// Enqueue a high-priority batch after ingest — same reason as
 /// `embed::enqueue_after_ingest`.
 ///
 /// # Errors
@@ -77,8 +74,8 @@ pub async fn enqueue_after_ingest(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Backfill a priorità `Background`. No-op se i pesi mancano — stesso
-/// motivo di `embed::schedule_backfill`.
+/// Backfill at `Background` priority. No-op if the weights are missing —
+/// same reason as `embed::schedule_backfill`.
 ///
 /// # Errors
 /// Database.
@@ -98,19 +95,19 @@ pub async fn schedule_backfill(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Quanti volti orfani (impronta calcolata, mai raggruppati) si ritenta a
-/// ogni finestra. Basta un lotto piccolo: se ne accumulano solo quando
-/// `group_face` fallisce a metà di una passata precedente (un volto già
-/// inserito, il confronto pgvector che segue no) — un evento raro, non un
-/// volume paragonabile alla coda principale.
+/// How many orphaned faces (embedding computed, never grouped) are retried
+/// each window. A small batch is enough: they only accumulate when
+/// `group_face` fails partway through an earlier pass (the face insert
+/// succeeds, the following pgvector comparison doesn't) — a rare event, not
+/// a volume comparable to the main queue.
 const STRAGGLER_BATCH_LIMIT: i64 = 200;
 
-/// Processa i pending a lotti di `limit`, tenendo la sessione ONNX viva
-/// finché `continue_window` resta vera e ci sono foto — stesso contratto di
-/// `embed::run`.
+/// Processes the pending items in batches of `limit`, keeping the ONNX
+/// session alive as long as `continue_window` stays true and there are
+/// photos left — same contract as `embed::run`.
 ///
 /// # Errors
-/// Modello assente, fallimento inferenza, o errore database.
+/// Model missing, inference failure, or database error.
 pub async fn run(
     db: &Db,
     data_dir: &Path,
@@ -119,14 +116,15 @@ pub async fn run(
 ) -> Result<DetectOutcome, JobError> {
     let faces = FaceRepo::new(db);
 
-    // Recupero: un volto con impronta calcolata ma senza persona né proposta
-    // è lo scarto di un raggruppamento incrementale fallito a metà in una
-    // passata precedente — `insert_detected` è riuscito, `group_face` subito
-    // dopo no. L'asset che lo conteneva è già segnato `scanned`
-    // (`process_pending` lo marca comunque, per non bloccare la coda su un
-    // asset irraggiungibile), quindi `list_pending_scan` non lo rivede mai
-    // più: senza questo passo resterebbe orfano per sempre. Non serve il
-    // modello ONNX qui: solo il confronto pgvector già pronto.
+    // Recovery: a face with a computed embedding but no person and no
+    // proposal is the leftover of an incremental grouping that failed
+    // halfway through an earlier pass — `insert_detected` succeeded,
+    // `group_face` right after it did not. The asset that contained it is
+    // already marked `scanned` (`process_pending` marks it regardless, so
+    // the queue doesn't stall on an unreachable asset), so `list_pending_scan`
+    // never sees it again: without this step it would stay orphaned forever.
+    // The ONNX model isn't needed here, only the pgvector comparison that's
+    // already available.
     let stragglers = regroup_stragglers(db, &faces, STRAGGLER_BATCH_LIMIT).await?;
     if stragglers > 0 {
         tracing::info!(
@@ -273,11 +271,10 @@ async fn process_pending(
     Ok((outcome, scanned))
 }
 
-/// Rileva e raggruppa i volti di un asset. Qualsiasi fallimento (miniatura
-/// assente, decodifica fallita, inferenza fallita) è recuperabile dal
-/// chiamante: l'asset viene comunque segnato come analizzato, per non
-/// bloccare la coda su un file irraggiungibile — stesso spirito di
-/// `embed::ThumbLoadError::Missing`.
+/// Detects and groups the faces of an asset. Any failure (missing
+/// thumbnail, decode failure, inference failure) is recoverable by the
+/// caller: the asset is still marked as scanned, so the queue doesn't stall
+/// on an unreachable file — same spirit as `embed::ThumbLoadError::Missing`.
 async fn scan_one_asset(
     face_repo: &FaceRepo<'_>,
     person_repo: &PersonRepo<'_>,
@@ -295,8 +292,8 @@ async fn scan_one_asset(
         return Ok(0);
     }
 
-    // La preview serve solo se almeno un volto è abbastanza grande da
-    // meritare un'impronta — evita di decodificarla per niente.
+    // The preview is only needed if at least one face is large enough to
+    // deserve an embedding — this avoids decoding it for nothing.
     let needs_preview = detections
         .iter()
         .any(|d| d.bbox.w.min(d.bbox.h) >= MIN_FACE_SIZE_REL);
@@ -342,16 +339,15 @@ async fn scan_one_asset(
     Ok(found)
 }
 
-/// Raggruppamento incrementale di un volto appena rilevato (Task 5, spec
-/// §4.1): cerca il centroide più vicino, decide certo/proposto/nuova
-/// persona.
+/// Incremental grouping of a newly detected face: looks up the nearest
+/// centroid, decides certain/proposed/new person.
 ///
-/// Ruling (ledger di fase): una persona con almeno una separazione
-/// registrata non riceve mai un'assegnazione automatica **certa** — sempre
-/// proposta, anche sopra `ASSIGN_SIMILARITY`. Implementare un margine fra il
-/// primo e il secondo centroide più vicino richiederebbe un secondo
-/// confronto pgvector per ogni volto; questa regola è più semplice e non
-/// causa mai un'assegnazione automatica silenziosa sbagliata.
+/// Ruling: a person with at least one recorded separation never receives an
+/// automatic **certain** assignment — always a proposal, even above
+/// `ASSIGN_SIMILARITY`. Implementing a margin between the nearest and
+/// second-nearest centroid would require a second pgvector comparison per
+/// face; this rule is simpler and never causes a silent, wrong automatic
+/// assignment.
 async fn group_face(
     face_repo: &FaceRepo<'_>,
     person_repo: &PersonRepo<'_>,
@@ -380,11 +376,11 @@ async fn group_face(
     Ok(())
 }
 
-/// Ritenta il raggruppamento dei volti orfani — vedi il commento in
-/// [`run`]. Non richiede `FaceModels`: l'impronta esiste già, serve solo il
-/// confronto pgvector di [`group_face`]. Un fallimento su un singolo volto
-/// non interrompe gli altri: resta orfano un altro giro, non blocca la
-/// finestra.
+/// Retries grouping the orphaned faces — see the comment in [`run`]. Does
+/// not need `FaceModels`: the embedding already exists, only the pgvector
+/// comparison from [`group_face`] is needed. A failure on a single face
+/// does not stop the others: it stays orphaned for one more round, it does
+/// not block the window.
 async fn regroup_stragglers(db: &Db, faces: &FaceRepo<'_>, limit: i64) -> Result<u32, JobError> {
     let person_repo = PersonRepo::new(db);
     let stragglers = faces
@@ -408,7 +404,7 @@ async fn regroup_stragglers(db: &Db, faces: &FaceRepo<'_>, limit: i64) -> Result
 }
 
 /// # Errors
-/// `JobError::Worker` se `limit` non è un intero positivo quando presente.
+/// `JobError::Worker` if `limit` is present but not a positive integer.
 pub fn limit_from_payload(payload: &serde_json::Value) -> Result<i64, JobError> {
     match payload.get("limit") {
         None | Some(serde_json::Value::Null) => Ok(DEFAULT_BATCH_SIZE),

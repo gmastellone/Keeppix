@@ -1,5 +1,5 @@
-//! Matching temporale GPX: orchestra lettura DB, interpolatore puro dei media
-//! e writer batch, senza SQL in questo crate.
+//! GPX temporal matching: orchestrates DB reads, the pure media
+//! interpolator, and batch writes, with no SQL in this crate.
 
 use chrono::{DateTime, Duration, Utc};
 use keeppix_db::{Db, DbError, GeoRepo, OverrideRepo, PermissionRepo};
@@ -36,7 +36,7 @@ pub struct TimezoneApply {
     pub batch_id: Option<BatchId>,
 }
 
-/// Esito di un import GPX a riuscita parziale.
+/// Outcome of a partially-successful GPX import.
 #[derive(Debug)]
 pub struct GpxImportOutcome {
     pub batch_id: Option<BatchId>,
@@ -54,10 +54,10 @@ impl<'a> RecalculateTimezones<'a> {
         Self { db }
     }
 
-    /// Calcola conteggio ed esempio senza scrivere override o batch.
+    /// Computes the count and example without writing overrides or a batch.
     ///
     /// # Errors
-    /// Libreria non accessibile o errore database.
+    /// Library not accessible, or database error.
     pub async fn preview(
         &self,
         ctx: &AuthContext,
@@ -79,10 +79,10 @@ impl<'a> RecalculateTimezones<'a> {
         })
     }
 
-    /// Ricalcola al momento della conferma e applica un solo batch annullabile.
+    /// Recomputes at confirmation time and applies a single undoable batch.
     ///
     /// # Errors
-    /// Libreria non accessibile, asset non modificabile o errore database.
+    /// Library not accessible, asset not editable, or database error.
     pub async fn apply(
         &self,
         ctx: &AuthContext,
@@ -101,12 +101,12 @@ impl<'a> RecalculateTimezones<'a> {
     }
 }
 
-/// Abbina gli asset alla traccia e applica le coordinate prodotte. Gli asset
-/// non modificabili finiscono in `failed`; quelli senza match temporale non
-/// sono né riusciti né falliti (nessuna scrittura, nessuna ragione §7).
+/// Matches assets against the track and applies the produced coordinates.
+/// Non-editable assets end up in `failed`; those with no temporal match are
+/// neither succeeded nor failed (no write, no reason recorded).
 ///
 /// # Errors
-/// GPX malformato o errore database non attribuibile a un singolo id.
+/// Malformed GPX, or a database error not attributable to a single id.
 pub async fn import_gpx(
     db: &Db,
     ctx: &AuthContext,

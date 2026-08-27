@@ -65,8 +65,8 @@ fn five_minutes_idle_becomes_background() {
     );
 }
 
-// Task 21 — l'interfaccia (§57) promette all'utente "2:00-7:00"; il codice
-// deve tenere quella promessa, non un'altra finestra scelta a caso.
+// The UI promises the user "2:00-7:00"; the code must keep that promise,
+// not some other window picked arbitrarily.
 #[test]
 fn default_night_window_matches_the_promise_made_in_the_ui() {
     assert_eq!(
@@ -97,10 +97,9 @@ fn night_window_yields_night_unless_interactive() {
     );
 }
 
-// Task 20 — la pausa automatica dell'analisi è un comportamento del server,
-// guidato dal viewport, non dalla richiesta autenticata generica (quella ha
-// una finestra di 5 minuti, troppo lunga per "riprendi 4 secondi dopo che
-// l'utente ha smesso di scorrere").
+// The analysis auto-pause is a server behavior driven by the viewport, not
+// by the generic authenticated request (that one has a 5-minute window, too
+// long for "resume 4 seconds after the user stopped scrolling").
 
 #[test]
 fn analysis_pauses_right_after_a_viewport_change() {
@@ -132,16 +131,16 @@ fn the_idle_threshold_is_a_caller_supplied_parameter_not_a_baked_in_constant() {
     let now = Utc.with_ymd_and_hms(2026, 8, 20, 12, 0, 0).unwrap();
     tracker.notify_viewport_activity_at(now);
     let half_a_second_later = now + chrono::Duration::milliseconds(500);
-    // Un chiamante con soglia più corta riprende prima dello stesso chiamante
-    // con soglia più lunga, sullo stesso identico stato del tracker.
+    // A caller with a shorter threshold resumes sooner than the same caller
+    // with a longer one, on the exact same tracker state.
     assert!(tracker.analysis_should_run(half_a_second_later, 250));
     assert!(!tracker.analysis_should_run(half_a_second_later, 4000));
 }
 
 #[test]
 fn reduced_level_is_about_six_times_slower_than_full_using_measured_ms() {
-    // Task B, bench CI reale (`bcf9b4a`): vision OpenCLIP XLM-R IT/EN ≈ 57 ms/foto.
-    // Reduced resta ~6× (documento funzionale UI), non un secondo numero inventato.
+    // Measured on a real CI benchmark: vision OpenCLIP XLM-R IT/EN ≈ 57 ms/photo.
+    // Reduced stays ~6x that (per the UI functional design), not a second made-up number.
     assert_eq!(AnalysisLevel::Full.ms_per_photo(), Some(57));
     assert_eq!(AnalysisLevel::Reduced.ms_per_photo(), Some(342));
     assert_eq!(AnalysisLevel::Off.ms_per_photo(), None);
@@ -155,8 +154,9 @@ fn reduced_level_is_about_six_times_slower_than_full_using_measured_ms() {
 
 #[test]
 fn analysis_pause_caps_claimable_priority_below_background() {
-    // Di notte / in background, senza pausa: si reclamano anche i job Background
-    // (EmbedAssets). Con viewport fresco la coda di analisi si ferma, il resto no.
+    // At night / in background, without a pause: even Background jobs
+    // (EmbedAssets) are claimed. With a fresh viewport the analysis queue
+    // stops, the rest doesn't.
     assert_eq!(
         max_claimable_priority(EnergyProfile::Night, true),
         JobPriority::Background
@@ -169,7 +169,7 @@ fn analysis_pause_caps_claimable_priority_below_background() {
         max_claimable_priority(EnergyProfile::Background, false),
         JobPriority::Visible
     );
-    // Interactive era già sotto Background: la pausa non cambia nulla.
+    // Interactive was already below Background: the pause changes nothing.
     assert_eq!(
         max_claimable_priority(EnergyProfile::Interactive, false),
         JobPriority::Visible

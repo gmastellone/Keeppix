@@ -15,7 +15,7 @@ use crate::profile::{ActivityTracker, DEFAULT_ANALYSIS_IDLE_MS};
 use crate::raw as raw_job;
 use crate::xmp as xmp_job;
 
-/// Handler unico della pipeline 1b.
+/// Single handler for the ingest pipeline.
 #[derive(Clone)]
 pub struct IngestHandler {
     pub db: Db,
@@ -24,8 +24,8 @@ pub struct IngestHandler {
     pub trash_retention_days: i64,
     pub database_url: String,
     pub config_path: Option<PathBuf>,
-    /// Stesso tracker del pool: fra un lotto embed e l'altro decide se la
-    /// finestra di analisi resta aperta (viewport idle).
+    /// Same tracker as the pool: between embed batches it decides whether
+    /// the analysis window stays open (viewport idle).
     pub activity: Arc<ActivityTracker>,
 }
 
@@ -33,17 +33,17 @@ impl crate::JobHandler for IngestHandler {
     fn ram_hint_bytes(&self, job: &Job) -> u64 {
         match job.kind {
             JobKind::DeriveAsset => DEFAULT_RAM_HINT,
-            // DeriveRaw: demosaic out-of-process. EmbedAssets: OpenCLIP XLM-R
-            // IT/EN, visual+text ≈ 530-550 MB RSS a lotto (Task B, bench CI
-            // reale). DetectFaces: YuNet+SFace, stesso ordine di grandezza di
-            // un secondo stack ort. Stesso tetto di gate.
+            // DeriveRaw: out-of-process demosaic. EmbedAssets: OpenCLIP
+            // XLM-R IT/EN, visual+text ≈ 530-550 MB RSS per batch, measured
+            // on real CI benchmarks. DetectFaces: YuNet+SFace, same order of
+            // magnitude as a second ort stack. Same gate ceiling.
             JobKind::DeriveRaw | JobKind::EmbedAssets | JobKind::DetectFaces => 512 * 1024 * 1024,
             JobKind::TranscodeVideo => 1024 * 1024 * 1024,
             JobKind::BackupDump | JobKind::RestoreProof | JobKind::VacuumAnalyze => {
                 256 * 1024 * 1024
             }
-            // WriteSidecar scrive un piccolo file di testo per asset:
-            // leggero come gli altri job di manutenzione, copre il default.
+            // WriteSidecar writes a small text file per asset: as light as
+            // the other maintenance jobs, covered by the default.
             _ => 8 * 1024 * 1024,
         }
     }
@@ -53,8 +53,9 @@ impl crate::JobHandler for IngestHandler {
             JobKind::DiscoverLibrary => {
                 let id = discover::library_id_from_payload(&job.payload)?;
                 let operation_id = discover::operation_id_from_payload(&job.payload);
-                // `stability_wait` sul handler è la soglia di età (settled_after),
-                // non un sonno: in produzione è `PRODUCTION_SETTLED_AFTER`.
+                // `stability_wait` on the handler is the age threshold
+                // (settled_after), not a sleep: in production it's
+                // `PRODUCTION_SETTLED_AFTER`.
                 discover::run_with_operation(&self.db, id, self.stability_wait, operation_id).await
             }
             JobKind::ExtractMetadata => {
@@ -131,14 +132,14 @@ impl crate::JobHandler for IngestHandler {
     }
 }
 
-/// Un handler per tipo di job. I tipi concreti arrivano dai task 6–10.
+/// One handler per job type.
 pub trait JobHandler: Send + Sync {
     fn ram_hint_bytes(&self, job: &Job) -> u64;
 
     fn handle(&self, job: &Job) -> impl std::future::Future<Output = Result<(), JobError>> + Send;
 }
 
-/// Stima di default: 64 MiB, abbastanza per un JPEG 20 MP decodificato.
+/// Default estimate: 64 MiB, enough for a decoded 20 MP JPEG.
 pub const DEFAULT_RAM_HINT: u64 = 64 * 1024 * 1024;
 
 #[must_use]

@@ -10,8 +10,8 @@ use crate::JobError;
 use crate::dispatch::JobHandler;
 use crate::profile::{ActivityTracker, DEFAULT_ANALYSIS_IDLE_MS, max_claimable_priority};
 
-/// Semaforo pesato in KiB. Un job che stima più della capienza prende tutta
-/// la capienza e aspetta da solo — non fa cadere il processo.
+/// Semaphore weighted in KiB. A job that estimates more than the total
+/// capacity takes all of it and waits alone — it does not crash the process.
 pub struct RamGate {
     sem: Semaphore,
     cap_kib: u32,
@@ -28,7 +28,8 @@ impl RamGate {
     }
 
     /// # Errors
-    /// `JobError::Worker` se il semaforo è stato chiuso (non succede in 1b).
+    /// `JobError::Worker` if the semaphore has been closed (does not happen
+    /// in current usage).
     pub async fn acquire(&self, hint_bytes: u64) -> Result<SemaphorePermit<'_>, JobError> {
         let kib = (hint_bytes / 1024).max(1);
         let kib = u32::try_from(kib).unwrap_or(u32::MAX).min(self.cap_kib);
@@ -70,10 +71,11 @@ impl<H: JobHandler> WorkerPool<H> {
         }
     }
 
-    /// Un giro: claim, ram, handle, complete/fail. `false` se la coda è vuota.
+    /// One round: claim, ram, handle, complete/fail. `false` if the queue
+    /// is empty.
     ///
     /// # Errors
-    /// Errori di database o del gate; gli errori dell'handler diventano `fail`.
+    /// Database or gate errors; handler errors turn into a `fail`.
     pub async fn step(&self) -> Result<bool, JobError> {
         let now = Utc::now();
         let paused = self.paused.load(std::sync::atomic::Ordering::Relaxed);

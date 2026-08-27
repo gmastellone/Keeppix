@@ -1,4 +1,4 @@
-//! Coda e worker di ingestione. Unisce `keeppix-db` e `keeppix-media`.
+//! Ingestion queue and worker. Ties together `keeppix-db` and `keeppix-media`.
 
 pub mod backup;
 pub mod cleanup_trash;
@@ -38,15 +38,16 @@ pub use profile::{
     max_claimable_priority, worker_count,
 };
 
-/// Attesa prima di riconsiderare un file che sembra ancora in arrivo.
-/// Usata da `main.rs` e dai test: se divergessero, un difetto potrebbe
-/// vivere solo nel codice spedito — è già successo (Fase 2R / DIFETTO 1).
+/// Wait before reconsidering a file that still looks like it's arriving.
+/// Used by `main.rs` and by tests: if the two diverged, a bug could live
+/// only in the shipped code and go unnoticed — that has happened before.
 pub const PRODUCTION_STABILITY_WAIT: Duration = Duration::from_secs(5);
 
-/// Un file con `mtime` più vecchio di questo non sta arrivando: un solo
-/// `stat`, nessuna attesa.
+/// A file with an `mtime` older than this is not still arriving: a single
+/// `stat`, no waiting.
 pub const PRODUCTION_SETTLED_AFTER: Duration = Duration::from_secs(60);
 
-/// Quanti file scrivere in `assets` prima di tornare a guardare il disco.
-/// Tiene la RAM costante e fa comparire le foto in timeline durante lo scan.
+/// How many files to write to `assets` before going back to watching the
+/// disk. Keeps RAM constant and lets photos appear in the timeline during
+/// the scan.
 pub const PRODUCTION_BATCH_SIZE: usize = 500;

@@ -16,10 +16,10 @@ fn temp_library_root() -> PathBuf {
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("orologio")
+            .expect("clock")
             .as_nanos()
     ));
-    fs::create_dir_all(&root).expect("radice");
+    fs::create_dir_all(&root).expect("root dir");
     root
 }
 
@@ -36,13 +36,14 @@ async fn seed_library(test: &TestDb, owner: UserId, root: &Path) -> keeppix_doma
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
-/// `keeppix_jobs::tmp_cleanup::run` deve ripulire una sessione scaduta
-/// senza toccarne una viva — non è un test duplicato di quello a livello
-/// `keeppix-db`, verifica che il job sia collegato correttamente al repo.
+/// `keeppix_jobs::tmp_cleanup::run` must clean up an expired session
+/// without touching a live one — this isn't a duplicate of the
+/// `keeppix-db`-level test, it verifies the job is wired correctly to the
+/// repo.
 #[tokio::test]
 async fn run_removes_only_expired_upload_sessions() {
     let test = TestDb::start().await;
@@ -116,8 +117,8 @@ async fn run_removes_only_expired_upload_sessions() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// `schedule` accoda un giro deduplicato — una seconda chiamata mentre il
-/// primo è ancora pending non ne crea un secondo.
+/// `schedule` enqueues a deduplicated run — a second call while the first
+/// is still pending does not create a second one.
 #[tokio::test]
 async fn schedule_enqueues_a_deduplicated_background_job() {
     let test = TestDb::start().await;
@@ -134,13 +135,13 @@ async fn schedule_enqueues_a_deduplicated_background_job() {
             .fetch_all(test.db().pool())
             .await
             .unwrap();
-    assert_eq!(jobs.len(), 1, "due schedule non devono creare due job");
+    assert_eq!(jobs.len(), 1, "two schedules must not create two jobs");
     assert_eq!(jobs[0].0, JobKind::TmpCleanup.as_str());
     assert_eq!(jobs[0].1, JobPriority::Background.as_i16());
 
     let repo = JobRepo::new(test.db());
     assert!(
         repo.count_for_dedup_key("tmp_cleanup").await.unwrap() >= 1,
-        "il repo deve vedere la riga appena accodata"
+        "the repo must see the row that was just enqueued"
     );
 }

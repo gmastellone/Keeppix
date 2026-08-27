@@ -20,10 +20,10 @@ fn temp_library_root() -> PathBuf {
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("orologio")
+            .expect("clock")
             .as_nanos()
     ));
-    fs::create_dir_all(&root).expect("radice");
+    fs::create_dir_all(&root).expect("root dir");
     root
 }
 
@@ -40,7 +40,7 @@ async fn seed_library(test: &TestDb, owner: UserId, root: &Path) -> LibraryId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -48,7 +48,7 @@ async fn seed_library(test: &TestDb, owner: UserId, root: &Path) -> LibraryId {
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 9,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: None,
@@ -56,8 +56,9 @@ fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     }
 }
 
-/// Una riga oltre la finestra sparisce **senza** chiamare `TrashRepo` dal
-/// test: passa dal job di manutenzione. Una più recente resta.
+/// A row past the window disappears **without** the test calling
+/// `TrashRepo`: it goes through the maintenance job. A more recent one
+/// stays.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn expired_trash_is_removed_by_the_maintenance_job_without_a_manual_empty() {
@@ -108,7 +109,7 @@ async fn expired_trash_is_removed_by_the_maintenance_job_without_a_manual_empty(
     let old_trash = PathBuf::from(old_entry.trash_path.unwrap());
     assert!(
         !old_trash.exists(),
-        "il file oltre la finestra deve sparire da solo"
+        "the file past the window must disappear on its own"
     );
     let old_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM trash_entries WHERE id = $1")
         .bind(old_entry.id.as_uuid())
@@ -118,7 +119,7 @@ async fn expired_trash_is_removed_by_the_maintenance_job_without_a_manual_empty(
     assert_eq!(old_rows, 0);
 
     let recent_trash = PathBuf::from(recent_entry.trash_path.clone().unwrap());
-    assert!(recent_trash.exists(), "il cestino recente resta");
+    assert!(recent_trash.exists(), "the recent trash entry stays");
     let recent_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM trash_entries WHERE id = $1")
         .bind(recent_entry.id.as_uuid())
         .fetch_one(test.db().pool())

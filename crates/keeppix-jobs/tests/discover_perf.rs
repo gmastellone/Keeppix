@@ -1,5 +1,5 @@
-//! Budget di discovery: la configurazione di produzione non deve dormire
-//! cinque secondi per file (Fase 2R / DIFETTO 1).
+//! Discovery budget: the production configuration must not sleep five
+//! seconds per file.
 
 mod harness;
 
@@ -25,14 +25,14 @@ async fn seed_library(test: &TestDb, root: &std::path::Path) -> keeppix_domain::
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
 }
 
-/// 1.000 file con `mtime` nel passato: nessuno sta arrivando, quindi nessuno
-/// deve costare un'attesa di stabilità.
+/// 1,000 files with a past `mtime`: none of them is arriving, so none
+/// should cost a stability wait.
 ///
-/// Con il difetto (5 s per file) questo test impiegherebbe ~83 minuti: va
-/// osservato fallire per timeout, che è già la prova.
+/// With the bug (5 s per file) this test would take ~83 minutes: it should
+/// be observed failing by timeout, which is already the proof.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn discovering_a_thousand_settled_files_takes_seconds_not_hours() {
@@ -49,7 +49,7 @@ async fn discovering_a_thousand_settled_files_takes_seconds_not_hours() {
     let library = seed_library(&test, dir.path()).await;
 
     let start = Instant::now();
-    // CONFIGURAZIONE DI PRODUZIONE, non Duration::ZERO.
+    // PRODUCTION CONFIGURATION, not Duration::ZERO.
     keeppix_jobs::discover::run(
         test.db(),
         library.id,
@@ -62,8 +62,8 @@ async fn discovering_a_thousand_settled_files_takes_seconds_not_hours() {
 
     assert!(
         elapsed < Duration::from_secs(30),
-        "1.000 file assestati hanno richiesto {elapsed:?}: la discovery sta \
-         dormendo per file invece di saltare i file già fermi"
+        "1,000 settled files took {elapsed:?}: discovery is sleeping per \
+         file instead of skipping files already settled"
     );
 
     let count = AssetRepo::new(test.db())
@@ -73,7 +73,7 @@ async fn discovering_a_thousand_settled_files_takes_seconds_not_hours() {
     assert_eq!(count, 1000);
 }
 
-/// Gli asset devono comparire DURANTE la scansione, non solo alla fine.
+/// Assets must appear DURING the scan, not only at the end.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn assets_appear_while_the_scan_is_still_running() {
@@ -115,12 +115,12 @@ async fn assets_appear_while_the_scan_is_still_running() {
     result.expect("discover");
     assert!(
         saw_progress,
-        "nessun asset era visibile prima della fine dello scan: \
-         la discovery accumula ancora tutto in RAM"
+        "no asset was visible before the scan finished: \
+         discovery is still buffering everything in RAM"
     );
 }
 
-/// Un file che sta ancora arrivando non blocca la scansione: viene rimandato.
+/// A file still being written does not block the scan: it is deferred.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn a_file_still_being_written_is_deferred_not_waited_for() {
@@ -134,7 +134,7 @@ async fn a_file_still_being_written_is_deferred_not_waited_for() {
 
     let inflight = dir.path().join("new.jpg");
     std::fs::write(&inflight, b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00").unwrap();
-    // mtime = ora: sotto SETTLED_AFTER → InFlight.
+    // mtime = now: below SETTLED_AFTER → InFlight.
 
     let library = seed_library(&test, dir.path()).await;
 
@@ -150,17 +150,14 @@ async fn a_file_still_being_written_is_deferred_not_waited_for() {
 
     assert!(
         elapsed < Duration::from_secs(2),
-        "un file InFlight ha fatto dormire la discovery: {elapsed:?}"
+        "an InFlight file made discovery sleep: {elapsed:?}"
     );
 
     let count = AssetRepo::new(test.db())
         .count_in_library(library.id)
         .await
         .unwrap();
-    assert_eq!(
-        count, 1,
-        "solo il file assestato deve essere indicizzato ora"
-    );
+    assert_eq!(count, 1, "only the settled file should be indexed now");
 
     let deferred: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM jobs \
@@ -171,6 +168,6 @@ async fn a_file_still_being_written_is_deferred_not_waited_for() {
     .unwrap();
     assert_eq!(
         deferred, 1,
-        "deve restare un ricontrollo in coda con run_after nel futuro"
+        "a recheck must remain queued with run_after in the future"
     );
 }

@@ -1,4 +1,4 @@
-//! Completes the maintenance scheduler (Fase 6 Task 8).
+//! Completes the maintenance scheduler.
 //! Reuses the same `schedule()` pattern as `cleanup_trash` / `tmp_cleanup`.
 //! Heavy work is `JobPriority::Background`, so `EnergyProfile::Interactive`
 //! never claims it (see `EnergyProfile::max_priority`).

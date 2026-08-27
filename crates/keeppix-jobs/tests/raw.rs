@@ -24,9 +24,9 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// Un demosaic finto che conta le invocazioni: il punto del task è
-/// dimostrare per conteggio, non per tempo, che il passo costoso non parte
-/// quando la preview incorporata basta.
+/// A fake demosaic that counts invocations: the point is to prove, by
+/// count and not by timing, that the expensive step doesn't run when the
+/// embedded preview is enough.
 struct MockDemosaic<F> {
     calls: AtomicUsize,
     f: F,
@@ -64,12 +64,13 @@ fn never_called() -> Result<RawPreview, JobError> {
     ))
 }
 
-// Il tipo di ritorno segue la firma condivisa da `MockDemosaic<F>`: qui non
-// serve mai restituire `Err`, ma deve restare compatibile con gli altri mock.
+// The return type follows the signature shared by `MockDemosaic<F>`: this
+// one never needs to return `Err`, but must stay compatible with the other
+// mocks.
 #[allow(clippy::unnecessary_wraps)]
 fn fake_demosaic_output() -> Result<RawPreview, JobError> {
-    // 4x2 RGB8 a tinta unita: basta a passare per la pipeline dei derivati,
-    // le dimensioni non contano per questo test.
+    // 4x2 flat-color RGB8: enough to pass through the derivatives pipeline,
+    // the dimensions don't matter for this test.
     Ok(RawPreview {
         bytes: vec![120u8; 4 * 2 * 3],
         width: 4,
@@ -82,14 +83,14 @@ fn always_fails() -> Result<RawPreview, JobError> {
     Err(JobError::Worker("dcraw_emu: corrupt raw file".to_owned()))
 }
 
-/// Un TIFF valido (header + una IFD vuota) ma senza alcun tag di preview:
-/// `extract_embedded_preview` lo riconosce come RAW ma restituisce `Ok(None)`.
+/// A valid TIFF (header + one empty IFD) but with no preview tag at all:
+/// `extract_embedded_preview` recognizes it as RAW but returns `Ok(None)`.
 fn minimal_tiff_without_preview() -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(b"II*\0"); // little-endian, magic 42
-    buf.extend_from_slice(&8u32.to_le_bytes()); // offset alla prima IFD
-    buf.extend_from_slice(&0u16.to_le_bytes()); // 0 entry nella IFD
-    buf.extend_from_slice(&0u32.to_le_bytes()); // nessuna IFD successiva
+    buf.extend_from_slice(&8u32.to_le_bytes()); // offset to the first IFD
+    buf.extend_from_slice(&0u16.to_le_bytes()); // 0 entries in the IFD
+    buf.extend_from_slice(&0u32.to_le_bytes()); // no next IFD
     buf
 }
 
@@ -100,12 +101,11 @@ struct Seeded {
     asset_id: AssetId,
 }
 
-/// Crea una libreria, ci scrive un file con questi byte, e registra
-/// l'asset RAW corrispondente col suo `content_hash` già calcolato — lo
-/// stesso stato in cui la pipeline di hash lo lascerebbe prima di accodare
-/// `DeriveRaw`. `admin` va creato una sola volta per `TestDb`:
-/// `create_bootstrap_admin` rifiuta un secondo amministratore sulla stessa
-/// istanza.
+/// Creates a library, writes a file with these bytes into it, and
+/// registers the corresponding RAW asset with its `content_hash` already
+/// computed — the same state the hash pipeline would leave it in before
+/// enqueueing `DeriveRaw`. `admin` must be created only once per `TestDb`:
+/// `create_bootstrap_admin` rejects a second admin on the same instance.
 async fn seed_raw_asset(test: &TestDb, admin: UserId, filename: &str, bytes: &[u8]) -> Seeded {
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let root = std::env::temp_dir().join(format!("kpx-raw-{}", uuid::Uuid::now_v7()));
@@ -170,10 +170,10 @@ async fn a_raw_with_a_large_preview_never_calls_libraw() {
     assert_eq!(
         demosaic.calls(),
         0,
-        "la preview incorporata di sample.arw supera 1440px: libraw non deve partire"
+        "sample.arw's embedded preview exceeds 1440px: libraw must not run"
     );
     let (thumb, _) = keeppix_media::derivative_paths(&seeded.data_dir, &seeded.hash);
-    assert!(thumb.is_file(), "il thumbnail va comunque generato");
+    assert!(thumb.is_file(), "the thumbnail must still be generated");
 
     let _ = fs::remove_dir_all(&seeded.root);
 }
@@ -192,12 +192,12 @@ async fn a_raw_without_a_preview_falls_back_to_demosaic() {
     assert_eq!(
         demosaic.calls(),
         1,
-        "senza preview incorporata la cascata deve tentare il demosaic"
+        "without an embedded preview the cascade must attempt demosaic"
     );
     let (thumb, _) = keeppix_media::derivative_paths(&seeded.data_dir, &seeded.hash);
     assert!(
         thumb.is_file(),
-        "il thumbnail va generato dall'output del demosaic"
+        "the thumbnail must be generated from the demosaic output"
     );
 
     let _ = fs::remove_dir_all(&seeded.root);
@@ -215,7 +215,7 @@ async fn a_corrupt_raw_sets_the_asset_to_error_and_does_not_block_the_queue() {
     let result = raw::run_with(test.db(), &corrupt.data_dir, corrupt.hash, &failing).await;
     assert!(
         result.is_ok(),
-        "un raw corrotto è un set_error, non un errore di job che blocca la coda"
+        "a corrupt raw is a set_error, not a job error that blocks the queue"
     );
 
     let asset = AssetRepo::new(test.db())
@@ -224,7 +224,7 @@ async fn a_corrupt_raw_sets_the_asset_to_error_and_does_not_block_the_queue() {
         .unwrap();
     assert_eq!(asset.status, AssetStatus::Error);
 
-    // La coda continua: il prossimo job (su un file diverso) va a buon fine.
+    // The queue keeps going: the next job (on a different file) succeeds.
     let succeeding = MockDemosaic::new(never_called);
     raw::run_with(test.db(), &good.data_dir, good.hash, &succeeding)
         .await
@@ -254,7 +254,7 @@ async fn deriving_from_the_embedded_preview_populates_the_thumbhash() {
         .unwrap();
     assert!(
         asset.thumbhash.is_some_and(|h| !h.is_empty()),
-        "il thumbhash deve essere salvato anche per la preview incorporata di un RAW"
+        "the thumbhash must be saved even for a RAW's embedded preview"
     );
 
     let _ = fs::remove_dir_all(&seeded.root);
@@ -308,11 +308,11 @@ async fn a_duplicate_hashed_after_the_first_derive_still_gets_the_thumbhash() {
     let b = assets.get_for_scan(asset_b.id).await.unwrap();
     assert!(
         a.thumbhash.is_some_and(|h| !h.is_empty()),
-        "il primo asset deve restare col thumbhash"
+        "the first asset must keep its thumbhash"
     );
     assert!(
         b.thumbhash.is_some_and(|h| !h.is_empty()),
-        "il duplicato hashed dopo la prima derive_raw non deve restare senza thumbhash"
+        "a duplicate hashed after the first derive_raw must not be left without a thumbhash"
     );
 
     let _ = fs::remove_dir_all(&first.root);
@@ -335,7 +335,7 @@ async fn deriving_from_the_demosaic_fallback_populates_the_thumbhash() {
         .unwrap();
     assert!(
         asset.thumbhash.is_some_and(|h| !h.is_empty()),
-        "il thumbhash deve essere salvato anche per il fallback al demosaic"
+        "the thumbhash must be saved even for the demosaic fallback"
     );
 
     let _ = fs::remove_dir_all(&seeded.root);
@@ -362,12 +362,12 @@ async fn the_job_is_idempotent() {
     assert_eq!(
         demosaic.calls(),
         1,
-        "una seconda esecuzione non deve rilanciare il demosaic: il derivato c'è già"
+        "a second run must not re-trigger demosaic: the derivative already exists"
     );
     let second_run_bytes = fs::read(&thumb).unwrap();
     assert_eq!(
         first_run_bytes, second_run_bytes,
-        "nessuna rigenerazione del derivato"
+        "no regeneration of the derivative"
     );
 
     let _ = fs::remove_dir_all(&seeded.root);

@@ -1,10 +1,9 @@
-//! `BulkRename` in background (Task 10 + Task 16, spostato dalla richiesta
-//! HTTP il 27 agosto — vedi il commento in cima a
-//! `keeppix-db::rename`). L'operazione è già creata dal chiamante HTTP
-//! (`routes/rename.rs::apply_batch`) prima di accodare questo job: qui si
-//! ricostruisce solo l'`AuthContext` dell'utente che ha avviato la
-//! richiesta, per far girare `RenameRepo::apply` con lo stesso permesso che
-//! aveva al momento della chiamata.
+//! `BulkRename` in the background, moved off the HTTP request path — see
+//! the comment at the top of `keeppix-db::rename`. The operation is already
+//! created by the HTTP caller (`routes/rename.rs::apply_batch`) before this
+//! job is enqueued: here only the `AuthContext` of the user who started the
+//! request is reconstructed, so `RenameRepo::apply` runs with the same
+//! permission it had at call time.
 
 use keeppix_db::{Db, OperationsRepo, RenameRepo, UserRepo};
 use keeppix_domain::{AssetId, AuthContext, OperationId, UserId};
@@ -13,9 +12,9 @@ use uuid::Uuid;
 use crate::JobError;
 
 /// # Errors
-/// `JobError::Worker` se il payload è malformato; `JobError::Db` se
-/// `RenameRepo::apply` fallisce (l'operazione viene comunque chiusa come
-/// fallita prima di propagare, mai lasciata `running`).
+/// `JobError::Worker` if the payload is malformed; `JobError::Db` if
+/// `RenameRepo::apply` fails (the operation is still closed as failed
+/// before the error propagates, never left `running`).
 pub async fn run(db: &Db, payload: &serde_json::Value) -> Result<(), JobError> {
     let operation_id = operation_id_from_payload(payload)?;
     let actor_id = actor_id_from_payload(payload)?;
@@ -23,8 +22,8 @@ pub async fn run(db: &Db, payload: &serde_json::Value) -> Result<(), JobError> {
     let schema = schema_from_payload(payload)?;
 
     let ops = OperationsRepo::new(db);
-    // Ruolo **corrente**, non quello del momento in cui la richiesta HTTP
-    // ha accodato il job — coerente con `UserRepo::role_for`.
+    // **Current** role, not the one at the time the HTTP request enqueued
+    // the job — consistent with `UserRepo::role_for`.
     let role = match UserRepo::new(db).role_for(actor_id).await {
         Ok(role) => role,
         Err(err) => {
@@ -40,13 +39,13 @@ pub async fn run(db: &Db, payload: &serde_json::Value) -> Result<(), JobError> {
     {
         Ok(_outcome) => Ok(()),
         Err(err) => {
-            // `apply` chiude da sola l'operazione su ogni percorso che
-            // raggiunge il giro di rinomina (Done/Cancelled) — un `Err` qui
-            // vuol dire che ha fallito **prima**, dentro `compute` (permesso
-            // cambiato nel frattempo, o un errore di connessione): quella
-            // strada non tocca mai l'operazione, quindi lo facciamo qui,
-            // altrimenti resterebbe `running` per sempre (lo stesso buco
-            // documentato su `OperationsRepo::finish_failed`).
+            // `apply` closes the operation itself on every path that
+            // reaches the rename pass (Done/Cancelled) — an `Err` here
+            // means it failed **earlier**, inside `compute` (permission
+            // changed in the meantime, or a connection error): that path
+            // never touches the operation, so it's done here instead,
+            // otherwise it would stay `running` forever (the same gap
+            // documented on `OperationsRepo::finish_failed`).
             ops.finish_failed(operation_id).await?;
             Err(JobError::Db(err))
         }

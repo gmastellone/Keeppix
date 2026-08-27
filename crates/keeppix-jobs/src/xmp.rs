@@ -1,14 +1,14 @@
-//! `JobKind::WriteSidecar`: riversa sui file gli override in sospeso
-//! (spec `fase-2-raw-culling.md` §3.3-§3.4). «DB prima, file poi»: l'utente
-//! ha già visto il cambiamento (l'`UPDATE` su `asset_overrides` è
-//! sincrono), questo job è solo la propagazione — asincrona, a priorità 3,
-//! ritentabile — verso il sidecar `.xmp` accanto al file.
+//! `JobKind::WriteSidecar`: flushes pending overrides out to the files.
+//! "DB first, file later": the user has already seen the change (the
+//! `UPDATE` on `asset_overrides` is synchronous), this job is only the
+//! propagation — asynchronous, background priority, retryable — to the
+//! `.xmp` sidecar next to the file.
 //!
-//! A differenza di `DeriveRaw` (un job per asset, nel payload), questo job
-//! non porta nessun asset nel payload: ad ogni esecuzione rilegge
-//! `OverrideRepo::pending_sidecars` e processa un batch. Così un
-//! `apply_batch` su 500 asset produce **un** job (l'accodamento è deduplicato
-//! da `keeppix-db`), non 500.
+//! Unlike `DeriveRaw` (one job per asset, carried in the payload), this job
+//! carries no asset in its payload: each run rereads
+//! `OverrideRepo::pending_sidecars` and processes a batch. This way an
+//! `apply_batch` over 500 assets produces **one** job (the enqueue is
+//! deduplicated by `keeppix-db`), not 500.
 
 use std::path::{Path, PathBuf};
 
@@ -18,17 +18,16 @@ use keeppix_media::SidecarData;
 
 use crate::JobError;
 
-/// Asset processati per esecuzione. Abbastanza per svuotare in fretta una
-/// libreria piccola; su una più grande il job si ri-accoda da solo (vedi
-/// [`run`]) invece di tenere il worker occupato per minuti in un colpo solo.
+/// Assets processed per run. Enough to quickly drain a small library; on a
+/// larger one the job re-enqueues itself (see [`run`]) instead of keeping
+/// the worker busy for minutes in one go.
 const BATCH_LIMIT: i64 = 200;
 
 /// # Errors
-/// Database, o uno o più sidecar non scrivibili (cartella in sola lettura,
-/// disco pieno, RAW il cui file è sparito, ...). In quel caso il job
-/// fallisce con retry — gli asset scritti con successo restano segnati
-/// come tali, quindi un ritentativo processa solo quelli rimasti indietro,
-/// non l'intero batch da capo.
+/// Database, or one or more sidecars not writable (read-only folder, full
+/// disk, a RAW whose file has disappeared, ...). In that case the job fails
+/// with a retry — assets written successfully stay marked as such, so a
+/// retry only processes the ones left behind, not the whole batch again.
 pub async fn run(db: &Db) -> Result<(), JobError> {
     let pending = OverrideRepo::new(db).pending_sidecars(BATCH_LIMIT).await?;
     if pending.is_empty() {
@@ -44,9 +43,9 @@ pub async fn run(db: &Db) -> Result<(), JobError> {
 
     let pending_count = i64::try_from(pending.len()).unwrap_or(i64::MAX);
     if pending_count >= BATCH_LIMIT {
-        // Il batch era pieno: potrebbe esserci ancora lavoro. Ri-accodarsi
-        // invece di continuare qui tiene ogni esecuzione limitata nel tempo
-        // anche su una libreria con migliaia di override in sospeso.
+        // The batch was full: there could still be more work. Re-enqueueing
+        // instead of continuing here keeps every run bounded in time even
+        // on a library with thousands of pending overrides.
         JobRepo::new(db)
             .enqueue(
                 JobKind::WriteSidecar,
@@ -68,9 +67,9 @@ async fn write_one(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
     let assets = AssetRepo::new(db);
     let asset = match assets.get_for_scan(asset_id).await {
         Ok(asset) => asset,
-        // Cancellato fra l'accodamento del job e la sua esecuzione: la sua
-        // riga di override è già sparita con lui (ON DELETE CASCADE su
-        // asset_overrides), quindi non ricomparirà nel prossimo giro.
+        // Deleted between enqueueing the job and running it: its override
+        // row is already gone with it (ON DELETE CASCADE on
+        // asset_overrides), so it will not reappear on the next round.
         Err(DbError::NotFound) => return Ok(()),
         Err(e) => return Err(e.into()),
     };
@@ -96,11 +95,11 @@ async fn write_one(db: &Db, asset_id: AssetId) -> Result<(), JobError> {
     Ok(())
 }
 
-/// `permission-denied: ` è un marcatore stabile, non testo libero: è da lì
-/// che `keeppix_db::ProblemsRepo::composed` (Fase 10 Task 13) riconosce la
-/// natura "sidecar XMP non scrivibile" in `jobs.last_error` senza dover
-/// interpretare il messaggio di un `io::Error` che potrebbe cambiare
-/// formulazione a seconda della piattaforma.
+/// `permission-denied: ` is a stable marker, not free text: it's what
+/// `keeppix_db::ProblemsRepo::composed` uses to recognize the
+/// "XMP sidecar not writable" condition in `jobs.last_error` without having
+/// to parse the message of an `io::Error`, which could word itself
+/// differently depending on the platform.
 fn map_sidecar_error(e: &keeppix_media::XmpError) -> JobError {
     if let keeppix_media::XmpError::Io(io_err) = e
         && io_err.kind() == std::io::ErrorKind::PermissionDenied
@@ -110,7 +109,7 @@ fn map_sidecar_error(e: &keeppix_media::XmpError) -> JobError {
     JobError::Worker(e.to_string())
 }
 
-/// `IMG_1234.ARW` → `IMG_1234.ARW.xmp`, accanto al file (spec §3.4).
+/// `IMG_1234.ARW` → `IMG_1234.ARW.xmp`, next to the file.
 fn sidecar_path_for(asset_path: &Path) -> PathBuf {
     let mut name = asset_path
         .file_name()
@@ -121,9 +120,9 @@ fn sidecar_path_for(asset_path: &Path) -> PathBuf {
     asset_path.with_file_name(name)
 }
 
-/// `xmp:Label` porta il pick/reject solo se l'utente ha votato: `Pick::None`
-/// non scrive nulla, così un asset mai votato non finisce con un'etichetta
-/// vuota nel sidecar.
+/// `xmp:Label` carries the pick/reject only if the user has voted:
+/// `Pick::None` writes nothing, so an asset never voted on doesn't end up
+/// with an empty label in the sidecar.
 fn pick_label(pick: Pick) -> Option<String> {
     (pick != Pick::None).then(|| pick.as_str().to_owned())
 }

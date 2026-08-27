@@ -4,7 +4,7 @@ use keeppix_media::derive_jpeg;
 use crate::JobError;
 
 /// # Errors
-/// File assente, decode, o database.
+/// File missing, decode, or database failure.
 pub async fn run(db: &Db, data_dir: &std::path::Path, hash: [u8; 32]) -> Result<(), JobError> {
     let assets = AssetRepo::new(db);
     let ids = assets.ids_with_hash(&hash).await?;
@@ -30,8 +30,9 @@ pub async fn run(db: &Db, data_dir: &std::path::Path, hash: [u8; 32]) -> Result<
     assets
         .set_thumbhash_for_hash(&hash, &result.thumbhash)
         .await?;
-    // Foto nuova (o ricalcolo derive): accoda un lotto AI ad alta priorità,
-    // solo se i pesi CLIP sono presenti — altrimenti retry inutili in coda.
+    // New photo (or a derive recompute): enqueue a high-priority AI batch,
+    // but only if the CLIP weights are present — otherwise the queue fills
+    // with retries that can never succeed.
     if keeppix_media::openclip_xlmr::first_complete_model_dir().is_some() {
         crate::embed::enqueue_after_ingest(db).await?;
     }
@@ -42,7 +43,7 @@ pub async fn run(db: &Db, data_dir: &std::path::Path, hash: [u8; 32]) -> Result<
 }
 
 /// # Errors
-/// `JobError::Worker` se `content_hash` manca o non è hex da 32 byte.
+/// `JobError::Worker` if `content_hash` is missing or is not 32-byte hex.
 pub fn hash_from_payload(payload: &serde_json::Value) -> Result<[u8; 32], JobError> {
     let hex = payload
         .get("content_hash")

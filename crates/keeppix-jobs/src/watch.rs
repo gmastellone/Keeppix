@@ -12,9 +12,8 @@ use crate::discover;
 
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_secs(2);
 pub const DEFAULT_POLL: Duration = Duration::from_secs(15 * 60);
-/// Non più di una riscansione nativa ogni tanto, anche se gli eventi
-/// continuano ad arrivare. Chiude il ciclo Access→stat→Access (D4) e
-/// copre editor rumorosi.
+/// No more than one native rescan every so often, even if events keep
+/// arriving. Closes the Access→stat→Access loop and covers noisy editors.
 pub const MIN_RESCAN: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,7 +22,7 @@ pub enum WatcherMode {
     Polling { every: Duration },
 }
 
-/// NFS/SMB/rclone → polling. Su Linux, inotify assente o troppo basso → polling.
+/// NFS/SMB/rclone → polling. On Linux, missing or too-low inotify → polling.
 #[must_use]
 pub fn mode_for(root: &Path) -> WatcherMode {
     if is_network_fs(root) {
@@ -46,7 +45,7 @@ pub fn mode_for(root: &Path) -> WatcherMode {
     WatcherMode::Native
 }
 
-/// Accoda una riscansione. Dedup sulla chiave `discover:{id}`.
+/// Enqueue a rescan. Deduplicated on the `discover:{id}` key.
 ///
 /// # Errors
 /// Database.
@@ -62,16 +61,15 @@ pub async fn enqueue_rescan(db: &Db, library_id: LibraryId) -> Result<(), JobErr
     Ok(())
 }
 
-/// Come [`enqueue_rescan`], ma porta un `operation_id` (Fase 10 Task 16) da
-/// far avanzare via `operations` mentre la scansione procede.
+/// Like [`enqueue_rescan`], but carries an `operation_id` to advance via
+/// `operations` while the scan proceeds.
 ///
-/// Condivide la stessa `dedup_key` di [`enqueue_rescan`]: se una scansione
-/// per questa libreria è già `pending`/`running` (accodata dal watcher o da
-/// una richiesta precedente), quella vince e il payload restituito non porta
-/// il nostro `operation_id`. Ritorna `true` solo se il job accodato è
-/// davvero quello che segue la nostra operazione — il chiamante deve
-/// chiudere l'operazione, non lasciarla `running` per sempre senza che
-/// nessun job la faccia avanzare.
+/// Shares the same `dedup_key` as [`enqueue_rescan`]: if a scan for this
+/// library is already `pending`/`running` (enqueued by the watcher or by an
+/// earlier request), that one wins and the returned payload does not carry
+/// our `operation_id`. Returns `true` only if the enqueued job is really
+/// the one that follows our operation — the caller must close the
+/// operation, not leave it `running` forever with no job advancing it.
 ///
 /// # Errors
 /// Database.
@@ -94,8 +92,8 @@ pub async fn enqueue_rescan_with_operation(
     Ok(discover::operation_id_from_payload(&job.payload) == Some(operation_id))
 }
 
-/// Registro dei watcher attivi: le librerie create dopo il boot devono
-/// essere sorvegliate senza riavviare il processo.
+/// Registry of active watchers: libraries created after boot must be
+/// watched without restarting the process.
 #[derive(Clone)]
 pub struct LibraryWatchers {
     db: Db,
@@ -120,7 +118,7 @@ impl LibraryWatchers {
         }
     }
 
-    /// Avvia un watcher per ogni libreria già presente (boot).
+    /// Starts a watcher for every library already present (boot).
     ///
     /// # Errors
     /// Database.
@@ -132,7 +130,7 @@ impl LibraryWatchers {
         Ok(())
     }
 
-    /// Avvia il watcher per una libreria se non è già attivo.
+    /// Starts the watcher for a library if it isn't already active.
     pub fn ensure(&self, library_id: LibraryId, root: PathBuf) {
         let Ok(mut guard) = self.inner.lock() else {
             return;
@@ -157,9 +155,9 @@ impl LibraryWatchers {
     }
 }
 
-/// Avvia un watcher per ogni libreria già nota e restituisce il registro
-/// da tenere vivo (e da passare a `AppState`) così le create successive
-/// possono chiamare [`LibraryWatchers::ensure`].
+/// Starts a watcher for every already-known library and returns the
+/// registry to keep alive (and pass to `AppState`) so subsequent creates
+/// can call [`LibraryWatchers::ensure`].
 ///
 /// # Errors
 /// Database.
@@ -239,9 +237,9 @@ async fn watch_native(
                     }
                 }
                 () = tokio::time::sleep(debounce) => {
-                    // Cadenza minima per libreria, indipendente dal volume
-                    // di eventi. La prima riscansione (last_rescan = None)
-                    // non attende.
+                    // Minimum cadence per library, independent of event
+                    // volume. The first rescan (last_rescan = None) doesn't
+                    // wait.
                     if let Some(last) = last_rescan
                         && !due_for_rescan(Some(last), Instant::now(), MIN_RESCAN)
                     {
@@ -329,10 +327,9 @@ fn inotify_watches_ok() -> bool {
         .is_some_and(|n| n >= 8192)
 }
 
-/// Scrive il probe hardware in `system_settings.capabilities`.
-/// Misura l'accelerazione video reale (Fase 6) e i fatti host AI (Fase 7:
-/// RAM, core, e da Task 2 i ms di inferenza sul modello locale) e persiste
-/// il risultato JSON.
+/// Writes the hardware probe to `system_settings.capabilities`. Measures
+/// real video acceleration and AI host facts (RAM, cores, and the ms of
+/// inference on the local model) and persists the JSON result.
 ///
 /// # Errors
 /// Database.
@@ -345,9 +342,9 @@ pub async fn persist_capabilities(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Rilegge `extra.ai` da `system_settings.capabilities` (Fase 7 Task 1).
-/// È il lettore che `get_json` doveva avere per questa fase: lo scheduler
-/// (Task 6) userà questi numeri per i livelli Piena/Ridotta/Spenta.
+/// Reads `extra.ai` back from `system_settings.capabilities`. This is the
+/// reader `get_json` needed: the scheduler uses these numbers for the
+/// Full/Reduced/Off levels.
 ///
 /// # Errors
 /// Database, o JSON corrotto.
@@ -388,7 +385,7 @@ mod tests {
         );
         assert!(
             !interesting(&ev),
-            "Access non è una modifica: non deve innescare una riscansione (D4)"
+            "Access is not a modification: it must not trigger a rescan"
         );
     }
 
@@ -398,10 +395,7 @@ mod tests {
             EventKind::Modify(ModifyKind::Data(DataChange::Any)),
             "/photos/DSC_0042.ARW",
         );
-        assert!(
-            interesting(&ev),
-            "Modify deve continuare a innescare la discovery"
-        );
+        assert!(interesting(&ev), "Modify must keep triggering discovery");
     }
 
     #[test]
@@ -436,7 +430,7 @@ mod tests {
         let t0 = std::time::Instant::now();
         assert!(
             due_for_rescan(None, t0, MIN_RESCAN),
-            "la prima riscansione non deve aspettare"
+            "the first rescan must not wait"
         );
         assert!(!due_for_rescan(
             Some(t0),

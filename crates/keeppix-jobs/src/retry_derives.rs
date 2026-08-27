@@ -1,6 +1,6 @@
-//! Ritenta i derive che hanno lasciato l'asset in `error` senza fallire il
-//! job (`DeriveRaw` ritorna `Ok` dopo `set_error`). La riscansione non li
-//! tocca: salta gli invariati.
+//! Retries derives that left the asset in `error` without failing the job
+//! (`DeriveRaw` returns `Ok` after `set_error`). Rescanning doesn't touch
+//! them: it skips unchanged assets.
 
 use chrono::Utc;
 use keeppix_db::{AssetRepo, Db, JobRepo};
@@ -35,9 +35,9 @@ pub async fn run(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Accoda un giro, deduplicato fra pending/running. All'avvio e poi ogni
-/// 15 minuti dal binario: non dal job stesso, perché il `dedup_key` collide
-/// col job ancora `running`.
+/// Enqueue a run, deduplicated across pending/running. Triggered on startup
+/// and then every 15 minutes from the binary — not from the job itself,
+/// since the `dedup_key` would collide with the job still `running`.
 ///
 /// # Errors
 /// Database.

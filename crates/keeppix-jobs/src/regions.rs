@@ -85,8 +85,9 @@ pub struct RepairResult {
     pub reenqueued: u64,
 }
 
-/// Verifica l'URL contro la lista compilata nel binario. Redirect HTTP
-/// disabilitati nel client impediscono che un host ammesso faccia da trampolino.
+/// Checks the URL against the list compiled into the binary. HTTP redirects
+/// are disabled on the client so that an allowed host can't be used as a
+/// stepping stone.
 #[must_use]
 pub fn host_allowed(raw: &str) -> bool {
     let Ok(url) = Url::parse(raw) else {
@@ -101,11 +102,11 @@ pub fn host_allowed(raw: &str) -> bool {
             .is_some_and(|host| ALLOWED_REGION_HOSTS.contains(&host))
 }
 
-/// Ripara i download interrotti: prima libera i lease scaduti, poi ricrea i
-/// job mancanti per le regioni ancora in download.
+/// Repairs interrupted downloads: first frees expired leases, then recreates
+/// missing jobs for regions still downloading.
 ///
 /// # Errors
-/// `DbError` se una delle due operazioni di coda fallisce.
+/// `DbError` if either queue operation fails.
 pub async fn repair_interrupted_downloads(db: &Db) -> Result<RepairResult, keeppix_db::DbError> {
     let jobs = JobRepo::new(db);
     let reaped = jobs.reap_stale(STALE_JOB_THRESHOLD).await?;
@@ -113,11 +114,11 @@ pub async fn repair_interrupted_downloads(db: &Db) -> Result<RepairResult, keepp
     Ok(RepairResult { reaped, reenqueued })
 }
 
-/// Recupera i download al boot, quando ogni job ancora `running` appartiene
-/// necessariamente al processo morto.
+/// Recovers downloads at boot, when every job still `running` necessarily
+/// belongs to the dead process.
 ///
 /// # Errors
-/// `DbError` se il reset o la ricostruzione della coda falliscono.
+/// `DbError` if the reset or the queue rebuild fails.
 pub async fn recover_interrupted_downloads(db: &Db) -> Result<RepairResult, keeppix_db::DbError> {
     let jobs = JobRepo::new(db);
     let reaped = jobs.reset_running(JobKind::DownloadMapRegion).await?;
@@ -125,7 +126,7 @@ pub async fn recover_interrupted_downloads(db: &Db) -> Result<RepairResult, keep
     Ok(RepairResult { reaped, reenqueued })
 }
 
-/// Accoda il giro periodico che recupera i lease realmente stale.
+/// Enqueues the periodic run that reaps genuinely stale leases.
 ///
 /// # Errors
 /// Database.
@@ -141,11 +142,11 @@ pub async fn schedule_reap_stale(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Registra la regione e accoda un solo writer tramite la `dedup_key`.
+/// Registers the region and enqueues a single writer via the `dedup_key`.
 ///
 /// # Errors
-/// `SourceNotAllowed` per URL fuori allowlist, `InvalidRegion` per metadati
-/// malformati, o `Db` se la coda non è disponibile.
+/// `SourceNotAllowed` for URLs outside the allowlist, `InvalidRegion` for
+/// malformed metadata, or `Db` if the queue is unavailable.
 pub async fn enqueue_download(
     db: &Db,
     ctx: &AuthContext,
@@ -188,10 +189,11 @@ pub async fn enqueue_download(
     }
 }
 
-/// Esegue il job e ricontrolla l'allowlist immediatamente prima della rete.
+/// Runs the job and rechecks the allowlist immediately before hitting the
+/// network.
 ///
 /// # Errors
-/// Errori transitori di rete vengono restituiti al worker per il retry.
+/// Transient network errors are returned to the worker for retry.
 pub async fn run(db: &Db, data_dir: &Path, job: &Job) -> Result<(), JobError> {
     let (region_id, generation, file_path) = job_download(job)?;
     if !valid_region_id(region_id) {

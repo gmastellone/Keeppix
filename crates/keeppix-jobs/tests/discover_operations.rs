@@ -27,9 +27,9 @@ async fn seed_library(test: &TestDb, root: &std::path::Path) -> keeppix_domain::
         .unwrap()
 }
 
-/// Un giro completo, senza annullamento, deve chiudere l'operazione come
-/// `Done` con l'elenco completo dei successi (spec Task 16, punto 1: un
-/// `operation_id` che segue davvero l'operazione fino in fondo).
+/// A complete pass, with no cancellation, must close the operation as
+/// `Done` with the full list of successes: an `operation_id` that really
+/// tracks the operation to the end.
 #[tokio::test]
 async fn a_completed_scan_marks_the_operation_done() {
     let test = TestDb::start().await;
@@ -55,14 +55,14 @@ async fn a_completed_scan_marks_the_operation_done() {
     assert_eq!(seen.succeeded.len(), 5);
 }
 
-/// Ruling Task 16: annullare a metà produce una riuscita parziale, non un
-/// rollback. I file già scritti restano; l'operazione li elenca.
+/// Ruling: cancelling midway produces a partial success, not a rollback.
+/// Files already written stay; the operation lists them.
 ///
-/// `TOTAL` deve superare `PRODUCTION_BATCH_SIZE` (Fase 10 Task 21): da
-/// quando la scrittura è a lotti multi-riga, il punto di osservabilità
-/// "a metà" è fra due lotti, non più fra due file — con meno file del lotto
-/// intero l'intera scansione si scriverebbe in una sola istruzione, senza
-/// finestra per annullare davvero a metà.
+/// `TOTAL` must exceed `PRODUCTION_BATCH_SIZE`: since writes happen in
+/// multi-row batches, the "midway" observability point is between two
+/// batches, not between two files anymore — with fewer files than a full
+/// batch, the whole scan would be written in a single statement, with no
+/// window to genuinely cancel midway.
 #[tokio::test]
 async fn cancelling_mid_scan_leaves_exactly_the_files_already_applied() {
     const TOTAL: usize = 5 * keeppix_jobs::PRODUCTION_BATCH_SIZE;
@@ -85,13 +85,13 @@ async fn cancelling_mid_scan_leaves_exactly_the_files_already_applied() {
         discover::run_with_operation(&run_db, library_id, Duration::ZERO, Some(op_id)).await
     });
 
-    // Aspetta che qualche file sia già passato, poi annulla: è la finestra
-    // "a metà" che il Ruling descrive.
+    // Wait until some files have already gone through, then cancel: this is
+    // the "midway" window the ruling describes.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         assert!(
             tokio::time::Instant::now() < deadline,
-            "la scansione non ha fatto abbastanza progresso da poter annullare"
+            "the scan did not make enough progress to be cancellable"
         );
         let seen = ops.find(&ctx, op.id).await.unwrap();
         if seen.done >= 3 {
@@ -103,7 +103,7 @@ async fn cancelling_mid_scan_leaves_exactly_the_files_already_applied() {
 
     tokio::time::timeout(Duration::from_secs(10), task)
         .await
-        .expect("la scansione non si è fermata dopo l'annullamento")
+        .expect("the scan did not stop after cancellation")
         .unwrap()
         .unwrap();
     let _ = fs::remove_dir_all(&root);
@@ -112,14 +112,14 @@ async fn cancelling_mid_scan_leaves_exactly_the_files_already_applied() {
     assert_eq!(seen.status, OperationStatus::Cancelled);
     assert!(
         seen.done < i64::try_from(TOTAL).unwrap(),
-        "un annullamento che completa comunque tutto il lotto non ha provato nulla: done={}",
+        "a cancellation that still completes the whole batch proved nothing: done={}",
         seen.done
     );
-    assert!(seen.done > 0, "deve restare almeno un successo applicato");
+    assert!(seen.done > 0, "at least one applied success must remain");
     assert_eq!(
         i64::try_from(seen.succeeded.len()).unwrap(),
         seen.done,
-        "l'involucro parziale deve elencare esattamente ciò che è stato applicato"
+        "the partial outcome must list exactly what was applied"
     );
 
     let asset_count: i64 = sqlx::query_scalar("SELECT count(*) FROM assets")
@@ -128,13 +128,13 @@ async fn cancelling_mid_scan_leaves_exactly_the_files_already_applied() {
         .unwrap();
     assert_eq!(
         asset_count, seen.done,
-        "gli asset scritti sul disco devono combaciare con l'esito parziale, non con il lotto intero"
+        "assets written to disk must match the partial outcome, not the whole batch"
     );
 }
 
-/// Una riscansione (con asset già noti) conosce in anticipo un totale
-/// approssimativo — la prima importazione invece resta onesta e non finge
-/// un numero che non ha (spec Task 16: `total` è opzionale apposta).
+/// A rescan (with already-known assets) knows an approximate total ahead of
+/// time — a first import instead stays honest and doesn't fake a number it
+/// doesn't have (`total` is deliberately optional).
 #[tokio::test]
 async fn a_rescan_of_a_known_library_reports_a_total() {
     let test = TestDb::start().await;
@@ -153,7 +153,7 @@ async fn a_rescan_of_a_known_library_reports_a_total() {
     assert_eq!(
         ops.find(&ctx, first.id).await.unwrap().total,
         None,
-        "la prima importazione non conosce ancora il totale"
+        "the first import doesn't know the total yet"
     );
 
     let second = ops.create(&ctx, OperationKind::LibraryScan).await.unwrap();

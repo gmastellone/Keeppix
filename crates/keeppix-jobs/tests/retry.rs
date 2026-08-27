@@ -94,8 +94,8 @@ async fn pending_derive_raw(test: &TestDb) -> i64 {
         .unwrap()
 }
 
-/// Un derive che è andato in `error` via `Ok` (non `JobRepo::fail`) deve
-/// essere riaccodato senza passare dalla riscansione.
+/// A derive that went into `error` via `Ok` (not `JobRepo::fail`) must be
+/// re-enqueued without going through a rescan.
 #[tokio::test]
 async fn a_failed_derive_is_retried_by_the_maintenance_job_until_the_attempt_cap() {
     let test = TestDb::start().await;
@@ -106,13 +106,13 @@ async fn a_failed_derive_is_retried_by_the_maintenance_job_until_the_attempt_cap
     assert_eq!(pending_derive_raw(&test).await, 0);
 
     keeppix_jobs::retry_derives::run(test.db()).await.unwrap();
-    assert_eq!(pending_derive_raw(&test).await, 1, "primo ritentativo");
+    assert_eq!(pending_derive_raw(&test).await, 1, "first retry");
 
     keeppix_jobs::retry_derives::run(test.db()).await.unwrap();
     assert_eq!(
         pending_derive_raw(&test).await,
         1,
-        "non accoda un secondo job mentre il ritentativo è ancora pending"
+        "does not enqueue a second job while the retry is still pending"
     );
 
     finish_derive_raw(&test, &hash).await;
@@ -124,7 +124,7 @@ async fn a_failed_derive_is_retried_by_the_maintenance_job_until_the_attempt_cap
     assert_eq!(
         pending_derive_raw(&test).await,
         0,
-        "superato il tetto non si ritenta all'infinito"
+        "once the cap is exceeded it does not retry forever"
     );
 
     let set = ProblemsRepo::new(test.db()).list(&ctx).await.unwrap();
@@ -136,7 +136,7 @@ async fn a_failed_derive_is_retried_by_the_maintenance_job_until_the_attempt_cap
     assert_eq!(asset.status, AssetStatus::Error);
 }
 
-/// Un derive andato a buon fine deve togliere l'asset da `/problems`.
+/// A successful derive must remove the asset from `/problems`.
 #[tokio::test]
 async fn a_successful_retry_clears_the_asset_error_status() {
     let test = TestDb::start().await;

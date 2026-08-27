@@ -12,8 +12,8 @@ pub enum EnergyProfile {
 }
 
 impl EnergyProfile {
-    /// Tetto di priorità che i worker possono reclamare. `Paused` lascia
-    /// passare solo il livello 0 (qualcuno sta aspettando una preview).
+    /// Priority ceiling the workers may claim. `Paused` only lets level 0
+    /// through (someone is waiting on a preview).
     #[must_use]
     pub const fn max_priority(self) -> JobPriority {
         match self {
@@ -24,10 +24,10 @@ impl EnergyProfile {
     }
 }
 
-/// Finestra notturna a piena velocità. Fase 10 Task 21: allineata a
-/// **2:00-7:00** per tenere la promessa fatta all'utente dal documento
-/// funzionale UI (§57), che dichiarava già quella finestra mentre questa
-/// funzione ne restituiva un'altra (2:00-6:00).
+/// Full-speed night window, aligned to **2:00-7:00** to keep the promise
+/// already made to the user by the UI functional design, which declared
+/// that window while this function used to return a different one
+/// (2:00-6:00).
 #[must_use]
 pub fn default_night_window() -> (NaiveTime, NaiveTime) {
     let start = NaiveTime::from_hms_opt(2, 0, 0).unwrap_or(NaiveTime::MIN);
@@ -35,18 +35,17 @@ pub fn default_night_window() -> (NaiveTime, NaiveTime) {
     (start, end)
 }
 
-/// Soglia di default della pausa automatica dell'analisi (Fase 10 Task 20):
-/// 4 secondi dall'ultimo cambio di vista. Un valore di partenza da un
-/// prototipo senza carico reale, non una misura — per questo ogni chiamante
-/// la passa come parametro invece di trovarla cablata dentro
+/// Default threshold for the analysis auto-pause: 4 seconds since the last
+/// view change. A starting value from a prototype with no real load behind
+/// it, not a measurement — which is why every caller passes it as a
+/// parameter instead of it being hardcoded inside
 /// `ActivityTracker::analysis_should_run`.
 pub const DEFAULT_ANALYSIS_IDLE_MS: u64 = 4000;
 
-/// I tre livelli di velocità dell'analisi IA (Fase 7 Task 6). I millisecondi
-/// per foto sono **misurati** su `OpenCLIP` XLM-R IT/EN via ort (Task B, bench
-/// reale CI `bcf9b4a`), non gli obiettivi provvisori della Fase 10. `Off`
-/// spegne l'analisi (pgvector assente, RAM insufficiente, o scelta
-/// dell'operatore).
+/// The three AI-analysis speed levels. The milliseconds per photo are
+/// **measured** on `OpenCLIP` XLM-R IT/EN via ort, from a real CI
+/// benchmark, not provisional targets. `Off` turns analysis off (pgvector
+/// missing, insufficient RAM, or an operator choice).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnalysisLevel {
     Full,
@@ -55,10 +54,10 @@ pub enum AnalysisLevel {
 }
 
 impl AnalysisLevel {
-    /// Tempo misurato per foto, in millisecondi. `None` se l'analisi è spenta.
+    /// Measured time per photo, in milliseconds. `None` if analysis is off.
     ///
-    /// `Full` ≈ 57 ms (vision `OpenCLIP` XLM-R IT/EN, Task B). `Reduced` ≈ 6×
-    /// (`Full`), come dichiarato dal documento funzionale UI.
+    /// `Full` ≈ 57 ms (vision `OpenCLIP` XLM-R IT/EN). `Reduced` ≈ 6×
+    /// (`Full`), as specified by the UI functional design.
     #[must_use]
     pub const fn ms_per_photo(self) -> Option<u64> {
         match self {
@@ -74,9 +73,9 @@ impl AnalysisLevel {
     }
 }
 
-/// Priorità massima reclamabile dai worker, tenendo conto della pausa
-/// automatica dell'analisi (viewport fresco → niente `Background`, quindi
-/// niente `EmbedAssets` di backfill).
+/// Maximum priority claimable by workers, accounting for the analysis
+/// auto-pause (fresh viewport activity → no `Background`, so no
+/// `EmbedAssets` backfill).
 #[must_use]
 pub fn max_claimable_priority(profile: EnergyProfile, analysis_should_run: bool) -> JobPriority {
     let max = profile.max_priority();
@@ -91,13 +90,13 @@ pub fn worker_count(cpu: usize) -> usize {
     cpu.saturating_sub(1).clamp(1, 8)
 }
 
-/// Unix-ts dell'ultima richiesta autenticata. L'API lo toccherà in 1c.
+/// Unix timestamp of the last authenticated request. Touched by the API on
+/// authenticated requests.
 ///
-/// `last_viewport_unix` (Fase 10 Task 20) è un secondo segnale, indipendente
-/// dal primo: guida solo la pausa automatica dell'analisi, con una soglia di
-/// secondi non di minuti, quindi ha bisogno della propria risoluzione in
-/// millisecondi — `last_auth_unix` tronca ai secondi, il che sarebbe troppo
-/// grossolano per una soglia di 4000 ms.
+/// `last_viewport_unix` is a second, independent signal: it only drives the
+/// analysis auto-pause, with a threshold measured in seconds rather than
+/// minutes, so it needs its own millisecond resolution — `last_auth_unix`
+/// truncates to seconds, which would be too coarse for a 4000 ms threshold.
 pub struct ActivityTracker {
     last_auth_unix: AtomicI64,
     last_viewport_unix_ms: AtomicI64,
@@ -120,9 +119,9 @@ impl ActivityTracker {
         self.last_auth_unix.store(at.timestamp(), Ordering::Relaxed);
     }
 
-    /// Il server registra un cambio di vista (`POST /viewport`), qualunque
-    /// sia l'esito della promozione dei job — è il segnale "l'utente sta
-    /// navigando", non "c'era qualcosa da promuovere".
+    /// The server records a view change (`POST /viewport`) regardless of
+    /// whether any job got promoted — it's the "the user is browsing"
+    /// signal, not "there was something to promote".
     pub fn notify_viewport_activity(&self) {
         self.notify_viewport_activity_at(Utc::now());
     }
@@ -132,10 +131,10 @@ impl ActivityTracker {
             .store(at.timestamp_millis(), Ordering::Relaxed);
     }
 
-    /// Se l'analisi (Fase 7, non ancora esistente) può girare ora: falsa se
-    /// l'ultimo cambio di vista è più recente di `idle_threshold_ms`, vera
-    /// altrimenti — incluso il caso "nessun cambio di vista mai osservato",
-    /// dove non c'è nulla da cui essere in pausa.
+    /// Whether analysis can run right now: false if the last view change is
+    /// more recent than `idle_threshold_ms`, true otherwise — including the
+    /// "no view change ever observed" case, where there is nothing to be
+    /// paused from.
     #[must_use]
     pub fn analysis_should_run(&self, now: DateTime<Utc>, idle_threshold_ms: u64) -> bool {
         let last = self.last_viewport_unix_ms.load(Ordering::Relaxed);

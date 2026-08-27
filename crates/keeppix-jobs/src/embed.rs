@@ -1,19 +1,18 @@
-//! `JobKind::EmbedAssets`: embeddings CLIP dalle miniature THUMB 240px.
+//! `JobKind::EmbedAssets`: CLIP embeddings from the 240px THUMB thumbnails.
 //!
-//! Orchestrazione: `keeppix-db` elenca i pending (escluso culling),
-//! `keeppix-media` fa l'inferenza a lotto, poi si persiste. Gli originali
-//! non vengono mai decodificati.
+//! Orchestration: `keeppix-db` lists the pending items (excluding culled
+//! assets), `keeppix-media` runs inference in batches, then results are
+//! persisted. Originals are never decoded.
 //!
-//! La sessione ONNX vive per l'**intera finestra di analisi** (Ruling piano:
-//! «per finestra o lotto»): si carica una volta, si processano lotti da
-//! `DEFAULT_BATCH_SIZE` (16) controllando il gate di pausa **fra** un lotto
-//! e l'altro, e si droppa quando la pausa scatta o la coda si svuota.
-//! Alzare `DEFAULT_BATCH_SIZE` non è un sostituto: il gate si valuta fra i
-//! job/lotti piccoli, altrimenti la CPU resterebbe bloccata dopo che
-//! l'utente riprende a navigare.
+//! The ONNX session lives for the **whole analysis window**: it loads once,
+//! processes batches of `DEFAULT_BATCH_SIZE` (16) checking the pause gate
+//! **between** batches, and gets dropped when the pause kicks in or the
+//! queue empties out. Raising `DEFAULT_BATCH_SIZE` is not a substitute: the
+//! gate is evaluated between small jobs/batches, otherwise the CPU would
+//! stay pinned after the user resumes browsing.
 //!
-//! Ogni finestra apre un'`Operation` `AiAnalysis` (Task 12): il poll WS già
-//! esistente emette `operation.progress` senza eventi nuovi.
+//! Each window opens an `AiAnalysis` `Operation`: the existing WS poll
+//! already emits `operation.progress` with no new events needed.
 
 use std::path::Path;
 
@@ -30,24 +29,24 @@ use serde_json::json;
 
 use crate::JobError;
 
-/// Dimensione di lotto di default. Piccola apposta: il gate di pausa si
-/// valuta fra un lotto e l'altro (~0.7 s a 45 ms/foto), non dopo decine di
-/// secondi di CPU satura.
+/// Default batch size. Deliberately small: the pause gate is evaluated
+/// between batches (~0.7 s at 45 ms/photo), not after tens of seconds of
+/// saturated CPU.
 pub const DEFAULT_BATCH_SIZE: i64 = 16;
 
-/// Tetto duro RSS durante l'analisi (Task 6). Superarlo è un warning, non un
-/// abort del lotto: il modello è già stato scelto sotto questo tetto.
+/// Hard RSS ceiling during analysis. Exceeding it is a warning, not a batch
+/// abort: the model was already chosen to stay under this ceiling.
 pub const RSS_HARD_CEILING_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// Esito di un giro di embedding (una finestra: zero o più lotti).
+/// Outcome of an embedding pass (one window: zero or more batches).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbedOutcome {
     pub embedded: u32,
     pub skipped_missing_thumb: u32,
 }
 
-/// Accoda un lotto ad alta priorità dopo l'ingest (foto nuove). Dedup mentre
-/// è pending/running: molte derive consecutive condividono un solo job.
+/// Enqueue a high-priority batch after ingest (new photos). Deduplicated
+/// while pending/running: many consecutive derives share a single job.
 ///
 /// # Errors
 /// Database.
@@ -63,10 +62,10 @@ pub async fn enqueue_after_ingest(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Accoda il backfill a priorità `Background` (si ferma da solo quando la
-/// galleria è in uso — `EnergyProfile` + pausa viewport Task 6). No-op se i
-/// pesi CLIP non sono sul disco: altrimenti la coda si riempie di job che
-/// falliscono e vanno in retry.
+/// Enqueue the backfill at `Background` priority (it stops on its own when
+/// the gallery is in use — `EnergyProfile` plus the viewport pause). No-op
+/// if the CLIP weights aren't on disk: otherwise the queue fills with jobs
+/// that fail and go into retry.
 ///
 /// # Errors
 /// Database.
@@ -86,14 +85,14 @@ pub async fn schedule_backfill(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Processa i pending a lotti di `limit`, tenendo la sessione ONNX viva finché
-/// `continue_window` resta vera e ci sono foto. `continue_window` è valutata
-/// **fra** un lotto e l'altro (non durante l'inferenza). Alla pausa o a coda
-/// vuota la sessione viene droppata; si riaccoda il backfill solo se restano
-/// pending dopo una pausa.
+/// Processes the pending items in batches of `limit`, keeping the ONNX
+/// session alive as long as `continue_window` stays true and there are
+/// photos left. `continue_window` is evaluated **between** batches (not
+/// during inference). On pause or an empty queue the session is dropped;
+/// the backfill is only re-enqueued if items remain pending after a pause.
 ///
 /// # Errors
-/// Modello assente, fallimento inferenza, o errore database.
+/// Model missing, inference failure, or database error.
 pub async fn run(
     db: &Db,
     data_dir: &Path,
@@ -118,10 +117,10 @@ pub async fn run(
     let ops = OperationsRepo::new(db);
     let op_id = open_ai_analysis_operation(db, &ops, &embeddings).await?;
 
-    // Una sola load per finestra. Drop a fine scope. VmRSS dopo Drop resta
-    // tipicamente ~pari ad after_load: l'allocatore ORT trattiene le pagine
-    // per la vita del processo (docs.rs/ort; onnxruntime#11627) — non cresce
-    // fra i lotti, sotto il tetto 1 GiB; accettato.
+    // Just one load per window. Dropped at end of scope. VmRSS after drop
+    // typically stays roughly equal to after_load: the ORT allocator holds
+    // onto pages for the life of the process — it doesn't grow between
+    // batches, stays under the 1 GiB ceiling, and that's accepted.
     let rss_before = current_rss_bytes();
     let (load_result, rss_after_load) = measure_rss_peak_during(|| OpenClipXlmr::load(&model_dir));
     let mut clip = load_result.map_err(JobError::Worker)?;
@@ -168,7 +167,7 @@ pub async fn run(
         if !full_batch {
             break;
         }
-        // Gate fra i lotti: l'utente ha ripreso a navigare → scarica e riaccoda.
+        // Gate between batches: the user resumed browsing → drop and re-enqueue.
         if !continue_window() {
             stopped_for_pause = true;
             break;
@@ -269,13 +268,14 @@ async fn embed_pending(
         ));
     }
 
-    // `OpenClipXlmr` non ha (ancora) un metodo batch a livello ONNX come
-    // aveva `MobileClip::embed_images_nchw_batch` — un `session.run()` per
-    // immagine, non uno solo per l'intero lotto. Corretto (ogni immagine è
-    // indipendente, nessuna cross-talk fra esempi in un ViT/BatchNorm-free),
-    // solo più chiamate ort — il visual tower è comunque ~3x più veloce per
-    // immagine di MobileCLIP2 (confermato su bench reale, Fase 7 ledger), il
-    // costo netto del lotto resta minore anche senza batching a livello ONNX.
+    // `OpenClipXlmr` doesn't (yet) have an ONNX-level batch method the way
+    // `MobileClip::embed_images_nchw_batch` did — one `session.run()` per
+    // image, not a single call for the whole batch. This is still correct
+    // (each image is independent, no cross-talk between examples in a
+    // ViT/BatchNorm-free model), just more ort calls — the visual tower is
+    // still ~3x faster per image than MobileCLIP2 (confirmed on real
+    // benchmarks), so the batch's net cost stays lower even without
+    // ONNX-level batching.
     let (infer_result, rss_peak_infer) = measure_rss_peak_during(|| {
         prepared
             .iter()
@@ -341,7 +341,7 @@ fn load_thumb_nchw(
 }
 
 /// # Errors
-/// `JobError::Worker` se `limit` non è un intero positivo quando presente.
+/// `JobError::Worker` if `limit` is present but not a positive integer.
 pub fn limit_from_payload(payload: &serde_json::Value) -> Result<i64, JobError> {
     match payload.get("limit") {
         None | Some(serde_json::Value::Null) => Ok(DEFAULT_BATCH_SIZE),

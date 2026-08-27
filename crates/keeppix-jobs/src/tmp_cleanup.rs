@@ -1,8 +1,7 @@
-//! Pulizia periodica delle sessioni di upload scadute in `.keeppix-tmp/`
-//! (Task 2, Fase 5): `UploadSessionRepo::delete_expired` esisteva ma nessun
-//! percorso di produzione la chiamava — un upload abbandonato a metà
-//! sarebbe rimasto sul disco per sempre, oltre l'`expires_at` pensato per
-//! liberarlo.
+//! Periodic cleanup of expired upload sessions in `.keeppix-tmp/`:
+//! `UploadSessionRepo::delete_expired` already existed but no production
+//! code path called it — an upload abandoned halfway would have stayed on
+//! disk forever, past the `expires_at` meant to free it.
 
 use chrono::Utc;
 use keeppix_db::{Db, JobRepo, UploadSessionRepo};
@@ -12,7 +11,7 @@ use serde_json::json;
 use crate::JobError;
 
 /// # Errors
-/// Database, o I/O sul temporaneo (in quel caso la riga resta, come
+/// Database, or I/O on the temp file (in which case the row stays, same as
 /// `cleanup_trash::run`).
 pub async fn run(db: &Db) -> Result<(), JobError> {
     UploadSessionRepo::new(db)
@@ -21,9 +20,9 @@ pub async fn run(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Accoda un giro, deduplicato fra pending/running. All'avvio e poi
-/// periodicamente dal binario: non dal job stesso, perché il `dedup_key`
-/// collide con il job ancora `running`.
+/// Enqueue a run, deduplicated across pending/running. Triggered on startup
+/// and then periodically from the binary — not from the job itself, since
+/// the `dedup_key` would collide with the job still `running`.
 ///
 /// # Errors
 /// Database.

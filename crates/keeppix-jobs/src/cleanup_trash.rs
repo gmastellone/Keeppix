@@ -1,6 +1,6 @@
-//! Potatura periodica del cestino. `TrashRepo::cleanup_expired` esisteva
-//! ed era coperta da test, ma nessun percorso di produzione la chiamava:
-//! le foto cancellate restavano su disco per sempre.
+//! Periodic trash pruning. `TrashRepo::cleanup_expired` already existed
+//! and was covered by tests, but no production code path called it:
+//! deleted photos stayed on disk forever.
 
 use chrono::{Duration, Utc};
 use keeppix_db::{Db, JobRepo, TrashRepo};
@@ -10,7 +10,7 @@ use serde_json::json;
 use crate::JobError;
 
 /// # Errors
-/// Database, o I/O sul file nel cestino (in quel caso la riga resta).
+/// Database, or I/O on the file in trash (in which case the row stays).
 pub async fn run(db: &Db, retention_days: i64) -> Result<(), JobError> {
     let days = retention_days.max(1);
     let before = Utc::now() - Duration::days(days);
@@ -18,9 +18,9 @@ pub async fn run(db: &Db, retention_days: i64) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Accoda un giro, deduplicato fra pending/running. All'avvio e poi ogni
-/// 24 h dal binario: non dal job stesso, perché il `dedup_key` collide con
-/// il job ancora `running`.
+/// Enqueue a run, deduplicated across pending/running. Triggered on startup
+/// and then every 24h from the binary — not from the job itself, since the
+/// `dedup_key` would collide with the job still `running`.
 ///
 /// # Errors
 /// Database.

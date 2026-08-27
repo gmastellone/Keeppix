@@ -1,4 +1,4 @@
-//! On-demand HLS transcode jobs (Fase 6 Task 2).
+//! On-demand HLS transcode jobs.
 
 use std::path::Path;
 
@@ -75,7 +75,7 @@ async fn load_video_backend(db: &Db) -> Result<VideoBackend, JobError> {
     }
 }
 
-/// Accoda la transcodifica on-demand con priorità interattiva.
+/// Enqueue on-demand transcoding at interactive priority.
 ///
 /// # Errors
 /// Database.
@@ -98,7 +98,7 @@ pub async fn enqueue(db: &Db, asset_id: AssetId, save_bandwidth: bool) -> Result
 }
 
 /// # Errors
-/// `JobError::Worker` se manca `asset_id` o non è un UUID.
+/// `JobError::Worker` if `asset_id` is missing or not a UUID.
 pub fn asset_id_from_payload(payload: &serde_json::Value) -> Result<AssetId, JobError> {
     let raw = payload
         .get("asset_id")
@@ -110,7 +110,7 @@ pub fn asset_id_from_payload(payload: &serde_json::Value) -> Result<AssetId, Job
 }
 
 /// # Errors
-/// `JobError::Worker` se manca `save_bandwidth`.
+/// `JobError::Worker` if `save_bandwidth` is missing.
 pub fn save_bandwidth_from_payload(payload: &serde_json::Value) -> Result<bool, JobError> {
     payload
         .get("save_bandwidth")

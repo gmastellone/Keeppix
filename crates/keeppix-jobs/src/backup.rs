@@ -1,5 +1,4 @@
 //! Backup package format (`.kpxb` = age(zstd(tar))) and job runner.
-//! Spec §2.2 / Fase 6 Tasks 3–4.
 
 use std::fs::{self, File};
 use std::io::Read;
@@ -208,7 +207,7 @@ async fn build_and_upload(
     passphrase: &str,
     dest: &BackupDestination,
 ) -> Result<(String, i64), JobError> {
-    // Spec §2.2: refuse before pg_dump / pack, not after half the work is done.
+    // Refuse before pg_dump / pack, not after half the work is done.
     let estimate = estimate_backup_bytes(db, prefs).await?;
     ensure_destination_space(dest, estimate)?;
 
@@ -1154,7 +1153,7 @@ pub async fn restore_maps_only(
     Ok(n)
 }
 
-/// Accoda un backup dump, deduplicato.
+/// Enqueue a backup dump, deduplicated.
 ///
 /// # Errors
 /// Database.
@@ -1171,7 +1170,7 @@ pub async fn schedule(db: &Db) -> Result<(), JobError> {
     Ok(())
 }
 
-/// Accoda la prova di ripristino mensile.
+/// Enqueue the monthly restore proof.
 ///
 /// # Errors
 /// Database.

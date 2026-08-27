@@ -3,10 +3,10 @@ use keeppix_domain::{AssetId, AssetStatus};
 
 use crate::JobError;
 
-/// Stesso hash e size su un altro asset **il cui file non è più sul disco**:
-/// è uno spostamento. I duplicati (entrambi i file presenti) restano due
-/// asset. Si trasferiscono gli EXIF e si marca il vecchio `offline`.
-/// Rating/album non esistono in 1b.
+/// Same hash and size on another asset **whose file is no longer on disk**:
+/// that's a move. Duplicates (both files present) remain two assets. EXIF
+/// is transferred and the old asset is marked `offline`.
+/// Rating/album support does not exist yet.
 ///
 /// # Errors
 /// Database.
@@ -33,7 +33,7 @@ pub async fn after_hash(
         if path.is_file() {
             continue;
         }
-        tracing::info!(from = %old.id, to = %new_id, "rilevato spostamento");
+        tracing::info!(from = %old.id, to = %new_id, "move detected");
         assets.copy_exif(old.id, new_id).await?;
         assets.mark_offline(old.id).await?;
     }
