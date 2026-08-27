@@ -314,4 +314,30 @@ impl<'a> OperationsRepo<'a> {
         .await?;
         Ok(())
     }
+
+    /// Chiude l'operazione come fallita, con l'esito parziale già
+    /// accumulato (stesso spirito di [`Self::finish_cancelled`]: un
+    /// fallimento a metà non disfa ciò che è già riuscito). Aggiunta il 27
+    /// agosto: `OperationStatus::Failed` esisteva dalla Fase 10 (`operation.
+    /// rs`, già gestito da `routes/ws.rs::drain_operations`) ma nessun
+    /// percorso di codice lo scriveva mai — un job tracciato che falliva
+    /// (errore del worker, non un annullamento) lasciava l'operazione
+    /// bloccata su `running` per sempre, orfana sul WebSocket. Scoperto
+    /// costruendo il job `BulkRename` (Task 10 + Task 16); lo stesso buco
+    /// resta aperto in `discover.rs`/`embed.rs`/`detect_faces.rs`
+    /// (`LibraryScan`/`AiAnalysis`/`FaceDetection`), non toccati qui —
+    /// debito dichiarato, non dimenticato.
+    ///
+    /// # Errors
+    /// `Connection` su errore DB.
+    pub async fn finish_failed(&self, id: OperationId) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE operations SET status = 'failed', updated_at = now() \
+              WHERE id = $1 AND status = 'running'",
+        )
+        .bind(id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
 }

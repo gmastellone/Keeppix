@@ -1300,7 +1300,14 @@
     "apply": "Apply",
     "cancel": "Cancel",
     "renamedToast": "{n} photo renamed. | {n} photos renamed.",
-    "error": "Couldn't rename the photos. Try again."
+    "error": "Couldn't rename the photos. Try again.",
+    "applyingTitle": "Renaming",
+    "progressKnown": "{done} of {total}",
+    "progressUnknown": "{done} so far",
+    "cancelOperation": "Cancel",
+    "cancellingOperation": "Cancelling…",
+    "cancelledToast": "Rename cancelled — {n} photo already renamed. | Rename cancelled — {n} photos already renamed.",
+    "failedToast": "The rename stopped due to an error — some photos may already be renamed."
   },
   "shared": {
     "title": "Shared content",

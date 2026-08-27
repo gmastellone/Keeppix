@@ -5,20 +5,28 @@
 //! vero e proprio (`render_base`/`apply_base_to_filename`) è puro, in
 //! `keeppix-domain`.
 //!
-//! **`apply`/`undo` fanno anche da "worker" della propria operazione**
-//! (Task 10): a differenza di `LibraryScan`/`AiAnalysis`/`FaceDetection`
-//! (guidate da un job di `keeppix-jobs`, perché lente e legate a inferenza
-//! di modello), la rinomina è veloce — ogni passo è un `move_asset` — e resta
-//! sincrona dentro la richiesta HTTP. Con `track_operation: true`, `apply`/
-//! `undo` creano l'`Operation` internamente, **dopo** che tutti i controlli
-//! fallibili a monte (permessi/visibilità per `apply`; lookup/proprietà del
-//! batch per `undo`) sono già passati — così nessun `Err` precoce può
-//! lasciare un'operazione orfana bloccata su `running`. Da lì in poi
-//! interrogano `is_cancel_requested` fra un asset e il successivo e
-//! chiudono da sole lo stato finale (`finish_done`/`finish_cancelled`) —
-//! lo stesso ruolo che altrove gioca il worker in background, qui giocato
-//! dalla stessa funzione che fa il lavoro. L'id (`Option<OperationId>`) torna
-//! al chiamante dentro `RenameBatchOutcome`/`RenameUndoOutcome`.
+//! **`apply`/`undo` fanno da "worker" della propria operazione** (Task 10),
+//! ma non allo stesso modo dal 27 agosto. Progettazione originale:
+//! a differenza di `LibraryScan`/`AiAnalysis`/`FaceDetection` (guidate da un
+//! job di `keeppix-jobs`, perché lente e legate a inferenza di modello), la
+//! rinomina era veloce — ogni passo un `move_asset` — quindi restava
+//! sincrona dentro la richiesta HTTP; un lotto da migliaia di foto su
+//! storage lento restava comunque un blocco di minuti senza modo di
+//! annullarlo, scoperto quando qualcuno ha chiesto un annullamento reale.
+//! **`apply` ora gira dentro `keeppix-jobs::rename_batch`** (stessa forma
+//! di `LibraryScan`): il chiamante HTTP (`routes/rename.rs::apply_batch`)
+//! fa i controlli fallibili a monte (permessi/visibilità), crea
+//! l'`Operation`, accoda il job e risponde `202` con l'id subito — nessun
+//! `Err` precoce può comunque lasciare un'operazione orfana, la sicurezza
+//! è la stessa, solo spostata dal dentro-`apply` al chiamante. `undo` resta
+//! sincrona come prima (non nello scopo di questo cambio, stesso
+//! `track_operation: bool`, non toccato) — un debito dichiarato, non
+//! dimenticato: se un batch annullabile può arrivare alla stessa scala di
+//! `apply`, merita lo stesso trattamento. Da lì in poi entrambe interrogano
+//! `is_cancel_requested` fra un asset e il successivo e chiudono da sole lo
+//! stato finale (`finish_done`/`finish_cancelled`). L'id
+//! (`Option<OperationId>`) torna al chiamante dentro
+//! `RenameBatchOutcome`/`RenameUndoOutcome`.
 //!
 //! **Difetto 1 chiuso qui** (spec §62.3d, rinviato dal Task 7): la
 //! collisione è verificata contro l'intero database — anteprima e
@@ -93,11 +101,9 @@ pub struct RenameBatchOutcome {
     /// `None` se nessun asset è stato rinominato con successo — nulla da
     /// annullare, nessuna riga scritta in `rename_batches`.
     pub batch_id: Option<BatchId>,
-    /// `Some` solo se `track_operation` era `true` — creata **dopo** i
-    /// controlli che possono far fallire l'intera chiamata (permesso,
-    /// ambito), mai prima: un'operazione creata e poi mai chiusa perché la
-    /// chiamata fallisce subito dopo resterebbe `running` per sempre, orfana
-    /// sul WebSocket.
+    /// Lo stesso `operation_id` passato ad [`RenameRepo::apply`] — solo
+    /// rispedito indietro per comodità del chiamante (`apply` non lo crea
+    /// più lei stessa, vedi il commento su [`RenameRepo::apply`]).
     pub operation_id: Option<OperationId>,
     pub renamed: Vec<Asset>,
     pub failed: Vec<(AssetId, DbError)>,
@@ -198,18 +204,26 @@ impl<'a> RenameRepo<'a> {
     /// rinominati con successo — un fallimento parziale non lascia
     /// annullabile ciò che non è mai cambiato.
     ///
-    /// `track_operation` (Task 10, `OperationKind::BulkRename`): quando
-    /// `true`, crea l'operazione **qui dentro**, dopo `compute` — mai prima
-    /// dei controlli che possono far fallire l'intera chiamata (permesso,
-    /// ambito): un'operazione creata e poi mai chiusa perché la chiamata
-    /// fallisce subito dopo resterebbe `running` per sempre, fantasma sul
-    /// WebSocket. Da lì in poi `apply` ne gioca il ruolo di worker: totale e
-    /// fase impostati prima del giro, `cancel_requested` interrogato fra un
+    /// `operation_id` (Task 10, `OperationKind::BulkRename`; forma cambiata
+    /// il 27 agosto — il chiamante lo crea **prima** di invocare `apply`,
+    /// non più `apply` stessa): a differenza della progettazione originale
+    /// (creare l'operazione qui dentro, dopo `compute`, per non lasciarne
+    /// una orfana se i controlli a monte falliscono), ora `apply` gira
+    /// dentro un job in background (`keeppix-jobs::rename_batch`) — il
+    /// chiamante HTTP deve conoscere l'id **prima** di accodare il job, per
+    /// restituirlo subito nella risposta `202` (stesso bisogno di
+    /// `LibraryScan`). La sicurezza "mai un'operazione fantasma" resta,
+    /// spostata a monte: il chiamante crea l'operazione solo **dopo** aver
+    /// già verificato permesso/ambito, esattamente come faceva `apply`
+    /// prima — vedi `routes/rename.rs::apply_batch`. Da qui in poi `apply`
+    /// gioca comunque il ruolo di worker sull'id ricevuto: totale e fase
+    /// impostati prima del giro, `cancel_requested` interrogato fra un
     /// asset e il successivo — un annullamento a metà **non** è un rollback
     /// (Ruling Task 16, `operation.rs`): gli asset già rinominati restano
     /// rinominati, quelli non ancora tentati restano com'erano, né riusciti
     /// né falliti. Lo stato finale (`Done`/`Cancelled`) lo chiude questa
-    /// stessa funzione, non il chiamante.
+    /// stessa funzione, non il chiamante. `None` per i chiamanti di test che
+    /// non seguono l'avanzamento.
     ///
     /// # Errors
     /// `Forbidden` se il chiamante non è autenticato. Gli errori per
@@ -219,7 +233,7 @@ impl<'a> RenameRepo<'a> {
         ctx: &AuthContext,
         asset_ids: &[AssetId],
         schema: &str,
-        track_operation: bool,
+        operation_id: Option<OperationId>,
     ) -> Result<RenameBatchOutcome, DbError> {
         let Some(actor) = ctx.user_id() else {
             return Err(DbError::Forbidden);
@@ -227,20 +241,16 @@ impl<'a> RenameRepo<'a> {
         let items = self.compute(ctx, asset_ids, schema).await?;
 
         let operations = OperationsRepo::new(self.db);
-        let operation_id = if track_operation {
-            let op = operations.create(ctx, OperationKind::BulkRename).await?;
+        if let Some(op_id) = operation_id {
             let total = items
                 .iter()
                 .filter(|item| item.current_name != item.new_name)
                 .count();
             let total = i64::try_from(total)
                 .map_err(|e| DbError::Corrupted(format!("rename batch total: {e}")))?;
-            operations.set_total(op.id, Some(total)).await?;
-            operations.set_phase(op.id, "renaming").await?;
-            Some(op.id)
-        } else {
-            None
-        };
+            operations.set_total(op_id, Some(total)).await?;
+            operations.set_phase(op_id, "renaming").await?;
+        }
 
         let assets = AssetRepo::new(self.db);
         let mut renamed = Vec::new();

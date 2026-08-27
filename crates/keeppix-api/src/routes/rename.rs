@@ -1,15 +1,23 @@
 //! Rinomina con formula in blocco (Fase 9 Task 10): anteprima, applicazione
-//! e annullamento su [`keeppix_db::RenameRepo`] — sincrona dentro la
-//! richiesta come `metadata::apply_batch`, non un job. `apply`/`undo` sono
-//! chiamati con `track_operation = true`: questa rotta è il primo chiamante
-//! reale di `OperationKind::BulkRename` (finora solo i test lo esercitavano),
-//! quindi `operation_id` è sempre presente nella risposta, non opzionale —
-//! il frontend lo usa per seguire l'avanzamento sul `WebSocket` degli stessi
-//! eventi `operation.progress` di `LibraryScan`/`AiAnalysis`/`FaceDetection`.
+//! e annullamento su [`keeppix_db::RenameRepo`]. `undo` resta sincrona
+//! dentro la richiesta (come `metadata::apply_batch`, `track_operation =
+//! true` — debito dichiarato in `keeppix_db::rename`, non toccato qui).
+//!
+//! **`apply_batch` non lo è più dal 27 agosto**: gira in background via
+//! `JobKind::BulkRename` (`keeppix-jobs::rename_batch`), stessa forma di
+//! `LibraryScan` — questa rotta fa solo i controlli fallibili a monte
+//! (batch/permesso/visibilità), crea l'`Operation` e accoda il job,
+//! rispondendo `202` con `operation_id` subito. Progettazione originale:
+//! sincrona perché "veloce, nessuna inferenza" — un lotto da migliaia di
+//! foto su storage lento restava comunque un blocco di minuti senza modo di
+//! annullarlo, il motivo del cambio.
 
 use axum::extract::{Path, State};
-use keeppix_db::RenameRepo;
-use keeppix_domain::{AssetId, BatchId, FolderId, OperationId};
+use axum::http::StatusCode;
+use keeppix_db::{AssetRepo, JobRepo, OperationsRepo, PermissionRepo, RenameRepo};
+use keeppix_domain::{
+    AssetId, BatchId, FolderId, JobKind, JobPriority, OperationId, OperationKind,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::bulk::BulkOutcome;
@@ -52,12 +60,23 @@ impl From<keeppix_db::RenamePreviewItem> for RenamePreviewItemView {
 
 /// Nidificato, non appiattito su `BulkOutcome` (sicurezza `utoipa`: un
 /// `#[serde(flatten)]` su uno schema generato perde i nomi dei campi nel
-/// documento `OpenAPI`).
+/// documento `OpenAPI`). Usato solo da `undo_batch`, ancora sincrona —
+/// `apply_batch` risponde con [`RenameAccepted`].
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RenameOperationOutcome {
     #[schema(value_type = String)]
     pub operation_id: OperationId,
     pub outcome: BulkOutcome,
+}
+
+/// Risposta di `apply_batch` (dal 27 agosto, `202`): l'esito non è ancora
+/// noto quando si risponde — il chiamante segue `operation_id` sul
+/// `WebSocket` (`operation.progress`), stesso pattern di `ScanAccepted`
+/// (`routes/libraries.rs`).
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RenameAccepted {
+    #[schema(value_type = String)]
+    pub operation_id: OperationId,
 }
 
 /// # Errors
@@ -90,21 +109,25 @@ pub async fn preview(
     Ok(Json(items.into_iter().map(Into::into).collect()))
 }
 
+// I controlli fallibili restano sincroni e a monte, esattamente come prima
+// quando vivevano dentro RenameRepo::compute — solo spostati un livello più
+// su, perché ora sono l'unica cosa che questa richiesta fa davvero: il
+// lavoro vero e proprio (compute di nuovo, per davvero, con nomi freschi
+// non quelli di questo momento) gira dentro keeppix-jobs::rename_batch, non
+// qui.
 /// # Errors
 /// `400` se il lotto supera [`crate::batch::MAX_BATCH_ASSETS`]; `401` se non
-/// autenticato; `403` se anche un solo asset non è visibile o modificabile
-/// (le collisioni, invece, finiscono in `outcome.failed` senza bloccare il
-/// resto del lotto).
+/// autenticato; `403` se anche un solo asset non è visibile o modificabile.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/batch/rename",
     tag = "rename",
     operation_id = "rename_apply_batch",
-    summary = "Apply a bulk rename",
+    summary = "Start a bulk rename",
     security(("session_cookie" = [])),
     request_body = RenameBatchRequest,
     responses(
-        (status = 200, description = "Esito per asset; batch_id annullabile sui riusciti", body = RenameOperationOutcome),
+        (status = 202, description = "Accodata — segui operation_id su WebSocket (operation.progress)", body = RenameAccepted),
         (status = 400, description = "batch troppo grande", body = Problem),
         (status = 401, description = "Non autenticato", body = Problem),
         (status = 403, description = "Un asset non visibile o non modificabile", body = Problem)
@@ -114,19 +137,40 @@ pub async fn apply_batch(
     State(state): State<AppState>,
     Auth(ctx): Auth,
     Json(body): Json<RenameBatchRequest>,
-) -> Result<Json<RenameOperationOutcome>, Problem> {
+) -> Result<(StatusCode, Json<RenameAccepted>), Problem> {
     crate::batch::reject_oversized_batch(&body.asset_ids)?;
-    let outcome = RenameRepo::new(&state.db)
-        .apply(&ctx, &body.asset_ids, &body.schema, true)
+    let actor_id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
+    AssetRepo::new(&state.db)
+        .assert_visible(&ctx, &body.asset_ids)
         .await?;
-    let operation_id = outcome.operation_id.ok_or_else(|| {
-        Problem::internal().with_detail("rename apply did not track an operation")
-    })?;
-    let succeeded = outcome.renamed.iter().map(|asset| asset.id).collect();
-    Ok(Json(RenameOperationOutcome {
-        operation_id,
-        outcome: BulkOutcome::from_partition(succeeded, &outcome.failed, outcome.batch_id),
-    }))
+    PermissionRepo::new(&state.db)
+        .assert_can_edit_assets(&ctx, &body.asset_ids)
+        .await?;
+
+    let operation = OperationsRepo::new(&state.db)
+        .create(&ctx, OperationKind::BulkRename)
+        .await?;
+
+    JobRepo::new(&state.db)
+        .enqueue(
+            JobKind::BulkRename,
+            serde_json::json!({
+                "operation_id": operation.id.to_string(),
+                "actor_id": actor_id.to_string(),
+                "asset_ids": body.asset_ids.iter().map(AssetId::to_string).collect::<Vec<_>>(),
+                "schema": body.schema,
+            }),
+            JobPriority::Background,
+            None,
+        )
+        .await?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(RenameAccepted {
+            operation_id: operation.id,
+        }),
+    ))
 }
 
 /// # Errors

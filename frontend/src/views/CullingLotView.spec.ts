@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import type { AssetFlags } from '@/api/culling'
+import { startLiveEvents, type LiveMessage } from '@/api/events'
 import type { FolderChildren } from '@/api/folders'
 import type { TimelineAsset } from '@/api/timeline'
 import { i18n } from '@/i18n'
@@ -38,6 +39,15 @@ vi.mock('@/api/culling', () => ({
 vi.mock('@/api/rename', () => ({
   previewRename: (...args: unknown[]) => previewRenameMock(...args),
   applyRenameBatch: (...args: unknown[]) => applyRenameBatchMock(...args)
+}))
+vi.mock('@/api/operations', () => ({
+  cancelOperation: vi.fn(async () => ({ succeeded: [], failed: [], batch_id: null }))
+}))
+// RenameFormulaDialog segue l'avanzamento reale sul WebSocket dal 27
+// agosto (Task 16) — nessuno di questi test lo esercita direttamente, la
+// mock esiste solo per non tentare una connessione reale in jsdom.
+vi.mock('@/api/events', () => ({
+  startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
 }))
 
 const unvotedFlags: AssetFlags = { rating: null, pick: 'none', color_label: null, favorite: false }
@@ -87,7 +97,7 @@ beforeEach(() => {
   apiFetchMock.mockResolvedValue({})
   fetchCullingLotsMock.mockResolvedValue([])
   previewRenameMock.mockResolvedValue([])
-  applyRenameBatchMock.mockResolvedValue({ operation_id: 'op1', outcome: { succeeded: [], failed: [], batch_id: null } })
+  applyRenameBatchMock.mockResolvedValue({ operation_id: 'op1' })
 })
 
 afterEach(() => {
@@ -335,6 +345,11 @@ describe('CullingLotView — Task 17 (4/N) selezione multipla, rinomina, seletto
 
   it('"Rinomina…" from the selection bar opens the dialog scoped to the selected photos and clears the selection once applied', async () => {
     previewRenameMock.mockResolvedValue([{ asset_id: 'a1', folder_id: 'lot-1', current_name: 'a.jpg', new_name: 'b.jpg', collides: false }])
+    let onEvent: ((msg: LiveMessage) => void) | undefined
+    vi.mocked(startLiveEvents).mockImplementation((cb) => {
+      onEvent = cb
+      return { close: vi.fn() }
+    })
     const { wrapper } = await mountView()
 
     await wrapper.findAll('[role="checkbox"]')[0].trigger('click')
@@ -350,6 +365,12 @@ describe('CullingLotView — Task 17 (4/N) selezione multipla, rinomina, seletto
     await flushPromises()
 
     expect(applyRenameBatchMock).toHaveBeenCalledWith(['a1'], '{data}_{luogo}_{n:3}')
+    // Dal 27 agosto il rename gira in background (Task 16): il dialog
+    // resta aperto finché non arriva l'evento terminale sul WebSocket, non
+    // si chiude subito dopo la risposta 202 di apply.
+    onEvent?.({ v: 1, type: 'operation.progress', payload: { operation_id: 'op1', done: 1, total: 1, phase: 'done' } })
+    await flushPromises()
+
     expect(wrapper.find('[role="toolbar"]').exists()).toBe(false)
   })
 

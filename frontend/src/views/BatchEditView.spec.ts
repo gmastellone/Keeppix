@@ -51,7 +51,16 @@ vi.mock('@/api/tags', () => ({
 }))
 vi.mock('@/api/rename', () => ({
   previewRename: vi.fn(async () => []),
-  applyRenameBatch: vi.fn(async () => ({ operation_id: 'op', outcome: { succeeded: [], failed: [], batch_id: null } }))
+  applyRenameBatch: vi.fn(async () => ({ operation_id: 'op' }))
+}))
+vi.mock('@/api/operations', () => ({
+  cancelOperation: vi.fn(async () => ({ succeeded: [], failed: [], batch_id: null }))
+}))
+// RenameFormulaDialog segue l'avanzamento reale sul WebSocket dal 27
+// agosto (Task 16) — nessuno di questi test lo esercita, la mock esiste
+// solo per non tentare una connessione reale in jsdom.
+vi.mock('@/api/events', () => ({
+  startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
 }))
 
 vi.mock('@/api/client', async (importOriginal) => {

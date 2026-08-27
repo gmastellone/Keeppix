@@ -54,7 +54,17 @@ vi.mock('@/api/albums', () => ({
 }))
 vi.mock('@/api/rename', () => ({
   previewRename: vi.fn(async () => []),
-  applyRenameBatch: vi.fn(async () => ({ operation_id: 'op', outcome: { succeeded: [], failed: [], batch_id: null } }))
+  applyRenameBatch: vi.fn(async () => ({ operation_id: 'op' }))
+}))
+vi.mock('@/api/operations', () => ({
+  cancelOperation: vi.fn(async () => ({ succeeded: [], failed: [], batch_id: null }))
+}))
+// RenameFormulaDialog (embedded qui per "Rinomina…" del lightbox, §18/§20)
+// apre una connessione WebSocket vera per seguire l'avanzamento reale del
+// rename (Task 16, dal 27 agosto) — nessuno di questi test la esercita, la
+// mock esiste solo per non far tentare una connessione reale in jsdom.
+vi.mock('@/api/events', () => ({
+  startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
 }))
 
 afterEach(() => {

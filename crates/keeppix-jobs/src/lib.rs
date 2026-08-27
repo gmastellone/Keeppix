@@ -17,6 +17,7 @@ pub mod pool;
 pub mod profile;
 pub mod raw;
 pub mod regions;
+pub mod rename_batch;
 pub mod retry_derives;
 pub mod tmp_cleanup;
 pub mod transcode;

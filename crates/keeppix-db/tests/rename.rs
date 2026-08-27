@@ -485,7 +485,7 @@ mod apply {
         set_title(&test, asset_id, "Tramonto").await;
 
         let outcome = RenameRepo::new(test.db())
-            .apply(&ctx, &[asset_id], "{titolo}", false)
+            .apply(&ctx, &[asset_id], "{titolo}", None)
             .await
             .unwrap();
 
@@ -526,7 +526,7 @@ mod apply {
         set_title(&test, raw, "Alba").await;
 
         let outcome = RenameRepo::new(test.db())
-            .apply(&ctx, &[raw], "{titolo}", false)
+            .apply(&ctx, &[raw], "{titolo}", None)
             .await
             .unwrap();
 
@@ -563,7 +563,7 @@ mod apply {
         let b = indexed_asset(&assets, folder.id, "b.jpg", taken_at).await;
 
         let outcome = RenameRepo::new(test.db())
-            .apply(&ctx, &[a, b], "{data}", false)
+            .apply(&ctx, &[a, b], "{data}", None)
             .await
             .unwrap();
 
@@ -633,7 +633,7 @@ mod apply {
         // un solo asset di sola visione basta a rifiutare l'intera chiamata,
         // prima ancora di tentare il primo move_asset.
         let result = RenameRepo::new(test.db())
-            .apply(&editor_ctx, &[a, b], "x", false)
+            .apply(&editor_ctx, &[a, b], "x", None)
             .await;
 
         assert!(matches!(result, Err(DbError::Forbidden)), "{result:?}");
@@ -674,7 +674,7 @@ mod undo {
 
         let repo = RenameRepo::new(test.db());
         let applied = repo
-            .apply(&ctx, &[asset_id], "{titolo}", false)
+            .apply(&ctx, &[asset_id], "{titolo}", None)
             .await
             .unwrap();
         let batch_id = applied.batch_id.unwrap();
@@ -722,7 +722,7 @@ mod undo {
         set_title(&test, raw, "Alba").await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[raw], "{titolo}", false).await.unwrap();
+        let applied = repo.apply(&ctx, &[raw], "{titolo}", None).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
         let undone = repo.undo(&ctx, batch_id, false).await.unwrap();
@@ -759,7 +759,7 @@ mod undo {
         .await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[asset_id], "b", false).await.unwrap();
+        let applied = repo.apply(&ctx, &[asset_id], "b", None).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
         let first = repo.undo(&ctx, batch_id, false).await.unwrap();
@@ -794,7 +794,7 @@ mod undo {
         .await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[asset_id], "b", false).await.unwrap();
+        let applied = repo.apply(&ctx, &[asset_id], "b", None).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
         // Un editor con accesso pieno all'asset, ma non è chi ha applicato
@@ -843,7 +843,7 @@ mod undo {
         let asset_id = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[asset_id], "b", false).await.unwrap();
+        let applied = repo.apply(&ctx, &[asset_id], "b", None).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
         assert!(root.join("2024").join("b.JPG").is_file());
 
@@ -902,12 +902,21 @@ mod operation_tracking {
         let a = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
         let b = indexed_asset(&assets, folder.id, "b.jpg", taken_at).await;
 
+        // Dal 27 agosto `apply` non crea più la propria operazione (l'ha
+        // fatta girare in background, `keeppix-jobs::rename_batch`): il
+        // chiamante — qui il test, la rotta HTTP in produzione — la crea
+        // prima, come farebbe `apply_batch`.
+        let op = operations
+            .create(&ctx, keeppix_domain::OperationKind::BulkRename)
+            .await
+            .unwrap();
         let outcome = RenameRepo::new(test.db())
-            .apply(&ctx, &[a, b], "{titolo}_{n:2}", true)
+            .apply(&ctx, &[a, b], "{titolo}_{n:2}", Some(op.id))
             .await
             .unwrap();
         assert_eq!(outcome.renamed.len(), 2);
         let op_id = outcome.operation_id.unwrap();
+        assert_eq!(op_id, op.id);
 
         let finished = operations.find(&ctx, op_id).await.unwrap();
         assert_eq!(finished.status, OperationStatus::Done);
@@ -926,13 +935,14 @@ mod operation_tracking {
     #[tokio::test]
     #[allow(clippy::unwrap_used, clippy::expect_used)]
     async fn apply_stops_partway_when_cancel_is_requested_mid_batch() {
-        // apply() crea la propria operazione internamente (Ruling sopra:
-        // mai prima dei controlli che possono far fallire la chiamata), quindi
-        // non c'è un id da annullare prima di chiamarla. Il test corre
-        // apply() su un lotto abbastanza grande da lasciare una finestra
-        // reale, e un secondo task interroga list_running finché non trova
-        // l'operazione per chiederne l'annullamento — polling, non
-        // un'attesa fissa, per non essere un test instabile.
+        // Dal 27 agosto il chiamante crea l'operazione prima di invocare
+        // apply() (vedi il test sopra), quindi l'id è noto subito — non
+        // serve più list_running per scoprirlo. Il test corre apply() su un
+        // lotto abbastanza grande da lasciare una finestra reale, e un
+        // secondo task interroga find(op_id) finché non vede almeno un
+        // successo (`done > 0`, davvero a metà, non annullata prima di
+        // iniziare) per chiederne l'annullamento — polling, non un'attesa
+        // fissa, per non essere un test instabile.
         let test = TestDb::start().await;
         let admin = harness::seed_admin(&test).await;
         let root = temp_library_root("op-cancel");
@@ -952,15 +962,22 @@ mod operation_tracking {
             asset_ids.push(indexed_asset(&assets, folder.id, &name, taken_at).await);
         }
 
+        let op = operations
+            .create(&ctx, OperationKind::BulkRename)
+            .await
+            .unwrap();
+
         let canceller_ctx = ctx.clone();
         let canceller_db = test.db().clone();
+        let op_id = op.id;
         let canceller = tokio::spawn(async move {
             let operations = OperationsRepo::new(&canceller_db);
             for _ in 0..200 {
-                let running = operations.list_running(&canceller_ctx).await.unwrap();
-                if let Some(op) = running.iter().find(|o| o.kind == OperationKind::BulkRename) {
+                if let Ok(op) = operations.find(&canceller_ctx, op_id).await
+                    && op.done > 0
+                {
                     operations
-                        .request_cancel(&canceller_ctx, op.id)
+                        .request_cancel(&canceller_ctx, op_id)
                         .await
                         .unwrap();
                     return true;
@@ -971,7 +988,7 @@ mod operation_tracking {
         });
 
         let outcome = RenameRepo::new(test.db())
-            .apply(&ctx, &asset_ids, "{n:3}", true)
+            .apply(&ctx, &asset_ids, "{n:3}", Some(op.id))
             .await
             .unwrap();
         let found_it = canceller.await.unwrap();
@@ -1017,7 +1034,7 @@ mod operation_tracking {
         let asset_id = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
 
         let repo = RenameRepo::new(test.db());
-        let applied = repo.apply(&ctx, &[asset_id], "b", false).await.unwrap();
+        let applied = repo.apply(&ctx, &[asset_id], "b", None).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
         let undone = repo.undo(&ctx, batch_id, true).await.unwrap();

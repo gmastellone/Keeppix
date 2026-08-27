@@ -31,6 +31,14 @@ pub enum JobKind {
     /// Fase 8: rilevamento `YuNet` + impronta `SFace` + raggruppamento
     /// incrementale a lotto.
     DetectFaces,
+    /// Rinomina in blocco (Fase 9 Task 10) spostata in background — a
+    /// differenza della progettazione originale, che la teneva sincrona
+    /// dentro la richiesta HTTP perché "veloce, nessuna inferenza": un lotto
+    /// da migliaia di foto su storage lento resta comunque un blocco di
+    /// minuti senza modo di annullarlo. `operation_id` nella risposta HTTP
+    /// arriva subito (`202 Accepted`), come `LibraryScan`/`AiAnalysis`/
+    /// `FaceDetection` — non più un'eccezione di forma.
+    BulkRename,
 }
 
 impl JobKind {
@@ -59,6 +67,7 @@ impl JobKind {
             Self::IntegrityScrub => "integrity_scrub",
             Self::EmbedAssets => "embed_assets",
             Self::DetectFaces => "detect_faces",
+            Self::BulkRename => "bulk_rename",
         }
     }
 
@@ -88,6 +97,7 @@ impl JobKind {
             "integrity_scrub" => Ok(Self::IntegrityScrub),
             "embed_assets" => Ok(Self::EmbedAssets),
             "detect_faces" => Ok(Self::DetectFaces),
+            "bulk_rename" => Ok(Self::BulkRename),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
     }
@@ -199,6 +209,7 @@ mod tests {
             JobKind::IntegrityScrub,
             JobKind::EmbedAssets,
             JobKind::DetectFaces,
+            JobKind::BulkRename,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
         }

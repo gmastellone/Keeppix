@@ -1300,7 +1300,14 @@
     "apply": "Applica",
     "cancel": "Annulla",
     "renamedToast": "{n} foto rinominata. | {n} foto rinominate.",
-    "error": "Non è stato possibile rinominare le foto. Riprova."
+    "error": "Non è stato possibile rinominare le foto. Riprova.",
+    "applyingTitle": "Rinomina in corso",
+    "progressKnown": "{done} di {total}",
+    "progressUnknown": "{done} finora",
+    "cancelOperation": "Annulla",
+    "cancellingOperation": "Annullamento…",
+    "cancelledToast": "Rinomina annullata — {n} foto già rinominata. | Rinomina annullata — {n} foto già rinominate.",
+    "failedToast": "La rinomina si è interrotta per un errore — alcune foto potrebbero essere già state rinominate."
   },
   "shared": {
     "title": "Contenuto condiviso",

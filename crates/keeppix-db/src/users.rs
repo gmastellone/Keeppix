@@ -203,6 +203,30 @@ impl<'a> UserRepo<'a> {
         row.ok_or(DbError::NotFound)?.into_domain()
     }
 
+    /// Ruolo attuale di un utente, senza `AuthContext` — stesso motivo di
+    /// [`Self::find_by_username`]: usata per **ricostruire** l'`AuthContext`
+    /// di un job in background che continua un'azione già autorizzata al
+    /// momento della richiesta HTTP (es. `BulkRename`, Task 10), non per
+    /// un'ispezione arbitraria. Rilegge il ruolo **corrente**, non quello
+    /// catturato quando il job è stato accodato: se nel frattempo un admin
+    /// viene retrocesso, il job lo scopre qui, non prima.
+    ///
+    /// # Errors
+    /// `DbError::NotFound` se l'utente non esiste (più cancellato del
+    /// consueto in questo contesto: l'account che aveva accodato il job).
+    pub async fn role_for(&self, id: UserId) -> Result<SystemRole, DbError> {
+        let role: Option<String> = sqlx::query_scalar("SELECT role FROM users WHERE id = $1")
+            .bind(id.as_uuid())
+            .fetch_optional(self.db.pool())
+            .await?;
+        match role.as_deref() {
+            Some("admin") => Ok(SystemRole::Admin),
+            Some("user") => Ok(SystemRole::User),
+            Some(other) => Err(crate::row::corrupted("role", other)),
+            None => Err(DbError::NotFound),
+        }
+    }
+
     /// Elenco di tutti gli utenti. Solo admin.
     ///
     /// # Errors

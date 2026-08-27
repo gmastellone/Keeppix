@@ -19,9 +19,11 @@
 // leggendo il codice reale prima di scrivere questo dialog — l'anteprima
 // chiama `previewRename` a ogni cambio di schema, non ricalcola nulla in
 // locale.
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { startLiveEvents, type LiveSocket } from '@/api/events'
+import { cancelOperation } from '@/api/operations'
 import { applyRenameBatch, previewRename, type RenamePreviewItem } from '@/api/rename'
 import type { TimelineAsset } from '@/api/timeline'
 import { useToastStore } from '@/stores/toast'
@@ -81,10 +83,85 @@ function scheduleRunPreview() {
 watch(schema, scheduleRunPreview)
 watch(includeSubfolders, scheduleRunPreview)
 
+// Debito chiuso il 27 agosto: `POST /assets/batch/rename` non rinomina più
+// dentro la richiesta — accoda un job (`keeppix-jobs::rename_batch`,
+// `keeppix_db::rename` per il perché) e torna subito `operation_id`. Questo
+// dialog ne segue l'avanzamento reale sul WebSocket (`operation.progress`),
+// stesso pattern di `ProblemsView.vue` per la ri-scansione di libreria —
+// annulla vero, non solo uno spinner indeterminato. Dichiarato **prima**
+// del `watch(open, ..., { immediate: true })` sotto: quel watcher chiama
+// `resetApplyState` fin dalla prima esecuzione, in `<script setup>` un
+// `const` non è sollevato come una funzione — un ordine diverso lancia
+// `ReferenceError` all'apertura del componente (visto per davvero).
+const activeOperationId = ref<string | null>(null)
+const progressDone = ref(0)
+const progressTotal = ref<number | null>(null)
+const cancelling = ref(false)
+let live: LiveSocket | undefined
+
+interface OperationProgressPayload {
+  operation_id: string
+  done: number
+  total: number | null
+  phase: string
+}
+
+const TERMINAL_PHASES = new Set(['done', 'cancelled', 'failed'])
+
+function resetApplyState() {
+  activeOperationId.value = null
+  applying.value = false
+  cancelling.value = false
+  progressDone.value = 0
+  progressTotal.value = null
+}
+
+function handleOperationProgress(payload: OperationProgressPayload) {
+  if (payload.operation_id !== activeOperationId.value) return
+  if (!TERMINAL_PHASES.has(payload.phase)) {
+    progressDone.value = payload.done
+    progressTotal.value = payload.total
+    return
+  }
+  // `cancelRename` sta già aspettando la sua stessa risposta HTTP e mostrerà
+  // il proprio toast quando arriva: se questo evento "cancelled" è una
+  // corsa con quella richiesta, lascia fare a lei, non duplicare qui.
+  if (cancelling.value) return
+  if (payload.phase === 'done') {
+    const n = payload.done
+    toast.show(t('renameFormula.renamedToast', { n }, { plural: n }))
+  } else if (payload.phase === 'failed') {
+    toast.showError(t('renameFormula.failedToast'))
+  }
+  // "cancelled" arriva qui senza toast proprio se annullato da un'altra
+  // scheda/sessione (non da questo dialog, coperto dalla guardia sopra).
+  resetApplyState()
+  open.value = false
+  emit('applied')
+}
+
+onMounted(() => {
+  live = startLiveEvents((msg) => {
+    if (msg.type === 'operation.progress') {
+      handleOperationProgress(msg.payload as OperationProgressPayload)
+    }
+  })
+})
+
+onUnmounted(() => {
+  live?.close()
+})
+
 watch(
   open,
   (isOpen) => {
     if (!isOpen) return
+    // Difensivo: se il dialog viene chiuso a mano (velo/Esc/`X`, reka-ui)
+    // mentre una rinomina è in corso, il job in background continua per
+    // conto suo — solo il *tracciamento* di questo dialog si perde (nessun
+    // "riprendi da dove eri" qui, debito minore non affrontato). Una
+    // riapertura successiva non deve però ripartire da uno stato a metà.
+    resetApplyState()
     schema.value = DEFAULT_SCHEMA
     includeSubfolders.value = false
     void runPreview()
@@ -122,18 +199,30 @@ async function apply() {
   if (collisionCount.value > 0 || preview.value.length === 0 || applying.value) return
   applying.value = true
   try {
-    await applyRenameBatch(
+    const accepted = await applyRenameBatch(
       scopedAssets.value.map((asset) => asset.id),
       schema.value
     )
-    const n = scopedAssets.value.length
-    toast.show(t('renameFormula.renamedToast', { n }, { plural: n }))
+    activeOperationId.value = accepted.operation_id
+  } catch {
+    toast.showError(t('renameFormula.error'))
+    applying.value = false
+  }
+}
+
+async function cancelRename() {
+  if (!activeOperationId.value || cancelling.value) return
+  cancelling.value = true
+  try {
+    const outcome = await cancelOperation(activeOperationId.value)
+    const n = outcome.succeeded.length
+    toast.show(t('renameFormula.cancelledToast', { n }, { plural: n }))
+    resetApplyState()
     open.value = false
     emit('applied')
   } catch {
-    toast.showError(t('renameFormula.error'))
-  } finally {
-    applying.value = false
+    cancelling.value = false
+    toast.showError(t('common.unexpectedError'))
   }
 }
 </script>
@@ -144,7 +233,45 @@ async function apply() {
     :title="t('renameFormula.title')"
     :description="subtitle ?? t('renameFormula.subtitle', { n: assets.length }, { plural: assets.length })"
   >
-    <div class="space-y-3">
+    <div
+      v-if="activeOperationId"
+      class="space-y-3"
+    >
+      <p class="text-[13px] font-semibold">
+        {{ t('renameFormula.applyingTitle') }}
+      </p>
+      <p class="text-[12.5px] text-content-muted">
+        {{
+          progressTotal !== null
+            ? t('renameFormula.progressKnown', { done: progressDone, total: progressTotal })
+            : t('renameFormula.progressUnknown', { done: progressDone })
+        }}
+      </p>
+      <div class="h-1.5 w-full overflow-hidden rounded-full bg-border/40">
+        <div
+          class="h-full rounded-full bg-accent transition-[width]"
+          :class="{ 'animate-pulse': progressTotal === null }"
+          :style="{
+            width: progressTotal ? `${Math.min(100, (progressDone / progressTotal) * 100)}%` : '30%'
+          }"
+        />
+      </div>
+      <div class="mt-2 flex justify-end">
+        <button
+          type="button"
+          class="rounded-lg border border-border px-3.5 py-2 text-[13px] font-semibold text-content-muted
+                 hover:bg-border/20 disabled:opacity-60"
+          :disabled="cancelling"
+          @click="cancelRename"
+        >
+          {{ cancelling ? t('renameFormula.cancellingOperation') : t('renameFormula.cancelOperation') }}
+        </button>
+      </div>
+    </div>
+    <div
+      v-else
+      class="space-y-3"
+    >
       <label class="block text-[12.5px] font-medium text-content-muted">
         {{ t('renameFormula.schemaLabel') }}
         <input

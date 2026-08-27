@@ -26,7 +26,17 @@ export interface RenameOperationOutcome {
   outcome: { succeeded: string[]; failed: { id: string; reason: string; detail?: string }[]; batch_id: string | null }
 }
 
-export function applyRenameBatch(assetIds: string[], schema: string): Promise<RenameOperationOutcome> {
+/** Dal 27 agosto: `202` subito con solo `operation_id` — il lavoro gira in
+ * background (`JobKind::BulkRename`), lo stesso motivo per cui la ri-scansione
+ * di libreria (`startLibraryScan`) non torna mai l'esito sincrono. Il
+ * chiamante segue l'avanzamento reale su `operation.progress`
+ * (`api/events.ts`) e annulla con `cancelOperation` (`api/operations.ts`) —
+ * stesso pattern di `ProblemsView.vue`. */
+export interface RenameAccepted {
+  operation_id: string
+}
+
+export function applyRenameBatch(assetIds: string[], schema: string): Promise<RenameAccepted> {
   return apiFetch('/api/v1/assets/batch/rename', {
     method: 'POST',
     body: JSON.stringify({ asset_ids: assetIds, schema })

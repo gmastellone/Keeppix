@@ -704,7 +704,7 @@
         "tags": [
           "rename"
         ],
-        "summary": "Apply a bulk rename",
+        "summary": "Start a bulk rename",
         "operationId": "rename_apply_batch",
         "requestBody": {
           "content": {
@@ -717,12 +717,12 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "Esito per asset; batch_id annullabile sui riusciti",
+          "202": {
+            "description": "Accodata — segui operation_id su WebSocket (operation.progress)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RenameOperationOutcome"
+                  "$ref": "#/components/schemas/RenameAccepted"
                 }
               }
             }
@@ -14236,6 +14236,18 @@
           }
         }
       },
+      "RenameAccepted": {
+        "type": "object",
+        "description": "Risposta di `apply_batch` (dal 27 agosto, `202`): l'esito non è ancora\nnoto quando si risponde — il chiamante segue `operation_id` sul\n`WebSocket` (`operation.progress`), stesso pattern di `ScanAccepted`\n(`routes/libraries.rs`).",
+        "required": [
+          "operation_id"
+        ],
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          }
+        }
+      },
       "RenameBatchRequest": {
         "type": "object",
         "required": [
@@ -14257,7 +14269,7 @@
       },
       "RenameOperationOutcome": {
         "type": "object",
-        "description": "Nidificato, non appiattito su `BulkOutcome` (sicurezza `utoipa`: un\n`#[serde(flatten)]` su uno schema generato perde i nomi dei campi nel\ndocumento `OpenAPI`).",
+        "description": "Nidificato, non appiattito su `BulkOutcome` (sicurezza `utoipa`: un\n`#[serde(flatten)]` su uno schema generato perde i nomi dei campi nel\ndocumento `OpenAPI`). Usato solo da `undo_batch`, ancora sincrona —\n`apply_batch` risponde con [`RenameAccepted`].",
         "required": [
           "operation_id",
           "outcome"

@@ -3,15 +3,29 @@ import { createPinia, setActivePinia } from 'pinia'
 import { defineComponent, ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { LiveMessage } from '@/api/events'
 import type { TimelineAsset } from '@/api/timeline'
 import { i18n } from '@/i18n'
+import { useToastStore } from '@/stores/toast'
 
 const previewRenameMock = vi.fn()
 const applyRenameBatchMock = vi.fn()
+const cancelOperationMock = vi.fn()
+const startLiveEventsMock = vi.fn<(cb: (msg: LiveMessage) => void) => { close: () => void }>(
+  () => ({ close: vi.fn() })
+)
 
 vi.mock('@/api/rename', () => ({
   previewRename: (...args: unknown[]) => previewRenameMock(...args),
   applyRenameBatch: (...args: unknown[]) => applyRenameBatchMock(...args)
+}))
+
+vi.mock('@/api/operations', () => ({
+  cancelOperation: (...args: unknown[]) => cancelOperationMock(...args)
+}))
+
+vi.mock('@/api/events', () => ({
+  startLiveEvents: (cb: (msg: LiveMessage) => void) => startLiveEventsMock(cb)
 }))
 
 const RenameFormulaDialog = (await import('./RenameFormulaDialog.vue')).default
@@ -71,6 +85,24 @@ function schemaInput(): HTMLInputElement {
   return el as HTMLInputElement
 }
 
+function schemaInputOrNull(): HTMLInputElement | null {
+  return document.body.querySelector('input[type="text"]')
+}
+
+interface OperationProgressPayload {
+  operation_id: string
+  done: number
+  total: number | null
+  phase: string
+}
+
+/** L'ultimo `onEvent` registrato con `startLiveEvents` — il dialog ne apre
+ * uno per componente montato, sempre l'ultimo di interesse in questi test. */
+function emitOperationProgress(payload: OperationProgressPayload) {
+  const onEvent = startLiveEventsMock.mock.calls.at(-1)?.[0] as ((msg: LiveMessage) => void) | undefined
+  onEvent?.({ v: 1, type: 'operation.progress', payload })
+}
+
 function buttonWithText(text: string): HTMLButtonElement | undefined {
   return Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === text)
 }
@@ -81,7 +113,8 @@ beforeEach(() => {
   vi.useFakeTimers()
   i18n.global.locale.value = 'it'
   previewRenameMock.mockResolvedValue([])
-  applyRenameBatchMock.mockResolvedValue({ operation_id: 'op1', outcome: { succeeded: [], failed: [], batch_id: null } })
+  applyRenameBatchMock.mockResolvedValue({ operation_id: 'op1' })
+  cancelOperationMock.mockResolvedValue({ succeeded: [], failed: [], batch_id: null })
 })
 
 afterEach(() => {
@@ -157,7 +190,7 @@ describe('RenameFormulaDialog', () => {
     expect(document.body.textContent).toContain('2 nomi risulterebbero uguali tra loro')
   })
 
-  it('"Applica" with no collision renames the batch, shows a toast, and closes the dialog', async () => {
+  it('"Applica" starts the batch and switches to a real progress view instead of closing', async () => {
     previewRenameMock.mockResolvedValue([
       { asset_id: 'a', folder_id: 'f', current_name: 'a.jpg', new_name: '2024.jpg', collides: false }
     ])
@@ -168,7 +201,89 @@ describe('RenameFormulaDialog', () => {
     await vi.runAllTimersAsync()
 
     expect(applyRenameBatchMock).toHaveBeenCalledWith(['a'], '{data}_{luogo}_{n:3}')
+    // Dal 27 agosto: 202 subito, il lavoro gira in background — il dialog
+    // resta aperto e mostra l'avanzamento reale, non si chiude finché non
+    // arriva l'evento terminale sul WebSocket.
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(document.body.textContent).toContain('Rinomina in corso')
+    expect(schemaInputOrNull()).toBeNull()
+  })
+
+  it('updates the progress bar live from operation.progress WebSocket events', async () => {
+    previewRenameMock.mockResolvedValue([
+      { asset_id: 'a', folder_id: 'f', current_name: 'a.jpg', new_name: '2024.jpg', collides: false }
+    ])
+    mountHost([photo('a')])
+    await vi.runAllTimersAsync()
+    buttonWithText('Applica')?.click()
+    await vi.runAllTimersAsync()
+
+    emitOperationProgress({ operation_id: 'op1', done: 3, total: 10, phase: 'renaming' })
+    await vi.runAllTimersAsync()
+
+    expect(document.body.textContent).toContain('3 di 10')
+  })
+
+  it('a "done" event closes the dialog, shows the real count, and emits "applied"', async () => {
+    previewRenameMock.mockResolvedValue([
+      { asset_id: 'a', folder_id: 'f', current_name: 'a.jpg', new_name: '2024.jpg', collides: false }
+    ])
+    const wrapper = mountHost([photo('a')])
+    await vi.runAllTimersAsync()
+    buttonWithText('Applica')?.click()
+    await vi.runAllTimersAsync()
+
+    // `advanceTimersByTimeAsync(0)`, non `runAllTimersAsync`: quest'ultimo
+    // esaurirebbe anche il timer di auto-dismissione del toast
+    // (`stores/toast.ts::arm`), facendolo sparire prima di poterlo leggere.
+    emitOperationProgress({ operation_id: 'op1', done: 1, total: 1, phase: 'done' })
+    await vi.advanceTimersByTimeAsync(0)
+
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    const toast = useToastStore()
+    expect(toast.toasts.some((t) => t.message.includes('1 foto rinominata'))).toBe(true)
+    expect(wrapper.findComponent(RenameFormulaDialog).emitted('applied')).toBeTruthy()
+  })
+
+  it('a "failed" event closes the dialog with an error toast, ignoring events for a different operation', async () => {
+    previewRenameMock.mockResolvedValue([
+      { asset_id: 'a', folder_id: 'f', current_name: 'a.jpg', new_name: '2024.jpg', collides: false }
+    ])
+    mountHost([photo('a')])
+    await vi.runAllTimersAsync()
+    buttonWithText('Applica')?.click()
+    await vi.runAllTimersAsync()
+
+    // Un'operazione di qualcun altro non deve toccare questo dialog.
+    emitOperationProgress({ operation_id: 'op-someone-else', done: 5, total: 5, phase: 'done' })
+    await vi.runAllTimersAsync()
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+
+    emitOperationProgress({ operation_id: 'op1', done: 0, total: 1, phase: 'failed' })
+    await vi.runAllTimersAsync()
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('clicking "Annulla" during a rename calls cancelOperation and closes on success', async () => {
+    previewRenameMock.mockResolvedValue([
+      { asset_id: 'a', folder_id: 'f', current_name: 'a.jpg', new_name: '2024.jpg', collides: false }
+    ])
+    cancelOperationMock.mockResolvedValue({ succeeded: ['a'], failed: [], batch_id: null })
+    mountHost([photo('a')])
+    await vi.runAllTimersAsync()
+    buttonWithText('Applica')?.click()
+    await vi.runAllTimersAsync()
+
+    buttonWithText('Annulla')?.click()
+    // `advanceTimersByTimeAsync(0)`, non `runAllTimersAsync`: vedi il
+    // commento nel test del "done" qui sopra.
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(cancelOperationMock).toHaveBeenCalledWith('op1')
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    const toast = useToastStore()
+    expect(toast.toasts.some((t) => t.message.includes('già rinominata'))).toBe(true)
   })
 
   it('"Annulla" closes without applying', async () => {

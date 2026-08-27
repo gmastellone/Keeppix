@@ -105,7 +105,7 @@ async fn renaming_500_files_stays_within_budget() {
 
     let timed = Instant::now();
     let outcome = RenameRepo::new(test.db())
-        .apply(&ctx, &asset_ids, "Viaggio_{n:3}", false)
+        .apply(&ctx, &asset_ids, "Viaggio_{n:3}", None)
         .await
         .expect("rinomina di massa");
     let elapsed = timed.elapsed();
