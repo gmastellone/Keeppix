@@ -1058,26 +1058,29 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
         })
         .collect();
 
-    let applied: serde_json::Value = server
+    // Dal 27 agosto la rinomina gira in background (JobKind::BulkRename):
+    // la richiesta risponde 202 con solo operation_id, l'esito va letto
+    // dopo aver drenato i worker — stesso motivo per cui scan_and_wait
+    // esiste già in questo stesso file per la scansione.
+    let applied = server
         .client
         .post(server.url("/api/v1/assets/batch/rename"))
         .json(&json!({ "asset_ids": asset_ids, "schema": "Viaggio_{n:2}" }))
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
         .unwrap();
-    assert_eq!(applied["outcome"]["succeeded"].as_array().unwrap().len(), 4);
-    assert!(applied["outcome"]["failed"].as_array().unwrap().is_empty());
-    let operation_id = applied["operation_id"].as_str().unwrap();
+    assert_eq!(applied.status(), 202);
+    let applied: serde_json::Value = applied.json().await.unwrap();
+    let operation_id = applied["operation_id"].as_str().unwrap().to_owned();
+
+    drain_workers(&server, deadline).await;
 
     // L'operazione tracciata (Task 10) è arrivata a `Done`, non lasciata
     // `running` — la stessa fonte di verità che il `WebSocket` legge.
     let (op_status, op_done, op_total): (String, i64, Option<i64>) = sqlx::query_as(
         "SELECT status, done, total FROM operations WHERE id = $1 AND kind = 'bulk_rename'",
     )
-    .bind(uuid::Uuid::parse_str(operation_id).unwrap())
+    .bind(uuid::Uuid::parse_str(&operation_id).unwrap())
     .fetch_one(server.db.pool())
     .await
     .unwrap();
