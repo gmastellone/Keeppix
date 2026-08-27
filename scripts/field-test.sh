@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# Prova sul campo: indicizza un archivio reale via HTTP e misura ogni fase.
+# Field test: indexes a real archive via HTTP and measures every phase.
 #
-# Gli originali sono montati READ-ONLY (`:ro` nel compose). Lo script non
-# scrive mai nella cartella sorgente: se lo facesse, sarebbe un difetto.
+# Originals are mounted READ-ONLY (`:ro` in the compose file). The script
+# never writes to the source folder: if it did, that would be a defect.
 #
-#   PHOTOS_PATH="/percorso/archivio" ./scripts/field-test.sh
+#   PHOTOS_PATH="/path/to/archive" ./scripts/field-test.sh
 #
-# Dopo Fase 2R: setup, libreria e scansione passano dagli endpoint (nessun
-# INSERT SQL, nessun restart del container). Esce ≠ 0 se i budget di
-# discovery sono sforati (vedi Task 8).
+# Setup, library creation, and scanning all go through the HTTP endpoints
+# (no SQL INSERT, no container restart). Exits non-zero if the discovery
+# budget is exceeded.
 #
-# Produce una tabella con: durata di ogni fase, throughput, copertura delle
-# preview RAW, spazio dei derivati. I numeri finiscono anche in
-# .superpowers/field-test-<data>.md
+# Produces a table with: duration of each phase, throughput, RAW preview
+# coverage, and derivative disk usage. The numbers also land in
+# .superpowers/field-test-<date>.md
 set -euo pipefail
 
-ARCHIVE="${PHOTOS_PATH:?serve PHOTOS_PATH}"
+ARCHIVE="${PHOTOS_PATH:?PHOTOS_PATH is required}"
 DB_PASSWORD="${DB_PASSWORD:-fieldtest}"
 BASE="http://127.0.0.1:5673"
 REPORT=".superpowers/field-test-$(date +%Y%m%d-%H%M).md"
 COOKIE_JAR="$(mktemp)"
-# Budget discovery (Task 8): 1.000 file < 30 s → ~30 ms/file di tetto
-# lineare. Sull'archivio reale si confronta la discovery osservata.
+# Discovery budget: 1,000 files < 30s -> ~30ms/file linear ceiling.
+# The observed discovery time on the real archive is compared against it.
 BUDGET_DISCOVERY_MS_PER_FILE="${BUDGET_DISCOVERY_MS_PER_FILE:-30}"
 export DB_PASSWORD
 
@@ -42,7 +42,7 @@ api() {
 }
 
 fingerprint() {
-    # Linux: `%n %s %Y`. macOS aveva `stat -f`; questo ambiente è Linux.
+    # Linux: `%n %s %Y`. macOS would use `stat -f`; this environment is Linux.
     find "$1" -type f -exec stat -c '%n %s %Y' {} \; 2>/dev/null | sort | sha256sum | awk '{print $1}'
 }
 
@@ -51,99 +51,99 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ── 0. Stato di partenza ──────────────────────────────────────────────────
+# ── 0. Starting state ──────────────────────────────────────────────────
 mkdir -p .superpowers
 : > "$REPORT"
-say "# Prova sul campo — $(date '+%Y-%m-%d %H:%M')"
+say "# Field test — $(date '+%Y-%m-%d %H:%M')"
 say
-say "Archivio: \`$ARCHIVE\`"
+say "Archive: \`$ARCHIVE\`"
 SRC_FILES=$(find "$ARCHIVE" -type f \( -iname '*.arw' -o -iname '*.nef' -o -iname '*.cr2' \
     -o -iname '*.cr3' -o -iname '*.dng' -o -iname '*.orf' -o -iname '*.raf' \
     -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.heic' -o -iname '*.png' \) | wc -l | tr -d ' ')
 SRC_BYTES=$(du -sk "$ARCHIVE" | awk '{print $1*1024}')
-say "File indicizzabili: **$SRC_FILES** · $(numfmt --to=iec "$SRC_BYTES" 2>/dev/null || echo "${SRC_BYTES}B")"
+say "Indexable files: **$SRC_FILES** · $(numfmt --to=iec "$SRC_BYTES" 2>/dev/null || echo "${SRC_BYTES}B")"
 say
 SRC_FINGERPRINT=$(fingerprint "$ARCHIVE")
 
-# ── 1. Stack pulito ───────────────────────────────────────────────────────
-echo "→ ricostruzione immagine e avvio stack…"
+# ── 1. Clean stack ───────────────────────────────────────────────────────
+echo "→ rebuilding image and starting stack…"
 docker compose --profile bundled down -v >/dev/null 2>&1 || true
 rm -rf ./data ./pgdata
 (cd frontend && npm ci --silent && npm run build >/dev/null) || exit 1
 if ! docker compose --profile bundled build >/dev/null 2>&1; then
-    echo "docker compose build fallito (daemon Docker disponibile?)"
+    echo "docker compose build failed (is the Docker daemon available?)"
     exit 1
 fi
 if ! docker compose --profile bundled up -d db >/dev/null 2>&1; then
-    echo "docker compose up (db) fallito"
+    echo "docker compose up (db) failed"
     exit 1
 fi
 
-# `rm -rf ./pgdata` sopra ricrea la directory dell'host appena prima che
-# Docker Desktop vi monti sopra: su questa piattaforma il bind mount a volte
-# non è pronto nel momento esatto in cui l'entrypoint di postgres fa
-# `initdb`, che fallisce con "wrong ownership" al primo avvio interno.
-# L'immagine posta comunque "healthy" (il socket accetta connessioni), ma lo
-# script di init salta la creazione del database applicativo, credendo che
-# la cluster fosse già inizializzata. Effetto: `keeppix` si avvia, non trova
-# il database, va in crash-loop, e il polling su `/health` due righe sotto
-# resta appeso per sempre — a occhio sembra uno stack bloccato, non un
-# database mancante.
+# `rm -rf ./pgdata` above recreates the host directory right before Docker
+# Desktop mounts over it: on this platform the bind mount is sometimes not
+# ready at the exact moment postgres' entrypoint runs `initdb`, which then
+# fails with "wrong ownership" on its first internal startup. The image
+# still reports "healthy" (the socket accepts connections), but the init
+# script skips creating the application database, believing the cluster
+# was already initialized. Effect: `keeppix` starts, can't find the
+# database, crash-loops, and the `/health` polling two lines below hangs
+# forever — at a glance it looks like a stuck stack, not a missing
+# database.
 #
-# Verificato e riprodotto tre volte di fila su questa macchina (build amd64
-# emulata su Apple Silicon, quindi finestra di race più larga del solito).
-# Piuttosto che sperare che non ricapiti, il controllo si autoripara: se il
-# database manca dopo che `db` è sano, lo crea.
+# Verified and reproduced three times in a row on this machine (amd64
+# build emulated on Apple Silicon, so a wider race window than usual).
+# Rather than hope it doesn't recur, the check heals itself: if the
+# database is missing after `db` reports healthy, it creates it.
 until docker compose exec -T db pg_isready -U keeppix >/dev/null 2>&1; do sleep 1; done
 if ! docker compose exec -T db psql -U keeppix -d keeppix -c 'SELECT 1' >/dev/null 2>&1; then
-    echo "→ database applicativo assente dopo l'init (bind mount in race): lo creo"
+    echo "→ application database missing after init (bind mount race): creating it"
     docker compose exec -T -u postgres db \
         psql -U keeppix -d template1 -c 'CREATE DATABASE keeppix OWNER keeppix' >/dev/null
 fi
 
 if ! PHOTOS_PATH="$ARCHIVE" docker compose --profile bundled up -d >/dev/null 2>&1; then
-    echo "docker compose up fallito"
+    echo "docker compose up failed"
     exit 1
 fi
 
 until curl -sf "$BASE/health" >/dev/null 2>&1; do sleep 2; done
-echo "→ stack pronto"
+echo "→ stack ready"
 
-# Sicurezza: il mount degli originali deve essere read-only.
-# L'immagine è distroless: niente shell. Si interroga Docker, che è la fonte
-# di verità sul montaggio, invece di provare a scrivere da dentro.
+# Safety: the originals mount must be read-only.
+# The image is distroless: no shell. We ask Docker, which is the source of
+# truth for the mount, instead of trying to write from inside the container.
 RO=$(docker inspect "$(docker compose ps -q keeppix)" \
       --format '{{range .Mounts}}{{if eq .Destination "/photos"}}{{.RW}}{{end}}{{end}}')
 if [[ "$RO" != "false" ]]; then
-    say "> ⚠️ **ATTENZIONE: /photos non è read-only** (RW=$RO). Interrotto per non rischiare l'archivio."
+    say "> ⚠️ **WARNING: /photos is not read-only** (RW=$RO). Aborted to avoid risking the archive."
     docker compose --profile bundled down -v >/dev/null 2>&1
     exit 1
 fi
-say "Mount degli originali verificato **read-only** (Docker riporta RW=false)."
+say "Originals mount verified **read-only** (Docker reports RW=false)."
 say
 
-# ── 2. Admin + libreria + scansione via HTTP ──────────────────────────────
+# ── 2. Admin + library + scan via HTTP ──────────────────────────────
 api POST /api/v1/setup \
     -d '{"username":"tester","display_name":"Tester","password":"correct horse battery staple"}' \
-    >/dev/null || { echo "setup fallito"; exit 1; }
+    >/dev/null || { echo "setup failed"; exit 1; }
 
 LIB_JSON=$(api POST /api/v1/libraries \
     -d '{"name":"Campo","root_path":"/photos"}') \
-    || { echo "POST /libraries fallito (allowlist KEEPPIX_LIBRARY_ROOTS?)"; exit 1; }
+    || { echo "POST /libraries failed (allowlist KEEPPIX_LIBRARY_ROOTS?)"; exit 1; }
 LIB=$(printf '%s' "$LIB_JSON" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 if [[ -z "$LIB" ]]; then
-    echo "impossibile leggere library id: $LIB_JSON"
+    echo "unable to read library id: $LIB_JSON"
     exit 1
 fi
-say "Libreria \`$LIB\` creata via **POST /api/v1/libraries** (nessun SQL)."
+say "Library \`$LIB\` created via **POST /api/v1/libraries** (no SQL)."
 say
 
 api POST "/api/v1/libraries/${LIB}/scan" -d '{}' >/dev/null \
-    || { echo "POST /scan fallito"; exit 1; }
-say "Scansione avviata via **POST /api/v1/libraries/${LIB}/scan** (nessun restart)."
+    || { echo "POST /scan failed"; exit 1; }
+say "Scan started via **POST /api/v1/libraries/${LIB}/scan** (no restart)."
 say
 
-# ── 3. Misura, fase per fase ──────────────────────────────────────────────
+# ── 3. Measure, phase by phase ──────────────────────────────────────────────
 START=$(now)
 P_DISCOVERY=""; P_EXIF=""; P_HASH=""; P_TOTAL=""
 LAST_LINE=""
@@ -163,16 +163,16 @@ while :; do
     [[ -z "$P_EXIF" && "$EXIF" -ge "$TOT" && "$TOT" -gt 0 ]] && P_EXIF=$EL
     [[ -z "$P_HASH" && "$HASH" -ge "$TOT" && "$TOT" -gt 0 ]] && P_HASH=$EL
 
-    LINE="  $(hms $EL)  trovati:$TOT  exif:$EXIF  hash:$HASH  indicizzati:$IDX  errori:$ERR  coda:$PEND"
+    LINE="  $(hms $EL)  found:$TOT  exif:$EXIF  hash:$HASH  indexed:$IDX  errors:$ERR  queue:$PEND"
     [[ "$LINE" != "$LAST_LINE" ]] && { printf '\r%-90s' "$LINE"; LAST_LINE="$LINE"; }
 
     [[ "$PEND" == "0" && "$TOT" -gt 0 ]] && { P_TOTAL=$EL; break; }
-    [[ $EL -gt 7200 ]] && { echo; echo "timeout a 2h"; P_TOTAL=$EL; EXIT_CODE=2; break; }
+    [[ $EL -gt 7200 ]] && { echo; echo "timeout at 2h"; P_TOTAL=$EL; EXIT_CODE=2; break; }
     sleep 5
 done
 echo
 
-# ── 4. Risultati ──────────────────────────────────────────────────────────
+# ── 4. Results ──────────────────────────────────────────────────────────
 TOT=$(psql "SELECT count(*) FROM assets")
 IDX=$(psql "SELECT count(*) FROM assets WHERE status='indexed'")
 ERR=$(psql  "SELECT count(*) FROM assets WHERE status='error'")
@@ -184,38 +184,38 @@ RAW_TOT=$(psql "SELECT count(*) FROM assets WHERE kind = 'raw_image'")
 DERIV_SIZE=$(du -sk ./data/derivatives 2>/dev/null | awk '{print $1*1024}')
 MB=$(( SRC_BYTES / 1048576 ))
 
-say "## Risultati"
+say "## Results"
 say
-say "| Fase | Durata | Throughput |"
+say "| Phase | Duration | Throughput |"
 say "|---|---|---|"
-for pair in "discovery:$P_DISCOVERY" "exif:$P_EXIF" "hash:$P_HASH" "totale:$P_TOTAL"; do
+for pair in "discovery:$P_DISCOVERY" "exif:$P_EXIF" "hash:$P_HASH" "total:$P_TOTAL"; do
     p="${pair%%:*}"; v="${pair#*:}"
     [[ -z "$v" ]] && continue
-    if [[ "$v" -gt 0 ]]; then rate="$(( TOT / v )) file/s"; else rate="istantanea"; fi
+    if [[ "$v" -gt 0 ]]; then rate="$(( TOT / v )) file/s"; else rate="instant"; fi
     say "| $p | $(hms "$v") | $rate |"
 done
 say
-say "| Metrica | Valore |"
+say "| Metric | Value |"
 say "|---|---|"
-say "| File sorgente | $SRC_FILES |"
-say "| Asset creati | $TOT |"
-say "| Cartelle | $FOLDERS |"
-say "| Indicizzati | $IDX |"
-say "| Errori | $ERR |"
-say "| Con thumbhash | $THUMBHASH |"
-say "| RAW con preview | $RAW_PREVIEW / $RAW_TOT |"
-say "| Derivati su disco | $(numfmt --to=iec "${DERIV_SIZE:-0}" 2>/dev/null || echo "${DERIV_SIZE:-0}B") |"
-say "| Rapporto derivati/originali | $(awk -v d="${DERIV_SIZE:-0}" -v s="$SRC_BYTES" 'BEGIN{ if(s<=0){print "n/a"}else{printf "%.1f%%", d*100/s}}') |"
-[[ -n "$P_HASH" && "$P_HASH" -gt 0 && "$MB" -gt 0 ]] && say "| Velocità di hash | $(( MB / P_HASH )) MB/s |"
+say "| Source files | $SRC_FILES |"
+say "| Assets created | $TOT |"
+say "| Folders | $FOLDERS |"
+say "| Indexed | $IDX |"
+say "| Errors | $ERR |"
+say "| With thumbhash | $THUMBHASH |"
+say "| RAW with preview | $RAW_PREVIEW / $RAW_TOT |"
+say "| Derivatives on disk | $(numfmt --to=iec "${DERIV_SIZE:-0}" 2>/dev/null || echo "${DERIV_SIZE:-0}B") |"
+say "| Derivatives/originals ratio | $(awk -v d="${DERIV_SIZE:-0}" -v s="$SRC_BYTES" 'BEGIN{ if(s<=0){print "n/a"}else{printf "%.1f%%", d*100/s}}') |"
+[[ -n "$P_HASH" && "$P_HASH" -gt 0 && "$MB" -gt 0 ]] && say "| Hash speed | $(( MB / P_HASH )) MB/s |"
 say
 
-# Budget discovery vs Task 8
+# Discovery budget check
 if [[ -n "$P_DISCOVERY" && "$SRC_FILES" -gt 0 ]]; then
     BUDGET_S=$(( (SRC_FILES * BUDGET_DISCOVERY_MS_PER_FILE) / 1000 ))
     [[ "$BUDGET_S" -lt 30 ]] && BUDGET_S=30
-    say "## Budget (Task 8)"
+    say "## Budget"
     say
-    say "| Check | Osservato | Budget | Esito |"
+    say "| Check | Observed | Budget | Result |"
     say "|---|---|---|---|"
     if [[ "$P_DISCOVERY" -le "$BUDGET_S" ]]; then
         say "| discovery | $(hms "$P_DISCOVERY") | ≤ $(hms "$BUDGET_S") | ✅ |"
@@ -227,21 +227,21 @@ if [[ -n "$P_DISCOVERY" && "$SRC_FILES" -gt 0 ]]; then
 fi
 
 if [[ "$ERR" != "0" ]]; then
-    say "### File in errore"
+    say "### Files with errors"
     say '```'
     psql "SELECT filename||' — '||coalesce(error_detail,'?') FROM assets WHERE status='error' LIMIT 15" | tee -a "$REPORT"
     say '```'
 fi
 
-# ── 5. L'archivio è intatto? ──────────────────────────────────────────────
+# ── 5. Is the archive intact? ──────────────────────────────────────────────
 AFTER=$(fingerprint "$ARCHIVE")
 if [[ "$SRC_FINGERPRINT" == "$AFTER" ]]; then
-    say "✅ **Archivio intatto**: nessun file creato, modificato o rimosso."
+    say "✅ **Archive intact**: no files created, modified, or removed."
 else
-    say "❌ **L'ARCHIVIO È CAMBIATO.** Difetto grave: gli originali devono essere immutabili."
+    say "❌ **THE ARCHIVE HAS CHANGED.** Serious defect: originals must be immutable."
     EXIT_CODE=4
 fi
 say
-say "Stack ancora in esecuzione su $BASE — \`docker compose --profile bundled down -v\` per fermarlo."
+say "Stack still running at $BASE — \`docker compose --profile bundled down -v\` to stop it."
 echo "Report: $REPORT"
 exit "$EXIT_CODE"

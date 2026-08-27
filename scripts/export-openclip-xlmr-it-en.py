@@ -1,51 +1,50 @@
 #!/usr/bin/env python3
-"""Esporta OpenCLIP XLM-R ViT-B-32 (checkpoint laion5b_s13b_b90k) in ONNX,
-potato al vocabolario IT/EN e quantizzato int8 — sostituisce MobileCLIP2-S2
-(research-only, mai idoneo a un'offerta commerciale).
+"""Exports OpenCLIP XLM-R ViT-B-32 (checkpoint laion5b_s13b_b90k) to ONNX,
+pruned to the IT/EN vocabulary and quantized to int8 — replaces
+MobileCLIP2-S2 (research-only, never fit for commercial use).
 
-Unico punto della pipeline dove gira Python (vincolo esplicito del piano,
-punto B: "Python è ammesso SOLO nello script di export offline"). Tutto il
-resto — caricamento, inferenza, bench di regressione IT/EN, misure RSS/ms —
-vive in Rust (`keeppix-media`, `ai_retrieval_bench`).
+The only place in the pipeline where Python runs (an explicit project
+constraint: "Python is allowed ONLY in the offline export script").
+Everything else — loading, inference, IT/EN regression bench, RSS/ms
+measurements — lives in Rust (`keeppix-media`, `ai_retrieval_bench`).
 
-Richiede rete verso huggingface.co (il checkpoint è ospitato SOLO lì, nessun
-mirror dichiarato in `open_clip.pretrained.get_pretrained_cfg`): non
-eseguibile nella sandbox di sviluppo di questa sessione (bloccata a livello
-di proxy, stesso limite già noto per MobileCLIP2 in Fase 7 — vedi
-`models/README.md`). Le due metà dell'architettura sono state verificate
-separatamente offline in quella sandbox, prima di scrivere questo file:
-  - torre visione (ViT-B-32, nessuna config HF necessaria): costruita con
-    pesi casuali via `open_clip.create_model_and_transforms`, esportata in
-    ONNX con successo, output 512-d confermato.
-  - torre testo (XLMRobertaModel, architettura pubblica nota — vocab 250002,
-    hidden 768, 12 layer, 12 teste, intermediate 3072): costruita con pesi
-    casuali via `transformers.XLMRobertaModel(XLMRobertaConfig(...))`,
-    esportata in ONNX con successo con torch 2.13 / transformers correnti,
-    **senza bisogno** del workaround `torch.backends.mha.set_fastpath_enabled
-    (False)` documentato nel piano (probabile: quel sintomo era specifico
-    delle versioni di torch/transformers del 22 agosto — qui sotto il flag
-    resta comunque impostato in modo difensivo, costo zero, copre entrambi
-    i casi). Logica di pooling/proiezione (`MeanPooler` mascherato +
-    `nn.Linear(768, 512, bias=False)`) letta da `open_clip/hf_model.py` e
-    `open_clip/hf_configs.py` (`arch_dict['xlm-roberta']`) installati
-    localmente — codice sorgente, non pesi, quindi nessuna rete richiesta
-    per leggerlo.
-  - `proj_type` del checkpoint reale: verificato su CI reale, è 'mlp'
-    (`nn.Sequential`, non `nn.Linear` come questa docstring assumeva alla
-    prima stesura — l'assert `assert_real_proj_is_recognized` sotto ha
-    fallito in modo esplicito e informativo invece di esportare in
-    silenzio la proiezione sbagliata; ora riconosce entrambe le forme).
-  - La normalizzazione L2 finale **non** è nel grafo esportato, per lo
-    stesso motivo di MobileCLIP2: `crates/keeppix-media/src/clip.rs` la fa
-    in Rust (`l2_normalize`) dopo l'estrazione del tensore — verificato
-    leggendo quel file. Il grafo qui esporta la proiezione grezza.
+Requires network access to huggingface.co (the checkpoint is hosted ONLY
+there, no mirror declared in `open_clip.pretrained.get_pretrained_cfg`), so
+it cannot run in a network-restricted sandbox (blocked at the proxy level,
+the same limitation previously hit for MobileCLIP2 — see
+`models/README.md`). The two halves of the architecture were verified
+separately offline before writing this file:
+  - vision tower (ViT-B-32, no HF config needed): built with random weights
+    via `open_clip.create_model_and_transforms`, exported to ONNX
+    successfully, 512-d output confirmed.
+  - text tower (XLMRobertaModel, known public architecture — vocab 250002,
+    hidden 768, 12 layers, 12 heads, intermediate 3072): built with random
+    weights via `transformers.XLMRobertaModel(XLMRobertaConfig(...))`,
+    exported to ONNX successfully with current torch/transformers,
+    **without needing** the `torch.backends.mha.set_fastpath_enabled(False)`
+    workaround (likely because that symptom was specific to older
+    torch/transformers versions — the flag below is still set defensively
+    at zero cost, covering both cases anyway). Pooling/projection logic
+    (masked `MeanPooler` + `nn.Linear(768, 512, bias=False)`) was read from
+    the locally installed `open_clip/hf_model.py` and
+    `open_clip/hf_configs.py` (`arch_dict['xlm-roberta']`) — source code,
+    not weights, so no network was needed to read it.
+  - `proj_type` of the real checkpoint: verified against a real CI run, it
+    is 'mlp' (`nn.Sequential`, not `nn.Linear` as this docstring originally
+    assumed — the `assert_real_proj_is_recognized` check below failed
+    explicitly and informatively instead of silently exporting the wrong
+    projection; it now recognizes both shapes).
+  - The final L2 normalization is **not** in the exported graph, for the
+    same reason as MobileCLIP2: `crates/keeppix-media/src/clip.rs` does it
+    in Rust (`l2_normalize`) after extracting the tensor — verified by
+    reading that file. The graph here exports the raw projection.
 
-Uso:
+Usage:
   python3 scripts/export-openclip-xlmr-it-en.py --out models/openclip-xlmr-it-en
 
-Pacchetti richiesti (non pinnati a una versione esatta di proposito: lo
-script fallisce esplicitamente se un'API assunta non esiste, invece di
-un errore criptico a metà — vedi i controlli `hasattr`/`assert` sotto):
+Required packages (deliberately not pinned to an exact version: the script
+fails explicitly if an assumed API doesn't exist, instead of an obscure
+error partway through — see the `hasattr`/`assert` checks below):
   torch, open_clip_torch, transformers, onnx, onnxruntime, wordfreq
 """
 
@@ -61,13 +60,13 @@ CHECKPOINT_MODEL = "xlm-roberta-base-ViT-B-32"
 CHECKPOINT_TAG = "laion5b_s13b_b90k"
 EMBED_DIM = 512
 IMAGE_SIZE = 224
-# Margine di token per ogni parola della lista di frequenza: una parola vera
-# spesso si spezza in più subword unigram (prefissi/suffissi), non un solo
-# id. 20.000 parole comuni per lingua è lo stesso ordine di grandezza usato
-# per stimare la copertura pratica in altri lavori di potatura vocabolario
-# multilingua->bilingue; non un numero preso a caso, ma nemmeno una scienza
-# esatta — se il bench di regressione (Task B, confronto pre/post potatura)
-# mostra un calo di recall, il primo numero da alzare è questo.
+# Token margin for each word in the frequency list: a real word often
+# splits into multiple subword unigrams (prefixes/suffixes), not a single
+# id. 20,000 common words per language is the same order of magnitude used
+# to estimate practical coverage in other multilingual->bilingual vocabulary
+# pruning work; not an arbitrary number, but not an exact science either —
+# if the regression bench (comparing pre/post pruning) shows a recall drop,
+# this is the first number to raise.
 WORDFREQ_TOP_N = 20_000
 
 
@@ -76,12 +75,12 @@ def log(msg: str) -> None:
 
 
 def build_it_en_corpus(captions_path: Path) -> list[str]:
-    """Corpus per la potatura del vocabolario: parole comuni IT/EN (via
-    `wordfreq`, dati imbustati nel pacchetto — zero rete a runtime, a
-    differenza di un dump Wikipedia) più le frasi reali del banco Task 2bis
-    (`captions.json`, già nel repo) — copre sia il vocabolario isolato sia
-    la segmentazione di frasi vere, che per un tokenizer SentencePiece può
-    dividere le parole diversamente dal solo lessico.
+    """Corpus for vocabulary pruning: common IT/EN words (via `wordfreq`,
+    data bundled in the package — zero network at runtime, unlike a
+    Wikipedia dump) plus real sentences from the test bench
+    (`captions.json`, already in the repo) — covers both the isolated
+    vocabulary and real sentence segmentation, which for a SentencePiece
+    tokenizer can split words differently than the lexicon alone.
     """
     from wordfreq import top_n_list
 
@@ -93,7 +92,7 @@ def build_it_en_corpus(captions_path: Path) -> list[str]:
             sentences.append(pair["en"])
             sentences.append(pair["it"])
     else:
-        log(f"ATTENZIONE: {captions_path} non trovato, corpus solo da wordfreq (nessuna frase reale)")
+        log(f"WARNING: {captions_path} not found, corpus from wordfreq only (no real sentences)")
     return sorted(words) + sentences
 
 
@@ -110,14 +109,14 @@ def prune_text_embedding(
     used_ids: set[int],
     special_ids: set[int],
 ) -> tuple["torch.Tensor", dict[int, int]]:
-    """Costruisce la matrice di embedding potata (righe: solo gli id usati
-    dal corpus IT/EN più gli id speciali) e la mappa id-originale ->
-    indice-nuovo. Gli id NON tenuti restano tokenizzabili (il tokenizer non
-    cambia: stessa segmentazione per qualunque lingua, non solo IT/EN,
-    coerente col vincolo A del piano — "le altre 107 lingue non sono un
-    requisito: se la potatura le rompe, va bene", qui semplicemente le loro
-    parole finiscono sul fallback), ma a runtime vengono rimappati
-    sull'indice di `<unk>` — degradazione esplicita, non un crash.
+    """Builds the pruned embedding matrix (rows: only the ids used by the
+    IT/EN corpus plus the special ids) and the original-id -> new-index
+    map. Ids that are NOT kept remain tokenizable (the tokenizer itself
+    doesn't change: same segmentation for any language, not just IT/EN —
+    consistent with the project constraint that "the other 107 languages
+    are not a requirement: if pruning breaks them, that's fine"; here their
+    words simply end up on the fallback), but at runtime they get remapped
+    to the `<unk>` index — an explicit degradation, not a crash.
     """
     import torch
 
@@ -128,7 +127,7 @@ def prune_text_embedding(
     if unk_id is not None and unk_id not in keep:
         keep.append(unk_id)
         keep.sort()
-    log(f"vocabolario: {vocab_size} -> {len(keep)} righe tenute ({100 * len(keep) / vocab_size:.1f}%)")
+    log(f"vocabulary: {vocab_size} -> {len(keep)} rows kept ({100 * len(keep) / vocab_size:.1f}%)")
 
     remap: dict[int, int] = {old: new for new, old in enumerate(keep)}
     unk_new = remap.get(unk_id, 0) if unk_id is not None else 0
@@ -140,24 +139,24 @@ def prune_text_embedding(
 
 
 def apply_remap_for_export(input_ids, remap_tensor):
-    """`remap_tensor` è un array denso [vocab_size_originale] -> nuovo
-    indice (o l'indice di `<unk>` per gli id non tenuti), costruito una
-    volta e portato dentro il grafo ONNX come costante — un `gather`, non un
-    lookup Python: deve girare dentro `torch.onnx.export`, non prima."""
+    """`remap_tensor` is a dense array [original_vocab_size] -> new index
+    (or the `<unk>` index for ids that weren't kept), built once and
+    carried into the ONNX graph as a constant — a `gather`, not a Python
+    lookup: it must run inside `torch.onnx.export`, not before."""
     return remap_tensor[input_ids]
 
 
 def assert_real_proj_is_recognized(text_tower) -> None:
-    """Verificato sul checkpoint reale (non più un'ipotesi): `proj_type` è
-    'mlp' — `nn.Sequential(Linear(768, hidden, bias=False), GELU(),
-    Linear(hidden, 512, bias=False))`, `hidden = (768+512)//2 = 640` per la
-    formula di `open_clip/hf_model.py` — non 'linear' come questo file
-    assumeva alla prima stesura (fallito con un errore esplicito invece di
-    esportare in silenzio la proiezione sbagliata: `proj_type inatteso:
-    Sequential`, verificato su CI reale). `TextTowerExport.forward` sotto
-    chiama semplicemente `self.proj(pooled)`: funziona identico per
-    `nn.Linear` o `nn.Sequential`, nessuna modifica ai meccanismi di export
-    serviva — solo a questo controllo, che era troppo rigido.
+    """Verified against the real checkpoint (no longer an assumption):
+    `proj_type` is 'mlp' — `nn.Sequential(Linear(768, hidden, bias=False),
+    GELU(), Linear(hidden, 512, bias=False))`, `hidden = (768+512)//2 = 640`
+    per the formula in `open_clip/hf_model.py` — not 'linear' as this file
+    originally assumed (it failed with an explicit error instead of
+    silently exporting the wrong projection: `unexpected proj_type:
+    Sequential`, verified against a real CI run). `TextTowerExport.forward`
+    below simply calls `self.proj(pooled)`: it works identically for
+    `nn.Linear` or `nn.Sequential`, so no change to the export mechanics
+    was needed — only to this check, which had been too strict.
     """
     import torch.nn as nn
 
@@ -165,8 +164,8 @@ def assert_real_proj_is_recognized(text_tower) -> None:
     if isinstance(proj, nn.Linear):
         if proj.bias is not None:
             raise SystemExit(
-                "proj lineare CON bias — questo file assume bias=False. "
-                "Se il checkpoint reale ha un bias, aggiungerlo all'export."
+                "linear proj WITH bias — this file assumes bias=False. "
+                "If the real checkpoint has a bias, add it to the export."
             )
         log(f"proj_type: linear ({proj.in_features}->{proj.out_features}, bias=False)")
         return
@@ -174,9 +173,9 @@ def assert_real_proj_is_recognized(text_tower) -> None:
         linears = [m for m in proj if isinstance(m, nn.Linear)]
         if len(linears) != 2 or any(lin.bias is not None for lin in linears):
             raise SystemExit(
-                f"proj_type='mlp' ma struttura inattesa: {proj} — atteso "
-                "esattamente 2 Linear senza bias (più un'attivazione in "
-                "mezzo). Verificare a mano prima di procedere."
+                f"proj_type='mlp' but unexpected structure: {proj} — expected "
+                "exactly 2 Linear layers without bias (plus an activation in "
+                "between). Verify by hand before proceeding."
             )
         log(
             f"proj_type: mlp ({linears[0].in_features}->{linears[0].out_features}"
@@ -184,9 +183,9 @@ def assert_real_proj_is_recognized(text_tower) -> None:
         )
         return
     raise SystemExit(
-        f"proj_type inatteso: {type(proj).__name__} (attesi nn.Linear o "
-        "nn.Sequential/mlp). Verificare model.text.proj del checkpoint "
-        "reale prima di procedere."
+        f"unexpected proj_type: {type(proj).__name__} (expected nn.Linear or "
+        "nn.Sequential/mlp). Verify model.text.proj of the real checkpoint "
+        "before proceeding."
     )
 
 
@@ -199,7 +198,7 @@ def main() -> None:
         default=Path("crates/keeppix-media/testdata/ai-bench/captions.json"),
     )
     parser.add_argument(
-        "--opset", type=int, default=14, help="stesso opset già usato per MobileCLIP2-S2 (Fase 7)"
+        "--opset", type=int, default=14, help="same opset already used for MobileCLIP2-S2"
     )
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -209,55 +208,55 @@ def main() -> None:
     from onnxruntime.quantization import quantize_dynamic, QuantType
     from onnxruntime.quantization.shape_inference import quant_pre_process
 
-    torch.backends.mha.set_fastpath_enabled(False)  # difensivo, vedi docstring sopra
+    torch.backends.mha.set_fastpath_enabled(False)  # defensive, see docstring above
 
-    log(f"caricamento {CHECKPOINT_MODEL} / {CHECKPOINT_TAG} da HuggingFace (richiede rete)")
+    log(f"loading {CHECKPOINT_MODEL} / {CHECKPOINT_TAG} from HuggingFace (requires network)")
     model, _, preprocess = open_clip.create_model_and_transforms(CHECKPOINT_MODEL, pretrained=CHECKPOINT_TAG)
     tokenizer_wrapper = open_clip.get_tokenizer(CHECKPOINT_MODEL)
     model.eval()
 
-    # Normalizzazione immagine REALE di questo checkpoint, non assunta: il
-    # consumatore Rust (crates/keeppix-media) deve applicare la stessa
-    # media/deviazione standard prima di alimentare visual.onnx, e
-    # indovinarla (anche se "CLIP standard" è un'ipotesi ragionevole, quasi
-    # sempre vera per i checkpoint LAION) sarebbe esattamente l'errore che
-    # `assert_real_proj_is_recognized` sopra è servito a evitare per la
-    # proiezione testo. Letta dalla pipeline `torchvision.Compose` reale
-    # tornata da `create_model_and_transforms`, non da una costante.
+    # The REAL image normalization for this checkpoint, not assumed: the
+    # Rust consumer (crates/keeppix-media) must apply the same mean/std
+    # before feeding visual.onnx, and guessing it (even though "standard
+    # CLIP" is a reasonable assumption, almost always true for LAION
+    # checkpoints) would be exactly the kind of mistake
+    # `assert_real_proj_is_recognized` above exists to avoid for the text
+    # projection. Read from the real `torchvision.Compose` pipeline
+    # returned by `create_model_and_transforms`, not from a constant.
     normalize_transforms = [t for t in preprocess.transforms if hasattr(t, "mean") and hasattr(t, "std")]
     if len(normalize_transforms) != 1:
         raise SystemExit(
-            f"pipeline di preprocessing inattesa: {len(normalize_transforms)} stadi con "
-            f"mean/std (atteso esattamente 1 — Normalize). Pipeline reale: {preprocess}. "
-            "Verificare a mano prima di procedere."
+            f"unexpected preprocessing pipeline: {len(normalize_transforms)} stages with "
+            f"mean/std (expected exactly 1 — Normalize). Real pipeline: {preprocess}. "
+            "Verify by hand before proceeding."
         )
     image_mean = tuple(float(v) for v in normalize_transforms[0].mean)
     image_std = tuple(float(v) for v in normalize_transforms[0].std)
     if len(image_mean) != 3 or len(image_std) != 3:
-        raise SystemExit(f"mean/std non a 3 canali: mean={image_mean} std={image_std}")
-    log(f"normalizzazione immagine reale: mean={image_mean} std={image_std}")
+        raise SystemExit(f"mean/std not 3-channel: mean={image_mean} std={image_std}")
+    log(f"real image normalization: mean={image_mean} std={image_std}")
 
     if model.visual.image_size not in ((IMAGE_SIZE, IMAGE_SIZE), IMAGE_SIZE):
         raise SystemExit(
-            f"image_size inatteso: {model.visual.image_size} (atteso {IMAGE_SIZE}) — "
-            "verificare crates/keeppix-media/src/clip.rs (IMAGE_SIZE) prima di procedere."
+            f"unexpected image_size: {model.visual.image_size} (expected {IMAGE_SIZE}) — "
+            "check crates/keeppix-media/src/clip.rs (IMAGE_SIZE) before proceeding."
         )
     if model.text.output_dim != EMBED_DIM:
         raise SystemExit(
-            f"embed_dim inatteso: {model.text.output_dim} (atteso {EMBED_DIM}) — "
-            "il piano dichiara 512-d, nessuna migrazione di schema prevista per "
-            "un embed_dim diverso."
+            f"unexpected embed_dim: {model.text.output_dim} (expected {EMBED_DIM}) — "
+            "the project specifies 512-d, no schema migration is planned for "
+            "a different embed_dim."
         )
     assert_real_proj_is_recognized(model.text)
 
-    # --- Torre visione: nessuna potatura, esporta così com'è. ---
-    log("export ONNX: torre visione")
+    # --- Vision tower: no pruning, export as-is. ---
+    log("ONNX export: vision tower")
     visual = model.visual
     dummy_img = torch.randn(1, 3, IMAGE_SIZE, IMAGE_SIZE)
     with torch.no_grad():
         visual_out = visual(dummy_img)
     if tuple(visual_out.shape) != (1, EMBED_DIM):
-        raise SystemExit(f"output torre visione inatteso: {tuple(visual_out.shape)}")
+        raise SystemExit(f"unexpected vision tower output: {tuple(visual_out.shape)}")
     torch.onnx.export(
         visual,
         (dummy_img,),
@@ -269,51 +268,51 @@ def main() -> None:
         dynamo=False,
     )
 
-    # --- Corpus IT/EN e potatura vocabolario testo. ---
-    log("costruzione corpus IT/EN per la potatura del vocabolario")
-    # `open_clip.get_tokenizer` per un modello HF-based torna un `HFTokenizer`
-    # (open_clip/tokenizer.py): `.tokenizer` è l'`AutoTokenizer` reale,
-    # `.save_pretrained` delega a quello — letto dal sorgente installato,
-    # non indovinato.
+    # --- IT/EN corpus and text vocabulary pruning. ---
+    log("building IT/EN corpus for vocabulary pruning")
+    # `open_clip.get_tokenizer` for an HF-based model returns an
+    # `HFTokenizer` (open_clip/tokenizer.py): `.tokenizer` is the real
+    # `AutoTokenizer`, `.save_pretrained` delegates to it — read from the
+    # installed source, not guessed.
     if not hasattr(tokenizer_wrapper, "tokenizer"):
         raise SystemExit(
-            f"tokenizer_wrapper inatteso: {type(tokenizer_wrapper).__name__} "
-            "senza attributo `.tokenizer` — open_clip.get_tokenizer non ha "
-            "tornato un HFTokenizer come atteso. Verificare a mano prima di "
-            "procedere (l'API potrebbe essere cambiata)."
+            f"unexpected tokenizer_wrapper: {type(tokenizer_wrapper).__name__} "
+            "without a `.tokenizer` attribute — open_clip.get_tokenizer did not "
+            "return an HFTokenizer as expected. Verify by hand before "
+            "proceeding (the API may have changed)."
         )
     hf_tokenizer = tokenizer_wrapper.tokenizer
     corpus = build_it_en_corpus(args.captions)
     used_ids = tokens_used_by_corpus(hf_tokenizer, corpus)
     special_ids = set(hf_tokenizer.all_special_ids)
-    log(f"corpus: {len(corpus)} voci, {len(used_ids)} id di token distinti prodotti")
+    log(f"corpus: {len(corpus)} entries, {len(used_ids)} distinct token ids produced")
 
     pruned_weight, remap, unk_new, hidden = prune_text_embedding(
         model.text.transformer, used_ids, special_ids
     )
     original_vocab_size = model.text.transformer.embeddings.word_embeddings.weight.shape[0]
 
-    # Tensore di remap denso: id originale -> nuovo indice (fallback unk_new
-    # per ogni id non tenuto). Diventa una costante nel grafo ONNX — un
-    # gather, non un dizionario Python — quindi deve esistere PRIMA
-    # dell'export, non essere applicato lato Rust dopo.
+    # Dense remap tensor: original id -> new index (fallback to unk_new for
+    # every id that wasn't kept). Becomes a constant in the ONNX graph — a
+    # gather, not a Python dict — so it must exist BEFORE the export, not
+    # be applied on the Rust side afterward.
     remap_tensor = torch.full((original_vocab_size,), unk_new, dtype=torch.long)
     for old_id, new_id in remap.items():
         remap_tensor[old_id] = new_id
 
-    # Sostituisce la tabella di embedding con quella potata: da qui in poi
-    # il modello si aspetta id GIA' rimappati in ingresso (0..len(remap)-1),
-    # non gli id originali XLM-R.
+    # Replaces the embedding table with the pruned one: from here on the
+    # model expects input ids that are ALREADY remapped (0..len(remap)-1),
+    # not the original XLM-R ids.
     with torch.no_grad():
         new_embedding = torch.nn.Embedding(len(remap), hidden, padding_idx=None)
         new_embedding.weight.copy_(pruned_weight)
     model.text.transformer.embeddings.word_embeddings = new_embedding
     model.text.transformer.config.vocab_size = len(remap)
 
-    # --- Torre testo: wrapper che applica il remap PRIMA del transformer,
-    # poi pooling mascherato + proiezione lineare — replica esatta di
-    # HFTextEncoder.forward (open_clip/hf_model.py), con l'aggiunta del
-    # remap in testa. ---
+    # --- Text tower: wrapper that applies the remap BEFORE the transformer,
+    # then masked pooling + linear projection — an exact replica of
+    # HFTextEncoder.forward (open_clip/hf_model.py), with the remap added
+    # at the front. ---
     class TextTowerExport(torch.nn.Module):
         def __init__(self, text_tower, remap_tensor):
             super().__init__()
@@ -344,9 +343,9 @@ def main() -> None:
     with torch.no_grad():
         text_out = text_export(dummy_ids, dummy_mask)
     if tuple(text_out.shape) != (1, EMBED_DIM):
-        raise SystemExit(f"output torre testo inatteso: {tuple(text_out.shape)}")
+        raise SystemExit(f"unexpected text tower output: {tuple(text_out.shape)}")
 
-    log("export ONNX: torre testo (vocabolario potato)")
+    log("ONNX export: text tower (pruned vocabulary)")
     torch.onnx.export(
         text_export,
         (dummy_ids, dummy_mask),
@@ -362,45 +361,44 @@ def main() -> None:
         dynamo=False,
     )
 
-    # --- Quantizzazione int8 dinamica (il candidato scelto dal bench del
-    # 22 agosto). Confermato per davvero il 25 agosto su numeri Rust reali
-    # (bench IT/EN same-harness contro MobileCLIP2-S2, dopo aver corretto
-    # un doppio remap del vocabolario che falsava i primi numeri): qualità
-    # identica a MobileCLIP2-S2 (EN r@1=1.00, IT r@1=0.95, stessa unica
-    # didascalia mancata), ~3x più veloce. Un confronto fp16 del solo
-    # visual è stato provato e scartato dopo — decisione esplicita
-    # dell'utente di restare su int8 senza ulteriori giri, non un problema
-    # tecnico col fp16 in sé. QDQ statica resta non esplorata. ---
-    # `quant_pre_process` (shape inference + constant folding) prima della
-    # quantizzazione vera: raccomandato dallo strumento stesso (warning a
-    # runtime altrimenti — verificato su un giro sintetico in questa
-    # sessione), non un passo facoltativo aggiunto a caso. Sul grafo REALE
-    # (non sintetico) `SymbolicShapeInference` fallisce con
-    # `AssertionError: assert is_literal(shape_rank)` dentro il suo stesso
-    # gestore del nodo `Reshape` — un limite noto dello strumento sui grafi
-    # con asse batch dinamico (`dynamic_axes` sopra), non un errore nel
-    # grafo esportato. `skip_symbolic_shape=True` disattiva solo quel passo
-    # avanzato, tenendo l'inferenza di forma ONNX base e il constant
-    # folding — verificato qui per la prima volta contro il grafo reale
-    # (non testabile prima: serviva l'export reale per riprodurlo). Se
-    # anche questo fallisse, si preferisce quantizzare senza preprocessing
-    # piuttosto che bloccare l'intero export per un passo "raccomandato",
-    # non "richiesto" — da rivedere se la qualità post-quantizzazione ne
-    # risente (si misura, non si assume).
+    # --- Dynamic int8 quantization (the candidate chosen by the bench).
+    # Confirmed on real Rust numbers (an IT/EN same-harness bench against
+    # MobileCLIP2-S2, after fixing a double vocabulary remap that had
+    # skewed the first numbers): quality identical to MobileCLIP2-S2 (EN
+    # r@1=1.00, IT r@1=0.95, the same single missed caption), ~3x faster.
+    # An fp16 comparison of the visual tower alone was tried and discarded
+    # afterward — an explicit decision to stick with int8 without further
+    # iteration, not a technical problem with fp16 itself. Static QDQ
+    # remains unexplored. ---
+    # `quant_pre_process` (shape inference + constant folding) before the
+    # actual quantization: recommended by the tool itself (otherwise a
+    # runtime warning), not an optional step added arbitrarily. On the REAL
+    # graph (not a synthetic one) `SymbolicShapeInference` fails with
+    # `AssertionError: assert is_literal(shape_rank)` inside its own
+    # `Reshape` node handler — a known limitation of the tool on graphs
+    # with a dynamic batch axis (`dynamic_axes` above), not an error in the
+    # exported graph. `skip_symbolic_shape=True` disables only that
+    # advanced step, keeping the base ONNX shape inference and constant
+    # folding — verified here for the first time against the real graph
+    # (not testable earlier: it needed the real export to reproduce). If
+    # even this failed, quantizing without preprocessing is preferred over
+    # blocking the entire export for a step that is "recommended", not
+    # "required" — to be revisited if post-quantization quality suffers
+    # (measure it, don't assume).
     def preprocess_then_quantize(fp32_path: Path, preproc_path: Path, int8_path: Path) -> None:
         try:
             quant_pre_process(str(fp32_path), str(preproc_path), skip_symbolic_shape=True)
             source = preproc_path
         except Exception as e:  # pylint: disable=broad-except
-            log(f"ATTENZIONE: quant_pre_process fallito ({e!r}), quantizzo senza preprocessing")
+            log(f"WARNING: quant_pre_process failed ({e!r}), quantizing without preprocessing")
             source = fp32_path
         quantize_dynamic(str(source), str(int8_path), weight_type=QuantType.QInt8)
 
-    log("pre-processing + quantizzazione int8 dinamica: visual")
+    log("pre-processing + dynamic int8 quantization: visual")
     preprocess_then_quantize(
         args.out / "visual_fp32.onnx", args.out / "visual_preproc.onnx", args.out / "visual.onnx"
     )
-    log("pre-processing + quantizzazione int8 dinamica: text")
+    log("pre-processing + dynamic int8 quantization: text")
     preprocess_then_quantize(
         args.out / "text_fp32.onnx", args.out / "text_preproc.onnx", args.out / "text.onnx"
     )
@@ -409,13 +407,12 @@ def main() -> None:
         if path.is_file():
             path.unlink()
 
-    # --- Tokenizer: NON potato (stessa segmentazione per qualunque input,
-    # vedi docstring) — copiato così com'è, il consumatore Rust lo usa per
-    # tokenizzare, poi applica lui stesso il remap prima di alimentare
-    # text.onnx. Il file va copiato dal tokenizer HF reale (formato
-    # `tokenizers`-compatibile) — save_pretrained lo scrive già in quel
-    # formato. ---
-    log("salvataggio tokenizer (non potato) e tabella di remap")
+    # --- Tokenizer: NOT pruned (same segmentation for any input, see
+    # docstring) — copied as-is, the Rust consumer uses it to tokenize,
+    # then applies the remap itself before feeding text.onnx. The file
+    # must be copied from the real HF tokenizer (`tokenizers`-compatible
+    # format) — save_pretrained already writes it in that format. ---
+    log("saving tokenizer (not pruned) and remap table")
     if hasattr(hf_tokenizer, "save_pretrained"):
         hf_tokenizer.save_pretrained(str(args.out / "tokenizer_hf"))
         tok_json = args.out / "tokenizer_hf" / "tokenizer.json"
@@ -423,11 +420,10 @@ def main() -> None:
             tok_json.rename(args.out / "tokenizer.json")
         else:
             raise SystemExit(
-                f"{tok_json} non prodotto da save_pretrained — il tokenizer "
-                "HF di questo checkpoint potrebbe non essere basato su "
-                "`tokenizers` (serve un fast tokenizer per il crate Rust "
-                "`tokenizers`, non uno slow/sentencepiece-only): verificare "
-                "a mano prima di procedere."
+                f"{tok_json} not produced by save_pretrained — this checkpoint's "
+                "HF tokenizer might not be based on `tokenizers` (the Rust "
+                "`tokenizers` crate needs a fast tokenizer, not a slow/"
+                "sentencepiece-only one): verify by hand before proceeding."
             )
 
     remap_out = {
@@ -435,22 +431,22 @@ def main() -> None:
         "pruned_vocab_size": len(remap),
         "unk_new_index": unk_new,
         "pad_token_id": model.text.transformer.config.pad_token_id if hasattr(model.text.transformer.config, "pad_token_id") else None,
-        # Sparso: solo gli id TENUTI. Qualunque id assente = unk_new_index.
-        # Con ~10-20% di 250.002 righe tenute (numero reale solo dopo un
-        # giro vero), un dizionario sparso pesa meno di un array denso da
-        # 250.002 interi — non un'ottimizzazione prematura, la differenza è
-        # ordini di grandezza sullo stesso file che deve stare in git o
-        # nella cache CI.
+        # Sparse: only the ids that were KEPT. Any missing id = unk_new_index.
+        # With roughly 10-20% of 250,002 rows kept (the real number is only
+        # known after an actual run), a sparse dict is lighter than a dense
+        # array of 250,002 integers — not a premature optimization, the
+        # difference is orders of magnitude on a file that has to live in
+        # git or the CI cache.
         "kept": {str(old): new for old, new in remap.items()},
     }
     (args.out / "id_remap.json").write_text(json.dumps(remap_out), encoding="utf-8")
 
-    # `max_position_embeddings` reale del transformer testo: la tabella di
-    # posizione esiste solo fino a quell'indice, l'ONNX ha l'asse sequenza
-    # dinamico (nessun limite imposto dal grafo) ma alimentarlo oltre
-    # questo numero farebbe fallire l'inferenza — il consumatore Rust deve
-    # troncare la tokenizzazione a questo valore, letto dal config reale,
-    # non da una costante indovinata.
+    # Real `max_position_embeddings` of the text transformer: the position
+    # table only exists up to that index, the ONNX graph has a dynamic
+    # sequence axis (no limit imposed by the graph itself) but feeding it
+    # beyond this number would make inference fail — the Rust consumer must
+    # truncate tokenization to this value, read from the real config, not a
+    # guessed constant.
     text_max_position_embeddings = model.text.transformer.config.max_position_embeddings
 
     manifest = {
@@ -469,11 +465,11 @@ def main() -> None:
     for name in ("visual.onnx", "text.onnx", "tokenizer.json", "id_remap.json"):
         path = args.out / name
         if not path.is_file():
-            raise SystemExit(f"artefatto mancante dopo l'export: {path}")
+            raise SystemExit(f"missing artifact after export: {path}")
         sha = hashlib.sha256(path.read_bytes()).hexdigest()
-        log(f"{name}: {path.stat().st_size} byte, sha256={sha}")
+        log(f"{name}: {path.stat().st_size} bytes, sha256={sha}")
 
-    log(f"✓ export completo in {args.out}")
+    log(f"✓ export complete in {args.out}")
 
 
 if __name__ == "__main__":

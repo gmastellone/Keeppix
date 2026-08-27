@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Scarica le ~20 foto del banco IT/EN (Fase 7 Task 2bis) da Wikimedia Commons.
-# I file finiscono in models/bench-it-en/ (gitignored). I caption sono in
-# crates/keeppix-media/testdata/ai-bench/captions.json (committati).
+# Downloads the ~20 photos of the IT/EN test bench from Wikimedia Commons.
+# Files land in models/bench-it-en/ (gitignored). Captions live in
+# crates/keeppix-media/testdata/ai-bench/captions.json (committed).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,12 +22,12 @@ dest = pathlib.Path(sys.argv[1])
 captions = json.loads(pathlib.Path(sys.argv[2]).read_text())
 ua = {"User-Agent": sys.argv[3]}
 
-# Visto in CI (run 32870297867): 20 immagini = ~40 richieste ravvicinate
-# (resolve + download per foto) bastano a far scattare il rate limit
-# anonimo di Commons (HTTP 429, "reduce your request rate"). Mai capitato
-# in locale — un dev lancia lo script una volta sola, non in loop veloce.
-# Backoff su 429/5xx (rispettando Retry-After se presente) più una piccola
-# pausa fra le foto, invece di ritentare l'intero script alla cieca.
+# Observed in CI: ~20 images means ~40 requests in quick succession
+# (resolve + download per photo), which is enough to trip Commons'
+# anonymous rate limit (HTTP 429, "reduce your request rate"). Never
+# happened locally — a dev runs the script once, not in a tight loop.
+# Backoff on 429/5xx (honoring Retry-After when present) plus a small
+# pause between photos, instead of blindly retrying the whole script.
 def urlopen_retry(req, timeout, max_attempts=5):
     for attempt in range(1, max_attempts + 1):
         try:
@@ -36,7 +36,7 @@ def urlopen_retry(req, timeout, max_attempts=5):
             if e.code not in (429, 500, 502, 503, 504) or attempt == max_attempts:
                 raise
             wait = float(e.headers.get("Retry-After", 0)) or (2 ** attempt)
-            print(f"  · HTTP {e.code}, retry {attempt}/{max_attempts} tra {wait:.0f}s")
+            print(f"  · HTTP {e.code}, retry {attempt}/{max_attempts} in {wait:.0f}s")
             time.sleep(wait)
     raise AssertionError("unreachable")
 

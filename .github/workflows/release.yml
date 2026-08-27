@@ -4,8 +4,8 @@ on:
   push:
     tags: ["v*"]
   schedule:
-    # Ricostruzione settimanale: raccoglie le patch di sicurezza delle immagini
-    # di base senza attendere una release.
+    # Weekly rebuild: picks up security patches from the base images
+    # without waiting for a release.
     - cron: "0 4 * * 1"
 
 permissions:
@@ -26,14 +26,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # `github.repository` conserva il case esatto del nome del repo
-      # (qui gmastellone/Keeppix), ma i path immagine OCI/ghcr.io sono
-      # sempre minuscoli. `docker/metadata-action` normalizza da sé il
-      # campo `images:`, ma `cosign sign` più sotto no: calcolando qui
-      # un'unica variabile minuscola e riusandola in entrambi i punti,
-      # il riferimento firmato è garantito identico a quello pubblicato,
-      # invece di dipendere dalla normalizzazione interna di un'azione.
-      - name: Nome immagine (minuscolo, richiesto dallo spec OCI)
+      # `github.repository` preserves the repo name's exact case (e.g.
+      # gmastellone/Keeppix), but OCI/ghcr.io image paths are always
+      # lowercase. `docker/metadata-action` normalizes the `images:` field
+      # on its own, but `cosign sign` below does not: computing a single
+      # lowercase variable here and reusing it in both places guarantees
+      # the signed reference is identical to the published one, instead of
+      # depending on an action's internal normalization.
+      - name: Image name (lowercase, required by the OCI spec)
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - id: meta
@@ -57,7 +57,7 @@ jobs:
           provenance: mode=max
 
       - uses: sigstore/cosign-installer@v3
-      - name: Firma l'immagine
+      - name: Sign the image
         run: |
           cosign sign --yes \
             ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}

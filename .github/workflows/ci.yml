@@ -1,20 +1,20 @@
 name: CI
 
 on:
-  # 'fase-*' oltre a main: le PR verso questo repo sono attualmente rotte lato
-  # GitHub (pullRequests.totalCount torna 0 via API e via web nonostante le PR
-  # #10/#11 siano esistite ed elencate nella cronologia commit — verificato,
-  # non è un problema di permessi locali). Finché non è risolto lato GitHub,
-  # il push diretto sul branch di fase è l'unico modo di avere CI reale prima
-  # del merge.
+  # 'fase-*' in addition to main: PRs against this repo are currently broken
+  # on GitHub's side (pullRequests.totalCount returns 0 via both API and web
+  # even though PRs #10/#11 existed and are listed in the commit history —
+  # verified, not a local permissions issue). Until that's resolved on
+  # GitHub's side, pushing directly to the phase branch is the only way to
+  # get real CI before merging.
   push: { branches: [main, 'fase-*'] }
   pull_request:
-  # Valvola di sfogo manuale: durante Fase 8 Task B il trigger push di questo
-  # file specifico è rimasto senza run registrate per due commit consecutivi
-  # su main mentre il resto della piattaforma Actions era di nuovo operativo
-  # (confermato con un workflow_dispatch su export-openclip-xlmr.yml) — un
-  # problema di consegna webhook lato GitHub, non locale. workflow_dispatch
-  # dà un modo per far girare comunque la CI senza aspettare quel percorso.
+  # Manual escape hatch: the push trigger for this specific file was once
+  # left without any recorded runs for two consecutive commits on main while
+  # the rest of the Actions platform was otherwise working again (confirmed
+  # via a workflow_dispatch run on export-openclip-xlmr.yml) — a GitHub-side
+  # webhook delivery issue, not a local one. workflow_dispatch gives a way to
+  # run CI anyway without waiting on that path.
   workflow_dispatch:
 
 env:
@@ -23,8 +23,9 @@ env:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    # Un solo PostGIS per il job. testcontainers ne lasciava uno per crate
-    # (Drop non li toglieva) e il runner andava a disco pieno a metà suite.
+    # A single PostGIS for the job. testcontainers used to leave one running
+    # per crate (Drop wasn't removing them) and the runner would run out of
+    # disk space halfway through the suite.
     services:
       postgres:
         image: postgis/postgis:17-3.5
@@ -42,18 +43,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Funzioni pubbliche e rotte senza chiamanti
+      - name: Public functions and routes with no callers
         run: python3 scripts/check-wired.py
 
-      # keeppix-server incorpora frontend/dist nel binario tramite
-      # `#[derive(Embed)]` (rust-embed): se la cartella manca, il crate non
-      # compila affatto (non un test che si salta). Il job `frontend` gira su
-      # un runner separato e non condivide filesystem con questo job, quindi
-      # il frontend va ricostruito qui, indipendentemente da lì — pochi
-      # secondi in più, nessun accoppiamento fra i due job via artifact.
+      # keeppix-server embeds frontend/dist into the binary via
+      # `#[derive(Embed)]` (rust-embed): if the folder is missing, the crate
+      # doesn't compile at all (not a test that gets skipped). The
+      # `frontend` job runs on a separate runner and doesn't share a
+      # filesystem with this job, so the frontend has to be rebuilt here
+      # independently — a few extra seconds, no coupling between the two
+      # jobs via an artifact.
       - uses: actions/setup-node@v5
         with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
-      - name: Build frontend (richiesto da rust-embed per compilare keeppix-server)
+      - name: Build frontend (required by rust-embed to compile keeppix-server)
         working-directory: frontend
         run: |
           npm ci
@@ -63,25 +65,25 @@ jobs:
         with: { components: "rustfmt, clippy" }
       - uses: Swatinem/rust-cache@v2.9.2
         with:
-          # Solo su main. Era stato provato "true" ovunque (anche sui PR) per
-          # evitare che un branch lungo ricompilasse tutto a ogni push — ma
-          # con 4 fasi attive in parallelo il salvataggio su ogni PR ha
-          # spinto la cache Actions del repo al tetto di 10 GB (747 voci) e
-          # contribuito ai costi di fatturazione. Il guadagno di velocità non
-          # valeva quel costo: si torna al solo main.
+          # main only. "true" everywhere (PRs included) was tried at one
+          # point to avoid a long-lived branch recompiling everything on
+          # every push — but with several phases active in parallel, saving
+          # on every PR pushed the repo's Actions cache to the 10 GB cap
+          # (747 entries) and added to billing costs. The speed gain wasn't
+          # worth that cost: back to main only.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Formattazione
+      - name: Format
         run: cargo fmt --all --check
 
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Libera disco prima dei test
+      - name: Free disk space before tests
         run: |
-          # I runner ubuntu-latest partono già pieni di toolchain inutili;
-          # clippy + test workspace riempiono facilmente i ~14 GiB liberi e
-          # Postgres finisce in PANIC su pg_wal (visto su PR #4).
+          # ubuntu-latest runners already start full of unused toolchains;
+          # clippy + workspace tests easily fill the ~14 GiB free and
+          # Postgres ends up in PANIC on pg_wal (seen on PR #4).
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
             /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell \
             /usr/local/share/chromium /usr/local/lib/node_modules || true
@@ -96,26 +98,26 @@ jobs:
       # Dockerfile), so `libheif-plugin-libde265` is needed too or every HEIC
       # fixture test silently skips via `heif_convert_available()` instead of
       # actually running.
-      - name: Installa ffmpeg, age, zstd, libheif (test video, backup, HEIF)
+      - name: Install ffmpeg, age, zstd, libheif (video, backup, HEIF tests)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg age zstd libheif-examples libheif-plugin-libde265
 
-      # Fase 7: lo harness di `keeppix-db` (e `provision_with_vector` in
-      # `keeppix-jobs`) richiede pgvector. Il `services.postgres` resta
-      # `postgis/postgis:17-3.5` (senza vector) per gli altri crate via
-      # `KEEPPIX_TEST_DATABASE_URL`; quando quell'URL non offre `vector`,
-      # i test AI ricadono su testcontainers `keeppix-db:dev`. Quell'immagine
-      # non è su Docker Hub — va costruita qui, altrimenti il pull 404 abortisce
-      # tutta la suite albums/embeddings.
+      # The `keeppix-db` test harness (and `provision_with_vector` in
+      # `keeppix-jobs`) requires pgvector. `services.postgres` stays on
+      # `postgis/postgis:17-3.5` (without vector) for the other crates via
+      # `KEEPPIX_TEST_DATABASE_URL`; when that URL doesn't offer `vector`,
+      # the AI tests fall back to testcontainers' `keeppix-db:dev`. That
+      # image isn't on Docker Hub — it has to be built here, otherwise the
+      # pull 404s and aborts the whole albums/embeddings suite.
       - name: Build keeppix-db:dev (PostGIS + pgvector)
         run: docker build -f Dockerfile.db -t keeppix-db:dev .
 
-      # Pesi YuNet+SFace (gitignored, Task A del piano modelli IA — sostituiscono
-      # SCRFD/ArcFace, mai scaricati: pesi research-only, mai eseguiti in nessun
-      # ambiente). Senza, i test `detect_faces` che richiedono un'inferenza
-      # reale saltano. ~9,6 MB totali (contro le decine-centinaia di MB di
-      # qualunque variante InsightFace).
+      # YuNet+SFace weights (gitignored — replace SCRFD/ArcFace, which were
+      # never downloaded: research-only weights, never run in any
+      # environment). Without them, the `detect_faces` tests that need real
+      # inference skip. ~9.6 MB total (vs. the tens-to-hundreds of MB of any
+      # InsightFace variant).
       - name: Cache YuNet+SFace weights
         uses: actions/cache@v4
         with:
@@ -124,101 +126,102 @@ jobs:
       - name: Download YuNet+SFace weights
         run: ./scripts/download-yunet-sface.sh
 
-      # Pesi OpenCLIP XLM-R IT/EN (Task B del piano modelli IA — sostituisce
-      # MobileCLIP2-S2, rimosso: research-only, mai idoneo a un'offerta
-      # commerciale). A differenza della cache sopra, qui
-      # NON c'è uno script di download: questi pesi non vengono da un URL
-      # esterno stabile, li produce solo `export-openclip-xlmr.yml` (export
-      # Python dal checkpoint HuggingFace, minuti di compute, non qualcosa
-      # da rifare a ogni push di questo job). Questo job SOLO ripristina
-      # (nessun passo di download di fallback): con la stessa chiave usata
-      # dal passo di salvataggio cache in quel workflow, un run riuscito lì
-      # rende disponibili i pesi qui. In assenza di cache (mai girato
-      # l'export su questo branch, o voce scaduta dopo 7 giorni), i test
-      # che richiedono `first_complete_model_dir()` degradano già in modo
-      # esplicito (skip via eprintln, non fallimento) — stesso principio
-      # delle altre cache di pesi.
-      - name: Cache OpenCLIP XLM-R IT/EN weights (solo ripristino, prodotti da export-openclip-xlmr.yml)
+      # OpenCLIP XLM-R IT/EN weights (replace MobileCLIP2-S2, removed:
+      # research-only, never fit for commercial use). Unlike the cache
+      # above, there is NO download script here: these weights don't come
+      # from a stable external URL, only `export-openclip-xlmr.yml`
+      # produces them (a Python export from the HuggingFace checkpoint,
+      # minutes of compute, not something to redo on every push of this
+      # job). This job ONLY restores (no fallback download step): with the
+      # same key used by the cache-save step in that workflow, a successful
+      # run there makes the weights available here. In the absence of a
+      # cache (the export never ran on this branch, or the entry expired
+      # after 7 days), the tests that need `first_complete_model_dir()`
+      # already degrade explicitly (skip via eprintln, not failure) — same
+      # principle as the other weight caches.
+      - name: Cache OpenCLIP XLM-R IT/EN weights (restore only, produced by export-openclip-xlmr.yml)
         uses: actions/cache@v4
         with:
           path: models/openclip-xlmr-it-en
           key: openclip-xlmr-it-en-${{ hashFiles('scripts/export-openclip-xlmr-it-en.py') }}
 
-      # Foto del banco IT/EN (Fase 7 Task 2bis) — mai state scaricate in CI
-      # finora: scoperto mentre si verificava `openclip_xlmr_it_en_retrieval_bench`
-      # (Task B), che saltava senza output visibile (il test harness cattura
-      # gli `eprintln!` di un test che passa, "0.00s" e nessuna riga
-      # "skipping" in log — non un bug del test, un buco preesistente qui).
-      # Colpiva ALLO STESSO MODO il bench MobileCLIP2-S2 (Fase 7, rimosso in
-      # Task B): i numeri IT/EN citati nel ledger di quel task sono sempre
-      # stati misurati a mano ("questo host", non CI). Le foto vengono da
-      # Wikimedia Commons (`scripts/download-ai-bench.sh`), non da un mirror
-      # gitignored come i pesi modello — stesso pattern di cache comunque,
-      # chiave sul contenuto di script+caption.
-      - name: Cache foto del banco IT/EN
+      # IT/EN test bench photos — never downloaded in CI until this was
+      # discovered while checking `openclip_xlmr_it_en_retrieval_bench`,
+      # which was skipping without visible output (the test harness
+      # captures the `eprintln!` output of a passing test — "0.00s" and no
+      # "skipping" line in the log — not a bug in the test, a pre-existing
+      # gap here). It affected the MobileCLIP2-S2 bench in exactly the same
+      # way (removed along with MobileCLIP2-S2): the IT/EN numbers on
+      # record for that work were always measured by hand (on a dev
+      # machine, not CI). The photos come from Wikimedia Commons
+      # (`scripts/download-ai-bench.sh`), not from a gitignored mirror like
+      # the model weights — same caching pattern regardless, keyed on the
+      # script+caption content.
+      - name: Cache IT/EN bench photos
         uses: actions/cache@v4
         with:
           path: models/bench-it-en
           key: ai-bench-${{ hashFiles('scripts/download-ai-bench.sh', 'crates/keeppix-media/testdata/ai-bench/captions.json') }}
-      - name: Scarica foto del banco IT/EN
+      - name: Download IT/EN bench photos
         run: ./scripts/download-ai-bench.sh
 
-      # `--jobs 1` sta in `scripts/test.sh` per un motivo che **qui non vale**:
-      # in locale i test usano testcontainers e senza quel limite parte un
-      # PostGIS per crate in parallelo. In CI no — c'è un solo Postgres di
-      # servizio (senza vector) più, al più, un `keeppix-db:dev` condiviso
-      # per i test che richiedono pgvector.
-      # Serializzare la compilazione su un runner a 4 core costava ~10 minuti
-      # per una ragione che in CI non esiste.
+      # `--jobs 1` lives in `scripts/test.sh` for a reason that **doesn't
+      # apply here**: locally, tests use testcontainers and without that
+      # limit a PostGIS spins up per crate in parallel. Not in CI — there's
+      # a single service Postgres (without vector) plus, at most, a shared
+      # `keeppix-db:dev` for tests that need pgvector.
+      # Serializing compilation on a 4-core runner cost ~10 minutes for a
+      # reason that doesn't exist in CI.
       #
-      # Niente `--test-threads=1` qui: ogni `TestDb::start()` fa il suo
-      # `CREATE DATABASE` (vedi `crates/*/tests/harness/mod.rs`), isolato
-      # anche contro il Postgres condiviso di `services:` — i test non si
-      # calpestano a vicenda, girare in parallelo è sicuro per costruzione.
-      # L'unica eccezione era `keeppix-server/tests/config.rs`, che muta
-      # variabili d'ambiente di processo: quei test (e i tre equivalenti in
-      # `keeppix-media/tests/derive.rs`) sono marcati `#[serial]`
-      # (`serial_test`), non serve più serializzare l'intero workspace per
-      # loro. Misurato: 34s di lint contro 23m08s di test sul run
-      # 32236974676 — il collo di bottiglia era la serializzazione globale,
-      # non la compilazione né i test in sé.
-      # `--no-fail-fast`: senza, cargo si ferma al primo target che fallisce
-      # e ogni bug successivo resta nascosto finché non si corregge quello
-      # prima — tre cicli di CI da ~15-20 minuti l'uno per tre bug distinti,
-      # scoperti uno alla volta, invece che tutti insieme in un solo run.
+      # No `--test-threads=1` here: every `TestDb::start()` does its own
+      # `CREATE DATABASE` (see `crates/*/tests/harness/mod.rs`), isolated
+      # even against the shared Postgres from `services:` — tests don't
+      # step on each other, running in parallel is safe by construction.
+      # The one exception was `keeppix-server/tests/config.rs`, which
+      # mutates process environment variables: those tests (and the three
+      # equivalent ones in `keeppix-media/tests/derive.rs`) are marked
+      # `#[serial]` (`serial_test`), so there's no longer a need to
+      # serialize the whole workspace for them. Measured: 34s of lint
+      # versus 23m08s of tests on one run — the bottleneck was global
+      # serialization, not compilation or the tests themselves.
+      # `--no-fail-fast`: without it, cargo stops at the first failing
+      # target and every subsequent bug stays hidden until that one is
+      # fixed — three ~15-20 minute CI cycles for three separate bugs,
+      # discovered one at a time instead of all together in a single run.
       - name: Test
         run: cargo test --workspace --no-fail-fast
 
-      # Il passo sopra passa anche quando questo bench salta (pesi o foto
-      # assenti): `eprintln!` di un test che PASSA viene catturato dal test
-      # harness e scartato, mai visibile nel log — sia lo "skipping" sia,
-      # quando gira per davvero, il blocco "MEASUREMENT" con recall/mrr/ms/RSS
-      # reali (scoperto verificando Task B). Rieseguire qui il binario con
-      # `--nocapture` è quasi gratis (già compilato dal passo Test sopra) e
-      # rende quei numeri leggibili in ogni run, non solo quando un dev li
-      # rilancia a mano in locale.
-      - name: Banco di recupero IT/EN (numeri reali in log, pesi+foto permettendo)
+      # The step above also passes when this bench skips (weights or
+      # photos missing): the `eprintln!` output of a PASSING test is
+      # captured by the test harness and discarded, never visible in the
+      # log — both the "skipping" line and, when it actually runs, the
+      # "MEASUREMENT" block with real recall/mrr/ms/RSS numbers. Rerunning
+      # the binary here with `--nocapture` is nearly free (already compiled
+      # by the Test step above) and makes those numbers readable in every
+      # run, not only when a dev reruns them by hand locally.
+      - name: IT/EN retrieval bench (real numbers in log, weights+photos permitting)
         run: cargo test -p keeppix-media --test openclip_xlmr_retrieval_bench -- --nocapture
 
-      - name: La specifica OpenAPI è aggiornata
+      - name: OpenAPI spec is up to date
         run: git diff --exit-code docs/api/openapi.json
 
-      # `cargo clean` qui rende inutile la cache, e non è ovvio: gli step
-      # normali girano **prima** dei post-step, e `Swatinem/rust-cache`
-      # salva in un post-step. Su main — l'unico ramo dove `save-if` è vero
-      # — svuotare `target/` prima del Post significa salvare una cache
-      # vuota (105 MB di sole sorgenti), e ogni run successivo ricompila da
-      # capo: 3m07s di clippy più 10m36s di test, misurati sul run
-      # 31972217130. Sui PR `save-if` è falso, quindi qui la pulizia non
-      # toglie niente e libera lo spazio del runner. Si pulisce solo dove
-      # non si salva.
-      - name: Libera disco dopo i test
+      # `cargo clean` here would make the cache useless, and it's not
+      # obvious why: normal steps run **before** post-steps, and
+      # `Swatinem/rust-cache` saves in a post-step. On main — the only
+      # branch where `save-if` is true — emptying `target/` before the Post
+      # step means saving an empty cache (105 MB of sources only), and
+      # every subsequent run recompiles from scratch: clippy plus tests
+      # taking several extra minutes, as measured on a real run. On PRs
+      # `save-if` is false, so cleaning here doesn't lose anything and
+      # frees up runner disk space. Only clean where nothing is being
+      # saved.
+      - name: Free disk space after tests
         if: always() && github.ref != 'refs/heads/main'
         run: |
           cargo clean || true
           df -h /
 
-      - name: Spazio disco su main (la cache viene salvata dopo)
+      - name: Disk space on main (cache is saved afterward)
         if: always() && github.ref == 'refs/heads/main'
         run: df -h /
 
@@ -226,16 +229,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Genera i client OpenAPI
+      - name: Generate OpenAPI clients
         run: ./scripts/generate-api-clients.sh
       - uses: actions/setup-node@v5
         with: { node-version: "24" }
-      - name: Il client TypeScript generato compila
+      - name: Generated TypeScript client compiles
         working-directory: docs/api/clients/typescript-fetch
         run: |
           npm install --ignore-scripts
           npx tsc --noEmit -p tsconfig.json
-      - name: Il package Swift generato è valido
+      - name: Generated Swift package is valid
         run: |
           test -f docs/api/clients/swift5/Package.swift
           grep -q 'name: "KeeppixApiClient"' docs/api/clients/swift5/Package.swift
@@ -249,39 +252,39 @@ jobs:
         with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
 
       - run: npm ci
-      - name: Tipi
+      - name: Types
         run: npx vue-tsc --noEmit
       - name: Test
         run: npx vitest run
       - name: Build
         run: npm run build
 
-      - name: Budget del bundle iniziale (150 KB gzip)
+      - name: Initial bundle budget (150 KB gzip)
         run: |
-          # "Iniziale" = solo gli asset che dist/index.html carica subito
-          # (lo script d'ingresso e il foglio di stile che Vite vi inietta).
-          # I chunk per-rotta caricati pigramente via import() (vedi
-          # src/router.ts) restano fuori di proposito: lo spec vuole mappa,
-          # culling, impostazioni e player video in chunk separati, fuori dal
-          # budget iniziale (design §10.9).
-          test -f dist/index.html || { echo "::error::dist/index.html non trovato"; exit 1; }
+          # "Initial" = only the assets that dist/index.html loads
+          # immediately (the entry script and the stylesheet Vite injects
+          # into it). Per-route chunks lazily loaded via import() (see
+          # src/router.ts) are deliberately excluded: the spec wants the
+          # map, culling, settings, and video player in separate chunks,
+          # outside the initial budget (design §10.9).
+          test -f dist/index.html || { echo "::error::dist/index.html not found"; exit 1; }
 
           ASSETS=$(grep -oE '(src|href)="/assets/[^"]+\.(js|css)"' dist/index.html | sed -E 's/^(src|href)="//; s/"$//')
           if [ -z "$ASSETS" ]; then
-            echo "::error::nessun asset d'ingresso trovato in dist/index.html"
+            echo "::error::no entry asset found in dist/index.html"
             exit 1
           fi
 
           SIZE=0
           while IFS= read -r asset; do
             FILE="dist${asset}"
-            test -f "$FILE" || { echo "::error::asset referenziato in index.html assente: $FILE"; exit 1; }
+            test -f "$FILE" || { echo "::error::asset referenced in index.html is missing: $FILE"; exit 1; }
             SIZE=$((SIZE + $(gzip -c "$FILE" | wc -c)))
           done <<< "$ASSETS"
 
-          echo "bundle iniziale gzip: $SIZE byte"
+          echo "initial bundle gzip: $SIZE bytes"
           if [ "$SIZE" -gt 153600 ]; then
-            echo "::error::bundle oltre il budget di 153600 byte"
+            echo "::error::bundle exceeds the 153600 byte budget"
             exit 1
           fi
 
@@ -297,7 +300,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v4
-      - name: Build immagine (senza push)
+      - name: Build image (no push)
         uses: docker/build-push-action@v7
         with:
           context: .

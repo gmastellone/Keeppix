@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Scarica YuNet (rilevamento) + SFace (impronta) da opencv/opencv_zoo in
-# models/yunet-sface/detect.onnx e embed.onnx.
+# Downloads YuNet (detection) + SFace (embedding) from opencv/opencv_zoo into
+# models/yunet-sface/detect.onnx and embed.onnx.
 #
-# Questo script verifica lo sha256: i file arrivano via Git LFS, e l'URL "raw" ovvio
-# (raw.githubusercontent.com) per un percorso tracciato LFS torna il
-# pointer testuale di ~130 byte, non il binario — un errore silenzioso che
-# altrimenti produrrebbe un "modello" da 130 byte accettato senza fiatare.
-# media.githubusercontent.com/media/... risolve l'oggetto LFS reale
-# (verificato: 9.896.933 byte per SFace, 100.416 per YuNet, esatti). Lo
-# sha256 sotto è la seconda rete di sicurezza, non solo contro un URL
-# sbagliato ma contro qualunque byte alterato lungo la strada.
+# This script verifies sha256: the files are served via Git LFS, and the obvious
+# "raw" URL (raw.githubusercontent.com) for an LFS-tracked path returns the
+# ~130-byte text pointer, not the binary — a silent failure that would
+# otherwise produce a 130-byte "model" accepted without complaint.
+# media.githubusercontent.com/media/... resolves the actual LFS object
+# (verified: exactly 9,896,933 bytes for SFace, 100,416 for YuNet). The
+# sha256 below is the second line of defense, guarding not just against a
+# wrong URL but against any byte altered along the way.
 #
-# Fonti e hash: docs/superpowers/plans/2026-08-22-keeppix-modelli-ai.md
-# (verificati scaricando i file reali e ricalcolando sha256sum).
+# Sources and hashes below were verified by downloading the actual files
+# and recomputing sha256sum.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
