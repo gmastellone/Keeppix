@@ -1,5 +1,5 @@
-//! Parsing e matching temporale di tracce GPX. Nessun database e nessun I/O:
-//! il chiamante fornisce i byte del documento e i timestamp da abbinare.
+//! Parsing and temporal matching of GPX tracks. No database and no I/O:
+//! the caller supplies the document bytes and the timestamps to match.
 
 use chrono::{DateTime, Duration, Utc};
 use keeppix_domain::GeoPoint;
@@ -7,7 +7,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 use thiserror::Error;
 
-/// Tolleranza predefinita richiesta dal flusso di import: cinque minuti.
+/// Default tolerance required by the import flow: five minutes.
 pub const DEFAULT_TOLERANCE: Duration = Duration::minutes(5);
 
 #[derive(Debug, Error)]
@@ -24,18 +24,18 @@ struct TrackPoint {
     point: GeoPoint,
 }
 
-/// Traccia normalizzata per timestamp, con i confini fra segmenti preservati.
+/// Track normalized by timestamp, with segment boundaries preserved.
 #[derive(Debug, Clone)]
 pub struct Track {
     segments: Vec<Vec<TrackPoint>>,
 }
 
-/// Legge i `trkpt` con coordinate e timestamp RFC 3339, mantenendo ogni
-/// `trkseg` separato dagli altri segmenti e dalle altre tracce.
+/// Reads `trkpt` elements with coordinates and RFC 3339 timestamps, keeping each
+/// `trkseg` separate from other segments and other tracks.
 ///
 /// # Errors
-/// `Malformed` per XML non valido, coordinate fuori WGS84 o timestamp non
-/// RFC 3339; `NoTrackPoints` se il documento non contiene punti utilizzabili.
+/// `Malformed` for invalid XML, coordinates outside WGS84, or timestamps that are
+/// not RFC 3339; `NoTrackPoints` if the document contains no usable points.
 pub fn parse(bytes: &[u8]) -> Result<Track, GpxError> {
     let mut reader = Reader::from_reader(bytes);
     reader.config_mut().trim_text(true);

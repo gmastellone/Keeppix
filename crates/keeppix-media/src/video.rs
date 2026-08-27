@@ -22,7 +22,7 @@ pub struct VideoInfo {
 }
 
 /// # Errors
-/// ffprobe assente o JSON illeggibile.
+/// ffprobe missing or JSON unreadable.
 pub fn probe(path: &Path) -> Result<VideoInfo, std::io::Error> {
     let path_s = path.to_string_lossy();
     let out = sandbox::run(
@@ -78,10 +78,10 @@ fn parse_ffprobe(bytes: &[u8]) -> Result<VideoInfo, std::io::Error> {
     })
 }
 
-/// Poster al 10% della durata. Nessuna transcodifica dell'originale.
+/// Poster at 10% of the duration. No transcoding of the original.
 ///
 /// # Errors
-/// ffmpeg assente o fallito.
+/// ffmpeg missing or failed.
 pub fn extract_poster(src: &Path, dest: &Path) -> Result<(), std::io::Error> {
     let info = probe(src)?;
     let at = info.duration.mul_f32(0.1);

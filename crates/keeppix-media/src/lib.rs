@@ -1,4 +1,4 @@
-//! Elaborazione dei file. Nessun database, nessuna rete, nessuno stato.
+//! File processing. No database, no network, no state.
 
 pub mod ai;
 pub mod align;
