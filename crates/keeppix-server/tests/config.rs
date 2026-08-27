@@ -18,7 +18,7 @@ fn clear_env() {
     let leaked: Vec<String> = std::env::vars()
         .map(|(key, _)| key)
         // `KEEPPIX_TEST_*` isn't server configuration but harness
-        // configuration (see R9): `Config` ignores it as an unknown field,
+        // configuration: `Config` correctly ignores it as an unknown field,
         // and clearing it would break integration tests if they ever ended
         // up in this same binary.
         .filter(|key| {

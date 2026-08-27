@@ -64,8 +64,8 @@ pub fn assert_security_headers(headers: &HeaderMap) {
             .expect("permissions-policy"),
         "camera=(), microphone=(), geolocation=()"
     );
-    // Spec §9.5 lists HSTS among the mandatory headers. A browser ignores it
-    // when it arrives over HTTP, so the unconditional header doesn't break
+    // HSTS is among the mandatory headers. A browser ignores it when it
+    // arrives over HTTP, so the unconditional header doesn't break
     // plain-HTTP use on a LAN and is honored wherever there's a TLS proxy in
     // front.
     assert_eq!(

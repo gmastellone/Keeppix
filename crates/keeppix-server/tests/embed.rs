@@ -163,8 +163,8 @@ async fn assets_are_served_as_immutable() {
     // This is also the counter-proof for the `Cache-Control: private` layer
     // added in `with_common_layers`: it uses `if_not_present`, so the
     // immutable policy set by the handler must survive. With `overriding`
-    // this test would fail — and the first bullet of §9.4 (hashed assets
-    // never requested twice) would be undone by its own last line.
+    // this test would fail — and hashed assets would end up being
+    // re-requested instead of served from cache forever.
     assert_eq!(
         response.headers().get("cache-control").unwrap(),
         "public, max-age=31536000, immutable"
