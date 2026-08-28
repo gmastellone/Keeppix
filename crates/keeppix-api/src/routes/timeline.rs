@@ -22,19 +22,20 @@ pub struct BucketsQuery {
     bbox: Option<String>,
 }
 
-/// Query di `/timeline/geometry` — un sovrainsieme di [`BucketsQuery`], non
-/// lo stesso tipo: `limit`/`cursor` non hanno senso su `/timeline/buckets`.
+/// Query for `/timeline/geometry` — a superset of [`BucketsQuery`], not the
+/// same type: `limit`/`cursor` make no sense on `/timeline/buckets`.
 #[derive(Deserialize)]
 pub struct GeometryQuery {
     library: Option<LibraryId>,
     bbox: Option<String>,
-    /// Presente solo sulla prima richiesta a schermo freddo (Task 4-bis):
-    /// chiede solo i primi `limit` scatti invece dell'intera vista, per
-    /// disegnare senza aspettare l'intero payload su rete lenta. Assente →
-    /// comportamento invariato, vista intera con validazione `ETag`.
+    /// Present only on the first cold-screen request: asks for only the
+    /// first `limit` shots instead of the whole view, to draw without
+    /// waiting for the whole payload on a slow network. Absent →
+    /// unchanged behavior, whole view with `ETag` validation.
     limit: Option<i64>,
-    /// Il cursore opaco di `X-Keeppix-Geometry-Cursor` della risposta
-    /// precedente, così com'è — il client non lo interpreta, lo riporta.
+    /// The opaque cursor from `X-Keeppix-Geometry-Cursor` of the previous
+    /// response, as-is — the client does not interpret it, just reports it
+    /// back.
     cursor: Option<String>,
 }
 
@@ -63,7 +64,7 @@ fn encode_geometry_cursor((time, id): (DateTime<Utc>, AssetId)) -> String {
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct MonthBucketView {
-    /// Calendario `YYYY-MM`.
+    /// Calendar `YYYY-MM`.
     pub month: String,
     pub count: i64,
 }
@@ -102,39 +103,37 @@ pub struct AssetView {
     pub location: Option<GeoPointView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place_id: Option<i64>,
-    /// 1 se non impilato, altrimenti il numero di file della pila (Task 3
-    /// fase-10). Campo additivo.
+    /// 1 if not stacked, otherwise the number of files in the stack.
+    /// Additive field.
     pub stack_size: u16,
-    /// Badge SP-15: `"raw"` / `"jpeg"` / `"raw+jpeg"`. `None` per un kind
-    /// che non è né l'uno né l'altro (video, unknown). Campo additivo.
+    /// Badge: `"raw"` / `"jpeg"` / `"raw+jpeg"`. `None` for a kind that is
+    /// neither (video, unknown). Additive field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_kind: Option<String>,
-    /// «Preferito» del **chiamante** (Task 10 fase-10). `AssetView` è
-    /// condiviso fra molte viste, ma questo campo è per utente: due
-    /// chiamanti sullo stesso `Asset` possono leggere valori diversi.
-    /// `false` di default finché non viene risolto con
-    /// [`Self::with_favorite`] usando il set del chiamante
-    /// (`FlagRepo::get`/`favorites_among`). Campo additivo.
+    /// "Favorite" of the **caller**. `AssetView` is shared across many
+    /// views, but this field is per-user: two callers on the same `Asset`
+    /// can read different values. Defaults to `false` until resolved with
+    /// [`Self::with_favorite`] using the caller's set
+    /// (`FlagRepo::get`/`favorites_among`). Additive field.
     pub favorite: bool,
-    /// Fotocamera confermata sull'exif (Fase 11 Task 7, SP-3 §11,
-    /// dimensione "Fotocamera"). `None` se l'asset non ha `asset_exif`
-    /// leggibile o l'exif non porta il modello. Campo additivo.
+    /// Camera confirmed from the exif ("Camera" dimension). `None` if the
+    /// asset has no readable `asset_exif` or the exif does not carry the
+    /// model. Additive field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub camera_model: Option<String>,
-    /// Tag confermati (Fase 11 Task 7, SP-3 §11, dimensioni "Tag"/
-    /// "Categorie") — solo `state='confirmed'`, mai proposte in attesa.
-    /// Vuoto, mai assente: `[]` se l'asset non ha tag o se pgvector non è
-    /// installato. Campo additivo.
+    /// Confirmed tags ("Tags"/"Categories" dimensions) — only
+    /// `state='confirmed'`, never pending proposals. Empty, never absent:
+    /// `[]` if the asset has no tags or pgvector is not installed. Additive
+    /// field.
     pub tags: Vec<AssetTagBadgeView>,
-    /// Volti confermati (Fase 11 Task 7, SP-3 §11, dimensione "Persone") —
-    /// `person_id IS NOT NULL AND rejected_at IS NULL`, assegnato a mano o
-    /// dal raggruppamento automatico. Vuoto, mai assente. Campo additivo.
+    /// Confirmed faces ("People" dimension) — `person_id IS NOT NULL AND
+    /// rejected_at IS NULL`, assigned by hand or by automatic clustering.
+    /// Empty, never absent. Additive field.
     pub faces: Vec<AssetFaceBadgeView>,
-    /// EXIF completo (Fase 11 Task 8, §19.2 sezione "SCATTO") — popolato
-    /// **solo** da [`asset`] (dettaglio di un asset alla volta, il
-    /// lightbox), mai da [`page`]/`/search`: un giro di query in più per
-    /// ogni riga di ogni pagina della timeline non serve a nessuno lì.
-    /// Campo additivo, sempre assente (non `null`) sulle viste bulk.
+    /// Full EXIF ("SHOT" section) — populated **only** by [`asset`] (one
+    /// asset's detail, the lightbox), never by [`page`]/`/search`: an extra
+    /// query round trip for every row of every timeline page serves no one
+    /// there. Additive field, always absent (not `null`) on bulk views.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_exif: Option<AssetExifDetailView>,
 }
@@ -165,9 +164,9 @@ impl AssetView {
         }
     }
 
-    /// Come [`Self::from_asset`], ma con il badge di stack vero (Task 3):
-    /// usato dalle viste di browse (timeline, ricerca) che restituiscono
-    /// solo il primario di ogni pila.
+    /// Like [`Self::from_asset`], but with the real stack badge: used by
+    /// browse views (timeline, search) that return only the primary of
+    /// each stack.
     pub(crate) fn from_asset_with_stack(a: &AssetWithStack) -> Self {
         let mut view = Self::from_asset(&a.asset);
         view.stack_size = a.stack.stack_size;
@@ -211,10 +210,9 @@ impl AssetView {
     }
 }
 
-/// EXIF completo di un asset (Fase 11 Task 8, §19.2 campi 6-9) — a
-/// differenza di [`AssetView::camera_model`] (una stringa sola, per SP-3),
-/// il lightbox mostra obiettivo, esposizione (diaframma/tempo/ISO) e
-/// focale.
+/// Full EXIF of an asset — unlike [`AssetView::camera_model`] (a single
+/// string), the lightbox shows lens, exposure (aperture/shutter/ISO), and
+/// focal length.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct AssetExifDetailView {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -247,9 +245,10 @@ impl From<keeppix_db::AssetExifDetail> for AssetExifDetailView {
     }
 }
 
-/// Un tag confermato, come SP-3 §11 lo mostra: nome e colore per la chip,
-/// `category_id` per l'AND fra le dimensioni "Tag"/"Categorie" — mai
-/// bisogno di un secondo giro sul tag per risolvere la sua categoria.
+/// A confirmed tag, as the UI shows it: name and color for the chip,
+/// `category_id` for the AND between the "Tags"/"Categories" dimensions —
+/// never a need for a second round trip on the tag to resolve its
+/// category.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct AssetTagBadgeView {
     pub id: String,
@@ -271,14 +270,13 @@ impl From<ConfirmedTag> for AssetTagBadgeView {
     }
 }
 
-/// Un volto confermato, come SP-3 §11 lo mostra: solo l'identità della
-/// persona (bbox/punteggi non servono a un chip di filtro).
+/// A confirmed face, as the UI shows it: only the identity of the person
+/// (bbox/scores are not needed for a filter chip).
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct AssetFaceBadgeView {
     pub person_id: String,
-    /// `None` per una persona senza nome ("Persona 4" — l'etichetta di
-    /// fallback è compito del frontend, come già per le altre schermate
-    /// Persone).
+    /// `None` for an unnamed person ("Person 4" — the fallback label is
+    /// the frontend's job, as with the other People screens).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub person_name: Option<String>,
 }
@@ -292,16 +290,16 @@ impl From<ConfirmedFace> for AssetFaceBadgeView {
     }
 }
 
-/// Arricchisce una pagina di `AssetWithStack` con tutto ciò che `AssetView`
-/// porta per-chiamante o fuori dalla tabella `assets` — preferito,
-/// fotocamera, tag e volti confermati (Fase 11 Task 7, SP-3). Una query
-/// bulk per ciascuno, mai una per riga (stesso idioma di
-/// `FlagRepo::favorites_among`). Estratta qui perché `/timeline` e
-/// `/search` costruivano questa stessa sequenza duplicata prima di questa
-/// funzione — non duplicata di nuovo aggiungendo i tre nuovi campi.
+/// Enriches a page of `AssetWithStack` with everything `AssetView` carries
+/// per-caller or outside the `assets` table — favorite, camera, confirmed
+/// tags and faces. One bulk query for each, never one per row (same idiom
+/// as `FlagRepo::favorites_among`). Extracted here because `/timeline` and
+/// `/search` used to build this same sequence in duplicate before this
+/// function existed — not duplicated again when adding the three newer
+/// fields.
 ///
 /// # Errors
-/// Propaga l'errore del primo bulk-fetch che fallisce.
+/// Propagates the error of the first bulk fetch that fails.
 pub(crate) async fn enrich_views(
     state: &AppState,
     ctx: &AuthContext,
@@ -339,9 +337,9 @@ pub(crate) async fn enrich_views(
         .collect())
 }
 
-/// Badge di un asset non impilato, derivato dal suo `kind`: nessun aggregato
-/// da leggere, `None` solo per un kind che non è né RAW né JPEG (video,
-/// unknown) — vedi tabella `raw_kind` nel piano fase-10 Task 3.
+/// Badge of a non-stacked asset, derived from its `kind`: no aggregate to
+/// read, `None` only for a kind that is neither RAW nor JPEG (video,
+/// unknown).
 const fn default_raw_kind(kind: AssetKind) -> Option<&'static str> {
     match kind {
         AssetKind::RawImage => Some("raw"),
@@ -365,8 +363,8 @@ pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se l'asset non è visibile; `404` solo per
-/// un admin che chiede un id inesistente.
+/// `401` if not authenticated; `403` if the asset is not visible; `404`
+/// only for an admin requesting a nonexistent id.
 #[utoipa::path(
     get,
     path = "/api/v1/assets/{id}",
@@ -374,13 +372,13 @@ pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
     operation_id = "assets_get",
     summary = "Get an asset",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id asset")),
+    params(("id" = String, Path, description = "Asset id")),
     responses(
-        (status = 200, description = "Vista pubblica dell'asset", body = AssetView),
-        (status = 400, description = "Id non valido", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile", body = Problem),
-        (status = 404, description = "Asset inesistente per un admin", body = Problem)
+        (status = 200, description = "Public view of the asset", body = AssetView),
+        (status = 400, description = "Invalid id", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible", body = Problem),
+        (status = 404, description = "Asset does not exist for an admin", body = Problem)
     )
 )]
 pub async fn asset(
@@ -451,7 +449,8 @@ const fn status_str(status: keeppix_domain::AssetStatus) -> &'static str {
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se `library` non è del chiamante.
+/// `401` if not authenticated; `403` if `library` does not belong to the
+/// caller.
 #[utoipa::path(
     get,
     path = "/api/v1/timeline/buckets",
@@ -460,14 +459,14 @@ const fn status_str(status: keeppix_domain::AssetStatus) -> &'static str {
     summary = "List timeline buckets",
     security(("session_cookie" = [])),
     params(
-        ("library" = Option<String>, Query, description = "Filtra su una libreria"),
+        ("library" = Option<String>, Query, description = "Filter to a library"),
         ("bbox" = Option<String>, Query, description = "west,south,east,north WGS84")
     ),
     responses(
-        (status = 200, description = "Conteggi mensili visibili", body = [MonthBucketView]),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Libreria non visibile", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Visible monthly counts", body = [MonthBucketView]),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Library not visible", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn buckets(
@@ -497,52 +496,51 @@ pub async fn buckets(
     ))
 }
 
-/// Versione del formato binario di `/timeline/geometry`. Cambia solo se la
-/// forma del record cambia (larghezza record, ordine dei campi) — un client
-/// vecchio deve poter rifiutare un formato che non capisce invece di leggere
-/// byte a caso.
+/// Version of `/timeline/geometry`'s binary format. Changes only if the
+/// record shape changes (record width, field order) — an old client must
+/// be able to reject a format it doesn't understand instead of reading
+/// random bytes.
 const GEOMETRY_FORMAT_VERSION: u32 = 1;
 
-/// Nome dell'intestazione che porta il cursore opaco per la pagina
-/// successiva (Task 4-bis) — mai nel corpo binario, che resta senza
-/// identificativi per costruzione.
+/// Name of the header carrying the opaque cursor for the next page — never
+/// in the binary body, which stays without identifiers by construction.
 const GEOMETRY_CURSOR_HEADER: &str = "x-keeppix-geometry-cursor";
 
 /// # Errors
-/// `400` se `cursor` non è valido; `401` se non autenticato; `403` se
-/// `library` non è del chiamante.
+/// `400` if `cursor` is invalid; `401` if not authenticated; `403` if
+/// `library` does not belong to the caller.
 #[utoipa::path(
     get,
     path = "/api/v1/timeline/geometry",
     tag = "timeline",
     operation_id = "timeline_geometry",
     summary = "Get the compact width/height/month geometry of a timeline view, in full or paged",
-    description = "Un record binario da 6 byte per scatto (w:u16, h:u16, month:u16 = \
-                    anno*12+mese), senza identificativo: descrive solo altezze, non \
-                    identifica asset. Senza `limit`: l'intera vista, con gli stessi filtri \
-                    e la stessa visibilità di /timeline, e supporto a 304 via \
-                    If-None-Match. Con `limit`: solo i primi N scatti (schermo freddo su \
-                    rete lenta, Task 4-bis) — se ce n'è altro, la risposta porta \
-                    l'intestazione x-keeppix-geometry-cursor da passare come `cursor` alla \
-                    richiesta successiva; nessuna intestazione = quella era l'intera vista. \
-                    Le richieste paginate non validano If-None-Match: sono pensate per il \
-                    primo caricamento, non per un rientro con vista invariata.",
+    description = "A 6-byte binary record per shot (w:u16, h:u16, month:u16 = \
+                    year*12+month), with no identifier: it only describes heights, it does \
+                    not identify assets. Without `limit`: the whole view, with the same \
+                    filters and the same visibility as /timeline, and 304 support via \
+                    If-None-Match. With `limit`: only the first N shots (cold screen on a \
+                    slow network) — if there is more, the response carries the \
+                    x-keeppix-geometry-cursor header to pass as `cursor` on the next \
+                    request; no header = that was the whole view. Paged requests do not \
+                    validate If-None-Match: they are meant for the first load, not for \
+                    returning to an unchanged view.",
     security(("session_cookie" = [])),
     params(
-        ("library" = Option<String>, Query, description = "Filtra su una libreria"),
+        ("library" = Option<String>, Query, description = "Filter to a library"),
         ("bbox" = Option<String>, Query, description = "west,south,east,north WGS84"),
-        ("limit" = Option<i64>, Query, description = "Solo i primi N scatti, invece della vista intera"),
-        ("cursor" = Option<String>, Query, description = "Cursore opaco della pagina precedente")
+        ("limit" = Option<i64>, Query, description = "Only the first N shots, instead of the whole view"),
+        ("cursor" = Option<String>, Query, description = "Opaque cursor from the previous page")
     ),
     responses(
-        (status = 200, description = "8 byte di intestazione (versione, conteggio) + \
-                                       N record da 6 byte (w, h, month), little-endian",
+        (status = 200, description = "8-byte header (version, count) + \
+                                       N 6-byte records (w, h, month), little-endian",
          body = [u8]),
-        (status = 304, description = "Non modificato rispetto a If-None-Match"),
-        (status = 400, description = "Cursore non valido", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Libreria non visibile", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 304, description = "Not modified relative to If-None-Match"),
+        (status = 400, description = "Invalid cursor", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Library not visible", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn geometry(
@@ -568,9 +566,9 @@ pub async fn geometry(
         })
         .transpose()?;
     let repo = TimelineRepo::new(&state.db);
-    // Una richiesta paginata non ha una vista stabile da validare con
-    // If-None-Match: è per il primo caricamento a freddo, non per un
-    // rientro. Solo la richiesta a vista intera paga la validazione.
+    // A paged request has no stable view to validate with If-None-Match:
+    // it's for the first cold load, not for returning to a view. Only the
+    // whole-view request pays for validation.
     if page.is_none() && headers.contains_key(header::IF_NONE_MATCH) {
         let stamp = if let Some(bounds) = bounds {
             repo.geometry_stamp_in_bounds(&ctx, query.library, bounds)
@@ -608,11 +606,10 @@ pub async fn geometry(
     Ok(response)
 }
 
-/// Intestazione da 8 byte (versione `u32`, conteggio `u32`) seguita da un
-/// record da 6 byte per scatto (`w:u16`, `h:u16`, `month:u16`), tutto
-/// little-endian. Niente uuid: la geometria non identifica nulla, descrive
-/// solo altezze (Ruling, spec fase-10 §2.3) — le tessere vere arrivano dalle
-/// pagine, nello stesso ordine.
+/// 8-byte header (`u32` version, `u32` count) followed by a 6-byte record
+/// per shot (`w:u16`, `h:u16`, `month:u16`), all little-endian. No uuid:
+/// the geometry identifies nothing, it only describes heights — the real
+/// tiles arrive from the pages, in the same order.
 fn encode_geometry(records: &[GeometryRecord]) -> Vec<u8> {
     let count = u32::try_from(records.len()).unwrap_or(u32::MAX);
     let mut out = Vec::with_capacity(8 + records.len() * 6);
@@ -629,16 +626,15 @@ fn encode_geometry(records: &[GeometryRecord]) -> Vec<u8> {
     out
 }
 
-/// Un asset non ancora dimensionato (sizing non passato) entra con `0`,
-/// invece di essere escluso: altrimenti il layout "salta" quando il sizing
-/// arriva (spec fase-10 §2.3, punto 5).
+/// An asset not yet sized (sizing not passed) enters with `0`, instead of
+/// being excluded: otherwise the layout "jumps" once sizing arrives.
 fn saturating_u16(value: Option<i32>) -> u16 {
     value.map_or(0, |v| u16::try_from(v).unwrap_or(u16::MAX))
 }
 
-/// `month = anno*12 + mese_di_calendario (1..=12)`. Satura ai margini di
-/// `u16` invece di traboccare: una data EXIF corrotta (anno 1 o anno 9999)
-/// resta cosmetica, non un panic — la geometria non identifica nulla.
+/// `month = year*12 + calendar_month (1..=12)`. Saturates at `u16`'s
+/// bounds instead of overflowing: a corrupted EXIF date (year 1 or year
+/// 9999) stays cosmetic, not a panic — the geometry identifies nothing.
 fn month_index(taken_at_utc: DateTime<Utc>) -> u16 {
     let year = i64::from(taken_at_utc.year());
     let month = i64::from(taken_at_utc.month());
@@ -646,9 +642,9 @@ fn month_index(taken_at_utc: DateTime<Utc>) -> u16 {
     u16::try_from(index.clamp(0, i64::from(u16::MAX))).unwrap_or(u16::MAX)
 }
 
-/// `ETag` derivato dal conteggio e dal massimo `updated_at` della vista:
-/// rientrare sulla stessa vista senza modifiche rende `304` (spec fase-10
-/// §2.3). Non è pensato per essere confrontato fra viste diverse.
+/// `ETag` derived from the count and the maximum `updated_at` of the view:
+/// returning to the same unchanged view yields `304`. Not meant to be
+/// compared across different views.
 fn geometry_etag(geometry: &Geometry) -> String {
     stamp_etag(&GeometryStamp {
         count: u64::try_from(geometry.records.len()).unwrap_or(u64::MAX),
@@ -681,7 +677,7 @@ fn if_none_match_matches(headers: &HeaderMap, etag: &str) -> bool {
 }
 
 /// # Errors
-/// `400` se `bucket` o `cursor` non sono leggibili; `401` se non autenticato.
+/// `400` if `bucket` or `cursor` are unreadable; `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/timeline",
@@ -690,16 +686,16 @@ fn if_none_match_matches(headers: &HeaderMap, etag: &str) -> bool {
     summary = "List timeline assets",
     security(("session_cookie" = [])),
     params(
-        ("bucket" = String, Query, description = "Mese YYYY-MM"),
+        ("bucket" = String, Query, description = "Month YYYY-MM"),
         ("cursor" = Option<String>, Query, description = "Keyset taken_at|id"),
         ("limit" = Option<i64>, Query, description = "1..=200, default 200"),
         ("bbox" = Option<String>, Query, description = "west,south,east,north WGS84")
     ),
     responses(
-        (status = 200, description = "Pagina di asset del mese", body = TimelinePage),
-        (status = 400, description = "bucket o cursor illeggibili", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Page of assets for the month", body = TimelinePage),
+        (status = 400, description = "Unreadable bucket or cursor", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn page(

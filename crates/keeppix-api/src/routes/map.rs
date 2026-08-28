@@ -25,11 +25,11 @@ pub struct MapClusterView {
     pub count: i64,
     pub cover_asset_id: String,
     pub clustered: bool,
-    /// Id della cartella di `cover_asset_id`: apre "Apri cartella" dal
-    /// popover (spec fase-10 §27) senza una seconda richiesta.
+    /// Id of `cover_asset_id`'s folder: opens "Open folder" from the
+    /// popover without a second request.
     pub folder_id: String,
-    /// Etichetta leggibile del luogo, dalla geocodifica inversa di Fase 4.
-    /// `None` finché l'asset di copertina non ha un luogo assegnato.
+    /// Human-readable place label, from reverse geocoding.
+    /// `None` until the cover asset has an assigned place.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place_label: Option<String>,
 }
@@ -49,8 +49,8 @@ impl From<MapCluster> for MapClusterView {
 }
 
 /// # Errors
-/// `400` per bbox, zoom o scope malformati; `401` senza sessione; `403` per
-/// uno scope sconosciuto o non visibile.
+/// `400` for a malformed bbox, zoom, or scope; `401` without a session;
+/// `403` for an unknown or not-visible scope.
 #[utoipa::path(
     get,
     path = "/api/v1/map/clusters",
@@ -59,18 +59,18 @@ impl From<MapCluster> for MapClusterView {
     summary = "Get map clusters",
     security(("session_cookie" = [])),
     params(
-        ("bbox" = String, Query, description = "west,south,east,north in gradi WGS84"),
-        ("zoom" = i32, Query, description = "Livello di zoom, 0..=30"),
-        ("scope" = String, Query, description = "library, album, folder o search"),
-        ("scope_id" = String, Query, description = "UUID dello scope")
+        ("bbox" = String, Query, description = "west,south,east,north in WGS84 degrees"),
+        ("zoom" = i32, Query, description = "Zoom level, 0..=30"),
+        ("scope" = String, Query, description = "library, album, folder, or search"),
+        ("scope_id" = String, Query, description = "UUID of the scope")
     ),
     responses(
-        (status = 200, description = "Celle aggregate o punti singoli", body = [MapClusterView]),
-        (status = 400, description = "Parametri non validi", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Scope non visibile", body = Problem),
-        (status = 503, description = "Database non disponibile", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Aggregated cells or individual points", body = [MapClusterView]),
+        (status = 400, description = "Invalid parameters", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Scope not visible", body = Problem),
+        (status = 503, description = "Database unavailable", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn clusters(
@@ -106,13 +106,13 @@ pub async fn clusters(
     Ok(Json(rows.into_iter().map(MapClusterView::from).collect()))
 }
 
-/// Serve il file PMTiles locale tramite byte range. Le coordinate restano nel
-/// percorso per il protocollo della mappa, ma il payload è letto direttamente
-/// dall'archivio senza decompressione o rendering server-side.
+/// Serves the local PMTiles file via byte range. The coordinates stay in
+/// the path for the map protocol, but the payload is read directly from
+/// the archive with no server-side decompression or rendering.
 ///
 /// # Errors
-/// `401` senza sessione; `404` se la regione è assente o è stata cancellata;
-/// `416` per un range non valido.
+/// `401` without a session; `404` if the region is missing or has been
+/// deleted; `416` for an invalid range.
 #[utoipa::path(
     get,
     path = "/api/v1/map/tiles/{region}/{z}/{x}/{y}",
@@ -121,17 +121,17 @@ pub async fn clusters(
     summary = "Serve a map tile from the archive",
     security(("session_cookie" = [])),
     params(
-        ("region" = String, Path, description = "Id della regione locale"),
+        ("region" = String, Path, description = "Local region id"),
         ("z" = u8, Path, description = "Zoom"),
-        ("x" = u32, Path, description = "Coordinata tile X"),
-        ("y" = u32, Path, description = "Coordinata tile Y")
+        ("x" = u32, Path, description = "Tile X coordinate"),
+        ("y" = u32, Path, description = "Tile Y coordinate")
     ),
     responses(
-        (status = 200, description = "Archivio PMTiles"),
-        (status = 206, description = "Byte range PMTiles"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 404, description = "Regione non disponibile", body = Problem),
-        (status = 416, description = "Range non valido", body = Problem)
+        (status = 200, description = "PMTiles archive"),
+        (status = 206, description = "PMTiles byte range"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 404, description = "Region not available", body = Problem),
+        (status = 416, description = "Invalid range", body = Problem)
     )
 )]
 pub async fn tiles(

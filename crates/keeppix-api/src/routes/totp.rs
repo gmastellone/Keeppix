@@ -1,6 +1,6 @@
-//! TOTP two-factor authentication (Fase 6 Task 5). Provisioning, status,
-//! recovery-code regeneration, and disable. Login verification lives in
-//! `auth::login` so the password + TOTP challenge stays a single request.
+//! TOTP two-factor authentication. Provisioning, status, recovery-code
+//! regeneration, and disable. Login verification lives in `auth::login` so
+//! the password + TOTP challenge stays a single request.
 
 use axum::extract::State;
 use axum::http::StatusCode;

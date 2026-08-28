@@ -1,7 +1,7 @@
-//! Annullamento delle operazioni lunghe (Fase 10 Task 16). `operations` è la
-//! fonte di verità già letta dal poll del WebSocket (`ws::drain_operations`);
-//! questa rotta si limita a chiedere l'annullamento e a restituire l'esito
-//! parziale come `BulkOutcome`, senza inventare un secondo canale di stato.
+//! Cancellation of long-running operations. `operations` is the source of
+//! truth already read by the WebSocket poll (`ws::drain_operations`); this
+//! route only requests the cancellation and returns the partial outcome as
+//! `BulkOutcome`, without inventing a second status channel.
 
 use axum::extract::State;
 use keeppix_db::OperationsRepo;
@@ -13,17 +13,17 @@ use crate::json::Json;
 use crate::problem::Problem;
 use crate::state::AppState;
 
-/// **Ruling (Task 16): annullare a metà produce una riuscita parziale, non
-/// un rollback.** La risposta elenca in `succeeded` esattamente ciò che è
-/// già stato applicato al momento della richiesta — il worker può ancora
-/// scrivere qualche elemento in più prima di notare la richiesta di
-/// annullamento (la controlla fra un elemento e il successivo, non a
-/// grana più fine), ma non disfa nulla di ciò che ha già scritto.
+/// **Cancelling midway produces a partial success, not a rollback.** The
+/// response lists in `succeeded` exactly what has already been applied at
+/// the time of the request — the worker may still write a few more
+/// elements before noticing the cancellation request (it checks between
+/// one element and the next, not at finer granularity), but it never
+/// undoes anything it has already written.
 ///
 /// # Errors
-/// `401` senza sessione; `403` — non `404` — se l'operazione non è visibile
-/// al chiamante (non owner, non admin), altrimenti l'id diventerebbe un
-/// oracolo di esistenza.
+/// `401` without a session; `403` — not `404` — if the operation is not
+/// visible to the caller (not owner, not admin), otherwise the id would
+/// become an existence oracle.
 #[utoipa::path(
     post,
     path = "/api/v1/operations/{id}/cancel",
@@ -31,11 +31,11 @@ use crate::state::AppState;
     operation_id = "operations_cancel",
     summary = "Cancel a long-running operation",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'operazione")),
+    params(("id" = String, Path, description = "Operation id")),
     responses(
-        (status = 200, description = "Esito parziale al momento dell'annullamento", body = BulkOutcome),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non consentito", body = Problem)
+        (status = 200, description = "Partial outcome at the time of cancellation", body = BulkOutcome),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not allowed", body = Problem)
     )
 )]
 pub async fn cancel(

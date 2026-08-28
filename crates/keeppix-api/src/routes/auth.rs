@@ -14,24 +14,25 @@ use crate::problem::Problem;
 use crate::routes::setup::user_agent;
 use crate::state::AppState;
 
-/// Rappresentazione pubblica dell'utente. Non contiene l'hash della password
-/// né il segreto TOTP: quei campi non lasciano mai il database.
+/// Public representation of a user. Contains neither the password hash nor
+/// the TOTP secret: those fields never leave the database.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct UserView {
     pub id: String,
     pub username: String,
     pub display_name: String,
     pub email: Option<String>,
-    // Il campo resta `&'static str` (è una costante scelta dal server, non un
-    // dato allocato): al documento basta sapere che sul filo è una stringa.
+    // The field stays `&'static str` (it's a constant chosen by the server,
+    // not allocated data): the schema only needs to know it's a string on
+    // the wire.
     #[schema(value_type = String)]
     pub role: &'static str,
     pub locale: Option<String>,
     pub disabled_at: Option<DateTime<Utc>>,
-    /// Nome del server (§61, cosmetico — `AppState::server_name`).
+    /// Server name (cosmetic — `AppState::server_name`).
     pub server_name: String,
-    /// Quando la password è stata impostata l'ultima volta (§61 «Ultima
-    /// modifica»). Coincide con la creazione dell'account finché non cambia.
+    /// When the password was last set ("Last changed"). Matches account
+    /// creation until it is changed.
     pub password_changed_at: DateTime<Utc>,
 }
 
@@ -70,8 +71,9 @@ pub struct LoginResponse {
 }
 
 /// # Errors
-/// `401 invalid-credentials` per utente inesistente, password errata o account
-/// disabilitato: le tre situazioni sono indistinguibili dall'esterno.
+/// `401 invalid-credentials` for a nonexistent user, wrong password, or a
+/// disabled account: the three situations are indistinguishable from the
+/// outside.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/login",
@@ -80,12 +82,12 @@ pub struct LoginResponse {
     summary = "Open a session with username and password",
     request_body = LoginRequest,
     responses(
-        (status = 200, description = "Sessione aperta", body = LoginResponse),
-        (status = 400, description = "Corpo JSON sintatticamente non valido", body = Problem),
-        (status = 401, description = "Credenziali non valide", body = Problem),
-        (status = 415, description = "Content-Type diverso da application/json", body = Problem),
-        (status = 422, description = "Corpo JSON valido ma di forma inattesa", body = Problem),
-        (status = 500, description = "Errore del database o nella creazione della sessione", body = Problem)
+        (status = 200, description = "Session opened", body = LoginResponse),
+        (status = 400, description = "JSON body is not syntactically valid", body = Problem),
+        (status = 401, description = "Invalid credentials", body = Problem),
+        (status = 415, description = "Content-Type other than application/json", body = Problem),
+        (status = 422, description = "Valid JSON body but of unexpected shape", body = Problem),
+        (status = 500, description = "Database error or failure creating the session", body = Problem)
     )
 )]
 pub async fn login(
@@ -114,9 +116,9 @@ pub async fn login(
 
     let found = UserRepo::new(&state.db).find_by_username(&username).await?;
     let Some((user, hash)) = found else {
-        // Verifica fittizia per non far trapelare l'esistenza dell'utente
-        // dal tempo di risposta: l'hash sotto è un Argon2id valido, quindi
-        // `verify_password` esegue l'intero calcolo prima di fallire.
+        // Dummy verification so the response time doesn't leak whether the
+        // user exists: the hash below is a valid Argon2id, so
+        // `verify_password` runs the full computation before failing.
         let _ = verify_password(&password, &dummy_hash());
         return Err(invalid());
     };
@@ -159,13 +161,13 @@ pub async fn login(
     ))
 }
 
-/// Hash costante usato solo per pareggiare i tempi di risposta quando lo
-/// username non esiste. Deve essere un Argon2id **valido** — altrimenti
-/// `verify_password` fallisce a livello di parsing senza mai eseguire
-/// Argon2, e la differenza di tempo che questa funzione dovrebbe mascherare
-/// resta interamente visibile. Generato una tantum con `hash_password` su
-/// una password arbitraria mai usata per un login reale; vedi il test
-/// `dummy_hash_is_a_valid_argon2id_phc_string` sotto.
+/// Constant hash used only to equalize response times when the username
+/// does not exist. Must be a **valid** Argon2id — otherwise
+/// `verify_password` fails at the parsing stage without ever running
+/// Argon2, and the timing difference this function is supposed to mask
+/// remains entirely visible. Generated once with `hash_password` on an
+/// arbitrary password never used for a real login; see the
+/// `dummy_hash_is_a_valid_argon2id_phc_string` test below.
 fn dummy_hash() -> keeppix_domain::PasswordHash {
     keeppix_domain::PasswordHash::from_stored(
         "$argon2id$v=19$m=19456,t=2,p=1$BKjMC3FKz54nTDnFf9fLRQ$\
@@ -175,15 +177,17 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
 }
 
 /// # Errors
-/// `401 unauthenticated` se il cookie manca, è scaduto o è stato riusato dopo
-/// il consumo — in quest'ultimo caso l'intera famiglia è già stata revocata;
-/// `503 service-unavailable` se il database non risponde.
-// Le cause di un `401` restano indistinguibili di proposito: il client non deve
-// poter dire una rotazione rifiutata da un token già consumato. L'argomento
-// vale però solo fra `NotFound` e `Forbidden` — non per un database
-// irraggiungibile, che non rivela nulla sullo stato del token e che, mappato su
-// 401, disconnetterebbe tutti a ogni riavvio di Postgres. La distinzione vive
-// in un solo posto, `crate::extract::session_problem`.
+/// `401 unauthenticated` if the cookie is missing, expired, or was reused
+/// after being consumed — in the latter case the entire family has already
+/// been revoked; `503 service-unavailable` if the database does not
+/// respond.
+// The causes of a `401` remain indistinguishable on purpose: the client
+// must not be able to tell a rejected rotation apart from an already-consumed
+// token. That argument only holds between `NotFound` and `Forbidden`,
+// though — not for an unreachable database, which reveals nothing about the
+// token's state and which, if mapped to 401, would log everyone out on
+// every Postgres restart. The distinction lives in one place,
+// `crate::extract::session_problem`.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/refresh",
@@ -192,10 +196,10 @@ fn dummy_hash() -> keeppix_domain::PasswordHash {
     summary = "Rotate the current session cookie",
     security(("session_cookie" = [])),
     responses(
-        (status = 204, description = "Sessione ruotata, nuovo cookie emesso"),
-        (status = 401, description = "Cookie assente, scaduto o già consumato", body = Problem),
-        (status = 500, description = "Riga di sessione illeggibile", body = Problem),
-        (status = 503, description = "Database non raggiungibile: riprovare, la sessione è ancora valida", body = Problem)
+        (status = 204, description = "Session rotated, new cookie issued"),
+        (status = 401, description = "Cookie missing, expired, or already consumed", body = Problem),
+        (status = 500, description = "Session row unreadable", body = Problem),
+        (status = 503, description = "Database unreachable: retry, the session is still valid", body = Problem)
     )
 )]
 pub async fn refresh(
@@ -218,24 +222,24 @@ pub async fn refresh(
     Ok((StatusCode::NO_CONTENT, jar))
 }
 
-/// Sempre `204`, anche senza cookie: uscire deve funzionare comunque.
-// Nessun `security(...)`: la rotta è deliberatamente utilizzabile anche senza
-// cookie, e l'errore di revoca viene loggato, non restituito — 204 è l'unico
-// esito possibile.
+/// Always `204`, even without a cookie: logging out must work regardless.
+// No `security(...)`: the route is deliberately usable even without a
+// cookie, and the revocation error is logged, not returned — 204 is the
+// only possible outcome.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/logout",
     tag = "auth",
     operation_id = "auth_logout",
     summary = "Revoke the current session and clear the cookie",
-    responses((status = 204, description = "Sessione chiusa e cookie ripulito"))
+    responses((status = 204, description = "Session closed and cookie cleared"))
 )]
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
         let token = SessionToken::from_string(cookie.value().to_owned());
         state.sessions.drop_token(&token);
         if let Err(e) = SessionRepo::new(&state.db).revoke(&token).await {
-            tracing::warn!(error = %e, "revoca sessione fallita");
+            tracing::warn!(error = %e, "session revocation failed");
         }
     }
     (StatusCode::NO_CONTENT, jar.add(clearing_cookie()))
@@ -257,7 +261,8 @@ pub struct MeResponse {
 }
 
 /// # Errors
-/// `401` se non autenticato, `404` se l'utente è stato nel frattempo rimosso.
+/// `401` if not authenticated, `404` if the user was removed in the
+/// meantime.
 #[utoipa::path(
     get,
     path = "/api/v1/auth/me",
@@ -266,11 +271,11 @@ pub struct MeResponse {
     summary = "Return the current authenticated user",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Utente della sessione corrente", body = MeResponse),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 404, description = "Utente rimosso mentre la sessione era aperta", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem),
-        (status = 503, description = "Database non raggiungibile durante la verifica della sessione", body = Problem)
+        (status = 200, description = "User of the current session", body = MeResponse),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 404, description = "User removed while the session was open", body = Problem),
+        (status = 500, description = "Database error", body = Problem),
+        (status = 503, description = "Database unreachable while verifying the session", body = Problem)
     )
 )]
 pub async fn me(
@@ -289,24 +294,23 @@ mod tests {
     use super::dummy_hash;
     use keeppix_domain::{Password, verify_password};
 
-    /// Plaintext usato una tantum per generare la costante `dummy_hash()`.
-    /// Pubblicarlo qui è innocuo: nessun account usa questa password, e la
-    /// difesa ha bisogno di *tempo* di verifica comparabile, non di segretezza.
+    /// Plaintext used once to generate the `dummy_hash()` constant.
+    /// Publishing it here is harmless: no account uses this password, and
+    /// the defense needs comparable verification *time*, not secrecy.
     const DUMMY_HASH_PLAINTEXT: &str = "this password is never used to log in";
 
-    /// Pin sul bug che questa funzione corregge: il `dummy_hash()` originale
-    /// della brief era un PHC malformato, quindi `verify_password` falliva
-    /// nel *parsing* e non eseguiva mai Argon2 — la differenza di tempo tra
-    /// "utente inesistente" e "password errata" restava intera.
+    /// Pins the bug this function fixes: the original `dummy_hash()` was a
+    /// malformed PHC string, so `verify_password` failed at the *parsing*
+    /// stage and never ran Argon2 — the timing difference between
+    /// "nonexistent user" and "wrong password" stayed fully visible.
     ///
-    /// `starts_with("$argon2id$")`, `contains("m=19456,t=2,p=1")` e
-    /// `!verify_password(altra_password, ..)` da soli non bastano a pinnare
-    /// questo: un hash corrotto proprio nell'ultimo segmento — cioè lo stesso
-    /// identico bug — supererebbe comunque tutti e tre, perché un fallimento
-    /// di parsing restituisce `false` in modo indistinguibile da un mismatch
-    /// reale. Solo un match **positivo** contro il plaintext che ha generato
-    /// l'hash dimostra che il parsing è riuscito e che Argon2 ha girato per
-    /// intero.
+    /// `starts_with("$argon2id$")`, `contains("m=19456,t=2,p=1")`, and
+    /// `!verify_password(other_password, ..)` alone are not enough to pin
+    /// this down: a hash corrupted right in the last segment — i.e. the
+    /// exact same bug — would still pass all three, because a parsing
+    /// failure returns `false` indistinguishably from a real mismatch. Only
+    /// a **positive** match against the plaintext that generated the hash
+    /// proves that parsing succeeded and that Argon2 ran to completion.
     #[test]
     #[allow(clippy::unwrap_used)]
     fn dummy_hash_is_a_valid_argon2id_phc_string() {
@@ -317,11 +321,11 @@ mod tests {
         let matching = Password::parse(DUMMY_HASH_PLAINTEXT).unwrap();
         assert!(
             verify_password(&matching, &hash),
-            "il parsing dell'hash deve riuscire e Argon2 deve girare per intero"
+            "hash parsing must succeed and Argon2 must run to completion"
         );
 
-        // Nessuna password reale di login deve verificare contro l'hash
-        // fittizio: il suo plaintext non corrisponde a nessun account.
+        // No real login password should verify against the dummy hash: its
+        // plaintext does not correspond to any account.
         let attempted = Password::parse("correct horse battery staple").unwrap();
         assert!(!verify_password(&attempted, &hash));
     }

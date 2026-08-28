@@ -8,18 +8,17 @@ use crate::state::AppState;
 pub struct Health {
     status: &'static str,
     version: &'static str,
-    /// `"ok"`, `"unreachable"`, o `"not checked"`.
+    /// `"ok"`, `"unreachable"`, or `"not checked"`.
     database: &'static str,
 }
 
-// `status` resta sempre "ok" a prescindere da `database`: il processo è
-// vivo comunque, cambiare l'HTTP status qui rischierebbe riavvii inutili da
-// parte di chi orchestrasse questa rotta come liveness probe in futuro.
-// Questa rotta oggi è solo diagnostica manuale (docs/DEPLOY.md "Diagnosi",
-// un `curl` umano) — l'health-check Docker reale è un controllo TCP
-// separato (`keeppix healthcheck` in main.rs), non tocca questa rotta.
-// `database` chiude il debito `Db::ping` (scripts/wired-exceptions.txt,
-// mai consumato dalla Fase 0).
+// `status` always stays "ok" regardless of `database`: the process is
+// alive either way, and changing the HTTP status here would risk
+// unnecessary restarts for anyone who orchestrates this route as a
+// liveness probe in the future. Today this route is only manual
+// diagnostics (docs/DEPLOY.md "Diagnostics", a human `curl`) — the actual
+// Docker health check is a separate TCP check (`keeppix healthcheck` in
+// main.rs) and does not touch this route.
 
 #[utoipa::path(
     get,
@@ -28,7 +27,7 @@ pub struct Health {
     operation_id = "health_get",
     summary = "Liveness check",
     responses(
-        (status = 200, description = "Il processo risponde", body = Health)
+        (status = 200, description = "The process is responding", body = Health)
     )
 )]
 pub async fn get(State(state): State<AppState>) -> Json<Health> {
@@ -44,9 +43,9 @@ pub async fn get(State(state): State<AppState>) -> Json<Health> {
     })
 }
 
-/// Variante senza stato per `router_without_state()` — test che non vogliono
-/// dipendere dal database. Stesso corpo, `database` dichiara onestamente di
-/// non aver controllato nulla, invece di mentire con `"ok"`.
+/// Stateless variant for `router_without_state()` — tests that don't want
+/// to depend on the database. Same body, `database` honestly declares it
+/// checked nothing, instead of lying with `"ok"`.
 pub async fn get_without_db() -> Json<Health> {
     Json(Health {
         status: "ok",

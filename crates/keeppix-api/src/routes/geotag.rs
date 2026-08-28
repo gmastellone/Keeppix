@@ -1,5 +1,5 @@
-//! Assegnazioni di posizione che richiedono una sorgente distinta per asset
-//! (GPX) o la lettura di una fotografia sorgente (copia).
+//! Location assignments that require a distinct per-asset source (GPX) or
+//! reading a source photo (copy).
 
 use axum::extract::State;
 use chrono::Duration;
@@ -25,17 +25,17 @@ pub struct CopyLocationRequest {
 pub struct ImportGpxRequest {
     #[schema(value_type = Vec<String>)]
     pub asset_ids: Vec<AssetId>,
-    /// Documento GPX UTF-8 completo.
+    /// Full UTF-8 GPX document.
     pub gpx: String,
-    /// Se assente vale cinque minuti. Fuori dal range coperto si usa
-    /// l'estremo solo entro questa tolleranza.
+    /// Defaults to five minutes if absent. Outside the covered range, the
+    /// endpoint is used only within this tolerance.
     #[schema(example = 5)]
     pub tolerance_minutes: Option<u32>,
 }
 
 /// # Errors
-/// `400` se la sorgente non ha coordinate; `403` se la sorgente non è
-/// visibile. I target non modificabili finiscono in `failed`.
+/// `400` if the source has no coordinates; `403` if the source is not
+/// visible. Non-editable targets end up in `failed`.
 #[utoipa::path(
     post,
     path = "/api/v1/metadata/batch/copy-location",
@@ -45,10 +45,10 @@ pub struct ImportGpxRequest {
     security(("session_cookie" = [])),
     request_body = CopyLocationRequest,
     responses(
-        (status = 200, description = "Esito per target; batch_id annullabile sui riusciti", body = BulkOutcome),
-        (status = 400, description = "Sorgente senza posizione o batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Sorgente non visibile", body = Problem)
+        (status = 200, description = "Per-target outcome; batch_id undoable on successes", body = BulkOutcome),
+        (status = 400, description = "Source has no location, or batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Source not visible", body = Problem)
     )
 )]
 pub async fn copy_location(
@@ -79,8 +79,8 @@ pub async fn copy_location(
 }
 
 /// # Errors
-/// `400` per GPX malformato o batch troppo grande; gli asset non
-/// modificabili finiscono in `failed`.
+/// `400` for malformed GPX or a batch too large; non-editable assets end
+/// up in `failed`.
 #[utoipa::path(
     post,
     path = "/api/v1/metadata/batch/import-gpx",
@@ -90,9 +90,9 @@ pub async fn copy_location(
     security(("session_cookie" = [])),
     request_body = ImportGpxRequest,
     responses(
-        (status = 200, description = "Esito per asset; batch_id annullabile sui geotaggati", body = BulkOutcome),
-        (status = 400, description = "GPX non valido o batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Per-asset outcome; batch_id undoable on the geotagged ones", body = BulkOutcome),
+        (status = 400, description = "Invalid GPX or batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn import_gpx(

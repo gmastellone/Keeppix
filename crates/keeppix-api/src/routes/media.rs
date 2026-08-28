@@ -15,12 +15,12 @@ use crate::extract::SessionOrShare;
 use crate::problem::Problem;
 use crate::state::AppState;
 
-// Authenticated media: browser cache only. `public` waits for Fase 3 share URLs
-// (design §CDN; spec 1c said public — see STATO ruling).
+// Authenticated media: browser cache only. `public` waits for share URLs.
 const IMMUTABLE: &str = "private, max-age=31536000, immutable";
 
 /// # Errors
-/// `401` se non autenticato; `403` se l'hash non è visibile o non esiste.
+/// `401` if not authenticated; `403` if the hash is not visible or does not
+/// exist.
 #[utoipa::path(
     get,
     path = "/media/thumb/{hash}",
@@ -28,12 +28,12 @@ const IMMUTABLE: &str = "private, max-age=31536000, immutable";
     operation_id = "media_thumb",
     summary = "Serve a thumbnail",
     security(("session_cookie" = [])),
-    params(("hash" = String, Path, description = "blake3 hex da 64 caratteri")),
+    params(("hash" = String, Path, description = "blake3 hex, 64 characters")),
     responses(
-        (status = 200, description = "Thumbnail WebP"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Hash non visibile", body = Problem),
-        (status = 404, description = "Derivato assente su disco", body = Problem)
+        (status = 200, description = "WebP thumbnail"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Hash not visible", body = Problem),
+        (status = 404, description = "Derivative missing on disk", body = Problem)
     )
 )]
 pub async fn thumb(
@@ -45,7 +45,7 @@ pub async fn thumb(
 }
 
 /// # Errors
-/// Come `thumb`.
+/// Same as `thumb`.
 #[utoipa::path(
     get,
     path = "/media/preview/{hash}",
@@ -53,12 +53,12 @@ pub async fn thumb(
     operation_id = "media_preview",
     summary = "Serve a preview derivative",
     security(("session_cookie" = [])),
-    params(("hash" = String, Path, description = "blake3 hex da 64 caratteri")),
+    params(("hash" = String, Path, description = "blake3 hex, 64 characters")),
     responses(
-        (status = 200, description = "Preview WebP"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Hash non visibile", body = Problem),
-        (status = 404, description = "Derivato assente su disco", body = Problem)
+        (status = 200, description = "WebP preview"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Hash not visible", body = Problem),
+        (status = 404, description = "Derivative missing on disk", body = Problem)
     )
 )]
 pub async fn preview(
@@ -70,7 +70,7 @@ pub async fn preview(
 }
 
 /// # Errors
-/// Come `thumb`. Genera il livello `full` alla prima richiesta.
+/// Same as `thumb`. Generates the `full` tier on first request.
 #[utoipa::path(
     get,
     path = "/media/full/{hash}",
@@ -78,13 +78,13 @@ pub async fn preview(
     operation_id = "media_full",
     summary = "Serve a full-size derivative",
     security(("session_cookie" = [])),
-    params(("hash" = String, Path, description = "blake3 hex da 64 caratteri")),
+    params(("hash" = String, Path, description = "blake3 hex, 64 characters")),
     responses(
-        (status = 200, description = "Full WebP a risoluzione nativa"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Hash non visibile", body = Problem),
-        (status = 404, description = "Originale assente o non derivabile", body = Problem),
-        (status = 503, description = "Full non disponibile (demosaic assente)", body = Problem)
+        (status = 200, description = "Full-size WebP at native resolution"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Hash not visible", body = Problem),
+        (status = 404, description = "Original missing or not derivable", body = Problem),
+        (status = 503, description = "Full not available (demosaic unavailable)", body = Problem)
     )
 )]
 pub async fn full(
@@ -166,7 +166,7 @@ fn build_full(
 }
 
 /// # Errors
-/// `401` / `403` come gli altri asset; `404` se il file non è sul disco.
+/// `401` / `403` same as other assets; `404` if the file is not on disk.
 #[utoipa::path(
     get,
     path = "/media/original/{id}",
@@ -174,13 +174,13 @@ fn build_full(
     operation_id = "media_original",
     summary = "Serve an original media file",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset")),
+    params(("id" = String, Path, description = "Asset id")),
     responses(
-        (status = 200, description = "File originale"),
+        (status = 200, description = "Original file"),
         (status = 206, description = "Byte range"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile", body = Problem),
-        (status = 404, description = "File assente", body = Problem)
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible", body = Problem),
+        (status = 404, description = "File missing", body = Problem)
     )
 )]
 pub async fn original(

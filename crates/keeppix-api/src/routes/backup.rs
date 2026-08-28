@@ -1,4 +1,4 @@
-//! Backup wizard API (Fase 6 Task 3). Admin-only.
+//! Backup wizard API. Admin-only.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -30,7 +30,7 @@ pub struct BackupPreferencesView {
     pub verify_after_write: bool,
     pub monthly_restore_proof: bool,
     pub passphrase_set: bool,
-    /// Spec §2.4 mandatory warning when originals are excluded.
+    /// Mandatory warning when originals are excluded.
     pub originals_warning: bool,
     pub originals_warning_message: Option<&'static str>,
 }
@@ -222,9 +222,9 @@ pub async fn put_preferences(
     summary = "List backup destinations",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Destinazioni configurate (segreti oscurati)", body = Vec<DestinationView>),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 200, description = "Configured destinations (secrets redacted)", body = Vec<DestinationView>),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 pub async fn list_destinations(
@@ -256,10 +256,10 @@ pub async fn list_destinations(
     security(("session_cookie" = [])),
     request_body = NewDestinationRequest,
     responses(
-        (status = 201, description = "Destinazione creata e verificata raggiungibile", body = DestinationView),
-        (status = 400, description = "Destinazione non raggiungibile o kind non valido", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 201, description = "Destination created and verified reachable", body = DestinationView),
+        (status = 400, description = "Destination unreachable or invalid kind", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 pub async fn create_destination(
@@ -308,11 +308,11 @@ pub async fn create_destination(
     operation_id = "backup_destinations_delete",
     summary = "Delete a backup destination",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della destinazione")),
+    params(("id" = String, Path, description = "Destination id")),
     responses(
-        (status = 204, description = "Destinazione cancellata"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 204, description = "Destination deleted"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 pub async fn delete_destination(
@@ -335,12 +335,12 @@ pub async fn delete_destination(
     operation_id = "backup_destinations_test",
     summary = "Test that a backup destination is reachable",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della destinazione")),
+    params(("id" = String, Path, description = "Destination id")),
     responses(
-        (status = 204, description = "Destinazione raggiungibile"),
-        (status = 400, description = "Destinazione non raggiungibile", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 204, description = "Destination reachable"),
+        (status = 400, description = "Destination unreachable", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 pub async fn test_destination(
@@ -367,9 +367,9 @@ pub async fn test_destination(
     summary = "List past backup runs",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Ultimi 50 run, più recente prima", body = Vec<RunView>),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 200, description = "Last 50 runs, most recent first", body = Vec<RunView>),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 pub async fn list_runs(
@@ -392,10 +392,10 @@ pub async fn list_runs(
     summary = "Run a backup immediately",
     security(("session_cookie" = [])),
     responses(
-        (status = 202, description = "Backup eseguito, run registrata"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 400, description = "Backup fallito", body = Problem)
+        (status = 202, description = "Backup executed, run recorded"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 400, description = "Backup failed", body = Problem)
     )
 )]
 pub async fn run_now(

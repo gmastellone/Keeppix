@@ -1,9 +1,9 @@
-//! Sessioni di upload riprendibili in stile tus (spec §1). Il protocollo è
-//! nostro, non un crate tus: pre-check per hash, creazione con verifica di
-//! spazio e permessi, chunk con checksum, finalizzazione con verifica
-//! end-to-end e risoluzione di collisione sul nome. Vedi
-//! `keeppix_db::UploadSessionRepo` per la logica che qui si limita a
-//! tradurre in HTTP.
+//! Resumable upload sessions in a tus-like style. The protocol is our own,
+//! not a tus crate: hash pre-check, session creation with space and
+//! permission verification, checksummed chunks, finalization with
+//! end-to-end verification and filename collision resolution. See
+//! `keeppix_db::UploadSessionRepo` for the logic, which this module only
+//! translates to HTTP.
 
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -23,31 +23,31 @@ use crate::problem::Problem;
 use crate::routes::share::peek_header;
 use crate::state::AppState;
 
-/// Limite server-side su un singolo chunk (spec §1.2 non lo fissa, ma un
-/// client che dichiara `remaining` a più gigabyte non deve poter far
-/// bufferizzare tutto in RAM in un colpo): un chunk più grande va spezzato
-/// dal client, non accettato qui.
+/// Server-side limit on a single chunk (not fixed by the client, but a
+/// client declaring `remaining` in the multi-gigabyte range must not be
+/// able to force it all to be buffered in RAM at once): a larger chunk
+/// must be split by the client, not accepted here.
 const MAX_CHUNK_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct CheckRequest {
-    /// blake3 esadecimali (64 caratteri) calcolati localmente dal client.
+    /// blake3 hex digests (64 characters) computed locally by the client.
     pub hashes: Vec<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct CheckResponse {
-    /// Il sottoinsieme di `hashes` che il server **non** ha già: sono gli
-    /// unici che vale la pena caricare (spec §1.2, «questi 47 li ho già,
-    /// caricami gli altri 12»).
+    /// The subset of `hashes` that the server **does not** already have:
+    /// these are the only ones worth uploading ("I already have these 47,
+    /// send me the other 12").
     pub unknown_hashes: Vec<String>,
 }
 
-/// `POST /api/v1/upload/check` — pre-check batch prima di aprire sessioni.
+/// `POST /api/v1/upload/check` — batch pre-check before opening sessions.
 ///
 /// # Errors
-/// `400` se un hash non è esadecimale a 64 caratteri. `401`/`403` se il
-/// chiamante non ha un contesto valido.
+/// `400` if a hash is not 64 hex characters. `401`/`403` if the caller
+/// does not have a valid context.
 #[utoipa::path(
     post,
     path = "/api/v1/upload/check",
@@ -57,10 +57,10 @@ pub struct CheckResponse {
     security(("session_cookie" = [])),
     request_body = CheckRequest,
     responses(
-        (status = 200, description = "Hash non ancora presenti sul server", body = CheckResponse),
-        (status = 400, description = "Un hash non è esadecimale a 64 caratteri", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Contesto non valido", body = Problem)
+        (status = 200, description = "Hashes not yet present on the server", body = CheckResponse),
+        (status = 400, description = "A hash is not 64 hex characters", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Invalid context", body = Problem)
     )
 )]
 pub async fn check(
@@ -94,10 +94,10 @@ pub struct CreateSessionRequest {
     pub target_folder_id: uuid::Uuid,
     pub filename: String,
     pub expected_size: i64,
-    /// blake3 esadecimale del file intero, se il client lo conosce già.
+    /// blake3 hex digest of the whole file, if the client already knows it.
     pub expected_hash: Option<String>,
-    /// `mtime` originale sul dispositivo del client (spec §1.3): preservato
-    /// come fallback di `taken_at` quando l'EXIF non ce l'ha.
+    /// Original `mtime` on the client device: preserved as a fallback for
+    /// `taken_at` when EXIF doesn't have it.
     #[schema(value_type = Option<String>)]
     pub client_mtime: Option<DateTime<Utc>>,
 }
@@ -107,14 +107,14 @@ pub struct CreateSessionResponse {
     pub id: String,
 }
 
-/// `POST /api/v1/upload` — apre una sessione. `201` con `Location:
+/// `POST /api/v1/upload` — opens a session. `201` with `Location:
 /// /api/v1/upload/{id}`.
 ///
 /// # Errors
-/// `400` se `filename` o `expected_hash` non sono validi. `403` se il
-/// chiamante non può scrivere nella cartella destinazione, o se un link
-/// condiviso non ha `allow_upload` sull'oggetto esatto. `507` se lo spazio
-/// libero sul filesystem della libreria è sotto `expected_size`.
+/// `400` if `filename` or `expected_hash` are invalid. `403` if the caller
+/// cannot write to the destination folder, or if a share link does not
+/// have `allow_upload` on the exact object. `507` if the library
+/// filesystem's free space is below `expected_size`.
 #[utoipa::path(
     post,
     path = "/api/v1/upload",
@@ -124,11 +124,11 @@ pub struct CreateSessionResponse {
     security(("session_cookie" = [])),
     request_body = CreateSessionRequest,
     responses(
-        (status = 201, description = "Sessione creata, Location: /api/v1/upload/{id}", body = CreateSessionResponse),
-        (status = 400, description = "filename o expected_hash non validi", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non può scrivere nella cartella destinazione", body = Problem),
-        (status = 507, description = "Spazio libero insufficiente", body = Problem)
+        (status = 201, description = "Session created, Location: /api/v1/upload/{id}", body = CreateSessionResponse),
+        (status = 400, description = "Invalid filename or expected_hash", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Cannot write to the destination folder", body = Problem),
+        (status = 507, description = "Insufficient free space", body = Problem)
     )
 )]
 pub async fn create(
@@ -171,12 +171,12 @@ pub async fn create(
         .into_response())
 }
 
-/// `HEAD /api/v1/upload/{id}` — l'offset vero, mai quello che il client
-/// crede di avere (spec §1.3, «la verità sta sempre sul server»).
+/// `HEAD /api/v1/upload/{id}` — the true offset, never what the client
+/// believes it has ("the truth always lives on the server").
 ///
 /// # Errors
-/// `403` se il chiamante non è il proprietario della sessione. `410` se è
-/// scaduta.
+/// `403` if the caller is not the owner of the session. `410` if it has
+/// expired.
 #[utoipa::path(
     head,
     path = "/api/v1/upload/{id}",
@@ -184,12 +184,12 @@ pub async fn create(
     operation_id = "upload_session_head",
     summary = "Get the true received-bytes offset of an upload session",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della sessione")),
+    params(("id" = String, Path, description = "Session id")),
     responses(
-        (status = 200, description = "Offset vero nell'header Upload-Offset"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non proprietario della sessione", body = Problem),
-        (status = 410, description = "Sessione scaduta", body = Problem)
+        (status = 200, description = "True offset in the Upload-Offset header"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not the owner of the session", body = Problem),
+        (status = 410, description = "Session expired", body = Problem)
     )
 )]
 pub async fn head(
@@ -207,27 +207,27 @@ pub async fn head(
 pub struct UploadCompleteResponse {
     pub asset_id: String,
     pub filename: String,
-    /// `created`, `skipped_duplicate` o `renamed` (spec §1.4): mai una
-    /// sovrascrittura silenziosa, sempre segnalata al client.
+    /// `created`, `skipped_duplicate`, or `renamed`: never a silent
+    /// overwrite, always reported to the client.
     pub collision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub existing_asset_id: Option<String>,
 }
 
-/// `PATCH /api/v1/upload/{id}` — appende un chunk, verifica il suo checksum,
-/// e finalizza la sessione quando l'offset raggiunge `expected_size`.
+/// `PATCH /api/v1/upload/{id}` — appends a chunk, verifies its checksum,
+/// and finalizes the session when the offset reaches `expected_size`.
 ///
 /// # Errors
-/// `403`/`410` come [`head`]. `409` se `Upload-Offset` non combacia con
-/// `received_bytes` reale — mai un'accettazione silenziosa che corrompe il
-/// file. `400` se manca un header richiesto o il corpo è vuoto. `413` se il
-/// chunk supera `MAX_CHUNK_BYTES` o i byte rimanenti della sessione: il
-/// corpo è letto in streaming, mai bufferizzato per intero in RAM. `460` se
-/// il checksum del chunk non combacia: il chunk non viene scritto, il
-/// client può rispedirlo senza perdere l'offset precedente. `422` a file
-/// completo, se l'hash end-to-end non combacia con `expected_hash` o il
-/// file non è decodificabile — mai finito in libreria, temporaneo
-/// eliminato, sessione marcata fallita.
+/// `403`/`410` as in [`head`]. `409` if `Upload-Offset` does not match the
+/// real `received_bytes` — never a silent acceptance that corrupts the
+/// file. `400` if a required header is missing or the body is empty.
+/// `413` if the chunk exceeds `MAX_CHUNK_BYTES` or the session's remaining
+/// bytes: the body is read in streaming, never buffered whole in RAM.
+/// `460` if the chunk's checksum does not match: the chunk is not written,
+/// the client can resend it without losing the previous offset. `422` at
+/// full-file time, if the end-to-end hash does not match `expected_hash`
+/// or the file is not decodable — never ends up in the library, the
+/// temporary file is deleted, the session is marked failed.
 #[utoipa::path(
     patch,
     path = "/api/v1/upload/{id}",
@@ -235,19 +235,19 @@ pub struct UploadCompleteResponse {
     operation_id = "upload_session_patch",
     summary = "Append a chunk, finalizing the session when complete",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della sessione")),
-    request_body(content = Vec<u8>, description = "Chunk grezzo", content_type = "application/octet-stream"),
+    params(("id" = String, Path, description = "Session id")),
+    request_body(content = Vec<u8>, description = "Raw chunk", content_type = "application/octet-stream"),
     responses(
-        (status = 204, description = "Chunk accettato, sessione non ancora completa"),
-        (status = 201, description = "Sessione completata", body = UploadCompleteResponse),
-        (status = 400, description = "Header mancante o corpo vuoto", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non proprietario della sessione", body = Problem),
-        (status = 409, description = "Upload-Offset non combacia con received_bytes", body = Problem),
-        (status = 410, description = "Sessione scaduta", body = Problem),
-        (status = 413, description = "Chunk oltre il limite consentito", body = Problem),
-        (status = 422, description = "Hash end-to-end o decodifica falliti", body = Problem),
-        (status = 460, description = "Checksum del chunk non combacia", body = Problem)
+        (status = 204, description = "Chunk accepted, session not yet complete"),
+        (status = 201, description = "Session completed", body = UploadCompleteResponse),
+        (status = 400, description = "Missing header or empty body", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not the owner of the session", body = Problem),
+        (status = 409, description = "Upload-Offset does not match received_bytes", body = Problem),
+        (status = 410, description = "Session expired", body = Problem),
+        (status = 413, description = "Chunk beyond the allowed limit", body = Problem),
+        (status = 422, description = "End-to-end hash or decoding failed", body = Problem),
+        (status = 460, description = "Chunk checksum does not match", body = Problem)
     )
 )]
 pub async fn patch(
@@ -292,18 +292,18 @@ pub async fn patch(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-/// Indicizza subito il file appena finalizzato, senza aspettare i 15
-/// minuti del watcher (spec §1.2 punto ⑤, Task 2 di Fase 5). Un duplicato
-/// esatto (`SkippedDuplicate`) non lo tocca: l'asset esistente è già stato
-/// indicizzato la prima volta, un secondo job sarebbe solo lavoro sprecato.
+/// Indexes the just-finalized file right away, without waiting for the
+/// watcher's usual delay. An exact duplicate (`SkippedDuplicate`) is left
+/// untouched: the existing asset was already indexed the first time, a
+/// second job would just be wasted work.
 ///
 /// # Errors
-/// `Problem::internal()` se l'enqueue fallisce — un errore qui non deve
-/// far fallire la risposta al client: l'asset esiste già, l'indicizzazione
-/// arriverà comunque dal prossimo rescan del watcher, solo più tardi.
+/// `Problem::internal()` if the enqueue fails — an error here must not
+/// fail the response to the client: the asset already exists, indexing
+/// will still arrive from the watcher's next rescan, just later.
 ///
-/// `pub(crate)`: riusata anche da `dav::write::put` (Task 7 Fase 5), che
-/// indicizza un `PUT` `WebDAV` esattamente come un chunk tus finalizzato.
+/// `pub(crate)`: also reused by `dav::write::put`, which indexes a
+/// `WebDAV` `PUT` exactly like a finalized tus chunk.
 pub(crate) async fn enqueue_indexing(db: &Db, asset_id: AssetId, collision: &CollisionOutcome) {
     if matches!(collision, CollisionOutcome::SkippedDuplicate { .. }) {
         return;
@@ -387,21 +387,21 @@ async fn finalize_upload(
     })
 }
 
-/// Scrive un chunk sul temporaneo in streaming — mai bufferizzato per
-/// intero in memoria, a differenza di un `axum::body::to_bytes(body, cap)`
-/// con `cap` fino a `expected_size` — calcolando l'hash blake3
-/// incrementalmente mentre i byte arrivano, sullo stile di
-/// `crate::routes::share::write_body_capped`.
+/// Writes a chunk to the temp file in streaming — never buffered whole in
+/// memory, unlike an `axum::body::to_bytes(body, cap)` with `cap` up to
+/// `expected_size` — computing the blake3 hash incrementally as bytes
+/// arrive, in the style of `crate::routes::share::write_body_capped`.
 ///
-/// Il checksum si verifica solo a corpo esaurito, ma il chunk **non**
-/// sopravvive a un checksum sbagliato: si tronca il file di append alla sua
-/// lunghezza originale (`set_len`), disfacendo esattamente i byte appena
-/// scritti — il client può rispedirlo senza perdere l'offset già accettato.
+/// The checksum is verified only once the body is exhausted, but the
+/// chunk does **not** survive a wrong checksum: the append file is
+/// truncated back to its original length (`set_len`), undoing exactly the
+/// bytes just written — the client can resend it without losing the
+/// offset already accepted.
 ///
 /// # Errors
-/// `400`/`413` se il corpo è vuoto, illeggibile, o supera `max_len` (limite
-/// per-chunk, mai tutto il resto del file in un colpo). `460` se il
-/// checksum non combacia. `500` per un errore di I/O sul temporaneo.
+/// `400`/`413` if the body is empty, unreadable, or exceeds `max_len`
+/// (per-chunk limit, never the rest of the whole file at once). `460` if
+/// the checksum does not match. `500` for an I/O error on the temp file.
 async fn write_chunk_checked(
     path: &std::path::Path,
     body: Body,
@@ -449,9 +449,9 @@ async fn write_chunk_checked(
                 };
                 let len = u64::try_from(data.len()).unwrap_or(u64::MAX);
                 if written.saturating_add(len) > max_len {
-                    // Non si scrive oltre il limite: si disfa quanto già
-                    // accettato per questo chunk e si segnala 413, non un
-                    // avanzamento parziale silenzioso.
+                    // Never write past the limit: undo whatever was
+                    // already accepted for this chunk and report 413,
+                    // not a silent partial advance.
                     let _ = file.set_len(original_len).await;
                     return Err(Problem::payload_too_large());
                 }
@@ -472,9 +472,9 @@ async fn write_chunk_checked(
 
     let computed = hasher.finalize();
     if !checksum.matches(computed.as_bytes()) {
-        // Il chunk non va lasciato sul temporaneo: il client lo rispedisce
-        // senza perdere l'offset che il server ha già accettato prima di
-        // questo chunk.
+        // The chunk must not be left on the temp file: the client resends
+        // it without losing the offset the server already accepted before
+        // this chunk.
         file.set_len(original_len).await.map_err(|err| {
             tracing::error!(error = %err, "upload chunk: truncate after checksum mismatch failed");
             Problem::internal()
@@ -482,10 +482,9 @@ async fn write_chunk_checked(
         return Err(Problem::chunk_checksum_mismatch());
     }
 
-    // Un fsync per chunk, non ogni 16 MB come suggerisce la spec §1.3: più
-    // sicuro con chunk adattivi fino a `MAX_CHUNK_BYTES`, il costo
-    // aggiuntivo di un fsync su un file locale è trascurabile rispetto alla
-    // rete.
+    // One fsync per chunk, not every 16 MB: safer with adaptive chunks up
+    // to `MAX_CHUNK_BYTES`, and the extra cost of an fsync on a local file
+    // is negligible compared to the network.
     file.sync_all().await.map_err(|err| {
         tracing::error!(error = %err, "upload chunk: fsync failed");
         Problem::internal()
@@ -519,10 +518,10 @@ fn parse_offset_header(headers: &HeaderMap) -> Result<i64, Problem> {
     })
 }
 
-/// `Upload-Checksum: blake3 <hex a 64 caratteri>` — stesso stile
-/// dell'estensione checksum di tus 1.0 (algoritmo seguito dal digest), hex
-/// invece di base64 per restare coerenti con `content_hash` in tutta
-/// l'API (`crate::routes::timeline::hex_hash`).
+/// `Upload-Checksum: blake3 <64 hex characters>` — same style as the tus
+/// 1.0 checksum extension (algorithm followed by the digest), hex instead
+/// of base64 to stay consistent with `content_hash` throughout the API
+/// (`crate::routes::timeline::hex_hash`).
 fn parse_checksum_header(headers: &HeaderMap) -> Result<ChunkChecksum, Problem> {
     let value = headers.get("upload-checksum").ok_or_else(|| {
         Problem::bad_request(

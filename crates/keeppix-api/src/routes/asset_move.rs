@@ -1,12 +1,11 @@
-//! Spostamento in blocco fra cartelle (Fase 11 Task 7, §13.3 campo 8,
-//! "Sposta in cartella") — su [`keeppix_db::AssetRepo::move_to_folder`],
-//! già scritta dalla Fase 9 Task 1 ma mai esposta da una rotta finora.
-//! Stesso pattern di `routes::flags::batch_set`: un ciclo sequenziale per
-//! asset, esito in [`BulkOutcome`] (riuscita parziale ammessa, spec §3) —
-//! non l'involucro con `operation_id` di `routes::rename`, che serve al
-//! progresso sul `WebSocket` di un batch tracciato: uno spostamento di
-//! cartella non ha un'anteprima né un annullamento nel documento
-//! funzionale (§13.3), a differenza della rinomina con formula.
+//! Bulk move between folders ("Move to folder") — on top of
+//! [`keeppix_db::AssetRepo::move_to_folder`], already implemented but never
+//! exposed by a route until now. Same pattern as
+//! `routes::flags::batch_set`: a sequential loop per asset, outcome in
+//! [`BulkOutcome`] (partial success allowed) — not the `operation_id`
+//! wrapper used by `routes::rename`, which serves `WebSocket` progress for
+//! a tracked batch: a folder move has no preview or undo in the functional
+//! spec, unlike formula-based rename.
 
 use axum::extract::State;
 use keeppix_db::AssetRepo;
@@ -28,8 +27,8 @@ pub struct BatchMoveRequest {
 }
 
 /// # Errors
-/// `400` se il lotto supera [`crate::batch::MAX_BATCH_ASSETS`]; `401` se non
-/// autenticato.
+/// `400` if the batch exceeds [`crate::batch::MAX_BATCH_ASSETS`]; `401` if
+/// not authenticated.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/batch/move",
@@ -39,9 +38,9 @@ pub struct BatchMoveRequest {
     security(("session_cookie" = [])),
     request_body = BatchMoveRequest,
     responses(
-        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
-        (status = 400, description = "batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Per-asset outcome (partial success allowed)", body = BulkOutcome),
+        (status = 400, description = "Batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn batch_move(

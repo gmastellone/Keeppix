@@ -1,5 +1,5 @@
-//! Volti: pannello dettagli foto (Fase 8 Task 6), coda di revisione
-//! (Task 8). CRUD di persone/gruppi in `routes::persons`.
+//! Faces: photo details panel, review queue. Person/group CRUD lives in
+//! `routes::persons`.
 #![allow(clippy::missing_errors_doc)]
 
 use axum::extract::{Path, State};
@@ -56,7 +56,7 @@ impl From<&Face> for FaceView {
 }
 
 /// # Errors
-/// `403` se l'asset non è visibile al chiamante.
+/// `403` if the asset is not visible to the caller.
 #[utoipa::path(
     get,
     path = "/api/v1/assets/{id}/faces",
@@ -64,11 +64,11 @@ impl From<&Face> for FaceView {
     operation_id = "assets_list_faces",
     summary = "List detected faces on an asset",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id asset")),
+    params(("id" = String, Path, description = "Asset id")),
     responses(
-        (status = 200, description = "Volti rilevati (esclusi i falsi positivi rifiutati)", body = Vec<FaceView>),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile al chiamante", body = Problem)
+        (status = 200, description = "Detected faces (excluding rejected false positives)", body = Vec<FaceView>),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible to the caller", body = Problem)
     )
 )]
 pub async fn list_for_asset(
@@ -86,12 +86,12 @@ pub struct AssignFaceRequest {
     pub person_id: PersonId,
 }
 
-/// Assegnazione manuale, dal pannello dettagli foto o dalla coda di
-/// revisione — copre anche «nuova persona»: il client crea prima la persona
-/// (`POST /persons`), poi assegna il volto a quella.
+/// Manual assignment, from the photo details panel or the review queue —
+/// also covers "new person": the client first creates the person
+/// (`POST /persons`), then assigns the face to it.
 ///
 /// # Errors
-/// `403` se l'asset del volto non è visibile al chiamante.
+/// `403` if the face's asset is not visible to the caller.
 #[utoipa::path(
     post,
     path = "/api/v1/faces/{id}/assign",
@@ -99,13 +99,13 @@ pub struct AssignFaceRequest {
     operation_id = "faces_assign",
     summary = "Manually assign a face to a person",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id volto")),
+    params(("id" = String, Path, description = "Face id")),
     request_body = AssignFaceRequest,
     responses(
-        (status = 204, description = "Assegnato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile al chiamante", body = Problem),
-        (status = 404, description = "Volto inesistente", body = Problem)
+        (status = 204, description = "Assigned"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible to the caller", body = Problem),
+        (status = 404, description = "Face does not exist", body = Problem)
     )
 )]
 pub async fn assign(
@@ -120,10 +120,10 @@ pub async fn assign(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// «Non è un volto»: falso positivo permanente (spec §4.2).
+/// "Not a face": permanent false positive.
 ///
 /// # Errors
-/// `403` se l'asset del volto non è visibile al chiamante.
+/// `403` if the face's asset is not visible to the caller.
 #[utoipa::path(
     post,
     path = "/api/v1/faces/{id}/reject",
@@ -131,12 +131,12 @@ pub async fn assign(
     operation_id = "faces_reject",
     summary = "Mark a detection as not a face (permanent)",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id volto")),
+    params(("id" = String, Path, description = "Face id")),
     responses(
-        (status = 204, description = "Rifiutato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile al chiamante", body = Problem),
-        (status = 404, description = "Volto inesistente", body = Problem)
+        (status = 204, description = "Rejected"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible to the caller", body = Problem),
+        (status = 404, description = "Face does not exist", body = Problem)
     )
 )]
 pub async fn reject(
@@ -148,11 +148,11 @@ pub async fn reject(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Coda di revisione: volti con una persona candidata (distanza dubbia dal
-/// centroide, spec §4.1) — «Questi volti sembrano Giovanni».
+/// Review queue: faces with a candidate person (uncertain distance from the
+/// centroid) — "These faces look like [person]".
 ///
 /// # Errors
-/// `401` senza utente autenticato.
+/// `401` without an authenticated user.
 #[utoipa::path(
     get,
     path = "/api/v1/faces/proposals",
@@ -161,8 +161,8 @@ pub async fn reject(
     summary = "List faces pending review (proposed to a candidate person)",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Volti proposti, visibili al chiamante", body = Vec<FaceView>),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Proposed faces, visible to the caller", body = Vec<FaceView>),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list_proposals(
@@ -173,10 +173,11 @@ pub async fn list_proposals(
     Ok(Json(faces.iter().map(FaceView::from).collect()))
 }
 
-/// Conferma una proposta: assegna il volto alla persona candidata.
+/// Confirms a proposal: assigns the face to the candidate person.
 ///
 /// # Errors
-/// `403` se l'asset non è visibile; `409` se non c'è (più) una proposta in attesa.
+/// `403` if the asset is not visible; `409` if there is no (longer a)
+/// pending proposal.
 #[utoipa::path(
     post,
     path = "/api/v1/faces/{id}/confirm",
@@ -184,12 +185,12 @@ pub async fn list_proposals(
     operation_id = "faces_confirm_proposal",
     summary = "Confirm a face's candidate person",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id volto")),
+    params(("id" = String, Path, description = "Face id")),
     responses(
-        (status = 204, description = "Confermato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile al chiamante", body = Problem),
-        (status = 409, description = "Nessuna proposta in attesa per questo volto", body = Problem)
+        (status = 204, description = "Confirmed"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible to the caller", body = Problem),
+        (status = 409, description = "No pending proposal for this face", body = Problem)
     )
 )]
 pub async fn confirm_proposal(
@@ -201,11 +202,11 @@ pub async fn confirm_proposal(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// «Conferma tutti» per una persona candidata (azione in blocco, involucro
-/// di riuscita parziale — Task 8).
+/// "Confirm all" for a candidate person (bulk action, partial-success
+/// wrapper).
 ///
 /// # Errors
-/// `401` senza utente autenticato.
+/// `401` without an authenticated user.
 #[utoipa::path(
     post,
     path = "/api/v1/persons/{id}/proposals/confirm",
@@ -213,10 +214,10 @@ pub async fn confirm_proposal(
     operation_id = "persons_confirm_all_proposals",
     summary = "Confirm all pending proposals for a candidate person (bulk)",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id persona candidata")),
+    params(("id" = String, Path, description = "Candidate person id")),
     responses(
-        (status = 200, description = "Esito", body = FaceBulkOutcome),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Outcome", body = FaceBulkOutcome),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn confirm_all_proposals(
@@ -230,10 +231,10 @@ pub async fn confirm_all_proposals(
     Ok(Json(FaceBulkOutcome::from_partition(confirmed, &[])))
 }
 
-/// Come [`confirm_all_proposals`], ma rifiuta — «rifiuta tutti».
+/// Like [`confirm_all_proposals`], but rejects — "reject all".
 ///
 /// # Errors
-/// `401` senza utente autenticato.
+/// `401` without an authenticated user.
 #[utoipa::path(
     post,
     path = "/api/v1/persons/{id}/proposals/reject",
@@ -241,10 +242,10 @@ pub async fn confirm_all_proposals(
     operation_id = "persons_reject_all_proposals",
     summary = "Reject all pending proposals for a candidate person (bulk)",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id persona candidata")),
+    params(("id" = String, Path, description = "Candidate person id")),
     responses(
-        (status = 200, description = "Esito", body = FaceBulkOutcome),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Outcome", body = FaceBulkOutcome),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn reject_all_proposals(
@@ -258,16 +259,15 @@ pub async fn reject_all_proposals(
     Ok(Json(FaceBulkOutcome::from_partition(rejected, &[])))
 }
 
-/// «Elimina tutti i dati dei volti» (spec §7, Task 10): distinta
-/// dall'interruttore per libreria (`PATCH /libraries/{id}`,
-/// `faces_enabled`), che smette di calcolare ma conserva quanto già
-/// raccolto. Cancella `faces` (embedding compresi), `persons`,
-/// `person_groups` — **globale**, non per libreria: i cluster di persone
-/// non sono mai stati scoperti library-scoped, quindi non esiste un confine
-/// di libreria per questa azione.
+/// "Delete all face data": distinct from the per-library toggle
+/// (`PATCH /libraries/{id}`, `faces_enabled`), which stops computing but
+/// keeps what has already been collected. Deletes `faces` (embeddings
+/// included), `persons`, `person_groups` — **global**, not per-library:
+/// person clusters were never scoped by library, so there is no library
+/// boundary for this action.
 ///
 /// # Errors
-/// `403` per chi non è amministratore.
+/// `403` for non-administrators.
 #[utoipa::path(
     delete,
     path = "/api/v1/faces/data",
@@ -276,9 +276,9 @@ pub async fn reject_all_proposals(
     summary = "Delete all face/person data system-wide (admin only, irreversible)",
     security(("session_cookie" = [])),
     responses(
-        (status = 204, description = "Cancellato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo amministratori", body = Problem)
+        (status = 204, description = "Deleted"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Administrators only", body = Problem)
     )
 )]
 pub async fn delete_all_data(

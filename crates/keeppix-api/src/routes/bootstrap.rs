@@ -23,13 +23,12 @@ use crate::state::AppState;
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct BadgeCountsView {
-    /// Foto ancora da valutare nel culling, sommate su tutti i lotti di
-    /// tutte le librerie con una radice designata (Fase 9, esposto in Fase
-    /// 11 Task 17). `list_lots` è già owner/admin-scoped per costruzione —
-    /// una libreria senza radice designata contribuisce zero senza una
-    /// query in più (`list_lots` la salta subito).
+    /// Photos still to be culled, summed across all lots of all libraries
+    /// with a designated root. `list_lots` is already owner/admin-scoped by
+    /// construction — a library without a designated root contributes zero
+    /// without an extra query (`list_lots` skips it immediately).
     pub culling: i64,
-    /// Proposte tag/volti in attesa (Fasi 7/8). Zero finché non ci sono code.
+    /// Pending tag/face proposals. Zero until there are queues.
     pub revision: i64,
 }
 
@@ -38,8 +37,8 @@ pub struct BootstrapResponse {
     pub user: UserView,
     pub preferences: UserPreferencesView,
     pub folders: Vec<FolderView>,
-    /// Spazio libero/totale per ogni libreria visibile — stesso payload di
-    /// `GET /libraries/{id}/storage`, indicizzato per id libreria.
+    /// Free/total space for each visible library — same payload as
+    /// `GET /libraries/{id}/storage`, indexed by library id.
     pub storage: BTreeMap<String, LibraryStorageView>,
     pub badges: BadgeCountsView,
 }
@@ -50,11 +49,11 @@ pub struct BootstrapQuery {
     roots: bool,
 }
 
-/// Stessa composizione del handler HTTP, esposta per i test che contano le
-/// query emesse (Task 17).
+/// Same composition as the HTTP handler, exposed for tests that count the
+/// emitted queries.
 ///
 /// # Errors
-/// Come i singoli endpoint che compone.
+/// Same as the individual endpoints it composes.
 pub async fn compose(
     db: &Db,
     ctx: &AuthContext,
@@ -80,11 +79,11 @@ pub async fn compose(
         storage.insert(library.id.to_string(), LibraryStorageView::from(usage));
     }
 
-    // Metà "culling" del badge: somma di `pending` sui lotti di ogni
-    // libreria che ha una radice designata. `list_lots` è sicuro da
-    // chiamare per ognuna di `libraries` senza rischiare `Forbidden`:
-    // `LibraryRepo::list` le ha già filtrate a owner-o-admin, lo stesso
-    // ambito che `list_lots` pretende internamente.
+    // "Culling" half of the badge: sum of `pending` across the lots of
+    // every library that has a designated root. `list_lots` is safe to call
+    // for each of `libraries` without risking `Forbidden`: `LibraryRepo::list`
+    // has already filtered them to owner-or-admin, the same scope
+    // `list_lots` expects internally.
     let culling_repo = CullingRepo::new(db);
     let mut culling = 0_i64;
     for library in &libraries {
@@ -95,11 +94,11 @@ pub async fn compose(
         culling = culling.saturating_add(lots.iter().map(|lot| lot.pending).sum());
     }
 
-    // Fase 7 Task 9: metà "tag" del badge. `count_proposed_visible` non
-    // propaga l'assenza di pgvector (torna 0) — il bootstrap non deve mai
-    // fallire per una feature IA opzionale (Task 3 ruling). Fase 8 Task 8
-    // aggiunge la metà "volti" sullo stesso campo, stessa garanzia (non
-    // propaga l'assenza di pgvector — vedi `FaceRepo::count_proposed_visible`).
+    // "Tag" half of the badge. `count_proposed_visible` does not propagate
+    // the absence of pgvector (returns 0) — bootstrap must never fail
+    // because of an optional AI feature. The "faces" half is added on the
+    // same field with the same guarantee (does not propagate the absence
+    // of pgvector — see `FaceRepo::count_proposed_visible`).
     let tag_revision = AssetTagRepo::new(db).count_proposed_visible(ctx).await?;
     let face_revision = FaceRepo::new(db).count_proposed_visible(ctx).await?;
     let revision = tag_revision.saturating_add(face_revision);
@@ -114,7 +113,8 @@ pub async fn compose(
 }
 
 /// # Errors
-/// `401` se non autenticato; gli altri codici come i singoli endpoint composti.
+/// `401` if not authenticated; other codes as the individual composed
+/// endpoints.
 #[utoipa::path(
     get,
     path = "/api/v1/bootstrap",
@@ -123,11 +123,11 @@ pub async fn compose(
     summary = "Return user, preferences, folders, storage and badge counts in one response",
     security(("session_cookie" = [])),
     params(
-        ("roots" = Option<bool>, Query, description = "Come GET /folders/tree: solo radici se true")
+        ("roots" = Option<bool>, Query, description = "Same as GET /folders/tree: roots only if true")
     ),
     responses(
-        (status = 200, description = "Bundle di avvio", body = BootstrapResponse),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Startup bundle", body = BootstrapResponse),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn get(

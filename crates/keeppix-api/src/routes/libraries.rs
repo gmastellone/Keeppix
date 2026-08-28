@@ -1,5 +1,5 @@
-//! Superficie HTTP sulle librerie. Nessun SQL: solo `LibraryRepo` e
-//! validazione di percorso (allowlist dopo `canonicalize`).
+//! HTTP surface for libraries. No SQL: only `LibraryRepo` and path
+//! validation (allowlist after `canonicalize`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -22,16 +22,14 @@ pub struct LibraryView {
     pub owner_id: String,
     pub root_path: String,
     pub scan_enabled: bool,
-    /// Interruttore del riconoscimento facciale per questa libreria (Fase 8
-    /// Task 10).
+    /// Face recognition toggle for this library.
     pub faces_enabled: bool,
     pub exclude_patterns: Vec<String>,
     pub status: String,
     pub last_scan_at: Option<String>,
     pub created_at: String,
-    /// Radice del culling a cartelle (Fase 9 Task 2, esposta via HTTP in
-    /// Fase 11 Task 17). `None` finché il proprietario non ne designa una —
-    /// culling si comporta come oggi, nessun comportamento nuovo forzato.
+    /// Root for folder-based culling. `None` until the owner designates
+    /// one — culling behaves as before, no new behavior is forced.
     pub culling_root_folder_id: Option<String>,
 }
 
@@ -74,7 +72,7 @@ pub struct PatchLibraryRequest {
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct DeleteLibraryResponse {
-    /// Sempre `true`: la cancellazione è solo sul database.
+    /// Always `true`: deletion only touches the database.
     pub files_untouched: bool,
 }
 
@@ -89,8 +87,8 @@ pub struct PreviewResponse {
     pub extensions: BTreeMap<String, u64>,
 }
 
-/// `root_path` ammesso solo sotto una radice di `library_roots`, **dopo**
-/// `canonicalize` — altrimenti `/photos/../etc` passerebbe.
+/// `root_path` allowed only under one of `library_roots`, **after**
+/// `canonicalize` — otherwise `/photos/../etc` would pass.
 fn ensure_allowed_path(path: &Path, roots: &[PathBuf]) -> Result<PathBuf, Problem> {
     let canonical = path.canonicalize().map_err(|_| path_not_allowed())?;
     for root in roots {
@@ -113,7 +111,7 @@ fn path_not_allowed() -> Problem {
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/libraries",
@@ -122,8 +120,8 @@ fn path_not_allowed() -> Problem {
     summary = "List libraries",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Librerie visibili", body = [LibraryView]),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Visible libraries", body = [LibraryView]),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list(
@@ -135,8 +133,8 @@ pub async fn list(
 }
 
 /// # Errors
-/// `403` se non admin; `409` se `root_path` già indicizzato; `422` se fuori
-/// dall'allowlist.
+/// `403` if not admin; `409` if `root_path` is already indexed; `422` if
+/// outside the allowlist.
 #[utoipa::path(
     post,
     path = "/api/v1/libraries",
@@ -146,11 +144,11 @@ pub async fn list(
     security(("session_cookie" = [])),
     request_body = CreateLibraryRequest,
     responses(
-        (status = 201, description = "Libreria creata", body = LibraryView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 409, description = "root_path già indicizzato", body = Problem),
-        (status = 422, description = "Percorso non ammesso", body = Problem)
+        (status = 201, description = "Library created", body = LibraryView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 409, description = "root_path already indexed", body = Problem),
+        (status = 422, description = "Path not allowed", body = Problem)
     )
 )]
 pub async fn create(
@@ -181,8 +179,8 @@ pub async fn create(
 }
 
 /// # Errors
-/// `403` su id altrui o inesistente (non-admin); `404` solo admin su id
-/// assente.
+/// `403` on another's or a nonexistent id (non-admin); `404` only for an
+/// admin on a missing id.
 #[utoipa::path(
     get,
     path = "/api/v1/libraries/{id}",
@@ -190,12 +188,12 @@ pub async fn create(
     operation_id = "libraries_get",
     summary = "Get a library",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della libreria")),
+    params(("id" = String, Path, description = "Library id")),
     responses(
-        (status = 200, description = "Libreria", body = LibraryView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non visibile", body = Problem),
-        (status = 404, description = "Inesistente (solo admin)", body = Problem)
+        (status = 200, description = "Library", body = LibraryView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not visible", body = Problem),
+        (status = 404, description = "Does not exist (admin only)", body = Problem)
     )
 )]
 pub async fn get(
@@ -208,7 +206,7 @@ pub async fn get(
 }
 
 /// # Errors
-/// Come `get`; campi assenti restano invariati.
+/// Same as `get`; absent fields remain unchanged.
 #[utoipa::path(
     patch,
     path = "/api/v1/libraries/{id}",
@@ -216,12 +214,12 @@ pub async fn get(
     operation_id = "libraries_patch",
     summary = "Update a library",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della libreria")),
+    params(("id" = String, Path, description = "Library id")),
     request_body = PatchLibraryRequest,
     responses(
-        (status = 200, description = "Libreria aggiornata", body = LibraryView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non consentito", body = Problem)
+        (status = 200, description = "Library updated", body = LibraryView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not allowed", body = Problem)
     )
 )]
 pub async fn patch(
@@ -245,21 +243,21 @@ pub async fn patch(
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct PatchCullingRootRequest {
-    /// Id della cartella scelta come radice, o `null` per rimuoverla.
+    /// Id of the folder chosen as root, or `null` to remove it.
     pub folder_id: Option<String>,
 }
 
-/// Designa (o rimuove, con `folder_id: null`) la radice del culling a
-/// cartelle (§17/§64). Rotta dedicata invece di un campo su `PATCH
-/// /libraries/{id}`: `LibraryRepo::set_culling_root` pretende owner/admin
-/// esplicito, più stretto del permesso generale di `update` — mescolarli in
-/// un solo handler renderebbe silenziosamente più permissivo un campo che
-/// decide dove finiscono fisicamente i file scelti/scartati.
+/// Designates (or removes, with `folder_id: null`) the folder-based
+/// culling root. A dedicated route instead of a field on `PATCH
+/// /libraries/{id}`: `LibraryRepo::set_culling_root` expects explicit
+/// owner/admin, stricter than the general `update` permission — mixing
+/// them into a single handler would silently make more permissive a field
+/// that decides where picked/rejected files physically end up.
 ///
 /// # Errors
-/// `401` se non autenticato; `403` se il chiamante vede la libreria ma non
-/// ne è proprietario/admin; `409` se `folder_id` non appartiene a questa
-/// libreria; `422` se `folder_id` non è un id leggibile.
+/// `401` if not authenticated; `403` if the caller can see the library but
+/// is not its owner/admin; `409` if `folder_id` does not belong to this
+/// library; `422` if `folder_id` is not a readable id.
 #[utoipa::path(
     patch,
     path = "/api/v1/libraries/{id}/culling-root",
@@ -267,14 +265,14 @@ pub struct PatchCullingRootRequest {
     operation_id = "libraries_set_culling_root",
     summary = "Set or clear a library's culling root folder",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della libreria")),
+    params(("id" = String, Path, description = "Library id")),
     request_body = PatchCullingRootRequest,
     responses(
-        (status = 200, description = "Libreria aggiornata", body = LibraryView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin", body = Problem),
-        (status = 409, description = "La cartella non appartiene a questa libreria", body = Problem),
-        (status = 422, description = "Id cartella illeggibile", body = Problem)
+        (status = 200, description = "Library updated", body = LibraryView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin", body = Problem),
+        (status = 409, description = "The folder does not belong to this library", body = Problem),
+        (status = 422, description = "Unreadable folder id", body = Problem)
     )
 )]
 pub async fn set_culling_root(
@@ -301,10 +299,10 @@ pub async fn set_culling_root(
     Ok(Json(LibraryView::from_library(&library)))
 }
 
-/// Cancella la riga nel database. **Non tocca i file sul disco.**
+/// Deletes the row in the database. **Does not touch files on disk.**
 ///
 /// # Errors
-/// `403` se non admin; `404` se l'id non esiste.
+/// `403` if not admin; `404` if the id does not exist.
 #[utoipa::path(
     delete,
     path = "/api/v1/libraries/{id}",
@@ -312,12 +310,12 @@ pub async fn set_culling_root(
     operation_id = "libraries_delete",
     summary = "Delete a library",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della libreria")),
+    params(("id" = String, Path, description = "Library id")),
     responses(
-        (status = 200, description = "Eliminata; i file restano", body = DeleteLibraryResponse),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Inesistente", body = Problem)
+        (status = 200, description = "Deleted; files remain", body = DeleteLibraryResponse),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "Does not exist", body = Problem)
     )
 )]
 pub async fn delete(
@@ -331,10 +329,10 @@ pub async fn delete(
     }))
 }
 
-/// Conteggio per estensione sotto `path`, senza creare nulla.
+/// Count by extension under `path`, without creating anything.
 ///
 /// # Errors
-/// `403` se non admin; `422` se il percorso è fuori dall'allowlist.
+/// `403` if not admin; `422` if the path is outside the allowlist.
 #[utoipa::path(
     get,
     path = "/api/v1/libraries/preview",
@@ -344,10 +342,10 @@ pub async fn delete(
     security(("session_cookie" = [])),
     params(PreviewQuery),
     responses(
-        (status = 200, description = "Conteggi per estensione", body = PreviewResponse),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 422, description = "Percorso non ammesso", body = Problem)
+        (status = 200, description = "Counts by extension", body = PreviewResponse),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 422, description = "Path not allowed", body = Problem)
     )
 )]
 pub async fn preview(
@@ -373,11 +371,11 @@ pub async fn preview(
 pub struct ScanAccepted {
     pub library_id: String,
     pub status: String,
-    /// Presente solo quando **questa** richiesta è quella che segue
-    /// davvero il job accodato (Fase 10 Task 16): se una scansione per la
-    /// stessa libreria era già `pending`/`running` — accodata dal watcher o
-    /// da una richiesta precedente — quella vince per via della `dedup_key`
-    /// condivisa, e questa risposta non ha un'operazione propria da offrire.
+    /// Present only when **this** request is the one that actually
+    /// follows the queued job: if a scan for the same library was already
+    /// `pending`/`running` — queued by the watcher or an earlier request —
+    /// that one wins via the shared `dedup_key`, and this response has no
+    /// operation of its own to offer.
     pub operation_id: Option<String>,
 }
 
@@ -390,7 +388,7 @@ pub struct ScanStatusView {
     pub asset_count: i64,
     pub job_status: Option<String>,
     pub last_error: Option<String>,
-    /// Sempre `null` per ora: niente stima finché non c'è throughput misurato.
+    /// Always `null` for now: no estimate until there is measured throughput.
     pub eta_seconds: Option<i64>,
     pub last_scan_at: Option<String>,
 }
@@ -410,13 +408,13 @@ impl From<keeppix_db::LibraryStorage> for LibraryStorageView {
     }
 }
 
-/// Accoda `DiscoverLibrary` (idempotente via `dedup_key`) e, quando questa
-/// richiesta è quella che ottiene davvero il job, apre un'operazione
-/// tracciata (Fase 10 Task 16): avanzamento sul WebSocket, annullamento via
+/// Queues `DiscoverLibrary` (idempotent via `dedup_key`) and, when this
+/// request is the one that actually gets the job, opens a tracked
+/// operation: progress over the WebSocket, cancellation via
 /// `POST /operations/{id}/cancel`.
 ///
 /// # Errors
-/// Visibilità come `get`; errori di coda → 503.
+/// Visibility as `get`; queueing errors → 503.
 #[utoipa::path(
     post,
     path = "/api/v1/libraries/{id}/scan",
@@ -424,11 +422,11 @@ impl From<keeppix_db::LibraryStorage> for LibraryStorageView {
     operation_id = "libraries_scan_start",
     summary = "Start a library scan",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della libreria")),
+    params(("id" = String, Path, description = "Library id")),
     responses(
-        (status = 202, description = "Scansione accodata", body = ScanAccepted),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non consentito", body = Problem)
+        (status = 202, description = "Scan queued", body = ScanAccepted),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not allowed", body = Problem)
     )
 )]
 pub async fn start_scan(
@@ -438,11 +436,11 @@ pub async fn start_scan(
 ) -> Result<(StatusCode, Json<ScanAccepted>), Problem> {
     LibraryRepo::new(&state.db).find_by_id(&ctx, id).await?;
 
-    // Non creiamo un'operazione se una scansione per questa libreria è già
-    // `pending`/`running`: la stessa `dedup_key` di `enqueue_rescan` la
-    // farebbe comunque collassare su quel job (Ruling Task 16, vedi
-    // `enqueue_rescan_with_operation`), e crearne una che nessun job farà
-    // avanzare lascerebbe un'operazione "running" per sempre.
+    // We don't create an operation if a scan for this library is already
+    // `pending`/`running`: `enqueue_rescan`'s same `dedup_key` would
+    // collapse it onto that job anyway (see
+    // `enqueue_rescan_with_operation`), and creating one that no job will
+    // ever advance would leave a "running" operation forever.
     let already_in_flight = JobRepo::new(&state.db)
         .discover_status_for_library(id)
         .await?
@@ -464,12 +462,11 @@ pub async fn start_scan(
         if attached {
             Some(operation.id)
         } else {
-            // Raro: un'altra richiesta ha vinto la corsa fra il controllo
-            // sopra e questo accodamento. La nostra operazione non sarà mai
-            // fatta avanzare da nessun job: la chiudiamo qui invece di
-            // lasciarla `running` all'infinito, con l'involucro parziale
-            // onestamente vuoto (nulla è stato applicato da questa
-            // richiesta).
+            // Rare: another request won the race between the check above
+            // and this enqueue. Our operation will never be advanced by
+            // any job: we close it here instead of leaving it `running`
+            // forever, with the partial-outcome wrapper honestly empty
+            // (nothing was applied by this request).
             OperationsRepo::new(&state.db)
                 .finish_cancelled(operation.id)
                 .await?;
@@ -487,10 +484,10 @@ pub async fn start_scan(
     ))
 }
 
-/// Stato corrente della scansione / indicizzazione della libreria.
+/// Current status of the library scan / indexing.
 ///
 /// # Errors
-/// Visibilità come `get`.
+/// Visibility as `get`.
 #[utoipa::path(
     get,
     path = "/api/v1/libraries/{id}/scan",
@@ -498,11 +495,11 @@ pub async fn start_scan(
     operation_id = "libraries_scan_status",
     summary = "Get library scan status",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della libreria")),
+    params(("id" = String, Path, description = "Library id")),
     responses(
-        (status = 200, description = "Stato scansione", body = ScanStatusView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non consentito", body = Problem)
+        (status = 200, description = "Scan status", body = ScanStatusView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not allowed", body = Problem)
     )
 )]
 pub async fn scan_status(
@@ -536,10 +533,9 @@ pub async fn scan_status(
     }))
 }
 
-/// `idle` | `discovering` | `failed` | `offline` — condivisa da `GET
-/// .../scan` e dal poll `scan.progress` del WebSocket (Fase 10 Task 19), così
-/// le due superfici non possono raccontare fasi diverse per la stessa
-/// libreria.
+/// `idle` | `discovering` | `failed` | `offline` — shared by `GET
+/// .../scan` and the WebSocket `scan.progress` poll, so the two surfaces
+/// can never report different phases for the same library.
 pub(crate) const fn scan_phase(
     library_status: keeppix_domain::LibraryStatus,
     job_status: Option<keeppix_domain::JobStatus>,
@@ -556,12 +552,12 @@ pub(crate) const fn scan_phase(
     }
 }
 
-/// Verifica di raggiungibilità del percorso di rete (§47 «Riprova
-/// connessione»): aggiorna lo stato e restituisce la libreria come sta ora,
-/// così la UI può far scomparire il problema senza un secondo giro.
+/// Reachability check for the network path ("Retry connection"): updates
+/// the status and returns the library as it stands now, so the UI can
+/// dismiss the problem without a second round trip.
 ///
 /// # Errors
-/// Visibilità come `get`.
+/// Visibility as `get`.
 #[utoipa::path(
     post,
     path = "/api/v1/libraries/{id}/probe",
@@ -569,11 +565,11 @@ pub(crate) const fn scan_phase(
     operation_id = "libraries_probe",
     summary = "Retry reaching a library's root path",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della libreria")),
+    params(("id" = String, Path, description = "Library id")),
     responses(
-        (status = 200, description = "Esito della verifica", body = LibraryView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non visibile", body = Problem)
+        (status = 200, description = "Check outcome", body = LibraryView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not visible", body = Problem)
     )
 )]
 pub async fn probe(
@@ -585,11 +581,11 @@ pub async fn probe(
     Ok(Json(LibraryView::from_library(&library)))
 }
 
-/// Spazio libero e totale sul volume della libreria. Il valore è in cache
-/// breve (60 s): la sidebar lo chiede a ogni caricamento.
+/// Free and total space on the library's volume. The value is cached
+/// briefly (60 s): the sidebar requests it on every load.
 ///
 /// # Errors
-/// Visibilità come `get`; `503` se `statvfs` fallisce in modo irrecuperabile.
+/// Visibility as `get`; `503` if `statvfs` fails unrecoverably.
 #[utoipa::path(
     get,
     path = "/api/v1/libraries/{id}/storage",
@@ -597,11 +593,11 @@ pub async fn probe(
     operation_id = "libraries_storage",
     summary = "Get library disk usage",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della libreria")),
+    params(("id" = String, Path, description = "Library id")),
     responses(
-        (status = 200, description = "Spazio libero e totale", body = LibraryStorageView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non visibile", body = Problem)
+        (status = 200, description = "Free and total space", body = LibraryStorageView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not visible", body = Problem)
     )
 )]
 pub async fn storage(

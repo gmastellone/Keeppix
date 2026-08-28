@@ -1,6 +1,6 @@
-//! Album virtuali (spec §5). CRUD + gestione asset nell'album.
-//! Autorizzazione: owner o admin per le mutazioni; utenti condivisi per la
-//! lettura tramite permesso diretto sull'album.
+//! Virtual albums. CRUD + asset management within an album.
+//! Authorization: owner or admin for mutations; shared users for reading
+//! via a direct permission on the album.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -26,9 +26,9 @@ pub struct AlbumView {
     pub cover_asset_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    /// Presente se l'album può essere aggiornato con `POST .../refresh`
-    /// (Task 5: nessun album dinamico, solo un filtro che si rilancia
-    /// quando lo chiede l'utente).
+    /// Present if the album can be refreshed with `POST .../refresh`
+    /// (there is no dynamic album, only a filter that re-runs when the
+    /// user asks for it).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<Object>)]
     pub rule: Option<SearchNode>,
@@ -38,9 +38,9 @@ pub struct AlbumView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_tint: Option<String>,
     pub monochrome: bool,
-    // Task 11: niente conteggio membri per riga in `GET /albums` — resta una
-    // lettura banale su `album_assets` solo quando serve (es. pagina album),
-    // non un aggregato accanto a ogni voce dell'elenco.
+    // No member count per row in `GET /albums` — that stays a trivial
+    // read on `album_assets` only when needed (e.g. the album page),
+    // not an aggregate tacked onto every list entry.
 }
 
 impl AlbumView {
@@ -76,8 +76,8 @@ pub struct CreateAlbumBody {
     pub name: String,
     #[serde(default)]
     pub description: String,
-    /// Filtro con cui l'album nasce (spec §5.2). `None` per un album
-    /// puramente manuale, che non può poi essere aggiornato via `refresh`.
+    /// The filter the album is created with. `None` for a purely manual
+    /// album, which can then never be refreshed via `refresh`.
     #[serde(default)]
     #[schema(value_type = Option<Object>)]
     pub rule: Option<SearchNode>,
@@ -87,7 +87,7 @@ pub struct CreateAlbumBody {
 pub struct PatchAlbumBody {
     pub name: Option<String>,
     pub description: Option<String>,
-    /// `null` esplicito rimuove la copertina; assente = invariato.
+    /// Explicit `null` removes the cover; absent = unchanged.
     #[allow(clippy::option_option)]
     pub cover_asset_id: Option<Option<String>>,
 }
@@ -98,7 +98,7 @@ pub struct ReorderBody {
 }
 
 /// # Errors
-/// `401` se non autenticato; `400` se il nome è assente.
+/// `401` if not authenticated; `400` if the name is missing.
 #[utoipa::path(
     post,
     path = "/api/v1/albums",
@@ -108,8 +108,8 @@ pub struct ReorderBody {
     security(("session_cookie" = [])),
     request_body = CreateAlbumBody,
     responses(
-        (status = 201, description = "Album creato", body = AlbumView),
-        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 201, description = "Album created", body = AlbumView),
+        (status = 401, description = "Not authenticated", body = Problem),
     )
 )]
 pub async fn create(
@@ -131,7 +131,7 @@ pub async fn create(
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/albums",
@@ -140,8 +140,8 @@ pub async fn create(
     summary = "List albums",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Lista album visibili", body = Vec<AlbumView>),
-        (status = 401, description = "Non autenticato", body = Problem),
+        (status = 200, description = "List of visible albums", body = Vec<AlbumView>),
+        (status = 401, description = "Not authenticated", body = Problem),
     )
 )]
 pub async fn list(
@@ -155,7 +155,7 @@ pub async fn list(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se non visibile.
+/// `401` if not authenticated; `403` if not visible.
 #[utoipa::path(
     get,
     path = "/api/v1/albums/{id}",
@@ -163,11 +163,11 @@ pub async fn list(
     operation_id = "albums_get",
     summary = "Get an album",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'album")),
+    params(("id" = String, Path, description = "Album id")),
     responses(
         (status = 200, description = "Album", body = AlbumView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Album non visibile", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Album not visible", body = Problem),
     )
 )]
 pub async fn get(
@@ -180,7 +180,7 @@ pub async fn get(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se non owner/admin.
+/// `401` if not authenticated; `403` if not owner/admin.
 #[utoipa::path(
     patch,
     path = "/api/v1/albums/{id}",
@@ -188,12 +188,12 @@ pub async fn get(
     operation_id = "albums_patch",
     summary = "Update an album",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'album")),
+    params(("id" = String, Path, description = "Album id")),
     request_body = PatchAlbumBody,
     responses(
-        (status = 200, description = "Album aggiornato", body = AlbumView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin", body = Problem),
+        (status = 200, description = "Album updated", body = AlbumView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin", body = Problem),
     )
 )]
 pub async fn patch(
@@ -226,7 +226,7 @@ pub async fn patch(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se non owner/admin.
+/// `401` if not authenticated; `403` if not owner/admin.
 #[utoipa::path(
     delete,
     path = "/api/v1/albums/{id}",
@@ -234,11 +234,11 @@ pub async fn patch(
     operation_id = "albums_delete",
     summary = "Delete an album",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'album")),
+    params(("id" = String, Path, description = "Album id")),
     responses(
-        (status = 204, description = "Album eliminato, asset intatti"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin", body = Problem),
+        (status = 204, description = "Album deleted, assets untouched"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin", body = Problem),
     )
 )]
 pub async fn delete(
@@ -251,7 +251,7 @@ pub async fn delete(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se non owner/admin o asset non visibile.
+/// `401` if not authenticated; `403` if not owner/admin or the asset is not visible.
 #[utoipa::path(
     post,
     path = "/api/v1/albums/{id}/assets/{asset_id}",
@@ -260,13 +260,13 @@ pub async fn delete(
     summary = "Add an asset to an album",
     security(("session_cookie" = [])),
     params(
-        ("id" = String, Path, description = "Id dell'album"),
-        ("asset_id" = String, Path, description = "Id dell'asset"),
+        ("id" = String, Path, description = "Album id"),
+        ("asset_id" = String, Path, description = "Asset id"),
     ),
     responses(
-        (status = 204, description = "Asset aggiunto all'album"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin o asset non visibile", body = Problem),
+        (status = 204, description = "Asset added to the album"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin or asset not visible", body = Problem),
     )
 )]
 pub async fn add_asset(
@@ -281,7 +281,7 @@ pub async fn add_asset(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se non owner/admin.
+/// `401` if not authenticated; `403` if not owner/admin.
 #[utoipa::path(
     delete,
     path = "/api/v1/albums/{id}/assets/{asset_id}",
@@ -290,13 +290,13 @@ pub async fn add_asset(
     summary = "Remove an asset from an album",
     security(("session_cookie" = [])),
     params(
-        ("id" = String, Path, description = "Id dell'album"),
-        ("asset_id" = String, Path, description = "Id dell'asset"),
+        ("id" = String, Path, description = "Album id"),
+        ("asset_id" = String, Path, description = "Asset id"),
     ),
     responses(
-        (status = 204, description = "Asset rimosso dall'album, asset intatto"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin", body = Problem),
+        (status = 204, description = "Asset removed from the album, asset untouched"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin", body = Problem),
     )
 )]
 pub async fn remove_asset(
@@ -311,7 +311,7 @@ pub async fn remove_asset(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se non owner/admin.
+/// `401` if not authenticated; `403` if not owner/admin.
 #[utoipa::path(
     patch,
     path = "/api/v1/albums/{id}/assets/{asset_id}/position",
@@ -320,14 +320,14 @@ pub async fn remove_asset(
     summary = "Reorder an album asset",
     security(("session_cookie" = [])),
     params(
-        ("id" = String, Path, description = "Id dell'album"),
-        ("asset_id" = String, Path, description = "Id dell'asset"),
+        ("id" = String, Path, description = "Album id"),
+        ("asset_id" = String, Path, description = "Asset id"),
     ),
     request_body = ReorderBody,
     responses(
-        (status = 204, description = "Posizione aggiornata"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin", body = Problem),
+        (status = 204, description = "Position updated"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin", body = Problem),
     )
 )]
 pub async fn reorder_asset(
@@ -343,7 +343,7 @@ pub async fn reorder_asset(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se album non visibile.
+/// `401` if not authenticated; `403` if the album is not visible.
 #[utoipa::path(
     get,
     path = "/api/v1/albums/{id}/assets",
@@ -351,11 +351,11 @@ pub async fn reorder_asset(
     operation_id = "albums_list_assets",
     summary = "List album assets",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'album")),
+    params(("id" = String, Path, description = "Album id")),
     responses(
-        (status = 200, description = "Asset dell'album nell'ordine manuale", body = Vec<AlbumAssetView>),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Album non visibile", body = Problem),
+        (status = 200, description = "Album assets in manual order", body = Vec<AlbumAssetView>),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Album not visible", body = Problem),
     )
 )]
 pub async fn list_assets(
@@ -377,17 +377,17 @@ pub async fn list_assets(
     ))
 }
 
-/// Rilancia la `rule` con cui l'album è nato (Task 5, «Aggiorna album»
-/// invece di un album dinamico): `succeeded` elenca sia gli asset **entrati**
-/// sia quelli **usciti** da `album_assets` in questa esecuzione — sono le
-/// due facce della stessa mutazione riuscita, non due categorie distinte.
-/// `failed` resta vuoto oggi: il refresh è un diff calcolato lato server sugli
-/// asset già visibili al chiamante, non un'operazione per-id che possa
-/// negare un singolo elemento.
+/// Re-runs the `rule` the album was created with ("Refresh album" instead
+/// of a fully dynamic album): `succeeded` lists both the assets that
+/// **entered** and those that **left** `album_assets` in this run — they
+/// are the two faces of the same successful mutation, not two distinct
+/// categories. `failed` stays empty today: the refresh is a server-side
+/// diff over assets already visible to the caller, not a per-id operation
+/// that could deny a single element.
 ///
 /// # Errors
-/// `401` se non autenticato; `403` se non owner/admin dell'album; `400` se
-/// l'album non ha una `rule` da rilanciare.
+/// `401` if not authenticated; `403` if not owner/admin of the album; `400`
+/// if the album has no `rule` to re-run.
 #[utoipa::path(
     post,
     path = "/api/v1/albums/{id}/refresh",
@@ -395,12 +395,12 @@ pub async fn list_assets(
     operation_id = "albums_refresh",
     summary = "Refresh an album's rule-based membership",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'album")),
+    params(("id" = String, Path, description = "Album id")),
     responses(
-        (status = 200, description = "Foto aggiunte e rimosse (involucro di riuscita parziale)", body = BulkOutcome),
-        (status = 400, description = "L'album non ha una rule da rilanciare", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin", body = Problem),
+        (status = 200, description = "Photos added and removed (partial-success wrapper)", body = BulkOutcome),
+        (status = 400, description = "The album has no rule to re-run", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin", body = Problem),
     )
 )]
 pub async fn refresh(
@@ -417,10 +417,9 @@ pub async fn refresh(
     Ok(Json(BulkOutcome::from_partition(succeeded, &[], None)))
 }
 
-/// Un album di cui un asset è membro, come lo mostra la sezione ALBUM del
-/// pannello informazioni del lightbox (Fase 11 Task 8, §19.2 campo 18) —
-/// solo id e nome: i chip non sono cliccabili e non distinguono manuale da
-/// dinamico (il documento è esplicito su questo).
+/// An album an asset belongs to, as shown by the ALBUM section of the
+/// lightbox info panel — id and name only: the chips are not clickable and
+/// do not distinguish manual from dynamic.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AlbumBadgeView {
     pub id: String,
@@ -436,13 +435,12 @@ impl From<keeppix_db::AlbumBadge> for AlbumBadgeView {
     }
 }
 
-/// Fase 11 Task 8 (§19.2 campo 18): la freccia opposta di
-/// [`list_assets`] — dato un asset, a quali album appartiene già. Nessuna
-/// ricerca del genere esisteva prima d'ora (verificato: [`AlbumRepo`] va
-/// solo album→asset).
+/// The opposite direction of [`list_assets`] — given an asset, which albums
+/// it already belongs to. No such lookup existed before this
+/// ([`AlbumRepo`] only went album→asset).
 ///
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/assets/{id}/albums",
@@ -450,10 +448,10 @@ impl From<keeppix_db::AlbumBadge> for AlbumBadgeView {
     operation_id = "assets_list_albums",
     summary = "List the albums (manual and dynamic) an asset already belongs to",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id asset")),
+    params(("id" = String, Path, description = "Asset id")),
     responses(
-        (status = 200, description = "Album di cui l'asset è membro, per nome", body = Vec<AlbumBadgeView>),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Albums the asset is a member of, by name", body = Vec<AlbumBadgeView>),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list_for_asset(

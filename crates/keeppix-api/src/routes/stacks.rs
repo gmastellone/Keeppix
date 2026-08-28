@@ -1,4 +1,4 @@
-//! Stack RAW+JPEG (spec §5): membri e scelta del primario.
+//! RAW+JPEG stacks: members and choosing the primary.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -29,7 +29,8 @@ pub struct StackView {
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se l'asset non è visibile al chiamante.
+/// `401` if not authenticated; `403` if the asset is not visible to the
+/// caller.
 #[utoipa::path(
     get,
     path = "/api/v1/assets/{id}/stack",
@@ -37,12 +38,12 @@ pub struct StackView {
     operation_id = "assets_stack_get",
     summary = "Get an asset stack",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset")),
+    params(("id" = String, Path, description = "Asset id")),
     responses(
-        (status = 200, description = "Membri dello stack", body = StackView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Stack members", body = StackView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn get_members(
@@ -73,8 +74,8 @@ pub async fn get_members(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se l'asset non è visibile; `409` se
-/// l'asset non è in uno stack.
+/// `401` if not authenticated; `403` if the asset is not visible; `409` if
+/// the asset is not in a stack.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/{id}/stack/primary",
@@ -82,13 +83,13 @@ pub async fn get_members(
     operation_id = "assets_stack_set_primary",
     summary = "Set the primary asset in a stack",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset da promuovere")),
+    params(("id" = String, Path, description = "Id of the asset to promote")),
     responses(
-        (status = 204, description = "Primario aggiornato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile", body = Problem),
-        (status = 409, description = "Asset non in uno stack", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 204, description = "Primary updated"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible", body = Problem),
+        (status = 409, description = "Asset not in a stack", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn set_primary(

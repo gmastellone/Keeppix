@@ -1,12 +1,11 @@
-//! Superficie HTTP del culling a cartelle (Fase 9 Task 2-5, esposta qui in
-//! Fase 11 Task 17). Nessun controllo di permesso proprio: ogni handler
-//! propaga [`keeppix_db::DbError`] da [`CullingRepo`], che incorpora già il
-//! cancello giusto per ciascuna operazione — owner/admin via
-//! `LibraryRepo::find_by_id` per la lettura dei lotti, `editor` su entrambe
-//! le cartelle via `AssetRepo::move_asset` per lo spostamento fisico,
-//! owner/admin via `TrashRepo::assert_batch_purge_authorized` per lo
-//! svuotamento. Reinventare un secondo controllo qui rischierebbe di
-//! raccontarne uno diverso da quello che poi decide davvero.
+//! HTTP surface for folder-based culling. No permission check of its own:
+//! every handler propagates [`keeppix_db::DbError`] from [`CullingRepo`],
+//! which already embeds the right gate for each operation — owner/admin via
+//! `LibraryRepo::find_by_id` for reading lots, `editor` on both folders via
+//! `AssetRepo::move_asset` for the physical move, owner/admin via
+//! `TrashRepo::assert_batch_purge_authorized` for emptying. Reinventing a
+//! second check here would risk telling a different story from the one
+//! that actually decides.
 
 use axum::extract::{Path, State};
 use keeppix_db::CullingRepo;
@@ -43,12 +42,12 @@ impl CullingLotView {
     }
 }
 
-/// I lotti sotto la radice di culling della libreria (§14). Vuoto — non
-/// un errore — se la libreria non ha ancora una radice designata.
+/// The lots under the library's culling root. Empty — not an error — if
+/// the library does not yet have a designated root.
 ///
 /// # Errors
-/// `401` se non autenticato; `403` se il chiamante non vede la libreria, o
-/// la vede ma non ne è proprietario/admin.
+/// `401` if not authenticated; `403` if the caller cannot see the library,
+/// or sees it but is not its owner/admin.
 #[utoipa::path(
     get,
     path = "/api/v1/libraries/{id}/culling/lots",
@@ -56,11 +55,11 @@ impl CullingLotView {
     operation_id = "culling_list_lots",
     summary = "List culling lots for a library",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della libreria")),
+    params(("id" = String, Path, description = "Library id")),
     responses(
-        (status = 200, description = "Lotti, più recenti prima", body = [CullingLotView]),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin di questa libreria", body = Problem)
+        (status = 200, description = "Lots, most recent first", body = [CullingLotView]),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin of this library", body = Problem)
     )
 )]
 pub async fn list_lots(
@@ -78,20 +77,20 @@ pub struct PickRequest {
     pub pick: Pick,
 }
 
-/// Scegliere/scartare/annullare un asset (§15). Fuori da un lotto di
-/// culling resta solo un voto, come `PUT /assets/{id}/flags`; dentro un
-/// lotto lo spostamento fisico in `_taken`/`_skipped` accompagna il voto
-/// nella stessa chiamata ([`CullingRepo::set_pick`]). Rotta dedicata invece
-/// di estendere `PUT /assets/{id}/flags`: quella rotta è già il percorso
-/// caldo del voto ordinario (nessun movimento fisico, nessun ambito di
-/// permesso variabile) — mescolarci uno spostamento condizionale l'avrebbe
-/// resa più difficile da ragionare per entrambi i casi.
+/// Pick/reject/clear an asset's culling vote. Outside a culling lot this
+/// stays just a vote, like `PUT /assets/{id}/flags`; inside a lot, the
+/// physical move into `_taken`/`_skipped` accompanies the vote in the same
+/// call ([`CullingRepo::set_pick`]). A dedicated route instead of extending
+/// `PUT /assets/{id}/flags`: that route is already the hot path for
+/// ordinary voting (no physical move, no variable permission scope) —
+/// mixing in a conditional move would have made it harder to reason about
+/// for both cases.
 ///
 /// # Errors
-/// `401` se non autenticato; `403` se l'asset non è visibile, o se è dentro
-/// un lotto e il chiamante non è editor sia della cartella di origine sia di
-/// quella di destinazione; `409` su collisione di nome nella cartella di
-/// destinazione.
+/// `401` if not authenticated; `403` if the asset is not visible, or if it
+/// is inside a lot and the caller is not editor of both the source and
+/// destination folders; `409` on a name collision in the destination
+/// folder.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/{id}/pick",
@@ -99,13 +98,13 @@ pub struct PickRequest {
     operation_id = "culling_set_pick",
     summary = "Pick, reject, or clear an asset's culling vote",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset")),
+    params(("id" = String, Path, description = "Asset id")),
     request_body = PickRequest,
     responses(
-        (status = 200, description = "Asset aggiornato (folder_id nuovo se si è mosso)", body = AssetView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile, o permesso insufficiente per lo spostamento", body = Problem),
-        (status = 409, description = "Collisione di nome nella cartella di destinazione", body = Problem)
+        (status = 200, description = "Asset updated (new folder_id if it moved)", body = AssetView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible, or insufficient permission for the move", body = Problem),
+        (status = 409, description = "Name collision in the destination folder", body = Problem)
     )
 )]
 pub async fn pick(
@@ -120,15 +119,15 @@ pub async fn pick(
     Ok(Json(AssetView::from_asset(&asset)))
 }
 
-/// "Svuota scartati" (§15): elimina definitivamente dal disco ogni asset
-/// oggi in `_skipped` per questo lotto. Riuscita **parziale**: un asset che
-/// non si riesce a purgare non impedisce agli altri — vedi
-/// [`CullingRepo::empty_skipped`]. L'autorizzazione resta invece
-/// tutto-o-niente, verificata prima di toccare qualunque file.
+/// "Empty rejected": permanently deletes from disk every asset currently
+/// in `_skipped` for this lot. **Partial** success: an asset that fails to
+/// purge does not block the others — see [`CullingRepo::empty_skipped`].
+/// Authorization, however, stays all-or-nothing, checked before touching
+/// any file.
 ///
 /// # Errors
-/// `401` se non autenticato; `403` se il chiamante non può distruggere
-/// anche un solo asset del lotto (owner/admin richiesti).
+/// `401` if not authenticated; `403` if the caller cannot destroy even one
+/// asset in the lot (owner/admin required).
 #[utoipa::path(
     post,
     path = "/api/v1/culling/lots/{id}/empty-skipped",
@@ -136,11 +135,11 @@ pub async fn pick(
     operation_id = "culling_empty_skipped",
     summary = "Permanently delete every asset in a lot's _skipped folder",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della cartella del lotto")),
+    params(("id" = String, Path, description = "Lot folder id")),
     responses(
-        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin di almeno un asset del lotto", body = Problem)
+        (status = 200, description = "Per-asset outcome (partial success allowed)", body = BulkOutcome),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin of at least one asset in the lot", body = Problem)
     )
 )]
 pub async fn empty_skipped(

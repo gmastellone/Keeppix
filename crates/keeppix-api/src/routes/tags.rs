@@ -1,9 +1,10 @@
-//! CRUD del vocabolario condiviso di tag e categorie (Fase 7 Task 7).
+//! CRUD for the shared vocabulary of tags and categories.
 //!
-//! Creare o modificare un **tag** (non una categoria) ricalcola solo
-//! l'embedding testuale di quel tag — le foto non si toccano. Se l'embedding
-//! è presente, Task 8 abbina subito le foto già indicizzate (`propose_for_tag`).
-//! Cambiare solo soglia/colore/parent non rivaluta.
+//! Creating or editing a **tag** (not a category) only recomputes that
+//! tag's text embedding — photos are not touched. If the embedding is
+//! present, already-indexed photos are immediately matched
+//! (`propose_for_tag`). Changing only threshold/color/parent does not
+//! re-evaluate.
 #![allow(clippy::missing_errors_doc)]
 
 use axum::extract::{Path, Query, State};
@@ -36,8 +37,8 @@ pub struct TagView {
     pub model_version: Option<String>,
     pub created_by: String,
     pub created_at: String,
-    /// Quante righe in `asset_tags` verrebbero cancellate con il tag.
-    /// Il dialog di conferma in UI lo legge da qui prima del DELETE.
+    /// How many rows in `asset_tags` would be deleted along with the tag.
+    /// The UI confirmation dialog reads this before the DELETE.
     pub assignment_count: i64,
 }
 
@@ -60,9 +61,9 @@ impl From<&keeppix_db::TagView> for TagView {
     }
 }
 
-/// Una proposta di abbinamento IA in attesa di revisione umana (Fase 7
-/// Task 9). Arricchita con nome tag e nome file: la coda di revisione non
-/// deve fare un secondo giro per riga.
+/// An AI-matched proposal pending human review. Enriched with the tag name
+/// and filename: the review queue must not make a second round trip per
+/// row.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ProposalView {
     pub asset_id: String,
@@ -97,7 +98,7 @@ pub struct ListProposalsQuery {
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateTagRequest {
     pub name: String,
-    /// `"tag"` o `"category"`.
+    /// `"tag"` or `"category"`.
     pub kind: String,
     #[serde(default)]
     pub parent_id: Option<String>,
@@ -113,7 +114,7 @@ pub struct CreateTagRequest {
 pub struct PatchTagRequest {
     #[serde(default)]
     pub name: Option<String>,
-    /// Assente = invariato; `null` = stacca dal parent.
+    /// Absent = unchanged; `null` = detach from the parent.
     #[serde(default)]
     #[allow(clippy::option_option)]
     pub parent_id: Option<Option<String>>,
@@ -135,8 +136,8 @@ pub struct PatchTagRequest {
     summary = "List tags and categories",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Vocabolario condiviso", body = [TagView]),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Shared vocabulary", body = [TagView]),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list(
@@ -156,11 +157,11 @@ pub async fn list(
     security(("session_cookie" = [])),
     request_body = CreateTagRequest,
     responses(
-        (status = 201, description = "Creato", body = TagView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Parent assente", body = Problem),
-        (status = 409, description = "Nome già in uso o nesting illegale", body = Problem),
-        (status = 422, description = "Dati non validi", body = Problem)
+        (status = 201, description = "Created", body = TagView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Parent not found", body = Problem),
+        (status = 409, description = "Name already in use or illegal nesting", body = Problem),
+        (status = 422, description = "Invalid data", body = Problem)
     )
 )]
 pub async fn create(
@@ -206,8 +207,8 @@ pub async fn create(
             },
         )
         .await?;
-    // Task 8: un tag appena creato con embedding abbina subito le foto già
-    // indicizzate (una query, nessuna re-inferenza sulle immagini).
+    // A tag just created with an embedding immediately matches
+    // already-indexed photos (one query, no re-inference over images).
     if tag.has_embedding {
         AssetTagRepo::new(&state.db).propose_for_tag(tag.id).await?;
     }
@@ -221,11 +222,11 @@ pub async fn create(
     operation_id = "tags_get",
     summary = "Get a tag or category",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id tag")),
+    params(("id" = String, Path, description = "Tag id")),
     responses(
-        (status = 200, description = "Trovato", body = TagView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Assente o non accessibile", body = Problem)
+        (status = 200, description = "Found", body = TagView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not found or not accessible", body = Problem)
     )
 )]
 pub async fn get(
@@ -244,14 +245,14 @@ pub async fn get(
     operation_id = "tags_patch",
     summary = "Update a tag or category",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id tag")),
+    params(("id" = String, Path, description = "Tag id")),
     request_body = PatchTagRequest,
     responses(
-        (status = 200, description = "Aggiornato", body = TagView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Assente o non accessibile", body = Problem),
-        (status = 409, description = "Nome già in uso o nesting illegale", body = Problem),
-        (status = 422, description = "Dati non validi", body = Problem)
+        (status = 200, description = "Updated", body = TagView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not found or not accessible", body = Problem),
+        (status = 409, description = "Name already in use or illegal nesting", body = Problem),
+        (status = 422, description = "Invalid data", body = Problem)
     )
 )]
 pub async fn patch(
@@ -307,16 +308,16 @@ pub async fn patch(
         let text = effective_prompt.unwrap_or(effective_name);
         match embed_tag_text(text).await? {
             (Some(vector), Some(version)) => (Some(Some(vector)), Some(Some(version))),
-            // Pesi assenti: azzera il vettore così non resta un embedding
-            // allineato al prompt vecchio.
+            // Weights absent: zero out the vector so no embedding is left
+            // aligned to the old prompt.
             _ => (Some(None), Some(None)),
         }
     } else {
         (None, None)
     };
 
-    // Solo un cambio di testo (name/prompt) rivaluta: threshold/color/parent
-    // da soli NON rematchano — la soglia governa le analisi future.
+    // Only a text change (name/prompt) re-evaluates: threshold/color/parent
+    // alone do NOT rematch — the threshold governs future analyses.
     let rematch = matches!(embedding, Some(Some(_)));
 
     let tag = repo
@@ -347,11 +348,11 @@ pub async fn patch(
     operation_id = "tags_delete",
     summary = "Delete a tag or category",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id tag")),
+    params(("id" = String, Path, description = "Tag id")),
     responses(
-        (status = 204, description = "Cancellato (cascade su asset_tags)"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Assente o non accessibile", body = Problem)
+        (status = 204, description = "Deleted (cascades to asset_tags)"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not found or not accessible", body = Problem)
     )
 )]
 pub async fn delete(
@@ -364,7 +365,7 @@ pub async fn delete(
 }
 
 // ---------------------------------------------------------------------------
-// Fase 7 Task 9: la coda di revisione delle proposte IA.
+// The AI proposal review queue.
 // ---------------------------------------------------------------------------
 
 #[utoipa::path(
@@ -375,11 +376,11 @@ pub async fn delete(
     summary = "List pending AI tag proposals (review queue)",
     security(("session_cookie" = [])),
     params(
-        ("tag_id" = Option<String>, Query, description = "Filtra su un solo tag")
+        ("tag_id" = Option<String>, Query, description = "Filter to a single tag")
     ),
     responses(
-        (status = 200, description = "Proposte in attesa, visibili al chiamante, punteggio decrescente", body = [ProposalView]),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Pending proposals, visible to the caller, descending score", body = [ProposalView]),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list_proposals(
@@ -402,15 +403,15 @@ pub async fn list_proposals(
     summary = "Confirm a single AI tag proposal",
     security(("session_cookie" = [])),
     params(
-        ("id" = String, Path, description = "Id tag"),
-        ("asset_id" = String, Path, description = "Id asset")
+        ("id" = String, Path, description = "Tag id"),
+        ("asset_id" = String, Path, description = "Asset id")
     ),
     responses(
-        (status = 204, description = "Confermato (idempotente se già confermato)"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile al chiamante", body = Problem),
-        (status = 404, description = "Nessuna proposta per questa coppia tag/asset", body = Problem),
-        (status = 409, description = "Già rifiutato: la decisione è permanente", body = Problem)
+        (status = 204, description = "Confirmed (idempotent if already confirmed)"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible to the caller", body = Problem),
+        (status = 404, description = "No proposal for this tag/asset pair", body = Problem),
+        (status = 409, description = "Already rejected: the decision is permanent", body = Problem)
     )
 )]
 pub async fn confirm_proposal(
@@ -432,15 +433,15 @@ pub async fn confirm_proposal(
     summary = "Reject a single AI tag proposal (permanent)",
     security(("session_cookie" = [])),
     params(
-        ("id" = String, Path, description = "Id tag"),
-        ("asset_id" = String, Path, description = "Id asset")
+        ("id" = String, Path, description = "Tag id"),
+        ("asset_id" = String, Path, description = "Asset id")
     ),
     responses(
-        (status = 204, description = "Rifiutato (idempotente se già rifiutato)"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile al chiamante", body = Problem),
-        (status = 404, description = "Nessuna proposta per questa coppia tag/asset", body = Problem),
-        (status = 409, description = "Già confermato: la decisione è permanente", body = Problem)
+        (status = 204, description = "Rejected (idempotent if already rejected)"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible to the caller", body = Problem),
+        (status = 404, description = "No proposal for this tag/asset pair", body = Problem),
+        (status = 409, description = "Already confirmed: the decision is permanent", body = Problem)
     )
 )]
 pub async fn reject_proposal(
@@ -459,12 +460,12 @@ pub async fn reject_proposal(
     path = "/api/v1/tags/{id}/proposals/confirm",
     tag = "tags",
     operation_id = "tags_confirm_all_proposals",
-    summary = "Confirm all pending proposals for a tag (bulk, «Conferma tutte»)",
+    summary = "Confirm all pending proposals for a tag (bulk, \"Confirm all\")",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id tag")),
+    params(("id" = String, Path, description = "Tag id")),
     responses(
-        (status = 200, description = "Esito: confermati gli asset visibili in attesa per questo tag", body = BulkOutcome),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Outcome: visible pending assets confirmed for this tag", body = BulkOutcome),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn confirm_all_proposals(
@@ -483,12 +484,12 @@ pub async fn confirm_all_proposals(
     path = "/api/v1/tags/{id}/proposals/reject",
     tag = "tags",
     operation_id = "tags_reject_all_proposals",
-    summary = "Reject all pending proposals for a tag (bulk, «Rifiuta tutte»)",
+    summary = "Reject all pending proposals for a tag (bulk, \"Reject all\")",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id tag")),
+    params(("id" = String, Path, description = "Tag id")),
     responses(
-        (status = 200, description = "Esito: rifiutati gli asset visibili in attesa per questo tag", body = BulkOutcome),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Outcome: visible pending assets rejected for this tag", body = BulkOutcome),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn reject_all_proposals(
@@ -508,13 +509,13 @@ pub struct BatchAssignRequest {
     pub asset_ids: Vec<AssetId>,
 }
 
-/// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…"): un'aggiunta manuale è
-/// già una conferma, non passa dalla coda di revisione (SP-12) — stessa
-/// forma di [`confirm_all_proposals`], ma sull'insieme di asset che il
-/// chiamante sceglie (la selezione corrente), non su "tutte le proposte in
-/// attesa per questo tag". [`keeppix_db::AssetTagRepo::assign`] scrive
-/// sempre `state='confirmed', source='user'`, anche sopra un rifiuto
-/// precedente — a differenza di `confirm_proposal`.
+/// A manual addition ("Add tag…") is already a confirmation, it does not
+/// go through the review queue — the same shape as
+/// [`confirm_all_proposals`], but over the set of assets the caller
+/// chooses (the current selection), not "all pending proposals for this
+/// tag". [`keeppix_db::AssetTagRepo::assign`] always writes
+/// `state='confirmed', source='user'`, even over a previous rejection —
+/// unlike `confirm_proposal`.
 #[utoipa::path(
     post,
     path = "/api/v1/tags/{id}/assets/batch",
@@ -522,12 +523,12 @@ pub struct BatchAssignRequest {
     operation_id = "tags_assign_batch",
     summary = "Assign a tag to multiple assets directly (source=user, bulk)",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id tag")),
+    params(("id" = String, Path, description = "Tag id")),
     request_body = BatchAssignRequest,
     responses(
-        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
-        (status = 400, description = "batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Per-asset outcome (partial success allowed)", body = BulkOutcome),
+        (status = 400, description = "Batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn assign_batch(
@@ -549,14 +550,12 @@ pub async fn assign_batch(
     Ok(Json(BulkOutcome::from_partition(succeeded, &failed, None)))
 }
 
-/// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…" — verificato sul
-/// prototipo reale, `openTagPickerDialog` in `docs/ui/keeppix-mockup.html`:
-/// lo stesso pulsante attiva/disattiva, aggiunge **o toglie**): la freccia
-/// opposta di [`assign_batch`], stessa forma esatta. [`keeppix_db::
-/// AssetTagRepo::unassign`] cancella la riga invece di deciderla
-/// `'rejected'` — quello stato è la coda di revisione IA, permanente per
-/// costruzione, semantica sbagliata per un tag manuale su cui si è
-/// ripensato.
+/// The "Add tag…" button toggles on/off, both adding **and** removing: the
+/// opposite direction of [`assign_batch`], the exact same shape.
+/// [`keeppix_db::AssetTagRepo::unassign`] deletes the row instead of
+/// marking it `'rejected'` — that state is the AI review queue, permanent
+/// by construction, the wrong semantics for a manual tag someone changed
+/// their mind about.
 #[utoipa::path(
     post,
     path = "/api/v1/tags/{id}/assets/batch/remove",
@@ -564,12 +563,12 @@ pub async fn assign_batch(
     operation_id = "tags_unassign_batch",
     summary = "Remove a tag from multiple assets directly (bulk)",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id tag")),
+    params(("id" = String, Path, description = "Tag id")),
     request_body = BatchAssignRequest,
     responses(
-        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
-        (status = 400, description = "batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Per-asset outcome (partial success allowed)", body = BulkOutcome),
+        (status = 400, description = "Batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn unassign_batch(
@@ -591,9 +590,9 @@ pub async fn unassign_batch(
     Ok(Json(BulkOutcome::from_partition(succeeded, &failed, None)))
 }
 
-/// Un tag come lo mostra il pannello informazioni del lightbox (Fase 11
-/// Task 8, §19.2 campi 14-17) — `state`/`source` grezzi, la vista sceglie
-/// la resa (piena / `.ai-applied` / tratteggiata), non questa risposta.
+/// A tag as shown by the lightbox info panel — raw `state`/`source`, the
+/// view chooses the rendering (solid / `.ai-applied` / dashed), not this
+/// response.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AssetTagDetailView {
     pub id: String,
@@ -626,11 +625,11 @@ impl From<keeppix_db::AssetTagDetail> for AssetTagDetailView {
     operation_id = "assets_list_tags",
     summary = "List an asset's tags — confirmed and pending, never rejected",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id asset")),
+    params(("id" = String, Path, description = "Asset id")),
     responses(
-        (status = 200, description = "Tag confermati e in attesa, ordinati per nome", body = Vec<AssetTagDetailView>),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile al chiamante", body = Problem)
+        (status = 200, description = "Confirmed and pending tags, sorted by name", body = Vec<AssetTagDetailView>),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible to the caller", body = Problem)
     )
 )]
 pub async fn list_tags_for_asset(
@@ -646,11 +645,11 @@ pub async fn list_tags_for_asset(
     ))
 }
 
-/// Fase 11 Task 8 (§19.3, la `×` sui chip confermati): rimuove un tag già
-/// confermato, permanentemente — non una `DELETE` come [`unassign_batch`]
-/// (che serve solo l'aggiunta manuale di Modifica in blocco). Vedi
-/// [`keeppix_db::AssetTagRepo::remove_confirmed`] per il perché della
-/// transizione a `'rejected'` invece della cancellazione della riga.
+/// The `×` on confirmed chips: permanently removes an already-confirmed
+/// tag — not a `DELETE` like [`unassign_batch`] (which only serves the
+/// manual addition from bulk edit). See
+/// [`keeppix_db::AssetTagRepo::remove_confirmed`] for why it transitions to
+/// `'rejected'` instead of deleting the row.
 #[utoipa::path(
     post,
     path = "/api/v1/tags/{id}/assets/{asset_id}/remove",
@@ -659,15 +658,15 @@ pub async fn list_tags_for_asset(
     summary = "Permanently remove an already-confirmed tag from an asset",
     security(("session_cookie" = [])),
     params(
-        ("id" = String, Path, description = "Id tag"),
-        ("asset_id" = String, Path, description = "Id asset")
+        ("id" = String, Path, description = "Tag id"),
+        ("asset_id" = String, Path, description = "Asset id")
     ),
     responses(
-        (status = 204, description = "Rimosso (idempotente se già rimosso)"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile al chiamante", body = Problem),
-        (status = 404, description = "Il tag non è mai stato assegnato a questo asset", body = Problem),
-        (status = 409, description = "È ancora in attesa di conferma: va deciso dalla coda, non rimosso", body = Problem)
+        (status = 204, description = "Removed (idempotent if already removed)"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible to the caller", body = Problem),
+        (status = 404, description = "The tag was never assigned to this asset", body = Problem),
+        (status = 409, description = "Still pending confirmation: must be decided from the queue, not removed", body = Problem)
     )
 )]
 pub async fn remove_confirmed_tag(
@@ -705,9 +704,9 @@ fn parse_optional_tag_id(raw: Option<&str>) -> Result<Option<TagId>, Problem> {
     raw.map(parse_tag_id).transpose()
 }
 
-/// Inferenza testuale usa-e-getta. Se i pesi mancano, `Ok((None, None))` —
-/// il tag resta creato e l'abbinamento (Task 8) lo salterà finché non c'è
-/// un embedding.
+/// One-off text inference. If the weights are missing, `Ok((None, None))`
+/// — the tag stays created and matching will skip it until there is an
+/// embedding.
 async fn embed_tag_text(text: &str) -> Result<(Option<Vec<f32>>, Option<String>), Problem> {
     let Some(model_dir) = openclip_xlmr::first_complete_model_dir() else {
         return Ok((None, None));

@@ -1,5 +1,5 @@
-//! Persone e gruppi di persone (Fase 8 Task 6/7). Distinti dai `groups`
-//! della Fase 3 (permessi utenti) — vedi `keeppix_db::PersonGroupRepo`.
+//! Persons and person groups. Distinct from `groups` (user permissions) —
+//! see `keeppix_db::PersonGroupRepo`.
 #![allow(clippy::missing_errors_doc)]
 
 use axum::extract::{Path, Query, State};
@@ -21,9 +21,8 @@ pub struct PersonView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_face_id: Option<String>,
     pub hidden: bool,
-    /// Presente per `GET /persons` (elenco); assente per le risposte di
-    /// singola persona, che non pagano un secondo giro di query per il
-    /// conteggio.
+    /// Present for `GET /persons` (list); absent for single-person
+    /// responses, which don't pay for a second query round trip to count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub face_count: Option<i64>,
     pub created_at: String,
@@ -69,7 +68,7 @@ pub struct ListPersonsQuery {
 }
 
 /// # Errors
-/// `401` senza utente autenticato.
+/// `401` without an authenticated user.
 #[utoipa::path(
     get,
     path = "/api/v1/persons",
@@ -77,10 +76,10 @@ pub struct ListPersonsQuery {
     operation_id = "persons_list",
     summary = "List persons visible to the caller",
     security(("session_cookie" = [])),
-    params(("include_hidden" = Option<bool>, Query, description = "Include persone nascoste")),
+    params(("include_hidden" = Option<bool>, Query, description = "Include hidden persons")),
     responses(
-        (status = 200, description = "Persone visibili, con conteggio volti", body = Vec<PersonView>),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Visible persons, with face count", body = Vec<PersonView>),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list(
@@ -98,16 +97,17 @@ pub async fn list(
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreatePersonRequest {
-    /// Vuoto o assente: persona senza nome («Persona 4»). Non vuoto: nome
-    /// validato, non può essere solo spazi.
+    /// Empty or absent: unnamed person ("Person 4"). Non-empty: validated
+    /// name, cannot be whitespace only.
     #[serde(default)]
     pub name: String,
 }
 
 /// # Errors
-/// `401` senza utente autenticato (solo per uniformità con le altre rotte:
-/// il repository non richiede visibilità per creare). `409` se il nome è
-/// già in uso. `422` se il nome non è vuoto ma è solo spazi.
+/// `401` without an authenticated user (only for consistency with the other
+/// routes: the repository does not require visibility to create). `409` if
+/// the name is already in use. `422` if the name is non-empty but
+/// whitespace only.
 #[utoipa::path(
     post,
     path = "/api/v1/persons",
@@ -117,10 +117,10 @@ pub struct CreatePersonRequest {
     security(("session_cookie" = [])),
     request_body = CreatePersonRequest,
     responses(
-        (status = 201, description = "Persona creata", body = PersonView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 409, description = "Nome già in uso", body = Problem),
-        (status = 422, description = "Nome non valido", body = Problem)
+        (status = 201, description = "Person created", body = PersonView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 409, description = "Name already in use", body = Problem),
+        (status = 422, description = "Invalid name", body = Problem)
     )
 )]
 pub async fn create(
@@ -137,7 +137,8 @@ pub async fn create(
 }
 
 /// # Errors
-/// `403` se nessun volto della persona è visibile al chiamante. `404` se non esiste.
+/// `403` if no face of the person is visible to the caller. `404` if it
+/// does not exist.
 #[utoipa::path(
     get,
     path = "/api/v1/persons/{id}",
@@ -145,12 +146,12 @@ pub async fn create(
     operation_id = "persons_get",
     summary = "Get a person",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id persona")),
+    params(("id" = String, Path, description = "Person id")),
     responses(
-        (status = 200, description = "Persona", body = PersonView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Nessun volto visibile al chiamante", body = Problem),
-        (status = 404, description = "Persona inesistente", body = Problem)
+        (status = 200, description = "Person", body = PersonView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "No face visible to the caller", body = Problem),
+        (status = 404, description = "Person does not exist", body = Problem)
     )
 )]
 pub async fn get(
@@ -164,8 +165,8 @@ pub async fn get(
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct PatchPersonRequest {
-    /// Assente: nome invariato. Stringa vuota: cancella il nome. Stringa
-    /// non vuota: nuovo nome (rifiutato se solo spazi).
+    /// Absent: name unchanged. Empty string: clears the name. Non-empty
+    /// string: new name (rejected if whitespace only).
     #[serde(default)]
     pub name: Option<String>,
     pub hidden: Option<bool>,
@@ -174,8 +175,8 @@ pub struct PatchPersonRequest {
 }
 
 /// # Errors
-/// Come [`get`]. `409` se il nuovo nome è già in uso, o se `cover_face_id`
-/// non appartiene a questa persona.
+/// Same as [`get`]. `409` if the new name is already in use, or if
+/// `cover_face_id` does not belong to this person.
 #[utoipa::path(
     patch,
     path = "/api/v1/persons/{id}",
@@ -183,14 +184,14 @@ pub struct PatchPersonRequest {
     operation_id = "persons_patch",
     summary = "Rename, hide/show, or set the cover of a person",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id persona")),
+    params(("id" = String, Path, description = "Person id")),
     request_body = PatchPersonRequest,
     responses(
-        (status = 200, description = "Persona aggiornata", body = PersonView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Nessun volto visibile al chiamante", body = Problem),
-        (status = 404, description = "Persona inesistente", body = Problem),
-        (status = 409, description = "Nome già in uso, o copertina non di questa persona", body = Problem)
+        (status = 200, description = "Person updated", body = PersonView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "No face visible to the caller", body = Problem),
+        (status = 404, description = "Person does not exist", body = Problem),
+        (status = 409, description = "Name already in use, or cover face not of this person", body = Problem)
     )
 )]
 pub async fn patch(
@@ -214,12 +215,12 @@ pub async fn patch(
     Ok(Json(PersonView::from_person(&person)))
 }
 
-/// Cancella la persona: i suoi volti restano, pronti per un nuovo
-/// raggruppamento (`person_id` torna `NULL`) — **non** cancella i dati dei
-/// volti (quella è l'interruttore di libreria, Task 10).
+/// Deletes the person: their faces stay, ready to be re-grouped
+/// (`person_id` goes back to `NULL`) — **does not** delete face data (that
+/// is the per-library toggle).
 ///
 /// # Errors
-/// Come [`get`].
+/// Same as [`get`].
 #[utoipa::path(
     delete,
     path = "/api/v1/persons/{id}",
@@ -227,12 +228,12 @@ pub async fn patch(
     operation_id = "persons_delete",
     summary = "Delete a person (their faces stay, ready to be re-grouped)",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id persona")),
+    params(("id" = String, Path, description = "Person id")),
     responses(
-        (status = 204, description = "Cancellata"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Nessun volto visibile al chiamante", body = Problem),
-        (status = 404, description = "Persona inesistente", body = Problem)
+        (status = 204, description = "Deleted"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "No face visible to the caller", body = Problem),
+        (status = 404, description = "Person does not exist", body = Problem)
     )
 )]
 pub async fn delete(
@@ -250,12 +251,12 @@ pub struct MergePersonsRequest {
     pub absorbed: Vec<PersonId>,
 }
 
-/// Unisce `absorbed` in `id`: tutti i volti passano alla persona
-/// sopravvissuta, le assorbite spariscono. Il nome sopravvissuto è quello
-/// di `id` se presente, altrimenti il primo nome trovato fra gli assorbiti.
+/// Merges `absorbed` into `id`: all their faces move to the surviving
+/// person, and the absorbed ones disappear. The surviving name is `id`'s if
+/// present, otherwise the first name found among the absorbed persons.
 ///
 /// # Errors
-/// Come [`get`], su `id` e su ogni persona assorbita.
+/// Same as [`get`], on `id` and on every absorbed person.
 #[utoipa::path(
     post,
     path = "/api/v1/persons/{id}/merge",
@@ -263,13 +264,13 @@ pub struct MergePersonsRequest {
     operation_id = "persons_merge",
     summary = "Merge other persons into this one",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id persona sopravvissuta")),
+    params(("id" = String, Path, description = "Surviving person id")),
     request_body = MergePersonsRequest,
     responses(
-        (status = 200, description = "Persona risultante", body = PersonView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Nessun volto visibile al chiamante", body = Problem),
-        (status = 404, description = "Persona inesistente", body = Problem)
+        (status = 200, description = "Resulting person", body = PersonView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "No face visible to the caller", body = Problem),
+        (status = 404, description = "Person does not exist", body = Problem)
     )
 )]
 pub async fn merge(
@@ -292,13 +293,12 @@ pub struct SeparatePersonRequest {
     pub name: String,
 }
 
-/// Separa: i volti indicati lasciano `id` e formano una persona nuova.
-/// **Non ripristina uno stato precedente** — l'utente non deve aspettarsi
-/// un annullamento (documento funzionale, domanda aperta n.5).
+/// Splits: the given faces leave `id` and form a new person. **Does not
+/// restore a previous state** — the user should not expect an undo.
 ///
 /// # Errors
-/// Come [`get`] su `id`. `409` se `face_ids` è vuoto o un volto non
-/// appartiene a `id`. `422` se `name` non è vuoto ma è solo spazi.
+/// Same as [`get`] on `id`. `409` if `face_ids` is empty or a face does not
+/// belong to `id`. `422` if `name` is non-empty but whitespace only.
 #[utoipa::path(
     post,
     path = "/api/v1/persons/{id}/separate",
@@ -306,15 +306,15 @@ pub struct SeparatePersonRequest {
     operation_id = "persons_separate",
     summary = "Split faces off into a new person (not undoable)",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id persona sorgente")),
+    params(("id" = String, Path, description = "Source person id")),
     request_body = SeparatePersonRequest,
     responses(
-        (status = 201, description = "Persona nuova", body = PersonView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Nessun volto visibile al chiamante", body = Problem),
-        (status = 404, description = "Persona inesistente", body = Problem),
-        (status = 409, description = "Nessun volto selezionato, o non appartiene alla sorgente", body = Problem),
-        (status = 422, description = "Nome non valido", body = Problem)
+        (status = 201, description = "New person", body = PersonView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "No face visible to the caller", body = Problem),
+        (status = 404, description = "Person does not exist", body = Problem),
+        (status = 409, description = "No face selected, or it does not belong to the source", body = Problem),
+        (status = 422, description = "Invalid name", body = Problem)
     )
 )]
 pub async fn separate(
@@ -330,7 +330,7 @@ pub async fn separate(
     Ok((StatusCode::CREATED, Json(PersonView::from_person(&person))))
 }
 
-// ---- Gruppi di persone (spec §5.1) ----
+// ---- Person groups ----
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct PersonGroupView {
@@ -352,7 +352,7 @@ impl From<&PersonGroup> for PersonGroupView {
 }
 
 /// # Errors
-/// `401` senza utente autenticato.
+/// `401` without an authenticated user.
 #[utoipa::path(
     get,
     path = "/api/v1/person-groups",
@@ -361,8 +361,8 @@ impl From<&PersonGroup> for PersonGroupView {
     summary = "List person groups",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Gruppi", body = Vec<PersonGroupView>),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Groups", body = Vec<PersonGroupView>),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list_groups(
@@ -379,7 +379,8 @@ pub struct CreatePersonGroupRequest {
 }
 
 /// # Errors
-/// `401` senza utente autenticato. `409` se il nome è già in uso.
+/// `401` without an authenticated user. `409` if the name is already in
+/// use.
 #[utoipa::path(
     post,
     path = "/api/v1/person-groups",
@@ -389,9 +390,9 @@ pub struct CreatePersonGroupRequest {
     security(("session_cookie" = [])),
     request_body = CreatePersonGroupRequest,
     responses(
-        (status = 201, description = "Gruppo creato", body = PersonGroupView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 409, description = "Nome già in uso", body = Problem)
+        (status = 201, description = "Group created", body = PersonGroupView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 409, description = "Name already in use", body = Problem)
     )
 )]
 pub async fn create_group(
@@ -411,8 +412,8 @@ pub struct RenamePersonGroupRequest {
 }
 
 /// # Errors
-/// `401` senza utente autenticato. `404` se il gruppo non esiste. `409` se
-/// il nome è già in uso.
+/// `401` without an authenticated user. `404` if the group does not exist.
+/// `409` if the name is already in use.
 #[utoipa::path(
     patch,
     path = "/api/v1/person-groups/{id}",
@@ -420,13 +421,13 @@ pub struct RenamePersonGroupRequest {
     operation_id = "person_groups_patch",
     summary = "Rename a person group",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id gruppo")),
+    params(("id" = String, Path, description = "Group id")),
     request_body = RenamePersonGroupRequest,
     responses(
-        (status = 200, description = "Gruppo aggiornato", body = PersonGroupView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 404, description = "Gruppo inesistente", body = Problem),
-        (status = 409, description = "Nome già in uso", body = Problem)
+        (status = 200, description = "Group updated", body = PersonGroupView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 404, description = "Group does not exist", body = Problem),
+        (status = 409, description = "Name already in use", body = Problem)
     )
 )]
 pub async fn patch_group(
@@ -442,7 +443,7 @@ pub async fn patch_group(
 }
 
 /// # Errors
-/// `401` senza utente autenticato.
+/// `401` without an authenticated user.
 #[utoipa::path(
     delete,
     path = "/api/v1/person-groups/{id}",
@@ -450,10 +451,10 @@ pub async fn patch_group(
     operation_id = "person_groups_delete",
     summary = "Delete a person group",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id gruppo")),
+    params(("id" = String, Path, description = "Group id")),
     responses(
-        (status = 204, description = "Cancellato"),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 204, description = "Deleted"),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn delete_group(
@@ -466,7 +467,7 @@ pub async fn delete_group(
 }
 
 /// # Errors
-/// `401` senza utente autenticato.
+/// `401` without an authenticated user.
 #[utoipa::path(
     get,
     path = "/api/v1/person-groups/{id}/members",
@@ -474,10 +475,10 @@ pub async fn delete_group(
     operation_id = "person_groups_list_members",
     summary = "List a group's members visible to the caller",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id gruppo")),
+    params(("id" = String, Path, description = "Group id")),
     responses(
-        (status = 200, description = "Id delle persone nel gruppo", body = Vec<String>),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Ids of the persons in the group", body = Vec<String>),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list_group_members(
@@ -490,7 +491,7 @@ pub async fn list_group_members(
 }
 
 /// # Errors
-/// Come [`get`] sulla persona.
+/// Same as [`get`] on the person.
 #[utoipa::path(
     post,
     path = "/api/v1/person-groups/{id}/members/{person_id}",
@@ -499,14 +500,14 @@ pub async fn list_group_members(
     summary = "Add a person to a group",
     security(("session_cookie" = [])),
     params(
-        ("id" = String, Path, description = "Id gruppo"),
-        ("person_id" = String, Path, description = "Id persona")
+        ("id" = String, Path, description = "Group id"),
+        ("person_id" = String, Path, description = "Person id")
     ),
     responses(
-        (status = 204, description = "Aggiunta"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Persona non visibile al chiamante", body = Problem),
-        (status = 404, description = "Persona inesistente", body = Problem)
+        (status = 204, description = "Added"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Person not visible to the caller", body = Problem),
+        (status = 404, description = "Person does not exist", body = Problem)
     )
 )]
 pub async fn add_group_member(
@@ -521,7 +522,7 @@ pub async fn add_group_member(
 }
 
 /// # Errors
-/// `401` senza utente autenticato.
+/// `401` without an authenticated user.
 #[utoipa::path(
     delete,
     path = "/api/v1/person-groups/{id}/members/{person_id}",
@@ -530,12 +531,12 @@ pub async fn add_group_member(
     summary = "Remove a person from a group",
     security(("session_cookie" = [])),
     params(
-        ("id" = String, Path, description = "Id gruppo"),
-        ("person_id" = String, Path, description = "Id persona")
+        ("id" = String, Path, description = "Group id"),
+        ("person_id" = String, Path, description = "Person id")
     ),
     responses(
-        (status = 204, description = "Rimossa"),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 204, description = "Removed"),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn remove_group_member(

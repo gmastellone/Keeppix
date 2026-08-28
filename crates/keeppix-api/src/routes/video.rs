@@ -18,7 +18,7 @@ use crate::state::AppState;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct PlaybackQuery {
-    /// Explicit client flag: never inferred server-side (spec §1).
+    /// Explicit client flag: never inferred server-side.
     #[serde(default)]
     pub save_bandwidth: bool,
 }

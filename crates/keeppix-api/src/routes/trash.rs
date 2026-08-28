@@ -1,6 +1,6 @@
-//! Cancellazione a tre opzioni (spec §6): ogni `DELETE` porta esplicitamente
-//! cosa succede al file, mai un comportamento implicito. `restore` è l'unica
-//! via indietro, e solo per `moved_to_trash`.
+//! Three-option deletion: every `DELETE` explicitly carries what happens to
+//! the file, never implicit behavior. `restore` is the only way back, and
+//! only for `moved_to_trash`.
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -17,14 +17,14 @@ use crate::state::AppState;
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct DeleteAssetRequest {
-    /// `kept`, `moved_to_trash`, o `purged` — nessun default: il client deve
-    /// sempre scegliere (spec §6).
+    /// `kept`, `moved_to_trash`, or `purged` — no default: the client must
+    /// always choose.
     #[schema(example = "moved_to_trash")]
     pub disk_action: String,
 }
 
-/// `pub(crate)`: riusata da `routes::duplicates::resolve`, che applica la
-/// stessa azione a ogni membro non tenuto di un gruppo di duplicati.
+/// `pub(crate)`: reused by `routes::duplicates::resolve`, which applies the
+/// same action to every non-kept member of a duplicate group.
 pub(crate) fn parse_action(raw: &str) -> Result<DiskAction, Problem> {
     DiskAction::parse(raw).map_err(|e| {
         Problem::bad_request(
@@ -36,11 +36,11 @@ pub(crate) fn parse_action(raw: &str) -> Result<DiskAction, Problem> {
 }
 
 /// # Errors
-/// `400` se `disk_action` non è una delle tre opzioni; `401` se non
-/// autenticato; `403` se l'asset non è visibile al chiamante (anche
-/// inesistente), o se `purged` è richiesto da chi non è owner/admin della
-/// libreria; `500` se l'operazione sul filesystem che accompagna la
-/// scrittura fallisce.
+/// `400` if `disk_action` is not one of the three options; `401` if not
+/// authenticated; `403` if the asset is not visible to the caller (even
+/// nonexistent), or if `purged` is requested by someone who is not
+/// owner/admin of the library; `500` if the filesystem operation
+/// accompanying the write fails.
 #[utoipa::path(
     delete,
     path = "/api/v1/assets/{id}",
@@ -48,14 +48,14 @@ pub(crate) fn parse_action(raw: &str) -> Result<DiskAction, Problem> {
     operation_id = "assets_delete",
     summary = "Delete an asset",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset")),
+    params(("id" = String, Path, description = "Asset id")),
     request_body = DeleteAssetRequest,
     responses(
-        (status = 204, description = "Azione applicata, riga di audit registrata"),
-        (status = 400, description = "disk_action non riconosciuto", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile, o purged senza i permessi", body = Problem),
-        (status = 500, description = "Errore del database o del filesystem", body = Problem)
+        (status = 204, description = "Action applied, audit row recorded"),
+        (status = 400, description = "Unrecognized disk_action", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible, or purged without permission", body = Problem),
+        (status = 500, description = "Database or filesystem error", body = Problem)
     )
 )]
 pub async fn delete(
@@ -73,28 +73,28 @@ pub async fn delete(
 pub struct BatchDeleteRequest {
     #[schema(value_type = Vec<String>)]
     pub asset_ids: Vec<AssetId>,
-    /// `kept`, `moved_to_trash`, o `purged` — obbligatorio, stesso
-    /// vocabolario di `DELETE /api/v1/assets/{id}` (spec §6). Nessun
-    /// default: il client scelga sempre.
+    /// `kept`, `moved_to_trash`, or `purged` — required, same vocabulary as
+    /// `DELETE /api/v1/assets/{id}`. No default: the client must always
+    /// choose.
     #[schema(example = "moved_to_trash")]
     pub disk_action: String,
 }
 
-/// Cancellazione a tre opzioni sull'intero lotto: ogni asset è una
-/// transazione a sé ([`TrashRepo::choose`] riusato senza modifiche), tranne
-/// per `purged`, dove l'autorizzazione è **all-or-nothing** — un solo id non
-/// purgabile rifiuta l'intero lotto prima che qualunque file venga toccato
-/// (spec Fase 10 §Task 4: «il buco più rilevante per il backend», l'unico
-/// dialog dell'app che distrugge dati e ha più modi di fallire).
+/// Three-option deletion over the whole batch: each asset is its own
+/// transaction ([`TrashRepo::choose`] reused unchanged), except for
+/// `purged`, where authorization is **all-or-nothing** — a single
+/// non-purgeable id rejects the entire batch before any file is touched
+/// (the one dialog in the app that destroys data and has the most ways to
+/// fail).
 ///
 /// # Errors
-/// `400` `keeppix/invalid-disk-action` se `disk_action` non è una delle tre
-/// opzioni, o `keeppix/batch-too-large` se il lotto supera
-/// [`crate::batch::MAX_BATCH_ASSETS`]; `401` se non autenticato; `403` se
-/// `purged` è richiesto e il chiamante non può eliminare dal disco anche un
-/// solo asset del lotto (owner/admin richiesti) — per `kept`/`moved_to_trash`
-/// un id non visibile o non modificabile finisce invece in `failed` con
-/// riuscita parziale.
+/// `400` `keeppix/invalid-disk-action` if `disk_action` is not one of the
+/// three options, or `keeppix/batch-too-large` if the batch exceeds
+/// [`crate::batch::MAX_BATCH_ASSETS`]; `401` if not authenticated; `403` if
+/// `purged` is requested and the caller cannot delete from disk even one
+/// asset of the batch (owner/admin required) — for `kept`/`moved_to_trash`
+/// a non-visible or non-editable id instead ends up in `failed` with
+/// partial success.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/batch/delete",
@@ -104,10 +104,10 @@ pub struct BatchDeleteRequest {
     security(("session_cookie" = [])),
     request_body = BatchDeleteRequest,
     responses(
-        (status = 200, description = "Esito per asset (riuscita parziale ammessa, tranne per purged non autorizzato)", body = BulkOutcome),
-        (status = 400, description = "disk_action non riconosciuto, o lotto troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "purged richiesto da chi non è owner/admin di almeno un asset del lotto", body = Problem)
+        (status = 200, description = "Per-asset outcome (partial success allowed, except for unauthorized purged)", body = BulkOutcome),
+        (status = 400, description = "Unrecognized disk_action, or batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "purged requested by someone who is not owner/admin of at least one asset in the batch", body = Problem)
     )
 )]
 pub async fn batch_delete(
@@ -138,9 +138,9 @@ pub async fn batch_delete(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se l'asset non è visibile al chiamante;
-/// `409` se l'asset non ha un cestinamento pendente, o se il percorso
-/// originale è di nuovo occupato — il ripristino non sovrascrive mai.
+/// `401` if not authenticated; `403` if the asset is not visible to the
+/// caller; `409` if the asset has no pending trashing, or if the original
+/// path is occupied again — restore never overwrites.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/{id}/restore",
@@ -148,13 +148,13 @@ pub async fn batch_delete(
     operation_id = "assets_restore",
     summary = "Restore an asset from trash",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset")),
+    params(("id" = String, Path, description = "Asset id")),
     responses(
-        (status = 204, description = "File ripristinato al percorso originale"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile", body = Problem),
-        (status = 409, description = "Niente da ripristinare, o percorso occupato", body = Problem),
-        (status = 500, description = "Errore del database o del filesystem", body = Problem)
+        (status = 204, description = "File restored to its original path"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible", body = Problem),
+        (status = 409, description = "Nothing to restore, or path occupied", body = Problem),
+        (status = 500, description = "Database or filesystem error", body = Problem)
     )
 )]
 pub async fn restore(
@@ -236,7 +236,7 @@ fn encode_trash_cursor(entry: &TrashEntry) -> String {
 }
 
 /// # Errors
-/// `400` se il cursore non è leggibile; `401` se non autenticato.
+/// `400` if the cursor is not readable; `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/trash",
@@ -249,10 +249,10 @@ fn encode_trash_cursor(entry: &TrashEntry) -> String {
         ("limit" = Option<i64>, Query, description = "1..=100, default 50")
     ),
     responses(
-        (status = 200, description = "Pagina del cestino navigabile", body = TrashListPage),
-        (status = 400, description = "Cursore illeggibile", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Paginated trash page", body = TrashListPage),
+        (status = 400, description = "Unreadable cursor", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn list(
@@ -279,8 +279,8 @@ pub async fn list(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se il chiamante non è owner di alcuna
-/// libreria né admin.
+/// `401` if not authenticated; `403` if the caller is not owner of any
+/// library, nor admin.
 #[utoipa::path(
     post,
     path = "/api/v1/trash/empty",
@@ -289,10 +289,10 @@ pub async fn list(
     summary = "Empty the trash",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Cestino svuotato", body = EmptyTrashResponse),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo owner/admin", body = Problem),
-        (status = 500, description = "Errore del database o del filesystem", body = Problem)
+        (status = 200, description = "Trash emptied", body = EmptyTrashResponse),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Owner/admin only", body = Problem),
+        (status = 500, description = "Database or filesystem error", body = Problem)
     )
 )]
 pub async fn empty(

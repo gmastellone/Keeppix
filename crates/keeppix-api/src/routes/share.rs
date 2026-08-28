@@ -1,4 +1,4 @@
-//! Link pubblici e accesso tramite token.
+//! Public links and token-based access.
 #![allow(clippy::missing_errors_doc, clippy::struct_excessive_bools)]
 
 use axum::body::Body;
@@ -60,8 +60,8 @@ pub struct CreateLinkResponse {
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se non può condividere l'oggetto;
-/// `422` se `password` non è valida.
+/// `401` if not authenticated; `403` if the object cannot be shared;
+/// `422` if `password` is invalid.
 #[utoipa::path(
     post,
     path = "/api/v1/share/links",
@@ -71,10 +71,10 @@ pub struct CreateLinkResponse {
     security(("session_cookie" = [])),
     request_body = CreateLinkRequest,
     responses(
-        (status = 201, description = "Link creato", body = CreateLinkResponse),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin dell'oggetto", body = Problem),
-        (status = 422, description = "Password non valida", body = Problem)
+        (status = 201, description = "Link created", body = CreateLinkResponse),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin of the object", body = Problem),
+        (status = 422, description = "Invalid password", body = Problem)
     )
 )]
 pub async fn create_link(
@@ -138,7 +138,7 @@ pub async fn create_link(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se non owner/admin del link.
+/// `401` if not authenticated; `403` if not owner/admin of the link.
 #[utoipa::path(
     delete,
     path = "/api/v1/share/links/{id}",
@@ -146,11 +146,11 @@ pub async fn create_link(
     operation_id = "share_links_revoke",
     summary = "Revoke a public share link",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id del link")),
+    params(("id" = String, Path, description = "Link id")),
     responses(
-        (status = 204, description = "Link revocato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin del link", body = Problem)
+        (status = 204, description = "Link revoked"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin of the link", body = Problem)
     )
 )]
 pub async fn revoke_link(
@@ -181,11 +181,10 @@ pub struct LinkView {
     pub has_password: bool,
     pub expires_at: Option<String>,
     pub max_views: Option<i32>,
-    /// Accessi al link, non «elementi condivisi» — quello è `item_count`.
+    /// Accesses of the link, not "shared items" — that's `item_count`.
     pub view_count: i32,
-    /// Elementi condivisi da questo link (§29: `"246 elementi"`). Task 11
-    /// lo aveva tolto come inutilizzato ovunque; qui torna perché la scheda
-    /// "Le mie condivisioni" lo chiede esplicitamente per i link pubblici.
+    /// Items shared by this link (e.g. `"246 items"`). Brought back because
+    /// the "My shares" card explicitly requests it for public links.
     pub item_count: i64,
     pub allow_download: bool,
     pub allow_original: bool,
@@ -197,7 +196,7 @@ pub struct LinkView {
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/share/links",
@@ -206,8 +205,8 @@ pub struct LinkView {
     summary = "List share links created by the caller",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Link creati dal chiamante", body = Vec<LinkView>),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Links created by the caller", body = Vec<LinkView>),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list_links(
@@ -245,8 +244,8 @@ pub async fn list_links(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se non owner/admin della cartella di
-/// destinazione dell'upload guest.
+/// `401` if not authenticated; `403` if not owner/admin of the guest
+/// upload's destination folder.
 #[utoipa::path(
     post,
     path = "/api/v1/guest-uploads/{id}/approve",
@@ -254,11 +253,11 @@ pub async fn list_links(
     operation_id = "guest_uploads_approve",
     summary = "Approve a guest upload",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'upload guest")),
+    params(("id" = String, Path, description = "Guest upload id")),
     responses(
-        (status = 204, description = "Upload approvato, indicizzazione accodata"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin", body = Problem)
+        (status = 204, description = "Upload approved, indexing queued"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin", body = Problem)
     )
 )]
 pub async fn approve_guest_upload(
@@ -305,23 +304,23 @@ pub struct ShareInfoResponse {
     pub has_password: bool,
 }
 
-/// Nessuna sicurezza a cookie di sessione: l'accesso è il token nel
-/// percorso stesso — è la superficie pubblica dei link di condivisione.
+/// No session-cookie security: access is the token in the path itself —
+/// this is the public surface of share links.
 ///
 /// # Errors
-/// `403` se il token non esiste o è revocato; `429` oltre il rate limit
-/// per token.
+/// `403` if the token does not exist or is revoked; `429` beyond the
+/// per-token rate limit.
 #[utoipa::path(
     get,
     path = "/api/v1/share/{token}",
     tag = "share",
     operation_id = "share_public_info",
     summary = "Get public info about a share link",
-    params(("token" = String, Path, description = "Token del link pubblico")),
+    params(("token" = String, Path, description = "Public link token")),
     responses(
-        (status = 200, description = "Info pubbliche sul link", body = ShareInfoResponse),
-        (status = 403, description = "Token inesistente o revocato", body = Problem),
-        (status = 429, description = "Troppi accessi con questo token", body = Problem)
+        (status = 200, description = "Public info about the link", body = ShareInfoResponse),
+        (status = 403, description = "Token does not exist or is revoked", body = Problem),
+        (status = 429, description = "Too many requests with this token", body = Problem)
     )
 )]
 pub async fn public_info(
@@ -366,20 +365,20 @@ pub struct ShareAuthRequest {
 }
 
 /// # Errors
-/// `403` se il token non esiste, è revocato, o la password non combacia;
-/// `429` oltre il rate limit per token.
+/// `403` if the token does not exist, is revoked, or the password does not
+/// match; `429` beyond the per-token rate limit.
 #[utoipa::path(
     post,
     path = "/api/v1/share/{token}/auth",
     tag = "share",
     operation_id = "share_public_auth",
     summary = "Unlock a password-protected share link",
-    params(("token" = String, Path, description = "Token del link pubblico")),
+    params(("token" = String, Path, description = "Public link token")),
     request_body = ShareAuthRequest,
     responses(
-        (status = 204, description = "Password corretta, cookie di sblocco impostato"),
-        (status = 403, description = "Token inesistente, revocato, o password errata", body = Problem),
-        (status = 429, description = "Troppi accessi con questo token", body = Problem)
+        (status = 204, description = "Correct password, unlock cookie set"),
+        (status = 403, description = "Token does not exist, is revoked, or wrong password", body = Problem),
+        (status = 429, description = "Too many requests with this token", body = Problem)
     )
 )]
 pub async fn public_auth(
@@ -422,16 +421,16 @@ pub async fn public_auth(
     Ok((share_headers(), jar, StatusCode::NO_CONTENT))
 }
 
-/// Sottoinsieme di [`AssetView`] sicuro per un guest anonimo — **non**
-/// `AssetView` stessa, apposta: quel tipo è condiviso con timeline/ricerca ed
-/// è pensato per crescere di campi "additivi" (`tags`, `faces`, `full_exif`,
-/// …, vedi i commenti su `AssetView`), e riusarlo qui esporrebbe ogni futura
-/// aggiunta a un utente anonimo senza che nessuno se ne accorga. `face_
-/// privacy.rs` lo impone strutturalmente: cammina l'intero corpo e rifiuta
-/// qualunque chiave "face"/"person", quindi anche `faces:[]` (vuoto, mai
-/// popolato da questa rotta) lo fa fallire — di proposito, perché un domani
-/// chi copia `.with_faces(...)` da `timeline.rs` in questa rotta lo farebbe
-/// fallire lo stesso, non solo il caso con dati veri.
+/// Subset of [`AssetView`] safe for an anonymous guest — deliberately
+/// **not** `AssetView` itself: that type is shared with timeline/search and
+/// is meant to grow "additive" fields (`tags`, `faces`, `full_exif`, …, see
+/// the comments on `AssetView`), and reusing it here would expose every
+/// future addition to an anonymous user without anyone noticing. A privacy
+/// test enforces this structurally: it walks the whole body and rejects
+/// any "face"/"person" key, so even `faces:[]` (empty, never populated by
+/// this route) fails it — on purpose, because if someone later copies
+/// `.with_faces(...)` from `timeline.rs` into this route, it would fail
+/// the same way, not only the case with real data.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct PublicAssetView {
     pub id: String,
@@ -485,18 +484,18 @@ pub struct SharedContentResponse {
 }
 
 /// # Errors
-/// `403` se il token/cookie di sblocco non è valido o l'oggetto condiviso
-/// non è più risolvibile.
+/// `403` if the token/unlock cookie is invalid or the shared object is no
+/// longer resolvable.
 #[utoipa::path(
     get,
     path = "/api/v1/share/{token}/assets",
     tag = "share",
     operation_id = "share_public_assets",
     summary = "List assets exposed by a share link",
-    params(("token" = String, Path, description = "Token del link pubblico")),
+    params(("token" = String, Path, description = "Public link token")),
     responses(
-        (status = 200, description = "Asset condivisi (metadati redatti se hide_metadata)", body = SharedContentResponse),
-        (status = 403, description = "Token/sblocco non valido", body = Problem)
+        (status = 200, description = "Shared assets (metadata redacted if hide_metadata)", body = SharedContentResponse),
+        (status = 403, description = "Invalid token/unlock", body = Problem)
     )
 )]
 pub async fn public_assets(
@@ -590,9 +589,10 @@ pub struct GuestUploadResponse {
 }
 
 /// # Errors
-/// `403` se il link non ha `allow_upload` o non è su una cartella; `400` se
-/// il nome file non è valido o il corpo è vuoto; `409` in caso di collisione
-/// esatta col nome finale; `413` oltre la quota residua del link.
+/// `403` if the link does not have `allow_upload` or is not on a folder;
+/// `400` if the filename is invalid or the body is empty; `409` on an
+/// exact collision with the final name; `413` beyond the link's remaining
+/// quota.
 #[utoipa::path(
     post,
     path = "/api/v1/share/{token}/uploads",
@@ -600,16 +600,16 @@ pub struct GuestUploadResponse {
     operation_id = "share_public_upload",
     summary = "Upload a file through a share link",
     params(
-        ("token" = String, Path, description = "Token del link pubblico"),
-        ("filename" = String, Query, description = "Nome file proposto dal client")
+        ("token" = String, Path, description = "Public link token"),
+        ("filename" = String, Query, description = "Filename proposed by the client")
     ),
-    request_body(content = Vec<u8>, description = "Corpo del file", content_type = "application/octet-stream"),
+    request_body(content = Vec<u8>, description = "File body", content_type = "application/octet-stream"),
     responses(
-        (status = 201, description = "File caricato e in coda per l'indicizzazione", body = GuestUploadResponse),
-        (status = 400, description = "Nome file non valido o corpo vuoto", body = Problem),
-        (status = 403, description = "Link non abilitato all'upload", body = Problem),
-        (status = 409, description = "Collisione di nome", body = Problem),
-        (status = 413, description = "Quota residua del link esaurita", body = Problem)
+        (status = 201, description = "File uploaded and queued for indexing", body = GuestUploadResponse),
+        (status = 400, description = "Invalid filename or empty body", body = Problem),
+        (status = 403, description = "Link not enabled for upload", body = Problem),
+        (status = 409, description = "Name collision", body = Problem),
+        (status = 413, description = "Link's remaining quota exhausted", body = Problem)
     )
 )]
 pub async fn public_upload(
@@ -785,8 +785,8 @@ async fn write_body_capped(
     Ok(written)
 }
 
-/// Riusata da [`crate::routes::upload`] per la stessa verifica di
-/// decodificabilità a fine sessione tus.
+/// Reused by [`crate::routes::upload`] for the same decodability check at
+/// the end of a tus session.
 pub(crate) async fn peek_header(path: &std::path::Path) -> Result<Vec<u8>, Problem> {
     use tokio::io::AsyncReadExt as _;
     let mut file = tokio::fs::File::open(path)

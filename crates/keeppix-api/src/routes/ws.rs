@@ -24,8 +24,8 @@ use crate::state::AppState;
 pub const QUEUE_CAP: usize = 256;
 const PROTOCOL: &str = "keeppix.v1";
 
-/// Consuma il ticket **prima** dell'upgrade: un handshake malformato non
-/// deve lasciare il ticket riusabile.
+/// Consumes the ticket **before** the upgrade: a malformed handshake must
+/// not leave the ticket reusable.
 pub struct TicketHandshake {
     ctx: AuthContext,
 }
@@ -66,7 +66,7 @@ pub struct TicketResponse {
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     post,
     path = "/api/v1/ws/ticket",
@@ -75,8 +75,8 @@ pub struct TicketResponse {
     summary = "Issue a WebSocket ticket",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Ticket monouso da 30 s", body = TicketResponse),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "30 s single-use ticket", body = TicketResponse),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn ticket(State(state): State<AppState>, Auth(ctx): Auth) -> Json<TicketResponse> {
@@ -87,7 +87,8 @@ pub async fn ticket(State(state): State<AppState>, Auth(ctx): Auth) -> Json<Tick
 }
 
 /// # Errors
-/// `403` se Origin non è ammesso o il ticket manca, è scaduto o è già stato usato.
+/// `403` if Origin is not allowed or the ticket is missing, expired, or
+/// already used.
 #[utoipa::path(
     get,
     path = "/api/v1/ws",
@@ -97,7 +98,7 @@ pub async fn ticket(State(state): State<AppState>, Auth(ctx): Auth) -> Json<Tick
     security(("session_cookie" = [])),
     responses(
         (status = 101, description = "WebSocket keeppix.v1"),
-        (status = 403, description = "Origin o ticket non validi", body = Problem)
+        (status = 403, description = "Invalid Origin or ticket", body = Problem)
     )
 )]
 pub async fn connect(
@@ -111,20 +112,20 @@ pub async fn connect(
 
 const CHANGE_POLL: Duration = Duration::from_secs(1);
 
-// Un `drain_*` in più (Fase 8: `suggestions.changed`) ha superato il tetto
-// di 100 righe — la funzione resta un elenco piatto di "prova a leggere una
-// fonte, esci se il socket è morto", niente da fattorizzare senza inventare
-// un'astrazione (chiusure eterogenee per stato "visto" di tipo diverso) solo
-// per stare sotto il limite.
+// One more `drain_*` (`suggestions.changed`) pushed this past the 100-line
+// cap — the function stays a flat list of "try reading a source, bail if
+// the socket is dead", nothing worth factoring out without inventing an
+// abstraction (heterogeneous closures over differently-typed "seen" state)
+// just to stay under the limit.
 #[allow(clippy::too_many_lines)]
 async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
     let Ok(mut cursor) = ChangeLogRepo::new(&state.db).head_seq(&ctx).await else {
         return;
     };
-    // Come `cursor`: solo le transcodifiche finite *dopo* la connessione,
-    // non l'intero storico (Task 19) — a differenza di `operations`/backup,
-    // sapere che un video è pronto non serve più una volta che il client ha
-    // già ricaricato la pagina che lo mostra.
+    // Like `cursor`: only transcodes finished *after* the connection, not
+    // the whole history — unlike `operations`/backup, knowing a video is
+    // ready is no longer useful once the client has already reloaded the
+    // page showing it.
     let Ok(mut derivative_cursor) = JobRepo::new(&state.db)
         .max_done_id(JobKind::TranscodeVideo)
         .await
@@ -132,11 +133,11 @@ async fn socket_loop(mut socket: WebSocket, state: AppState, ctx: AuthContext) {
         return;
     };
     let mut outgoing = VecDeque::new();
-    // Vuoto a ogni nuova connessione **di proposito**: un client che si
-    // riconnette a metà di un'operazione non ha memoria di ciò che ha già
-    // visto, quindi il primo giro di poll la tratta come mai vista e ne
-    // emette subito lo stato corrente (spec Task 16: "arriva anche dopo una
-    // riconnessione"). `operations` è la fonte di verità, non questa mappa.
+    // Empty on every new connection **on purpose**: a client that
+    // reconnects mid-operation has no memory of what it has already seen,
+    // so the first poll round treats it as never seen and immediately
+    // emits its current state ("arrives even after a reconnection").
+    // `operations` is the source of truth, not this map.
     let mut op_seen: HashMap<OperationId, OperationProgressKey> = HashMap::new();
     let mut scan_seen: HashMap<LibraryId, ScanProgressKey> = HashMap::new();
     let mut problems_seen: Option<String> = None;
@@ -265,17 +266,17 @@ async fn drain_changes(
     Ok(())
 }
 
-/// `(done, total, phase)`: la chiave con cui `drain_operations` decide se
-/// un'operazione ha davvero fatto progressi da riportare, non solo se il
-/// giro di poll è passato.
+/// `(done, total, phase)`: the key `drain_operations` uses to decide
+/// whether an operation has actually made progress worth reporting, not
+/// just whether a poll round has passed.
 type OperationProgressKey = (i64, Option<i64>, String);
 
-/// Emette `operation.progress` per ogni operazione `running` del chiamante
-/// che è cambiata dall'ultimo giro, più un ultimo messaggio quando
-/// un'operazione tracciata esce da `running` (spec Task 16: `{operation_id,
-/// done, total, phase}`). `operations` resta l'unica fonte di verità — qui
-/// si legge, non si scrive — così un client riconnesso vede lo stato attuale
-/// al primo giro utile senza bisogno di un replay di eventi persi.
+/// Emits `operation.progress` for every `running` operation of the caller
+/// that changed since the last round, plus a final message when a tracked
+/// operation leaves `running` (`{operation_id, done, total, phase}`).
+/// `operations` stays the only source of truth — this reads, never
+/// writes — so a reconnected client sees the current state on the first
+/// useful round without needing a replay of missed events.
 async fn drain_operations(
     db: &Db,
     ctx: &AuthContext,
@@ -305,8 +306,9 @@ async fn drain_operations(
         .collect();
     for id in finished {
         seen.remove(&id);
-        // Best-effort: se non è più visibile (improbabile, l'owner non
-        // cambia) si salta senza rompere il socket per un solo messaggio.
+        // Best-effort: if it's no longer visible (unlikely, the owner
+        // doesn't change) it's skipped without breaking the socket over a
+        // single message.
         if let Ok(op) = ops.find(ctx, id).await {
             let phase = match op.status {
                 OperationStatus::Done => "done",
@@ -338,16 +340,16 @@ fn operation_progress_event(
     })
 }
 
-/// `(phase, asset_count)`: la chiave con cui `drain_scan_progress` decide se
-/// una libreria ha davvero fatto progressi da riportare.
+/// `(phase, asset_count)`: the key `drain_scan_progress` uses to decide
+/// whether a library has actually made progress worth reporting.
 type ScanProgressKey = (String, i64);
 
-/// Emette `scan.progress` per ogni libreria visibile al chiamante la cui
-/// `(fase, conteggio asset)` è cambiata dall'ultimo giro (Fase 10 Task 19).
-/// Stessa fonte già usata da `GET /libraries/{id}/scan`
+/// Emits `scan.progress` for every library visible to the caller whose
+/// `(phase, asset count)` changed since the last round. Same source
+/// already used by `GET /libraries/{id}/scan`
 /// (`JobRepo::discover_status_for_library` + `AssetRepo::count_in_library`),
-/// non un secondo stato inventato — copre anche le riscansioni innescate dal
-/// watcher, che non hanno un `operation_id` e quindi non compaiono in
+/// not a second invented state — this also covers rescans triggered by the
+/// watcher, which have no `operation_id` and so don't show up in
 /// `operation.progress`.
 async fn drain_scan_progress(
     db: &Db,
@@ -386,18 +388,18 @@ async fn drain_scan_progress(
     Ok(())
 }
 
-/// Emette `problems.changed` quando l'elenco composto (`ProblemsRepo::list`,
-/// già usato da `GET /problems`) cambia rispetto all'ultimo giro. Magro per
-/// contratto (Fase 10 Task 19: *"un segnale, non uno stato"*): porta un
-/// conteggio come comodità, mai gli id — un client che lo perde deve
-/// ricaricare `GET /problems`, non fidarsi del numero.
+/// Emits `problems.changed` when the composed list (`ProblemsRepo::list`,
+/// already used by `GET /problems`) changes relative to the last round.
+/// Deliberately thin by contract (*"a signal, not a state"*): it carries a
+/// count as a convenience, never the ids — a client that misses it must
+/// reload `GET /problems`, not trust the number.
 ///
-/// Il primo giro con lista vuota non emette: non c'è un cambiamento da
-/// segnalare, e un `count: 0` in coda gareggia col Ping di apertura — i test
-/// (e un client lento) lo prenderebbero come l'evento "c'è un problema"
-/// successivo. Un reconnect con problemi già presenti continua a emettere
-/// subito (come `operations`). Il ritorno a zero problemi (firma precedente
-/// non vuota → count 0) emette normalmente.
+/// The first round with an empty list does not emit: there is no change to
+/// report, and a `count: 0` queued right away would race with the opening
+/// Ping — tests (and a slow client) would mistake it for the next "there is
+/// a problem" event. A reconnect with problems already present keeps
+/// emitting right away (like `operations`). Returning to zero problems
+/// (previous non-empty signature → count 0) emits normally.
 async fn drain_problems(
     db: &Db,
     ctx: &AuthContext,
@@ -445,19 +447,18 @@ fn problems_signature(set: &keeppix_db::ProblemSet) -> String {
     )
 }
 
-/// Emette `suggestions.changed` — il badge Revisione (Fase 10 Task 19,
-/// lasciato scablato allora: "nessun codice di Fase 7/8 esiste da cui
-/// leggerlo"). Ora esiste: stessa somma tag+volti di `GET /bootstrap`
-/// (`AssetTagRepo::count_proposed_visible` + `FaceRepo::count_proposed_visible`),
-/// un solo canale perché il badge è già un conteggio combinato, non due.
+/// Emits `suggestions.changed` — the Review badge. Same tag+face sum as
+/// `GET /bootstrap` (`AssetTagRepo::count_proposed_visible` +
+/// `FaceRepo::count_proposed_visible`), a single channel because the badge
+/// is already a combined count, not two.
 ///
-/// Come `problems.changed`, il numero viaggia come comodità (il contratto
-/// resta "ricarica il contatore", il client non deve fidarsi del valore per
-/// decidere se è cambiato — vedi Ruling Fase 10 Task 19: "portare il numero
-/// resta ammesso come comodità, mai come garanzia"). Stessa guardia
-/// "prima connessione a zero non emette" di `drain_problems`, per lo stesso
-/// motivo: un `count: 0` in coda alla prima connessione gareggerebbe con il
-/// Ping di apertura.
+/// Like `problems.changed`, the number travels as a convenience (the
+/// contract stays "reload the counter", the client must not trust the
+/// value to decide whether it changed — carrying the number remains
+/// allowed as a convenience, never as a guarantee). Same "first connection
+/// at zero does not emit" guard as `drain_problems`, for the same reason:
+/// a `count: 0` queued on the first connection would race with the opening
+/// Ping.
 async fn drain_suggestions(
     db: &Db,
     ctx: &AuthContext,
@@ -486,10 +487,10 @@ async fn drain_suggestions(
     Ok(())
 }
 
-/// Emette `asset.derivative.ready` per ogni `TranscodeVideo` concluso dopo
-/// `cursor` (Fase 6) il cui asset è visibile al chiamante. Legge la stessa
-/// coda `jobs` della pipeline reale, non un canale in-process: un job
-/// completato da un worker qualunque arriva qui al giro di poll successivo.
+/// Emits `asset.derivative.ready` for every `TranscodeVideo` finished
+/// after `cursor` whose asset is visible to the caller. Reads the same
+/// `jobs` queue as the real pipeline, not an in-process channel: a job
+/// completed by any worker arrives here on the next poll round.
 async fn drain_derivatives(
     db: &Db,
     ctx: &AuthContext,
@@ -528,11 +529,11 @@ async fn drain_derivatives(
     Ok(())
 }
 
-/// Emette `backup.finished` quando l'ultimo run (`BackupRepo::list_runs`,
-/// admin-only come la pagina Impostazioni) è uscito dallo stato `running`
-/// rispetto all'ultimo giro. Solo admin: un utente normale non vede backup,
-/// quindi qui si esce presto invece di propagare il `Forbidden` che
-/// romperebbe il socket.
+/// Emits `backup.finished` when the last run (`BackupRepo::list_runs`,
+/// admin-only like the Settings page) has left the `running` state since
+/// the last round. Admin only: a regular user cannot see backups, so this
+/// returns early instead of propagating the `Forbidden` that would break
+/// the socket.
 async fn drain_backup(
     db: &Db,
     ctx: &AuthContext,
@@ -574,18 +575,18 @@ async fn drain_backup(
     Ok(())
 }
 
-/// `(status, downloaded_bytes, last_error)`: la chiave con cui
-/// `drain_regions` decide se una regione mappa ha davvero fatto progressi da
-/// riportare.
+/// `(status, downloaded_bytes, last_error)`: the key `drain_regions` uses
+/// to decide whether a map region has actually made progress worth
+/// reporting.
 type RegionProgressKey = (String, i64, Option<String>);
 
-/// Emette `region.progress` per ogni regione mappa la cui `(status,
-/// downloaded_bytes, last_error)` è cambiata dall'ultimo giro (Fase 10 Task
-/// 21). `RegionView` porta già questi campi (Fase 4 Task 4) — qui si legge
-/// la stessa `RegionRepo::list`, non un secondo stato inventato, e si
-/// costruisce il payload da quei campi. `RegionRepo::list` richiede solo un
-/// utente autenticato: le regioni mappa sono globali all'istanza, non
-/// possedute da un singolo utente.
+/// Emits `region.progress` for every map region whose `(status,
+/// downloaded_bytes, last_error)` changed since the last round.
+/// `RegionView` already carries these fields — this reads the same
+/// `RegionRepo::list`, not a second invented state, and builds the payload
+/// from those fields. `RegionRepo::list` only requires an authenticated
+/// user: map regions are global to the instance, not owned by a single
+/// user.
 async fn drain_regions(
     db: &Db,
     ctx: &AuthContext,
@@ -657,7 +658,8 @@ fn ticket_from_protocol(headers: &HeaderMap) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-/// Coda per connessione: al 257° messaggio si svuota e resta un `resync`.
+/// Per-connection queue: at the 257th message it is cleared and only a
+/// `resync` remains.
 pub(crate) fn enqueue(q: &mut VecDeque<serde_json::Value>, msg: serde_json::Value) {
     if q.len() >= QUEUE_CAP {
         q.clear();
@@ -667,7 +669,7 @@ pub(crate) fn enqueue(q: &mut VecDeque<serde_json::Value>, msg: serde_json::Valu
     q.push_back(msg);
 }
 
-/// Un `scan.progress` al massimo ogni 250 ms.
+/// A `scan.progress` at most every 250 ms.
 #[allow(dead_code)]
 pub(crate) fn should_emit_progress(last: Option<Instant>, now: Instant) -> bool {
     last.is_none_or(|t| now.saturating_duration_since(t) >= Duration::from_millis(250))

@@ -1,4 +1,4 @@
-//! Restore wizard API (Fase 6 Task 4). Admin-only.
+//! Restore wizard API. Admin-only.
 
 use std::fs;
 use std::path::PathBuf;
@@ -88,10 +88,10 @@ pub struct RestorePreview {
     security(("session_cookie" = [])),
     request_body = InspectRequest,
     responses(
-        (status = 200, description = "Manifest letto (eventualmente respinto)", body = InspectResponse),
-        (status = 400, description = "Archivio illeggibile o passphrase errata", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 200, description = "Manifest read (possibly rejected)", body = InspectResponse),
+        (status = 400, description = "Archive unreadable or wrong passphrase", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 pub async fn inspect(
@@ -140,10 +140,10 @@ pub async fn inspect(
     security(("session_cookie" = [])),
     request_body = RestoreRequest,
     responses(
-        (status = 200, description = "Componenti ripristinati (o simulati, se dry_run)", body = RestorePreview),
-        (status = 400, description = "Archivio illeggibile, troppo nuovo, o ripristino fallito", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 200, description = "Components restored (or simulated, if dry_run)", body = RestorePreview),
+        (status = 400, description = "Archive unreadable, too new, or restore failed", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 #[allow(clippy::too_many_lines)]

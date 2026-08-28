@@ -1,16 +1,16 @@
-//! Rinomina con formula in blocco (Fase 9 Task 10): anteprima, applicazione
-//! e annullamento su [`keeppix_db::RenameRepo`]. `undo` resta sincrona
-//! dentro la richiesta (come `metadata::apply_batch`, `track_operation =
-//! true` — debito dichiarato in `keeppix_db::rename`, non toccato qui).
+//! Bulk formula-based rename: preview, apply, and undo on
+//! [`keeppix_db::RenameRepo`]. `undo` stays synchronous within the request
+//! (like `metadata::apply_batch`, `track_operation = true` — a known
+//! limitation declared in `keeppix_db::rename`, not addressed here).
 //!
-//! **`apply_batch` non lo è più dal 27 agosto**: gira in background via
-//! `JobKind::BulkRename` (`keeppix-jobs::rename_batch`), stessa forma di
-//! `LibraryScan` — questa rotta fa solo i controlli fallibili a monte
-//! (batch/permesso/visibilità), crea l'`Operation` e accoda il job,
-//! rispondendo `202` con `operation_id` subito. Progettazione originale:
-//! sincrona perché "veloce, nessuna inferenza" — un lotto da migliaia di
-//! foto su storage lento restava comunque un blocco di minuti senza modo di
-//! annullarlo, il motivo del cambio.
+//! **`apply_batch` is no longer synchronous**: it runs in the background
+//! via `JobKind::BulkRename` (`keeppix-jobs::rename_batch`), the same shape
+//! as `LibraryScan` — this route only does the fallible checks up front
+//! (batch/permission/visibility), creates the `Operation`, and queues the
+//! job, responding `202` with `operation_id` right away. The original
+//! design was synchronous because it was "fast, no inference" — but a
+//! batch of thousands of photos on slow storage was still a multi-minute
+//! block with no way to cancel it, which is why it changed.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -30,8 +30,8 @@ use crate::state::AppState;
 pub struct RenameBatchRequest {
     #[schema(value_type = Vec<String>)]
     pub asset_ids: Vec<AssetId>,
-    /// Formula con segnaposto (spec §62): `{data}`, `{fotocamera}`,
-    /// `{obiettivo}`, `{luogo}`, `{titolo}`, `{n[:D]}`.
+    /// Formula with placeholders: `{date}`, `{camera}`, `{lens}`,
+    /// `{place}`, `{title}`, `{n[:D]}`.
     pub schema: String,
 }
 
@@ -58,10 +58,10 @@ impl From<keeppix_db::RenamePreviewItem> for RenamePreviewItemView {
     }
 }
 
-/// Nidificato, non appiattito su `BulkOutcome` (sicurezza `utoipa`: un
-/// `#[serde(flatten)]` su uno schema generato perde i nomi dei campi nel
-/// documento `OpenAPI`). Usato solo da `undo_batch`, ancora sincrona —
-/// `apply_batch` risponde con [`RenameAccepted`].
+/// Nested, not flattened onto `BulkOutcome` (`utoipa` limitation: a
+/// `#[serde(flatten)]` on a generated schema loses the field names in the
+/// `OpenAPI` document). Used only by `undo_batch`, which is still
+/// synchronous — `apply_batch` responds with [`RenameAccepted`].
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RenameOperationOutcome {
     #[schema(value_type = String)]
@@ -69,9 +69,9 @@ pub struct RenameOperationOutcome {
     pub outcome: BulkOutcome,
 }
 
-/// Risposta di `apply_batch` (dal 27 agosto, `202`): l'esito non è ancora
-/// noto quando si risponde — il chiamante segue `operation_id` sul
-/// `WebSocket` (`operation.progress`), stesso pattern di `ScanAccepted`
+/// Response of `apply_batch` (`202`): the outcome is not yet known when
+/// responding — the caller follows `operation_id` over the `WebSocket`
+/// (`operation.progress`), the same pattern as `ScanAccepted`
 /// (`routes/libraries.rs`).
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RenameAccepted {
@@ -80,8 +80,8 @@ pub struct RenameAccepted {
 }
 
 /// # Errors
-/// `400` se il lotto supera [`crate::batch::MAX_BATCH_ASSETS`]; `401` se non
-/// autenticato; `403` se anche un solo asset non è visibile o modificabile.
+/// `400` if the batch exceeds [`crate::batch::MAX_BATCH_ASSETS`]; `401` if
+/// not authenticated; `403` if even one asset is not visible or editable.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/batch/rename/preview",
@@ -91,10 +91,10 @@ pub struct RenameAccepted {
     security(("session_cookie" = [])),
     request_body = RenameBatchRequest,
     responses(
-        (status = 200, description = "Nomi calcolati, nulla scritto su disco o database", body = Vec<RenamePreviewItemView>),
-        (status = 400, description = "batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Un asset non visibile o non modificabile", body = Problem)
+        (status = 200, description = "Names computed, nothing written to disk or database", body = Vec<RenamePreviewItemView>),
+        (status = 400, description = "Batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "An asset is not visible or not editable", body = Problem)
     )
 )]
 pub async fn preview(
@@ -109,15 +109,14 @@ pub async fn preview(
     Ok(Json(items.into_iter().map(Into::into).collect()))
 }
 
-// I controlli fallibili restano sincroni e a monte, esattamente come prima
-// quando vivevano dentro RenameRepo::compute — solo spostati un livello più
-// su, perché ora sono l'unica cosa che questa richiesta fa davvero: il
-// lavoro vero e proprio (compute di nuovo, per davvero, con nomi freschi
-// non quelli di questo momento) gira dentro keeppix-jobs::rename_batch, non
-// qui.
+// The fallible checks stay synchronous and up front, exactly as before
+// when they lived inside RenameRepo::compute — just moved up one level,
+// because now they are the only thing this request actually does: the
+// real work (computing again, for real, with fresh names, not the ones
+// from this moment) runs inside keeppix-jobs::rename_batch, not here.
 /// # Errors
-/// `400` se il lotto supera [`crate::batch::MAX_BATCH_ASSETS`]; `401` se non
-/// autenticato; `403` se anche un solo asset non è visibile o modificabile.
+/// `400` if the batch exceeds [`crate::batch::MAX_BATCH_ASSETS`]; `401` if
+/// not authenticated; `403` if even one asset is not visible or editable.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/batch/rename",
@@ -127,10 +126,10 @@ pub async fn preview(
     security(("session_cookie" = [])),
     request_body = RenameBatchRequest,
     responses(
-        (status = 202, description = "Accodata — segui operation_id su WebSocket (operation.progress)", body = RenameAccepted),
-        (status = 400, description = "batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Un asset non visibile o non modificabile", body = Problem)
+        (status = 202, description = "Queued — follow operation_id over WebSocket (operation.progress)", body = RenameAccepted),
+        (status = 400, description = "Batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "An asset is not visible or not editable", body = Problem)
     )
 )]
 pub async fn apply_batch(
@@ -174,9 +173,9 @@ pub async fn apply_batch(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se il batch non appartiene al chiamante
-/// (non admin). Un secondo annullamento sullo stesso batch è un no-op, non
-/// un errore — la risposta torna con `outcome.succeeded` vuoto.
+/// `401` if not authenticated; `403` if the batch does not belong to the
+/// caller (non-admin). A second undo on the same batch is a no-op, not an
+/// error — the response comes back with an empty `outcome.succeeded`.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/batch/rename/{batch_id}/undo",
@@ -184,11 +183,11 @@ pub async fn apply_batch(
     operation_id = "rename_undo_batch",
     summary = "Undo a bulk rename batch",
     security(("session_cookie" = [])),
-    params(("batch_id" = String, Path, description = "Id del batch restituito da apply")),
+    params(("batch_id" = String, Path, description = "Id of the batch returned by apply")),
     responses(
-        (status = 200, description = "Esito per asset ripristinato", body = RenameOperationOutcome),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Batch non del chiamante", body = Problem)
+        (status = 200, description = "Per-asset outcome of the restore", body = RenameOperationOutcome),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Batch does not belong to the caller", body = Problem)
     )
 )]
 pub async fn undo_batch(

@@ -18,7 +18,7 @@ pub struct SetupStatus {
 }
 
 /// # Errors
-/// `Problem` se il conteggio degli utenti fallisce.
+/// `Problem` if counting users fails.
 #[utoipa::path(
     get,
     path = "/api/v1/setup/status",
@@ -26,8 +26,8 @@ pub struct SetupStatus {
     operation_id = "setup_status",
     summary = "Tell whether the instance already has a bootstrap admin",
     responses(
-        (status = 200, description = "Stato di inizializzazione dell'istanza", body = SetupStatus),
-        (status = 500, description = "Il conteggio degli utenti è fallito", body = Problem)
+        (status = 200, description = "Initialization status of the instance", body = SetupStatus),
+        (status = 500, description = "Counting users failed", body = Problem)
     )
 )]
 pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, Problem> {
@@ -50,11 +50,11 @@ pub struct SetupResponse {
     user: UserView,
 }
 
-/// Crea il primo amministratore e apre subito una sessione.
+/// Creates the first administrator and opens a session right away.
 ///
 /// # Errors
-/// `409 already-initialised` se l'istanza è già configurata;
-/// `422 invalid-username` / `422 invalid-password` sui dati non validi.
+/// `409 already-initialised` if the instance is already configured;
+/// `422 invalid-username` / `422 invalid-password` for invalid data.
 #[utoipa::path(
     post,
     path = "/api/v1/setup",
@@ -63,12 +63,12 @@ pub struct SetupResponse {
     summary = "Create the bootstrap admin account and open a session",
     request_body = SetupRequest,
     responses(
-        (status = 201, description = "Amministratore creato e sessione aperta", body = SetupResponse),
-        (status = 400, description = "Corpo JSON sintatticamente non valido", body = Problem),
-        (status = 409, description = "Istanza già inizializzata", body = Problem),
-        (status = 415, description = "Content-Type diverso da application/json", body = Problem),
-        (status = 422, description = "Username o password non validi, o corpo JSON di forma inattesa", body = Problem),
-        (status = 500, description = "Hashing della password o scrittura fallita", body = Problem)
+        (status = 201, description = "Administrator created and session opened", body = SetupResponse),
+        (status = 400, description = "JSON body is not syntactically valid", body = Problem),
+        (status = 409, description = "Instance already initialized", body = Problem),
+        (status = 415, description = "Content-Type other than application/json", body = Problem),
+        (status = 422, description = "Invalid username or password, or JSON body of unexpected shape", body = Problem),
+        (status = 500, description = "Password hashing or write failed", body = Problem)
     )
 )]
 pub async fn create(

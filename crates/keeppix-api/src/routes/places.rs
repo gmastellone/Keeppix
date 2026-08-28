@@ -49,8 +49,8 @@ impl From<Place> for PlaceView {
 }
 
 /// # Errors
-/// `400` se le coordinate non sono WGS84; `401` se non autenticato; `404` se
-/// nessuna località o riga amministrativa cade entro la propria soglia.
+/// `400` if the coordinates are not WGS84; `401` if not authenticated;
+/// `404` if no place or administrative row falls within its own threshold.
 #[utoipa::path(
     get,
     path = "/api/v1/places/reverse",
@@ -59,15 +59,15 @@ impl From<Place> for PlaceView {
     summary = "Reverse-geocode a place",
     security(("session_cookie" = [])),
     params(
-        ("lat" = f64, Query, description = "Latitudine WGS84, -90..=90"),
-        ("lon" = f64, Query, description = "Longitudine WGS84, -180..=180")
+        ("lat" = f64, Query, description = "WGS84 latitude, -90..=90"),
+        ("lon" = f64, Query, description = "WGS84 longitude, -180..=180")
     ),
     responses(
-        (status = 200, description = "Località o area amministrativa", body = PlaceView),
-        (status = 400, description = "Coordinate non valide", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 404, description = "Nessuna località entro soglia", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Place or administrative area", body = PlaceView),
+        (status = 400, description = "Invalid coordinates", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 404, description = "No place within threshold", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn reverse(
@@ -104,7 +104,7 @@ pub async fn reverse(
 }
 
 /// # Errors
-/// `400` se `q` ha meno di due caratteri; `401` se non autenticato.
+/// `400` if `q` has fewer than two characters; `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/places/suggest",
@@ -113,14 +113,14 @@ pub async fn reverse(
     summary = "Suggest places",
     security(("session_cookie" = [])),
     params(
-        ("q" = String, Query, description = "Nome, almeno due caratteri"),
-        ("near_user" = Option<bool>, Query, description = "Favorisce i luoghi vicini alle ultime 50 assegnazioni")
+        ("q" = String, Query, description = "Name, at least two characters"),
+        ("near_user" = Option<bool>, Query, description = "Favors places near the last 50 assignments")
     ),
     responses(
-        (status = 200, description = "Fino a dieci località", body = [PlaceView]),
-        (status = 400, description = "Query troppo corta o non valida", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Up to ten places", body = [PlaceView]),
+        (status = 400, description = "Query too short or invalid", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn suggest(

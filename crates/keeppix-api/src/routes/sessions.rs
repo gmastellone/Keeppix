@@ -1,6 +1,6 @@
-//! Sessioni attive del profilo (spec fase-10 §8.1): elenco, revoca singola,
-//! revoca di tutte le altre. Nessun SQL: solo `SessionRepo`, qui solo la
-//! traduzione HTTP.
+//! Active profile sessions: listing, single revocation, revoking all
+//! others. No SQL: only `SessionRepo`, this module only handles the HTTP
+//! translation.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -23,11 +23,11 @@ pub struct SessionView {
     pub current: bool,
 }
 
-/// La famiglia (== `SessionId`) del cookie di sessione già validato da
-/// `Auth`. Fatta apposta con lo stesso schema di `refresh`/`logout`
-/// (`crate::routes::auth`): legge il cookie a mano invece di passare da un
-/// secondo extractor, perché qui serve il token stesso, non solo il
-/// contesto che ne deriva.
+/// The family (== `SessionId`) of the session cookie already validated by
+/// `Auth`. Deliberately built with the same schema as `refresh`/`logout`
+/// (`crate::routes::auth`): it reads the cookie by hand instead of going
+/// through a second extractor, because here the token itself is needed,
+/// not just the context derived from it.
 async fn current_family(state: &AppState, jar: &CookieJar) -> Result<SessionId, Problem> {
     let cookie = jar
         .get(SESSION_COOKIE)
@@ -41,7 +41,7 @@ async fn current_family(state: &AppState, jar: &CookieJar) -> Result<SessionId, 
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/users/me/sessions",
@@ -50,8 +50,8 @@ async fn current_family(state: &AppState, jar: &CookieJar) -> Result<SessionId, 
     summary = "List the current user's active sessions",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Sessioni attive, la chiamante marcata `current`", body = [SessionView]),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Active sessions, the caller's marked `current`", body = [SessionView]),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list(
@@ -76,14 +76,14 @@ pub async fn list(
     ))
 }
 
-/// Revoca una sessione **diversa** dalla chiamante: per uscire dal proprio
-/// dispositivo esiste `POST /auth/logout`, che pulisce anche il cookie. Un id
-/// che appartiene a un altro utente risponde `403`, mai `404` (oracolo di
-/// esistenza).
+/// Revokes a session **different** from the caller's: to log out of your
+/// own device, use `POST /auth/logout`, which also clears the cookie. An
+/// id belonging to another user responds `403`, never `404` (existence
+/// oracle).
 ///
 /// # Errors
-/// `400` se `id` è la sessione corrente; `401` se non autenticato; `403` se
-/// `id` non appartiene al chiamante.
+/// `400` if `id` is the current session; `401` if not authenticated; `403`
+/// if `id` does not belong to the caller.
 #[utoipa::path(
     delete,
     path = "/api/v1/users/me/sessions/{id}",
@@ -91,12 +91,12 @@ pub async fn list(
     operation_id = "sessions_revoke",
     summary = "Revoke one of the current user's other sessions",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id di sessione (SessionView.id)")),
+    params(("id" = String, Path, description = "Session id (SessionView.id)")),
     responses(
-        (status = 204, description = "Sessione revocata"),
-        (status = 400, description = "`id` è la sessione corrente: usare /auth/logout", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "`id` non appartiene al chiamante", body = Problem)
+        (status = 204, description = "Session revoked"),
+        (status = 400, description = "`id` is the current session: use /auth/logout instead", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "`id` does not belong to the caller", body = Problem)
     )
 )]
 pub async fn revoke(
@@ -113,20 +113,19 @@ pub async fn revoke(
         ));
     }
     SessionRepo::new(&state.db).revoke_family(&ctx, id).await?;
-    // Come `change_password`/`disable`: la cache in-process è indicizzata per
-    // token, e la famiglia appena revocata non è quella che questa richiesta
-    // conosce — non c'è un `drop_token` puntuale possibile, quindi si
-    // svuota tutta la cache per non lasciare il token revocato valido fino
-    // a 30s.
+    // Like `change_password`/`disable`: the in-process cache is indexed by
+    // token, and the family just revoked is not the one this request
+    // knows — a targeted `drop_token` isn't possible, so the whole cache
+    // is cleared to avoid leaving the revoked token valid for up to 30s.
     state.sessions.clear();
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Revoca tutte le famiglie dell'utente tranne quella chiamante — "Esci da
-/// tutti gli altri dispositivi".
+/// Revokes every family of the user except the caller's — "Log out of all
+/// other devices".
 ///
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     post,
     path = "/api/v1/users/me/sessions/revoke-others",
@@ -135,8 +134,8 @@ pub async fn revoke(
     summary = "Revoke every session except the caller's",
     security(("session_cookie" = [])),
     responses(
-        (status = 204, description = "Le altre sessioni sono state revocate"),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 204, description = "The other sessions have been revoked"),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn revoke_others(

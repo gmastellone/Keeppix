@@ -1,4 +1,4 @@
-//! Gestione utenti. Nessun SQL: solo `UserRepo` / `SessionRepo`.
+//! User management. No SQL: only `UserRepo` / `SessionRepo`.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -64,7 +64,7 @@ pub struct HomeView {
 }
 
 /// # Errors
-/// `403` se non admin.
+/// `403` if not admin.
 #[utoipa::path(
     get,
     path = "/api/v1/users",
@@ -73,9 +73,9 @@ pub struct HomeView {
     summary = "List users",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Elenco utenti", body = [UserView]),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 200, description = "List of users", body = [UserView]),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 pub async fn list(
@@ -92,7 +92,8 @@ pub async fn list(
 }
 
 /// # Errors
-/// `403` se non admin; `409` username/email già in uso; `422` dati non validi.
+/// `403` if not admin; `409` if username/email already in use; `422` if
+/// invalid data.
 #[utoipa::path(
     post,
     path = "/api/v1/users",
@@ -102,11 +103,11 @@ pub async fn list(
     security(("session_cookie" = [])),
     request_body = CreateUserRequest,
     responses(
-        (status = 201, description = "Utente creato", body = UserView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 409, description = "Username o email già in uso", body = Problem),
-        (status = 422, description = "Dati non validi", body = Problem)
+        (status = 201, description = "User created", body = UserView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 409, description = "Username or email already in use", body = Problem),
+        (status = 422, description = "Invalid data", body = Problem)
     )
 )]
 pub async fn create(
@@ -161,7 +162,7 @@ pub async fn create(
 }
 
 /// # Errors
-/// Admin o sé stessi; altrimenti `403`.
+/// Admin or self; otherwise `403`.
 #[utoipa::path(
     patch,
     path = "/api/v1/users/{id}",
@@ -169,12 +170,12 @@ pub async fn create(
     operation_id = "users_patch",
     summary = "Update a user",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id utente")),
+    params(("id" = String, Path, description = "User id")),
     request_body = PatchUserRequest,
     responses(
-        (status = 200, description = "Utente aggiornato", body = UserView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non consentito", body = Problem)
+        (status = 200, description = "User updated", body = UserView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not allowed", body = Problem)
     )
 )]
 pub async fn patch(
@@ -197,7 +198,7 @@ pub async fn patch(
 }
 
 /// # Errors
-/// `403` se non admin.
+/// `403` if not admin.
 #[utoipa::path(
     post,
     path = "/api/v1/users/{id}/disable",
@@ -205,12 +206,12 @@ pub async fn patch(
     operation_id = "users_disable",
     summary = "Disable a user",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id utente")),
+    params(("id" = String, Path, description = "User id")),
     responses(
-        (status = 204, description = "Utente disabilitato; sessioni terminate"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Utente assente", body = Problem)
+        (status = 204, description = "User disabled; sessions terminated"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "User not found", body = Problem)
     )
 )]
 pub async fn disable(
@@ -225,7 +226,7 @@ pub async fn disable(
 }
 
 /// # Errors
-/// `403` se non admin.
+/// `403` if not admin.
 #[utoipa::path(
     post,
     path = "/api/v1/users/{id}/enable",
@@ -233,12 +234,12 @@ pub async fn disable(
     operation_id = "users_enable",
     summary = "Enable a user",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id utente")),
+    params(("id" = String, Path, description = "User id")),
     responses(
-        (status = 204, description = "Utente riabilitato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Utente assente", body = Problem)
+        (status = 204, description = "User re-enabled"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "User not found", body = Problem)
     )
 )]
 pub async fn enable(
@@ -250,10 +251,11 @@ pub async fn enable(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Cambio password: richiede la password attuale; revoca le altre sessioni.
+/// Password change: requires the current password; revokes the other
+/// sessions.
 ///
 /// # Errors
-/// `403` se la password attuale è sbagliata.
+/// `403` if the current password is wrong.
 #[utoipa::path(
     post,
     path = "/api/v1/users/me/password",
@@ -263,10 +265,10 @@ pub async fn enable(
     security(("session_cookie" = [])),
     request_body = ChangePasswordRequest,
     responses(
-        (status = 204, description = "Password aggiornata"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Password attuale errata", body = Problem),
-        (status = 422, description = "Password nuova non valida", body = Problem)
+        (status = 204, description = "Password updated"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Current password wrong", body = Problem),
+        (status = 422, description = "Invalid new password", body = Problem)
     )
 )]
 pub async fn change_password(
@@ -313,10 +315,10 @@ pub async fn change_password(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Imposta o aggiorna il punto "casa" usato per il geofence sui link pubblici.
+/// Sets or updates the "home" point used for the geofence on public links.
 ///
 /// # Errors
-/// `401` se non autenticato; `409` se `radius_m` non è positivo.
+/// `401` if not authenticated; `409` if `radius_m` is not positive.
 #[utoipa::path(
     put,
     path = "/api/v1/users/me/home",
@@ -326,9 +328,9 @@ pub async fn change_password(
     security(("session_cookie" = [])),
     request_body = SetHomeRequest,
     responses(
-        (status = 200, description = "Casa aggiornata", body = HomeView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 409, description = "Raggio non valido", body = Problem)
+        (status = 200, description = "Home updated", body = HomeView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 409, description = "Invalid radius", body = Problem)
     )
 )]
 pub async fn set_home(
@@ -353,10 +355,10 @@ pub async fn set_home(
     }))
 }
 
-/// Rimuove casa: nessun geofence finché non viene reimpostata.
+/// Removes home: no geofence until it is set again.
 ///
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     delete,
     path = "/api/v1/users/me/home",
@@ -365,8 +367,8 @@ pub async fn set_home(
     summary = "Clear the current user's home location",
     security(("session_cookie" = [])),
     responses(
-        (status = 204, description = "Casa rimossa"),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 204, description = "Home removed"),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn delete_home(

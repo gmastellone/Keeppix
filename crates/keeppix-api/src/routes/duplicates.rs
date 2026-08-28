@@ -1,7 +1,7 @@
-//! Duplicati per `content_hash` (spec §7). La lista dei gruppi era già in
-//! [`crate::routes::problems`] dalla Fase 1c; questo modulo la porta al posto
-//! che il piano della Fase 2 le assegna e aggiunge i membri di un gruppo e
-//! l'azione di risoluzione, entrambi appoggiati su [`DuplicateRepo`].
+//! Duplicates by `content_hash`. The list of groups already lived in
+//! [`crate::routes::problems`]; this module moves it to its proper home and
+//! adds a group's members and the resolution action, both backed by
+//! [`DuplicateRepo`].
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -26,19 +26,19 @@ pub struct DuplicateGroupView {
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct ResolveDuplicateRequest {
-    /// Id dell'asset da tenere: tutti gli altri membri non cestinati del
-    /// gruppo ricevono `disk_action`.
+    /// Id of the asset to keep: all other non-trashed members of the group
+    /// receive `disk_action`.
     #[schema(value_type = String)]
     pub keep: AssetId,
-    /// `kept`, `moved_to_trash`, o `purged` — stesso vocabolario di
-    /// `DELETE /api/v1/assets/{id}` (spec §6).
+    /// `kept`, `moved_to_trash`, or `purged` — same vocabulary as
+    /// `DELETE /api/v1/assets/{id}`.
     #[schema(example = "moved_to_trash")]
     pub disk_action: String,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ResolveDuplicateResponse {
-    /// Quanti membri sono stati toccati (il gruppo meno `keep`).
+    /// How many members were touched (the group minus `keep`).
     pub resolved: usize,
 }
 
@@ -62,7 +62,7 @@ fn parse_hash(hex: &str) -> Result<[u8; 32], Problem> {
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/duplicates",
@@ -71,8 +71,8 @@ fn parse_hash(hex: &str) -> Result<[u8; 32], Problem> {
     summary = "List duplicate groups",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Gruppi con lo stesso content_hash, esclusi i trashed", body = [DuplicateGroupView]),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Groups sharing content_hash, excluding trashed", body = [DuplicateGroupView]),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list(
@@ -94,8 +94,8 @@ pub async fn list(
 }
 
 /// # Errors
-/// `400` se `content_hash` non è 64 caratteri esadecimali; `401` se non
-/// autenticato.
+/// `400` if `content_hash` is not 64 hex characters; `401` if not
+/// authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/duplicates/{content_hash}",
@@ -103,11 +103,11 @@ pub async fn list(
     operation_id = "duplicates_members",
     summary = "List members of a duplicate group",
     security(("session_cookie" = [])),
-    params(("content_hash" = String, Path, description = "blake3 hex da 64 caratteri")),
+    params(("content_hash" = String, Path, description = "blake3 hex, 64 characters")),
     responses(
-        (status = 200, description = "Membri non cestinati del gruppo", body = [AssetView]),
-        (status = 400, description = "content_hash non è hex valido", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Non-trashed members of the group", body = [AssetView]),
+        (status = 400, description = "content_hash is not valid hex", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn members(
@@ -121,9 +121,10 @@ pub async fn members(
 }
 
 /// # Errors
-/// `400` se `content_hash` o `disk_action` non sono validi; `401` se non
-/// autenticato; `403` se `keep` non è visibile o non appartiene al gruppo, o
-/// se `purged` è richiesto da chi non è owner/admin della libreria.
+/// `400` if `content_hash` or `disk_action` are invalid; `401` if not
+/// authenticated; `403` if `keep` is not visible or does not belong to the
+/// group, or if `purged` is requested by someone who is not owner/admin of
+/// the library.
 #[utoipa::path(
     post,
     path = "/api/v1/duplicates/{content_hash}/resolve",
@@ -131,13 +132,13 @@ pub async fn members(
     operation_id = "duplicates_resolve",
     summary = "Resolve a duplicate group",
     security(("session_cookie" = [])),
-    params(("content_hash" = String, Path, description = "blake3 hex da 64 caratteri")),
+    params(("content_hash" = String, Path, description = "blake3 hex, 64 characters")),
     request_body = ResolveDuplicateRequest,
     responses(
-        (status = 200, description = "Azione applicata agli altri membri", body = ResolveDuplicateResponse),
-        (status = 400, description = "content_hash o disk_action non validi", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "keep non nel gruppo, o purged senza i permessi", body = Problem)
+        (status = 200, description = "Action applied to the other members", body = ResolveDuplicateResponse),
+        (status = 400, description = "content_hash or disk_action invalid", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "keep not in the group, or purged without permission", body = Problem)
     )
 )]
 pub async fn resolve(

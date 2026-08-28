@@ -1,8 +1,8 @@
-//! Voti di culling per utente (spec §4.1): rating, pick/reject, etichetta
-//! colore. Tutta la logica di visibilità e di "per utente" vive in
-//! [`FlagRepo`]; qui solo la traduzione da/verso JSON e la validazione del
-//! rating fuori range, che qui diventa un `400` invece di propagare
-//! `DomainError` fino al database.
+//! Per-user culling votes: rating, pick/reject, color label. All the
+//! visibility and "per-user" logic lives in [`FlagRepo`]; this module only
+//! handles the JSON translation and out-of-range rating validation, which
+//! becomes a `400` here instead of propagating `DomainError` down to the
+//! database.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -18,16 +18,16 @@ use crate::state::AppState;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AssetFlagsBody {
-    /// 0..=5. `null` (o assente in scrittura) significa "nessun voto".
+    /// 0..=5. `null` (or absent on write) means "no vote".
     #[schema(example = 4, minimum = 0, maximum = 5)]
     pub rating: Option<u8>,
     #[serde(default)]
     #[schema(value_type = String, example = "pick")]
     pub pick: Pick,
     pub color_label: Option<String>,
-    /// «Preferito» (spec fase-10 §7bis.1): asse indipendente da `pick`, non
-    /// un suo alias. `false` se assente in scrittura, come gli altri campi
-    /// di questo corpo — è un rimpiazzo completo del voto, non una patch.
+    /// "Favorite": an axis independent from `pick`, not an alias for it.
+    /// `false` if absent on write, like the other fields of this body — it
+    /// is a full replacement of the vote, not a patch.
     #[serde(default)]
     pub favorite: bool,
 }
@@ -65,7 +65,7 @@ pub struct BatchFlagsRequest {
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se l'asset non è visibile.
+/// `401` if not authenticated; `403` if the asset is not visible.
 #[utoipa::path(
     get,
     path = "/api/v1/assets/{id}/flags",
@@ -73,11 +73,11 @@ pub struct BatchFlagsRequest {
     operation_id = "flags_get",
     summary = "Get asset flags",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset")),
+    params(("id" = String, Path, description = "Asset id")),
     responses(
-        (status = 200, description = "Flag del chiamante su questo asset, o i default se non ha votato", body = AssetFlagsBody),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile", body = Problem)
+        (status = 200, description = "Caller's flags on this asset, or the defaults if they have not voted", body = AssetFlagsBody),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible", body = Problem)
     )
 )]
 pub async fn get(
@@ -90,8 +90,8 @@ pub async fn get(
 }
 
 /// # Errors
-/// `400` se `rating` supera 5; `401` se non autenticato; `403` se l'asset non
-/// è visibile.
+/// `400` if `rating` exceeds 5; `401` if not authenticated; `403` if the
+/// asset is not visible.
 #[utoipa::path(
     put,
     path = "/api/v1/assets/{id}/flags",
@@ -99,13 +99,13 @@ pub async fn get(
     operation_id = "flags_set",
     summary = "Set asset flags",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset")),
+    params(("id" = String, Path, description = "Asset id")),
     request_body = AssetFlagsBody,
     responses(
-        (status = 204, description = "Flag del chiamante aggiornati"),
-        (status = 400, description = "rating fuori range", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile", body = Problem)
+        (status = 204, description = "Caller's flags updated"),
+        (status = 400, description = "rating out of range", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible", body = Problem)
     )
 )]
 pub async fn set(
@@ -120,7 +120,7 @@ pub async fn set(
 }
 
 /// # Errors
-/// `400` se `rating` supera 5; `401` se non autenticato.
+/// `400` if `rating` exceeds 5; `401` if not authenticated.
 #[utoipa::path(
     post,
     path = "/api/v1/flags/batch",
@@ -130,9 +130,9 @@ pub async fn set(
     security(("session_cookie" = [])),
     request_body = BatchFlagsRequest,
     responses(
-        (status = 200, description = "Esito per asset (riuscita parziale ammessa)", body = BulkOutcome),
-        (status = 400, description = "rating fuori range o batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Per-asset outcome (partial success allowed)", body = BulkOutcome),
+        (status = 400, description = "rating out of range or batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn batch_set(

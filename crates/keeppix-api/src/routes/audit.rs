@@ -23,9 +23,9 @@ const fn default_limit() -> i64 {
     100
 }
 
-/// Voce del registro audit, con lo stesso schema di
-/// `keeppix_db::AuditEntry` — solo lo schema `utoipa` sta nella crate HTTP
-/// invece che in `keeppix-db`, che non deve conoscere `utoipa`.
+/// An audit log entry, with the same schema as `keeppix_db::AuditEntry` —
+/// only the `utoipa` schema lives in the HTTP crate rather than in
+/// `keeppix-db`, which should not need to know about `utoipa`.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct AuditEntryView {
     pub id: i64,
@@ -64,13 +64,13 @@ impl From<keeppix_db::AuditEntry> for AuditEntryView {
     summary = "List audit log entries",
     security(("session_cookie" = [])),
     params(
-        ("limit" = Option<i64>, Query, description = "Max risultati (1..=500, default 100)"),
-        ("offset" = Option<i64>, Query, description = "Da saltare, per pagina successiva")
+        ("limit" = Option<i64>, Query, description = "Max results (1..=500, default 100)"),
+        ("offset" = Option<i64>, Query, description = "Rows to skip, for the next page")
     ),
     responses(
-        (status = 200, description = "Voci più recenti prima", body = Vec<AuditEntryView>),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 200, description = "Most recent entries first", body = Vec<AuditEntryView>),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 pub async fn list(

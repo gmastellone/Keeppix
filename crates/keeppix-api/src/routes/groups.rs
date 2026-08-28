@@ -1,4 +1,4 @@
-//! Gestione gruppi. Solo admin. Nessun SQL: solo `GroupRepo`.
+//! Group management. Admin only. No SQL: only `GroupRepo`.
 #![allow(clippy::missing_errors_doc)]
 
 use axum::extract::{Path, Query, State};
@@ -59,9 +59,9 @@ pub struct DeleteGroupQuery {
     summary = "List groups",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Elenco gruppi", body = [GroupView]),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem)
+        (status = 200, description = "List of groups", body = [GroupView]),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem)
     )
 )]
 pub async fn list(
@@ -81,11 +81,11 @@ pub async fn list(
     security(("session_cookie" = [])),
     request_body = CreateGroupRequest,
     responses(
-        (status = 201, description = "Gruppo creato", body = GroupView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 409, description = "Nome già in uso", body = Problem),
-        (status = 422, description = "Dati non validi", body = Problem)
+        (status = 201, description = "Group created", body = GroupView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 409, description = "Name already in use", body = Problem),
+        (status = 422, description = "Invalid data", body = Problem)
     )
 )]
 pub async fn create(
@@ -112,14 +112,14 @@ pub async fn create(
     operation_id = "groups_patch",
     summary = "Update a group",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id gruppo")),
+    params(("id" = String, Path, description = "Group id")),
     request_body = PatchGroupRequest,
     responses(
-        (status = 200, description = "Gruppo aggiornato", body = GroupView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Gruppo assente", body = Problem),
-        (status = 409, description = "Nome già in uso", body = Problem)
+        (status = 200, description = "Group updated", body = GroupView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "Group not found", body = Problem),
+        (status = 409, description = "Name already in use", body = Problem)
     )
 )]
 pub async fn patch(
@@ -148,14 +148,14 @@ pub async fn patch(
     summary = "Delete a group",
     security(("session_cookie" = [])),
     params(
-        ("id" = String, Path, description = "Id gruppo"),
+        ("id" = String, Path, description = "Group id"),
     ),
     responses(
-        (status = 204, description = "Gruppo cancellato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Gruppo assente", body = Problem),
-        (status = 409, description = "Gruppo ha permessi attivi", body = Problem)
+        (status = 204, description = "Group deleted"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "Group not found", body = Problem),
+        (status = 409, description = "Group has active permissions", body = Problem)
     )
 )]
 pub async fn delete(
@@ -176,12 +176,12 @@ pub async fn delete(
     operation_id = "groups_list_members",
     summary = "List group members",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id gruppo")),
+    params(("id" = String, Path, description = "Group id")),
     responses(
-        (status = 200, description = "Elenco membri", body = [GroupMemberView]),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Gruppo assente", body = Problem)
+        (status = 200, description = "List of members", body = [GroupMemberView]),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "Group not found", body = Problem)
     )
 )]
 pub async fn list_members(
@@ -209,14 +209,14 @@ pub async fn list_members(
     summary = "Add a group member",
     security(("session_cookie" = [])),
     params(
-        ("group_id" = String, Path, description = "Id gruppo"),
-        ("user_id" = String, Path, description = "Id utente"),
+        ("group_id" = String, Path, description = "Group id"),
+        ("user_id" = String, Path, description = "User id"),
     ),
     responses(
-        (status = 204, description = "Membro aggiunto"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Gruppo assente", body = Problem)
+        (status = 204, description = "Member added"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "Group not found", body = Problem)
     )
 )]
 pub async fn add_member(
@@ -238,14 +238,14 @@ pub async fn add_member(
     summary = "Remove a group member",
     security(("session_cookie" = [])),
     params(
-        ("group_id" = String, Path, description = "Id gruppo"),
-        ("user_id" = String, Path, description = "Id utente"),
+        ("group_id" = String, Path, description = "Group id"),
+        ("user_id" = String, Path, description = "User id"),
     ),
     responses(
-        (status = 204, description = "Membro rimosso"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Gruppo assente", body = Problem)
+        (status = 204, description = "Member removed"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "Group not found", body = Problem)
     )
 )]
 pub async fn remove_member(

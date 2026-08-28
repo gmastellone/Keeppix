@@ -14,10 +14,10 @@ pub struct ViewportRequest {
     hashes: Vec<String>,
 }
 
-/// Promuove i job `derive:{hash}` dei bucket visibili a priorità Visible.
+/// Promotes the `derive:{hash}` jobs of visible buckets to Visible priority.
 ///
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     post,
     path = "/api/v1/viewport",
@@ -27,9 +27,9 @@ pub struct ViewportRequest {
     security(("session_cookie" = [])),
     request_body = ViewportRequest,
     responses(
-        (status = 204, description = "Job visibili promossi"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 204, description = "Visible jobs promoted"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn promote(
@@ -37,9 +37,9 @@ pub async fn promote(
     Auth(ctx): Auth,
     Json(body): Json<ViewportRequest>,
 ) -> Result<StatusCode, Problem> {
-    // Un cambio di vista è un cambio di vista anche se non ci sono job da
-    // promuovere — la pausa automatica dell'analisi (Task 20) deve vederlo
-    // comunque, non solo quando il body porta hash validi.
+    // A view change is a view change even if there are no jobs to
+    // promote — the automatic analysis pause must see it regardless, not
+    // only when the body carries valid hashes.
     if let Some(hook) = &state.on_viewport_activity {
         hook();
     }

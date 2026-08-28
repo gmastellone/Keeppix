@@ -42,9 +42,9 @@ impl From<ProblemAction> for ProblemActionView {
     }
 }
 
-/// Una riga dell'elenco piatto composto (spec §47, Task 13): a differenza dei
-/// secchi grezzi qui sotto, arriva già in linguaggio naturale nella lingua
-/// della richiesta, con l'azione proposta pronta per un bottone della UI.
+/// A row of the composed flat list: unlike the raw buckets below, it
+/// arrives already in natural language in the request's language, with
+/// the proposed action ready for a UI button.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ProblemView {
     id: String,
@@ -79,8 +79,8 @@ pub struct ProblemsView {
     offline_libraries: Vec<OfflineLibraryView>,
     failed_jobs: Vec<FailedJobView>,
     error_assets: Vec<ErrorAssetView>,
-    /// Elenco piatto composto (Task 13). Additivo: i tre secchi grezzi sopra
-    /// restano per non rompere un client che li leggeva già.
+    /// Composed flat list. Additive: the three raw buckets above stay to
+    /// avoid breaking a client that was already reading them.
     problems: Vec<ProblemView>,
 }
 
@@ -89,10 +89,10 @@ pub struct LangQuery {
     lang: Option<String>,
 }
 
-/// La lingua viene dalla richiesta, non da una preferenza salvata sul server
-/// (spec §47, Ruling Task 13): prima il parametro `?lang=`, poi
-/// `Accept-Language`, altrimenti italiano — lo stesso default già in vigore
-/// per `UserPreferences::language`.
+/// The language comes from the request, not from a preference saved on the
+/// server: first the `?lang=` parameter, then `Accept-Language`, otherwise
+/// Italian — the same default already in effect for
+/// `UserPreferences::language`.
 fn resolve_language(query: &LangQuery, headers: &HeaderMap) -> ProblemLanguage {
     if let Some(lang) = query.lang.as_deref() {
         return ProblemLanguage::parse(lang);
@@ -106,7 +106,7 @@ fn resolve_language(query: &LangQuery, headers: &HeaderMap) -> ProblemLanguage {
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/problems",
@@ -114,12 +114,12 @@ fn resolve_language(query: &LangQuery, headers: &HeaderMap) -> ProblemLanguage {
     operation_id = "problems_list",
     summary = "List media problems",
     params(
-        ("lang" = Option<String>, Query, description = "Lingua delle descrizioni composte (\"it\" o \"en\"); default dall'header Accept-Language, poi italiano")
+        ("lang" = Option<String>, Query, description = "Language of composed descriptions (\"it\" or \"en\"); defaults from the Accept-Language header, then Italian")
     ),
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Problemi visibili", body = ProblemsView),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Visible problems", body = ProblemsView),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list(

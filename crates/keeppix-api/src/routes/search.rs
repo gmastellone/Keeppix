@@ -32,8 +32,8 @@ pub struct SuggestQuery {
     q: String,
 }
 
-/// Insieme chiuso (spec fase-10 §23): `tag` è già nella forma anche se resta
-/// senza fonte fino a Fase 7, così il contratto non cambia due volte.
+/// A closed set: `tag` is already in the shape even before it gains a
+/// source, so the contract doesn't change twice.
 #[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SuggestionKindView {
@@ -99,7 +99,7 @@ pub struct SavedSearchView {
 }
 
 /// # Errors
-/// `400` se il cursore è illeggibile; `401` se non autenticato.
+/// `400` if the cursor is unreadable; `401` if not authenticated.
 #[utoipa::path(
     post,
     path = "/api/v1/search",
@@ -109,9 +109,9 @@ pub struct SavedSearchView {
     security(("session_cookie" = [])),
     request_body = SearchRequest,
     responses(
-        (status = 200, description = "Risultati visibili", body = SearchPage),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Visible results", body = SearchPage),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn run(
@@ -139,8 +139,8 @@ pub async fn run(
     }))
 }
 
-/// Riempie `SearchNode::Semantic.embedding` via `OpenClipXlmr`. Il crate db
-/// non conosce ort: l'inferenza testuale resta al confine HTTP.
+/// Fills `SearchNode::Semantic.embedding` via `OpenClipXlmr`. The db crate
+/// knows nothing about ort: text inference stays at the HTTP boundary.
 async fn prepare_semantic_embeddings(node: &mut SearchNode) -> Result<(), Problem> {
     match node {
         SearchNode::And { args } | SearchNode::Or { args } => {
@@ -189,7 +189,7 @@ async fn embed_search_query(text: &str) -> Result<Vec<f32>, Problem> {
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/search/suggest",
@@ -197,10 +197,10 @@ async fn embed_search_query(text: &str) -> Result<Vec<f32>, Problem> {
     operation_id = "search_suggest",
     summary = "Suggest search terms",
     security(("session_cookie" = [])),
-    params(("q" = String, Query, description = "Prefisso")),
+    params(("q" = String, Query, description = "Prefix")),
     responses(
-        (status = 200, description = "Suggerimenti visibili", body = SuggestResponse),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Visible suggestions", body = SuggestResponse),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn suggest(
@@ -215,7 +215,7 @@ pub async fn suggest(
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/saved-searches",
@@ -224,8 +224,8 @@ pub async fn suggest(
     summary = "List saved searches",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Ricerche salvate dell'utente", body = [SavedSearchView]),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "User's saved searches", body = [SavedSearchView]),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list_saved(
@@ -245,7 +245,7 @@ pub async fn list_saved(
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     post,
     path = "/api/v1/saved-searches",
@@ -255,8 +255,8 @@ pub async fn list_saved(
     security(("session_cookie" = [])),
     request_body = SavedSearchRequest,
     responses(
-        (status = 201, description = "Ricerca salvata", body = SavedSearchView),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 201, description = "Search saved", body = SavedSearchView),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn create_saved(

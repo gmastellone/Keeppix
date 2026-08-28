@@ -1,8 +1,8 @@
-//! Editing dei metadati (spec §3): valori effettivi (`COALESCE(override,
-//! exif)`), applicazione a un singolo asset o in blocco, scostamento
-//! dell'ora di scatto, e annullamento finché il sidecar non è stato scritto.
-//! Tutta la logica vive in [`OverrideRepo`]; qui solo la traduzione da/verso
-//! JSON.
+//! Metadata editing: effective values (`COALESCE(override, exif)`),
+//! applying to a single asset or in batch, shifting the taken-at time, and
+//! undo as long as the sidecar has not been written yet. All the logic
+//! lives in [`OverrideRepo`]; this module only handles the JSON
+//! translation.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -67,13 +67,13 @@ impl From<EffectiveMetadata> for EffectiveMetadataView {
     }
 }
 
-/// Distingue "campo assente" (non toccare, `#[serde(default)]` lo copre) da
-/// "campo presente con `null`" (azzera): senza questa funzione,
-/// `Option<Option<T>>` userebbe la `Deserialize` di `Option<T>` sull'intero
-/// valore e collasserebbe i due casi — un client che manda `null` per
-/// azzerare `description` non toccherebbe nulla. Stesso problema che
-/// `serde_with::double_option` risolve; qui è riscritto a mano per non
-/// aggiungere una dipendenza a un solo usarlo.
+/// Distinguishes "field absent" (don't touch, `#[serde(default)]` covers
+/// it) from "field present with `null`" (clear it): without this function,
+/// `Option<Option<T>>` would use `Option<T>`'s `Deserialize` over the whole
+/// value and collapse the two cases — a client sending `null` to clear
+/// `description` would touch nothing. Same problem
+/// `serde_with::double_option` solves; rewritten by hand here to avoid
+/// adding a dependency for a single use.
 #[allow(clippy::option_option)]
 fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
 where
@@ -123,8 +123,8 @@ impl MetadataPatchRequest {
 
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct BatchApplyRequest {
-    /// Tetto HTTP: [`crate::batch::MAX_BATCH_ASSETS`]. `apply_batch` è
-    /// misurato a 5.000 sotto il secondo (report Task 8).
+    /// HTTP cap: [`crate::batch::MAX_BATCH_ASSETS`]. `apply_batch` is
+    /// measured at 5,000 assets under a second.
     #[schema(value_type = Vec<String>)]
     pub asset_ids: Vec<AssetId>,
     pub patch: MetadataPatchRequest,
@@ -134,9 +134,8 @@ pub struct BatchApplyRequest {
 pub struct BatchShiftRequest {
     #[schema(value_type = Vec<String>)]
     pub asset_ids: Vec<AssetId>,
-    /// Ore da sommare a `taken_at`. Può essere negativo — il rimedio per
-    /// l'orologio della fotocamera sbagliato dopo un viaggio funziona in
-    /// entrambe le direzioni.
+    /// Hours to add to `taken_at`. Can be negative — the fix for a camera
+    /// clock left wrong after a trip works in both directions.
     #[schema(example = -2)]
     pub hours: i32,
 }
@@ -181,7 +180,7 @@ pub struct TimezoneApplyView {
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se l'asset non è visibile.
+/// `401` if not authenticated; `403` if the asset is not visible.
 #[utoipa::path(
     get,
     path = "/api/v1/assets/{id}/metadata",
@@ -189,11 +188,11 @@ pub struct TimezoneApplyView {
     operation_id = "metadata_effective",
     summary = "Get effective asset metadata",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset")),
+    params(("id" = String, Path, description = "Asset id")),
     responses(
-        (status = 200, description = "COALESCE(override, exif) campo per campo", body = EffectiveMetadataView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile", body = Problem)
+        (status = 200, description = "COALESCE(override, exif) field by field", body = EffectiveMetadataView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible", body = Problem)
     )
 )]
 pub async fn effective(
@@ -206,7 +205,7 @@ pub async fn effective(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se l'asset non è visibile.
+/// `401` if not authenticated; `403` if the asset is not visible.
 #[utoipa::path(
     patch,
     path = "/api/v1/assets/{id}/metadata",
@@ -214,12 +213,12 @@ pub async fn effective(
     operation_id = "metadata_apply",
     summary = "Apply metadata overrides to an asset",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'asset")),
+    params(("id" = String, Path, description = "Asset id")),
     request_body = MetadataPatchRequest,
     responses(
-        (status = 204, description = "Override applicato, sidecar accodato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Asset non visibile", body = Problem)
+        (status = 204, description = "Override applied, sidecar queued"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Asset not visible", body = Problem)
     )
 )]
 pub async fn apply(
@@ -235,8 +234,8 @@ pub async fn apply(
 }
 
 /// # Errors
-/// `401` se non autenticato; gli asset non modificabili finiscono in
-/// `failed` invece di abortire il lotto.
+/// `401` if not authenticated; non-editable assets end up in `failed`
+/// instead of aborting the batch.
 #[utoipa::path(
     post,
     path = "/api/v1/metadata/batch",
@@ -246,9 +245,9 @@ pub async fn apply(
     security(("session_cookie" = [])),
     request_body = BatchApplyRequest,
     responses(
-        (status = 200, description = "Esito per asset; batch_id annullabile sui riusciti", body = BulkOutcome),
-        (status = 400, description = "batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Per-asset outcome; batch_id undoable on successes", body = BulkOutcome),
+        (status = 400, description = "Batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn apply_batch(
@@ -261,8 +260,8 @@ pub async fn apply_batch(
     let source = match (&patch.location, &patch.place_id) {
         (Some(Some(_)), Some(Some(_))) => Some(LocationSource::User),
         (Some(Some(_)), _) => {
-            // Una coordinata libera non è legata a GeoNames: anche se il
-            // client omette `place_id`, un luogo precedente va rimosso.
+            // A free coordinate is not tied to GeoNames: even if the
+            // client omits `place_id`, a previous place must be removed.
             patch.place_id = Some(None);
             Some(LocationSource::MapPin)
         }
@@ -282,8 +281,8 @@ pub async fn apply_batch(
 }
 
 /// # Errors
-/// `401` se non autenticato; gli asset non modificabili finiscono in
-/// `failed` invece di abortire il lotto.
+/// `401` if not authenticated; non-editable assets end up in `failed`
+/// instead of aborting the batch.
 #[utoipa::path(
     post,
     path = "/api/v1/metadata/batch/shift-taken-at",
@@ -293,9 +292,9 @@ pub async fn apply_batch(
     security(("session_cookie" = [])),
     request_body = BatchShiftRequest,
     responses(
-        (status = 200, description = "Esito per asset; batch_id annullabile sui riusciti", body = BulkOutcome),
-        (status = 400, description = "batch troppo grande", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Per-asset outcome; batch_id undoable on successes", body = BulkOutcome),
+        (status = 400, description = "Batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn shift_taken_at(
@@ -313,7 +312,8 @@ pub async fn shift_taken_at(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se la libreria non appartiene al chiamante.
+/// `401` if not authenticated; `403` if the library does not belong to the
+/// caller.
 #[utoipa::path(
     post,
     path = "/api/v1/metadata/batch/recalculate-timezones/preview",
@@ -323,9 +323,9 @@ pub async fn shift_taken_at(
     security(("session_cookie" = [])),
     request_body = RecalculateTimezonesRequest,
     responses(
-        (status = 200, description = "Conteggio ed esempio senza alcuna scrittura", body = TimezonePreviewView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Libreria non accessibile", body = Problem)
+        (status = 200, description = "Count and example with no write at all", body = TimezonePreviewView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Library not accessible", body = Problem)
     )
 )]
 pub async fn preview_timezones(
@@ -355,7 +355,8 @@ pub async fn preview_timezones(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se la libreria non appartiene al chiamante.
+/// `401` if not authenticated; `403` if the library does not belong to the
+/// caller.
 #[utoipa::path(
     post,
     path = "/api/v1/metadata/batch/recalculate-timezones",
@@ -365,9 +366,9 @@ pub async fn preview_timezones(
     security(("session_cookie" = [])),
     request_body = RecalculateTimezonesRequest,
     responses(
-        (status = 200, description = "Correzioni applicate in un unico batch annullabile", body = TimezoneApplyView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Libreria non accessibile", body = Problem)
+        (status = 200, description = "Corrections applied in a single undoable batch", body = TimezoneApplyView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Library not accessible", body = Problem)
     )
 )]
 pub async fn apply_timezones(
@@ -415,8 +416,9 @@ fn geotag_problem(error: keeppix_jobs::geotag::GeotagError) -> Problem {
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se il batch non è del chiamante; `409` se
-/// il sidecar di un asset del batch è già stato scritto con questi valori.
+/// `401` if not authenticated; `403` if the batch does not belong to the
+/// caller; `409` if the sidecar of an asset in the batch has already been
+/// written with these values.
 #[utoipa::path(
     post,
     path = "/api/v1/metadata/batch/{batch_id}/undo",
@@ -424,12 +426,12 @@ fn geotag_problem(error: keeppix_jobs::geotag::GeotagError) -> Problem {
     operation_id = "metadata_undo_batch",
     summary = "Undo a metadata batch",
     security(("session_cookie" = [])),
-    params(("batch_id" = String, Path, description = "Id del batch restituito da apply/shift")),
+    params(("batch_id" = String, Path, description = "Id of the batch returned by apply/shift")),
     responses(
-        (status = 204, description = "Valori precedenti ripristinati"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Batch non del chiamante", body = Problem),
-        (status = 409, description = "Sidecar già scritto con i valori di questo batch", body = Problem)
+        (status = 204, description = "Previous values restored"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Batch does not belong to the caller", body = Problem),
+        (status = 409, description = "Sidecar already written with this batch's values", body = Problem)
     )
 )]
 pub async fn undo_batch(

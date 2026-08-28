@@ -17,8 +17,8 @@ pub struct FolderView {
     pub parent_id: Option<String>,
     pub name: String,
     pub depth: i32,
-    // Task 11 (spec §7bis.2): niente `asset_count` per riga — il prototipo
-    // mostrava «Urbino 556» in sidebar, ma quel aggregato non entra in `/api/v1`.
+    // No `asset_count` per row — the prototype showed a count in the
+    // sidebar, but that aggregate does not enter `/api/v1`.
 }
 
 impl FolderView {
@@ -51,7 +51,7 @@ pub struct FolderChildren {
 }
 
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/folders/tree",
@@ -60,9 +60,9 @@ pub struct FolderChildren {
     summary = "Get the folder tree",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Albero delle cartelle visibili", body = [FolderView]),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Tree of visible folders", body = [FolderView]),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn tree(
@@ -80,8 +80,8 @@ pub async fn tree(
 }
 
 /// # Errors
-/// `401` se non autenticato; `403` se la cartella non è visibile (anche
-/// inesistente, per chi non è admin); `404` solo a un admin su id assente.
+/// `401` if not authenticated; `403` if the folder is not visible (even
+/// nonexistent, for a non-admin); `404` only for an admin on a missing id.
 #[utoipa::path(
     get,
     path = "/api/v1/folders/{id}/children",
@@ -89,13 +89,13 @@ pub async fn tree(
     operation_id = "folders_children",
     summary = "List child folders",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della cartella")),
+    params(("id" = String, Path, description = "Folder id")),
     responses(
-        (status = 200, description = "Figli diretti e asset", body = FolderChildren),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Cartella non visibile", body = Problem),
-        (status = 404, description = "Cartella inesistente (solo admin)", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 200, description = "Direct children and assets", body = FolderChildren),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Folder not visible", body = Problem),
+        (status = 404, description = "Folder does not exist (admin only)", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn children(
@@ -111,12 +111,12 @@ pub async fn children(
     }))
 }
 
-/// Sposta il sottoalbero. Gli asset restano sulla stessa riga: si riscrive
-/// solo `folders.path`.
+/// Moves the subtree. Assets stay on the same row: only `folders.path` is
+/// rewritten.
 ///
 /// # Errors
-/// `401`; `403` se non visibile o se il chiamante è solo viewer; `409` su
-/// ciclo o collisione di nome.
+/// `401`; `403` if not visible or if the caller is only a viewer; `409` on
+/// a cycle or name collision.
 #[utoipa::path(
     patch,
     path = "/api/v1/folders/{id}",
@@ -124,14 +124,14 @@ pub async fn children(
     operation_id = "folders_move",
     summary = "Move a folder",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id della cartella da spostare")),
+    params(("id" = String, Path, description = "Id of the folder to move")),
     request_body = MoveFolderRequest,
     responses(
-        (status = 204, description = "Sottoalbero spostato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Cartella non visibile o ruolo insufficiente", body = Problem),
-        (status = 409, description = "Ciclo o nome già presente", body = Problem),
-        (status = 500, description = "Errore del database", body = Problem)
+        (status = 204, description = "Subtree moved"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Folder not visible or insufficient role", body = Problem),
+        (status = 409, description = "Cycle or name already present", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
     )
 )]
 pub async fn relocate(

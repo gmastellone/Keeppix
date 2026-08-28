@@ -47,10 +47,10 @@ pub struct PatchPermissionRequest {
     pub inherit: Option<bool>,
 }
 
-/// Voce di `GET /permissions` — rimpiazza il `keeppix_db::PermissionGrantView`
-/// servito prima direttamente: stesse chiavi JSON (`id`/`subject_id` restano
-/// stringhe, non cambia nulla sul filo), ma con uno schema `utoipa` invece
-/// di doverne aggiungere uno a `keeppix-db`, che non conosce l'HTTP.
+/// Entry of `GET /permissions` — replaces the `keeppix_db::PermissionGrantView`
+/// served directly before: same JSON keys (`id`/`subject_id` stay strings,
+/// nothing changes on the wire), but with a `utoipa` schema instead of
+/// having to add one to `keeppix-db`, which knows nothing about HTTP.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct PermissionGrantView {
     pub id: String,
@@ -75,9 +75,9 @@ impl From<keeppix_db::PermissionGrantView> for PermissionGrantView {
     }
 }
 
-/// Corpo di risposta di `POST /permissions` e `PATCH /permissions/{id}`:
-/// stesse tre chiavi che prima uscivano da un `serde_json::json!(...)` ad
-/// hoc, ora con un tipo che `utoipa` può descrivere.
+/// Response body of `POST /permissions` and `PATCH /permissions/{id}`: the
+/// same three keys that used to come out of an ad hoc
+/// `serde_json::json!(...)`, now with a type `utoipa` can describe.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct GrantSummaryView {
     pub id: Uuid,
@@ -129,8 +129,8 @@ impl From<keeppix_db::permissions::ExplainChainLink> for ExplainChainLinkView {
     }
 }
 
-/// Voce di `GET /shared-with-me` (spec §29, "Condivisi con me"). Stessa
-/// osservazione di [`PermissionGrantView`]: solo lo schema cambia sede.
+/// Entry of `GET /shared-with-me` ("Shared with me"). Same observation as
+/// [`PermissionGrantView`]: only the schema moves, nothing else changes.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct SharedWithMeView {
     pub object_type: String,
@@ -194,13 +194,13 @@ fn parse_role(raw: &str) -> Result<ObjectRole, Problem> {
     summary = "List direct permission grants on an object",
     security(("session_cookie" = [])),
     params(
-        ("object_type" = String, Query, description = "folder, album o asset"),
-        ("object_id" = String, Query, description = "Id dell'oggetto")
+        ("object_type" = String, Query, description = "folder, album, or asset"),
+        ("object_id" = String, Query, description = "Object id")
     ),
     responses(
-        (status = 200, description = "Permessi diretti sull'oggetto", body = Vec<PermissionGrantView>),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin dell'oggetto", body = Problem)
+        (status = 200, description = "Direct permissions on the object", body = Vec<PermissionGrantView>),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin of the object", body = Problem)
     )
 )]
 pub async fn list(
@@ -226,10 +226,10 @@ pub async fn list(
     security(("session_cookie" = [])),
     request_body = GrantRequest,
     responses(
-        (status = 201, description = "Permesso concesso", body = GrantSummaryView),
-        (status = 400, description = "Tipo oggetto/soggetto o ruolo non valido", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin dell'oggetto", body = Problem)
+        (status = 201, description = "Permission granted", body = GrantSummaryView),
+        (status = 400, description = "Invalid object/subject type or role", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin of the object", body = Problem)
     )
 )]
 pub async fn grant(
@@ -267,13 +267,13 @@ pub async fn grant(
     operation_id = "permissions_patch",
     summary = "Update a permission grant",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id del permesso")),
+    params(("id" = String, Path, description = "Permission id")),
     request_body = PatchPermissionRequest,
     responses(
-        (status = 200, description = "Permesso aggiornato", body = GrantSummaryView),
-        (status = 400, description = "Ruolo non valido", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin dell'oggetto", body = Problem)
+        (status = 200, description = "Permission updated", body = GrantSummaryView),
+        (status = 400, description = "Invalid role", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin of the object", body = Problem)
     )
 )]
 pub async fn patch(
@@ -300,11 +300,11 @@ pub async fn patch(
     operation_id = "permissions_revoke",
     summary = "Revoke a permission grant",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id del permesso")),
+    params(("id" = String, Path, description = "Permission id")),
     responses(
-        (status = 204, description = "Permesso revocato"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin dell'oggetto", body = Problem)
+        (status = 204, description = "Permission revoked"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin of the object", body = Problem)
     )
 )]
 pub async fn revoke(
@@ -324,14 +324,14 @@ pub async fn revoke(
     summary = "Explain why a user has (or lacks) access to an object",
     security(("session_cookie" = [])),
     params(
-        ("object_type" = String, Query, description = "folder, album o asset"),
-        ("object_id" = String, Query, description = "Id dell'oggetto"),
-        ("user_id" = String, Query, description = "Id dell'utente da spiegare")
+        ("object_type" = String, Query, description = "folder, album, or asset"),
+        ("object_id" = String, Query, description = "Object id"),
+        ("user_id" = String, Query, description = "Id of the user to explain")
     ),
     responses(
-        (status = 200, description = "Catena di permessi che porta (o non porta) all'accesso", body = ExplainView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non owner/admin dell'oggetto", body = Problem)
+        (status = 200, description = "Chain of permissions that leads (or does not lead) to access", body = ExplainView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not owner/admin of the object", body = Problem)
     )
 )]
 pub async fn explain(
@@ -346,11 +346,11 @@ pub async fn explain(
     Ok(Json(ExplainView::from(result)))
 }
 
-/// L'inverso di `list` (interrogabile solo per oggetto): tutto ciò che è
-/// stato condiviso **con** l'utente corrente (§29 scheda "Condivisi con me").
+/// The inverse of `list` (queryable only per object): everything that has
+/// been shared **with** the current user ("Shared with me" card).
 ///
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/shared-with-me",
@@ -359,8 +359,8 @@ pub async fn explain(
     summary = "List objects shared with the caller",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Oggetti condivisi con il chiamante", body = Vec<SharedWithMeView>),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "Objects shared with the caller", body = Vec<SharedWithMeView>),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn shared_with_me(

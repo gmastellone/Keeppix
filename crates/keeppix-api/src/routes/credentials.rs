@@ -1,6 +1,6 @@
-//! App-password: credenziali dedicate per client non interattivi (`WebDAV`,
-//! Fase 5 Task 5+, spec fase-5-webdav-upload.md §2.1). Vedi
-//! `keeppix_db::AppPasswordRepo` per la logica; qui solo la traduzione HTTP.
+//! App passwords: dedicated credentials for non-interactive clients
+//! (`WebDAV`). See `keeppix_db::AppPasswordRepo` for the logic; this module
+//! only handles the HTTP translation.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -19,8 +19,9 @@ pub struct CreateAppPasswordRequest {
     pub label: String,
 }
 
-/// Risposta alla creazione: **l'unica** in cui `secret` compare. Nessun'altra
-/// rotta lo restituisce di nuovo — dopo questa risposta, solo l'hash resta.
+/// Creation response: **the only one** where `secret` appears. No other
+/// route ever returns it again — after this response, only the hash
+/// remains.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct AppPasswordCreatedView {
     pub id: String,
@@ -29,7 +30,7 @@ pub struct AppPasswordCreatedView {
     pub created_at: DateTime<Utc>,
 }
 
-/// Riepilogo pubblico: mai `secret`, mai l'hash.
+/// Public summary: never `secret`, never the hash.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct AppPasswordView {
     pub id: String,
@@ -38,11 +39,11 @@ pub struct AppPasswordView {
     pub last_used_at: Option<DateTime<Utc>>,
 }
 
-/// Crea un'app-password per l'utente autenticato. Il segreto in chiaro
-/// appare in questa risposta e non sarà mai più recuperabile.
+/// Creates an app password for the authenticated user. The plaintext
+/// secret appears in this response and will never be retrievable again.
 ///
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     post,
     path = "/api/v1/users/me/app-passwords",
@@ -52,8 +53,8 @@ pub struct AppPasswordView {
     security(("session_cookie" = [])),
     request_body = CreateAppPasswordRequest,
     responses(
-        (status = 201, description = "App-password creata; `secret` appare qui una sola volta", body = AppPasswordCreatedView),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 201, description = "App password created; `secret` appears here only once", body = AppPasswordCreatedView),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn create(
@@ -75,11 +76,11 @@ pub async fn create(
     ))
 }
 
-/// Elenco delle app-password non revocate dell'utente autenticato. Mai il
-/// segreto: solo `id`, `label` e le due date.
+/// List of the authenticated user's non-revoked app passwords. Never the
+/// secret: only `id`, `label`, and the two dates.
 ///
 /// # Errors
-/// `401` se non autenticato.
+/// `401` if not authenticated.
 #[utoipa::path(
     get,
     path = "/api/v1/users/me/app-passwords",
@@ -88,8 +89,8 @@ pub async fn create(
     summary = "List app passwords",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Elenco delle app-password non revocate", body = [AppPasswordView]),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "List of non-revoked app passwords", body = [AppPasswordView]),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list(
@@ -110,12 +111,12 @@ pub async fn list(
     ))
 }
 
-/// Revoca immediata: solo la propria, o un admin. L'id di un'app-password
-/// altrui risponde `403`, **mai** `404` — altrimenti la rotta diventa un
-/// oracolo di esistenza.
+/// Immediate revocation: only your own, or an admin's. The id of another
+/// user's app password responds `403`, **never** `404` — otherwise the
+/// route becomes an existence oracle.
 ///
 /// # Errors
-/// `403` se l'id appartiene a un altro utente (o non esiste, per un
+/// `403` if the id belongs to another user (or does not exist, for a
 /// non-admin).
 #[utoipa::path(
     delete,
@@ -124,11 +125,11 @@ pub async fn list(
     operation_id = "app_passwords_revoke",
     summary = "Revoke an app password",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id dell'app-password")),
+    params(("id" = String, Path, description = "App password id")),
     responses(
-        (status = 204, description = "App-password revocata"),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Non consentito", body = Problem)
+        (status = 204, description = "App password revoked"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Not allowed", body = Problem)
     )
 )]
 pub async fn revoke(

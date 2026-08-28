@@ -50,7 +50,7 @@ pub struct DownloadRegionRequest {
 }
 
 /// # Errors
-/// `401` senza sessione.
+/// `401` without a session.
 #[utoipa::path(
     get,
     path = "/api/v1/map/regions",
@@ -59,8 +59,8 @@ pub struct DownloadRegionRequest {
     summary = "List map regions",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "Stato regioni PMTiles", body = [RegionView]),
-        (status = 401, description = "Non autenticato", body = Problem)
+        (status = 200, description = "PMTiles region status", body = [RegionView]),
+        (status = 401, description = "Not authenticated", body = Problem)
     )
 )]
 pub async fn list(
@@ -72,8 +72,8 @@ pub async fn list(
 }
 
 /// # Errors
-/// `403` per non-admin, `409` se già in download, `422` per metadati o URL
-/// fuori allowlist.
+/// `403` for non-admin, `409` if already downloading, `422` for metadata or
+/// a URL outside the allowlist.
 #[utoipa::path(
     post,
     path = "/api/v1/map/regions",
@@ -83,11 +83,11 @@ pub async fn list(
     security(("session_cookie" = [])),
     request_body = DownloadRegionRequest,
     responses(
-        (status = 202, description = "Download accodato", body = RegionView),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 409, description = "Download già attivo", body = Problem),
-        (status = 422, description = "Sorgente o metadati non validi", body = Problem)
+        (status = 202, description = "Download queued", body = RegionView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 409, description = "Download already active", body = Problem),
+        (status = 422, description = "Invalid source or metadata", body = Problem)
     )
 )]
 pub async fn download(
@@ -112,7 +112,7 @@ pub async fn download(
 }
 
 /// # Errors
-/// `403` per non-admin, `404` se assente, `409` se non in download.
+/// `403` for non-admin, `404` if not found, `409` if not downloading.
 #[utoipa::path(
     post,
     path = "/api/v1/map/regions/{id}/cancel",
@@ -120,14 +120,14 @@ pub async fn download(
     operation_id = "map_regions_cancel",
     summary = "Cancel a map region download",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id regione")),
+    params(("id" = String, Path, description = "Region id")),
     responses(
-        (status = 204, description = "Download annullato"),
-        (status = 400, description = "Percorso regione non valido", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Regione assente", body = Problem),
-        (status = 409, description = "Regione non in download", body = Problem)
+        (status = 204, description = "Download cancelled"),
+        (status = 400, description = "Invalid region path", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "Region not found", body = Problem),
+        (status = 409, description = "Region not downloading", body = Problem)
     )
 )]
 pub async fn cancel(
@@ -146,7 +146,8 @@ pub async fn cancel(
 }
 
 /// # Errors
-/// `403` per non-admin, `404` se assente, `500` se i file non sono rimovibili.
+/// `403` for non-admin, `404` if not found, `500` if the files cannot be
+/// removed.
 #[utoipa::path(
     delete,
     path = "/api/v1/map/regions/{id}",
@@ -154,13 +155,13 @@ pub async fn cancel(
     operation_id = "map_regions_delete",
     summary = "Delete a map region",
     security(("session_cookie" = [])),
-    params(("id" = String, Path, description = "Id regione")),
+    params(("id" = String, Path, description = "Region id")),
     responses(
-        (status = 204, description = "Regione eliminata"),
-        (status = 400, description = "Percorso regione non valido", body = Problem),
-        (status = 401, description = "Non autenticato", body = Problem),
-        (status = 403, description = "Solo admin", body = Problem),
-        (status = 404, description = "Regione assente", body = Problem)
+        (status = 204, description = "Region deleted"),
+        (status = 400, description = "Invalid region path", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "Region not found", body = Problem)
     )
 )]
 pub async fn delete(
