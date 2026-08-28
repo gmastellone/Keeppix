@@ -111,7 +111,8 @@ pub async fn login(
 
     let username = Username::parse(&req.username).map_err(|_| invalid())?;
     // Move the serde allocation into `Password` so Drop zeroizes the only
-    // heap copy we control (the HTTP body `Bytes` remain — see ledger).
+    // heap copy we control (the HTTP body `Bytes` remain outside that
+    // control and are not zeroized).
     let password = Password::parse_owned(req.password).map_err(|_| invalid())?;
 
     let found = UserRepo::new(&state.db).find_by_username(&username).await?;
