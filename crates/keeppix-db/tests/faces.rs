@@ -360,11 +360,14 @@ async fn list_pending_scan_excludes_the_entire_culling_subtree() {
         .await
         .unwrap();
     let ids: Vec<_> = batch.iter().map(|p| p.asset_id).collect();
-    assert!(ids.contains(&keep), "fuori dal culling deve restare");
-    assert!(!ids.contains(&in_root), "radice culling esclusa per intero");
+    assert!(ids.contains(&keep), "outside culling it must remain");
+    assert!(
+        !ids.contains(&in_root),
+        "the culling root is excluded entirely"
+    );
     assert!(
         !ids.contains(&in_taken),
-        "sottoalbero culling escluso via path <@"
+        "the culling subtree is excluded via path <@"
     );
 }
 

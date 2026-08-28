@@ -181,8 +181,8 @@ async fn vector_search_stays_interactive_with_ivfflat() {
 
     assert_eq!(hits.len(), K as usize);
     // This test decides on the index: the raw `ORDER BY <=>` must stay
-    // under budget. Verified via `git log` to be unrelated to unrelated
-    // work on migration 0045 or `Dockerfile.db`. Budget raised from 500ms
+    // under budget. Verified via `git log` that this test, migration 0045,
+    // and `Dockerfile.db` are all untouched by other recent work. Budget raised from 500ms
     // after two consecutive real CI failures on the same commit (1491ms,
     // then 2328.5ms — worsening, not noise oscillating around an average),
     // while the real application path (`SearchRepo::run`, same IVFFlat

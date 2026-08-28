@@ -182,7 +182,7 @@ async fn batch_upsert_discovered_omits_unchanged_files() {
 
     let result = repo.batch_upsert_discovered(&second_pass).await.unwrap();
 
-    assert_eq!(result.len(), 1, "solo il file cambiato deve tornare");
+    assert_eq!(result.len(), 1, "only the changed file must come back");
     assert_eq!(result[0].filename.as_str(), "changed.jpg");
     assert_eq!(result[0].size_bytes, 200);
 }
@@ -402,7 +402,10 @@ async fn moving_a_folder_does_not_touch_assets() {
         .unwrap();
 
     let after = repo.find_by_id(&ctx, asset.id).await.unwrap();
-    assert_eq!(after.folder_id, greece.id, "l'asset resta sulla cartella");
+    assert_eq!(
+        after.folder_id, greece.id,
+        "the asset stays with the folder"
+    );
     assert_eq!(after.filename.as_str(), "DSC_0042.ARW");
     assert_eq!(after.size_bytes, 100);
 }
@@ -455,12 +458,12 @@ async fn upsert_discovered_returns_none_when_stat_is_unchanged() {
     let new = discovered(folder.id, "DSC_0042.ARW", 1000);
 
     let first = repo.upsert_discovered(new.clone()).await.unwrap();
-    assert!(first.is_some(), "primo insert restituisce l'asset");
+    assert!(first.is_some(), "the first insert returns the asset");
 
     let second = repo.upsert_discovered(new).await.unwrap();
     assert!(
         second.is_none(),
-        "stessi mtime e size_bytes → None, niente da rifare (D2)"
+        "same mtime and size_bytes -> None, nothing to redo"
     );
 }
 
@@ -719,7 +722,11 @@ mod move_asset {
             .unwrap();
 
         assert_eq!(moved.folder_id, dst.id);
-        assert_eq!(moved.filename.as_str(), "foto.jpg", "il nome non cambia");
+        assert_eq!(
+            moved.filename.as_str(),
+            "foto.jpg",
+            "the name doesn't change"
+        );
         assert!(root.join("2024").join("Scelte").join("foto.jpg").is_file());
 
         let _ = fs::remove_dir_all(&root);

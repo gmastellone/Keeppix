@@ -162,7 +162,7 @@ async fn two_users_rating_the_same_asset_do_not_overwrite_each_other() {
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert_eq!(count, 2, "una riga per utente, non una condivisa");
+    assert_eq!(count, 2, "one row per user, not a shared one");
 }
 
 #[tokio::test]
@@ -283,7 +283,7 @@ async fn favorite_and_pick_are_independent_axes() {
     assert_eq!(
         after_unfavorite.pick,
         Pick::Reject,
-        "togliere il preferito non deve toccare pick"
+        "unfavoriting must not touch pick"
     );
 }
 

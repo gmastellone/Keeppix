@@ -525,7 +525,7 @@ mod set_pick {
 
         assert_eq!(
             updated.folder_id, lot.id,
-            "torna nel lotto, di nuovo in attesa"
+            "moves back into the lot, pending again"
         );
         assert!(root.join("Culling").join("Vacanze").join("a.jpg").is_file());
         let flags = FlagRepo::new(test.db()).get(&ctx, asset_id).await.unwrap();

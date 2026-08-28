@@ -336,7 +336,7 @@ async fn geometry_pages_match_the_whole_view_concatenated() {
             None => break,
         }
     }
-    assert_eq!(page_count, 3, "7 record a limit=3 sono tre pagine: 3+3+1");
+    assert_eq!(page_count, 3, "7 records at limit=3 is three pages: 3+3+1");
     assert_eq!(
         paged, whole.records,
         "the concatenated pages must match the whole view byte for byte, same order"

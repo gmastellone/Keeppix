@@ -374,7 +374,7 @@ async fn undo_batch_restores_a_previous_value_that_was_null() {
     let restored = repo.effective(&ctx, asset).await.unwrap();
     assert_eq!(
         restored.title, None,
-        "il titolo non esisteva prima del batch: l'annullamento deve tornare a NULL, non a stringa vuota"
+        "the title didn't exist before the batch: undoing must go back to NULL, not an empty string"
     );
 }
 

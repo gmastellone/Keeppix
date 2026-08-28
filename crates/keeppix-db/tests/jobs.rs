@@ -88,7 +88,7 @@ async fn enqueue_many_respects_dedup_key_against_existing_rows() {
             .fetch_one(test.db().pool())
             .await
             .unwrap();
-    assert_eq!(count, 2, "meta:a non deve duplicarsi");
+    assert_eq!(count, 2, "meta:a must not be duplicated");
 }
 
 #[tokio::test]
@@ -119,7 +119,7 @@ async fn claim_skips_a_locked_row() {
     );
     let a = a.unwrap().expect("first claim");
     let b = b.unwrap().expect("second claim");
-    assert_ne!(a.id, b.id, "SKIP LOCKED deve dare due job distinti");
+    assert_ne!(a.id, b.id, "SKIP LOCKED must give two distinct jobs");
 }
 
 #[tokio::test]
@@ -142,7 +142,7 @@ async fn claim_respects_max_priority() {
         .unwrap();
     assert!(
         claimed.is_none(),
-        "un profilo interactive non prende i job di background"
+        "an interactive profile does not pick up background jobs"
     );
 }
 

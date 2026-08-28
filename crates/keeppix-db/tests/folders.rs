@@ -53,7 +53,7 @@ async fn ensure_root_is_idempotent() {
     let first = repo.ensure_root(library).await.unwrap();
     let second = repo.ensure_root(library).await.unwrap();
 
-    assert_eq!(first.id, second.id, "una libreria ha una sola radice");
+    assert_eq!(first.id, second.id, "a library has exactly one root");
 }
 
 #[tokio::test]
@@ -335,7 +335,7 @@ async fn two_libraries_can_share_the_same_numeric_path() {
     assert_eq!(
         leaf_a.path.as_str(),
         leaf_b.path.as_str(),
-        "le etichette sono per libreria, non globali"
+        "labels are per-library, not global"
     );
     assert_ne!(leaf_a.id, leaf_b.id);
     assert_ne!(leaf_a.library_id, leaf_b.library_id);
@@ -491,7 +491,7 @@ mod culling_root {
 
         assert!(
             matches!(result, Err(DbError::Forbidden)),
-            "solo owner/admin, un editor non basta: {result:?}"
+            "only owner/admin, an editor is not enough: {result:?}"
         );
     }
 

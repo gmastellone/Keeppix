@@ -91,7 +91,7 @@ async fn a_plain_user_lists_only_its_own_libraries() {
     assert_eq!(
         repo.list(&admin_ctx).await.unwrap().len(),
         2,
-        "l'admin le vede tutte"
+        "the admin sees all of them"
     );
 }
 
@@ -156,7 +156,7 @@ async fn going_offline_never_deletes_anything() {
     assert_eq!(reloaded.status, LibraryStatus::Offline);
     assert_eq!(
         reloaded.root_path, library.root_path,
-        "la configurazione resta"
+        "the configuration remains"
     );
 }
 
