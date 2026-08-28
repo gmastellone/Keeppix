@@ -7,26 +7,25 @@ use uuid::Uuid;
 use crate::assets::{A_COLUMNS, AssetRow};
 use crate::{AssetRepo, Db, DbError};
 
-/// Vale il valore di `assets.kind` scritto dalla migrazione 0005: usato per
-/// preferire il RAW come primario senza tirare in ballo `AssetKind` di
-/// dominio solo per un confronto di stringa.
+/// Matches the value of `assets.kind` as written by the migration: used
+/// to prefer the RAW as primary without pulling in the domain
+/// `AssetKind` just for a string comparison.
 const RAW_IMAGE: &str = "raw_image";
 
-/// Badge additivo di stack per la vista di browse (fase-10, Task 3):
-/// `stack_size == 1` per un asset non impilato. `raw_kind` distingue le tre
-/// composizioni che l'interfaccia mostra come badge (SP-15): `"raw"`,
-/// `"jpeg"`, `"raw+jpeg"` — `None` solo per kind che non sono né l'uno né
-/// l'altro (video, unknown).
+/// Additive stack badge for the browse view: `stack_size == 1` for an
+/// unstacked asset. `raw_kind` distinguishes the three compositions the
+/// interface shows as a badge: `"raw"`, `"jpeg"`, `"raw+jpeg"` — `None`
+/// only for kinds that are neither (video, unknown).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StackBadge {
     pub stack_size: u16,
     pub raw_kind: Option<String>,
 }
 
-/// Un [`Asset`] con il suo [`StackBadge`]: usato dove la vista di browse
-/// mostra solo il primario di ogni pila (timeline, ricerca — Task 3).
-/// Il `Deref` verso `Asset` lascia inalterato il codice che legge solo i
-/// campi dell'asset (id, `taken_at_utc`, cursori, …).
+/// An [`Asset`] with its [`StackBadge`]: used where the browse view shows
+/// only the primary of each stack (timeline, search). The `Deref`
+/// towards `Asset` leaves untouched the code that only reads asset
+/// fields (id, `taken_at_utc`, cursors, ...).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetWithStack {
     pub asset: Asset,
@@ -41,21 +40,21 @@ impl std::ops::Deref for AssetWithStack {
     }
 }
 
-/// `LEFT JOIN` che porta il primario dello stack (per filtrare) di ogni
-/// riga `assets a`. Da solo (senza [`STACK_BADGE_JOIN_SQL`]) per le query
-/// che devono solo escludere i non-primari senza mostrare il badge
-/// (geometria): un join in meno da pianificare.
+/// `LEFT JOIN` that brings in the stack's primary (for filtering) for
+/// every `assets a` row. Standalone (without [`STACK_BADGE_JOIN_SQL`])
+/// for queries that only need to exclude non-primaries without showing
+/// the badge (geometry): one fewer join to plan.
 pub(crate) const STACK_PRIMARY_JOIN_SQL: &str = "LEFT JOIN stacks s ON s.id = a.stack_id";
 
-/// Riga esclusa se è un membro non-primario di uno stack. Richiede
-/// [`STACK_PRIMARY_JOIN_SQL`] (o [`STACK_BADGE_JOIN_SQL`], che lo include)
-/// nella query.
+/// A row is excluded if it is a non-primary member of a stack. Requires
+/// [`STACK_PRIMARY_JOIN_SQL`] (or [`STACK_BADGE_JOIN_SQL`], which
+/// includes it) in the query.
 pub(crate) const STACK_PRIMARY_ONLY_SQL: &str = "(a.stack_id IS NULL OR a.id = s.primary_asset_id)";
 
-/// Come [`STACK_PRIMARY_JOIN_SQL`], più un aggregato laterale sui membri
-/// dello stack per calcolare `stack_size`/`raw_kind` — eseguito solo per le
-/// righe che superano `WHERE`/`LIMIT` (non per ogni candidato), quindi il
-/// costo resta legato al numero di tessere restituite, non alla scansione.
+/// Like [`STACK_PRIMARY_JOIN_SQL`], plus a lateral aggregate over the
+/// stack's members to compute `stack_size`/`raw_kind` — run only for rows
+/// that pass `WHERE`/`LIMIT` (not for every candidate), so the cost stays
+/// tied to the number of tiles returned, not to the scan.
 pub(crate) const STACK_BADGE_JOIN_SQL: &str = "LEFT JOIN stacks s ON s.id = a.stack_id \
      LEFT JOIN LATERAL ( \
          SELECT count(*)::int2 AS stack_size, \
@@ -67,20 +66,20 @@ pub(crate) const STACK_BADGE_JOIN_SQL: &str = "LEFT JOIN stacks s ON s.id = a.st
            FROM assets m WHERE m.stack_id = a.stack_id \
      ) si ON a.stack_id IS NOT NULL";
 
-/// Colonne aggiuntive da affiancare ad [`A_COLUMNS`] per ottenere
-/// `stack_size`/`raw_kind` nella stessa riga. Un asset non impilato deriva
-/// il badge dal proprio `kind` (nessun aggregato da leggere); uno impilato
-/// legge l'aggregato calcolato da [`STACK_BADGE_JOIN_SQL`].
+/// Extra columns to add alongside [`A_COLUMNS`] to get
+/// `stack_size`/`raw_kind` in the same row. An unstacked asset derives
+/// the badge from its own `kind` (no aggregate to read); a stacked one
+/// reads the aggregate computed by [`STACK_BADGE_JOIN_SQL`].
 pub(crate) const STACK_BADGE_COLUMNS_SQL: &str = "CASE WHEN a.stack_id IS NULL THEN 1::int2 ELSE si.stack_size END AS stack_size, \
      CASE WHEN a.stack_id IS NULL THEN \
          CASE a.kind WHEN 'raw_image' THEN 'raw' WHEN 'image' THEN 'jpeg' ELSE NULL END \
      ELSE si.raw_kind END AS raw_kind";
 
-/// Riga grezza di una query `{A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL}`: stesso
-/// pattern di `AlbumAssetRow` in `albums.rs` — un secondo tipo con tutti i
-/// campi di `AssetRow` più le colonne extra, convertito passando per
-/// `AssetRow::from_raw` perché i campi di `AssetRow` sono privati al modulo
-/// `assets`.
+/// Raw row for a `{A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL}` query: same
+/// pattern as `AlbumAssetRow` in `albums.rs` — a second type with all of
+/// `AssetRow`'s fields plus the extra columns, converted by going through
+/// `AssetRow::from_raw` because `AssetRow`'s fields are private to the
+/// `assets` module.
 #[derive(sqlx::FromRow)]
 pub(crate) struct AssetStackRow {
     id: Uuid,
@@ -163,28 +162,26 @@ impl<'a> StackRepo<'a> {
         Self { db }
     }
 
-    /// Raggruppa gli asset non cestinati di una cartella per nome base
-    /// (spec §5, regola 1): `DSC_0042.ARW` e `DSC_0042.JPG` finiscono nello
-    /// stesso stack, con il RAW come primario quando presente. Un file da
-    /// solo, per quanto il suo nome base sia unico nella cartella, non
-    /// forma mai uno stack.
+    /// Groups a folder's non-trashed assets by base name: `DSC_0042.ARW`
+    /// and `DSC_0042.JPG` end up in the same stack, with the RAW as
+    /// primary when present. A lone file, however unique its base name
+    /// is in the folder, never forms a stack.
     ///
-    /// Idempotente: rieseguirla sugli stessi file riusa lo stack già
-    /// esistente invece di crearne uno nuovo — è la proprietà critica per
-    /// le riscansioni (senza, ogni scansione produrrebbe uno stack nuovo,
-    /// vedi il piano di Fase 2, Task 6). La cancellazione o lo
-    /// spostamento fuori dallo stack di un membro — incluso il primario —
-    /// è gestita dal trigger `assets_promote_stack_primary` (migrazione
-    /// 0013), non da questo metodo: un `DELETE` fatto altrove (cestino,
-    /// scanner) deve tenere l'invariante senza dover richiamare
+    /// Idempotent: re-running it on the same files reuses the existing
+    /// stack instead of creating a new one — the critical property for
+    /// rescans (without it, every scan would produce a new stack). The
+    /// deletion or removal from the stack of a member — including the
+    /// primary — is handled by the `assets_promote_stack_primary` trigger,
+    /// not by this method: a `DELETE` done elsewhere (trash, scanner)
+    /// must keep the invariant without needing to call back into
     /// `StackRepo`.
     ///
-    /// Non prende un `AuthContext`: la chiamerà lo scanner su un'intera
-    /// cartella dopo averne scritto gli asset, come
+    /// Does not take an `AuthContext`: the scanner calls this on an
+    /// entire folder after writing its assets, like
     /// `LibraryRepo::mark_scanned`.
     ///
     /// # Errors
-    /// `Connection` se una query fallisce.
+    /// `Connection` if a query fails.
     pub async fn regroup_folder(&self, folder_id: FolderId) -> Result<(), DbError> {
         let members: Vec<MemberRow> = sqlx::query_as(
             "SELECT id, filename, kind, stack_id FROM assets \
@@ -204,8 +201,8 @@ impl<'a> StackRepo<'a> {
 
         let mut tx = self.db.pool().begin().await?;
         for mut group in groups.into_values() {
-            // Ordine deterministico: decide il primario di riserva quando
-            // non c'è un RAW, e rende il raggruppamento riproducibile.
+            // Deterministic order: decides the fallback primary when
+            // there is no RAW, and makes grouping reproducible.
             group.sort_by(|a, b| a.filename.cmp(&b.filename));
 
             if group.len() < 2 {
@@ -223,11 +220,11 @@ impl<'a> StackRepo<'a> {
             existing_ids.sort_unstable();
             existing_ids.dedup();
 
-            // Un solo id preesistente fra i membri: è lo stesso gruppo di
-            // un raggruppamento precedente, va riusato — non ricreato.
-            // Zero o più di uno: un nuovo stack (più di uno è un caso
-            // anomalo che questo task non prova a riconciliare, vedi
-            // ledger).
+            // A single pre-existing id among the members: this is the
+            // same group from a previous grouping pass, it must be
+            // reused — not recreated. Zero or more than one: a new stack
+            // (more than one is an anomalous case this method does not
+            // attempt to reconcile).
             let stack_id = if let [only] = existing_ids.as_slice() {
                 *only
             } else {
@@ -263,12 +260,12 @@ impl<'a> StackRepo<'a> {
         Ok(())
     }
 
-    /// Membri dello stack a cui appartiene `asset_id`. `None` se l'asset non
-    /// è in uno stack.
+    /// Members of the stack `asset_id` belongs to. `None` if the asset is
+    /// not in a stack.
     ///
     /// # Errors
-    /// `Forbidden` se l'asset non è visibile al chiamante (anche
-    /// inesistente). `Connection` se una query fallisce.
+    /// `Forbidden` if the asset is not visible to the caller (including
+    /// when it does not exist). `Connection` if a query fails.
     pub async fn members(
         &self,
         ctx: &AuthContext,
@@ -320,11 +317,11 @@ impl<'a> StackRepo<'a> {
         }))
     }
 
-    /// Imposta `asset_id` come primario del suo stack.
+    /// Sets `asset_id` as the primary of its stack.
     ///
     /// # Errors
-    /// `Forbidden` come [`Self::members`]. `Conflict` se l'asset non è in
-    /// uno stack. `Connection` se una query fallisce.
+    /// `Forbidden` same as [`Self::members`]. `Conflict` if the asset is
+    /// not in a stack. `Connection` if a query fails.
     pub async fn set_primary(&self, ctx: &AuthContext, asset_id: AssetId) -> Result<(), DbError> {
         AssetRepo::new(self.db)
             .assert_visible(ctx, std::slice::from_ref(&asset_id))
@@ -349,11 +346,11 @@ impl<'a> StackRepo<'a> {
     }
 }
 
-/// Un nome base ormai unico nella cartella (era in uno stack, ma non lo
-/// giustifica più — l'ultimo altro membro è sparito) si scollega. Il
-/// trigger `assets_promote_stack_primary` fa il resto: se questo membro
-/// era il primario e non ne resta un altro, cancella la riga di `stacks`
-/// invece di lasciarla orfana.
+/// A base name that is now unique in the folder (it was in a stack, but
+/// no longer justifies one — the last other member is gone) gets
+/// unlinked. The `assets_promote_stack_primary` trigger does the rest: if
+/// this member was the primary and none remain, it deletes the `stacks`
+/// row instead of leaving it orphaned.
 async fn unstack_lone_member(
     tx: &mut sqlx::PgConnection,
     group: &[MemberRow],
@@ -369,10 +366,10 @@ async fn unstack_lone_member(
     Ok(())
 }
 
-/// Nome base per il raggruppamento: il nome del file senza l'ultima
-/// estensione, case-insensitive. `DSC_0042.ARW` e `dsc_0042.jpg` sono lo
-/// stesso scatto anche se maiuscole/minuscole differiscono fra fotocamera
-/// e software che ha scritto il JPEG.
+/// Base name for grouping: the filename without its last extension,
+/// case-insensitive. `DSC_0042.ARW` and `dsc_0042.jpg` are the same shot
+/// even if the casing differs between the camera and the software that
+/// wrote the JPEG.
 fn basename_key(filename: &str) -> String {
     filename
         .rsplit_once('.')

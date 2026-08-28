@@ -145,21 +145,21 @@ fn parse_status(raw: &str) -> Result<AssetStatus, DbError> {
     }
 }
 
-/// Esito di un inserimento diretto (`WebDAV PUT`, Task 7 Fase 5): stessa
-/// forma di `crate::uploads::FinalizeOutcome`, senza il concetto di
-/// sessione — il chiamante ha già l'intero file in un temporaneo.
+/// Outcome of a direct insertion (`WebDAV PUT`): same shape as
+/// `crate::uploads::FinalizeOutcome`, without the session concept — the
+/// caller already has the whole file in a temp location.
 pub struct DirectPutOutcome {
     pub asset_id: AssetId,
-    /// Nome finale su disco — può differire dal richiesto per una
-    /// collisione risolta con un suffisso.
+    /// Final name on disk — may differ from the requested one if a
+    /// collision was resolved with a suffix.
     pub filename: String,
     pub collision: CollisionOutcome,
 }
 
-/// EXIF completo di un asset (Fase 11 Task 8, §19.2 "SCATTO") — a
-/// differenza di [`AssetRepo::camera_models_among`], che espone solo
-/// `camera_model` per la dimensione SP-3, questo è il dettaglio pieno per
-/// un singolo asset aperto nel lightbox.
+/// Full EXIF of an asset ("SHOT" section of the info panel) — unlike
+/// [`AssetRepo::camera_models_among`], which only exposes `camera_model`
+/// for the summary dimension, this is the full detail for a single asset
+/// opened in the lightbox.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssetExifDetail {
     pub camera_make: Option<String>,
@@ -202,27 +202,27 @@ impl<'a> AssetRepo<'a> {
         Self { db }
     }
 
-    /// Crea l'asset spostando `temp_path` nella cartella finale, risolvendo
-    /// un'eventuale collisione di nome esattamente come
-    /// `UploadSessionRepo::finalize` (Task 1): stesso nome e stesso hash è
-    /// un duplicato, saltato; stesso nome e hash diverso prende un
-    /// suffisso — **mai** una sovrascrittura silenziosa.
+    /// Creates the asset by moving `temp_path` into the final folder,
+    /// resolving any name collision exactly like
+    /// `UploadSessionRepo::finalize`: same name and same hash is a
+    /// duplicate, skipped; same name and a different hash gets a suffix —
+    /// **never** a silent overwrite.
     ///
-    /// Il chiamante deve aver già verificato il permesso di editor sulla
-    /// cartella (`FolderRepo::assert_editor`): questo metodo non lo
-    /// ripete, per non pagare due volte la stessa query sullo stesso
-    /// percorso HTTP (`dav::write::put`).
+    /// The caller must already have checked editor permission on the
+    /// folder (`FolderRepo::assert_editor`): this method does not repeat
+    /// it, so as not to pay for the same query twice on the same HTTP path
+    /// (`dav::write::put`).
     ///
-    /// Come in `finalize`, il `rename()` avviene prima del commit: se il
-    /// commit fallisse dopo, il file resta al posto giusto senza una riga
-    /// `assets`, e la prossima scansione della libreria lo scopre come un
-    /// file qualunque — mai il rischio opposto di una riga che punta a un
-    /// file inesistente.
+    /// As in `finalize`, the `rename()` happens before the commit: if the
+    /// commit later fails, the file is left in the right place without an
+    /// `assets` row, and the next library scan discovers it as a plain
+    /// file — never the opposite risk of a row pointing at a nonexistent
+    /// file.
     ///
     /// # Errors
-    /// Come `FolderRepo::absolute_path` per la visibilità della cartella.
-    /// `Io` se il `rename()` finale fallisce — il temporaneo resta al suo
-    /// posto, nessuna riga viene toccata.
+    /// Same as `FolderRepo::absolute_path` for folder visibility. `Io` if
+    /// the final `rename()` fails — the temp file stays put, no row is
+    /// touched.
     #[allow(clippy::too_many_arguments)]
     pub async fn ingest_direct(
         &self,
@@ -251,10 +251,10 @@ impl<'a> AssetRepo<'a> {
         if let Some((existing_id, existing_hash)) = &existing
             && existing_hash.as_deref() == Some(content_hash.as_slice())
         {
-            // Stesso nome, stesso hash: duplicato esatto. Non si tocca mai
-            // la cartella target — si rimuove solo il temporaneo, prima del
-            // commit (che qui non ha nulla da confermare, ma resta simmetrico
-            // a `finalize`).
+            // Same name, same hash: exact duplicate. The target folder is
+            // never touched — only the temp file is removed, before the
+            // commit (which has nothing to confirm here, but stays
+            // symmetric with `finalize`).
             crate::uploads::remove_file_tolerant(temp_path)?;
             tx.commit().await?;
             return Ok(DirectPutOutcome {
@@ -312,18 +312,19 @@ impl<'a> AssetRepo<'a> {
         })
     }
 
-    /// Inserisce il file trovato dal walker, o aggiorna size/mtime se c'è già.
+    /// Inserts the file found by the walker, or updates size/mtime if it
+    /// already exists.
     ///
-    /// Restituisce `None` quando mtime e size sono identici a quelli già
-    /// noti: il chiamante non deve riaccodare metadata/hash. `kind` si
-    /// riazzera solo se il file è davvero cambiato — altrimenti una
-    /// riscansione cancellerebbe `detect_kind`.
+    /// Returns `None` when mtime and size are identical to what is already
+    /// known: the caller must not re-queue metadata/hashing. `kind` is
+    /// only reset if the file has actually changed — otherwise a rescan
+    /// would wipe out `detect_kind`.
     ///
-    /// Non prende un `AuthContext` perché la chiama lo scanner.
+    /// Does not take an `AuthContext` because the scanner calls this.
     ///
     /// # Errors
-    /// `Connection` se l'inserimento fallisce; `Corrupted` se la riga
-    /// restituita non passa la validazione di dominio.
+    /// `Connection` if the insert fails; `Corrupted` if the returned row
+    /// fails domain validation.
     pub async fn upsert_discovered(&self, new: NewAsset) -> Result<Option<Asset>, DbError> {
         let row: Option<AssetRow> = sqlx::query_as(&format!(
             "INSERT INTO assets (id, folder_id, filename, size_bytes, mtime, inode, kind) \
@@ -351,23 +352,23 @@ impl<'a> AssetRepo<'a> {
         row.map(AssetRow::into_domain).transpose()
     }
 
-    /// Come [`Self::upsert_discovered`], ma per un intero lotto in una sola
-    /// istruzione (Fase 10 Task 21): un solo giro di rete invece di uno per
-    /// file. Il trigger `assets_change_log` (`AFTER INSERT OR UPDATE ...
-    /// FOR EACH ROW`) scrive comunque una riga di `change_log` per asset —
-    /// non si perde granularità entità-per-entità richiesta dal sync
-    /// mobile (spec §2.6) — ma lo fa dentro questa singola istruzione,
-    /// senza un giro di rete per riga.
+    /// Like [`Self::upsert_discovered`], but for an entire batch in a
+    /// single statement: one network round trip instead of one per file.
+    /// The `assets_change_log` trigger (`AFTER INSERT OR UPDATE ... FOR
+    /// EACH ROW`) still writes one `change_log` row per asset — the
+    /// per-entity granularity required for mobile sync is not lost — but
+    /// it happens inside this single statement, without one round trip
+    /// per row.
     ///
-    /// Restituisce solo gli asset davvero cambiati (stesso filtro
-    /// `mtime`/`size_bytes` di [`Self::upsert_discovered`]): il chiamante
-    /// non deve riaccodare metadata/hash per un file fermo.
+    /// Returns only the assets that actually changed (same `mtime`/
+    /// `size_bytes` filter as [`Self::upsert_discovered`]): the caller
+    /// must not re-queue metadata/hashing for an unchanged file.
     ///
-    /// Non prende un `AuthContext` perché la chiama lo scanner.
+    /// Does not take an `AuthContext` because the scanner calls this.
     ///
     /// # Errors
-    /// `Connection` se l'inserimento fallisce; `Corrupted` se una riga
-    /// restituita non passa la validazione di dominio.
+    /// `Connection` if the insert fails; `Corrupted` if a returned row
+    /// fails domain validation.
     pub async fn batch_upsert_discovered(&self, items: &[NewAsset]) -> Result<Vec<Asset>, DbError> {
         if items.is_empty() {
             return Ok(Vec::new());
@@ -409,10 +410,10 @@ impl<'a> AssetRepo<'a> {
         rows.into_iter().map(AssetRow::into_domain).collect()
     }
 
-    /// Non prende un `AuthContext`: la chiama la pipeline di metadati.
+    /// Does not take an `AuthContext`: the metadata pipeline calls this.
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn set_kind(&self, id: AssetId, kind: AssetKind) -> Result<(), DbError> {
         sqlx::query("UPDATE assets SET kind = $2, updated_at = now() WHERE id = $1")
             .bind(id.as_uuid())
@@ -422,10 +423,10 @@ impl<'a> AssetRepo<'a> {
         Ok(())
     }
 
-    /// Non prende un `AuthContext`: la chiama la pipeline di hashing.
+    /// Does not take an `AuthContext`: the hashing pipeline calls this.
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn set_hash(&self, id: AssetId, hash: [u8; 32]) -> Result<(), DbError> {
         sqlx::query("UPDATE assets SET content_hash = $2, updated_at = now() WHERE id = $1")
             .bind(id.as_uuid())
@@ -435,10 +436,10 @@ impl<'a> AssetRepo<'a> {
         Ok(())
     }
 
-    /// Non prende un `AuthContext`: la chiama la pipeline di indicizzazione.
+    /// Does not take an `AuthContext`: the indexing pipeline calls this.
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn set_indexed(
         &self,
         id: AssetId,
@@ -459,10 +460,10 @@ impl<'a> AssetRepo<'a> {
         Ok(())
     }
 
-    /// Non prende un `AuthContext`: la chiama la pipeline.
+    /// Does not take an `AuthContext`: the pipeline calls this.
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn set_error(&self, id: AssetId, detail: &str) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE assets SET status = 'error', error_detail = $2, updated_at = now() WHERE id = $1",
@@ -474,10 +475,10 @@ impl<'a> AssetRepo<'a> {
         Ok(())
     }
 
-    /// Non prende un `AuthContext`: la chiama lo scanner quando il file sparisce.
+    /// Does not take an `AuthContext`: the scanner calls this when the file disappears.
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn mark_offline(&self, id: AssetId) -> Result<(), DbError> {
         sqlx::query("UPDATE assets SET status = 'offline', updated_at = now() WHERE id = $1")
             .bind(id.as_uuid())
@@ -487,8 +488,9 @@ impl<'a> AssetRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` se il chiamante non vede l'asset — anche quando l'id non
-    /// esiste. `NotFound` solo a un admin che chiede un id inesistente.
+    /// `Forbidden` if the caller cannot see the asset — including when the
+    /// id does not exist. `NotFound` only for an admin requesting a
+    /// nonexistent id.
     pub async fn find_by_id(&self, ctx: &AuthContext, id: AssetId) -> Result<Asset, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
@@ -515,7 +517,7 @@ impl<'a> AssetRepo<'a> {
     /// Clears `uploaded_by_guest` after the owner approves the file.
     ///
     /// # Errors
-    /// Come `find_by_id`. `Connection` se l'aggiornamento fallisce.
+    /// Same as `find_by_id`. `Connection` if the update fails.
     pub async fn clear_guest_flag(&self, ctx: &AuthContext, id: AssetId) -> Result<(), DbError> {
         self.find_by_id(ctx, id).await?;
         sqlx::query(
@@ -528,7 +530,7 @@ impl<'a> AssetRepo<'a> {
     }
 
     /// # Errors
-    /// Come `FolderRepo::find_by_id` sulla cartella, poi gli asset al suo interno.
+    /// Same as `FolderRepo::find_by_id` on the folder, then its assets.
     pub async fn find_by_folder(
         &self,
         ctx: &AuthContext,
@@ -547,7 +549,7 @@ impl<'a> AssetRepo<'a> {
     }
 
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn find_by_hash(
         &self,
         ctx: &AuthContext,
@@ -572,14 +574,14 @@ impl<'a> AssetRepo<'a> {
         rows.into_iter().map(AssetRow::into_domain).collect()
     }
 
-    /// Quali di `hashes` esistono già come `content_hash` di un asset
-    /// visibile al chiamante — il pre-check dell'upload (spec §1.2): «questi
-    /// li ho già, caricami solo gli altri». Filtrato per visibilità come
-    /// [`Self::find_by_hash`], così non diventa un oracolo su hash che il
-    /// chiamante non potrebbe vedere altrimenti.
+    /// Which of `hashes` already exist as the `content_hash` of an asset
+    /// visible to the caller — the upload pre-check: "I already have
+    /// these, only upload the rest." Filtered by visibility like
+    /// [`Self::find_by_hash`], so it does not become an oracle over hashes
+    /// the caller could not otherwise see.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn known_hashes(
         &self,
         ctx: &AuthContext,
@@ -610,7 +612,7 @@ impl<'a> AssetRepo<'a> {
     }
 
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn count_by_status(
         &self,
         ctx: &AuthContext,
@@ -633,10 +635,10 @@ impl<'a> AssetRepo<'a> {
         Ok(n)
     }
 
-    /// Non prende un `AuthContext`: la chiama lo scanner sul job reclamato.
+    /// Does not take an `AuthContext`: the scanner calls this on the claimed job.
     ///
     /// # Errors
-    /// `NotFound` se l'id non esiste.
+    /// `NotFound` if the id does not exist.
     pub async fn get_for_scan(&self, id: AssetId) -> Result<Asset, DbError> {
         let row: Option<AssetRow> =
             sqlx::query_as(&format!("SELECT {COLUMNS} FROM assets WHERE id = $1"))
@@ -648,12 +650,12 @@ impl<'a> AssetRepo<'a> {
             .ok_or(DbError::NotFound)
     }
 
-    /// Conteggio nella libreria, per le soglie di sparizione di massa.
+    /// Count within the library, for mass-disappearance thresholds.
     ///
-    /// Non prende un `AuthContext`: la chiama lo scanner.
+    /// Does not take an `AuthContext`: the scanner calls this.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn count_in_library(&self, library_id: LibraryId) -> Result<i64, DbError> {
         let n: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM assets a \
@@ -666,12 +668,12 @@ impl<'a> AssetRepo<'a> {
         Ok(n)
     }
 
-    /// I metadati originali sono immutabili: un secondo insert non sovrascrive.
+    /// Original metadata is immutable: a second insert does not overwrite it.
     ///
-    /// Non prende un `AuthContext`: la chiama la pipeline.
+    /// Does not take an `AuthContext`: the pipeline calls this.
     ///
     /// # Errors
-    /// `Connection` se l'inserimento fallisce.
+    /// `Connection` if the insert fails.
     pub async fn insert_exif(&self, asset_id: AssetId, exif: &ExifData) -> Result<(), DbError> {
         sqlx::query(
             "INSERT INTO asset_exif \
@@ -693,12 +695,12 @@ impl<'a> AssetRepo<'a> {
         Ok(())
     }
 
-    /// Salva le coordinate EXIF senza calpestare una correzione manuale.
+    /// Saves EXIF coordinates without stomping on a manual correction.
     ///
-    /// Non prende un `AuthContext`: la chiama la pipeline di metadati.
+    /// Does not take an `AuthContext`: the metadata pipeline calls this.
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn set_exif_location(
         &self,
         asset_id: AssetId,
@@ -721,10 +723,10 @@ impl<'a> AssetRepo<'a> {
         Ok(())
     }
 
-    /// Non prende un `AuthContext`: la chiama la pipeline dei derivati.
+    /// Does not take an `AuthContext`: the derivatives pipeline calls this.
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn set_thumbhash_for_hash(
         &self,
         hash: &[u8; 32],
@@ -749,16 +751,17 @@ impl<'a> AssetRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Copia il thumbhash già noto sugli asset con lo stesso `content_hash`
-    /// che ancora non ce l'hanno. Lo chiama `DeriveRaw` sul ramo
-    /// idempotente: il file derivato esiste, ma un duplicato hashed dopo
-    /// la prima derivazione resterebbe senza placeholder.
+    /// Copies an already-known thumbhash onto assets with the same
+    /// `content_hash` that do not yet have one. Called by `DeriveRaw` on
+    /// its idempotent branch: the derived file exists, but a duplicate
+    /// hashed after the first derivation would otherwise be left without a
+    /// placeholder.
     ///
-    /// Non prende un `AuthContext`: è la pipeline dei derivati, come
-    /// [`Self::set_thumbhash_for_hash`].
+    /// Does not take an `AuthContext`: this is the derivatives pipeline,
+    /// like [`Self::set_thumbhash_for_hash`].
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn propagate_thumbhash_for_hash(&self, hash: &[u8; 32]) -> Result<u64, DbError> {
         let result = sqlx::query(
             "UPDATE assets SET thumbhash = src.thumbhash, updated_at = now() \
@@ -772,10 +775,10 @@ impl<'a> AssetRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Non prende un `AuthContext`: la chiama la pipeline dei derivati.
+    /// Does not take an `AuthContext`: the derivatives pipeline calls this.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn ids_with_hash(&self, hash: &[u8; 32]) -> Result<Vec<AssetId>, DbError> {
         let rows: Vec<uuid::Uuid> =
             sqlx::query_scalar("SELECT id FROM assets WHERE content_hash = $1")
@@ -785,11 +788,11 @@ impl<'a> AssetRepo<'a> {
         Ok(rows.into_iter().map(AssetId::from_uuid).collect())
     }
 
-    /// Hash degli asset in `error` da ritentare. Lo chiama il job di
-    /// manutenzione, non un utente: niente `AuthContext`.
+    /// Hashes of assets in `error` to retry. Called by the maintenance
+    /// job, not a user: no `AuthContext`.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn error_hashes_for_retry(&self) -> Result<Vec<([u8; 32], AssetKind)>, DbError> {
         let rows: Vec<(Vec<u8>, String)> = sqlx::query_as(
             "SELECT DISTINCT ON (content_hash) content_hash, kind FROM assets \
@@ -812,12 +815,12 @@ impl<'a> AssetRepo<'a> {
         Ok(out)
     }
 
-    /// Restituisce gli id fra `ids` che il chiamante può vedere, nello stesso
-    /// ordine della richiesta. Gli assenti (inesistenti o fuori scope) non
-    /// compaiono: le operazioni a riuscita parziale li mettono in `failed`.
+    /// Returns the ids among `ids` that the caller can see, in the same
+    /// order as the request. Missing ones (nonexistent or out of scope) do
+    /// not appear: partial-success operations put them in `failed`.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn filter_visible(
         &self,
         ctx: &AuthContext,
@@ -850,14 +853,14 @@ impl<'a> AssetRepo<'a> {
             .collect())
     }
 
-    /// Verifica in una sola query che il chiamante veda **tutti** gli id
-    /// dati. La usano le operazioni che restano all-or-nothing. Per i lotti
-    /// a riuscita parziale preferire [`Self::filter_visible`].
+    /// Checks in a single query that the caller can see **all** the given
+    /// ids. Used by operations that must stay all-or-nothing. For
+    /// partial-success batches, prefer [`Self::filter_visible`].
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo id non è visibile — compreso il caso in
-    /// cui non esiste affatto. `NotFound` solo a un admin quando un id non
-    /// esiste per niente.
+    /// `Forbidden` if even a single id is not visible — including the case
+    /// where it does not exist at all. `NotFound` only for an admin when
+    /// an id does not exist at all.
     pub async fn assert_visible(&self, ctx: &AuthContext, ids: &[AssetId]) -> Result<(), DbError> {
         if ids.is_empty() {
             return Ok(());
@@ -877,44 +880,43 @@ impl<'a> AssetRepo<'a> {
         }
     }
 
-    /// Sposta un asset in modo sicuro (Fase 9 Task 1): identità preservata.
-    /// `asset_flags`/`asset_overrides`/`asset_tags`/`faces` sono chiavi
-    /// esterne su `asset_id`, mai su `folder_id`/`filename` — un `UPDATE`
-    /// sulla riga **esistente** (stesso id) le mantiene collegate senza
-    /// copiare nulla, a differenza di `moves.rs::after_hash`
-    /// (`crates/keeppix-jobs`) che crea una riga nuova e ne perde la
-    /// maggior parte perché è un riconoscimento *a posteriori*, non uno
-    /// spostamento diretto.
+    /// Moves an asset safely: identity is preserved. `asset_flags`/
+    /// `asset_overrides`/`asset_tags`/`faces` are foreign keys on
+    /// `asset_id`, never on `folder_id`/`filename` — an `UPDATE` on the
+    /// **existing** row (same id) keeps them linked without copying
+    /// anything, unlike `moves.rs::after_hash` (`crates/keeppix-jobs`)
+    /// which creates a new row and loses most of them because it is an
+    /// *after-the-fact* recognition, not a direct move.
     ///
-    /// **Ordine deliberato: il file fisico si sposta prima, la riga dopo —
-    /// l'opposto della convenzione già in uso in `TrashRepo::choose`
-    /// (`crates/keeppix-db/src/trash.rs`, riga-poi-`rename()`).** Non è
-    /// un'incoerenza fra le due funzioni: il cestino sposta verso un posto
-    /// secondario che l'utente visita di rado, quindi un file orfano lì è
-    /// un fastidio recuperabile con un retry; un asset spostato da questa
-    /// funzione resta invece visibile ovunque nell'app (timeline, ricerca,
-    /// album) finché non lo si vede spostare — una riga che punta a un
-    /// percorso inesistente sarebbe silenziosa e invisibile lì. Un file
-    /// fisico "in più" senza riga corrispondente, al contrario, lo ritrova
-    /// la prossima scansione (reindicizzato come asset nuovo — perde
-    /// `asset_flags`/`asset_overrides` solo in **questo** scenario di
-    /// fallimento a metà, mai nel percorso normale). Il caso peggiore è
-    /// recuperabile: è il ruling esplicito del piano di fase
-    /// (`docs/superpowers/plans/2026-08-20-keeppix-fase-9.md`, Task 1).
+    /// **Deliberate ordering: the physical file moves first, the row
+    /// after — the opposite of the convention already used in
+    /// `TrashRepo::choose` (`crates/keeppix-db/src/trash.rs`,
+    /// row-then-`rename()`).** This is not an inconsistency between the
+    /// two functions: trash moves to a secondary location the user rarely
+    /// visits, so an orphaned file there is a recoverable nuisance fixed
+    /// by a retry; an asset moved by this function instead stays visible
+    /// everywhere in the app (timeline, search, albums) until it is seen
+    /// moving — a row pointing at a nonexistent path would be silent and
+    /// invisible there. A physical file left "extra" without a matching
+    /// row, on the other hand, gets picked up by the next scan
+    /// (re-indexed as a new asset — it loses `asset_flags`/
+    /// `asset_overrides` only in **this** half-failure scenario, never on
+    /// the normal path). The worst case is recoverable, which is the
+    /// deliberate tradeoff behind this ordering.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non è editor sulla cartella di partenza o
-    /// su quella di destinazione (`FolderRepo::assert_editor`, chiamata due
-    /// volte — non `PermissionRepo::assert_can_edit_assets`, che risolve
-    /// solo la cartella *corrente* di un asset esistente via join e non ha
-    /// modo di verificare una destinazione arbitraria, magari appena creata
-    /// e ancora vuota). `NotFound`/`Forbidden` come `find_by_id` se l'asset
-    /// non esiste o non è visibile. `Collision` se `(new_folder_id,
-    /// new_filename)` è già occupato da un altro asset — verifica
-    /// **best-effort** contro ciò che Keeppix conosce (spec §1.2), non una
-    /// garanzia atomica di filesystem: un file non ancora tracciato allo
-    /// stesso percorso può comunque essere sovrascritto da `rename()` fra
-    /// il controllo e lo spostamento. `Io` se il `rename()` fisico fallisce.
+    /// `Forbidden` if the caller is not editor on the source folder or the
+    /// destination folder (`FolderRepo::assert_editor`, called twice —
+    /// not `PermissionRepo::assert_can_edit_assets`, which only resolves
+    /// the *current* folder of an existing asset via a join and has no
+    /// way to check an arbitrary destination, possibly just created and
+    /// still empty). `NotFound`/`Forbidden` like `find_by_id` if the asset
+    /// does not exist or is not visible. `Collision` if `(new_folder_id,
+    /// new_filename)` is already taken by another asset — a
+    /// **best-effort** check against what Keeppix knows, not an atomic
+    /// filesystem guarantee: an untracked file at the same path can still
+    /// be overwritten by `rename()` between the check and the move. `Io`
+    /// if the physical `rename()` fails.
     pub async fn move_asset(
         &self,
         ctx: &AuthContext,
@@ -986,12 +988,12 @@ impl<'a> AssetRepo<'a> {
         self.find_by_id(ctx, asset_id).await
     }
 
-    /// Copia gli EXIF originali su un nuovo asset. `ON CONFLICT DO NOTHING`.
+    /// Copies the original EXIF onto a new asset. `ON CONFLICT DO NOTHING`.
     ///
-    /// Non prende un `AuthContext`: la chiama il rilevatore di spostamenti.
+    /// Does not take an `AuthContext`: the move detector calls this.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn copy_exif(&self, from: AssetId, to: AssetId) -> Result<(), DbError> {
         sqlx::query(
             "INSERT INTO asset_exif \
@@ -1007,17 +1009,16 @@ impl<'a> AssetRepo<'a> {
         Ok(())
     }
 
-    /// Modelli di fotocamera per un insieme di asset (Fase 11 Task 7, SP-3
-    /// §11: dimensione "Fotocamera"). Un asset senza `asset_exif` leggibile
-    /// (o senza `camera_model` nell'exif) semplicemente non compare nella
-    /// mappa — nessun `None` esplicito da propagare. Stesso idioma di
-    /// [`crate::FlagRepo::favorites_among`]: una query sola per l'intera
-    /// pagina, non una per asset — non prende `AuthContext` per lo stesso
-    /// motivo di quel metodo, il chiamante ha già filtrato `asset_ids` sul
-    /// visibile.
+    /// Camera models for a set of assets ("Camera" summary dimension). An
+    /// asset without a readable `asset_exif` (or without `camera_model` in
+    /// the exif) simply does not appear in the map — no explicit `None` to
+    /// propagate. Same idiom as [`crate::FlagRepo::favorites_among`]: a
+    /// single query for the whole page, not one per asset — this does not
+    /// take an `AuthContext` for the same reason as that method: the
+    /// caller has already filtered `asset_ids` down to what is visible.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn camera_models_among(
         &self,
         asset_ids: &[AssetId],
@@ -1039,17 +1040,16 @@ impl<'a> AssetRepo<'a> {
             .collect())
     }
 
-    /// L'intera riga `asset_exif` di **un** asset (Fase 11 Task 8, §19.2
-    /// campi 6-9, sezione "SCATTO" del pannello informazioni): a differenza
-    /// di [`Self::camera_models_among`] (bulk, un solo campo, per SP-3),
-    /// qui il lightbox apre una foto alla volta e ha bisogno di tutto —
-    /// obiettivo, esposizione, ISO, focale — colonne già scritte da
-    /// [`Self::insert_exif`] fin dalla Fase 5, mai lette per intero finora.
-    /// `None` se l'asset non ha una riga `asset_exif` (mai analizzato, o
-    /// senza EXIF leggibile) — non un errore.
+    /// The full `asset_exif` row for **one** asset ("SHOT" section of the
+    /// info panel): unlike [`Self::camera_models_among`] (bulk, a single
+    /// field), here the lightbox opens one photo at a time and needs
+    /// everything — lens, exposure, ISO, focal length — columns already
+    /// written by [`Self::insert_exif`] but never read in full until now.
+    /// `None` if the asset has no `asset_exif` row (never analyzed, or no
+    /// readable EXIF) — not an error.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn exif_for(&self, asset_id: AssetId) -> Result<Option<AssetExifDetail>, DbError> {
         let row: Option<AssetExifDetailRow> = sqlx::query_as(
             "SELECT camera_make, camera_model, lens, iso, f_number, exposure, focal_length \
@@ -1061,17 +1061,16 @@ impl<'a> AssetRepo<'a> {
         Ok(row.map(AssetExifDetailRow::into_domain))
     }
 
-    /// Sposta l'asset in una cartella diversa **senza rinominarlo** — il
-    /// campo "Sposta in cartella" di Modifica in blocco (Fase 11 Task 7,
-    /// §13.3, campo 8), a differenza di [`Self::move_asset`] che prende
-    /// anche un nuovo nome per il caso "Rinomina cartella…"/spostamento con
-    /// rinomina contestuale. Wrapper sottile: legge il nome corrente e lo
-    /// passa invariato — [`Self::move_asset`] fa comunque un secondo
-    /// `find_by_id` al suo interno (già così prima di questo metodo, non
-    /// una regressione introdotta qui) per il proprio controllo di no-op.
+    /// Moves the asset to a different folder **without renaming it** — the
+    /// "Move to folder" field of bulk edit, unlike [`Self::move_asset`]
+    /// which also takes a new name for the "rename with move" case. A
+    /// thin wrapper: it reads the current name and passes it through
+    /// unchanged — [`Self::move_asset`] still does a second `find_by_id`
+    /// internally (already the case before this method existed, not a
+    /// regression introduced here) for its own no-op check.
     ///
     /// # Errors
-    /// Come [`Self::move_asset`].
+    /// Same as [`Self::move_asset`].
     pub async fn move_to_folder(
         &self,
         ctx: &AuthContext,
@@ -1084,15 +1083,15 @@ impl<'a> AssetRepo<'a> {
     }
 }
 
-/// `23505` su `assets_folder_filename_key` durante `UPDATE` (raro: la
-/// `SELECT` di `move_asset` già controlla la stessa collisione prima, ma una
-/// scrittura concorrente fra le due può ancora colpire il vincolo — questo
-/// è il gate che la intercetta davvero) → `Collision`, non il generico
-/// `Conflict` di `crate::uploads::map_unique_violation` (stessa colonna,
-/// controparte per `ingest_direct`): la tassonomia delle operazioni di
-/// massa (`FailureReason`, `crates/keeppix-api/src/bulk.rs`) deve poter
-/// distinguere "il nome collide" da "qualcos'altro non torna" senza
-/// analizzare il testo del messaggio.
+/// `23505` on `assets_folder_filename_key` during `UPDATE` (rare: the
+/// `SELECT` in `move_asset` already checks the same collision beforehand,
+/// but a concurrent write between the two can still hit the constraint —
+/// this is the gate that actually catches it) -> `Collision`, not the
+/// generic `Conflict` from `crate::uploads::map_unique_violation` (same
+/// column, the counterpart for `ingest_direct`): the bulk-operation
+/// failure taxonomy (`FailureReason`, `crates/keeppix-api/src/bulk.rs`)
+/// needs to distinguish "the name collides" from "something else is
+/// wrong" without parsing the message text.
 fn map_move_collision(err: sqlx::Error, new_filename: &str) -> DbError {
     if let sqlx::Error::Database(ref db_err) = err
         && db_err.code().as_deref() == Some("23505")
@@ -1104,20 +1103,20 @@ fn map_move_collision(err: sqlx::Error, new_filename: &str) -> DbError {
     DbError::Connection(err)
 }
 
-/// `IMG_1234.ARW` → `IMG_1234.ARW.xmp`, stessa convenzione di
-/// `keeppix_jobs::xmp::sidecar_path_for` — duplicata qui, non importata:
-/// `keeppix-db` sta sotto `keeppix-jobs` nel grafo delle dipendenze
-/// (`keeppix-domain → keeppix-db → keeppix-media → keeppix-jobs`), quindi
-/// non può dipenderne. Il sidecar è un **export** derivato da
-/// `asset_overrides`/`asset_flags` (vedi `OverridesRepo::pending_sidecars`,
-/// `mark_sidecar_written`), non la fonte di verità: se questo spostamento
-/// fallisce, non si blocca `move_asset` (il file principale è già spostato
-/// con successo a questo punto) — resta un `.xmp` orfano al vecchio
-/// percorso, che il prossimo giro dello sweep dei sidecar riscrive da zero
-/// alla posizione corretta la prossima volta che `asset_overrides` cambia.
-/// Costo se il file non cambia mai più dopo questo spostamento: il sidecar
-/// resta orfano finché qualcuno non lo pulisce a mano — accettabile perché
-/// il dato vero (le colonne) non si è mosso, solo l'export.
+/// `IMG_1234.ARW` -> `IMG_1234.ARW.xmp`, the same convention as
+/// `keeppix_jobs::xmp::sidecar_path_for` — duplicated here, not imported:
+/// `keeppix-db` sits below `keeppix-jobs` in the dependency graph
+/// (`keeppix-domain -> keeppix-db -> keeppix-media -> keeppix-jobs`), so it
+/// cannot depend on it. The sidecar is an **export** derived from
+/// `asset_overrides`/`asset_flags` (see `OverridesRepo::pending_sidecars`,
+/// `mark_sidecar_written`), not the source of truth: if this move fails,
+/// it does not block `move_asset` (the main file has already moved
+/// successfully by this point) — an orphaned `.xmp` is left at the old
+/// path, which the next sidecar sweep rewrites from scratch at the
+/// correct location the next time `asset_overrides` changes. Cost if the
+/// file never changes again after this move: the sidecar stays orphaned
+/// until someone cleans it up by hand — acceptable because the real data
+/// (the columns) never moved, only the export.
 async fn move_sidecar_best_effort(old_asset_path: &Path, new_asset_path: &Path) {
     let old_sidecar = sidecar_path_for(old_asset_path);
     if tokio::fs::symlink_metadata(&old_sidecar).await.is_err() {

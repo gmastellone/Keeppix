@@ -7,7 +7,7 @@ use keeppix_domain::{
 use crate::uploads;
 use crate::{Db, DbError};
 
-/// Spazio libero e totale sul volume di una libreria.
+/// Free and total space on a library's volume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LibraryStorage {
     pub free_bytes: u64,
@@ -74,8 +74,8 @@ impl<'a> LibraryRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` se il chiamante non è admin; `Conflict` se il percorso è
-    /// già indicizzato da un'altra libreria.
+    /// `Forbidden` if the caller is not admin; `Conflict` if the path is
+    /// already indexed by another library.
     pub async fn create(&self, ctx: &AuthContext, new: NewLibrary) -> Result<Library, DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -100,11 +100,10 @@ impl<'a> LibraryRepo<'a> {
         row.into_domain()
     }
 
-    /// Un amministratore vede tutte le librerie, chiunque altro solo le
-    /// proprie.
+    /// An administrator sees all libraries, anyone else only their own.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn list(&self, ctx: &AuthContext) -> Result<Vec<Library>, DbError> {
         let owner_filter = if ctx.is_admin() { None } else { ctx.user_id() };
 
@@ -121,9 +120,10 @@ impl<'a> LibraryRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` se la libreria non è del chiamante e non è admin — anche
-    /// quando l'id non esiste, per non offrire un oracolo di esistenza.
-    /// `NotFound` solo a un admin che chiede un id inesistente.
+    /// `Forbidden` if the library does not belong to the caller and they
+    /// are not admin — even when the id does not exist, so as not to
+    /// offer an existence oracle. `NotFound` only for an admin requesting
+    /// a nonexistent id.
     pub async fn find_by_id(&self, ctx: &AuthContext, id: LibraryId) -> Result<Library, DbError> {
         let row: Option<LibraryRow> =
             sqlx::query_as(&format!("SELECT {COLUMNS} FROM libraries WHERE id = $1"))
@@ -142,13 +142,14 @@ impl<'a> LibraryRepo<'a> {
         }
     }
 
-    /// Spazio libero e totale sul volume della libreria. Il risultato è in
-    /// cache per 60 secondi: la sidebar lo chiede a ogni caricamento e
-    /// `statvfs` su un volume di rete non è gratis.
+    /// Free and total space on the library's volume. The result is cached
+    /// for 60 seconds: the sidebar requests it on every load, and
+    /// `statvfs` on a network volume is not free.
     ///
     /// # Errors
-    /// `Forbidden` se la libreria non è visibile (anche se l'id non esiste).
-    /// `NotFound` solo a un admin su id assente. `Io` se `statvfs` fallisce.
+    /// `Forbidden` if the library is not visible (even if the id does not
+    /// exist). `NotFound` only for an admin on a missing id. `Io` if
+    /// `statvfs` fails.
     pub async fn storage(
         &self,
         ctx: &AuthContext,
@@ -168,15 +169,15 @@ impl<'a> LibraryRepo<'a> {
         Ok(usage)
     }
 
-    /// Verifica di raggiungibilità su richiesta (§47 «Riprova connessione»):
-    /// un semplice `is_dir` sul `root_path`, che porta lo stesso costo dello
-    /// `stat` già fatto da `discover::run` ad ogni scansione — nessuna nuova
-    /// primitiva di I/O. Aggiorna lo stato solo se cambia, così una libreria
-    /// già `active` sondata di nuovo non genera un `UPDATE` a vuoto.
+    /// On-demand reachability check (the "Retry connection" action): a
+    /// simple `is_dir` on `root_path`, which carries the same cost as the
+    /// `stat` already done by `discover::run` on every scan — no new I/O
+    /// primitive. Updates the status only if it changes, so an already
+    /// `active` library probed again does not produce a no-op `UPDATE`.
     ///
     /// # Errors
-    /// `Forbidden` se la libreria non è visibile (anche se l'id non esiste).
-    /// `NotFound` solo a un admin su id assente.
+    /// `Forbidden` if the library is not visible (even if the id does not
+    /// exist). `NotFound` only for an admin on a missing id.
     pub async fn probe(&self, ctx: &AuthContext, id: LibraryId) -> Result<Library, DbError> {
         let library = self.find_by_id(ctx, id).await?;
         let reachable = library.root_path.is_dir();
@@ -193,14 +194,14 @@ impl<'a> LibraryRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` se il chiamante non può vedere la libreria.
+    /// `Forbidden` if the caller cannot see the library.
     pub async fn set_status(
         &self,
         ctx: &AuthContext,
         id: LibraryId,
         status: LibraryStatus,
     ) -> Result<(), DbError> {
-        // Riusa il controllo di find_by_id invece di riscriverlo.
+        // Reuse find_by_id's check instead of rewriting it.
         self.find_by_id(ctx, id).await?;
 
         sqlx::query("UPDATE libraries SET status = $2, updated_at = now() WHERE id = $1")
@@ -211,11 +212,11 @@ impl<'a> LibraryRepo<'a> {
         Ok(())
     }
 
-    /// Non prende un `AuthContext`: la chiama lo scanner, che non agisce
-    /// per conto di un utente.
+    /// Does not take an `AuthContext`: the scanner calls this, and it
+    /// does not act on behalf of a user.
     ///
     /// # Errors
-    /// `NotFound` se l'id non esiste.
+    /// `NotFound` if the id does not exist.
     pub async fn load_for_scan(&self, id: LibraryId) -> Result<Library, DbError> {
         let row: Option<LibraryRow> =
             sqlx::query_as(&format!("SELECT {COLUMNS} FROM libraries WHERE id = $1"))
@@ -227,10 +228,11 @@ impl<'a> LibraryRepo<'a> {
             .ok_or(DbError::NotFound)
     }
 
-    /// Non prende un `AuthContext`: disco assente o svuotato durante la scansione.
+    /// Does not take an `AuthContext`: the disk is missing or emptied
+    /// during the scan.
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn set_status_for_scan(
         &self,
         id: LibraryId,
@@ -244,11 +246,11 @@ impl<'a> LibraryRepo<'a> {
         Ok(())
     }
 
-    /// Elenco per il watcher all'avvio del processo. Non prende un
-    /// `AuthContext`: non agisce per conto di un utente.
+    /// List for the watcher at process startup. Does not take an
+    /// `AuthContext`: it does not act on behalf of a user.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn list_for_scan(&self) -> Result<Vec<Library>, DbError> {
         let rows: Vec<LibraryRow> =
             sqlx::query_as(&format!("SELECT {COLUMNS} FROM libraries ORDER BY name"))
@@ -257,14 +259,14 @@ impl<'a> LibraryRepo<'a> {
         rows.into_iter().map(LibraryRow::into_domain).collect()
     }
 
-    /// Registra l'istante dell'ultima scansione completata.
+    /// Records the moment of the last completed scan.
     ///
-    /// Non prende un `AuthContext` perché la chiama lo scanner, che non
-    /// agisce per conto di un utente. Stessa giustificazione delle altre
-    /// eccezioni `*_for_scan`.
+    /// Does not take an `AuthContext` because the scanner calls this, and
+    /// it does not act on behalf of a user. Same justification as the
+    /// other `*_for_scan` exceptions.
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn mark_scanned(&self, id: LibraryId) -> Result<(), DbError> {
         sqlx::query("UPDATE libraries SET last_scan_at = now(), updated_at = now() WHERE id = $1")
             .bind(id.as_uuid())
@@ -273,11 +275,12 @@ impl<'a> LibraryRepo<'a> {
         Ok(())
     }
 
-    /// Aggiorna nome, `scan_enabled`, `faces_enabled` e/o `exclude_patterns`.
+    /// Updates name, `scan_enabled`, `faces_enabled`, and/or `exclude_patterns`.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non può vedere la libreria (anche se l'id
-    /// non esiste, per i non-admin). `NotFound` solo a un admin su id assente.
+    /// `Forbidden` if the caller cannot see the library (even if the id
+    /// does not exist, for non-admins). `NotFound` only for an admin on a
+    /// missing id.
     pub async fn update(
         &self,
         ctx: &AuthContext,
@@ -310,19 +313,18 @@ impl<'a> LibraryRepo<'a> {
         row.into_domain()
     }
 
-    /// Designa (o rimuove, con `None`) la radice del culling a cartelle
-    /// (Fase 9 Task 2, spec §2.6). A differenza di [`Self::update`] — aperto
-    /// a chiunque veda la libreria, come le altre impostazioni — qui il
-    /// permesso è **owner o admin esplicito**: la radice decide dove
-    /// finiscono fisicamente le foto scelte/scartate e cosa l'analisi IA
-    /// esclude (`libraries.culling_root_folder_id`, letta da
-    /// `embeddings.rs`/`faces.rs` dalla Fase 7), non una preferenza di
-    /// visualizzazione.
+    /// Designates (or removes, with `None`) the folder-based culling root.
+    /// Unlike [`Self::update`] — open to anyone who can see the library,
+    /// like the other settings — here the permission is **owner or
+    /// explicit admin**: the root decides where picked/rejected photos
+    /// physically end up and what the AI analysis excludes
+    /// (`libraries.culling_root_folder_id`, read by
+    /// `embeddings.rs`/`faces.rs`), not a display preference.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non vede la libreria, o la vede ma non ne
-    /// è proprietario/admin. `Conflict` se `folder_id` non appartiene a
-    /// questa libreria.
+    /// `Forbidden` if the caller cannot see the library, or can see it but
+    /// is not its owner/admin. `Conflict` if `folder_id` does not belong
+    /// to this library.
     pub async fn set_culling_root(
         &self,
         ctx: &AuthContext,
@@ -361,11 +363,12 @@ impl<'a> LibraryRepo<'a> {
         row.into_domain()
     }
 
-    /// Cancella la riga (e in cascata cartelle/asset). **Non tocca i file
-    /// sul disco.** Solo admin.
+    /// Deletes the row (and cascades to folders/assets). **Does not touch
+    /// files on disk.** Admin only.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non è admin; `NotFound` se l'id non esiste.
+    /// `Forbidden` if the caller is not admin; `NotFound` if the id does
+    /// not exist.
     pub async fn delete(&self, ctx: &AuthContext, id: LibraryId) -> Result<(), DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);

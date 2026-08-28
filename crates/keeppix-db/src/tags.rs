@@ -1,11 +1,11 @@
-//! Vocabolario condiviso di tag e categorie (Fase 7 Task 7).
+//! Shared vocabulary of tags and categories.
 //!
-//! Qualsiasi utente autenticato può CRUD: i tag non sono per-utente. Un id
-//! sconosciuto → `Forbidden` (mai `NotFound`), come il resto del dominio.
-//! Un solo livello di nesting: categoria (`parent_id = NULL`) → tag.
+//! Any authenticated user can CRUD: tags are not per-user. An unknown id
+//! -> `Forbidden` (never `NotFound`), like the rest of the domain. Only
+//! one level of nesting: category (`parent_id = NULL`) -> tag.
 //!
-//! L'embedding testuale vive su `tags.embedding`; creare/modificare un tag
-//! non tocca `asset_embeddings`.
+//! The text embedding lives on `tags.embedding`; creating/modifying a tag
+//! does not touch `asset_embeddings`.
 
 use std::str::FromStr;
 
@@ -125,10 +125,10 @@ impl<'a> TagRepo<'a> {
         ctx.user_id().ok_or(DbError::Forbidden)
     }
 
-    /// Elenco piatto del vocabolario (categorie e tag). Ordinato per kind, nome.
+    /// Flat list of the vocabulary (categories and tags). Ordered by kind, name.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato; `Connection` su errore DB / schema AI assente.
+    /// `Forbidden` without an authenticated user; `Connection` on DB error / missing AI schema.
     pub async fn list(&self, ctx: &AuthContext) -> Result<Vec<TagView>, DbError> {
         Self::require_user(ctx)?;
         let rows: Vec<TagRow> =
@@ -139,7 +139,7 @@ impl<'a> TagRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` se assente o senza utente; mai `NotFound`.
+    /// `Forbidden` if absent or without a user; never `NotFound`.
     pub async fn get(&self, ctx: &AuthContext, id: TagId) -> Result<TagView, DbError> {
         Self::require_user(ctx)?;
         let row: Option<TagRow> = sqlx::query_as(&format!("{TAG_SELECT} WHERE t.id = $1"))
@@ -150,22 +150,21 @@ impl<'a> TagRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` senza utente; `Conflict` su nome duplicato o nesting illegale;
-    /// `Corrupted` se l'embedding non è 512-d.
+    /// `Forbidden` without a user; `Conflict` on duplicate name or
+    /// illegal nesting; `Corrupted` if the embedding is not 512-d.
     pub async fn create(&self, ctx: &AuthContext, new: NewTag) -> Result<TagView, DbError> {
         let created_by = Self::require_user(ctx)?;
         self.validate_parent(new.kind, new.parent_id).await?;
 
-        // Ricalibrato su OpenCLIP XLM-R IT/EN (Task B): la cosine similarity
-        // testo-immagine reale in questo spazio di embedding sta a
-        // 0,10-0,20 anche per abbinamenti corretti (banco CI reale, run
-        // bcf9b4a: correct_score min 0,126-0,132, best_wrong max
-        // 0,174-0,177) — 0.75 non avrebbe MAI prodotto una proposta.
-        // 0.20 sta sopra il tetto osservato dei falsi positivi più
-        // confondibili, con margine reale per i casi tipici. Numero di
-        // partenza da un banco sintetico di 20 coppie, non una
-        // calibrazione definitiva — resta modificabile per tag
-        // (`tags.threshold`), qui solo il default.
+        // Calibrated against OpenCLIP XLM-R IT/EN: real text-image cosine
+        // similarity in this embedding space sits at 0.10-0.20 even for
+        // correct matches (correct_score min 0.126-0.132, best_wrong max
+        // 0.174-0.177 on a real CI benchmark) — 0.75 would NEVER have
+        // produced a proposal. 0.20 sits above the observed ceiling of
+        // the most confusable false positives, with real margin for
+        // typical cases. This starting number comes from a synthetic
+        // benchmark of 20 pairs, not a definitive calibration — it stays
+        // adjustable per tag (`tags.threshold`), this is only the default.
         let threshold = new.threshold.unwrap_or(0.20);
         let embedding_lit = match new.embedding.as_deref() {
             Some(v) => Some(Self::embedding_literal(v)?),
@@ -173,9 +172,9 @@ impl<'a> TagRepo<'a> {
         };
 
         let id = TagId::new();
-        // INSERT + get separati: un CTE `INSERT … RETURNING` joined a
-        // `TAG_SELECT` (che ha già un `FROM`) confonde sqlx/Postgres e
-        // restituiva RowNotFound anche a insert riuscito.
+        // INSERT + get kept separate: a CTE `INSERT ... RETURNING` joined
+        // to `TAG_SELECT` (which already has a `FROM`) confused
+        // sqlx/Postgres and returned RowNotFound even on a successful insert.
         sqlx::query(
             "INSERT INTO tags (id, name, kind, parent_id, prompt, embedding, model_version, \
                               color, threshold, created_by) \
@@ -198,7 +197,7 @@ impl<'a> TagRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` se assente; `Conflict` su nome/nesting; `Corrupted` su embedding.
+    /// `Forbidden` if absent; `Conflict` on name/nesting; `Corrupted` on embedding.
     pub async fn update(
         &self,
         ctx: &AuthContext,
@@ -206,8 +205,8 @@ impl<'a> TagRepo<'a> {
         patch: TagPatch,
     ) -> Result<TagView, DbError> {
         Self::require_user(ctx)?;
-        // Esistenza prima: altrimenti un patch su id fantasma diventerebbe NotFound
-        // via zero rows aggiornate — qui è Forbidden.
+        // Existence check first: otherwise a patch on a ghost id would
+        // become NotFound via zero rows updated — here it is Forbidden.
         let current = self.get(ctx, id).await?;
 
         let name = patch.name.as_ref().unwrap_or(&current.name);
@@ -237,8 +236,8 @@ impl<'a> TagRepo<'a> {
             ),
             Some(None) => (None, patch.model_version.clone().unwrap_or(None)),
             None => {
-                // Non toccare il vettore: UPDATE lascia embedding/model_version
-                // com'erano (si passa un sentinel via CASE sotto).
+                // Do not touch the vector: UPDATE leaves embedding/model_version
+                // as they were (a sentinel is passed via CASE below).
                 (None, current.model_version.clone())
             }
         };
@@ -285,10 +284,10 @@ impl<'a> TagRepo<'a> {
         self.get(ctx, id).await
     }
 
-    /// Cancella il tag; `asset_tags` cascada via FK.
+    /// Deletes the tag; `asset_tags` cascades via FK.
     ///
     /// # Errors
-    /// `Forbidden` se assente o senza utente.
+    /// `Forbidden` if absent or without a user.
     pub async fn delete(&self, ctx: &AuthContext, id: TagId) -> Result<(), DbError> {
         Self::require_user(ctx)?;
         let deleted = sqlx::query("DELETE FROM tags WHERE id = $1")

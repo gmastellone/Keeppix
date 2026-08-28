@@ -50,8 +50,8 @@ impl<'a> IdempotencyRepo<'a> {
     }
 
     /// # Errors
-    /// `DbError::Connection` se la lettura fallisce; `DbError::Corrupted` se
-    /// la riga salvata non contiene più un envelope JSON interpretabile.
+    /// `DbError::Connection` if the read fails; `DbError::Corrupted` if the
+    /// stored row no longer contains a parseable JSON envelope.
     pub async fn lookup(
         &self,
         user_id: UserId,
@@ -131,8 +131,9 @@ impl<'a> IdempotencyRepo<'a> {
     }
 
     /// # Errors
-    /// `DbError::Connection` se l'upsert fallisce; `DbError::Corrupted` se lo
-    /// status HTTP non entra in `smallint` o l'envelope non è serializzabile.
+    /// `DbError::Connection` if the upsert fails; `DbError::Corrupted` if
+    /// the HTTP status does not fit in a `smallint` or the envelope cannot
+    /// be serialized.
     pub async fn store(
         &self,
         user_id: UserId,
@@ -168,7 +169,7 @@ impl<'a> IdempotencyRepo<'a> {
     }
 
     /// Deletes keys older than `before`. Pipeline maintenance — no
-    /// `AuthContext` (Task 8).
+    /// `AuthContext`.
     ///
     /// # Errors
     /// `DbError::Connection` if the delete fails.

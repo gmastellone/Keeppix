@@ -1,27 +1,28 @@
-//! Repository degli embedding CLIP (Fase 7 Task 5).
+//! Repository for CLIP embeddings.
 //!
-//! Nessun `AuthContext`: è la pipeline di analisi di sistema, come
-//! `AssetRepo::get_for_scan` / `LibraryRepo::mark_scanned`. L'esclusione del
-//! sottoalbero Culling usa `libraries.culling_root_folder_id` + `path <@`
-//! (inerte finché la radice è NULL).
+//! No `AuthContext`: this is the system's analysis pipeline, like
+//! `AssetRepo::get_for_scan` / `LibraryRepo::mark_scanned`. Excluding the
+//! Culling subtree uses `libraries.culling_root_folder_id` + `path <@`
+//! (inert as long as the root is NULL).
 
 use keeppix_domain::AssetId;
 use std::fmt::Write as _;
 
 use crate::{Db, DbError};
 
-/// Allineato a `keeppix_media::openclip_xlmr::MODEL_VERSION`. Duplicato qui
-/// perché `keeppix-db` non può dipendere da `keeppix-media` (`deny.toml`).
+/// Kept in sync with `keeppix_media::openclip_xlmr::MODEL_VERSION`.
+/// Duplicated here because `keeppix-db` cannot depend on `keeppix-media`
+/// (`deny.toml`).
 pub const MODEL_VERSION: &str = "openclip-xlmr-it-en";
 
-/// Candidato all'inferenza: ha `content_hash` (quindi può avere miniatura).
+/// A candidate for inference: has a `content_hash` (so it can have a thumbnail).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingEmbedding {
     pub asset_id: AssetId,
     pub content_hash: [u8; 32],
 }
 
-/// Riga già materializzata in `asset_embeddings`.
+/// A row already materialized in `asset_embeddings`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssetEmbedding {
     pub asset_id: AssetId,
@@ -39,11 +40,11 @@ impl<'a> EmbeddingRepo<'a> {
         Self { db }
     }
 
-    /// Asset immagine con hash, senza embedding per `model_version`, fuori dal
-    /// sottoalbero radicato in `libraries.culling_root_folder_id`.
+    /// Image assets with a hash, without an embedding for `model_version`,
+    /// outside the subtree rooted at `libraries.culling_root_folder_id`.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce (o se lo schema AI non esiste).
+    /// `Connection` if the query fails (or if the AI schema does not exist).
     pub async fn list_pending(
         &self,
         model_version: &str,
@@ -84,11 +85,11 @@ impl<'a> EmbeddingRepo<'a> {
             .collect()
     }
 
-    /// Quanti asset immagine (fuori culling) ancora senza embedding per
-    /// `model_version`. Usato da `set_total` sulla finestra `AiAnalysis`.
+    /// How many image assets (outside culling) still have no embedding for
+    /// `model_version`. Used by `set_total` on the `AiAnalysis` window.
     ///
     /// # Errors
-    /// `Connection` / schema AI assente.
+    /// `Connection` / missing AI schema.
     pub async fn count_pending(&self, model_version: &str) -> Result<i64, DbError> {
         let n: i64 = sqlx::query_scalar(
             "SELECT count(*)::bigint \
@@ -110,13 +111,13 @@ impl<'a> EmbeddingRepo<'a> {
         Ok(n)
     }
 
-    /// Inserisce o aggiorna l'embedding. Con lo stesso `model_version` un
-    /// secondo upsert è un no-op sul vettore già presente (ON CONFLICT DO
-    /// UPDATE solo se cambia il modello — qui riscriviamo sempre ma il caller
-    /// non deve richiamare `list_pending` per la stessa versione).
+    /// Inserts or updates the embedding. With the same `model_version` a
+    /// second upsert is a no-op on the vector already present (`ON
+    /// CONFLICT DO UPDATE` only fires if the model changes — the caller
+    /// does not need to re-check `list_pending` for the same version).
     ///
     /// # Errors
-    /// Dimensione ≠ 512, o errore database / schema AI assente.
+    /// Dimension != 512, or a database error / missing AI schema.
     pub async fn upsert(
         &self,
         asset_id: AssetId,
@@ -148,7 +149,7 @@ impl<'a> EmbeddingRepo<'a> {
     }
 
     /// # Errors
-    /// `Connection` / schema AI assente.
+    /// `Connection` / missing AI schema.
     pub async fn get(&self, asset_id: AssetId) -> Result<Option<AssetEmbedding>, DbError> {
         let row: Option<(uuid::Uuid, String, String)> = sqlx::query_as(
             "SELECT asset_id, embedding::text, model_version \
@@ -170,7 +171,7 @@ impl<'a> EmbeddingRepo<'a> {
     }
 }
 
-/// Forma testuale `[f,f,…]` accettata da pgvector (`$n::vector`).
+/// Text form `[f,f,...]` accepted by pgvector (`$n::vector`).
 #[must_use]
 pub fn vector_literal(embedding: &[f32]) -> String {
     let mut out = String::with_capacity(embedding.len() * 8 + 2);
@@ -185,8 +186,8 @@ pub fn vector_literal(embedding: &[f32]) -> String {
     out
 }
 
-/// `pub(crate)`: riusata da [`crate::faces`] per leggere `faces.embedding`
-/// con lo stesso formato testuale.
+/// `pub(crate)`: reused by [`crate::faces`] to read `faces.embedding` with
+/// the same text format.
 pub(crate) fn parse_vector_text(text: &str) -> Result<Vec<f32>, DbError> {
     let trimmed = text.trim();
     let inner = trimmed

@@ -1,5 +1,5 @@
-//! Sessioni di upload riprendibili in stile tus (spec §1). Vedi
-//! `keeppix_domain::upload` per i tipi di dominio.
+//! Resumable, tus-style upload sessions. See `keeppix_domain::upload`
+//! for the domain types.
 
 use std::path::{Path, PathBuf};
 
@@ -15,35 +15,34 @@ use crate::libraries::LibraryRepo;
 use crate::permissions::PermissionRepo;
 use crate::{Db, DbError};
 
-/// Cartella dei temporanei di upload, dentro la radice della libreria —
-/// stesso filesystem del percorso finale, quindi il `rename()` di
-/// finalizzazione è atomico anche per un file da 2 GB. **Deve** restare
-/// esclusa dal walker come `.keeppix-trash`
-/// (`keeppix_media::walk::is_excluded_name`): un disallineamento qui
-/// produrrebbe un ciclo di reindicizzazione sui temporanei stessi.
+/// Folder for upload temp files, inside the library root — same
+/// filesystem as the final path, so the finalization `rename()` is atomic
+/// even for a 2 GB file. **Must** stay excluded from the walker like
+/// `.keeppix-trash` (`keeppix_media::walk::is_excluded_name`): a mismatch
+/// here would produce a reindexing loop on the temp files themselves.
 pub const UPLOAD_TMP_DIR_NAME: &str = ".keeppix-tmp";
 
-/// Le sessioni abbandonate scadono dopo una settimana (spec §1.3).
+/// Abandoned sessions expire after a week.
 const SESSION_TTL_DAYS: i64 = 7;
 
-/// Parametri per aprire una sessione. `AuthContext` decide chi ne è
-/// proprietario: un utente autenticato, oppure — via `Actor::ShareLink` —
-/// un link condiviso con `allow_upload`.
+/// Parameters to open a session. `AuthContext` decides who owns it: an
+/// authenticated user, or — via `Actor::ShareLink` — a shared link with
+/// `allow_upload`.
 pub struct NewUploadSession {
     pub target_folder_id: FolderId,
     pub filename: String,
     pub expected_size: i64,
-    /// blake3 del file intero dichiarato dal client, se noto in anticipo.
+    /// blake3 of the whole file as declared by the client, if known in advance.
     pub expected_hash: Option<[u8; 32]>,
     pub client_mtime: Option<DateTime<Utc>>,
 }
 
-/// Esito della finalizzazione: l'asset coinvolto e come si è risolto un
-/// eventuale scontro di nome.
+/// Outcome of finalization: the asset involved and how any name
+/// collision was resolved.
 pub struct FinalizeOutcome {
     pub asset_id: AssetId,
-    /// Nome finale del file sul disco — può differire da quello richiesto
-    /// se c'è stata una rinomina per collisione.
+    /// Final name of the file on disk — may differ from the requested
+    /// one if there was a rename due to a collision.
     pub filename: String,
     pub collision: CollisionOutcome,
 }
@@ -112,16 +111,16 @@ impl<'a> UploadSessionRepo<'a> {
         Self { db }
     }
 
-    /// Apre una sessione. Controlla, in ordine: il permesso di scrittura
-    /// sulla cartella destinazione, poi lo spazio libero sul filesystem
-    /// della libreria — mai scoperto a metà upload (spec §1.3).
+    /// Opens a session. Checks, in order: write permission on the
+    /// destination folder, then free space on the library's filesystem —
+    /// never discovered midway through the upload.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non può scrivere nella cartella, o se un
-    /// link condiviso non ha `allow_upload` sull'oggetto esatto.
-    /// `InsufficientStorage` se lo spazio libero è sotto `expected_size`.
-    /// `Conflict` se `expected_size` non è positivo. `Io` se `.keeppix-tmp/`
-    /// non si può creare.
+    /// `Forbidden` if the caller cannot write to the folder, or if a
+    /// shared link does not have `allow_upload` on the exact object.
+    /// `InsufficientStorage` if free space is below `expected_size`.
+    /// `Conflict` if `expected_size` is not positive. `Io` if
+    /// `.keeppix-tmp/` cannot be created.
     pub async fn create(
         &self,
         ctx: &AuthContext,
@@ -133,9 +132,9 @@ impl<'a> UploadSessionRepo<'a> {
             ));
         }
 
-        // Deroga o cancello del link condiviso, prima di qualunque accesso a
-        // disco: senza allow_upload sull'oggetto esatto non deve nemmeno
-        // arrivare a occupare spazio in .keeppix-tmp/ (caso limite pinnato).
+        // Shared-link exception or gate, before any disk access: without
+        // allow_upload on the exact object, this must not even get to
+        // occupy space in .keeppix-tmp/ (a pinned edge case).
         if let Actor::ShareLink {
             object_type,
             object_id,
@@ -156,9 +155,9 @@ impl<'a> UploadSessionRepo<'a> {
             .load_for_scan(folder.library_id)
             .await?;
 
-        // Un editor scrive, un viewer no — stessa porta di
-        // `FolderRepo::move_subtree`. Un `Actor::ShareLink` è già stato
-        // filtrato sopra: qui il controllo riguarda solo un utente.
+        // An editor can write, a viewer cannot — same gate as
+        // `FolderRepo::move_subtree`. An `Actor::ShareLink` has already
+        // been filtered above: this check only concerns a user.
         if matches!(ctx.actor, Actor::User { .. })
             && !ctx.is_admin()
             && ctx.user_id() != Some(library.owner_id)
@@ -210,15 +209,15 @@ impl<'a> UploadSessionRepo<'a> {
         row.into_domain()
     }
 
-    /// Sessione con l'offset che vale davvero (`HEAD`, spec §1.3: «la verità
-    /// sta sempre sul server»). Una sessione scaduta viene ripulita subito —
-    /// riga e temporaneo insieme — e restituita come `Gone`.
+    /// Session with the offset that is actually true (`HEAD`: "the truth
+    /// always lives on the server"). An expired session is cleaned up
+    /// right away — row and temp file together — and returned as `Gone`.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non è il proprietario — anche quando
-    /// l'id non esiste, per non offrire un oracolo di esistenza. `NotFound`
-    /// solo a un admin che chiede un id inesistente. `Gone` se la sessione è
-    /// scaduta.
+    /// `Forbidden` if the caller is not the owner — even when the id does
+    /// not exist, so as not to offer an existence oracle. `NotFound` only
+    /// for an admin requesting a nonexistent id. `Gone` if the session
+    /// has expired.
     pub async fn load_owned(
         &self,
         ctx: &AuthContext,
@@ -232,11 +231,11 @@ impl<'a> UploadSessionRepo<'a> {
         Ok(session)
     }
 
-    /// Avanza l'offset dopo un chunk scritto con successo sul temporaneo.
+    /// Advances the offset after a chunk was successfully written to the temp file.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non è il proprietario, o se la sessione è
-    /// sparita nel frattempo (scaduta e ripulita da un'altra richiesta).
+    /// `Forbidden` if the caller is not the owner, or if the session has
+    /// vanished in the meantime (expired and cleaned up by another request).
     pub async fn advance(
         &self,
         ctx: &AuthContext,
@@ -280,40 +279,40 @@ impl<'a> UploadSessionRepo<'a> {
         Ok(())
     }
 
-    /// Marca la sessione fallita: cancella la riga e il temporaneo insieme,
-    /// mai l'uno senza l'altro. Usata quando l'hash end-to-end o la verifica
-    /// di decodificabilità falliscono a file completo.
+    /// Marks the session as failed: deletes the row and the temp file
+    /// together, never one without the other. Used when the end-to-end
+    /// hash or the decodability check fails on the complete file.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non è il proprietario.
+    /// `Forbidden` if the caller is not the owner.
     pub async fn fail(&self, ctx: &AuthContext, id: UploadSessionId) -> Result<(), DbError> {
         self.load_row(ctx, id).await?;
         self.delete_and_cleanup(id.as_uuid()).await
     }
 
-    /// Finalizza una sessione completa: risolve un'eventuale collisione di
-    /// nome nella cartella target, poi muove il file dal temporaneo alla
-    /// destinazione con `rename()` — un'operazione sul filesystem, che non
-    /// può stare dentro la transazione SQL — e **solo dopo** crea la riga
-    /// `assets` (o la salta se è un duplicato esatto) e cancella la
-    /// sessione, nella stessa transazione.
+    /// Finalizes a complete session: resolves any name collision in the
+    /// target folder, then moves the file from the temp location to the
+    /// destination with `rename()` — a filesystem operation, which cannot
+    /// live inside the SQL transaction — and **only afterward** creates
+    /// the `assets` row (or skips it if it is an exact duplicate) and
+    /// deletes the session, in the same transaction.
     ///
-    /// L'asimmetria è intenzionale: se il commit fallisce dopo un `rename()`
-    /// riuscito, il file resta al posto giusto senza una riga `assets` — la
-    /// prossima scansione della libreria lo scopre e lo indicizza come un
-    /// file qualunque, esattamente come un asset che il walker ha appena
-    /// trovato. L'ordine opposto (commit prima del `rename()`) lascerebbe
-    /// invece un asset che punta a un file inesistente se il `rename()`
-    /// fallisse dopo, con la sessione già cancellata e quindi senza più
-    /// alcun riferimento al temporaneo da cui recuperare — un file deve
-    /// **mai** toccare la cartella target prima di essere verificato
-    /// end-to-end, ma una volta lì non deve mai restare orfano di verità nel
-    /// database.
+    /// The asymmetry is intentional: if the commit fails after a
+    /// successful `rename()`, the file is left in the right place
+    /// without an `assets` row — the next library scan discovers it and
+    /// indexes it like any other file, exactly like an asset the walker
+    /// just found. The opposite order (commit before `rename()`) would
+    /// instead leave an asset pointing at a nonexistent file if the
+    /// `rename()` later failed, with the session already deleted and
+    /// therefore no reference left to the temp file to recover from — a
+    /// file must **never** touch the target folder before being verified
+    /// end to end, but once it is there it must never be left orphaned
+    /// of truth in the database.
     ///
     /// # Errors
-    /// Come [`Self::load_owned`] per il possesso della sessione. `Io` se il
-    /// `rename()` finale fallisce — in tal caso il temporaneo resta al suo
-    /// posto, nessuna riga viene toccata.
+    /// Same as [`Self::load_owned`] for session ownership. `Io` if the
+    /// final `rename()` fails — in that case the temp file stays put, no
+    /// row is touched.
     pub async fn finalize(
         &self,
         ctx: &AuthContext,
@@ -339,12 +338,12 @@ impl<'a> UploadSessionRepo<'a> {
         if let Some((existing_id, existing_hash)) = &existing
             && existing_hash.as_deref() == Some(content_hash.as_slice())
         {
-            // Stesso nome, stesso hash: duplicato esatto. Non si tocca mai
-            // la cartella target — si rimuove solo il temporaneo, prima del
-            // commit: se il commit fallisse dopo, la sessione resterebbe con
-            // un `temp_path` non più esistente, tollerato ovunque venga
-            // ripulito di nuovo (`remove_file_tolerant`), mai il rischio
-            // opposto di un asset fantasma.
+            // Same name, same hash: exact duplicate. The target folder is
+            // never touched — only the temp file is removed, before the
+            // commit: if the commit later failed, the session would be
+            // left with a `temp_path` that no longer exists, tolerated
+            // wherever it gets cleaned up again (`remove_file_tolerant`),
+            // never the opposite risk of a phantom asset.
             remove_file_tolerant(&session.temp_path)?;
             sqlx::query("DELETE FROM upload_sessions WHERE id = $1")
                 .bind(id.as_uuid())
@@ -361,8 +360,8 @@ impl<'a> UploadSessionRepo<'a> {
         }
 
         let (final_name, outcome) = if existing.is_some() {
-            // Stesso nome, hash diverso: mai una sovrascrittura silenziosa —
-            // si salva con un suffisso numerico (caso limite pinnato).
+            // Same name, different hash: never a silent overwrite — it is
+            // saved with a numeric suffix (a pinned edge case).
             let taken: Vec<String> =
                 sqlx::query_scalar("SELECT filename FROM assets WHERE folder_id = $1")
                     .bind(session.target_folder_id.as_uuid())
@@ -374,11 +373,11 @@ impl<'a> UploadSessionRepo<'a> {
             (session.filename.clone(), CollisionOutcome::Created)
         };
 
-        // Il `rename()` viene prima del commit, non dopo: è l'operazione sul
-        // filesystem che rende vero ciò che la riga `assets` sta per
-        // affermare. Se fallisce, si abbandona senza aver toccato il
-        // database — il temporaneo resta al suo posto, la sessione è ancora
-        // lì per un retry.
+        // `rename()` happens before the commit, not after: it is the
+        // filesystem operation that makes true what the `assets` row is
+        // about to assert. If it fails, we bail out without having
+        // touched the database — the temp file stays put, the session is
+        // still there for a retry.
         let target_path = folder_dir.join(&final_name);
         std::fs::rename(&session.temp_path, &target_path).map_err(|e| {
             DbError::Io(format!(
@@ -418,20 +417,19 @@ impl<'a> UploadSessionRepo<'a> {
         })
     }
 
-    /// Ripulisce le sessioni scadute: temporaneo e riga insieme, mai l'uno
-    /// senza l'altro (spec §1.3, Task 2). Solo `expires_at` decide — una
-    /// sessione ancora viva non viene toccata anche se `received_bytes` è
-    /// fermo da ore (una connessione lenta non è un upload abbandonato).
-    /// Tollera un temporaneo già sparito (es. un crash che ha già svuotato
-    /// la directory): la riga va cancellata comunque.
+    /// Cleans up expired sessions: temp file and row together, never one
+    /// without the other. Only `expires_at` decides — a session that is
+    /// still alive is not touched even if `received_bytes` has been
+    /// stalled for hours (a slow connection is not an abandoned upload).
+    /// Tolerates a temp file that has already vanished (e.g. a crash that
+    /// already emptied the directory): the row is deleted regardless.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce. `DbError::Io` se un
-    /// temporaneo non si può rimuovere per un motivo diverso da `ENOENT`
-    /// (in tal caso le righe già cancellate nella stessa chiamata resta
-    /// senza il proprio file: la scansione successiva della libreria
-    /// tratterebbe il file come un asset scoperto, non un rischio peggiore
-    /// di una sessione mai scaduta).
+    /// `DbError::Connection` if the query fails. `DbError::Io` if a temp
+    /// file cannot be removed for a reason other than `ENOENT` (in that
+    /// case rows already deleted in the same call are left without their
+    /// file: the next library scan would treat the file as a newly
+    /// discovered asset, no worse a risk than a session that never expired).
     pub async fn delete_expired(&self, now: DateTime<Utc>) -> Result<u64, DbError> {
         let rows: Vec<(String,)> =
             sqlx::query_as("DELETE FROM upload_sessions WHERE expires_at < $1 RETURNING temp_path")
@@ -499,14 +497,12 @@ const fn kind_str(kind: AssetKind) -> &'static str {
     }
 }
 
-/// Stesso suffisso descritto dalla spec (`IMG_1234_1.ARW`): un
-/// sottotrattino, non il trattino di `unique_filename` in `share.rs`, che
-/// serve a un flusso diverso (upload ospite senza concetto di collisione di
-/// contenuto).
+/// Suffix style (`IMG_1234_1.ARW`): an underscore, not the hyphen used by
+/// `unique_filename` in `share.rs`, which serves a different flow (guest
+/// upload with no concept of content collision).
 ///
-/// `pub(crate)`: riusata anche da `AssetRepo::ingest_direct` (`WebDAV PUT`,
-/// Task 7 Fase 5), che risolve la stessa collisione senza passare da una
-/// sessione di upload.
+/// `pub(crate)`: also reused by `AssetRepo::ingest_direct` (`WebDAV PUT`),
+/// which resolves the same collision without going through an upload session.
 pub(crate) fn unique_suffixed_name(desired: &str, taken: &[String]) -> String {
     if !taken.iter().any(|name| name == desired) {
         return desired.to_owned();
@@ -524,7 +520,7 @@ pub(crate) fn unique_suffixed_name(desired: &str, taken: &[String]) -> String {
     format!("{stem}_{}{ext}", Uuid::now_v7())
 }
 
-/// `pub(crate)`: riusata anche da `AssetRepo::ingest_direct` (Task 7).
+/// `pub(crate)`: also reused by `AssetRepo::ingest_direct`.
 pub(crate) fn remove_file_tolerant(path: &Path) -> Result<(), DbError> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -533,8 +529,8 @@ pub(crate) fn remove_file_tolerant(path: &Path) -> Result<(), DbError> {
     }
 }
 
-/// `pub(crate)`: riusata anche da `AssetRepo::ingest_direct` (Task 7), stessa
-/// collisione `(folder_id, filename)`.
+/// `pub(crate)`: also reused by `AssetRepo::ingest_direct`, same
+/// `(folder_id, filename)` collision.
 pub(crate) fn map_unique_violation(err: sqlx::Error) -> DbError {
     if let sqlx::Error::Database(ref db_err) = err
         && db_err.code().as_deref() == Some("23505")
@@ -544,27 +540,27 @@ pub(crate) fn map_unique_violation(err: sqlx::Error) -> DbError {
     DbError::Connection(err)
 }
 
-/// `pub`: riusata da `keeppix_api::dav::write::put` (`WebDAV PUT`, Task 7
-/// Fase 5, fix round) per lo stesso controllo prima di scrivere il body su
-/// disco — a differenza della sessione `tus` qui non c'è una riga da
-/// rifiutare "alla creazione", quindi il controllo va ripetuto punto per
-/// punto nel modulo `WebDAV`. `pub(crate)` non basterebbe: il chiamante è in
-/// un altro crate del workspace, e questa funzione non contiene SQL, quindi
-/// esportarla non viola l'invariante "nessun SQL fuori da `keeppix-db`" né
-/// il divieto di dipendenza `keeppix-media` ↔ `keeppix-db` (ledger Task 7).
+/// `pub`: reused by `keeppix_api::dav::write::put` (`WebDAV PUT`) for the
+/// same check before writing the body to disk — unlike the `tus` session,
+/// there is no row to reject "at creation" here, so the check must be
+/// repeated on the spot in the `WebDAV` module. `pub(crate)` would not be
+/// enough: the caller is in another crate of the workspace, and this
+/// function contains no SQL, so exporting it does not violate the
+/// invariant "no SQL outside `keeppix-db`" nor the
+/// `keeppix-media` <-> `keeppix-db` dependency ban.
 ///
-/// Spazio libero e totale sul volume che contiene `root`.
+/// Free and total space on the volume that contains `root`.
 ///
 /// # Errors
-/// `Io` se `statvfs` fallisce.
+/// `Io` if `statvfs` fails.
 pub fn disk_usage(root: &Path) -> Result<(u64, u64), DbError> {
     let (free, total) = statvfs_bytes(root)?;
     Ok((free, total))
 }
 
 /// # Errors
-/// `InsufficientStorage` se lo spazio libero su `root` è sotto
-/// `expected_size`. `Io` se `statvfs` fallisce.
+/// `InsufficientStorage` if the free space on `root` is below
+/// `expected_size`. `Io` if `statvfs` fails.
 pub fn ensure_disk_space(root: &Path, expected_size: i64) -> Result<(), DbError> {
     let needed = u64::try_from(expected_size).unwrap_or(u64::MAX);
     let (available, _) = statvfs_bytes(root)?;
@@ -581,10 +577,10 @@ fn statvfs_bytes(root: &Path) -> Result<(u64, u64), DbError> {
 
     let c_path = CString::new(root.as_os_str().as_bytes())
         .map_err(|_| DbError::Io("library root path contains a NUL byte".to_owned()))?;
-    // SAFETY: `c_path` è un `CString` valido e nul-terminated per la durata
-    // della chiamata; `stat` è zero-inizializzato, un pattern di bit valido
-    // per una struct di soli interi, e `statvfs` lo riempie per intero
-    // prima di restituire successo.
+    // SAFETY: `c_path` is a valid, nul-terminated `CString` for the
+    // duration of the call; `stat` is zero-initialized, a valid bit
+    // pattern for an all-integer struct, and `statvfs` fills it in
+    // entirely before returning success.
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
     let ret = unsafe { libc::statvfs(c_path.as_ptr(), &raw mut stat) };
     if ret != 0 {

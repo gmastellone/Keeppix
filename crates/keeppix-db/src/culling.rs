@@ -1,5 +1,5 @@
-//! Culling a cartelle (Fase 9 Task 2-5): la radice designata, i lotti sotto
-//! di essa, e lo spostamento fisico che accompagna scelto/scartato.
+//! Folder-based culling: the designated root, the lots underneath it, and
+//! the physical move that accompanies pick/reject.
 
 use keeppix_domain::{
     Asset, AssetId, AuthContext, CullingLot, CullingRole, DiskAction, Folder, FolderId, LibraryId,
@@ -41,29 +41,26 @@ impl<'a> CullingRepo<'a> {
         Self { db }
     }
 
-    /// I lotti sotto la radice di culling della libreria, più recenti
-    /// prima — vuoto se nessuna radice è ancora designata (spec §2.6: senza
-    /// radice, culling si comporta esattamente come oggi, nessun
-    /// comportamento nuovo forzato).
+    /// The lots under the library's culling root, most recent first —
+    /// empty if no root has been designated yet (without a root, culling
+    /// behaves exactly as before, no new behavior is forced).
     ///
-    /// Ambito **owner/admin**, non lo scope di visibilità generale delle
-    /// cartelle: `LibraryRepo::find_by_id` (che risolve
-    /// `culling_root_folder_id`) è già owner-o-admin per costruzione, e la
-    /// spec descrive il culling come un flusso personale del proprietario
-    /// (nessuna menzione di condivisione dell'area). Se in futuro servirà
-    /// condividere un lotto con un editor, va deciso allora — non
-    /// anticipato qui senza un requisito reale.
+    /// Scope is **owner/admin**, not the general folder-visibility scope:
+    /// `LibraryRepo::find_by_id` (which resolves `culling_root_folder_id`)
+    /// is already owner-or-admin by construction, and culling is a
+    /// personal workflow of the owner (no notion of sharing the area). If
+    /// sharing a lot with an editor is ever needed, that decision can be
+    /// made then — it is not anticipated here without a real requirement.
     ///
-    /// I tre conteggi sono sottoquery indipendenti per lotto, non `JOIN` +
-    /// `COUNT(DISTINCT ..)`: con tre `LEFT JOIN` (radice/`_taken`/
-    /// `_skipped`) il prodotto cartesiano fra i tre insiemi di asset
-    /// gonfierebbe le righe intermedie inutilmente — economico non vuol
-    /// dire "una sola query a tutti i costi", vuol dire "per lotto, non per
-    /// libreria" (piano, Task 3): ogni sottoquery resta un accesso indicizzato
-    /// su `assets.folder_id`.
+    /// The three counts are independent per-lot subqueries, not a `JOIN` +
+    /// `COUNT(DISTINCT ..)`: with three `LEFT JOIN`s (root/`_taken`/
+    /// `_skipped`) the cartesian product across the three asset sets would
+    /// needlessly bloat the intermediate rows — cheap does not mean "one
+    /// query at all costs," it means "per lot, not per library": each
+    /// subquery stays an indexed access on `assets.folder_id`.
     ///
     /// # Errors
-    /// Come `LibraryRepo::find_by_id`.
+    /// Same as `LibraryRepo::find_by_id`.
     pub async fn list_lots(
         &self,
         ctx: &AuthContext,
@@ -98,29 +95,28 @@ impl<'a> CullingRepo<'a> {
         Ok(rows.into_iter().map(LotRow::into_domain).collect())
     }
 
-    /// Scegliere/scartare/annullare (Task 4, spec §2.3). Il flag cambia
-    /// sempre; **se e solo se** l'asset è già dentro un lotto di culling
-    /// (discendente diretto della radice designata: nel lotto stesso, in
-    /// avvicinamento, oppure già in `_taken`/`_skipped`) lo spostamento
-    /// fisico accompagna il cambio, con la primitiva del Task 1.
+    /// Pick/reject/clear. The flag always changes; **if and only if** the
+    /// asset is already inside a culling lot (a direct descendant of the
+    /// designated root: in the lot itself, or already in
+    /// `_taken`/`_skipped`) does the physical move accompany the change.
     ///
-    /// Permesso: **non** un cancello unico per l'intera chiamata. Fuori da
-    /// un lotto il flag resta impostabile da chiunque veda l'asset — lo
-    /// stesso permesso di oggi (`FlagRepo::set`), invariato dalla spec
-    /// (§2.6: "fuori da un lotto... resta solo un flag, come oggi"). Dentro
-    /// un lotto lo spostamento fisico passa da `AssetRepo::move_asset`, che
-    /// pretende `editor` su entrambe le cartelle per conto proprio — se il
-    /// chiamante non lo è, l'intera chiamata fallisce con `Forbidden` prima
-    /// di toccare il flag: uno spostamento raccontato dall'interfaccia ma
-    /// non avvenuto sul disco sarebbe peggio di un rifiuto.
+    /// Permission: **not** a single gate for the whole call. Outside a lot
+    /// the flag remains settable by anyone who can see the asset — the
+    /// same permission as today (`FlagRepo::set`), unchanged (outside a
+    /// lot it stays just a flag, as before). Inside a lot the physical
+    /// move goes through `AssetRepo::move_asset`, which requires `editor`
+    /// on both folders on its own — if the caller is not, the whole call
+    /// fails with `Forbidden` before touching the flag: a move the
+    /// interface claims happened but did not occur on disk would be worse
+    /// than a rejection.
     ///
-    /// Lo spostamento fisico avviene **prima** della scrittura del flag: un
-    /// fallimento (permesso, collisione di nome) lascia il flag intatto
-    /// invece di mentire su dove si trova il file.
+    /// The physical move happens **before** the flag write: a failure
+    /// (permission, name collision) leaves the flag untouched instead of
+    /// lying about where the file is.
     ///
     /// # Errors
-    /// Come `AssetRepo::find_by_id`, poi come `AssetRepo::move_asset` se
-    /// l'asset è dentro un lotto, poi come `FlagRepo::set`.
+    /// Same as `AssetRepo::find_by_id`, then same as `AssetRepo::move_asset`
+    /// if the asset is inside a lot, then same as `FlagRepo::set`.
     pub async fn set_pick(
         &self,
         ctx: &AuthContext,
@@ -158,34 +154,33 @@ impl<'a> CullingRepo<'a> {
         assets.find_by_id(ctx, asset_id).await
     }
 
-    /// "Svuota scartati" (Task 4, esposto via HTTP in Fase 11 Task 17):
-    /// elimina **definitivamente** dal disco ogni asset oggi in `_skipped`
-    /// dentro questo lotto. Riusa `TrashRepo::choose` con
-    /// `DiskAction::Purged` invece di duplicarne la logica: stesso cancello
-    /// owner/admin ("un editor non può distruggere file"), stesso ordine
-    /// riga-poi-file, stesso audit in `trash_entries`. La conferma è
-    /// responsabilità del chiamante (API/UI), non di questo metodo — qui non
-    /// c'è nulla da confermare due volte.
+    /// "Empty rejected": **permanently** deletes from disk every asset
+    /// currently in `_skipped` inside this lot. Reuses `TrashRepo::choose`
+    /// with `DiskAction::Purged` instead of duplicating its logic: same
+    /// owner/admin gate ("an editor cannot destroy files"), same
+    /// row-then-file ordering, same audit trail in `trash_entries`.
+    /// Confirmation is the caller's responsibility (API/UI), not this
+    /// method's — there is nothing to confirm twice here.
     ///
-    /// Riuscita **parziale**, mai un blocco totale silenzioso — stesso
-    /// principio già scritto per le operazioni di massa (Fase 9/10): un
-    /// asset il cui purge fallisce non impedisce agli altri di essere
-    /// eliminati. Il vettore restituito porta l'esito per ciascun asset,
-    /// nell'ordine stabile di `find_by_folder` (per nome file); il
-    /// chiamante HTTP lo traduce in `BulkOutcome`.
+    /// **Partial** success, never a silent all-or-nothing block — same
+    /// principle already applied to bulk operations: an asset whose purge
+    /// fails does not prevent the others from being deleted. The returned
+    /// vector carries the outcome per asset, in the stable order of
+    /// `find_by_folder` (by filename); the HTTP caller translates this
+    /// into a `BulkOutcome`.
     ///
-    /// L'**autorizzazione** resta invece tutto-o-niente, come in
-    /// `TrashRepo::batch_delete` per `Purged` (spec Fase 10 §Task 4): un
-    /// chiamante che non può distruggere anche un solo asset del lotto non
-    /// arriva a toccarne nessuno — niente file sparisce mentre la richiesta
-    /// viene rifiutata a metà.
+    /// **Authorization**, however, stays all-or-nothing, as in
+    /// `TrashRepo::batch_delete` for `Purged`: a caller who cannot destroy
+    /// even one asset in the lot never gets to touch any of them — no
+    /// file disappears while the request is being rejected halfway
+    /// through.
     ///
     /// # Errors
-    /// Come `FolderRepo::find_by_id` sul lotto, o `ensure_culling_child` —
-    /// per l'impossibilità di risolvere il lotto stesso — poi come
-    /// `TrashRepo::assert_batch_purge_authorized` se il chiamante non è
-    /// owner/admin. I fallimenti sui singoli asset durante il purge vero e
-    /// proprio sono nel `Result` di ogni tupla restituita, non qui.
+    /// Same as `FolderRepo::find_by_id` on the lot, or
+    /// `ensure_culling_child` if the lot itself cannot be resolved, then
+    /// same as `TrashRepo::assert_batch_purge_authorized` if the caller is
+    /// not owner/admin. Failures on individual assets during the actual
+    /// purge are carried in the `Result` of each returned tuple, not here.
     pub async fn empty_skipped(
         &self,
         ctx: &AuthContext,
@@ -217,17 +212,17 @@ impl<'a> CullingRepo<'a> {
     }
 }
 
-/// `FolderRepo::ensure_culling_child` crea solo la riga: nessun repository
-/// di `keeppix-db` tocca il filesystem per creare cartelle, tranne dove
-/// l'operazione stessa è fisica (`TrashRepo`, `UploadSessionRepo`) — e
-/// spostare un file in `_taken`/`_skipped` che potrebbero non essere mai
-/// esistite prima d'ora è esattamente quel caso. Stesso ordine di
-/// `dav::write::mkcol` (Fase 5 Task 7): directory su disco **prima** della
-/// riga, mai il contrario — se l'`INSERT` fallisse dopo un `create_dir_all`
-/// riuscito, resterebbe una cartella fantasma sul disco senza una riga
-/// corrispondente, non il rovescio silenzioso (riga senza cartella, `rename`
-/// che fallisce al prossimo tentativo). Rollback best-effort della sola
-/// directory creata da questa chiamata, mai di una preesistente.
+/// `FolderRepo::ensure_culling_child` only creates the row: no repository
+/// in `keeppix-db` touches the filesystem to create folders, except where
+/// the operation itself is physical (`TrashRepo`, `UploadSessionRepo`) —
+/// and moving a file into `_taken`/`_skipped`, which may never have
+/// existed before now, is exactly that case. Same ordering as
+/// `dav::write::mkcol`: directory on disk **before** the row, never the
+/// other way around — if the `INSERT` failed after a successful
+/// `create_dir_all`, a ghost folder would be left on disk without a
+/// matching row, not the silent reverse (a row with no folder, where
+/// `rename` fails on the next attempt). Best-effort rollback of only the
+/// directory created by this call, never of a pre-existing one.
 async fn provision_culling_child(
     folders: &FolderRepo<'_>,
     ctx: &AuthContext,
@@ -255,12 +250,11 @@ async fn provision_culling_child(
     }
 }
 
-/// Il lotto che contiene `folder`, se `folder` è un discendente diretto
-/// della radice di culling designata — nel lotto stesso (asset in attesa),
-/// oppure in una delle sue due figlie `_taken`/`_skipped`. `None` per
-/// qualunque altra cartella, compresa la radice stessa: solo la struttura a
-/// due livelli che il Task 2/3 costruiscono conta, mai riconosciuta per
-/// nome.
+/// The lot that contains `folder`, if `folder` is a direct descendant of
+/// the designated culling root — the lot itself (pending assets), or one
+/// of its two children `_taken`/`_skipped`. `None` for any other folder,
+/// including the root itself: only the two-level structure built for
+/// culling counts, never recognized by name.
 async fn culling_lot_of(
     folders: &FolderRepo<'_>,
     ctx: &AuthContext,

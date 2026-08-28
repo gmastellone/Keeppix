@@ -1,4 +1,4 @@
-//! Punto "casa" per utente e geofence sui payload pubblici.
+//! Per-user "home" point and geofencing on public payloads.
 
 use keeppix_domain::{AssetId, AuthContext, GeoPoint};
 
@@ -10,7 +10,7 @@ pub struct HomeLocation {
     pub radius_m: i32,
 }
 
-/// Metadati effettivi di posizione per la serializzazione pubblica.
+/// Effective location metadata for public serialization.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PublicAssetLocation {
     pub asset_id: AssetId,
@@ -30,7 +30,7 @@ impl<'a> HomeRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` senza sessione utente; `Connection` su errore DB.
+    /// `Forbidden` without a user session; `Connection` on DB error.
     pub async fn get(&self, ctx: &AuthContext) -> Result<Option<HomeLocation>, DbError> {
         let Some(user_id) = ctx.user_id() else {
             return Err(DbError::Forbidden);
@@ -48,10 +48,10 @@ impl<'a> HomeRepo<'a> {
         }))
     }
 
-    /// Imposta o aggiorna casa per l'utente autenticato.
+    /// Sets or updates home for the authenticated user.
     ///
     /// # Errors
-    /// `Forbidden` senza sessione; `Connection` su errore DB.
+    /// `Forbidden` without a session; `Connection` on DB error.
     pub async fn set(
         &self,
         ctx: &AuthContext,
@@ -79,10 +79,10 @@ impl<'a> HomeRepo<'a> {
         Ok(HomeLocation { point, radius_m })
     }
 
-    /// Rimuove casa; nessun geofence finché non viene reimpostata.
+    /// Removes home; no geofence until it is set again.
     ///
     /// # Errors
-    /// `Forbidden` senza sessione; `Connection` su errore DB.
+    /// `Forbidden` without a session; `Connection` on DB error.
     pub async fn delete(&self, ctx: &AuthContext) -> Result<(), DbError> {
         let Some(user_id) = ctx.user_id() else {
             return Err(DbError::Forbidden);
@@ -94,14 +94,14 @@ impl<'a> HomeRepo<'a> {
         Ok(())
     }
 
-    /// Posizione effettiva e flag di redazione per link pubblici. Il geofence
-    /// usa la casa del **proprietario della libreria**, non del viewer.
+    /// Effective location and redaction flag for public links. The
+    /// geofence uses the **library owner's** home, not the viewer's.
     ///
-    /// Non prende `AuthContext`: serve solo alla serializzazione share già
-    /// autorizzata dal token.
+    /// Does not take an `AuthContext`: this only serves share
+    /// serialization already authorized by the token.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn public_locations_for_assets(
         &self,
         asset_ids: &[AssetId],

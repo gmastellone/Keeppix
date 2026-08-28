@@ -50,12 +50,12 @@ impl<'a> FlagRepo<'a> {
         Self { db }
     }
 
-    /// Scrive i flag del chiamante su un asset. Sono per utente: due
-    /// chiamanti sullo stesso asset non si sovrascrivono (spec §4.1).
+    /// Writes the caller's flags on an asset. These are per-user: two
+    /// callers on the same asset do not overwrite each other.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non vede l'asset — anche quando l'id non
-    /// esiste, per non offrire un oracolo di esistenza.
+    /// `Forbidden` if the caller cannot see the asset — including when the
+    /// id does not exist, so as not to offer an existence oracle.
     pub async fn set(
         &self,
         ctx: &AuthContext,
@@ -90,11 +90,11 @@ impl<'a> FlagRepo<'a> {
         Ok(())
     }
 
-    /// Flag del chiamante su un asset, o i valori di default se non ha
-    /// ancora votato.
+    /// The caller's flags on an asset, or the default values if they have
+    /// not voted yet.
     ///
     /// # Errors
-    /// Come [`Self::set`].
+    /// Same as [`Self::set`].
     pub async fn get(&self, ctx: &AuthContext, asset_id: AssetId) -> Result<AssetFlags, DbError> {
         AssetRepo::new(self.db)
             .assert_visible(ctx, std::slice::from_ref(&asset_id))
@@ -118,11 +118,11 @@ impl<'a> FlagRepo<'a> {
         }
     }
 
-    /// Applica gli stessi flag a molti asset in un'unica operazione — non un
-    /// round-trip per asset.
+    /// Applies the same flags to many assets in a single operation — not
+    /// one round trip per asset.
     ///
     /// # Errors
-    /// `Forbidden` se anche uno solo degli asset non è visibile.
+    /// `Forbidden` if even one asset is not visible.
     pub async fn batch_set(
         &self,
         ctx: &AuthContext,
@@ -161,11 +161,11 @@ impl<'a> FlagRepo<'a> {
         Ok(())
     }
 
-    /// Come [`Self::batch_set`], ma a riuscita parziale: gli asset non
-    /// visibili finiscono in `failed` invece di abortire l'intero lotto.
+    /// Like [`Self::batch_set`], but partial-success: assets that are not
+    /// visible end up in `failed` instead of aborting the whole batch.
     ///
     /// # Errors
-    /// `Forbidden` se il contesto non ha un utente; `Connection` sul DB.
+    /// `Forbidden` if the context has no user; `Connection` on DB error.
     pub async fn batch_set_partial(
         &self,
         ctx: &AuthContext,
@@ -219,17 +219,17 @@ impl<'a> FlagRepo<'a> {
         Ok((succeeded, failed))
     }
 
-    /// Insieme dei preferiti del chiamante fra gli id dati — usato dalle
-    /// viste di browse (timeline, ricerca) per decorare `AssetView.favorite`
-    /// con **una** query invece di N. Non verifica di nuovo la visibilità:
-    /// gli id arrivano già filtrati da chi ha costruito la pagina
-    /// (`TimelineRepo`/`SearchRepo`), e il filtro `user_id = $1` non lascia
-    /// mai fuoriuscire il preferito di un altro utente.
+    /// The set of the caller's favorites among the given ids — used by the
+    /// browse views (timeline, search) to decorate `AssetView.favorite`
+    /// with **one** query instead of N. Does not re-check visibility: the
+    /// ids arrive already filtered by whoever built the page
+    /// (`TimelineRepo`/`SearchRepo`), and the `user_id = $1` filter never
+    /// leaks another user's favorite.
     ///
     /// # Errors
-    /// `Connection` sul database. Un contesto senza utente (link pubblico)
-    /// non è un errore: restituisce semplicemente l'insieme vuoto, perché
-    /// "preferito" non ha senso per un chiamante che non vota.
+    /// `Connection` on DB error. A context with no user (a public link) is
+    /// not an error: it simply returns the empty set, because "favorite"
+    /// makes no sense for a caller that cannot vote.
     pub async fn favorites_among(
         &self,
         ctx: &AuthContext,

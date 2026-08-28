@@ -1,6 +1,5 @@
-//! App-password: credenziali dedicate per client non interattivi (`WebDAV`,
-//! Fase 5 Task 5+). Vedi `keeppix_domain::credential` per i tipi di
-//! dominio.
+//! App passwords: dedicated credentials for non-interactive clients
+//! (`WebDAV`). See `keeppix_domain::credential` for the domain types.
 
 use chrono::{DateTime, Utc};
 use keeppix_domain::{
@@ -42,14 +41,14 @@ impl<'a> AppPasswordRepo<'a> {
         Self { db }
     }
 
-    /// Crea un'app-password per l'utente autenticato. Il segreto in chiaro
-    /// viene restituito una sola volta, insieme al riepilogo: da qui in
-    /// avanti solo l'hash Argon2id resta in `secret_hash`, e nessuna
-    /// chiamata successiva può più recuperarlo.
+    /// Creates an app password for the authenticated user. The plaintext
+    /// secret is returned only once, together with the summary: from this
+    /// point on only the Argon2id hash remains in `secret_hash`, and no
+    /// later call can retrieve it again.
     ///
     /// # Errors
-    /// `DbError::Forbidden` se il chiamante non è un utente autenticato — un
-    /// link condiviso non ha un'identità a cui legare l'app-password.
+    /// `DbError::Forbidden` if the caller is not an authenticated user — a
+    /// shared link has no identity to attach the app password to.
     pub async fn create(
         &self,
         ctx: &AuthContext,
@@ -78,19 +77,18 @@ impl<'a> AppPasswordRepo<'a> {
         Ok((row.into_domain(), secret))
     }
 
-    /// Verifica `username:secret` per l'autenticazione HTTP Basic
-    /// pre-sessione (`WebDAV`, Task 5+). **Eccezione documentata**
-    /// all'invariante «ogni metodo che legge dati di un utente prende
-    /// `AuthContext`»: qui non esiste ancora un contesto — esattamente come
-    /// `UserRepo::find_by_username` per il login a sessione. Solo le
-    /// app-password non revocate entrano nella lista dei candidati, quindi
-    /// una revoca ha effetto immediato senza bisogno di invalidare alcuna
-    /// cache: non ce n'è una. Un successo aggiorna `last_used_at` in
-    /// fire-and-forget, per non far pagare al percorso di richiesta il
-    /// costo di uno scritto.
+    /// Verifies `username:secret` for pre-session HTTP Basic authentication
+    /// (`WebDAV`). **Documented exception** to the invariant "every method
+    /// that reads a user's data takes an `AuthContext`": no context exists
+    /// yet at this point — exactly like `UserRepo::find_by_username` for
+    /// session login. Only non-revoked app passwords enter the candidate
+    /// list, so a revocation takes effect immediately without needing to
+    /// invalidate any cache — there is none. A success updates
+    /// `last_used_at` fire-and-forget, so the request path does not pay
+    /// the cost of a write.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn verify(&self, username: &str, secret: &str) -> Result<Option<UserId>, DbError> {
         let Ok(password) = Password::parse(secret) else {
             return Ok(None);
@@ -124,10 +122,10 @@ impl<'a> AppPasswordRepo<'a> {
         Ok(None)
     }
 
-    /// Elenco delle app-password non revocate dell'utente autenticato.
+    /// List of the authenticated user's non-revoked app passwords.
     ///
     /// # Errors
-    /// `DbError::Forbidden` se il chiamante non è un utente autenticato.
+    /// `DbError::Forbidden` if the caller is not an authenticated user.
     pub async fn list(&self, ctx: &AuthContext) -> Result<Vec<AppPasswordSummary>, DbError> {
         let user_id = ctx.user_id().ok_or(DbError::Forbidden)?;
         let rows: Vec<SummaryRow> = sqlx::query_as(
@@ -142,17 +140,16 @@ impl<'a> AppPasswordRepo<'a> {
         Ok(rows.into_iter().map(SummaryRow::into_domain).collect())
     }
 
-    /// Revoca immediata: solo il proprietario, o un admin. Un id che
-    /// appartiene a un altro utente restituisce `Forbidden`, mai
-    /// `NotFound` — altrimenti l'endpoint diventa un oracolo di esistenza
-    /// (stessa regola di `UploadSessionRepo::load_owned`). Idempotente: una
-    /// seconda revoca sullo stesso id non fallisce e non tocca di nuovo
-    /// `revoked_at`.
+    /// Immediate revocation: owner only, or an admin. An id belonging to
+    /// another user returns `Forbidden`, never `NotFound` — otherwise the
+    /// endpoint becomes an existence oracle (same rule as
+    /// `UploadSessionRepo::load_owned`). Idempotent: a second revocation
+    /// on the same id does not fail and does not touch `revoked_at` again.
     ///
     /// # Errors
-    /// `DbError::Forbidden` se il chiamante non possiede l'id, o se l'id non
-    /// esiste e il chiamante non è admin. `DbError::NotFound` solo per un
-    /// admin che chiede un id davvero inesistente.
+    /// `DbError::Forbidden` if the caller does not own the id, or if the
+    /// id does not exist and the caller is not admin. `DbError::NotFound`
+    /// only for an admin requesting an id that truly does not exist.
     pub async fn revoke(&self, ctx: &AuthContext, id: AppPasswordId) -> Result<(), DbError> {
         let owner: Option<Uuid> =
             sqlx::query_scalar("SELECT user_id FROM app_passwords WHERE id = $1")

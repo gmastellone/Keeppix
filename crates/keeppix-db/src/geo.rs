@@ -1,5 +1,5 @@
-//! Aggregazione geografica per la mappa. Le coordinate effettive applicano
-//! sempre gli override utente prima del valore EXIF dell'asset.
+//! Geographic aggregation for the map. Effective coordinates always apply
+//! user overrides before the asset's EXIF value.
 
 use std::path::Path;
 
@@ -49,12 +49,12 @@ pub struct MapCluster {
     pub count: i64,
     pub cover_asset_id: AssetId,
     pub clustered: bool,
-    /// Cartella del `cover_asset_id`, per aprirla dal popover (spec fase-10
-    /// §27) senza una seconda richiesta.
+    /// Folder of the `cover_asset_id`, so it can be opened from the
+    /// popover without a second request.
     pub folder_id: FolderId,
-    /// Etichetta leggibile del luogo, dalla geocodifica inversa di Fase 4
-    /// (`assets.place_id → places.name`). `None` finché l'asset di
-    /// copertina non ha un luogo assegnato.
+    /// Human-readable place label, from reverse geocoding
+    /// (`assets.place_id -> places.name`). `None` until the cover asset
+    /// has a place assigned.
     pub place_label: Option<String>,
 }
 
@@ -112,15 +112,15 @@ impl<'a> GeoRepo<'a> {
         Self { db }
     }
 
-    /// Restituisce il nome IANA del poligono che contiene il punto.
+    /// Returns the IANA name of the polygon containing the point.
     ///
-    /// Non prende un `AuthContext`: i confini dei fusi sono un catalogo
-    /// globale incorporato nell'immagine, non dati appartenenti a un utente.
-    /// `LIMIT 1` rende tollerante il lookup anche se un dataset corrotto
-    /// contenesse poligoni sovrapposti.
+    /// Does not take an `AuthContext`: timezone boundaries are a global
+    /// catalog baked into the image, not data belonging to a user.
+    /// `LIMIT 1` makes the lookup tolerant even if a corrupted dataset
+    /// contained overlapping polygons.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn timezone_for(&self, point: GeoPoint) -> Result<Option<String>, DbError> {
         let match_sql = timezone_match_sql("boundary.boundary", "input.point");
         let sql = format!(
@@ -142,17 +142,17 @@ impl<'a> GeoRepo<'a> {
             .map_err(DbError::from)
     }
 
-    /// Importa il TSV normalizzato dei confini solo se il catalogo è vuoto.
-    /// Un file assente è normale fuori dall'immagine Docker; un file presente
-    /// ma malformato fallisce senza lasciare un import parziale.
+    /// Imports the normalized boundary TSV only if the catalog is empty. A
+    /// missing file is normal outside the Docker image; a present but
+    /// malformed file fails without leaving a partial import.
     ///
-    /// Non prende un `AuthContext`: è bootstrap amministrativo di un catalogo
-    /// globale, non accesso a dati utente.
+    /// Does not take an `AuthContext`: this is administrative bootstrap of
+    /// a global catalog, not access to user data.
     ///
     /// # Errors
-    /// `Io` se il file presente non è leggibile; `Corrupted` se una riga non
-    /// contiene `tz_name` e una geometria `GeoJSON` `MultiPolygon`;
-    /// `Connection` se l'import database fallisce.
+    /// `Io` if the present file is not readable; `Corrupted` if a line
+    /// does not contain a `tz_name` and a `GeoJSON` `MultiPolygon`
+    /// geometry; `Connection` if the database import fails.
     pub async fn seed_timezones_from_csv_if_empty(&self, path: &Path) -> Result<usize, DbError> {
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tz_boundaries")
             .fetch_one(self.db.pool())
@@ -207,12 +207,12 @@ impl<'a> GeoRepo<'a> {
         Ok(imported)
     }
 
-    /// Calcola conteggio e primo esempio senza materializzare tutti i candidati.
+    /// Computes count and first example without materializing every candidate.
     ///
     /// # Errors
-    /// `Forbidden` se la libreria non appartiene al chiamante; `Connection` se
-    /// la query fallisce; `Corrupted` se `PostgreSQL` restituisce un conteggio
-    /// non rappresentabile.
+    /// `Forbidden` if the library does not belong to the caller;
+    /// `Connection` if the query fails; `Corrupted` if `PostgreSQL`
+    /// returns a count that cannot be represented.
     pub async fn timezone_change_preview(
         &self,
         ctx: &AuthContext,
@@ -250,15 +250,15 @@ impl<'a> GeoRepo<'a> {
         })
     }
 
-    /// Calcola e scrive le correzioni nella stessa transazione annullabile.
+    /// Computes and writes the corrections in the same, abortable transaction.
     ///
-    /// La scrittura ricontrolla inoltre `asset_overrides.taken_at` nel suo
-    /// `ON CONFLICT`, quindi un override concorrente vince anche se nasce dopo
-    /// la lettura dei candidati.
+    /// The write also re-checks `asset_overrides.taken_at` in its `ON
+    /// CONFLICT`, so a concurrent override wins even if it is created
+    /// after the candidates were read.
     ///
     /// # Errors
-    /// `Forbidden` se la libreria non appartiene al chiamante; `Connection` se
-    /// la transazione fallisce.
+    /// `Forbidden` if the library does not belong to the caller;
+    /// `Connection` if the transaction fails.
     pub async fn apply_timezone_changes(
         &self,
         ctx: &AuthContext,
@@ -289,12 +289,13 @@ impl<'a> GeoRepo<'a> {
         Ok((changed_count, batch_id, succeeded))
     }
 
-    /// Restituisce celle a griglia fino allo zoom 14. Dallo zoom 15 restituisce
-    /// punti singoli se sono al massimo 500, altrimenti torna alla griglia.
+    /// Returns grid cells up to zoom 14. From zoom 15 it returns
+    /// individual points if there are at most 500, otherwise it falls
+    /// back to the grid.
     ///
     /// # Errors
-    /// `Forbidden` se lo scope è sconosciuto o non visibile; `Connection` se
-    /// una query fallisce; `Conflict` se una ricerca salvata è malformata.
+    /// `Forbidden` if the scope is unknown or not visible; `Connection` if
+    /// a query fails; `Conflict` if a saved search is malformed.
     pub async fn clusters(
         &self,
         ctx: &AuthContext,
@@ -305,8 +306,8 @@ impl<'a> GeoRepo<'a> {
         let search = self.validate_scope(ctx, map_scope).await?;
         let visibility = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = visibility.filter("f.path", "f.library_id", "a.id", 8);
-        // Stessi $8,$9,$10 riusati nella subquery Semantic (spec §4.2: K fra i
-        // visibili, non K globali poi filtrati).
+        // Same $8,$9,$10 reused in the Semantic subquery: we want the top K
+        // among visible assets, not K globally and then filtered.
         let semantic_vis = visibility.filter("vf.path", "vf.library_id", "va.id", 8);
         let mut next_param = 11_usize;
         let (search_clause, search_binds) = match search {
@@ -432,12 +433,12 @@ impl<'a> GeoRepo<'a> {
     }
 
     async fn fetch_grid(&self, query: &ClusterQuery<'_>) -> Result<Vec<ClusterRow>, DbError> {
-        // Il `cover_asset_id` decide anche `folder_id`/`place_label`: sono
-        // aggregati con lo stesso `array_agg`/`ORDER BY`, così i tre restano
-        // coerenti con la stessa copertina — un `LEFT JOIN places` non
-        // può leggere una colonna calcolata da un aggregato allo stesso
-        // livello, quindi la copertina si calcola in un livello e il nome
-        // del luogo si risolve in quello sopra.
+        // `cover_asset_id` also decides `folder_id`/`place_label`: they are
+        // aggregated with the same `array_agg`/`ORDER BY`, so all three
+        // stay consistent with the same cover — a `LEFT JOIN places`
+        // cannot read a column computed by an aggregate at the same
+        // level, so the cover is computed in one level and the place name
+        // is resolved in the one above it.
         let sql = format!(
             "{} \
              SELECT ST_X(grouped.cell) AS lon, ST_Y(grouped.cell) AS lat, \

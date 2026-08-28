@@ -7,9 +7,9 @@ use uuid::Uuid;
 use crate::visibility::VisibilityScope;
 use crate::{Db, DbError};
 
-/// Coda dei job di ingestione. `claim` / `enqueue` / `reap` li chiama il
-/// worker: niente `AuthContext`. `promote` lo chiama l'utente dal viewport,
-/// quindi filtra con la visibilità.
+/// Ingestion job queue. `claim` / `enqueue` / `reap` are called by the
+/// worker: no `AuthContext`. `promote` is called by the user from the
+/// viewport, so it filters by visibility.
 pub struct JobRepo<'a> {
     db: &'a Db,
 }
@@ -58,12 +58,12 @@ impl<'a> JobRepo<'a> {
         Self { db }
     }
 
-    /// Accoda un job. Con `dedup_key`, una seconda chiamata mentre il primo
-    /// è ancora `pending` o `running` restituisce la riga esistente.
+    /// Enqueues a job. With a `dedup_key`, a second call while the first
+    /// is still `pending` or `running` returns the existing row.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce; `DbError::Corrupted` se
-    /// una riga esistente non è mappabile.
+    /// `DbError::Connection` if the query fails; `DbError::Corrupted` if
+    /// an existing row cannot be mapped.
     pub async fn enqueue(
         &self,
         kind: JobKind,
@@ -110,20 +110,20 @@ impl<'a> JobRepo<'a> {
         row.into_domain()
     }
 
-    /// Come [`Self::enqueue`] con `dedup_key`, ma per un intero lotto in una
-    /// sola istruzione (Fase 10 Task 21): l'esistente fa un giro di rete per
-    /// file (`INSERT` più l'eventuale `SELECT` di rilettura sul dedup);
-    /// questo ne fa uno per lotto. Il chiamante non riceve i job indietro:
-    /// lo scanner non ne ha bisogno, li ritrova già in coda con lo stesso
-    /// `dedup_key` alla prossima lettura.
+    /// Like [`Self::enqueue`] with a `dedup_key`, but for an entire batch
+    /// in a single statement: the existing method does one network round
+    /// trip per file (`INSERT` plus the possible dedup re-read `SELECT`);
+    /// this one does a single round trip per batch. The caller does not
+    /// get the jobs back: the scanner does not need them, it finds them
+    /// already queued with the same `dedup_key` on the next read.
     ///
-    /// Il payload viaggia come `text[]` (JSON serializzato in Rust, poi
-    /// `::jsonb` in SQL) invece di `jsonb[]`: `serde_json::Value` non ha un
-    /// `PgHasArrayType` diretto in sqlx, mentre `text[]` è già un pattern
-    /// provato altrove in questo crate (`geo.rs`, `overrides.rs`).
+    /// The payload travels as `text[]` (JSON serialized in Rust, then
+    /// `::jsonb` in SQL) instead of `jsonb[]`: `serde_json::Value` has no
+    /// direct `PgHasArrayType` in sqlx, while `text[]` is already a proven
+    /// pattern elsewhere in this crate (`geo.rs`, `overrides.rs`).
     ///
     /// # Errors
-    /// `Connection` se l'inserimento fallisce.
+    /// `Connection` if the insert fails.
     pub async fn enqueue_many(
         &self,
         kind: JobKind,
@@ -160,11 +160,11 @@ impl<'a> JobRepo<'a> {
         Ok(())
     }
 
-    /// Come [`Self::enqueue`], ma con `run_after` esplicito (ricontrollo
-    /// di file ancora in arrivo senza dormire nel worker).
+    /// Like [`Self::enqueue`], but with an explicit `run_after` (rechecking
+    /// files still in flight without sleeping in the worker).
     ///
     /// # Errors
-    /// Come [`Self::enqueue`].
+    /// Same as [`Self::enqueue`].
     pub async fn enqueue_after(
         &self,
         kind: JobKind,
@@ -214,8 +214,8 @@ impl<'a> JobRepo<'a> {
         row.into_domain()
     }
 
-    /// Prende il prossimo job eseguibile, o `None` se la coda è vuota per
-    /// questo tetto di priorità.
+    /// Takes the next runnable job, or `None` if the queue is empty for
+    /// this priority ceiling.
     ///
     /// # Errors
     /// `DbError::Connection` / `Corrupted`.
@@ -250,7 +250,7 @@ impl<'a> JobRepo<'a> {
     }
 
     /// # Errors
-    /// `DbError::NotFound` se l'id non è `running`.
+    /// `DbError::NotFound` if the id is not `running`.
     pub async fn complete(&self, id: i64) -> Result<(), DbError> {
         let result = sqlx::query(
             "UPDATE jobs SET status = 'done', locked_by = NULL, locked_at = NULL \
@@ -265,10 +265,10 @@ impl<'a> JobRepo<'a> {
         Ok(())
     }
 
-    /// Ritenta con backoff, o marca `failed` se i tentativi sono esauriti.
+    /// Retries with backoff, or marks `failed` if attempts are exhausted.
     ///
     /// # Errors
-    /// `DbError::NotFound` se l'id non è `running`.
+    /// `DbError::NotFound` if the id is not `running`.
     pub async fn fail(&self, id: i64, error: &str) -> Result<(), DbError> {
         let result = sqlx::query(
             "UPDATE jobs SET \
@@ -294,13 +294,13 @@ impl<'a> JobRepo<'a> {
         Ok(())
     }
 
-    /// Ritira definitivamente i job attivi con una chiave di deduplica.
+    /// Permanently retires active jobs with a dedup key.
     ///
-    /// Serve alle cancellazioni esplicite: lasciare un job `running`
-    /// permetterebbe a un enqueue successivo di riusare il vecchio writer.
+    /// Used by explicit cancellations: leaving a job `running` would let
+    /// a later enqueue reuse the old writer.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn retire_active(&self, dedup_key: &str, error: &str) -> Result<u64, DbError> {
         let result = sqlx::query(
             "UPDATE jobs SET \
@@ -315,10 +315,10 @@ impl<'a> JobRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Rinnova il lease di un job ancora posseduto dallo stesso worker.
+    /// Renews the lease of a job still owned by the same worker.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn renew_lock(&self, id: i64, worker_id: Uuid) -> Result<bool, DbError> {
         let result = sqlx::query(
             "UPDATE jobs SET locked_at = now() \
@@ -331,10 +331,10 @@ impl<'a> JobRepo<'a> {
         Ok(result.rows_affected() == 1)
     }
 
-    /// Rimette in coda i job `running` il cui lock è più vecchio di `older_than`.
+    /// Re-queues `running` jobs whose lock is older than `older_than`.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn reap_stale(&self, older_than: Duration) -> Result<u64, DbError> {
         let secs = i32::try_from(older_than.as_secs()).unwrap_or(i32::MAX);
         let result = sqlx::query(
@@ -347,13 +347,13 @@ impl<'a> JobRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Rimette subito in coda tutti i job `running` di un tipo.
+    /// Immediately re-queues all `running` jobs of one kind.
     ///
-    /// Va usato solo all'avvio, prima di creare i worker: ogni lock ancora
-    /// presente appartiene necessariamente al processo precedente.
+    /// Must only be used at startup, before creating the workers: any
+    /// lock still present necessarily belongs to the previous process.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn reset_running(&self, kind: JobKind) -> Result<u64, DbError> {
         let result = sqlx::query(
             "UPDATE jobs SET status = 'pending', locked_by = NULL, locked_at = NULL \
@@ -365,12 +365,12 @@ impl<'a> JobRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Ricrea i job mancanti per regioni rimaste `downloading` dopo un crash.
+    /// Recreates missing jobs for regions left `downloading` after a crash.
     ///
-    /// Non prende `AuthContext`: è una riparazione interna della pipeline.
+    /// Does not take an `AuthContext`: this is an internal pipeline repair.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn enqueue_missing_region_downloads(&self) -> Result<u64, DbError> {
         let result = sqlx::query(
             "INSERT INTO jobs (kind, payload, priority, dedup_key) \
@@ -392,12 +392,13 @@ impl<'a> JobRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Alza la priorità (numero più basso) dei job `pending` elencati.
-    /// Non abbassa mai un job già più urgente — `LEAST`, non un overwrite.
-    /// Un non-admin promuove solo `derive:{hash}` di asset che può vedere.
+    /// Raises the priority (lower number) of the listed `pending` jobs.
+    /// Never lowers a job that is already more urgent — `LEAST`, not an
+    /// overwrite. A non-admin can only promote `derive:{hash}` jobs for
+    /// assets they can see.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn promote(
         &self,
         ctx: &AuthContext,
@@ -435,10 +436,11 @@ impl<'a> JobRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Stato del job `discover_library` attivo (o l'ultimo fallito) per una
-    /// libreria. Lo chiama la rotta di stato dopo il controllo di visibilità.
+    /// Status of the active `discover_library` job (or the last failed
+    /// one) for a library. Called by the status route after the
+    /// visibility check.
     ///
-    /// Non prende un `AuthContext`: il chiamante ha già autorizzato.
+    /// Does not take an `AuthContext`: the caller has already authorized.
     ///
     /// # Errors
     /// `Connection` / `Corrupted`.
@@ -466,12 +468,13 @@ impl<'a> JobRepo<'a> {
         row.map(JobRow::into_domain).transpose()
     }
 
-    /// Job `kind` conclusi con successo dopo `since_id`, in ordine di id.
-    /// Pipeline/notifica (Fase 10 Task 19: `asset.derivative.ready` sul
-    /// WebSocket) — nessun `AuthContext`, come [`Self::discover_status_for_library`]:
-    /// la visibilità sull'asset coinvolto va applicata dal chiamante
-    /// (`AssetRepo::filter_visible`), esattamente come fa già la pagina
-    /// Problemi con [`Self::discover_status_for_library`].
+    /// Jobs of `kind` completed successfully after `since_id`, in id
+    /// order. Pipeline/notification path (`asset.derivative.ready` over
+    /// the WebSocket) — no `AuthContext`, like
+    /// [`Self::discover_status_for_library`]: visibility on the asset
+    /// involved must be applied by the caller (`AssetRepo::filter_visible`),
+    /// exactly as the Problems page already does with
+    /// [`Self::discover_status_for_library`].
     ///
     /// # Errors
     /// `Connection` / `Corrupted`.
@@ -495,13 +498,13 @@ impl<'a> JobRepo<'a> {
         rows.into_iter().map(JobRow::into_domain).collect()
     }
 
-    /// Massimo id fra i job `kind` già `done` — inizializza il cursore di un
-    /// client che si connette ora al WebSocket, così non rivede
-    /// transcodifiche finite prima che si collegasse (Fase 10 Task 19).
-    /// Nessun `AuthContext`: stesso motivo di [`Self::list_recently_done`].
+    /// Highest id among `kind` jobs already `done` — initializes the
+    /// cursor for a client connecting to the WebSocket right now, so it
+    /// does not see transcodes that finished before it connected. No
+    /// `AuthContext`: same reason as [`Self::list_recently_done`].
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn max_done_id(&self, kind: JobKind) -> Result<i64, DbError> {
         let id: Option<i64> =
             sqlx::query_scalar("SELECT max(id) FROM jobs WHERE kind = $1 AND status = 'done'")
@@ -511,14 +514,14 @@ impl<'a> JobRepo<'a> {
         Ok(id.unwrap_or(0))
     }
 
-    /// Quante righe (qualsiasi stato) condividono questa `dedup_key`.
-    /// Lo usa il ritentativo dei derive: il vincolo unique vale solo su
-    /// pending/running, quindi i `done` si accumulano e sono il tetto.
+    /// How many rows (any status) share this `dedup_key`. Used by the
+    /// derive retry logic: the unique constraint only applies to
+    /// pending/running, so `done` rows accumulate and are the ceiling.
     ///
-    /// Non prende un `AuthContext`: è la pipeline.
+    /// Does not take an `AuthContext`: this is the pipeline.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn count_for_dedup_key(&self, dedup_key: &str) -> Result<i64, DbError> {
         let n: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE dedup_key = $1")
             .bind(dedup_key)

@@ -30,13 +30,13 @@ impl<'a> SettingsRepo<'a> {
         Self { db }
     }
 
-    /// Restituisce il segreto associato alla chiave, generandolo al primo
-    /// accesso. `ON CONFLICT DO NOTHING` più rilettura rende l'operazione
-    /// sicura anche se due processi partono insieme.
+    /// Returns the secret associated with the key, generating it on first
+    /// access. `ON CONFLICT DO NOTHING` plus a re-read makes the
+    /// operation safe even if two processes start up together.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce; `DbError::Corrupted` se il
-    /// valore memorizzato non è decodificabile.
+    /// `DbError::Connection` if the query fails; `DbError::Corrupted` if
+    /// the stored value cannot be decoded.
     pub async fn get_or_create_secret(&self, key: &str) -> Result<[u8; 32], DbError> {
         let mut fresh = [0u8; 32];
         rand::rng().fill_bytes(&mut fresh);
@@ -61,7 +61,7 @@ impl<'a> SettingsRepo<'a> {
     }
 
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn put_json(&self, key: &str, value: &serde_json::Value) -> Result<(), DbError> {
         sqlx::query(
             "INSERT INTO system_settings (key, value) VALUES ($1, $2) \
@@ -76,7 +76,7 @@ impl<'a> SettingsRepo<'a> {
     }
 
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>, DbError> {
         if let Some(cached) = self.db.settings_cache().get(key).await {
             return Ok(cached);

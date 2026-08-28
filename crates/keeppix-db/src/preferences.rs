@@ -1,4 +1,4 @@
-//! Per-user presentation preferences (Fase 10 Task 9).
+//! Per-user presentation preferences.
 
 use keeppix_domain::AuthContext;
 use serde::{Deserialize, Serialize};

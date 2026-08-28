@@ -1,12 +1,13 @@
-//! Duplicati per `content_hash` (spec §7): deduplica **esatta per hash**,
-//! nessun ML. Un gruppo è un insieme di asset con lo stesso `content_hash` e
-//! `count > 1`; l'azione utente è «tieni questo, elimina gli altri».
+//! Duplicates by `content_hash`: **exact hash-based** deduplication, no
+//! ML. A group is a set of assets sharing the same `content_hash` with
+//! `count > 1`; the user action is "keep this one, delete the others".
 //!
-//! Questa era la scansione di [`crate::problems::ProblemsRepo::duplicates`]
-//! della Fase 1c: qui si estende con la lista dei singoli membri di un
-//! gruppo (necessaria per scegliere quale tenere) e con l'azione di
-//! risoluzione, che riusa [`crate::TrashRepo`] invece di reimplementare le
-//! tre opzioni di cancellazione.
+//! This started as the scan behind
+//! [`crate::problems::ProblemsRepo::duplicates`]; here it is extended with
+//! the list of a group's individual members (needed to choose which one
+//! to keep) and with the resolution action, which reuses
+//! [`crate::TrashRepo`] instead of reimplementing the three deletion
+//! options.
 
 use keeppix_domain::{Asset, AssetId, AssetStatus, AuthContext, DiskAction};
 
@@ -25,8 +26,9 @@ pub struct DuplicateGroup {
 }
 
 impl DuplicateGroup {
-    /// Spazio recuperabile: `size_bytes * (copie - 1)`, **non** la somma
-    /// totale delle copie — la prima copia non è "recuperabile", è la foto.
+    /// Reclaimable space: `size_bytes * (copies - 1)`, **not** the total
+    /// sum across copies — the first copy is not "reclaimable," it is the
+    /// photo.
     #[must_use]
     pub const fn reclaimable_bytes(&self) -> i64 {
         self.size_bytes.saturating_mul(self.count.saturating_sub(1))
@@ -39,13 +41,13 @@ impl<'a> DuplicateRepo<'a> {
         Self { db }
     }
 
-    /// Gruppi con lo stesso `content_hash` e più di una copia, visibili al
-    /// chiamante. Un asset `trashed` non conta: è già in coda per sparire,
-    /// e le sue tre opzioni di cancellazione (spec §6) contano già una
-    /// copia in meno di quelle davvero recuperabili.
+    /// Groups sharing the same `content_hash` with more than one copy,
+    /// visible to the caller. A `trashed` asset does not count: it is
+    /// already queued to disappear, and its three deletion options would
+    /// otherwise count one fewer copy than are truly reclaimable.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn groups(&self, ctx: &AuthContext) -> Result<Vec<DuplicateGroup>, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
@@ -75,13 +77,13 @@ impl<'a> DuplicateRepo<'a> {
             .collect())
     }
 
-    /// I singoli asset di un gruppo, per scegliere quale tenere. Esclude i
-    /// `trashed` per lo stesso motivo di [`Self::groups`] — non hanno senso
-    /// come bersaglio di "tieni questo" o "elimina questo", sono già gestiti
-    /// dal cestino.
+    /// The individual assets of a group, to choose which one to keep.
+    /// Excludes `trashed` ones for the same reason as [`Self::groups`] —
+    /// they make no sense as a target for "keep this" or "delete this,"
+    /// they are already handled by trash.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn members(
         &self,
         ctx: &AuthContext,
@@ -96,20 +98,20 @@ impl<'a> DuplicateRepo<'a> {
             .collect())
     }
 
-    /// «Tieni questo, elimina gli altri» (spec §7): applica `action` a ogni
-    /// altro membro **non cestinato** del gruppo. Riusa
-    /// [`crate::TrashRepo::choose`] asset per asset — le tre opzioni, i
-    /// controlli di visibilità e il cancello su `Purged` sono già lì, non
-    /// vanno duplicati qui.
+    /// "Keep this one, delete the others": applies `action` to every other
+    /// **non-trashed** member of the group. Reuses
+    /// [`crate::TrashRepo::choose`] asset by asset — the three options,
+    /// visibility checks, and the gate on `Purged` already live there and
+    /// must not be duplicated here.
     ///
     /// # Errors
-    /// `Forbidden` se `keep` non è visibile al chiamante o non appartiene
-    /// al gruppo — anche quando l'id non esiste, per non offrire un
-    /// oracolo di esistenza. Altrimenti, lo stesso errore di
-    /// [`crate::TrashRepo::choose`] sul primo membro che fallisce: gli
-    /// altri restano cestinati, non è un'operazione tutto-o-niente perché
-    /// una foto già spostata non deve tornare indietro se la successiva
-    /// fallisce.
+    /// `Forbidden` if `keep` is not visible to the caller or does not
+    /// belong to the group — including when the id does not exist, so as
+    /// not to offer an existence oracle. Otherwise, the same error as
+    /// [`crate::TrashRepo::choose`] on the first member that fails: the
+    /// others remain trashed — this is not an all-or-nothing operation,
+    /// because a photo already moved must not be rolled back if the next
+    /// one fails.
     pub async fn resolve(
         &self,
         ctx: &AuthContext,
@@ -119,9 +121,9 @@ impl<'a> DuplicateRepo<'a> {
     ) -> Result<usize, DbError> {
         let members = self.members(ctx, content_hash).await?;
         if !members.iter().any(|a| a.id == keep) {
-            // `keep` non è nel gruppo (o non è visibile: `find_by_hash` lo
-            // avrebbe già filtrato) — stesso trattamento riservato a ogni
-            // id sondato fuori dalla propria visibilità.
+            // `keep` is not in the group (or is not visible: `find_by_hash`
+            // would already have filtered it out) — the same treatment
+            // given to any id probed outside the caller's own visibility.
             return Err(DbError::Forbidden);
         }
 

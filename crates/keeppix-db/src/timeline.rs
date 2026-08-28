@@ -1,4 +1,4 @@
-//! Bucket mensili e pagine keyset della timeline. Nessun `OFFSET`.
+//! Monthly buckets and keyset pages for the timeline. No `OFFSET`.
 
 use chrono::{DateTime, Months, NaiveDate, Utc};
 use keeppix_domain::{AssetId, AuthContext, LibraryId};
@@ -22,10 +22,10 @@ pub struct MonthBucket {
     pub count: i64,
 }
 
-/// Una riga di geometria: dimensioni note (o `None` se l'asset non è ancora
-/// stato dimensionato) e il momento dello scatto, nello stesso ordine della
-/// timeline (`taken_at_utc DESC, id DESC`). Nessun identificativo: la
-/// geometria descrive altezze, non identifica asset (spec fase-10 §2.3).
+/// A geometry row: known dimensions (or `None` if the asset has not been
+/// sized yet) and the shot's timestamp, in the same order as the timeline
+/// (`taken_at_utc DESC, id DESC`). No identifier: geometry describes
+/// heights, it does not identify assets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeometryRecord {
     pub width: Option<i32>,
@@ -33,43 +33,42 @@ pub struct GeometryRecord {
     pub taken_at_utc: DateTime<Utc>,
 }
 
-/// Geometria di un'intera vista della timeline, più l'informazione minima per
-/// costruire un `ETag`: il massimo `updated_at` fra gli asset della vista.
-/// `records.len()` è il conteggio della risposta piena.
+/// Geometry of an entire timeline view, plus the minimal information
+/// needed to build an `ETag`: the max `updated_at` among the view's
+/// assets. `records.len()` is the full response's count.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Geometry {
     pub records: Vec<GeometryRecord>,
     pub last_modified: Option<DateTime<Utc>>,
-    /// `Some` solo se questa era una richiesta paginata ([`GeometryPage`]) e
-    /// potrebbe esserci altro dopo — il chiamante HTTP lo espone come cursore
-    /// opaco per la pagina successiva, mai nel corpo binario: la geometria
-    /// non porta identificativi per costruzione (spec fase-10 §2.3).
+    /// `Some` only if this was a paginated request ([`GeometryPage`]) and
+    /// there might be more after it — the HTTP caller exposes it as an
+    /// opaque cursor for the next page, never in the binary body:
+    /// geometry carries no identifiers by construction.
     pub next_cursor: Option<(DateTime<Utc>, AssetId)>,
 }
 
-/// Prima pagina "a vista intera" (senza `page`) o continuazione keyset dopo
-/// un cursore — mai `OFFSET` (vedi nota in testa al file): il costo di
-/// saltare N righe cresce con N, il keyset resta O(log n) sull'indice
-/// esistente a prescindere da dove ci si trova nella vista.
+/// Either the first "whole view" page (without `page`) or a keyset
+/// continuation after a cursor — never `OFFSET` (see the note at the top
+/// of this file): the cost of skipping N rows grows with N, keyset stays
+/// O(log n) on the existing index regardless of where you are in the view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeometryPage {
     pub limit: i64,
     pub after: Option<(DateTime<Utc>, AssetId)>,
 }
 
-/// Tetto di `GeometryPage::limit` — un client che chiede di più viene
-/// silenziosamente clampato, non rifiutato: la richiesta resta valida, dà
-/// solo meno per volta. 20.000 record da 6 byte sono ~117 KB, già ben oltre
-/// quanto serve a un primo disegno su rete lenta.
+/// Cap on `GeometryPage::limit` — a client asking for more is silently
+/// clamped, not rejected: the request stays valid, it just gets less per
+/// round trip. 20,000 records at 6 bytes each is ~117 KB, already well
+/// beyond what a first paint over a slow network needs.
 const GEOMETRY_PAGE_LIMIT_MAX: i64 = 20_000;
 
-/// Riga grezza condivisa da `geometry`/`geometry_in_bounds`: id (per il
-/// cursore della pagina successiva, mai nel payload binario), dimensioni,
-/// istante dello scatto.
+/// Raw row shared by `geometry`/`geometry_in_bounds`: id (for the next
+/// page's cursor, never in the binary payload), dimensions, shot timestamp.
 type GeometryRow = (uuid::Uuid, Option<i32>, Option<i32>, DateTime<Utc>);
 
-/// Timbratura leggera della vista geometria (`count` + `max(updated_at)`),
-/// usata per validare `If-None-Match` **prima** di scaricare tutti i record.
+/// Lightweight stamp of the geometry view (`count` + `max(updated_at)`),
+/// used to validate `If-None-Match` **before** downloading all the records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeometryStamp {
     pub count: u64,
@@ -82,20 +81,20 @@ impl<'a> TimelineRepo<'a> {
         Self { db }
     }
 
-    /// Conta le pile (una pila impilata conta 1, non quanti file la
-    /// compongono), non più righe di `folder_month_counts` (Ruling Task 3):
-    /// il trigger che alimenta quella tabella non guarda `stack_id` — farlo
-    /// significherebbe insegnargli a ricalcolare il conteggio di uno stack
-    /// ogni volta che cambia il primario (`StackRepo::set_primary`) o un
-    /// membro si aggiunge/rimuove, molta più complessità nel trigger per un
-    /// solo endpoint. Si conta direttamente da `assets` con lo stesso
-    /// filtro di primario di `page`, così il numero di mesi e il numero di
-    /// tessere per mese non divergono mai. La tabella `folder_month_counts`
-    /// resta intatta per gli altri usi (contatori di cartella, cestino).
+    /// Counts stacks (a stacked group counts as 1, not however many files
+    /// make it up), no longer reading rows from `folder_month_counts`:
+    /// the trigger that feeds that table does not look at `stack_id` —
+    /// doing so would mean teaching it to recompute a stack's count every
+    /// time the primary changes (`StackRepo::set_primary`) or a member is
+    /// added/removed, far more complexity in the trigger for a single
+    /// endpoint. Instead this counts directly from `assets` with the same
+    /// primary filter as `page`, so the number of months and the number
+    /// of tiles per month never diverge. The `folder_month_counts` table
+    /// stays intact for its other uses (folder counters, trash).
     ///
     /// # Errors
-    /// `Forbidden` se `library_id` non è del chiamante (anche inesistente).
-    /// `Connection` se la query fallisce.
+    /// `Forbidden` if `library_id` does not belong to the caller (even if
+    /// nonexistent). `Connection` if the query fails.
     pub async fn buckets(
         &self,
         ctx: &AuthContext,
@@ -135,11 +134,11 @@ impl<'a> TimelineRepo<'a> {
             .collect())
     }
 
-    /// Conteggi mensili ricalcolati sugli asset effettivamente dentro `bounds`.
+    /// Monthly counts recomputed over the assets actually inside `bounds`.
     ///
     /// # Errors
-    /// `Forbidden` se `library_id` non è del chiamante; `Connection` se la
-    /// query fallisce.
+    /// `Forbidden` if `library_id` does not belong to the caller;
+    /// `Connection` if the query fails.
     pub async fn buckets_in_bounds(
         &self,
         ctx: &AuthContext,
@@ -187,12 +186,12 @@ impl<'a> TimelineRepo<'a> {
             .collect())
     }
 
-    /// Pagina keyset dentro un mese. `limit` è clampato a 1..=200. Restituisce
-    /// solo il primario di ogni pila, con il badge di stack (Task 3): un
-    /// asset RAW+JPEG impilato è una tessera, non due.
+    /// Keyset page within a month. `limit` is clamped to 1..=200. Returns
+    /// only the primary of each stack, with the stack badge: a stacked
+    /// RAW+JPEG asset is one tile, not two.
     ///
     /// # Errors
-    /// `Forbidden` / `Connection` come `buckets`.
+    /// `Forbidden` / `Connection` same as `buckets`.
     pub async fn page(
         &self,
         ctx: &AuthContext,
@@ -241,10 +240,10 @@ impl<'a> TimelineRepo<'a> {
         rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
-    /// Pagina keyset dentro un mese e un riquadro geografico.
+    /// Keyset page within a month and a geographic bounding box.
     ///
     /// # Errors
-    /// `Forbidden` / `Connection` come `page`.
+    /// `Forbidden` / `Connection` same as `page`.
     pub async fn page_in_bounds(
         &self,
         ctx: &AuthContext,
@@ -301,26 +300,26 @@ impl<'a> TimelineRepo<'a> {
         rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
-    /// Geometria di tutta la vista (nessuna paginazione): larghezza, altezza
-    /// e istante dello scatto per ogni asset visibile, nello stesso ordine
-    /// della timeline. Gli asset senza `width`/`height` nota restano nel
-    /// risultato con `None`: escluderli farebbe "saltare" il layout quando il
-    /// sizing arriva (spec fase-10 §2.3, punto 5).
+    /// Geometry of the whole view (no pagination): width, height, and
+    /// shot timestamp for every visible asset, in the same order as the
+    /// timeline. Assets with no known `width`/`height` stay in the
+    /// result with `None`: excluding them would make the layout "jump"
+    /// when sizing arrives.
     ///
-    /// Filtra `kind <> 'unknown'` come `page` (Ruling Task 3: prima non lo
-    /// faceva, per restare coerente con `folder_month_counts`, che non guarda
-    /// `kind` — ma ora che `buckets` non legge più da lì e filtra `kind`
-    /// direttamente, è quella la coerenza da mantenere). Restituisce solo il
-    /// primario di ogni pila (Task 3). La query resta index-only su
-    /// `assets_geometry_idx` (`folder_id, taken_at_utc DESC, id DESC INCLUDE
-    /// (width, height, stack_id, kind) WHERE status = 'indexed'`, migrazione
-    /// 0035): sia `stack_id` (per il filtro di primario) sia `kind` sono
-    /// nell'`INCLUDE`; il join verso `stacks` per l'uguaglianza col primario
-    /// tocca solo quella tabella, piccola, non `assets`.
+    /// Filters `kind <> 'unknown'` like `page` (this used not to, to stay
+    /// consistent with `folder_month_counts`, which does not look at
+    /// `kind` — but now that `buckets` no longer reads from there and
+    /// filters `kind` directly, that is the consistency to maintain).
+    /// Returns only the primary of each stack. The query stays
+    /// index-only on `assets_geometry_idx` (`folder_id, taken_at_utc
+    /// DESC, id DESC INCLUDE (width, height, stack_id, kind) WHERE status
+    /// = 'indexed'`): both `stack_id` (for the primary filter) and `kind`
+    /// are in the `INCLUDE`; the join to `stacks` for the primary
+    /// equality only touches that small table, not `assets`.
     ///
     /// # Errors
-    /// `Forbidden` se `library_id` non è del chiamante; `Connection` se la
-    /// query fallisce.
+    /// `Forbidden` if `library_id` does not belong to the caller;
+    /// `Connection` if the query fails.
     pub async fn geometry(
         &self,
         ctx: &AuthContext,
@@ -339,10 +338,10 @@ impl<'a> TimelineRepo<'a> {
                 Some(p.limit.clamp(1, GEOMETRY_PAGE_LIMIT_MAX)),
             )
         });
-        // `LIMIT $7` è sempre nella query: Postgres tratta `LIMIT NULL` come
-        // "nessun limite" (equivalente a ometterlo), quindi non serve un
-        // ramo di SQL condizionale — solo un binding sempre presente, che
-        // tiene il conteggio dei placeholder fisso.
+        // `LIMIT $7` is always in the query: Postgres treats `LIMIT NULL`
+        // as "no limit" (equivalent to omitting it), so no conditional SQL
+        // branch is needed — just a binding that is always present, which
+        // keeps the placeholder count fixed.
         let sql = format!(
             "SELECT a.id, a.width, a.height, a.taken_at_utc FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
@@ -370,10 +369,11 @@ impl<'a> TimelineRepo<'a> {
             .bind(limit)
             .fetch_all(self.db.pool())
             .await?;
-        // Se `page` è impostata e la risposta arriva esattamente al `limit`
-        // (clampato) richiesto, potrebbe esserci altro dopo: il chiamante
-        // HTTP lo segnala col cursore dell'ultima riga. Se la risposta è
-        // più corta (o `page` è `None`), quella era l'intera vista.
+        // If `page` is set and the response arrives at exactly the
+        // requested (clamped) `limit`, there might be more after it: the
+        // HTTP caller signals this with the last row's cursor. If the
+        // response is shorter (or `page` is `None`), that was the whole
+        // view.
         let next_cursor = limit
             .filter(|&l| usize::try_from(l).is_ok_and(|l| rows.len() == l))
             .and_then(|_| {
@@ -389,10 +389,10 @@ impl<'a> TimelineRepo<'a> {
             })
             .collect();
 
-        // Il timbro per l'ETag ha senso solo sulla vista intera (Task 6): una
-        // richiesta paginata (Task 4-bis, cold-start) salta la validazione
-        // 304 e questa query, che altrimenti pagherebbe una scansione in più
-        // per ogni pagina senza usarne mai il risultato.
+        // The ETag stamp only makes sense on the whole view: a paginated
+        // (cold-start) request skips 304 validation and this query, which
+        // would otherwise pay for an extra scan on every page without
+        // ever using its result.
         let last_modified = if page.is_none() {
             let last_modified_sql = format!(
                 "SELECT max(a.updated_at) FROM assets a \
@@ -423,12 +423,12 @@ impl<'a> TimelineRepo<'a> {
         })
     }
 
-    /// `count(*)` + `max(updated_at)` sugli stessi filtri di [`Self::geometry`],
-    /// senza leggere `width`/`height`. Serve a rispondere `304` senza pagare
-    /// la scansione completa della vista.
+    /// `count(*)` + `max(updated_at)` under the same filters as
+    /// [`Self::geometry`], without reading `width`/`height`. Used to
+    /// answer `304` without paying for a full scan of the view.
     ///
     /// # Errors
-    /// Come [`Self::geometry`].
+    /// Same as [`Self::geometry`].
     pub async fn geometry_stamp(
         &self,
         ctx: &AuthContext,
@@ -464,13 +464,14 @@ impl<'a> TimelineRepo<'a> {
         })
     }
 
-    /// Come [`Self::geometry`], ma ristretta a un riquadro geografico. Filtra
-    /// `kind <> 'unknown'` come `buckets_in_bounds`/`page_in_bounds`: qui la
-    /// query tocca comunque `asset_overrides` per la posizione effettiva, e
-    /// non c'è indice di copertura da preservare come nel caso senza filtri.
+    /// Like [`Self::geometry`], but restricted to a geographic bounding
+    /// box. Filters `kind <> 'unknown'` like
+    /// `buckets_in_bounds`/`page_in_bounds`: here the query touches
+    /// `asset_overrides` anyway for the effective position, and there is
+    /// no covering index to preserve like in the unfiltered case.
     ///
     /// # Errors
-    /// `Forbidden` / `Connection` come [`Self::geometry`].
+    /// `Forbidden` / `Connection` same as [`Self::geometry`].
     pub async fn geometry_in_bounds(
         &self,
         ctx: &AuthContext,
@@ -491,8 +492,8 @@ impl<'a> TimelineRepo<'a> {
                 Some(p.limit.clamp(1, GEOMETRY_PAGE_LIMIT_MAX)),
             )
         });
-        // Come in `geometry`: `LIMIT $11` sempre presente, `NULL` = nessun
-        // limite — niente ramo di SQL condizionale.
+        // Same as in `geometry`: `LIMIT $11` always present, `NULL` = no
+        // limit — no conditional SQL branch.
         let sql = format!(
             "SELECT a.id, a.width, a.height, a.taken_at_utc FROM assets a \
              JOIN folders f ON f.id = a.folder_id \
@@ -577,10 +578,10 @@ impl<'a> TimelineRepo<'a> {
         })
     }
 
-    /// Timbratura leggera sugli stessi filtri di [`Self::geometry_in_bounds`].
+    /// Lightweight stamp under the same filters as [`Self::geometry_in_bounds`].
     ///
     /// # Errors
-    /// Come [`Self::geometry_in_bounds`].
+    /// Same as [`Self::geometry_in_bounds`].
     pub async fn geometry_stamp_in_bounds(
         &self,
         ctx: &AuthContext,

@@ -1,9 +1,9 @@
-//! Gruppi di PERSONE FOTOGRAFATE (Fase 8 Task 6). Da non confondere con i
-//! `groups` della Fase 3, che sono gruppi di *utenti* per i permessi: nomi
-//! simili, concetti distinti, tabelle separate di proposito.
+//! Groups of PHOTOGRAPHED PEOPLE. Not to be confused with `groups`, which
+//! are *user* groups for permissions: similar names, distinct concepts,
+//! separate tables on purpose.
 //!
-//! CRUD puro sopra persone già identificate: nessun calcolo, nessuna IA
-//! (spec §5.1). Una persona può stare in più gruppi.
+//! Pure CRUD over already-identified people: no computation, no AI. A
+//! person can belong to multiple groups.
 
 use chrono::{DateTime, Utc};
 use keeppix_domain::{AuthContext, PersonGroup, PersonGroupId, PersonId};
@@ -47,8 +47,8 @@ impl<'a> PersonGroupRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` senza utente autenticato. `Conflict` se il nome è già in
-    /// uso.
+    /// `Forbidden` without an authenticated user. `Conflict` if the name
+    /// is already in use.
     pub async fn create(
         &self,
         ctx: &AuthContext,
@@ -70,14 +70,14 @@ impl<'a> PersonGroupRepo<'a> {
         Ok(row.into_domain())
     }
 
-    /// Tutti i gruppi: un gruppo è metadato di navigazione, non un dato
-    /// sensibile — la sua sola esistenza (nome "Famiglia") non rivela quali
-    /// foto contiene, quindi non ha bisogno di essere filtrato per
-    /// visibilità come le persone stesse. La lista delle persone al suo
-    /// interno, invece, passa da [`PersonRepo::find_by_id`] a valle.
+    /// All groups: a group is navigation metadata, not sensitive data —
+    /// its mere existence (name "Family") does not reveal which photos it
+    /// contains, so it does not need to be filtered by visibility the way
+    /// people themselves are. The list of people inside it, on the other
+    /// hand, goes through [`PersonRepo::find_by_id`] downstream.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato.
+    /// `Forbidden` without an authenticated user.
     pub async fn list(&self, ctx: &AuthContext) -> Result<Vec<PersonGroup>, DbError> {
         if ctx.user_id().is_none() {
             return Err(DbError::Forbidden);
@@ -91,8 +91,8 @@ impl<'a> PersonGroupRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` senza utente autenticato. `NotFound` se il nome è già in
-    /// uso o il gruppo non esiste.
+    /// `Forbidden` without an authenticated user. `NotFound` if the name
+    /// is already in use or the group does not exist.
     pub async fn rename(
         &self,
         ctx: &AuthContext,
@@ -114,7 +114,7 @@ impl<'a> PersonGroupRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` senza utente autenticato.
+    /// `Forbidden` without an authenticated user.
     pub async fn delete(&self, ctx: &AuthContext, id: PersonGroupId) -> Result<(), DbError> {
         if ctx.user_id().is_none() {
             return Err(DbError::Forbidden);
@@ -126,14 +126,14 @@ impl<'a> PersonGroupRepo<'a> {
         Ok(())
     }
 
-    /// Aggiunge una persona al gruppo. Verifica che il chiamante veda
-    /// almeno un volto della persona, riusando [`PersonRepo::find_by_id`] —
-    /// altrimenti si potrebbe scoprire l'esistenza di una persona invisibile
-    /// componendo un gruppo attorno a lei.
+    /// Adds a person to the group. Checks that the caller can see at
+    /// least one face of the person, reusing [`PersonRepo::find_by_id`] —
+    /// otherwise the existence of an invisible person could be discovered
+    /// by composing a group around them.
     ///
     /// # Errors
-    /// Come [`PersonRepo::find_by_id`]. `Forbidden` senza utente
-    /// autenticato per il resto del controllo sul gruppo.
+    /// Same as [`PersonRepo::find_by_id`]. `Forbidden` without an
+    /// authenticated user for the rest of the group check.
     pub async fn add_member(
         &self,
         ctx: &AuthContext,
@@ -156,7 +156,7 @@ impl<'a> PersonGroupRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` senza utente autenticato.
+    /// `Forbidden` without an authenticated user.
     pub async fn remove_member(
         &self,
         ctx: &AuthContext,
@@ -174,11 +174,11 @@ impl<'a> PersonGroupRepo<'a> {
         Ok(())
     }
 
-    /// Persone del gruppo, filtrate sulla visibilità del chiamante (una
-    /// persona nel gruppo che non vede resta invisibile anche qui).
+    /// People in the group, filtered by the caller's visibility (a person
+    /// in the group they cannot see stays invisible here too).
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato.
+    /// `Forbidden` without an authenticated user.
     pub async fn members(
         &self,
         ctx: &AuthContext,

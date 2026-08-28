@@ -1,12 +1,12 @@
-//! Volti rilevati (Fase 8 Task 3/4). [`Self::insert_detected`] non prende
-//! `AuthContext`: è la pipeline di rilevamento, come [`crate::EmbeddingRepo`]
-//! per la Fase 7 — non un'azione utente.
+//! Detected faces. [`Self::insert_detected`] does not take an
+//! `AuthContext`: this is the detection pipeline, like
+//! [`crate::EmbeddingRepo`] — not a user action.
 //!
-//! Le decisioni umane ([`Self::assign`], [`Self::reject`],
-//! [`Self::confirm_proposal`]) **prendono** `AuthContext`: un utente non deve
-//! poter agire (né apprendere l'esistenza) su un volto di un asset che non
-//! vede. Una volta assegnato a mano (`assigned_by` impostato), un volto non
-//! viene mai più toccato dal raggruppamento automatico (spec §4.3).
+//! The human decisions ([`Self::assign`], [`Self::reject`],
+//! [`Self::confirm_proposal`]) **do take** an `AuthContext`: a user must
+//! not be able to act on (or learn of the existence of) a face on an
+//! asset they cannot see. Once manually assigned (`assigned_by` set), a
+//! face is never touched again by automatic clustering.
 
 use std::collections::HashMap;
 
@@ -16,14 +16,14 @@ use keeppix_domain::{AssetId, AuthContext, Face, FaceBBox, FaceId, PersonId, Use
 use crate::visibility::VisibilityScope;
 use crate::{AssetRepo, Db, DbError};
 
-/// Un volto confermato su un asset, come [`FaceRepo::confirmed_among`] lo
-/// restituisce — `person_id`/nome soltanto, non la riga `faces` intera
-/// (bbox/embedding/punteggi non servono al chiamante, SP-3 §11).
+/// A face confirmed on an asset, as returned by
+/// [`FaceRepo::confirmed_among`] — just `person_id`/name, not the full
+/// `faces` row (bbox/embedding/scores are not needed by the caller).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfirmedFace {
     pub person_id: PersonId,
-    /// `None` per una persona senza nome ("Persona 4" — l'etichetta di
-    /// fallback è responsabilità del chiamante, non di questo livello).
+    /// `None` for an unnamed person ("Person 4" — the fallback label is
+    /// the caller's responsibility, not this layer's).
     pub person_name: Option<String>,
 }
 
@@ -34,12 +34,12 @@ struct ConfirmedFaceRow {
     person_name: Option<String>,
 }
 
-/// Allineato a `keeppix_media::face::MODEL_VERSION`. Duplicato qui perché
-/// `keeppix-db` non può dipendere da `keeppix-media` (`deny.toml`) — stessa
-/// ragione di `EmbeddingRepo::MODEL_VERSION` per Fase 7.
+/// Kept in sync with `keeppix_media::face::MODEL_VERSION`. Duplicated here
+/// because `keeppix-db` cannot depend on `keeppix-media` (`deny.toml`) —
+/// same reason as `EmbeddingRepo::MODEL_VERSION`.
 pub const MODEL_VERSION: &str = "yunet+sface";
 
-/// Candidato al rilevamento: ha `content_hash` (quindi può avere miniatura).
+/// A candidate for detection: has a `content_hash` (so it can have a thumbnail).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingFaceScan {
     pub asset_id: AssetId,
@@ -97,9 +97,9 @@ const COLUMNS: &str = "id, asset_id, bbox_x, bbox_y, bbox_w, bbox_h, landmarks, 
                        quality, person_id, assigned_by, assigned_at, rejected_at, \
                        proposed_person_id, proposed_score, model_version, created_at";
 
-/// Input di un volto appena rilevato, prima di ogni raggruppamento. Non
-/// include `person_id`: l'assegnazione arriva dopo, dal raggruppamento
-/// incrementale o da un umano.
+/// Input of a just-detected face, before any clustering. Does not include
+/// `person_id`: assignment comes later, from incremental clustering or a
+/// human.
 #[derive(Debug, Clone)]
 pub struct NewDetectedFace {
     pub asset_id: AssetId,
@@ -121,11 +121,11 @@ impl<'a> FaceRepo<'a> {
         Self { db }
     }
 
-    /// Inserisce un volto appena rilevato, senza persona. Pipeline interna:
-    /// nessun `AuthContext`.
+    /// Inserts a just-detected face, without a person. Internal pipeline:
+    /// no `AuthContext`.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce (o se lo schema volti non esiste).
+    /// `Connection` if the query fails (or if the faces schema does not exist).
     pub async fn insert_detected(&self, new: NewDetectedFace) -> Result<Face, DbError> {
         let embedding_literal = new
             .embedding
@@ -153,11 +153,11 @@ impl<'a> FaceRepo<'a> {
         Ok(row.into_domain())
     }
 
-    /// Volti di un asset, riquadri compresi — pannello dettagli foto. Esclude
-    /// i falsi positivi rifiutati.
+    /// Faces of an asset, bounding boxes included — the photo details
+    /// panel. Excludes rejected false positives.
     ///
     /// # Errors
-    /// `Forbidden` se l'asset non è visibile al chiamante.
+    /// `Forbidden` if the asset is not visible to the caller.
     pub async fn list_for_asset(
         &self,
         ctx: &AuthContext,
@@ -177,12 +177,12 @@ impl<'a> FaceRepo<'a> {
         Ok(rows.into_iter().map(FaceRow::into_domain).collect())
     }
 
-    /// Assegna automaticamente un volto a una persona (raggruppamento
-    /// incrementale): NON tocca `assigned_by`/`assigned_at`, che restano
-    /// riservati alla decisione umana. Non prende `AuthContext`: pipeline.
+    /// Automatically assigns a face to a person (incremental clustering):
+    /// does NOT touch `assigned_by`/`assigned_at`, which remain reserved
+    /// for the human decision. Does not take an `AuthContext`: pipeline.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn auto_assign(&self, face_id: FaceId, person_id: PersonId) -> Result<(), DbError> {
         let old_person = self.person_of(face_id).await?;
         sqlx::query(
@@ -206,11 +206,11 @@ impl<'a> FaceRepo<'a> {
         Ok(row.and_then(|(id,)| id).map(PersonId::from_uuid))
     }
 
-    /// Ricalcola i centroidi delle persone toccate da un cambio di
-    /// composizione — un volto che entra in una persona, o ne esce, cambia
-    /// la media dei suoi embedding confermati. Non fallisce se
-    /// `PersonRepo::recompute_centroid` viene chiamato due volte sulla
-    /// stessa persona (idempotente: rilegge sempre `faces` da capo).
+    /// Recomputes the centroids of persons affected by a composition
+    /// change — a face entering or leaving a person changes the average
+    /// of its confirmed embeddings. Does not fail if
+    /// `PersonRepo::recompute_centroid` is called twice on the same
+    /// person (idempotent: it always rereads `faces` from scratch).
     async fn recompute_affected_centroids(
         &self,
         old_person: Option<PersonId>,
@@ -228,12 +228,12 @@ impl<'a> FaceRepo<'a> {
         Ok(())
     }
 
-    /// Propone (senza assegnare) un volto a una persona: distanza dubbia dal
-    /// centroide più vicino (spec §4.1). Va in coda di revisione (Task 8).
-    /// Non prende `AuthContext`: pipeline.
+    /// Proposes (without assigning) a face to a person: an uncertain
+    /// distance from the nearest centroid. Goes into the review queue.
+    /// Does not take an `AuthContext`: pipeline.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn propose(
         &self,
         face_id: FaceId,
@@ -252,14 +252,14 @@ impl<'a> FaceRepo<'a> {
         Ok(())
     }
 
-    /// Assegnazione manuale, dal pannello dettagli di una foto o dalla coda
-    /// di revisione: imposta `assigned_by`/`assigned_at`, e da qui in poi il
-    /// volto non viene più toccato dal raggruppamento automatico.
+    /// Manual assignment, from a photo's details panel or the review
+    /// queue: sets `assigned_by`/`assigned_at`, and from this point on the
+    /// face is never touched again by automatic clustering.
     ///
     /// # Errors
-    /// `Forbidden` se l'asset del volto non è visibile al chiamante (o senza
-    /// utente autenticato — un link pubblico non decide mai sui volti).
-    /// `NotFound` se il volto non esiste.
+    /// `Forbidden` if the face's asset is not visible to the caller (or
+    /// without an authenticated user — a public link never decides on
+    /// faces). `NotFound` if the face does not exist.
     pub async fn assign(
         &self,
         ctx: &AuthContext,
@@ -289,11 +289,11 @@ impl<'a> FaceRepo<'a> {
             .await
     }
 
-    /// «Non è un volto»: falso positivo permanente. Sparisce dalla revisione
-    /// e non viene mai riproposto da una rianalisi successiva.
+    /// "Not a face": a permanent false positive. Disappears from review
+    /// and is never proposed again by a later re-analysis.
     ///
     /// # Errors
-    /// Come [`Self::assign`].
+    /// Same as [`Self::assign`].
     pub async fn reject(&self, ctx: &AuthContext, face_id: FaceId) -> Result<(), DbError> {
         let Some(user_id) = ctx.user_id() else {
             return Err(DbError::Forbidden);
@@ -330,12 +330,12 @@ impl<'a> FaceRepo<'a> {
             .await
     }
 
-    /// Volti candidati per il raggruppamento incrementale (Task 5): con
-    /// impronta calcolata, non ancora legati a una persona, non rifiutati.
-    /// Non prende `AuthContext`: pipeline di sistema.
+    /// Candidate faces for incremental clustering: with a computed
+    /// embedding, not yet linked to a person, not rejected. Does not take
+    /// an `AuthContext`: system pipeline.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn list_unassigned_with_embedding(
         &self,
         model_version: &str,
@@ -355,11 +355,11 @@ impl<'a> FaceRepo<'a> {
         Ok(rows.into_iter().map(FaceRow::into_domain).collect())
     }
 
-    /// L'embedding di un volto, per il confronto col centroide di una
-    /// persona candidata (Task 5). Non prende `AuthContext`: pipeline.
+    /// The embedding of a face, for comparison against a candidate
+    /// person's centroid. Does not take an `AuthContext`: pipeline.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn embedding_of(&self, face_id: FaceId) -> Result<Option<Vec<f32>>, DbError> {
         let raw: Option<(Option<String>,)> =
             sqlx::query_as("SELECT embedding::text FROM faces WHERE id = $1")
@@ -371,12 +371,12 @@ impl<'a> FaceRepo<'a> {
             .transpose()
     }
 
-    /// Volti proposti (assegnazione dubbia, in attesa di revisione umana),
-    /// filtrati sulla visibilità del chiamante — coda di revisione (Task 8),
-    /// stessa forma della coda tag (SP-10).
+    /// Proposed faces (uncertain assignment, pending human review),
+    /// filtered by the caller's visibility — the review queue, same shape
+    /// as the tag queue.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato.
+    /// `Forbidden` without an authenticated user.
     pub async fn list_proposed(&self, ctx: &AuthContext) -> Result<Vec<Face>, DbError> {
         if ctx.user_id().is_none() {
             return Err(DbError::Forbidden);
@@ -402,12 +402,12 @@ impl<'a> FaceRepo<'a> {
         Ok(rows.into_iter().map(FaceRow::into_domain).collect())
     }
 
-    /// Conferma una proposta: assegna il volto alla persona proposta, come
-    /// se fosse una decisione umana diretta (Task 8, esito «conferma»).
+    /// Confirms a proposal: assigns the face to the proposed person, as if
+    /// it were a direct human decision.
     ///
     /// # Errors
-    /// `Forbidden`/`NotFound` come [`Self::assign`]. `Conflict` se il volto
-    /// non ha (più) una proposta in attesa.
+    /// `Forbidden`/`NotFound` same as [`Self::assign`]. `Conflict` if the
+    /// face has no (more) pending proposal.
     pub async fn confirm_proposal(
         &self,
         ctx: &AuthContext,
@@ -443,12 +443,12 @@ impl<'a> FaceRepo<'a> {
             .await
     }
 
-    /// Numero di volti proposti visibili al chiamante — la metà "volti" del
-    /// badge combinato `bootstrap.badges.revision` (Fase 7 ha già la metà
-    /// "tag": stesso campo, non uno nuovo).
+    /// Number of proposed faces visible to the caller — the "faces" half
+    /// of the combined `bootstrap.badges.revision` badge (the "tags" half
+    /// shares the same field, not a new one).
     ///
     /// # Errors
-    /// `Connection` in caso di errore diverso da schema assente.
+    /// `Connection` for any error other than a missing schema.
     pub async fn count_proposed_visible(&self, ctx: &AuthContext) -> Result<i64, DbError> {
         if ctx.user_id().is_none() {
             return Ok(0);
@@ -475,16 +475,16 @@ impl<'a> FaceRepo<'a> {
         Ok(count)
     }
 
-    /// Asset immagine con hash, non ancora passati al rilevatore per
-    /// `model_version`, fuori dal sottoalbero Culling, in una libreria con
-    /// `faces_enabled`. Stesso pattern di `EmbeddingRepo::list_pending`
-    /// (Fase 7), con `asset_face_scans` al posto di `asset_embeddings` come
-    /// marcatore — un asset senza volti produce zero righe in `faces`, che
-    /// da solo non basta a dire "già analizzato". Non prende `AuthContext`:
-    /// pipeline di sistema.
+    /// Image assets with a hash, not yet passed through the detector for
+    /// `model_version`, outside the Culling subtree, in a library with
+    /// `faces_enabled`. Same pattern as `EmbeddingRepo::list_pending`,
+    /// with `asset_face_scans` in place of `asset_embeddings` as the
+    /// marker — an asset with no faces produces zero rows in `faces`,
+    /// which alone is not enough to say "already analyzed". Does not take
+    /// an `AuthContext`: system pipeline.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce (o se lo schema volti non esiste).
+    /// `Connection` if the query fails (or if the faces schema does not exist).
     pub async fn list_pending_scan(
         &self,
         model_version: &str,
@@ -526,11 +526,12 @@ impl<'a> FaceRepo<'a> {
             .collect()
     }
 
-    /// Quanti asset immagine (fuori culling, libreria con `faces_enabled`)
-    /// restano da passare al rilevatore per `model_version`.
+    /// How many image assets (outside culling, in a library with
+    /// `faces_enabled`) still need to pass through the detector for
+    /// `model_version`.
     ///
     /// # Errors
-    /// `Connection` / schema volti assente.
+    /// `Connection` / missing faces schema.
     pub async fn count_pending_scan(&self, model_version: &str) -> Result<i64, DbError> {
         let n: i64 = sqlx::query_scalar(
             "SELECT count(*)::bigint \
@@ -553,13 +554,13 @@ impl<'a> FaceRepo<'a> {
         Ok(n)
     }
 
-    /// Registra che `asset_id` è stato passato al rilevatore, con o senza
-    /// volti trovati — il marcatore che rende `list_pending_scan` corretto
-    /// anche per una foto senza nessun volto. Non prende `AuthContext`:
-    /// pipeline.
+    /// Records that `asset_id` has been passed through the detector, with
+    /// or without faces found — the marker that makes `list_pending_scan`
+    /// correct even for a photo with no faces at all. Does not take an
+    /// `AuthContext`: pipeline.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn mark_scanned(
         &self,
         asset_id: AssetId,
@@ -577,14 +578,13 @@ impl<'a> FaceRepo<'a> {
         Ok(())
     }
 
-    /// Conferma tutte le proposte in attesa per una persona candidata,
-    /// limitate ai volti visibili al chiamante — «conferma tutti» della
-    /// coda di revisione (Task 8), stesso pattern di
-    /// `AssetTagRepo::confirm_all_for_tag`. Restituisce i volti confermati
-    /// da questa chiamata.
+    /// Confirms all pending proposals for a candidate person, limited to
+    /// faces visible to the caller — the review queue's "confirm all",
+    /// same pattern as `AssetTagRepo::confirm_all_for_tag`. Returns the
+    /// faces confirmed by this call.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato.
+    /// `Forbidden` without an authenticated user.
     pub async fn confirm_all_proposed_for_person(
         &self,
         ctx: &AuthContext,
@@ -623,11 +623,11 @@ impl<'a> FaceRepo<'a> {
         Ok(ids)
     }
 
-    /// Come [`Self::confirm_all_proposed_for_person`], ma rifiuta — «rifiuta
-    /// tutti», permanente come [`Self::reject`].
+    /// Like [`Self::confirm_all_proposed_for_person`], but rejects —
+    /// "reject all", permanent like [`Self::reject`].
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato.
+    /// `Forbidden` without an authenticated user.
     pub async fn reject_all_proposed_for_person(
         &self,
         ctx: &AuthContext,
@@ -663,22 +663,22 @@ impl<'a> FaceRepo<'a> {
             .collect())
     }
 
-    /// «Elimina tutti i dati dei volti» (spec §7, Task 10): distinto
-    /// dall'interruttore `libraries.faces_enabled`, che smette di calcolare
-    /// ma conserva quanto già raccolto. Questo comando fa piazza pulita di
-    /// `faces` (embedding compresi), `persons`, `person_groups` — **globale**,
-    /// non per libreria: una persona può avere volti in più librerie (i
-    /// cluster non sono mai stati scoperti library-scoped, vedi
-    /// `PersonRepo::nearest_centroid`), quindi non esiste un confine di
-    /// libreria per questa azione più di quanto ne esista uno per la persona
-    /// stessa. Azzera anche `asset_face_scans`: dopo la cancellazione ogni
-    /// asset è di nuovo "mai analizzato", non "analizzato ma zero volti" —
-    /// altrimenti una libreria che riaccende `faces_enabled` non
-    /// ririleverebbe mai nulla.
+    /// "Delete all face data": distinct from the `libraries.faces_enabled`
+    /// switch, which stops computing new data but keeps what has already
+    /// been collected. This command wipes `faces` (embeddings included),
+    /// `persons`, `person_groups` — **globally**, not per library: a
+    /// person can have faces across multiple libraries (clusters were
+    /// never scoped to a library, see `PersonRepo::nearest_centroid`), so
+    /// there is no library boundary for this action any more than there
+    /// is one for the person itself. It also resets `asset_face_scans`:
+    /// after deletion, every asset is "never analyzed" again, not
+    /// "analyzed but zero faces" — otherwise a library that re-enables
+    /// `faces_enabled` would never re-detect anything.
     ///
     /// # Errors
-    /// `Forbidden` per chi non è amministratore — stessa soglia di
-    /// `LibraryRepo::delete`, altra azione distruttiva e irreversibile.
+    /// `Forbidden` for anyone who is not an administrator — the same bar
+    /// as `LibraryRepo::delete`, another destructive and irreversible
+    /// action.
     pub async fn delete_all_data(&self, ctx: &AuthContext) -> Result<(), DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -696,19 +696,18 @@ impl<'a> FaceRepo<'a> {
         Ok(())
     }
 
-    /// Volti confermati per un insieme di asset (Fase 11 Task 7, SP-3 §11 e
-    /// `AssetView`) — "confermato" qui è `person_id IS NOT NULL AND
-    /// rejected_at IS NULL`, sia esso assegnato a mano (`assigned_by`
-    /// impostato) sia dal raggruppamento automatico: entrambi sono
-    /// un'identità stabilita, a differenza di `proposed_person_id` (un
-    /// suggerimento non ancora deciso, mai qui). Stesso idioma di
-    /// [`crate::FlagRepo::favorites_among`]: una query sola per l'intera
-    /// pagina. Mappa vuota — non un errore — se pgvector non è installato:
-    /// `faces`/`persons` non esistono affatto in quel caso (migrazione
-    /// 0046, stesso no-op già in [`Self::count_proposed_visible`]).
+    /// Confirmed faces for a set of assets — "confirmed" here means
+    /// `person_id IS NOT NULL AND rejected_at IS NULL`, whether manually
+    /// assigned (`assigned_by` set) or from automatic clustering: both
+    /// represent an established identity, unlike `proposed_person_id` (a
+    /// suggestion not yet decided, never included here). Same idiom as
+    /// [`crate::FlagRepo::favorites_among`]: a single query for the whole
+    /// page. Returns an empty map — not an error — if pgvector is not
+    /// installed: `faces`/`persons` do not exist at all in that case
+    /// (same no-op already used in [`Self::count_proposed_visible`]).
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn confirmed_among(
         &self,
         asset_ids: &[AssetId],

@@ -1,6 +1,6 @@
-//! Album virtuali (spec §5). Nessuno storage: una foto può stare in N album.
-//! Ordine manuale via `position`. Autorizzazione: owner o admin; utenti
-//! condivisi tramite permesso diretto sull'album.
+//! Virtual albums. No dedicated storage: a photo can belong to N albums.
+//! Manual ordering via `position`. Authorization: owner or admin; shared
+//! users via a direct permission on the album.
 
 use std::collections::HashSet;
 
@@ -28,9 +28,10 @@ pub struct Album {
     pub cover_asset_id: Option<AssetId>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    /// Il `SearchNode` con cui l'album è stato creato, se presente. Un album
-    /// senza `rule` è un album puramente manuale: non può essere aggiornato
-    /// (Task 5, «Aggiorna album» invece di album dinamici).
+    /// The `SearchNode` the album was created with, if any. An album
+    /// without a `rule` is a purely manual album: it cannot be refreshed
+    /// (we ended up with a "refresh album" action instead of live dynamic
+    /// albums).
     pub rule: Option<SearchNode>,
     pub rule_run_at: Option<DateTime<Utc>>,
     pub is_shared: bool,
@@ -76,14 +77,14 @@ impl AlbumRow {
 pub struct NewAlbum {
     pub name: String,
     pub description: String,
-    /// Il filtro con cui l'album nasce, se creato da una ricerca (spec
-    /// fase-10 §5.2). `None` per un album puramente manuale.
+    /// The filter the album is created with, if created from a search.
+    /// `None` for a purely manual album.
     pub rule: Option<SearchNode>,
 }
 
-/// Esito di [`AlbumRepo::refresh`]: gli asset id entrati e usciti da
-/// `album_assets` in questa esecuzione. Il chiamante (livello HTTP) lo
-/// traduce nell'involucro di riuscita parziale (`BulkOutcome`, Task 1).
+/// Outcome of [`AlbumRepo::refresh`]: the asset ids that entered and left
+/// `album_assets` in this run. The caller (HTTP layer) translates this into
+/// the partial-success wrapper (`BulkOutcome`).
 #[derive(Debug, Clone, Default)]
 pub struct AlbumRefresh {
     pub added: Vec<AssetId>,
@@ -129,9 +130,9 @@ struct AlbumAssetRow {
 const ALBUM_COLUMNS: &str = "id, name, description, owner_id, cover_asset_id, created_at, \
      updated_at, rule, rule_run_at, is_shared, cover_tint, monochrome";
 
-/// Un album di cui un asset è membro, come [`AlbumRepo::for_asset`] lo
-/// restituisce — solo id e nome, quanto basta per un chip non cliccabile
-/// (§19.2 campo 18: nessuna distinzione visiva fra manuale e dinamico).
+/// An album that an asset is a member of, as returned by
+/// [`AlbumRepo::for_asset`] — just id and name, enough for a non-clickable
+/// chip (no visual distinction between manual and dynamic albums).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlbumBadge {
     pub id: AlbumId,
@@ -159,9 +160,9 @@ impl<'a> AlbumRepo<'a> {
         Self { db }
     }
 
-    /// Verifica che il chiamante possa accedere all'album (owner, admin, o
-    /// permesso diretto). Ritorna `Forbidden` — non `NotFound` — per non
-    /// offrire un oracolo di esistenza.
+    /// Checks that the caller can access the album (owner, admin, or a
+    /// direct permission). Returns `Forbidden` — not `NotFound` — so as not
+    /// to offer an existence oracle.
     async fn assert_visible(&self, ctx: &AuthContext, album_id: AlbumId) -> Result<(), DbError> {
         if ctx.is_admin() {
             let exists: bool =
@@ -218,7 +219,7 @@ impl<'a> AlbumRepo<'a> {
         if ok { Ok(()) } else { Err(DbError::Forbidden) }
     }
 
-    /// Verifica che il chiamante sia owner o admin (può modificare/eliminare).
+    /// Checks that the caller is owner or admin (can modify/delete).
     async fn assert_owner(&self, ctx: &AuthContext, album_id: AlbumId) -> Result<(), DbError> {
         if ctx.is_admin() {
             let exists: bool =
@@ -246,10 +247,10 @@ impl<'a> AlbumRepo<'a> {
         if ok { Ok(()) } else { Err(DbError::Forbidden) }
     }
 
-    /// Crea un nuovo album vuoto. Il chiamante diventa owner.
+    /// Creates a new empty album. The caller becomes owner.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato; `Connection` su errore DB.
+    /// `Forbidden` without an authenticated user; `Connection` on DB error.
     pub async fn create(&self, ctx: &AuthContext, album: NewAlbum) -> Result<Album, DbError> {
         let owner = ctx.user_id().ok_or(DbError::Forbidden)?;
         let id = Uuid::now_v7();
@@ -268,10 +269,10 @@ impl<'a> AlbumRepo<'a> {
         Ok(row.into_domain())
     }
 
-    /// Elenca gli album visibili al chiamante (propri + condivisi).
+    /// Lists the albums visible to the caller (own + shared).
     ///
     /// # Errors
-    /// `Forbidden` senza utente; `Connection` su errore DB.
+    /// `Forbidden` without a user; `Connection` on DB error.
     pub async fn list(&self, ctx: &AuthContext) -> Result<Vec<Album>, DbError> {
         if ctx.is_admin() {
             let rows: Vec<AlbumRow> = sqlx::query_as(&format!(
@@ -307,10 +308,10 @@ impl<'a> AlbumRepo<'a> {
         Ok(rows.into_iter().map(AlbumRow::into_domain).collect())
     }
 
-    /// Recupera un album per id.
+    /// Fetches an album by id.
     ///
     /// # Errors
-    /// `Forbidden` se non esiste o non visibile (mai `NotFound`).
+    /// `Forbidden` if it does not exist or is not visible (never `NotFound`).
     pub async fn get(&self, ctx: &AuthContext, album_id: AlbumId) -> Result<Album, DbError> {
         self.assert_visible(ctx, album_id).await?;
         let row: AlbumRow =
@@ -321,10 +322,10 @@ impl<'a> AlbumRepo<'a> {
         Ok(row.into_domain())
     }
 
-    /// Aggiorna nome, descrizione e/o copertina. Solo owner o admin.
+    /// Updates name, description, and/or cover. Owner or admin only.
     ///
     /// # Errors
-    /// `Forbidden` se non owner/admin; `Connection` su errore DB.
+    /// `Forbidden` if not owner/admin; `Connection` on DB error.
     pub async fn update(
         &self,
         ctx: &AuthContext,
@@ -352,10 +353,10 @@ impl<'a> AlbumRepo<'a> {
         Ok(row.into_domain())
     }
 
-    /// Elimina l'album. Gli asset non vengono toccati. Solo owner o admin.
+    /// Deletes the album. Assets are not touched. Owner or admin only.
     ///
     /// # Errors
-    /// `Forbidden` se non owner/admin; `Connection` su errore DB.
+    /// `Forbidden` if not owner/admin; `Connection` on DB error.
     pub async fn delete(&self, ctx: &AuthContext, album_id: AlbumId) -> Result<(), DbError> {
         self.assert_owner(ctx, album_id).await?;
         sqlx::query("DELETE FROM albums WHERE id = $1")
@@ -365,11 +366,12 @@ impl<'a> AlbumRepo<'a> {
         Ok(())
     }
 
-    /// Aggiunge un asset all'album. La position viene assegnata in fondo
-    /// (MAX + 1000, o 1000 se l'album è vuoto). Solo owner o admin.
+    /// Adds an asset to the album. The position is assigned at the end
+    /// (MAX + 1000, or 1000 if the album is empty). Owner or admin only.
     ///
     /// # Errors
-    /// `Forbidden` se non owner/admin o asset non visibile; `Connection` DB.
+    /// `Forbidden` if not owner/admin or the asset is not visible;
+    /// `Connection` on DB error.
     pub async fn add_asset(
         &self,
         ctx: &AuthContext,
@@ -377,8 +379,8 @@ impl<'a> AlbumRepo<'a> {
         asset_id: AssetId,
     ) -> Result<(), DbError> {
         self.assert_owner(ctx, album_id).await?;
-        // Verifica che l'asset esista ed è visibile al chiamante.
-        // find_by_id ritorna Forbidden se non visibile — mai NotFound per utenti normali.
+        // Check that the asset exists and is visible to the caller.
+        // find_by_id returns Forbidden if not visible — never NotFound for regular users.
         AssetRepo::new(self.db).find_by_id(ctx, asset_id).await?;
 
         let added_by = ctx.user_id().ok_or(DbError::Forbidden)?;
@@ -397,11 +399,11 @@ impl<'a> AlbumRepo<'a> {
         Ok(())
     }
 
-    /// Rimuove un asset dall'album. L'asset **non** viene eliminato.
-    /// Solo owner o admin.
+    /// Removes an asset from the album. The asset itself is **not**
+    /// deleted. Owner or admin only.
     ///
     /// # Errors
-    /// `Forbidden` se non owner/admin; `Connection` DB.
+    /// `Forbidden` if not owner/admin; `Connection` on DB error.
     pub async fn remove_asset(
         &self,
         ctx: &AuthContext,
@@ -417,11 +419,11 @@ impl<'a> AlbumRepo<'a> {
         Ok(())
     }
 
-    /// Riordina un asset nell'album assegnandogli una nuova position.
-    /// Solo owner o admin.
+    /// Reorders an asset within the album by assigning it a new position.
+    /// Owner or admin only.
     ///
     /// # Errors
-    /// `Forbidden` se non owner/admin; `Connection` DB.
+    /// `Forbidden` if not owner/admin; `Connection` on DB error.
     pub async fn reorder(
         &self,
         ctx: &AuthContext,
@@ -442,11 +444,11 @@ impl<'a> AlbumRepo<'a> {
         Ok(())
     }
 
-    /// Elenca gli asset dell'album nell'ordine manuale. Visibile a chi vede
-    /// l'album (owner, admin, utenti con permesso sull'album).
+    /// Lists the album's assets in manual order. Visible to anyone who can
+    /// see the album (owner, admin, users with a permission on the album).
     ///
     /// # Errors
-    /// `Forbidden` se l'album non è visibile; `Connection` DB.
+    /// `Forbidden` if the album is not visible; `Connection` on DB error.
     pub async fn list_assets(
         &self,
         ctx: &AuthContext,
@@ -496,24 +498,23 @@ impl<'a> AlbumRepo<'a> {
             .collect()
     }
 
-    /// Album (manuali e dinamici insieme) di cui un asset fa già parte —
-    /// la sezione ALBUM del pannello informazioni del lightbox (Fase 11
-    /// Task 8, §19.2 campo 18). Nessuna ricerca dedicata esisteva prima
-    /// d'ora: [`Self::list_assets`] va nel verso opposto (album → asset).
-    /// Gli album dinamici non vengono rivalutati qui: la loro
-    /// appartenenza è già **materializzata** in `album_assets` da
-    /// [`Self::refresh`] (commento alla sua definizione), quindi lo stesso
-    /// join di [`Self::list_assets`] copre entrambi i tipi senza bisogno
-    /// di ricalcolare alcuna `rule`. Stessa regola di visibilità di
-    /// [`Self::list`]: admin vede tutto, altrimenti solo gli album di cui
-    /// si è owner o con un permesso condiviso.
+    /// Albums (manual and dynamic together) that an asset already belongs
+    /// to — used for the ALBUMS section of the lightbox info panel. No
+    /// dedicated query existed for this direction before:
+    /// [`Self::list_assets`] goes the other way (album -> asset). Dynamic
+    /// albums are not re-evaluated here: their membership is already
+    /// **materialized** in `album_assets` by [`Self::refresh`] (see the
+    /// comment on its definition), so the same join used by
+    /// [`Self::list_assets`] covers both types without needing to
+    /// recompute any `rule`. Same visibility rule as [`Self::list`]: admin
+    /// sees everything, otherwise only albums the caller owns or has a
+    /// shared permission on.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato, o se l'asset stesso non è
-    /// visibile al chiamante — altrimenti la sola appartenenza a un album
-    /// **proprio** rivelerebbe l'esistenza di un asset che il chiamante
-    /// non potrebbe vedere in nessun altro modo. `Connection` se la query
-    /// fallisce.
+    /// `Forbidden` without an authenticated user, or if the asset itself
+    /// is not visible to the caller — otherwise membership alone in an
+    /// album the caller **owns** would reveal the existence of an asset
+    /// they could not otherwise see. `Connection` if the query fails.
     pub async fn for_asset(
         &self,
         ctx: &AuthContext,
@@ -559,18 +560,19 @@ impl<'a> AlbumRepo<'a> {
         Ok(rows.into_iter().map(AlbumBadgeRow::into_domain).collect())
     }
 
-    /// Ricalcola l'appartenenza dell'album dalla `rule` con cui è nato e
-    /// scrive la differenza in `album_assets` (Task 5, «Aggiorna album» al
-    /// posto di un album dinamico che ricalcolerebbe a ogni apertura della
-    /// griglia). Aggiorna `rule_run_at`. Solo owner o admin.
+    /// Recomputes the album's membership from the `rule` it was created
+    /// with and writes the difference to `album_assets` (this is why we
+    /// ended up with a "refresh album" action instead of a dynamic album
+    /// that would recompute on every grid open). Updates `rule_run_at`.
+    /// Owner or admin only.
     ///
-    /// Ritorna `None` se l'album non ha una `rule`: non è un difetto di
-    /// autorizzazione, è che non c'è nulla da rilanciare — il chiamante HTTP
-    /// lo traduce in un `400`, non in un `403`.
+    /// Returns `None` if the album has no `rule`: that is not an
+    /// authorization failure, there is simply nothing to rerun — the HTTP
+    /// caller translates this into a `400`, not a `403`.
     ///
     /// # Errors
-    /// `Forbidden` se non owner/admin; `Conflict` se la `rule` è troppo
-    /// annidata; `Connection` su errore DB.
+    /// `Forbidden` if not owner/admin; `Conflict` if the `rule` is nested
+    /// too deeply; `Connection` on DB error.
     pub async fn refresh(
         &self,
         ctx: &AuthContext,
@@ -590,8 +592,8 @@ impl<'a> AlbumRepo<'a> {
 
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
-        // Stessi $1,$2,$3 riusati nella subquery Semantic (spec §4.2: K fra i
-        // visibili di questo owner, non K globali poi filtrati).
+        // Same $1,$2,$3 reused in the Semantic subquery: we want the top K
+        // among assets visible to this owner, not K globally and then filtered.
         let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
         let mut param = 4_usize;
         let (clause, binds) = compile_for_sql(

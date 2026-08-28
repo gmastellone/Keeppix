@@ -1,31 +1,34 @@
-//! Probe della presenza di pgvector (estensione `vector`) sul Postgres collegato.
+//! Probe for the presence of pgvector (the `vector` extension) on the
+//! connected Postgres.
 //!
-//! Fase 7 Task 3/4: se manca, Keeppix **non** rifiuta l'avvio — le funzioni AI
-//! restano spente e lo stato persistito spiega perché, con il comando da
-//! eseguire. La migrazione `0043_ai_embeddings_tags` abilita `vector` e crea
-//! lo schema solo quando il pacchetto è installato; altrimenti è un no-op.
+//! If it is missing, Keeppix **does not** refuse to start — AI features
+//! stay disabled and the persisted status explains why, with the command
+//! to run. The `0043_ai_embeddings_tags` migration enables `vector` and
+//! creates the schema only when the package is installed; otherwise it is
+//! a no-op.
 
 use serde::{Deserialize, Serialize};
 
 use crate::{Db, DbError, SettingsRepo};
 
-/// Comando SQL da mostrare all'operatore quando pgvector è assente o non ancora
-/// creato. La migrazione del Task 4 lo eseguirà sul percorso bundled; qui serve
-/// solo come istruzione leggibile per Postgres esterni.
+/// SQL command to show the operator when pgvector is missing or not yet
+/// created. The bundled image's migration runs it automatically; here it
+/// only serves as a readable instruction for external Postgres instances.
 pub const ENABLE_VECTOR_SQL: &str = "CREATE EXTENSION IF NOT EXISTS vector;";
 
-/// Esito del probe di pgvector all'avvio (Fase 7 Task 3).
+/// Outcome of the pgvector probe at startup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PgVectorStatus {
-    /// Il pacchetto/estensione è installato sul server (`pg_available_extensions`).
+    /// The package/extension is installed on the server (`pg_available_extensions`).
     pub available: bool,
-    /// `CREATE EXTENSION vector` è già stato eseguito su questo database.
+    /// `CREATE EXTENSION vector` has already been run on this database.
     pub enabled: bool,
-    /// Messaggio inglese per log e pannello quando le funzioni AI restano spente.
-    /// `None` se pgvector è utilizzabile (o lo sarà dopo la migrazione Task 4).
+    /// English message for logs and the panel when AI features stay
+    /// disabled. `None` if pgvector is usable (or will be after the
+    /// migration runs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
-    /// Comando da eseguire dopo aver installato il pacchetto sul server.
+    /// Command to run after installing the package on the server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enable_command: Option<String>,
 }
@@ -33,7 +36,7 @@ pub struct PgVectorStatus {
 impl PgVectorStatus {
     pub const ENABLE_SQL: &'static str = ENABLE_VECTOR_SQL;
 
-    /// Stato quando l'estensione non è installata sul server Postgres.
+    /// Status when the extension is not installed on the Postgres server.
     #[must_use]
     pub fn missing() -> Self {
         Self {
@@ -49,12 +52,13 @@ impl PgVectorStatus {
         }
     }
 
-    /// Stato quando l'estensione è installata sul server.
+    /// Status when the extension is installed on the server.
     ///
-    /// `enabled` distingue «pacchetto presente» da «già `CREATE EXTENSION`».
-    /// Dopo la migrazione Task 4 sull'immagine bundled, `enabled` è `true`.
-    /// Su un Postgres dove il pacchetto c'è ma la migrazione non ha ancora
-    /// corso (o è stata saltata), `enabled == false` resta legittimo.
+    /// `enabled` distinguishes "package present" from "already `CREATE
+    /// EXTENSION`". After the migration runs on the bundled image,
+    /// `enabled` is `true`. On a Postgres where the package exists but
+    /// the migration has not run yet (or was skipped), `enabled == false`
+    /// remains legitimate.
     #[must_use]
     pub fn present(enabled: bool) -> Self {
         Self {
@@ -65,7 +69,7 @@ impl PgVectorStatus {
         }
     }
 
-    /// `true` quando l'assenza di pgvector spegne le funzioni AI.
+    /// `true` when the absence of pgvector disables AI features.
     #[must_use]
     pub const fn ai_disabled(&self) -> bool {
         !self.available
@@ -78,14 +82,14 @@ struct ProbeRow {
     enabled: bool,
 }
 
-/// Controlla se `vector` (pgvector) è installabile o già attiva.
+/// Checks whether `vector` (pgvector) is installable or already active.
 ///
-/// Nessun `AuthContext`: è un probe di capacità dell'istanza, eseguito all'avvio
-/// prima che esista una sessione utente (stesso motivo di `count` /
-/// `create_bootstrap_admin` — non legge dati di un utente).
+/// No `AuthContext`: this is an instance capability probe, run at startup
+/// before any user session exists (same reason as `count` /
+/// `create_bootstrap_admin` — it does not read a user's data).
 ///
 /// # Errors
-/// `DbError::Connection` se la query fallisce.
+/// `DbError::Connection` if the query fails.
 pub async fn probe_pgvector(db: &Db) -> Result<PgVectorStatus, DbError> {
     let row: ProbeRow = sqlx::query_as(
         "SELECT \
@@ -102,9 +106,9 @@ pub async fn probe_pgvector(db: &Db) -> Result<PgVectorStatus, DbError> {
     })
 }
 
-/// Scrive lo stato in `system_settings` sotto la chiave `pgvector`, così il
-/// pannello (Task successivi) può spiegare perché la sezione AI è spenta senza
-/// rieseguire il probe a ogni richiesta.
+/// Writes the status to `system_settings` under the `pgvector` key, so the
+/// panel can explain why the AI section is disabled without re-running
+/// the probe on every request.
 ///
 /// # Errors
 /// Database.

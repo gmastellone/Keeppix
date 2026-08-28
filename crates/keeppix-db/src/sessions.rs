@@ -6,18 +6,17 @@ use uuid::Uuid;
 
 use crate::{Db, DbError};
 
-/// Riga di `GET /users/me/sessions`: una per famiglia, cioè per
-/// dispositivo/login (vedi `SessionId`), non per riga di `sessions` — le
-/// righe consumate dalla rotazione non sono un dispositivo in più.
+/// Row of `GET /users/me/sessions`: one per family, i.e. per
+/// device/login (see `SessionId`), not one per `sessions` row — rows
+/// consumed by rotation are not an extra device.
 pub struct SessionSummary {
     pub id: SessionId,
     pub device_label: Option<String>,
-    /// Quando la riga attiva della famiglia è nata: al login, o all'ultima
-    /// rotazione (`POST /auth/refresh`) se ce n'è stata una. È
-    /// l'approssimazione di "ultimo utilizzo" più economica disponibile
-    /// senza un contatore aggiornato a ogni richiesta autenticata (che
-    /// `authenticate()` esplicitamente non fa: vedi
-    /// `authenticate_does_not_slide_expiry`).
+    /// When the family's active row was created: at login, or at the
+    /// last rotation (`POST /auth/refresh`) if there was one. This is the
+    /// cheapest available approximation of "last used" without a counter
+    /// updated on every authenticated request (which `authenticate()`
+    /// explicitly does not do: see `authenticate_does_not_slide_expiry`).
     pub last_seen_at: DateTime<Utc>,
     pub current: bool,
 }
@@ -34,11 +33,11 @@ struct AuthRow {
 
 impl AuthRow {
     fn into_domain(self) -> Result<AuthContext, DbError> {
-        // Stessa tassonomia di `users.rs` (ruling R3): un valore che il codice
-        // non sa interpretare è `Corrupted`, non un ruolo degradato a `User`.
-        // Il CHECK sulla colonna lo rende irraggiungibile e la degradazione
-        // falliva chiusa, ma due moduli che trattano lo stesso dato in modo
-        // diverso rendono inaffidabile il triage sugli errori.
+        // Same taxonomy as `users.rs`: a value the code cannot interpret is
+        // `Corrupted`, not a role silently downgraded to `User`. The CHECK
+        // on the column makes this unreachable and the downgrade would
+        // fail closed anyway, but two modules treating the same data
+        // differently would make error triage unreliable.
         let role = match self.role.as_str() {
             "admin" => SystemRole::Admin,
             "user" => SystemRole::User,
@@ -66,11 +65,11 @@ impl<'a> SessionRepo<'a> {
         Self { db }
     }
 
-    /// Apre una nuova famiglia di sessione. Il token in chiaro è restituito
-    /// una sola volta: nel database resta solo il digest.
+    /// Opens a new session family. The plaintext token is returned only
+    /// once: only the digest remains in the database.
     ///
     /// # Errors
-    /// `DbError::Connection` se l'inserimento fallisce.
+    /// `DbError::Connection` if the insert fails.
     pub async fn create(
         &self,
         user_id: UserId,
@@ -98,8 +97,8 @@ impl<'a> SessionRepo<'a> {
     }
 
     /// # Errors
-    /// `DbError::NotFound` se il token è sconosciuto, scaduto, consumato,
-    /// revocato, oppure se l'utente è disabilitato.
+    /// `DbError::NotFound` if the token is unknown, expired, consumed,
+    /// revoked, or if the user is disabled.
     pub async fn authenticate(&self, token: &SessionToken) -> Result<AuthContext, DbError> {
         let row: Option<AuthRow> = sqlx::query_as(
             "SELECT u.id AS user_id, u.role \
@@ -117,13 +116,14 @@ impl<'a> SessionRepo<'a> {
         row.ok_or(DbError::NotFound)?.into_domain()
     }
 
-    /// Ruota il token. Se quello presentato risulta **già consumato**, l'unica
-    /// spiegazione è che una copia sia in mano a qualcun altro: si revoca
-    /// l'intera famiglia e si costringe a un nuovo login.
+    /// Rotates the token. If the one presented turns out to be **already
+    /// consumed**, the only explanation is that a copy is in someone
+    /// else's hands: the entire family is revoked and a fresh login is
+    /// forced.
     ///
     /// # Errors
-    /// `DbError::Forbidden` in caso di riuso rilevato; `DbError::NotFound` se
-    /// il token non esiste o è scaduto.
+    /// `DbError::Forbidden` if reuse is detected; `DbError::NotFound` if
+    /// the token does not exist or has expired.
     pub async fn rotate(
         &self,
         token: &SessionToken,
@@ -191,7 +191,7 @@ impl<'a> SessionRepo<'a> {
     }
 
     /// # Errors
-    /// `DbError::Connection` se l'aggiornamento fallisce.
+    /// `DbError::Connection` if the update fails.
     pub async fn revoke(&self, token: &SessionToken) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE sessions SET revoked_at = now() \
@@ -203,7 +203,7 @@ impl<'a> SessionRepo<'a> {
         Ok(())
     }
 
-    /// Revoca tutte le sessioni di un utente. Usato quando lo si disabilita.
+    /// Revokes all of a user's sessions. Used when the user is disabled.
     ///
     /// # Errors
     /// `DbError::Connection`.
@@ -221,8 +221,8 @@ impl<'a> SessionRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Revoca tutte le famiglie dell'utente tranne quella del token corrente
-    /// (cambio password: le altre sessioni devono cadere).
+    /// Revokes all of the user's families except the current token's
+    /// (password change: other sessions must drop).
     ///
     /// # Errors
     /// `DbError::Connection`.
@@ -247,7 +247,7 @@ impl<'a> SessionRepo<'a> {
     }
 
     /// # Errors
-    /// `DbError::Connection` se la cancellazione fallisce.
+    /// `DbError::Connection` if the deletion fails.
     pub async fn purge_expired(&self) -> Result<u64, DbError> {
         let result = sqlx::query("DELETE FROM sessions WHERE expires_at <= now()")
             .execute(self.db.pool())
@@ -255,19 +255,20 @@ impl<'a> SessionRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Famiglia del token presentato — cioè l'id di sessione (`SessionId`)
-    /// che `GET /users/me/sessions` deve marcare `current: true`. **Eccezione
-    /// documentata** all'invariante "ogni metodo che legge dati di un utente
-    /// prende `AuthContext`" per lo stesso motivo di `authenticate`: il
-    /// token stesso è già la credenziale, e serve a costruire il confronto
-    /// *prima* che l'elenco delle sessioni (che quello sì prende
-    /// `AuthContext`) venga interrogato.
+    /// Family of the presented token — i.e. the session id (`SessionId`)
+    /// that `GET /users/me/sessions` must mark `current: true`.
+    /// **Documented exception** to the invariant "every method that reads
+    /// a user's data takes an `AuthContext`" for the same reason as
+    /// `authenticate`: the token itself is already the credential, and is
+    /// needed to build the comparison *before* the session list (which
+    /// does take an `AuthContext`) is queried.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce. Un token sconosciuto non è
-    /// un errore: restituisce `Ok(None)`, lasciando a chi chiama decidere se
-    /// è una situazione anomala (l'estrattore `Auth` ha già verificato che il
-    /// token autentica, quindi in pratica arriva sempre `Some`).
+    /// `DbError::Connection` if the query fails. An unknown token is not
+    /// an error: it returns `Ok(None)`, leaving it to the caller to
+    /// decide whether that is an anomaly (the `Auth` extractor has
+    /// already verified the token authenticates, so in practice `Some`
+    /// always arrives).
     pub async fn family_of(&self, token: &SessionToken) -> Result<Option<SessionId>, DbError> {
         let family: Option<Uuid> =
             sqlx::query_scalar("SELECT family_id FROM sessions WHERE refresh_token_hash = $1")
@@ -277,14 +278,14 @@ impl<'a> SessionRepo<'a> {
         Ok(family.map(SessionId::from_uuid))
     }
 
-    /// Elenco delle sessioni attive dell'utente autenticato, una per
-    /// famiglia: `consumed_at IS NULL AND revoked_at IS NULL AND expires_at >
-    /// now()` seleziona esattamente la riga viva di ciascuna famiglia, perché
-    /// la rotazione (`rotate`) marca sempre `consumed_at` sulla riga
-    /// superata prima di inserirne una nuova — non serve un `GROUP BY`.
+    /// List of the authenticated user's active sessions, one per family:
+    /// `consumed_at IS NULL AND revoked_at IS NULL AND expires_at >
+    /// now()` selects exactly the live row of each family, because
+    /// rotation (`rotate`) always marks `consumed_at` on the superseded
+    /// row before inserting a new one — no `GROUP BY` needed.
     ///
     /// # Errors
-    /// `DbError::Forbidden` se il chiamante non è un utente autenticato.
+    /// `DbError::Forbidden` if the caller is not an authenticated user.
     pub async fn list_active(
         &self,
         ctx: &AuthContext,
@@ -305,18 +306,19 @@ impl<'a> SessionRepo<'a> {
         Ok(rows.into_iter().map(ActiveRow::into_domain).collect())
     }
 
-    /// Revoca una famiglia di sessioni (`GET .../sessions` la elenca come una
-    /// riga, non come le sue rotazioni). Solo il proprietario, mai un altro
-    /// utente: un id che appartiene ad altri risponde `Forbidden`, mai
-    /// `NotFound` — stessa regola di `AppPasswordRepo::revoke`, e per lo
-    /// stesso motivo (oracolo di esistenza). **Non** verifica se `family` è
-    /// la famiglia corrente: quel controllo (400, non 403/404 — non è un
-    /// problema di proprietà) vive nell'handler HTTP, che ha già il token
-    /// corrente sotto mano e non deve interrogare il database per farlo.
+    /// Revokes a session family (`GET .../sessions` lists it as one row,
+    /// not as its rotations). Owner only, never another user: an id
+    /// belonging to someone else responds `Forbidden`, never `NotFound` —
+    /// same rule as `AppPasswordRepo::revoke`, and for the same reason
+    /// (existence oracle). **Does not** check whether `family` is the
+    /// current family: that check (400, not 403/404 — it is not an
+    /// ownership problem) lives in the HTTP handler, which already has
+    /// the current token at hand and does not need to query the database
+    /// for it.
     ///
     /// # Errors
-    /// `DbError::Forbidden` se il chiamante non possiede la famiglia, o se la
-    /// famiglia non esiste.
+    /// `DbError::Forbidden` if the caller does not own the family, or if
+    /// the family does not exist.
     pub async fn revoke_family(&self, ctx: &AuthContext, family: SessionId) -> Result<(), DbError> {
         let user_id = ctx.user_id().ok_or(DbError::Forbidden)?;
 
@@ -362,30 +364,29 @@ impl ActiveRow {
     }
 }
 
-/// Postgres non accetta un `Duration` di Rust: si passa un intervallo in
-/// secondi, **frazionari**. `as_secs()` troncava: un TTL di 500 ms diventava
-/// `"0 seconds"`, cioè un token nato scaduto senza alcun errore — silenzioso e
-/// insidioso, e il primo test che vorrà osservare una scadenza senza aspettare
-/// un secondo intero ci sbatterebbe contro. `as_secs_f64()` arriva ben oltre la
-/// precisione al microsecondo di `interval`, e un TTL zero resta `"0 seconds"`,
-/// cioè un token già scaduto: proprietà su cui poggiano i test esistenti.
+/// Postgres does not accept a Rust `Duration`: an interval is passed as
+/// **fractional** seconds. `as_secs()` used to truncate: a 500ms TTL
+/// became `"0 seconds"`, i.e. a token born already expired with no error
+/// at all — silent and insidious, and the first test that wants to
+/// observe an expiry without waiting a full second would run right into
+/// it. `as_secs_f64()` goes well beyond `interval`'s microsecond
+/// precision, and a zero TTL still yields `"0 seconds"`, i.e. an
+/// already-expired token: a property the existing tests rely on.
 fn interval(ttl: Duration) -> String {
     format!("{} seconds", ttl.as_secs_f64())
 }
 
-/// Etichetta breve ("Chrome on macOS") derivata da uno `User-Agent`, per
-/// mostrare in `GET /users/me/sessions` *quale* dispositivo tiene una
-/// sessione senza conservarne il valore completo (spec fase-10 §8.1: lo
-/// `User-Agent` intero è più dato personale del necessario). `None` solo
-/// quando l'header stesso manca; un header presente ma non riconosciuto
-/// produce "Unknown device", non `None` — l'utente ha comunque un
-/// dispositivo, semplicemente non ne sappiamo il nome.
+/// Short label ("Chrome on macOS") derived from a `User-Agent`, to show
+/// in `GET /users/me/sessions` *which* device holds a session without
+/// storing its full value (the entire `User-Agent` is more personal data
+/// than necessary). `None` only when the header itself is missing; a
+/// present but unrecognized header produces "Unknown device", not
+/// `None` — the user still has a device, we simply do not know its name.
 ///
-/// L'ordine dei controlli conta: le sottostringhe dei browser/OS più diffusi
-/// si contengono a vicenda nello `User-Agent` reale (Edge e Chrome contengono
-/// entrambi `Safari/`; Chrome contiene `Safari/`; un iPhone dichiara "like
-/// Mac OS X"), quindi il primo controllo che matcha deve essere il più
-/// specifico.
+/// The order of checks matters: the most common browser/OS substrings
+/// contain each other in a real `User-Agent` (Edge and Chrome both
+/// contain `Safari/`; Chrome contains `Safari/`; an iPhone claims "like
+/// Mac OS X"), so the first check that matches must be the most specific.
 fn device_label_from_user_agent(user_agent: Option<&str>) -> Option<String> {
     let ua = user_agent?;
 
@@ -434,10 +435,9 @@ mod tests {
     fn sub_second_ttls_survive_the_round_trip() {
         assert_eq!(interval(Duration::from_millis(500)), "0.5 seconds");
         assert_eq!(interval(Duration::from_micros(1500)), "0.0015 seconds");
-        // Un TTL zero deve restare zero: i test sulla scadenza immediata ci
-        // contano.
+        // A zero TTL must stay zero: the immediate-expiry tests rely on it.
         assert_eq!(interval(Duration::ZERO), "0 seconds");
-        // I valori interi non guadagnano decimali: `2592000 seconds`, non
+        // Integer values do not gain decimals: `2592000 seconds`, not
         // `2592000.0 seconds`.
         assert_eq!(interval(Duration::from_secs(2_592_000)), "2592000 seconds");
     }
@@ -471,8 +471,8 @@ mod tests {
             device_label_from_user_agent(Some(CHROME_ANDROID)),
             Some("Chrome on Android".to_owned())
         );
-        // Edge porta sia `Chrome/` sia `Safari/` nella propria stringa: deve
-        // vincere `Edg/`, altrimenti ogni Edge si etichetterebbe "Chrome".
+        // Edge carries both `Chrome/` and `Safari/` in its own string:
+        // `Edg/` must win, otherwise every Edge would be labelled "Chrome".
         assert_eq!(
             device_label_from_user_agent(Some(EDGE_WINDOWS)),
             Some("Edge on Windows".to_owned())
@@ -491,9 +491,10 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn the_full_user_agent_never_survives_into_the_label() {
-        // La proprietà che la migrazione dichiara: l'etichetta non deve mai
-        // contenere la stringa originale per intero (né un numero di versione
-        // specifico, che identificherebbe il dispositivo più di un'etichetta).
+        // The property the migration declares: the label must never
+        // contain the full original string (nor a specific version
+        // number, which would identify the device more than a label
+        // should).
         let label = device_label_from_user_agent(Some(CHROME_MACOS)).unwrap();
         assert!(!label.contains("126.0.0.0"));
         assert!(!label.contains("AppleWebKit"));

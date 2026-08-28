@@ -115,11 +115,11 @@ impl<'a> RegionRepo<'a> {
         Self { db }
     }
 
-    /// Registra un download globale. Solo un admin può avviarlo e una riga già
-    /// in download non viene sostituita.
+    /// Registers a global download. Only an admin can start one, and a
+    /// row already downloading is not replaced.
     ///
     /// # Errors
-    /// `Forbidden` per non-admin, `Conflict` se la regione è già in download.
+    /// `Forbidden` for non-admins, `Conflict` if the region is already downloading.
     pub async fn begin_download(
         &self,
         ctx: &AuthContext,
@@ -160,10 +160,10 @@ impl<'a> RegionRepo<'a> {
             .into_domain()
     }
 
-    /// Elenca lo stato globale delle regioni a un utente autenticato.
+    /// Lists the global status of regions for an authenticated user.
     ///
     /// # Errors
-    /// `Forbidden` senza utente; `Connection` su errore DB.
+    /// `Forbidden` without a user; `Connection` on DB error.
     pub async fn list(&self, ctx: &AuthContext) -> Result<Vec<MapRegion>, DbError> {
         if ctx.user_id().is_none() {
             return Err(DbError::Forbidden);
@@ -191,10 +191,10 @@ impl<'a> RegionRepo<'a> {
         rows.into_iter().map(RegionRow::into_domain).collect()
     }
 
-    /// Legge una regione globale per id.
+    /// Reads a global region by id.
     ///
     /// # Errors
-    /// `Forbidden` senza utente; `NotFound` se assente.
+    /// `Forbidden` without a user; `NotFound` if absent.
     pub async fn find(&self, ctx: &AuthContext, id: &str) -> Result<MapRegion, DbError> {
         if ctx.user_id().is_none() {
             return Err(DbError::Forbidden);
@@ -207,11 +207,11 @@ impl<'a> RegionRepo<'a> {
         row.ok_or(DbError::NotFound)?.into_domain()
     }
 
-    /// Come [`Self::find`], ma una regione non disponibile equivale ad assente
-    /// per il tile reader.
+    /// Same as [`Self::find`], but a region that is not available is
+    /// treated as absent by the tile reader.
     ///
     /// # Errors
-    /// `Forbidden`, `NotFound` o `Connection`.
+    /// `Forbidden`, `NotFound`, or `Connection`.
     pub async fn find_available(&self, ctx: &AuthContext, id: &str) -> Result<MapRegion, DbError> {
         let region = self.find(ctx, id).await?;
         if region.status == RegionStatus::Available {
@@ -221,12 +221,12 @@ impl<'a> RegionRepo<'a> {
         }
     }
 
-    /// Richiede l'interruzione lasciando la regione ritentabile finché i file
-    /// non sono stati rimossi.
+    /// Requests cancellation, leaving the region retryable until the
+    /// files have been removed.
     ///
     /// # Errors
-    /// `Forbidden` per non-admin, `NotFound` se assente, `Conflict` se non è
-    /// in download.
+    /// `Forbidden` for non-admins, `NotFound` if absent, `Conflict` if it
+    /// is not downloading.
     pub async fn request_cancel(&self, ctx: &AuthContext, id: &str) -> Result<(), DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -254,12 +254,12 @@ impl<'a> RegionRepo<'a> {
         }
     }
 
-    /// Completa una cancellazione solo dopo il cleanup dei file.
+    /// Completes a cancellation only after the file cleanup.
     ///
-    /// Non prende `AuthContext`: metodo interno della pipeline.
+    /// Does not take an `AuthContext`: internal pipeline method.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn finish_cancel(&self, id: &str, generation: Uuid) -> Result<bool, DbError> {
         let result = sqlx::query(
             "UPDATE map_regions \
@@ -275,11 +275,11 @@ impl<'a> RegionRepo<'a> {
         Ok(result.rows_affected() == 1)
     }
 
-    /// Elimina la riga globale. I file vengono rimossi dal livello API, che
-    /// possiede `data_dir`.
+    /// Deletes the global row. The files are removed by the API layer,
+    /// which owns `data_dir`.
     ///
     /// # Errors
-    /// `Forbidden` per non-admin, `NotFound` se assente.
+    /// `Forbidden` for non-admins, `NotFound` if absent.
     pub async fn delete(&self, ctx: &AuthContext, id: &str) -> Result<(), DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -294,11 +294,12 @@ impl<'a> RegionRepo<'a> {
         Ok(())
     }
 
-    /// Dati di download letti dal worker. Non prende `AuthContext` perché non
-    /// espone dati utente ed è chiamato solo dalla pipeline.
+    /// Download data read by the worker. Does not take an `AuthContext`
+    /// because it does not expose user data and is only called by the
+    /// pipeline.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn source_for_download(
         &self,
         id: &str,
@@ -326,12 +327,12 @@ impl<'a> RegionRepo<'a> {
         ))
     }
 
-    /// Persiste l'offset osservato dal worker.
+    /// Persists the offset observed by the worker.
     ///
-    /// Non prende `AuthContext`: metodo interno della pipeline.
+    /// Does not take an `AuthContext`: internal pipeline method.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn record_progress(
         &self,
         id: &str,
@@ -351,12 +352,12 @@ impl<'a> RegionRepo<'a> {
         Ok(result.rows_affected() == 1)
     }
 
-    /// Marca disponibile solo se nessuno ha cancellato nel frattempo.
+    /// Marks it available only if nobody cancelled in the meantime.
     ///
-    /// Non prende `AuthContext`: metodo interno della pipeline.
+    /// Does not take an `AuthContext`: internal pipeline method.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn mark_available(&self, id: &str, generation: Uuid) -> Result<bool, DbError> {
         let result = sqlx::query(
             "UPDATE map_regions \
@@ -372,13 +373,13 @@ impl<'a> RegionRepo<'a> {
         Ok(result.rows_affected() == 1)
     }
 
-    /// Marca un errore leggibile e azzera l'offset perché il parziale viene
-    /// rimosso.
+    /// Marks a readable error and resets the offset because the partial
+    /// download is removed.
     ///
-    /// Non prende `AuthContext`: metodo interno della pipeline.
+    /// Does not take an `AuthContext`: internal pipeline method.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn mark_error(
         &self,
         id: &str,

@@ -1,14 +1,14 @@
-//! Persone: identità che vivono nel tempo attraverso più volti e più asset
-//! (Fase 8 Task 6/7). Distinte dai `groups` della Fase 3 (permessi utenti) —
-//! vedi [`crate::person_groups`] per i gruppi di persone fotografate.
+//! People: identities that persist over time across multiple faces and
+//! multiple assets. Distinct from `groups` (user permissions) — see
+//! [`crate::person_groups`] for groups of photographed people.
 //!
-//! Una persona non ha una libreria o cartella propria: la sua visibilità è
-//! **transitiva**, attraverso i volti confermati che la compongono. Un
-//! utente vede una persona solo se vede almeno un asset in cui compare —
-//! altrimenti l'esistenza stessa della persona (e il suo nome) sarebbe un
-//! canale di fuga di informazione su foto che non dovrebbe vedere. Un link
-//! pubblico (`ctx.user_id() == None`) non vede mai nessuna persona: spec
-//! fase-8-volti.md §7, "sui link pubblici i volti non compaiono mai".
+//! A person has no library or folder of their own: their visibility is
+//! **transitive**, through the confirmed faces that make them up. A user
+//! can see a person only if they can see at least one asset the person
+//! appears in — otherwise the mere existence of the person (and their
+//! name) would be an information-leak channel about photos the user
+//! should not see. A public link (`ctx.user_id() == None`) never sees any
+//! person: faces never appear on public links.
 
 use chrono::{DateTime, Utc};
 use keeppix_domain::{AuthContext, FaceId, Person, PersonId, PersonName, PersonSeparation};
@@ -39,9 +39,8 @@ impl PersonRow {
 
 const COLUMNS: &str = "id, name, cover_face_id, hidden_at, created_at";
 
-/// Una persona con il conteggio dei volti confermati visibili al chiamante —
-/// quanto serve alla pagina Persone (spec §5) senza un secondo giro di
-/// query per riga.
+/// A person with the count of confirmed faces visible to the caller —
+/// what the People page needs without a second round of queries per row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PersonSummary {
     pub person: Person,
@@ -83,15 +82,14 @@ impl<'a> PersonRepo<'a> {
         Self { db }
     }
 
-    /// Crea una persona, con nome opzionale. Non prende `AuthContext`: sia
-    /// il raggruppamento automatico (persona senza nome, Task 5) sia un
-    /// umano (Task 6 "nuova persona", Task 7 "separa") la chiamano, e in
-    /// nessuno dei due casi c'è ancora un asset da cui derivare la
-    /// visibilità — la validazione di visibilità arriva dopo, sui volti che
-    /// si assegnano a questa persona.
+    /// Creates a person, with an optional name. Does not take an
+    /// `AuthContext`: both automatic clustering (unnamed person) and a
+    /// human ("new person", "split") call this, and in neither case is
+    /// there yet an asset to derive visibility from — visibility
+    /// validation happens later, on the faces assigned to this person.
     ///
     /// # Errors
-    /// `Conflict` se il nome è già usato da un'altra persona.
+    /// `Conflict` if the name is already used by another person.
     pub async fn create(&self, name: Option<PersonName>) -> Result<Person, DbError> {
         let row: PersonRow = sqlx::query_as(&format!(
             "INSERT INTO persons (id, name) VALUES ($1, $2) RETURNING {COLUMNS}"
@@ -105,9 +103,9 @@ impl<'a> PersonRepo<'a> {
     }
 
     /// # Errors
-    /// `NotFound` se la persona non esiste. `Forbidden` se esiste ma nessun
-    /// volto suo è visibile al chiamante (mai `NotFound` in quel caso, per
-    /// non offrire un oracolo di esistenza).
+    /// `NotFound` if the person does not exist. `Forbidden` if they exist
+    /// but no face of theirs is visible to the caller (never `NotFound`
+    /// in that case, so as not to offer an existence oracle).
     pub async fn find_by_id(&self, ctx: &AuthContext, id: PersonId) -> Result<Person, DbError> {
         let row: Option<PersonRow> =
             sqlx::query_as(&format!("SELECT {COLUMNS} FROM persons WHERE id = $1"))
@@ -149,12 +147,12 @@ impl<'a> PersonRepo<'a> {
         Ok(count > 0)
     }
 
-    /// Persone visibili al chiamante, con il conteggio dei loro volti
-    /// confermati visibili — pagina Persone (spec §5). Un link pubblico non
-    /// vede mai nessuna persona (spec §7).
+    /// People visible to the caller, with the count of their visible
+    /// confirmed faces — the People page. A public link never sees any
+    /// person.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn list_visible(
         &self,
         ctx: &AuthContext,
@@ -189,12 +187,13 @@ impl<'a> PersonRepo<'a> {
             .collect())
     }
 
-    /// Rinomina, o cancella il nome (`None`). Campo vuoto rifiutato a monte
-    /// da [`PersonName::parse`] — il chiamante non può passare una stringa
-    /// vuota, solo `None` per "nessun nome" o un `PersonName` non vuoto.
+    /// Renames, or clears the name (`None`). An empty field is rejected
+    /// upstream by [`PersonName::parse`] — the caller cannot pass an
+    /// empty string, only `None` for "no name" or a non-empty
+    /// `PersonName`.
     ///
     /// # Errors
-    /// Come [`Self::find_by_id`]. `Conflict` se il nome è già in uso.
+    /// Same as [`Self::find_by_id`]. `Conflict` if the name is already in use.
     pub async fn rename(
         &self,
         ctx: &AuthContext,
@@ -213,11 +212,11 @@ impl<'a> PersonRepo<'a> {
         Ok(row.into_domain())
     }
 
-    /// Nasconde/mostra: per gli sconosciuti sullo sfondo che non
-    /// interessano ma non sono falsi positivi (spec §5).
+    /// Hides/shows: for strangers in the background who are not of
+    /// interest but are not false positives either.
     ///
     /// # Errors
-    /// Come [`Self::find_by_id`].
+    /// Same as [`Self::find_by_id`].
     pub async fn set_hidden(
         &self,
         ctx: &AuthContext,
@@ -236,12 +235,11 @@ impl<'a> PersonRepo<'a> {
         Ok(row.into_domain())
     }
 
-    /// Sceglie la copertina: deve essere un volto **di questa persona**, non
-    /// rifiutato.
+    /// Chooses the cover: must be a face **of this person**, not rejected.
     ///
     /// # Errors
-    /// Come [`Self::find_by_id`]. `Conflict` se `face_id` non appartiene a
-    /// questa persona.
+    /// Same as [`Self::find_by_id`]. `Conflict` if `face_id` does not
+    /// belong to this person.
     pub async fn set_cover(
         &self,
         ctx: &AuthContext,
@@ -266,15 +264,15 @@ impl<'a> PersonRepo<'a> {
             .ok_or_else(|| DbError::Conflict("face does not belong to this person".to_owned()))
     }
 
-    /// Unisce `absorbed` in `survivor`: tutti i volti passano alla persona
-    /// sopravvissuta, le persone assorbite spariscono (spec §4.2). Se
-    /// `survivor` non ha nome, eredita il primo nome trovato fra gli
-    /// assorbiti (in ordine di chiamata). Consentito anche fra persone già
-    /// separate — separare è reversibile a mano, `person_separations`
-    /// blocca solo il riaccorpamento **automatico** (spec §4.3).
+    /// Merges `absorbed` into `survivor`: all faces move to the surviving
+    /// person, the absorbed people disappear. If `survivor` has no name,
+    /// it inherits the first name found among the absorbed ones (in call
+    /// order). Allowed even between already-separated people — separating
+    /// is manually reversible, `person_separations` only blocks
+    /// **automatic** re-merging.
     ///
     /// # Errors
-    /// Come [`Self::find_by_id`], su `survivor` e su ogni `absorbed`.
+    /// Same as [`Self::find_by_id`], on `survivor` and on each `absorbed`.
     pub async fn merge(
         &self,
         ctx: &AuthContext,
@@ -323,16 +321,15 @@ impl<'a> PersonRepo<'a> {
         self.find_by_id(ctx, survivor).await
     }
 
-    /// Separa: i volti indicati lasciano `source` e formano una persona
-    /// nuova. **Non ripristina uno stato precedente** — è la risposta alla
-    /// domanda aperta n.5 del documento funzionale, e va scritta
-    /// nell'interfaccia perché l'utente non si aspetti un annullamento
-    /// (spec §4.2). Registra `person_separations`: l'automatismo non
-    /// riunirà mai più queste due persone (spec §4.3).
+    /// Splits: the given faces leave `source` and form a new person.
+    /// **Does not restore a previous state** — this must be made clear in
+    /// the interface so the user does not expect it to be undoable.
+    /// Records `person_separations`: the automatic clustering will never
+    /// re-merge these two people again.
     ///
     /// # Errors
-    /// Come [`Self::find_by_id`] su `source`. `Conflict` se `face_ids` è
-    /// vuoto o se uno dei volti non appartiene a `source`.
+    /// Same as [`Self::find_by_id`] on `source`. `Conflict` if `face_ids`
+    /// is empty or if one of the faces does not belong to `source`.
     pub async fn separate(
         &self,
         ctx: &AuthContext,
@@ -363,8 +360,8 @@ impl<'a> PersonRepo<'a> {
         .execute(self.db.pool())
         .await?;
         if moved.rows_affected() != face_uuids.len() as u64 {
-            // Rollback: cancella la persona appena creata invece di
-            // lasciare una persona vuota orfana.
+            // Rollback: delete the just-created person instead of
+            // leaving an orphaned empty person around.
             sqlx::query("DELETE FROM persons WHERE id = $1")
                 .bind(new_person.id.as_uuid())
                 .execute(self.db.pool())
@@ -391,18 +388,18 @@ impl<'a> PersonRepo<'a> {
         self.find_by_id(ctx, new_person.id).await
     }
 
-    /// `true` se questa persona compare in **almeno una** separazione — usato
-    /// dal raggruppamento incrementale per decidere se un'assegnazione
-    /// automatica va sempre in revisione invece che essere certa (Ruling nel
-    /// ledger di fase: implementare una soglia di margine fra centroidi
-    /// richiederebbe un secondo confronto pgvector per ogni volto; la regola
-    /// "chi ha uno storico di separazioni passa sempre dalla revisione" è più
-    /// semplice, e non causa mai un'assegnazione automatica silenziosa
-    /// sbagliata — solo qualche voce in più in coda). Non prende
+    /// `true` if this person appears in **at least one** separation — used
+    /// by incremental clustering to decide whether an automatic
+    /// assignment should always go to review instead of being treated as
+    /// certain: implementing a margin threshold between centroids would
+    /// require a second pgvector comparison per face; the rule "anyone
+    /// with a history of separations always goes through review" is
+    /// simpler, and never causes a silently wrong automatic assignment —
+    /// only a few extra entries in the queue. Does not take an
     /// `AuthContext`: pipeline.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn has_any_separation(&self, id: PersonId) -> Result<bool, DbError> {
         let found: Option<(uuid::Uuid,)> = sqlx::query_as(
             "SELECT person_a FROM person_separations WHERE person_a = $1 OR person_b = $1 LIMIT 1",
@@ -413,15 +410,15 @@ impl<'a> PersonRepo<'a> {
         Ok(found.is_some())
     }
 
-    /// Persona con il centroide più vicino (distanza coseno) a `embedding` —
-    /// il candidato del raggruppamento incrementale (Task 5, spec §4.1).
-    /// `None` se non esiste ancora nessuna persona con un centroide (prima
-    /// persona della libreria). Non prende `AuthContext`: pipeline. La
-    /// similarità restituita è `1 - distanza_coseno` — stessa convenzione di
-    /// `AssetTagRepo::propose_for_tag` per i punteggi.
+    /// Person with the nearest centroid (cosine distance) to `embedding` —
+    /// the candidate for incremental clustering. `None` if no person with
+    /// a centroid exists yet (the library's first person). Does not take
+    /// an `AuthContext`: pipeline. The returned similarity is
+    /// `1 - cosine_distance` — same convention as
+    /// `AssetTagRepo::propose_for_tag` for its scores.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce (o se lo schema volti non esiste).
+    /// `Connection` if the query fails (or if the faces schema does not exist).
     pub async fn nearest_centroid(
         &self,
         embedding: &[f32],
@@ -440,13 +437,13 @@ impl<'a> PersonRepo<'a> {
         Ok(row.map(|(id, similarity)| (PersonId::from_uuid(id), similarity)))
     }
 
-    /// Ricalcola il centroide come media degli embedding dei volti
-    /// confermati (non rifiutati, con impronta calcolata). Non prende
-    /// `AuthContext`: manutenzione interna, chiamata dopo ogni cambio di
-    /// composizione della persona.
+    /// Recomputes the centroid as the average of the confirmed faces'
+    /// embeddings (not rejected, with a computed embedding). Does not
+    /// take an `AuthContext`: internal maintenance, called after every
+    /// change to a person's composition.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn recompute_centroid(&self, id: PersonId) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE persons SET centroid = ( \
@@ -460,13 +457,13 @@ impl<'a> PersonRepo<'a> {
         Ok(())
     }
 
-    /// Cancella una persona: i suoi volti restano (`person_id` torna
-    /// `NULL`, `ON DELETE SET NULL`), pronti per un nuovo raggruppamento —
-    /// **non** una cancellazione dei dati dei volti (quella è Task 10,
-    /// "Elimina tutti i dati dei volti", un'azione distinta e più ampia).
+    /// Deletes a person: their faces remain (`person_id` goes back to
+    /// `NULL`, `ON DELETE SET NULL`), ready for a new clustering pass —
+    /// **not** a deletion of face data (that is "Delete all face data", a
+    /// distinct and broader action).
     ///
     /// # Errors
-    /// Come [`Self::find_by_id`].
+    /// Same as [`Self::find_by_id`].
     pub async fn delete(&self, ctx: &AuthContext, id: PersonId) -> Result<(), DbError> {
         self.find_by_id(ctx, id).await?;
         sqlx::query("DELETE FROM persons WHERE id = $1")

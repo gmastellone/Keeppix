@@ -9,18 +9,18 @@ struct FolderGrant {
     path: String,
 }
 
-/// Filtro di visibilità risolto per un chiamante.
+/// Visibility filter resolved for a caller.
 #[derive(Clone, Debug)]
 pub struct VisibilityScope {
     unrestricted: bool,
     grants: Vec<FolderGrant>,
     holes: Vec<FolderGrant>,
-    /// Asset visibili senza passare dall'albero cartelle (album o grant diretto).
+    /// Assets visible without going through the folder tree (album or direct grant).
     asset_ids: Vec<uuid::Uuid>,
 }
 
-/// Clausola SQL + tre `uuid[]`: cartelle concesse (`NULL` = admin), buchi,
-/// asset espliciti. Un array vuoto di concessi non matcha nulla via path.
+/// SQL clause + three `uuid[]`: granted folders (`NULL` = admin), holes,
+/// explicit assets. An empty grants array matches nothing via path.
 pub struct VisibilityFilter {
     sql: String,
     grants: Option<Vec<uuid::Uuid>>,
@@ -52,7 +52,7 @@ impl VisibilityFilter {
 
 impl VisibilityScope {
     /// # Errors
-    /// `Connection` se la query delle librerie o dei permessi fallisce.
+    /// `Connection` if the libraries or permissions query fails.
     pub async fn resolve(db: &Db, ctx: &AuthContext) -> Result<Self, DbError> {
         if ctx.is_admin() {
             return Ok(Self {
@@ -248,7 +248,7 @@ impl VisibilityScope {
         !blocked
     }
 
-    /// Clausola su path + library + asset id. Occupa tre parametri da `param`.
+    /// Clause on path + library + asset id. Occupies three parameters starting from `param`.
     #[must_use]
     pub fn filter(
         &self,

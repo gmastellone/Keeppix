@@ -55,30 +55,30 @@ impl<'a> PlaceRepo<'a> {
         Self { db }
     }
 
-    /// Non prende un `AuthContext`: `GeoNames` è un catalogo globale, non un
-    /// dato appartenente a un utente. La scrittura è riservata alla pipeline
-    /// di import amministrativa.
+    /// Does not take an `AuthContext`: `GeoNames` is a global catalog, not
+    /// data belonging to a user. Writing is reserved for the
+    /// administrative import pipeline.
     ///
     /// # Errors
-    /// `Connection` se la scrittura fallisce.
+    /// `Connection` if the write fails.
     pub async fn upsert(&self, place: &Place) -> Result<(), DbError> {
         let mut connection = self.db.pool().acquire().await?;
         upsert_batch(&mut connection, std::slice::from_ref(place)).await
     }
 
-    /// Reverse geocoding sul catalogo globale.
+    /// Reverse geocoding against the global catalog.
     ///
-    /// Le località ordinarie hanno una soglia interpolata linearmente fra
-    /// 3 km a 600 abitanti e 25 km a 500.000 abitanti, con clamp ai due
-    /// estremi. Le righe amministrative hanno `population = 0`: `admin1`
-    /// valorizzato identifica una regione, entrambi i campi amministrativi
-    /// null identificano una nazione.
+    /// Ordinary places have a threshold linearly interpolated between
+    /// 3 km at 600 inhabitants and 25 km at 500,000 inhabitants, clamped
+    /// at both ends. Administrative rows have `population = 0`: a
+    /// populated `admin1` identifies a region, both administrative
+    /// fields null identifies a country.
     ///
-    /// Non prende un `AuthContext`: le località `GeoNames` sono dati globali,
-    /// non dati di un utente.
+    /// Does not take an `AuthContext`: `GeoNames` places are global data,
+    /// not a user's data.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn nearest(&self, point: GeoPoint) -> Result<Option<Place>, DbError> {
         let row: Option<PlaceRow> = sqlx::query_as(&format!(
             "WITH query_point AS (
@@ -134,16 +134,17 @@ impl<'a> PlaceRepo<'a> {
         Ok(row.map(PlaceRow::into_domain))
     }
 
-    /// Cerca nel catalogo globale e, se richiesto, favorisce i risultati entro
-    /// 250 km dal centroide delle ultime 50 posizioni assegnate dal chiamante.
+    /// Searches the global catalog and, if requested, favors results
+    /// within 250 km of the centroid of the caller's last 50 assigned
+    /// locations.
     ///
-    /// Prende `AuthContext` come primo parametro perché legge
-    /// `asset_overrides.updated_by`; con cronologia vuota l'ordinamento torna
-    /// alla popolazione.
+    /// Takes `AuthContext` as its first parameter because it reads
+    /// `asset_overrides.updated_by`; with an empty history, ordering
+    /// falls back to population.
     ///
     /// # Errors
-    /// `Forbidden` per un attore che non è un utente; `Connection` se la query
-    /// fallisce.
+    /// `Forbidden` for an actor that is not a user; `Connection` if the
+    /// query fails.
     pub async fn search(
         &self,
         ctx: &AuthContext,
@@ -194,15 +195,15 @@ impl<'a> PlaceRepo<'a> {
         Ok(rows.into_iter().map(PlaceRow::into_domain).collect())
     }
 
-    /// Importa il CSV normalizzato solo se la tabella è vuota. Un file
-    /// assente è normale fuori dall'immagine Docker e non è un errore.
+    /// Imports the normalized CSV only if the table is empty. A missing
+    /// file is normal outside the Docker image and is not an error.
     ///
-    /// Non prende un `AuthContext`: è bootstrap di un catalogo globale da
-    /// parte della pipeline amministrativa, non accesso a dati utente.
+    /// Does not take an `AuthContext`: this is bootstrap of a global
+    /// catalog by the administrative pipeline, not access to user data.
     ///
     /// # Errors
-    /// `Connection` se il database fallisce; `Io` se un file presente non è
-    /// leggibile; `Corrupted` se una riga non rispetta il formato atteso.
+    /// `Connection` if the database fails; `Io` if a present file is not
+    /// readable; `Corrupted` if a row does not match the expected format.
     pub async fn seed_from_csv_if_empty(&self, path: &Path) -> Result<usize, DbError> {
         let count: i64 = sqlx::query("SELECT count(*) AS count FROM places")
             .fetch_one(self.db.pool())

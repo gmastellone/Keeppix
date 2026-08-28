@@ -1,4 +1,4 @@
-//! Ricerca da AST JSON. La stringa utente non entra mai nell'SQL: solo bind.
+//! Search from a JSON AST. The user string never enters the SQL directly: only binds.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use keeppix_domain::{AuthContext, Pick};
@@ -27,7 +27,7 @@ pub enum IsoCmp {
     Eq,
 }
 
-// Niente `Eq`: `Aperture`/`Shutter` portano un `f32`, che non lo implementa.
+// No `Eq`: `Aperture`/`Shutter` carry an `f32`, which does not implement it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum SearchNode {
@@ -63,44 +63,39 @@ pub enum SearchNode {
         id: uuid::Uuid,
     },
     HasGps,
-    /// Voto dell'utente che esegue la ricerca (spec §4.1, per-utente: il tuo
-    /// 5 stelle non è il 5 stelle di un altro). `IsoCmp` riusato: è lo stesso
-    /// confronto numerico di `Iso`, non un secondo enum per lo stesso scopo.
+    /// Vote of the user running the search (per-user: your 5 stars is not
+    /// someone else's 5 stars). `IsoCmp` reused: it is the same numeric
+    /// comparison as `Iso`, not a second enum for the same purpose.
     Rating {
         cmp: IsoCmp,
         value: i32,
     },
-    /// Chip "Preferiti" (Task 6/Task 10): stesso schema per-utente di
-    /// `Rating`. La colonna `asset_flags.favorite` esiste da questo task
-    /// (migrazione 0037) — il resto del concetto (scrittura, `AssetView`,
-    /// `AssetFlags` di dominio) resta del Task 10, che la userà già pronta.
+    /// The "Favorites" chip: same per-user scheme as `Rating`.
     Favorite,
-    /// Stato di culling dell'utente che esegue la ricerca (Fase 9 Task 5),
-    /// stesso schema per-utente di `Rating`/`Favorite`: `asset_flags.pick`
-    /// esiste dalla Fase 2 (migrazione 0012, indice già pronto su
-    /// `(user_id, pick)`), letto qui per la prima volta da una ricerca —
-    /// filtrare per cartella **e** stato è ciò che permette di ripulire un
-    /// lotto dopo averlo lavorato.
+    /// Culling status of the user running the search, same per-user
+    /// scheme as `Rating`/`Favorite`: `asset_flags.pick` is read here for
+    /// the first time by a search — filtering by folder **and** status is
+    /// what lets someone clean up a lot after working through it.
     Pick {
         value: Pick,
     },
-    /// Intervallo esplicito, entrambi gli estremi inclusi.
+    /// Explicit range, both ends inclusive.
     DateRange {
         from: DateTime<Utc>,
         to: DateTime<Utc>,
     },
-    /// Giorno del mese (1..=31), indipendente dal mese e dall'anno — la
-    /// controparte ricorrente di `Year`/`Month`.
+    /// Day of the month (1..=31), independent of month and year — the
+    /// recurring counterpart of `Year`/`Month`.
     Day {
         value: i32,
     },
-    /// Mese dell'anno (1..=12), indipendente dall'anno.
+    /// Month of the year (1..=12), independent of year.
     Month {
         value: i32,
     },
-    /// Paese via `assets.place_id → places.country_code`. **Non** è
-    /// `Folder`: nel prodotto reale cartella e luogo sono due concetti
-    /// diversi anche se nel prototipo coincidevano (spec fase-10 §6).
+    /// Country via `assets.place_id -> places.country_code`. **Not**
+    /// `Folder`: in the real product, folder and place are two different
+    /// concepts even though they coincided in the prototype.
     Country {
         value: String,
     },
@@ -108,47 +103,49 @@ pub enum SearchNode {
         cmp: IsoCmp,
         value: f32,
     },
-    /// Tempo di scatto in secondi (`1/125` → `0.008`): `asset_exif.exposure`
-    /// è testo EXIF grezzo, convertito a un numero nella query stessa.
+    /// Shutter time in seconds (`1/125` -> `0.008`): `asset_exif.exposure`
+    /// is raw EXIF text, converted to a number in the query itself.
     Shutter {
         cmp: IsoCmp,
         value: f32,
     },
-    /// Un luogo del catalogo `places` (Fase 4), non una cartella.
+    /// A place from the `places` catalog, not a folder.
     Place {
         id: i64,
     },
-    /// Tag confermato su `asset_tags` (Fase 7). Solo `state='confirmed'`.
+    /// Tag confirmed on `asset_tags`. Only `state='confirmed'`.
     Tag {
         id: uuid::Uuid,
     },
-    /// Categoria: qualsiasi tag figlio (`tags.parent_id`) confermato sull'asset.
+    /// Category: any child tag (`tags.parent_id`) confirmed on the asset.
     Category {
         id: uuid::Uuid,
     },
-    /// Vicini CLIP: membership nei K più simili (visibili), risultati ancora
-    /// ordinati per data. `embedding` è riempito dal layer API (db non conosce
-    /// ort); assente → `Conflict` in compile.
+    /// CLIP neighbors: membership in the top-K most similar (visible)
+    /// results, still ordered by date. `embedding` is filled in by the
+    /// API layer (the db does not know about ort); absent -> `Conflict`
+    /// at compile time.
     Semantic {
         query: String,
         limit: u32,
         #[serde(skip)]
         embedding: Option<Vec<f32>>,
     },
-    /// Il chip «Persona» (Fase 8 Task 9): foto in cui compare un volto
-    /// assegnato a questa persona (`faces.person_id`, mai proposto/rifiutato
-    /// — vedi `Faces::reject`, che pulisce `person_id` insieme a
-    /// `rejected_at`, quindi la sola condizione `person_id = id` basta).
+    /// The "Person" chip: photos in which a face assigned to this person
+    /// appears (`faces.person_id`, never a pending proposal or a
+    /// rejection — see `Faces::reject`, which clears `person_id` together
+    /// with `rejected_at`, so the plain condition `person_id = id` is
+    /// enough).
     Person {
         id: uuid::Uuid,
     },
-    /// Foto in cui compare **almeno una** persona del gruppo (spec §6).
+    /// Photos in which **at least one** person of the group appears.
     PersonGroup {
         id: uuid::Uuid,
     },
-    /// «Foto con almeno N persone» — conta le persone distinte assegnate
-    /// sull'asset, non i volti (due volti della stessa persona nella stessa
-    /// foto non ne fanno due).
+    /// "Photos with at least N people" — counts the distinct people
+    /// assigned on the asset, not the faces (two faces of the same
+    /// person in the same photo do not count as two).
     PersonCount {
         cmp: IsoCmp,
         value: i32,
@@ -170,18 +167,19 @@ impl<'a> SearchRepo<'a> {
         Self { db }
     }
 
-    /// Restituisce solo il primario di ogni pila (Task 3, come la
-    /// timeline): un RAW+JPEG impilato è un risultato, non due.
+    /// Returns only the primary of each stack, like the timeline: a
+    /// stacked RAW+JPEG is one result, not two.
     ///
-    /// Se l'AST richiede `Semantic` a livello globale (raggiungibile solo
-    /// attraverso `And`, mai `Or`/`Not` — [`find_hoistable_semantic`]),
-    /// delega a [`Self::run_semantic_hoisted`]: il top-K CTE guida il join
-    /// invece di essere un filtro applicato dopo. Debito ledger Fase 7
-    /// (`SearchRepo Semantic ~1.3–1.4s @ 200k — partire dalla CTE top-K
-    /// invece di filtrare la heap`), chiuso qui.
+    /// If the AST requires `Semantic` at the top level (reachable only
+    /// through `And`, never `Or`/`Not` — [`find_hoistable_semantic`]),
+    /// delegates to [`Self::run_semantic_hoisted`]: the top-K CTE drives
+    /// the join instead of being a filter applied afterward. This closes
+    /// a known performance gap (`SearchRepo Semantic ~1.3-1.4s @ 200k —
+    /// start from the top-K CTE instead of filtering the heap`).
     ///
     /// # Errors
-    /// `Conflict` se l'AST è troppo profondo; `Connection` se la query fallisce.
+    /// `Conflict` if the AST is too deeply nested; `Connection` if the
+    /// query fails.
     pub async fn run(
         &self,
         ctx: &AuthContext,
@@ -200,11 +198,12 @@ impl<'a> SearchRepo<'a> {
         }
     }
 
-    /// Percorso invariato pre-Task-14: `Semantic` (se presente) resta un
-    /// filtro `a.id = ANY(ARRAY(top-K))` applicato al `WHERE` — usato solo
-    /// quando [`find_hoistable_semantic`] non trova esattamente un nodo
-    /// `Semantic` AND-richiesto (nessuno, sotto `Or`/`Not`, o più di uno):
-    /// casi in cui forzare il `JOIN` dalla CTE non sarebbe corretto.
+    /// The original, unoptimized path: `Semantic` (if present) stays a
+    /// filter `a.id = ANY(ARRAY(top-K))` applied to the `WHERE` — used
+    /// only when [`find_hoistable_semantic`] does not find exactly one
+    /// AND-required `Semantic` node (none, under `Or`/`Not`, or more than
+    /// one): cases where forcing the `JOIN` from the CTE would not be
+    /// correct.
     async fn run_plain(
         &self,
         ctx: &AuthContext,
@@ -214,8 +213,8 @@ impl<'a> SearchRepo<'a> {
         scope: &VisibilityScope,
     ) -> Result<Vec<AssetWithStack>, DbError> {
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
-        // Stessi $1,$2,$3 riusati nella subquery Semantic (spec §4.2: K fra i
-        // visibili, non K globali poi filtrati).
+        // Same $1,$2,$3 reused in the Semantic subquery: we want the top K
+        // among visible assets, not K globally and then filtered.
         let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
         let mut param = 4_usize;
         let (clause, binds) = compile_for_sql(
@@ -263,23 +262,22 @@ impl<'a> SearchRepo<'a> {
         rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
-    /// Task 14 (debito ledger Fase 7): `semantic_node` è AND-richiesto in
-    /// ogni riga del risultato, quindi la sua condizione di appartenenza può
-    /// diventare un `JOIN` invece di un filtro post-hoc. La CTE `topk`
-    /// materializza al più 500 id (stessa query `IVFFlat` di prima, invariata:
-    /// `ORDER BY <=> LIMIT k`), poi `assets`/`folders`/`asset_exif` si
-    /// uniscono **su quei soli id** — un Nested Loop con al più 500 lookup
-    /// per indice, non una scansione che testa l'appartenenza riga per riga
-    /// nell'ordine di `taken_at_utc` finché non trova `limit` corrispondenze
-    /// (il piano che il planner sceglieva con `a.id = ANY(ARRAY(...))`
-    /// applicato dopo, quando gli id del top-K sono radi in quell'ordine).
-    /// L'`ORDER BY`/`LIMIT` finale ordina solo quei ≤500 candidati, non
-    /// l'intero storico visibile.
+    /// `semantic_node` is AND-required in every row of the result, so its
+    /// membership condition can become a `JOIN` instead of a post-hoc
+    /// filter. The `topk` CTE materializes at most 500 ids (same
+    /// `IVFFlat` query as before, unchanged: `ORDER BY <=> LIMIT k`), then
+    /// `assets`/`folders`/`asset_exif` join **onto just those ids** — a
+    /// Nested Loop with at most 500 index lookups, not a scan that tests
+    /// membership row by row in `taken_at_utc` order until it finds
+    /// `limit` matches (the plan the planner used to pick with
+    /// `a.id = ANY(ARRAY(...))` applied afterward, when the top-K ids are
+    /// sparse in that order). The final `ORDER BY`/`LIMIT` only sorts
+    /// those <=500 candidates, not the entire visible history.
     ///
-    /// `ast` con `semantic_node` sostituito da un `And` vuoto (→ `TRUE`,
-    /// [`substitute_with_true`]) resta comunque compilato per intero: gli
-    /// altri assi AND-ati (`Tag`, `Camera`, …) restano filtri sul `WHERE`
-    /// come sempre, solo `Semantic` cambia meccanismo.
+    /// `ast` with `semantic_node` substituted by an empty `And` (->
+    /// `TRUE`, [`substitute_with_true`]) is still compiled in full: the
+    /// other AND-ed axes (`Tag`, `Camera`, ...) remain `WHERE` filters as
+    /// always, only `Semantic` changes mechanism.
     async fn run_semantic_hoisted(
         &self,
         ctx: &AuthContext,
@@ -295,7 +293,7 @@ impl<'a> SearchRepo<'a> {
             ..
         } = semantic_node
         else {
-            unreachable!("find_hoistable_semantic restituisce solo nodi Semantic")
+            unreachable!("find_hoistable_semantic only returns Semantic nodes")
         };
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
@@ -320,15 +318,15 @@ impl<'a> SearchRepo<'a> {
         };
         let semantic_vis_sql = semantic_vis.sql();
         let filter_sql = filter.sql();
-        // `MATERIALIZED`, non un semplice `WITH`: da Postgres 12 in poi il
-        // planner può linearizzare («inlinare») una CTE non referenziata più
-        // volte dentro la query esterna quando sembra più economico — che
-        // qui ricrea esattamente il piano che questa funzione esiste per
-        // evitare (scansione per `taken_at_utc` con test di appartenenza
-        // riga per riga). Misurato: senza `MATERIALIZED`, lo stesso identico
-        // SQL alternava piani buoni (~170ms) e ricaduti (~2100ms) fra run
-        // successive sullo stesso fixture da 200k — non un caso limite, un
-        // difetto che una singola misura felice avrebbe nascosto.
+        // `MATERIALIZED`, not a plain `WITH`: from Postgres 12 onward the
+        // planner can inline a CTE that is not referenced multiple times
+        // inside the outer query when it looks cheaper — which here
+        // recreates exactly the plan this function exists to avoid (a
+        // `taken_at_utc` scan with row-by-row membership testing).
+        // Measured: without `MATERIALIZED`, the exact same SQL alternated
+        // between good plans (~170ms) and fallback ones (~2100ms) across
+        // successive runs on the same 200k fixture — not an edge case, a
+        // defect a single lucky measurement would have hidden.
         let sql = format!(
             "WITH topk AS MATERIALIZED ( \
                SELECT ae.asset_id \
@@ -373,26 +371,24 @@ impl<'a> SearchRepo<'a> {
         rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
-    /// Suggerimenti tipizzati per la barra di ricerca (spec fase-10 §23): il
-    /// frontend deve sapere *di che tipo* è ogni risultato per costruire la
-    /// pillola giusta, e per un tag anche il colore del pallino.
+    /// Typed suggestions for the search bar: the frontend needs to know
+    /// *what type* each result is to build the right pill, and for a tag
+    /// also the dot's color.
     ///
-    /// `tag` resta senza fonte in questo task: la tabella dei tag non esiste
-    /// ancora (Fase 7). L'enum è comunque completo — è la forma che va
-    /// fissata ora, non le fonti, altrimenti cambierebbe due volte. Le altre
-    /// sei fonti (`camera`, `filename`, `folder`, `iso`, `year`, `country`)
-    /// leggono dati già presenti: le prime due esistevano già, le ultime
-    /// quattro sfruttano gli assi di ricerca del Task 6.
+    /// `tag` has no source yet: the tags table did not exist when this
+    /// enum was designed. The enum is nonetheless complete — it is the
+    /// shape that needed fixing now, not the sources, otherwise it would
+    /// change twice. The other six sources (`camera`, `filename`,
+    /// `folder`, `iso`, `year`, `country`) read data already present.
     ///
-    /// `country` legge `assets.place_id` direttamente, senza `COALESCE` con
-    /// `asset_overrides.place_id` — stessa scelta di `SearchNode::Country`
-    /// (quella colonna non viene ancora scritta da nessun percorso).
+    /// `country` reads `assets.place_id` directly, without `COALESCE`
+    /// against `asset_overrides.place_id` — same choice as
+    /// `SearchNode::Country` (that column is not written by any path yet).
     ///
     /// # Errors
-    /// `Connection` se la query fallisce; `Corrupted` se il database
-    /// restituisce un `kind` fuori dall'insieme chiuso previsto (non
-    /// dovrebbe accadere: la lista di `SELECT` è letterale, non dati
-    /// dell'utente).
+    /// `Connection` if the query fails; `Corrupted` if the database
+    /// returns a `kind` outside the expected closed set (should not
+    /// happen: the `SELECT` list is literal, not user data).
     pub async fn suggest(&self, ctx: &AuthContext, q: &str) -> Result<Vec<Suggestion>, DbError> {
         let q = q.trim();
         if q.is_empty() {
@@ -460,7 +456,7 @@ impl<'a> SearchRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` senza utente; `Connection` se la query fallisce.
+    /// `Forbidden` without a user; `Connection` if the query fails.
     pub async fn list_saved(&self, ctx: &AuthContext) -> Result<Vec<SavedSearch>, DbError> {
         let owner = ctx.user_id().ok_or(DbError::Forbidden)?;
         let rows: Vec<SavedSearchRow> = sqlx::query_as(
@@ -474,7 +470,7 @@ impl<'a> SearchRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` senza utente; `Connection` se l'inserimento fallisce.
+    /// `Forbidden` without a user; `Connection` if the insert fails.
     pub async fn create_saved(
         &self,
         ctx: &AuthContext,
@@ -496,11 +492,11 @@ impl<'a> SearchRepo<'a> {
         Ok(row.into_domain())
     }
 
-    /// Carica e interpreta una ricerca salvata del chiamante.
+    /// Loads and parses a saved search belonging to the caller.
     ///
     /// # Errors
-    /// `Forbidden` per id sconosciuti o appartenenti a un altro utente;
-    /// `Conflict` se il testo salvato non è più interpretabile.
+    /// `Forbidden` for unknown ids or ones belonging to another user;
+    /// `Conflict` if the saved text can no longer be parsed.
     pub async fn saved_query(
         &self,
         ctx: &AuthContext,
@@ -519,8 +515,9 @@ impl<'a> SearchRepo<'a> {
     }
 }
 
-/// Insieme chiuso: il frontend decide la pillola in base a questo, quindi un
-/// ottavo valore non previsto romperebbe il contratto invece di degradare.
+/// Closed set: the frontend decides the pill based on this, so an
+/// unexpected extra value would break the contract instead of degrading
+/// gracefully.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuggestionKind {
     Tag,
@@ -549,10 +546,9 @@ impl SuggestionKind {
     }
 }
 
-/// Suggerimento tipizzato per la barra di ricerca (spec fase-10 §23).
-/// `value` è ciò che alimenta il `SearchNode` corrispondente se l'utente
-/// sceglie la pillola (l'id di cartella per `Folder`, il testo per gli
-/// altri); `label` è ciò che si mostra.
+/// A typed suggestion for the search bar. `value` is what feeds the
+/// corresponding `SearchNode` if the user picks the pill (the folder id
+/// for `Folder`, the text for the others); `label` is what is displayed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Suggestion {
     pub kind: SuggestionKind,
@@ -850,14 +846,15 @@ fn bind_one<'q>(
     }
 }
 
-/// `user_id` alimenta gli assi per-utente (`Rating`, `Favorite`): `None` per
-/// un `AuthContext` senza utente (link pubblico) fa fallire quei due nodi con
-/// `Forbidden` invece di produrre un confronto silenziosamente vuoto — non
-/// hanno senso senza un utente che vota.
+/// `user_id` feeds the per-user axes (`Rating`, `Favorite`): `None` for an
+/// `AuthContext` with no user (public link) makes those two nodes fail
+/// with `Forbidden` instead of producing a silently empty comparison —
+/// they make no sense without a user who votes.
 ///
-/// `semantic_vis` è la clausola di visibilità che riusa `$1,$2,$3` con alias
-/// `vf`/`va` (generata da `VisibilityScope::filter` in `run`). `None` →
-/// `TRUE` dentro la subquery (album/mappa dove lo scope esterno basta).
+/// `semantic_vis` is the visibility clause that reuses `$1,$2,$3` with
+/// `vf`/`va` aliases (generated by `VisibilityScope::filter` in `run`).
+/// `None` -> `TRUE` inside the subquery (album/map where the outer scope
+/// is enough).
 pub(crate) fn compile_for_sql(
     node: &SearchNode,
     param: &mut usize,
@@ -885,11 +882,11 @@ pub(crate) fn compile_for_sql(
     }
 }
 
-/// Ogni variante che non è un combinatore (`And`/`Or`/`Not`): non ricorre,
-/// quindi non ha bisogno di `depth` — separata da [`compile_for_sql`] solo
-/// per restare sotto il limite di righe per funzione di clippy. A sua volta
-/// delega gli assi nuovi del Task 6 a [`compile_search_axis`], per lo stesso
-/// motivo.
+/// Every variant that is not a combinator (`And`/`Or`/`Not`): it does not
+/// recurse, so it does not need `depth` — kept separate from
+/// [`compile_for_sql`] only to stay under clippy's per-function line
+/// limit. In turn delegates the newer axes to [`compile_search_axis`],
+/// for the same reason.
 fn compile_leaf(
     node: &SearchNode,
     param: &mut usize,
@@ -899,7 +896,7 @@ fn compile_leaf(
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     match node {
         SearchNode::And { .. } | SearchNode::Or { .. } | SearchNode::Not { .. } => {
-            unreachable!("i combinatori sono gestiti da compile_for_sql")
+            unreachable!("combinators are handled by compile_for_sql")
         }
         SearchNode::Text { value } => {
             let p = next(param);
@@ -966,9 +963,9 @@ fn compile_leaf(
     }
 }
 
-/// Le nove varianti nuove del Task 6 (spec fase-10 §6): nessuna ricorre, e
-/// nessuna dipende da `gps_sql` — separate da [`compile_leaf`] solo per
-/// restare sotto il limite di righe per funzione di clippy.
+/// The nine newer axis variants: none of them recurse, and none depend on
+/// `gps_sql` — kept separate from [`compile_leaf`] only to stay under
+/// clippy's per-function line limit.
 fn compile_search_axis(
     node: &SearchNode,
     param: &mut usize,
@@ -986,7 +983,7 @@ fn compile_search_axis(
         | SearchNode::Iso { .. }
         | SearchNode::Year { .. }
         | SearchNode::Folder { .. }
-        | SearchNode::HasGps => unreachable!("gestite da compile_for_sql/compile_leaf"),
+        | SearchNode::HasGps => unreachable!("handled by compile_for_sql/compile_leaf"),
         SearchNode::Rating { cmp, value } => {
             let user = user_id.ok_or(DbError::Forbidden)?;
             let op = cmp_op(*cmp);
@@ -1075,16 +1072,15 @@ fn compile_search_axis(
     }
 }
 
-/// `SearchNode::Pick` (Fase 9 Task 5) — separata da `compile_search_axis` per
-/// lo stesso tetto clippy, non per un motivo concettuale: `Pick::None` non è
-/// "il valore letterale `'none'` in una riga esistente". La maggioranza
-/// degli asset non ha mai avuto una riga scritta in `asset_flags` per questo
-/// utente (nessun default di colonna, "mai valutato" = nessuna riga). Un
-/// `EXISTS ... pick = 'none'` identico al ramo `Pick`/`Reject` troverebbe
-/// solo gli asset esplicitamente riportati a `None` da `set_pick` (Task 4),
-/// escludendo silenziosamente tutti quelli mai toccati — l'esatto opposto di
-/// "da valutare". `NOT EXISTS` su `pick IN ('pick', 'reject')` cattura
-/// entrambi i casi in un colpo solo.
+/// `SearchNode::Pick` — kept separate from `compile_search_axis` for the
+/// same clippy line cap, not for a conceptual reason: `Pick::None` is not
+/// "the literal value `'none'` in an existing row". Most assets have
+/// never had a row written to `asset_flags` for this user (no column
+/// default, "never evaluated" = no row). An `EXISTS ... pick = 'none'`
+/// identical to the `Pick`/`Reject` branch would only find assets
+/// explicitly reset to `None` by `set_pick`, silently excluding
+/// everything never touched — the exact opposite of "to be reviewed".
+/// `NOT EXISTS` on `pick IN ('pick', 'reject')` catches both cases at once.
 fn compile_pick_axis(
     value: Pick,
     param: &mut usize,
@@ -1117,7 +1113,7 @@ fn compile_pick_axis(
     }
 }
 
-/// Tag / Category / Semantic (Fase 7 Task 10) — separate per il tetto clippy.
+/// Tag / Category / Semantic — kept separate for the clippy line cap.
 fn compile_fase7_axis(
     node: &SearchNode,
     param: &mut usize,
@@ -1170,16 +1166,16 @@ fn compile_fase7_axis(
                 binds,
             ))
         }
-        _ => unreachable!("compile_fase7_axis only for Tag/Category/Semantic"),
+        _ => unreachable!("compile_fase7_axis handles only Tag/Category/Semantic"),
     }
 }
 
-/// Valida `embedding`/`limit` e riserva i tre parametri (`$mv`, `$vec`,
-/// `$k`) della subquery `IVFFlat` — condivisa fra il vecchio path
-/// `a.id = ANY(ARRAY(...))` (sopra) e la CTE `topk` di
-/// [`SearchRepo::run_semantic_hoisted`] (Task 14): stessa validazione,
-/// stesso clamp di K, un solo posto — i due path non possono divergere in
-/// silenzio su un errore o su quanti candidati il top-K considera.
+/// Validates `embedding`/`limit` and reserves the three parameters
+/// (`$mv`, `$vec`, `$k`) of the `IVFFlat` subquery — shared between the
+/// old `a.id = ANY(ARRAY(...))` path (above) and the `topk` CTE of
+/// [`SearchRepo::run_semantic_hoisted`]: same validation, same K clamp,
+/// one single place — the two paths cannot silently diverge on an error
+/// or on how many candidates the top-K considers.
 fn semantic_query_params(
     limit: u32,
     embedding: Option<&Vec<f32>>,
@@ -1212,13 +1208,13 @@ fn semantic_query_params(
     ))
 }
 
-/// Nodi `Semantic` garantiti presenti in ogni riga del risultato:
-/// raggiungibili solo attraverso una catena di `And` (mai `Or`/`Not`, che
-/// invertono o allentano il vincolo — forzare un `JOIN` lì sarebbe
-/// scorretto, non solo subottimale). [`SearchRepo::run`] usa il CTE
-/// ([`SearchRepo::run_semantic_hoisted`]) solo quando questa funzione trova
-/// **esattamente un** nodo così; altrimenti (zero, o più di uno) ricade sul
-/// vecchio `a.id = ANY(ARRAY(...))` via `run_plain`.
+/// `Semantic` nodes guaranteed present in every row of the result:
+/// reachable only through a chain of `And` (never `Or`/`Not`, which
+/// invert or loosen the constraint — forcing a `JOIN` there would be
+/// incorrect, not just suboptimal). [`SearchRepo::run`] uses the CTE
+/// ([`SearchRepo::run_semantic_hoisted`]) only when this function finds
+/// **exactly one** such node; otherwise (zero, or more than one) it falls
+/// back to the old `a.id = ANY(ARRAY(...))` via `run_plain`.
 fn find_hoistable_semantic(node: &SearchNode) -> Vec<&SearchNode> {
     match node {
         SearchNode::And { args } => args.iter().flat_map(find_hoistable_semantic).collect(),
@@ -1227,12 +1223,12 @@ fn find_hoistable_semantic(node: &SearchNode) -> Vec<&SearchNode> {
     }
 }
 
-/// Clona l'AST sostituendo (per identità di puntatore, non di valore: due
-/// nodi `Semantic` con campi identici non devono confondersi) `target` con
-/// un `And` vuoto — che [`compile_for_sql`] compila già a `TRUE`. Niente
-/// nuova variante di `SearchNode` solo per questo marcatore: la vera
-/// condizione di appartenenza al top-K arriva dal `JOIN` con la CTE
-/// `topk`, non da questa clausola.
+/// Clones the AST, substituting (by pointer identity, not value: two
+/// `Semantic` nodes with identical fields must not be confused) `target`
+/// with an empty `And` — which [`compile_for_sql`] already compiles to
+/// `TRUE`. No new `SearchNode` variant just for this marker: the real
+/// top-K membership condition comes from the `JOIN` with the `topk` CTE,
+/// not from this clause.
 fn substitute_with_true(node: &SearchNode, target: *const SearchNode) -> SearchNode {
     if std::ptr::eq(node, target) {
         return SearchNode::And { args: Vec::new() };
@@ -1257,15 +1253,15 @@ fn substitute_with_true(node: &SearchNode, target: *const SearchNode) -> SearchN
     }
 }
 
-/// Person / `PersonGroup` / `PersonCount` (Fase 8 Task 9) — separate per lo
-/// stesso motivo delle funzioni sopra. Nessuna richiede una visibilità
-/// propria: `a` è già filtrata da `VisibilityScope` in `run`, stessa
-/// assunzione di `compile_fase7_axis` per `Tag`/`Category`.
+/// Person / `PersonGroup` / `PersonCount` — kept separate for the same
+/// reason as the functions above. None of them require their own
+/// visibility: `a` is already filtered by `VisibilityScope` in `run`,
+/// same assumption as `compile_fase7_axis` for `Tag`/`Category`.
 ///
-/// Nessuno di questi tre nodi fallisce mai (a differenza di `Day`/`Month`
-/// nella funzione sorella), ma la firma resta `Result` per uniformità col
-/// resto del dispatch — lo stesso punto di chiamata gestisce tutti gli assi
-/// con `?`, un `Result` in meno qui romperebbe quella simmetria.
+/// None of these three nodes ever fails (unlike `Day`/`Month` in the
+/// sibling function), but the signature stays `Result` for uniformity
+/// with the rest of the dispatch — the same call site handles every axis
+/// with `?`, and one fewer `Result` here would break that symmetry.
 #[allow(clippy::unnecessary_wraps)]
 fn compile_fase8_axis(
     node: &SearchNode,
@@ -1317,11 +1313,11 @@ fn cmp_op(cmp: IsoCmp) -> &'static str {
     }
 }
 
-/// Converte `asset_exif.exposure` (testo EXIF grezzo, `"1/125"` o `"2"`) in
-/// secondi. `NULL` per qualunque testo che non rispetti una delle due forme
-/// attese, invece di far fallire la query con un cast non valido — un EXIF
-/// scritto male resta cosmetico (nessun campo perso dal filtro), non un
-/// errore 500.
+/// Converts `asset_exif.exposure` (raw EXIF text, `"1/125"` or `"2"`) to
+/// seconds. `NULL` for any text that does not match one of the two
+/// expected shapes, instead of failing the query with an invalid cast —
+/// a badly written EXIF stays cosmetic (no field lost from the filter),
+/// not a 500 error.
 fn shutter_seconds_sql(exif_alias: &str) -> String {
     format!(
         "CASE \

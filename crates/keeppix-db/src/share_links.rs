@@ -197,13 +197,13 @@ impl<'a> ShareLinkRepo<'a> {
         Ok(())
     }
 
-    /// Numero di elementi condivisi da ciascun link, per `object_id` — non
-    /// gli accessi (`view_count`, che resta separato). Due `GROUP BY` per
-    /// tutti i link insieme, non un `COUNT` per riga (stessa regola del
-    /// Task 11): un link `asset` conta sempre 1, senza query.
+    /// Number of items shared by each link, by `object_id` — not
+    /// accesses (`view_count`, which stays separate). Two `GROUP BY`
+    /// queries for all links at once, not a `COUNT` per row: an `asset`
+    /// link always counts as 1, no query needed.
     ///
     /// # Errors
-    /// `DbError::Connection` se una delle due query fallisce.
+    /// `DbError::Connection` if either query fails.
     pub async fn item_counts(&self, links: &[ShareLinkRow]) -> Result<HashMap<Uuid, i64>, DbError> {
         let folder_ids: Vec<Uuid> = links
             .iter()
@@ -225,9 +225,9 @@ impl<'a> ShareLinkRepo<'a> {
     }
 }
 
-/// Conteggio degli asset indicizzati per cartella, in un solo `GROUP BY`.
-/// Riusata da [`crate::permissions::PermissionRepo::list_shared_with_me`]
-/// per la stessa ragione: niente `COUNT` per riga in un elenco.
+/// Count of indexed assets per folder, in a single `GROUP BY`. Reused by
+/// [`crate::permissions::PermissionRepo::list_shared_with_me`] for the
+/// same reason: no `COUNT` per row in a list.
 pub(crate) async fn folder_asset_counts(
     db: &Db,
     folder_ids: &[Uuid],
@@ -246,8 +246,8 @@ pub(crate) async fn folder_asset_counts(
     Ok(rows.into_iter().collect())
 }
 
-/// Conteggio dei membri per album, in un solo `GROUP BY`. Vedi
-/// [`folder_asset_counts`] per il motivo per cui è una funzione condivisa.
+/// Count of members per album, in a single `GROUP BY`. See
+/// [`folder_asset_counts`] for why this is a shared function.
 pub(crate) async fn album_asset_counts(
     db: &Db,
     album_ids: &[Uuid],

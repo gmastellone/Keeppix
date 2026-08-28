@@ -1,16 +1,17 @@
-//! Assegnazioni `asset_tags` proposte dall'IA (Fase 7 Task 8) e la coda di
-//! revisione umana su quelle proposte (Fase 7 Task 9).
+//! AI-proposed `asset_tags` assignments, and the human review queue over
+//! those proposals.
 //!
-//! [`Self::propose_for_tag`] / [`Self::propose_for_assets`] non prendono
-//! `AuthContext`: è la pipeline di analisi di sistema, come
-//! [`crate::EmbeddingRepo`]. L'abbinamento non è un'azione utente — scatta
-//! dopo create/patch di un tag con embedding, o dopo un lotto di embed foto.
+//! [`Self::propose_for_tag`] / [`Self::propose_for_assets`] do not take an
+//! `AuthContext`: this is the system's analysis pipeline, like
+//! [`crate::EmbeddingRepo`]. Matching is not a user action — it fires after
+//! creating/patching a tag with an embedding, or after a batch of photo
+//! embeddings.
 //!
-//! Le decisioni umane ([`Self::confirm`], [`Self::reject`] e le loro varianti
-//! in blocco) **prendono** `AuthContext`: sono azioni utente, e un utente non
-//! deve poter decidere (né apprendere l'esistenza) di una proposta su un
-//! asset che non vede. Una volta decise, `confirmed`/`rejected` non vengono
-//! mai sovrascritte dal rematch (`ON CONFLICT ... WHERE state = 'proposed'`
+//! The human decisions ([`Self::confirm`], [`Self::reject`], and their bulk
+//! variants) **do take** an `AuthContext`: they are user actions, and a user
+//! must not be able to decide on (or learn of the existence of) a proposal
+//! on an asset they cannot see. Once decided, `confirmed`/`rejected` are
+//! never overwritten by a rematch (`ON CONFLICT ... WHERE state = 'proposed'`
 //! in [`Self::propose_for_tag`]).
 
 use std::collections::HashMap;
@@ -22,17 +23,18 @@ use crate::pgvector::probe_pgvector;
 use crate::visibility::VisibilityScope;
 use crate::{AssetRepo, Db, DbError};
 
-/// Un tag confermato su un asset, come [`AssetTagRepo::confirmed_among`] lo
-/// restituisce — non l'assegnazione grezza della tabella (`state`/`source`
-/// non servono al chiamante, che ha già filtrato su `state='confirmed'`).
+/// A tag confirmed on an asset, as returned by
+/// [`AssetTagRepo::confirmed_among`] — not the table's raw assignment row
+/// (`state`/`source` are not needed by the caller, which has already
+/// filtered on `state='confirmed'`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfirmedTag {
     pub tag_id: TagId,
     pub name: String,
     pub color: Option<String>,
-    /// `parent_id` del tag: le "categorie" del documento funzionale (SP-3
-    /// §11) sono tag con `kind='category'`, non una tabella a parte — un
-    /// tag senza genitore (o la cui gerarchia non è impostata) ha `None`.
+    /// The tag's `parent_id`: "categories" are tags with `kind='category'`,
+    /// not a separate table — a tag with no parent (or whose hierarchy is
+    /// not set) has `None`.
     pub category_id: Option<TagId>,
 }
 
@@ -45,12 +47,11 @@ struct ConfirmedTagRow {
     parent_id: Option<uuid::Uuid>,
 }
 
-/// Un tag di un asset per il pannello informazioni (Fase 11 Task 8, §19.2
-/// campi 14-17) — a differenza di [`ConfirmedTag`], porta anche `state`
-/// (`"confirmed"` o `"proposed"`, mai `"rejected"`, filtrato da
-/// [`AssetTagRepo::for_asset`]) e `source` (`"ai"` o `"user"`, i valori
-/// grezzi della colonna): il chiamante li usa per scegliere fra le tre
-/// rese del chip, non per costruire logica qui.
+/// A tag of an asset for the info panel — unlike [`ConfirmedTag`], this
+/// also carries `state` (`"confirmed"` or `"proposed"`, never `"rejected"`,
+/// filtered out by [`AssetTagRepo::for_asset`]) and `source` (`"ai"` or
+/// `"user"`, the column's raw values): the caller uses them to choose
+/// between the three chip renderings, not to build logic here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssetTagDetail {
     pub tag_id: TagId,
@@ -84,8 +85,8 @@ impl AssetTagDetailRow {
     }
 }
 
-/// Le due decisioni umane possibili su una proposta. Costante interna: non è
-/// mai serializzata, la traduzione da/verso stringa SQL resta qui.
+/// The two possible human decisions on a proposal. Internal-only: it is
+/// never serialized, the translation to/from the SQL string stays here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Decision {
     Confirmed,
@@ -101,9 +102,9 @@ impl Decision {
     }
 }
 
-/// Una proposta in attesa, come la coda di revisione la mostra: già arricchita
-/// con nome del tag e nome file, per non costringere il chiamante a un
-/// secondo giro di query per riga.
+/// A pending proposal, as the review queue displays it: already enriched
+/// with the tag name and filename, so the caller does not need a second
+/// round of queries per row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProposalView {
     pub asset_id: AssetId,
@@ -137,15 +138,15 @@ impl ProposalRow {
     }
 }
 
-/// Banda sotto la soglia del tag: score ≥ `threshold − BAND` produce ancora
-/// una proposta (score più basso → fondo coda). Costante di sistema, non
-/// esposta in API.
+/// Band below the tag's threshold: score >= `threshold - BAND` still
+/// produces a proposal (lower score -> bottom of the queue). System
+/// constant, not exposed in the API.
 ///
-/// Ricalibrata su `OpenCLIP` XLM-R IT/EN (Task B, banco CI reale run
-/// `bcf9b4a`): la cosine similarity testo-immagine vera in questo spazio
-/// sta a 0,10-0,20, non 0-1 — 0.01 (un punto percentuale sulla vecchia
-/// scala implicita) era troppo stretta per intercettare abbinamenti
-/// corretti ma deboli (`correct_score` minimo osservato: 0,126-0,132).
+/// Calibrated against `OpenCLIP` XLM-R IT/EN: real text-image cosine
+/// similarity in this embedding space sits around 0.10-0.20, not 0-1 — a
+/// band of 0.01 (one percentage point on the old, implicit scale) was too
+/// tight to catch correct but weak matches (observed minimum
+/// `correct_score`: 0.126-0.132).
 pub const TAG_MATCH_BAND: f32 = 0.05;
 
 pub struct AssetTagRepo<'a> {
@@ -158,11 +159,12 @@ impl<'a> AssetTagRepo<'a> {
         Self { db }
     }
 
-    /// Abbina tutte le foto con embedding allo stesso `model_version` del tag.
-    /// Inserisce/aggiorna solo righe `state='proposed'`, `source='ai'`.
+    /// Matches all photos with an embedding at the same `model_version` as
+    /// the tag. Only inserts/updates rows with `state='proposed'`,
+    /// `source='ai'`.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce (o se lo schema AI non esiste).
+    /// `Connection` if the query fails (or if the AI schema does not exist).
     pub async fn propose_for_tag(&self, tag_id: TagId) -> Result<u64, DbError> {
         let result = sqlx::query(
             "INSERT INTO asset_tags (asset_id, tag_id, state, source, score) \
@@ -188,11 +190,11 @@ impl<'a> AssetTagRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Abbina gli asset dati a tutti i tag con embedding (stesso
-    /// `model_version`). Stesse regole di [`Self::propose_for_tag`].
+    /// Matches the given assets against all tags with an embedding (same
+    /// `model_version`). Same rules as [`Self::propose_for_tag`].
     ///
     /// # Errors
-    /// `Connection` se la query fallisce (o se lo schema AI non esiste).
+    /// `Connection` if the query fails (or if the AI schema does not exist).
     pub async fn propose_for_assets(&self, asset_ids: &[AssetId]) -> Result<u64, DbError> {
         if asset_ids.is_empty() {
             return Ok(0);
@@ -222,14 +224,14 @@ impl<'a> AssetTagRepo<'a> {
         Ok(result.rows_affected())
     }
 
-    /// Elenco delle proposte in attesa (`state = 'proposed'`), filtrato sulla
-    /// visibilità del chiamante e, opzionalmente, su un solo tag. Ordinato per
-    /// `score` decrescente (i punteggi nulli, teoricamente impossibili per
-    /// una riga proposta, in fondo).
+    /// Lists pending proposals (`state = 'proposed'`), filtered by the
+    /// caller's visibility and, optionally, by a single tag. Ordered by
+    /// `score` descending (null scores, theoretically impossible for a
+    /// proposed row, sort last).
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato (un link pubblico non ha una coda
-    /// di revisione); `Connection` su errore DB o schema AI assente.
+    /// `Forbidden` without an authenticated user (a public link has no
+    /// review queue); `Connection` on DB error or missing AI schema.
     pub async fn list_proposed(
         &self,
         ctx: &AuthContext,
@@ -262,21 +264,21 @@ impl<'a> AssetTagRepo<'a> {
         Ok(rows.into_iter().map(ProposalRow::into_view).collect())
     }
 
-    /// Numero di `asset_tags` in `state = 'proposed'` il cui asset è visibile
-    /// al chiamante — la metà "tag" del badge combinato `bootstrap.badges.revision`
-    /// (Fase 8 aggiungerà la metà "volti" sullo stesso campo).
+    /// Number of `asset_tags` in `state = 'proposed'` whose asset is
+    /// visible to the caller — the "tags" half of the combined
+    /// `bootstrap.badges.revision` badge (the "faces" half shares the same
+    /// field).
     ///
-    /// A differenza degli altri metodi di questo repository, **non propaga**
-    /// l'errore quando lo schema AI non esiste (pgvector assente sul
-    /// Postgres collegato): `bootstrap` è il bundle di avvio di tutta
-    /// l'applicazione, non un endpoint opzionale come `/tags`, quindi un
-    /// Postgres esterno senza pgvector non deve rompere l'avvio dell'intera
-    /// interfaccia — coerente con la Ruling di Task 3 ("l'avvio non
-    /// fallisce").
+    /// Unlike the other methods on this repository, this one **does not
+    /// propagate** the error when the AI schema does not exist (pgvector
+    /// missing on the connected Postgres): `bootstrap` is the startup
+    /// bundle for the entire application, not an optional endpoint like
+    /// `/tags`, so an external Postgres without pgvector must not break
+    /// startup of the whole interface.
     ///
     /// # Errors
-    /// `Connection` se la query (probe pgvector incluso) fallisce per un
-    /// motivo diverso dall'estensione assente.
+    /// `Connection` if the query (including the pgvector probe) fails for a
+    /// reason other than the extension being missing.
     pub async fn count_proposed_visible(&self, ctx: &AuthContext) -> Result<i64, DbError> {
         if ctx.user_id().is_none() {
             return Ok(0);
@@ -303,16 +305,16 @@ impl<'a> AssetTagRepo<'a> {
         Ok(count)
     }
 
-    /// Conferma una proposta: `state = 'confirmed'`, `decided_by`/`decided_at`
-    /// impostati. Idempotente se era già confermata.
+    /// Confirms a proposal: `state = 'confirmed'`, `decided_by`/`decided_at`
+    /// set. Idempotent if it was already confirmed.
     ///
     /// # Errors
-    /// `Forbidden` se l'asset non è visibile al chiamante (o il contesto non
-    /// ha un utente) — mai `NotFound`, per non offrire un oracolo di
-    /// esistenza sull'asset. `NotFound` se l'asset è visibile ma questo tag
-    /// non gli è mai stato proposto. `Conflict` se la coppia è già stata
-    /// decisa nella direzione opposta (`rejected`): una decisione permanente
-    /// non si inverte.
+    /// `Forbidden` if the asset is not visible to the caller (or the
+    /// context has no user) — never `NotFound`, so as not to offer an
+    /// existence oracle on the asset. `NotFound` if the asset is visible
+    /// but this tag was never proposed on it. `Conflict` if the pair has
+    /// already been decided in the opposite direction (`rejected`): a
+    /// permanent decision does not get reversed.
     pub async fn confirm(
         &self,
         ctx: &AuthContext,
@@ -323,13 +325,14 @@ impl<'a> AssetTagRepo<'a> {
             .await
     }
 
-    /// Rifiuta una proposta, in modo permanente: `state = 'rejected'`,
-    /// `decided_by`/`decided_at` impostati. Il rematch non la resuscita mai
-    /// ([`Self::propose_for_tag`] aggiorna solo righe `state = 'proposed'`).
-    /// Idempotente se era già rifiutata.
+    /// Rejects a proposal, permanently: `state = 'rejected'`,
+    /// `decided_by`/`decided_at` set. A rematch never resurrects it
+    /// ([`Self::propose_for_tag`] only updates rows with
+    /// `state = 'proposed'`). Idempotent if already rejected.
     ///
     /// # Errors
-    /// Come [`Self::confirm`], con i ruoli di `confirmed`/`rejected` invertiti.
+    /// Same as [`Self::confirm`], with the roles of `confirmed`/`rejected`
+    /// swapped.
     pub async fn reject(
         &self,
         ctx: &AuthContext,
@@ -369,9 +372,10 @@ impl<'a> AssetTagRepo<'a> {
             return Ok(());
         }
 
-        // Non era 'proposed': un aggiornamento onesto invece di un 0-row
-        // silenzioso — distingue "mai proposto", "già deciso uguale"
-        // (idempotente) e "già deciso al contrario" (conflitto reale).
+        // It was not 'proposed': fall back to an honest lookup instead of a
+        // silent 0-row update — this distinguishes "never proposed",
+        // "already decided the same way" (idempotent), and "already
+        // decided the other way" (a real conflict).
         let current: Option<(String,)> =
             sqlx::query_as("SELECT state FROM asset_tags WHERE tag_id = $1 AND asset_id = $2")
                 .bind(tag_id.as_uuid())
@@ -387,12 +391,12 @@ impl<'a> AssetTagRepo<'a> {
         }
     }
 
-    /// Conferma tutte le proposte in attesa per un tag, limitate agli asset
-    /// visibili al chiamante — «Conferma tutte» della coda di revisione.
-    /// Restituisce gli id confermati da questa chiamata.
+    /// Confirms all pending proposals for a tag, limited to assets visible
+    /// to the caller — the review queue's "Confirm all". Returns the ids
+    /// confirmed by this call.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato; `Connection` sul database.
+    /// `Forbidden` without an authenticated user; `Connection` on DB error.
     pub async fn confirm_all_for_tag(
         &self,
         ctx: &AuthContext,
@@ -402,11 +406,11 @@ impl<'a> AssetTagRepo<'a> {
             .await
     }
 
-    /// Come [`Self::confirm_all_for_tag`], ma rifiuta — «Rifiuta tutte»,
-    /// permanente come [`Self::reject`].
+    /// Like [`Self::confirm_all_for_tag`], but rejects — "Reject all",
+    /// permanent like [`Self::reject`].
     ///
     /// # Errors
-    /// Come [`Self::confirm_all_for_tag`].
+    /// Same as [`Self::confirm_all_for_tag`].
     pub async fn reject_all_for_tag(
         &self,
         ctx: &AuthContext,
@@ -453,18 +457,17 @@ impl<'a> AssetTagRepo<'a> {
             .collect())
     }
 
-    /// Assegna un tag a un asset per decisione diretta di una persona (Fase
-    /// 11 Task 7, §13.3 campo 5, SP-12: "un'aggiunta manuale è già una
-    /// conferma, non passa dalla coda di revisione"). A differenza di
-    /// [`Self::confirm`] — che transita solo da `'proposed'` ed è in
-    /// conflitto su un `'rejected'` già deciso — qui la persona sta
-    /// decidendo *ora*, non risolvendo una proposta IA passata: scrive
-    /// sempre `state='confirmed', source='user'`, anche sopra un rifiuto
-    /// precedente. Idempotente.
+    /// Assigns a tag to an asset by a person's direct decision (a manual
+    /// addition is already a confirmation — it does not go through the
+    /// review queue). Unlike [`Self::confirm`] — which only transitions
+    /// from `'proposed'` and conflicts on an already-decided `'rejected'`
+    /// — here the person is deciding *now*, not resolving a past AI
+    /// proposal: it always writes `state='confirmed', source='user'`, even
+    /// over a previous rejection. Idempotent.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato o se l'asset non è visibile al
-    /// chiamante. `Connection` se la scrittura fallisce.
+    /// `Forbidden` without an authenticated user or if the asset is not
+    /// visible to the caller. `Connection` if the write fails.
     pub async fn assign(
         &self,
         ctx: &AuthContext,
@@ -491,22 +494,19 @@ impl<'a> AssetTagRepo<'a> {
         Ok(())
     }
 
-    /// Toglie un tag assegnato a mano da un asset — la freccia opposta di
-    /// [`Self::assign`] (§13.3 campo 5: "attiva/disattiva un tag per
-    /// aggiungerlo o toglierlo da tutti", verificato sul prototipo reale,
-    /// `openTagPickerDialog`/`removeTagFromPhoto` in
-    /// `docs/ui/keeppix-mockup.html`). Una `DELETE` vera della riga, non una
-    /// transizione a `state='rejected'`: quello stato è la decisione
-    /// **permanente** della coda di revisione IA ([`Self::reject`], che
-    /// rifiuta esplicitamente di invertirsi su un conflitto) — semantica
-    /// sbagliata per "ho ripensato a un tag che avevo messo io a mano".
-    /// Con una `DELETE`, riassegnare più tardi lo stesso tag passa di nuovo
-    /// da [`Self::assign`] senza scontrarsi con `Conflict`. Idempotente:
-    /// nessuna riga da cancellare non è un errore.
+    /// Removes a manually assigned tag from an asset — the reverse of
+    /// [`Self::assign`] (a toggle that adds or removes a tag from
+    /// everyone). A real `DELETE` of the row, not a transition to
+    /// `state='rejected'`: that state is the **permanent** decision of the
+    /// AI review queue ([`Self::reject`], which explicitly refuses to
+    /// reverse on a conflict) — the wrong semantics for "I changed my mind
+    /// about a tag I added by hand". With a `DELETE`, reassigning the same
+    /// tag later goes back through [`Self::assign`] without colliding with
+    /// `Conflict`. Idempotent: no row to delete is not an error.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato o se l'asset non è visibile al
-    /// chiamante. `Connection` se la cancellazione fallisce.
+    /// `Forbidden` without an authenticated user or if the asset is not
+    /// visible to the caller. `Connection` if the deletion fails.
     pub async fn unassign(
         &self,
         ctx: &AuthContext,
@@ -527,16 +527,16 @@ impl<'a> AssetTagRepo<'a> {
         Ok(())
     }
 
-    /// Tag confermati per un insieme di asset (Fase 11 Task 7, SP-3 §11 e
-    /// `AssetView`) — solo `state='confirmed'`, mai proposte in attesa né
-    /// rifiutate (§11.3: "si guardano solo i tag confermati della foto").
-    /// Stesso idioma di [`crate::FlagRepo::favorites_among`]: una query sola
-    /// per l'intera pagina. Mappa vuota — non un errore — se pgvector non è
-    /// installato: `tags`/`asset_tags` non esistono affatto in quel caso
-    /// (migrazione 0043, stesso no-op già in [`Self::count_proposed_visible`]).
+    /// Confirmed tags for a set of assets — only `state='confirmed'`,
+    /// never pending proposals or rejections (only a photo's confirmed
+    /// tags are shown). Same idiom as
+    /// [`crate::FlagRepo::favorites_among`]: a single query for the whole
+    /// page. Returns an empty map — not an error — if pgvector is not
+    /// installed: `tags`/`asset_tags` do not exist at all in that case
+    /// (same no-op already used in [`Self::count_proposed_visible`]).
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn confirmed_among(
         &self,
         asset_ids: &[AssetId],
@@ -571,19 +571,17 @@ impl<'a> AssetTagRepo<'a> {
         Ok(out)
     }
 
-    /// Tag di **un** asset per il pannello informazioni del lightbox (Fase
-    /// 11 Task 8, §19.2 campi 14-17): confermati **e** proposti in attesa —
-    /// mai rifiutati, che il documento vuole permanentemente fuori vista
-    /// (§19.3: "rimuovere... deve restare permanente"). A differenza di
-    /// [`Self::confirmed_among`] (bulk, solo confermati, per SP-3), qui
-    /// serve anche `state`/`source` per distinguere le tre rese del
-    /// pannello: confermato umano (chip piena), confermato ma di origine
-    /// IA (`.ai-applied`, marcatore "IA"), e proposto in attesa (chip
-    /// tratteggiata, sezione separata).
+    /// Tags of **one** asset for the lightbox info panel: confirmed **and**
+    /// pending proposals — never rejected ones, which must stay
+    /// permanently out of view. Unlike [`Self::confirmed_among`] (bulk,
+    /// confirmed only), this also needs `state`/`source` to distinguish the
+    /// panel's three renderings: human-confirmed (solid chip), confirmed
+    /// but AI-originated (`.ai-applied`, "AI" marker), and pending proposal
+    /// (dashed chip, separate section).
     ///
     /// # Errors
-    /// `Forbidden` se l'asset non è visibile al chiamante. `Connection` se
-    /// la query fallisce.
+    /// `Forbidden` if the asset is not visible to the caller. `Connection`
+    /// if the query fails.
     pub async fn for_asset(
         &self,
         ctx: &AuthContext,
@@ -611,23 +609,23 @@ impl<'a> AssetTagRepo<'a> {
             .collect())
     }
 
-    /// Rimuove un tag **già confermato** dal pannello informazioni (§19.3,
-    /// la `×` sui chip confermati): non una `DELETE` come
-    /// [`Self::unassign`] (che serve l'aggiunta manuale di Modifica in
-    /// blocco, §13.3), ma una transizione permanente a `state='rejected'`
-    /// — il documento è esplicito: *"rimuovere un tag da una foto è a sua
-    /// volta una decisione umana: deve restare permanente (altrimenti una
-    /// rianalisi potrebbe far ricomparire un tag che l'utente aveva tolto
-    /// apposta)"*. Funziona sia su tag di origine IA sia umana: qui la
-    /// persona sta rimuovendo un tag già presente, non decidendo una
-    /// proposta ([`Self::reject`], che invece transita solo da
-    /// `'proposed'`). Idempotente se già rifiutato.
+    /// Removes an **already-confirmed** tag from the info panel: not a
+    /// `DELETE` like [`Self::unassign`] (which serves the manual addition
+    /// from bulk edit), but a permanent transition to `state='rejected'`
+    /// — removing a tag from a photo is itself a human decision and must
+    /// stay permanent (otherwise a re-analysis could bring back a tag the
+    /// user deliberately removed). This works on both AI- and
+    /// human-originated tags: here the person is removing a tag that is
+    /// already present, not deciding on a proposal ([`Self::reject`],
+    /// which only transitions from `'proposed'`). Idempotent if already
+    /// rejected.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato o se l'asset non è visibile.
-    /// `NotFound` se il tag non è mai stato assegnato a questo asset.
-    /// `Conflict` se è ancora `'proposed'` (va confermato o rifiutato dalla
-    /// coda, non "rimosso" — §19.3 tratta le due sezioni separatamente).
+    /// `Forbidden` without an authenticated user or if the asset is not
+    /// visible. `NotFound` if the tag was never assigned to this asset.
+    /// `Conflict` if it is still `'proposed'` (it must be confirmed or
+    /// rejected from the queue, not "removed" — the two sections are
+    /// handled separately).
     pub async fn remove_confirmed(
         &self,
         ctx: &AuthContext,

@@ -1,16 +1,17 @@
-//! Operazioni lunghe con avanzamento e annullamento (Fase 10 Task 16).
+//! Long-running operations with progress and cancellation.
 //!
-//! Il canale WebSocket resta ciò che è già: un canale di notifica, non fonte
-//! di verità. Questa tabella *è* la fonte di verità — la rotta `/ws` la
-//! legge a ogni giro di poll (come fa già con `change_log`), così un client
-//! che si riconnette a metà operazione vede lo stato corrente al primo giro
-//! utile, senza bisogno di un replay di eventi persi.
+//! The WebSocket channel stays what it already is: a notification
+//! channel, not the source of truth. This table *is* the source of truth
+//! — the `/ws` route reads it on every poll cycle (as it already does
+//! with `change_log`), so a client reconnecting mid-operation sees the
+//! current state on the first useful cycle, without needing a replay of
+//! missed events.
 //!
-//! **Ruling (Task 16): annullare a metà produce una riuscita parziale, non
-//! un rollback.** `succeeded_asset_ids` accumula ciò che è già stato scritto
-//! sul disco; `finish_cancelled` chiude lo stato senza svuotarlo — è
-//! esattamente l'involucro `BulkOutcome` del Task 1, letto da qui invece che
-//! costruito da zero.
+//! **Ruling: cancelling midway produces a partial success, not a
+//! rollback.** `succeeded_asset_ids` accumulates what has already been
+//! written to disk; `finish_cancelled` closes the state without clearing
+//! it — this is exactly the `BulkOutcome` wrapper, read from here instead
+//! of being built from scratch.
 
 use keeppix_domain::{AssetId, AuthContext, OperationId, OperationKind, OperationStatus, UserId};
 use uuid::Uuid;
@@ -74,10 +75,10 @@ impl<'a> OperationsRepo<'a> {
         Self { db }
     }
 
-    /// Crea una nuova operazione posseduta dal chiamante.
+    /// Creates a new operation owned by the caller.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato; `Connection` su errore DB.
+    /// `Forbidden` without an authenticated user; `Connection` on DB error.
     pub async fn create(
         &self,
         ctx: &AuthContext,
@@ -97,13 +98,13 @@ impl<'a> OperationsRepo<'a> {
         row.into_domain()
     }
 
-    /// Crea un'operazione per un owner noto senza `AuthContext`. Usata dalla
-    /// finestra di analisi AI in background (nessun utente HTTP). Documentata
-    /// come eccezione: il worker sceglie l'owner (tipicamente il primo admin)
-    /// e `list_running` filtra per quel `owner_id`.
+    /// Creates an operation for a known owner without an `AuthContext`.
+    /// Used by the background AI-analysis window (no HTTP user).
+    /// Documented as an exception: the worker picks the owner (typically
+    /// the first admin) and `list_running` filters by that `owner_id`.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn create_for_owner(
         &self,
         owner: UserId,
@@ -122,11 +123,12 @@ impl<'a> OperationsRepo<'a> {
         row.into_domain()
     }
 
-    /// Recupera un'operazione. `Forbidden` — non `NotFound` — se non è
-    /// visibile: altrimenti l'endpoint diventerebbe un oracolo di esistenza.
+    /// Fetches an operation. `Forbidden` — not `NotFound` — if it is not
+    /// visible: otherwise the endpoint would become an existence oracle.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non è owner né admin; `Connection` DB.
+    /// `Forbidden` if the caller is neither owner nor admin; `Connection`
+    /// on DB error.
     pub async fn find(&self, ctx: &AuthContext, id: OperationId) -> Result<Operation, DbError> {
         let row: Option<OperationRow> =
             sqlx::query_as(&format!("SELECT {COLUMNS} FROM operations WHERE id = $1"))
@@ -144,11 +146,11 @@ impl<'a> OperationsRepo<'a> {
         }
     }
 
-    /// Operazioni ancora `running` possedute dal chiamante. Usata dal poll
-    /// del WebSocket per emettere `operation.progress` (spec Task 16).
+    /// Operations still `running` owned by the caller. Used by the
+    /// WebSocket poll to emit `operation.progress`.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn list_running(&self, ctx: &AuthContext) -> Result<Vec<Operation>, DbError> {
         let Some(user_id) = ctx.user_id() else {
             return Ok(Vec::new());
@@ -164,12 +166,12 @@ impl<'a> OperationsRepo<'a> {
         rows.into_iter().map(OperationRow::into_domain).collect()
     }
 
-    /// Imposta il totale atteso (`None` quando non è noto in anticipo, come
-    /// alla prima scansione di una libreria vuota di dati). Chiamata dalla
-    /// pipeline, non dall'utente: nessun `AuthContext`, come `JobRepo::claim`.
+    /// Sets the expected total (`None` when it is not known in advance,
+    /// like on the first scan of a library with no data yet). Called by
+    /// the pipeline, not the user: no `AuthContext`, like `JobRepo::claim`.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn set_total(&self, id: OperationId, total: Option<i64>) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE operations SET total = $2, updated_at = now() \
@@ -182,11 +184,11 @@ impl<'a> OperationsRepo<'a> {
         Ok(())
     }
 
-    /// Aggiorna la fase testuale mostrata sul WebSocket (es. `"scanning"`).
-    /// Pipeline interna: nessun `AuthContext`.
+    /// Updates the text phase shown over the WebSocket (e.g. `"scanning"`).
+    /// Internal pipeline: no `AuthContext`.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn set_phase(&self, id: OperationId, phase: &str) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE operations SET phase = $2, updated_at = now() \
@@ -199,15 +201,15 @@ impl<'a> OperationsRepo<'a> {
         Ok(())
     }
 
-    /// Registra un elemento riuscito: incrementa `done` e lo appende
-    /// all'involucro parziale. No-op silenzioso se l'operazione è già
-    /// conclusa — il worker deve aver già smesso di chiamarlo, ma un
-    /// late-write vagante non deve riaprire uno stato terminale.
+    /// Records a successful element: increments `done` and appends it to
+    /// the partial-success wrapper. Silent no-op if the operation is
+    /// already concluded — the worker should have already stopped calling
+    /// this, but a stray late write must not reopen a terminal state.
     ///
-    /// Pipeline interna: nessun `AuthContext`, come `JobRepo::complete`.
+    /// Internal pipeline: no `AuthContext`, like `JobRepo::complete`.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn record_success(&self, id: OperationId, asset_id: AssetId) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE operations SET \
@@ -223,15 +225,15 @@ impl<'a> OperationsRepo<'a> {
         Ok(())
     }
 
-    /// Come [`Self::record_success`], ma per un intero lotto in una sola
-    /// istruzione (Fase 10 Task 21): un solo giro di rete invece di uno per
-    /// asset. No-op se il lotto è vuoto o l'operazione è già conclusa —
-    /// stesso comportamento di [`Self::record_success`].
+    /// Like [`Self::record_success`], but for an entire batch in a single
+    /// statement: one network round trip instead of one per asset. No-op
+    /// if the batch is empty or the operation is already concluded — same
+    /// behavior as [`Self::record_success`].
     ///
-    /// Pipeline interna: nessun `AuthContext`.
+    /// Internal pipeline: no `AuthContext`.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn record_success_many(
         &self,
         id: OperationId,
@@ -255,12 +257,12 @@ impl<'a> OperationsRepo<'a> {
         Ok(())
     }
 
-    /// `true` se il chiamante ha chiesto l'annullamento. Interrogata dal
-    /// worker fra un elemento e il successivo — mai dall'utente
-    /// direttamente, quindi nessun `AuthContext`.
+    /// `true` if the caller has requested cancellation. Queried by the
+    /// worker between elements — never by the user directly, so no
+    /// `AuthContext`.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn is_cancel_requested(&self, id: OperationId) -> Result<bool, DbError> {
         let flag: Option<bool> =
             sqlx::query_scalar("SELECT cancel_requested FROM operations WHERE id = $1")
@@ -270,11 +272,12 @@ impl<'a> OperationsRepo<'a> {
         Ok(flag.unwrap_or(false))
     }
 
-    /// Chiede l'annullamento. Solo owner o admin — altrimenti chiunque
-    /// potrebbe interrompere l'operazione di un altro utente.
+    /// Requests cancellation. Owner or admin only — otherwise anyone
+    /// could interrupt another user's operation.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non è owner né admin; `Connection` DB.
+    /// `Forbidden` if the caller is neither owner nor admin; `Connection`
+    /// on DB error.
     pub async fn request_cancel(&self, ctx: &AuthContext, id: OperationId) -> Result<(), DbError> {
         self.find(ctx, id).await?;
         sqlx::query("UPDATE operations SET cancel_requested = true WHERE id = $1")
@@ -284,11 +287,11 @@ impl<'a> OperationsRepo<'a> {
         Ok(())
     }
 
-    /// Chiude l'operazione come annullata **senza** svuotare l'esito
-    /// parziale già accumulato (Ruling Task 16). Pipeline interna.
+    /// Closes the operation as cancelled **without** clearing the partial
+    /// result already accumulated. Internal pipeline.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn finish_cancelled(&self, id: OperationId) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE operations SET status = 'cancelled', updated_at = now() \
@@ -300,10 +303,10 @@ impl<'a> OperationsRepo<'a> {
         Ok(())
     }
 
-    /// Chiude l'operazione come conclusa con successo. Pipeline interna.
+    /// Closes the operation as completed successfully. Internal pipeline.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn finish_done(&self, id: OperationId) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE operations SET status = 'done', updated_at = now() \
@@ -315,21 +318,21 @@ impl<'a> OperationsRepo<'a> {
         Ok(())
     }
 
-    /// Chiude l'operazione come fallita, con l'esito parziale già
-    /// accumulato (stesso spirito di [`Self::finish_cancelled`]: un
-    /// fallimento a metà non disfa ciò che è già riuscito). Aggiunta il 27
-    /// agosto: `OperationStatus::Failed` esisteva dalla Fase 10 (`operation.
-    /// rs`, già gestito da `routes/ws.rs::drain_operations`) ma nessun
-    /// percorso di codice lo scriveva mai — un job tracciato che falliva
-    /// (errore del worker, non un annullamento) lasciava l'operazione
-    /// bloccata su `running` per sempre, orfana sul WebSocket. Scoperto
-    /// costruendo il job `BulkRename` (Task 10 + Task 16); lo stesso buco
-    /// resta aperto in `discover.rs`/`embed.rs`/`detect_faces.rs`
-    /// (`LibraryScan`/`AiAnalysis`/`FaceDetection`), non toccati qui —
-    /// debito dichiarato, non dimenticato.
+    /// Closes the operation as failed, with the partial result already
+    /// accumulated (same spirit as [`Self::finish_cancelled`]: a
+    /// mid-flight failure does not undo what already succeeded).
+    /// `OperationStatus::Failed` existed from early on (`operation.rs`,
+    /// already handled by `routes/ws.rs::drain_operations`) but no code
+    /// path ever wrote it — a tracked job that failed (a worker error,
+    /// not a cancellation) left the operation stuck on `running` forever,
+    /// orphaned on the WebSocket. This was discovered while building the
+    /// `BulkRename` job; the same gap remains open in
+    /// `discover.rs`/`embed.rs`/`detect_faces.rs`
+    /// (`LibraryScan`/`AiAnalysis`/`FaceDetection`), not addressed here —
+    /// declared debt, not forgotten.
     ///
     /// # Errors
-    /// `Connection` su errore DB.
+    /// `Connection` on DB error.
     pub async fn finish_failed(&self, id: OperationId) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE operations SET status = 'failed', updated_at = now() \

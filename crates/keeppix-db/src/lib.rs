@@ -1,4 +1,4 @@
-//! Accesso al database. È l'unico crate del workspace che contiene SQL.
+//! Database access. This is the only crate in the workspace that contains SQL.
 
 pub mod albums;
 pub mod asset_tags;
@@ -126,10 +126,9 @@ use std::time::Duration;
 
 const LIBRARY_STORAGE_CACHE_TTL: Duration = Duration::from_secs(60);
 
-// sqlx::migrate! incorpora i file a compile time: toccare questo modulo
-// quando si aggiunge o si modifica una migrazione, altrimenti cargo non
-// rivede la directory. 0043_ai_embeddings_tags; 0044_culling_root_folder;
-// 0049_rename_batches.
+// sqlx::migrate! embeds the migration files at compile time: touch this
+// module whenever a migration is added or modified, otherwise cargo will
+// not rescan the migrations directory.
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone, Debug)]
@@ -142,18 +141,18 @@ pub struct Db {
 
 impl Db {
     /// # Errors
-    /// `DbError::Connection` se il pool non riesce a raggiungere il database.
+    /// `DbError::Connection` if the pool cannot reach the database.
     pub async fn connect(url: &str, max_connections: u32) -> Result<Self, DbError> {
         let options = PgConnectOptions::from_str(url)
             .map_err(|err| DbError::Connection(sqlx::Error::Configuration(err.into())))?;
         Self::connect_with(options, max_connections).await
     }
 
-    /// Pool con opzioni esplicite — usato dai test che devono tracciare le query
-    /// (`log_statements`) senza toccare la connessione di produzione.
+    /// Pool with explicit options — used by tests that need to trace queries
+    /// (`log_statements`) without touching the production connection.
     ///
     /// # Errors
-    /// Come [`Self::connect`].
+    /// Same as [`Self::connect`].
     #[doc(hidden)]
     pub async fn connect_with(
         options: PgConnectOptions,
@@ -175,11 +174,11 @@ impl Db {
         })
     }
 
-    /// Applica tutte le migrazioni non ancora eseguite.
+    /// Applies all migrations that have not yet been run.
     ///
     /// # Errors
-    /// `DbError::Migration` se una migrazione fallisce o è stata modificata
-    /// dopo essere stata applicata.
+    /// `DbError::Migration` if a migration fails or has been modified after
+    /// already being applied.
     pub async fn migrate(&self) -> Result<(), DbError> {
         MIGRATOR.run(&self.pool).await?;
         Ok(())
@@ -214,7 +213,7 @@ impl Db {
     }
 
     /// # Errors
-    /// `DbError::Connection` se il database non risponde.
+    /// `DbError::Connection` if the database does not respond.
     pub async fn ping(&self) -> Result<(), DbError> {
         sqlx::query_scalar::<_, i32>("SELECT 1")
             .fetch_one(&self.pool)

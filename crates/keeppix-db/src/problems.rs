@@ -1,10 +1,10 @@
-//! Problemi visibili (librerie offline, asset in errore, job falliti). I
-//! duplicati per `content_hash` sono in [`crate::duplicates`] da Fase 2.
+//! Visible problems (offline libraries, assets in error, failed jobs).
+//! Duplicates by `content_hash` are in [`crate::duplicates`].
 //!
-//! [`ProblemsRepo::composed`] (Fase 10 Task 13) trasforma i tre secchi grezzi
-//! di [`ProblemsRepo::list`] in un elenco piatto di problemi già in
-//! linguaggio naturale — è il server che sa perché un job è fallito, non il
-//! frontend (spec §47).
+//! [`ProblemsRepo::composed`] transforms the three raw buckets from
+//! [`ProblemsRepo::list`] into a flat list of problems already in natural
+//! language — it is the server that knows why a job failed, not the
+//! frontend.
 
 use keeppix_domain::{AssetId, AuthContext, FolderId, JobKind, LibraryId};
 
@@ -48,7 +48,7 @@ impl<'a> ProblemsRepo<'a> {
     }
 
     /// # Errors
-    /// `Connection` se una delle query fallisce.
+    /// `Connection` if one of the queries fails.
     pub async fn list(&self, ctx: &AuthContext) -> Result<ProblemSet, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let lib_filter = scope.filter_library("id", 1);
@@ -79,8 +79,8 @@ impl<'a> ProblemsRepo<'a> {
         .fetch_all(self.db.pool())
         .await?;
 
-        // I job non hanno proprietario: solo l'admin li vede, così un utente
-        // non legge errori di ingest di librerie altrui.
+        // Jobs have no owner: only the admin sees them, so a user cannot
+        // read ingest errors from other people's libraries.
         let failed_jobs = if ctx.is_admin() {
             let rows: Vec<(i64, String, Option<String>)> = sqlx::query_as(
                 "SELECT id, kind, last_error FROM jobs \
@@ -120,14 +120,14 @@ impl<'a> ProblemsRepo<'a> {
         })
     }
 
-    /// Elenco piatto composto (spec §47): ogni riga è già gravità, titolo,
-    /// descrizione in linguaggio naturale, cartella/libreria coinvolta e
-    /// azioni proposte — non i tre secchi grezzi di [`Self::list`].
+    /// Composed flat list: each row already has severity, title,
+    /// description in natural language, the folder/library involved, and
+    /// proposed actions — not the three raw buckets from [`Self::list`].
     ///
     /// # Errors
-    /// Come [`Self::list`], più `Connection`/`NotFound` se un asset o una
-    /// cartella referenziati da un fallimento di `write_sidecar` sono spariti
-    /// nel frattempo (caso raro: cancellati fra il fallimento e la lettura).
+    /// Same as [`Self::list`], plus `Connection`/`NotFound` if an asset or
+    /// folder referenced by a `write_sidecar` failure has vanished in the
+    /// meantime (rare case: deleted between the failure and the read).
     pub async fn composed(
         &self,
         ctx: &AuthContext,
@@ -137,12 +137,13 @@ impl<'a> ProblemsRepo<'a> {
         self.compose(&set, lang).await
     }
 
-    /// Come [`Self::composed`], ma su un [`ProblemSet`] già ottenuto — utile
-    /// a chi (l'endpoint HTTP) deve comunque restituire anche i secchi grezzi
-    /// e non vuole interrogare il database due volte per la stessa richiesta.
+    /// Like [`Self::composed`], but on an already-obtained [`ProblemSet`]
+    /// — useful for callers (the HTTP endpoint) that also need to return
+    /// the raw buckets and do not want to query the database twice for
+    /// the same request.
     ///
     /// # Errors
-    /// Vedi [`Self::composed`].
+    /// See [`Self::composed`].
     pub async fn compose(
         &self,
         set: &ProblemSet,
@@ -239,10 +240,10 @@ impl<'a> ProblemsRepo<'a> {
     }
 }
 
-/// Le due lingue in cui il backend traduce le descrizioni composte —
-/// **Ruling** (Task 13): il backend produce il testo in linguaggio naturale,
-/// non il frontend, quindi la lingua dell'utente deve arrivare nella
-/// richiesta (query o `Accept-Language`, risolta dal livello HTTP).
+/// The two languages the backend translates composed descriptions into
+/// — the backend produces the natural-language text, not the frontend, so
+/// the user's language must arrive with the request (query or
+/// `Accept-Language`, resolved by the HTTP layer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProblemLanguage {
     It,
@@ -250,9 +251,9 @@ pub enum ProblemLanguage {
 }
 
 impl ProblemLanguage {
-    /// `"en"`, `"en-US"`, `"en_GB"`... → inglese; qualunque altra cosa
-    /// (incluso assente) → italiano, il default già in vigore per
-    /// `UserPreferences::language` (Task 9).
+    /// `"en"`, `"en-US"`, `"en_GB"`... -> English; anything else
+    /// (including absent) -> Italian, the default already in effect for
+    /// `UserPreferences::language`.
     #[must_use]
     pub fn parse(raw: &str) -> Self {
         if raw.trim().to_ascii_lowercase().starts_with("en") {
@@ -497,14 +498,15 @@ fn join_names(names: &[String], lang: ProblemLanguage) -> String {
     }
 }
 
-/// Un fallimento di `write_sidecar` per singolo asset ha, in `jobs.last_error`,
-/// la forma `"{asset_id}: {message}"` (più fallimenti separati da `"; "`),
-/// avvolta a sua volta in un `JobError::Worker` di livello batch — quindi
-/// l'intera stringa porta un prefisso `"worker: "` in più (vedi
-/// `keeppix-jobs::xmp::run`). Un fallimento per permessi porta ovunque nel
-/// suo segmento il marcatore stabile `permission-denied:`, messo lì apposta
-/// da `keeppix-jobs` per non dover indovinare dal testo libero di un
-/// `io::Error` che cambia formulazione a seconda della piattaforma.
+/// A per-asset `write_sidecar` failure has, in `jobs.last_error`, the form
+/// `"{asset_id}: {message}"` (multiple failures separated by `"; "`),
+/// itself wrapped in a batch-level `JobError::Worker` — so the whole
+/// string carries an extra `"worker: "` prefix (see
+/// `keeppix-jobs::xmp::run`). A permission failure carries, somewhere in
+/// its segment, the stable marker `permission-denied:`, placed there
+/// deliberately by `keeppix-jobs` so this code does not have to guess
+/// from the free-form text of an `io::Error`, whose wording varies by
+/// platform.
 fn permission_denied_asset_ids(last_error: &str) -> Vec<AssetId> {
     let body = last_error.strip_prefix("worker: ").unwrap_or(last_error);
     body.split("; ")

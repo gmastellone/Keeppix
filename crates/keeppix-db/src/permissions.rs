@@ -1,4 +1,4 @@
-//! Permessi solo-allow. I gruppi si risolvono con un join, mai nel token.
+//! Allow-only permissions. Groups are resolved with a join, never in the token.
 
 use std::collections::HashMap;
 
@@ -68,11 +68,11 @@ impl<'a> PermissionRepo<'a> {
         Self { db }
     }
 
-    /// Concede o aggiorna un permesso. Il controllo «solo owner o admin»
-    /// arriva col pannello (Task 4): qui si scrive la riga.
+    /// Grants or updates a permission. The "owner or admin only" check is
+    /// enforced upstream, by the panel: this method just writes the row.
     ///
     /// # Errors
-    /// `Forbidden` senza utente; `Connection` se l'upsert fallisce.
+    /// `Forbidden` without a user; `Connection` if the upsert fails.
     pub async fn grant(&self, ctx: &AuthContext, grant: NewGrant) -> Result<Permission, DbError> {
         self.assert_can_manage(ctx, grant.object, grant.object_id)
             .await?;
@@ -109,11 +109,11 @@ impl<'a> PermissionRepo<'a> {
         })
     }
 
-    /// Ruolo più alto fra i permessi applicabili su una cartella, incluso
-    /// ciò che arriva dai gruppi. Vince `editor` su `viewer`.
+    /// Highest role among the permissions applicable to a folder,
+    /// including what comes from groups. `editor` beats `viewer`.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn effective_role(
         &self,
         ctx: &AuthContext,
@@ -143,19 +143,19 @@ impl<'a> PermissionRepo<'a> {
         Ok(role.as_deref().and_then(ObjectRole::parse))
     }
 
-    /// Stesso cancello di `FolderRepo::move_subtree`: owner/admin, oppure
-    /// `editor` sulla cartella dell'asset. Un viewer che *vede* non scrive.
+    /// Same gate as `FolderRepo::move_subtree`: owner/admin, or `editor`
+    /// on the asset's folder. A viewer who *can see* cannot write.
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo asset è sotto una cartella dove il
-    /// chiamante non è owner/admin né editor. `Connection` se la query fallisce.
+    /// `Forbidden` if even one asset is under a folder where the caller
+    /// is neither owner/admin nor editor. `Connection` if the query fails.
     pub async fn assert_can_edit_assets(
         &self,
         ctx: &AuthContext,
         asset_ids: &[AssetId],
     ) -> Result<(), DbError> {
-        // Admin: short-circuit come prima — la visibilità resta a
-        // `assert_visible` / `filter_visible` del chiamante.
+        // Admin: short-circuit as before — visibility still belongs to
+        // the caller's `assert_visible` / `filter_visible`.
         if asset_ids.is_empty() || ctx.is_admin() {
             return Ok(());
         }
@@ -167,12 +167,13 @@ impl<'a> PermissionRepo<'a> {
         }
     }
 
-    /// Parte gli `asset_ids` in modificabili / no, senza abortire al primo
-    /// rifiuto. Gli id non visibili e quelli solo in lettura finiscono in
-    /// `failed` con `Forbidden` (o `NotFound` per un admin su id assente).
+    /// Splits `asset_ids` into editable / not, without aborting on the
+    /// first rejection. Ids not visible and read-only ones end up in
+    /// `failed` with `Forbidden` (or `NotFound` for an admin on a missing
+    /// id).
     ///
     /// # Errors
-    /// `Connection` se una query fallisce.
+    /// `Connection` if a query fails.
     pub async fn partition_editable_assets(
         &self,
         ctx: &AuthContext,
@@ -241,10 +242,10 @@ impl<'a> PermissionRepo<'a> {
         Ok((editable, failed))
     }
 
-    /// Elenco permessi diretti su un oggetto.
+    /// List of direct permissions on an object.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non può amministrare l'oggetto.
+    /// `Forbidden` if the caller cannot administer the object.
     pub async fn list_direct(
         &self,
         ctx: &AuthContext,
@@ -278,10 +279,10 @@ impl<'a> PermissionRepo<'a> {
             .collect()
     }
 
-    /// Revoca un permesso per id.
+    /// Revokes a permission by id.
     ///
     /// # Errors
-    /// `Forbidden` se non autorizzato; `NotFound` se il permesso non esiste.
+    /// `Forbidden` if not authorized; `NotFound` if the permission does not exist.
     pub async fn revoke(&self, ctx: &AuthContext, permission_id: Uuid) -> Result<(), DbError> {
         let row: Option<(String, Uuid, String, Uuid)> = sqlx::query_as(
             "SELECT object_type, object_id, subject_type, subject_id FROM permissions WHERE id = $1",
@@ -334,11 +335,11 @@ impl<'a> PermissionRepo<'a> {
         Ok(())
     }
 
-    /// Aggiorna ruolo o ereditarietà.
+    /// Updates role or inheritance.
     ///
     /// # Errors
-    /// `NotFound` se il permesso non esiste; `Forbidden` se il chiamante
-    /// non può gestire l'oggetto; `Connection` su errore DB.
+    /// `NotFound` if the permission does not exist; `Forbidden` if the
+    /// caller cannot manage the object; `Connection` on DB error.
     pub async fn patch(
         &self,
         ctx: &AuthContext,
@@ -382,16 +383,17 @@ impl<'a> PermissionRepo<'a> {
         })
     }
 
-    /// Spiega perché un utente vede (o non vede) un oggetto, con nomi e
-    /// percorsi leggibili — mai gli id grezzi (spec §3.1).
+    /// Explains why a user can (or cannot) see an object, with readable
+    /// names and paths — never raw ids.
     ///
-    /// ponytail: elenca i grant che matchano (inherit sull'antenato, o
-    /// esatto). Non replica i "buchi" `inherit=false` di `VisibilityScope`.
-    /// Soffitto: un antenato con inherit può comparire anche sotto un nodo
-    /// non ereditario. Upgrade: stessa regola di visibilità.
+    /// Lists the grants that match (inherited from an ancestor, or exact).
+    /// Does not replicate the `inherit=false` "holes" of
+    /// `VisibilityScope`. An inheriting ancestor can still surface below a
+    /// non-inheriting node. Role wins by the same visibility rule.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non può gestire l'oggetto; `Connection` DB.
+    /// `Forbidden` if the caller cannot manage the object; `Connection`
+    /// on DB error.
     pub async fn explain(
         &self,
         ctx: &AuthContext,
@@ -478,18 +480,18 @@ impl<'a> PermissionRepo<'a> {
         })
     }
 
-    /// Tutto ciò che è condiviso **con** l'utente corrente (cartelle e
-    /// album), l'inverso di `list_direct` — quella è interrogabile solo per
-    /// oggetto. Un accesso via gruppo compare con `via_group` impostato,
-    /// non solo quelli concessi direttamente all'utente.
+    /// Everything shared **with** the current user (folders and albums),
+    /// the inverse of `list_direct` — which can only be queried per
+    /// object. Access via a group shows up with `via_group` set, not just
+    /// permissions granted directly to the user.
     ///
-    /// Se lo stesso oggetto arriva sia da un permesso diretto che da un
-    /// gruppo, vince il ruolo più alto e l'origine mostrata è quella
-    /// diretta — l'utente ha comunque accesso a titolo personale.
+    /// If the same object comes from both a direct permission and a
+    /// group, the higher role wins and the origin shown is the direct
+    /// one — the user has access in their own right anyway.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato; `Connection` se una query
-    /// fallisce.
+    /// `Forbidden` without an authenticated user; `Connection` if a query
+    /// fails.
     pub async fn list_shared_with_me(
         &self,
         ctx: &AuthContext,
@@ -644,7 +646,7 @@ impl<'a> PermissionRepo<'a> {
     }
 }
 
-/// Un oggetto (cartella o album) condiviso con l'utente corrente.
+/// An object (folder or album) shared with the current user.
 #[derive(Debug, Clone, Serialize)]
 pub struct SharedWithMeItem {
     pub object_type: String,
@@ -652,8 +654,8 @@ pub struct SharedWithMeItem {
     pub name: String,
     pub owner_name: String,
     pub role: ObjectRole,
-    /// `Some(nome del gruppo)` se l'accesso arriva solo da un gruppo;
-    /// `None` se l'utente ha (anche) un permesso diretto.
+    /// `Some(group name)` if access comes only from a group; `None` if
+    /// the user has (also) a direct permission.
     pub via_group: Option<String>,
     pub item_count: i64,
 }

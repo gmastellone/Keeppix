@@ -32,15 +32,15 @@ impl<'a> ChangeLogRepo<'a> {
         Self { db }
     }
 
-    /// Modifiche con `seq > cursor`, visibili al chiamante.
+    /// Changes with `seq > cursor`, visible to the caller.
     ///
-    /// Il cursore restituito è arretrato al massimo `seq` le cui transazioni
-    /// sono certamente concluse (`xmin < pg_snapshot_xmin`). Senza, una
-    /// transazione con seq più basso che committà dopo una con seq più alto
-    /// sparirebbe dal delta.
+    /// The returned cursor is pulled back to the highest `seq` whose
+    /// transactions are certainly complete (`xmin < pg_snapshot_xmin`).
+    /// Without this, a transaction with a lower seq that commits after one
+    /// with a higher seq would vanish from the delta.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn since(&self, ctx: &AuthContext, cursor: i64) -> Result<ChangePage, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter_library("c.library_id", 2);
@@ -97,12 +97,13 @@ impl<'a> ChangeLogRepo<'a> {
     }
 
     async fn safe_cursor(&self, cursor: i64) -> Result<i64, DbError> {
-        // Spec §2.6: arretrare al limite delle transazioni certamente
-        // concluse. Lo sketch usa `xmin >= snapshot_xmin` e `min(seq)-1`;
-        // quello avanzerebbe il cursore *oltre* il seq ancora in-flight
-        // (non visibile). Il massimo seq con `xmin < snapshot_xmin` è il
-        // high-water mark che non perde righe: i client rivedono eventuali
-        // duplicati, che per un delta `upsert` sono idempotenti.
+        // Pull back to the boundary of transactions that are certainly
+        // complete. A naive approach using `xmin >= snapshot_xmin` and
+        // `min(seq)-1` would advance the cursor *past* a seq that is still
+        // in-flight (not yet visible). The max seq with
+        // `xmin < snapshot_xmin` is the high-water mark that never drops
+        // rows: clients may see occasional duplicates, which are
+        // idempotent for an `upsert` delta.
         let frozen: Option<i64> = sqlx::query_scalar(
             "SELECT MAX(seq) FROM change_log \
               WHERE xmin::text::bigint \
@@ -118,7 +119,7 @@ impl<'a> ChangeLogRepo<'a> {
     /// `seq` is global; visibility is applied on each [`Self::since`] poll.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn head_seq(&self, _ctx: &AuthContext) -> Result<i64, DbError> {
         self.safe_cursor(0).await
     }

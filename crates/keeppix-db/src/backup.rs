@@ -1,4 +1,4 @@
-//! Backup destinations, run history, and preferences (Fase 6 Tasks 3–4).
+//! Backup destinations, run history, and preferences.
 //! Destination credentials are AES-GCM encrypted at rest with a key from
 //! [`SettingsRepo::get_or_create_secret`], same pattern as TOTP secrets.
 
@@ -114,7 +114,7 @@ impl Default for BackupPreferences {
 }
 
 impl BackupPreferences {
-    /// Spec §2.4: catalog-only backups must surface a mandatory warning.
+    /// Catalog-only backups must surface a mandatory warning.
     #[must_use]
     pub const fn requires_originals_warning(&self) -> bool {
         !self.include_originals

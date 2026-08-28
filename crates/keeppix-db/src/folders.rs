@@ -47,8 +47,8 @@ fn parse_culling_role(raw: Option<&str>) -> Result<Option<CullingRole>, DbError>
     }
 }
 
-// `path::text` perché `ltree` non ha una decodifica sqlx: la riga porta una
-// String che `FolderPath::parse` valida.
+// `path::text` because `ltree` has no sqlx decoding: the row carries a
+// String that `FolderPath::parse` validates.
 const COLUMNS: &str = "id, library_id, parent_id, name, path::text AS path, depth, culling_role";
 
 async fn load(conn: &mut PgConnection, id: FolderId) -> Result<Option<Folder>, DbError> {
@@ -61,12 +61,12 @@ async fn load(conn: &mut PgConnection, id: FolderId) -> Result<Option<Folder>, D
     row.map(FolderRow::into_domain).transpose()
 }
 
-/// Crea la radice della libreria se non c'è, e la restituisce.
+/// Creates the library's root if it doesn't exist, and returns it.
 ///
-/// L'etichetta `ltree` viene dal contatore della libreria, nella stessa
-/// istruzione dell'inserimento: l'`UPDATE` blocca la riga di `libraries`, per
-/// cui due scansioni concorrenti della stessa libreria si serializzano invece
-/// di litigare sull'indice.
+/// The `ltree` label comes from the library's counter, in the same
+/// statement as the insert: the `UPDATE` locks the `libraries` row, so two
+/// concurrent scans of the same library serialize instead of racing on the
+/// label.
 async fn ensure_root_on(conn: &mut PgConnection, library_id: LibraryId) -> Result<Folder, DbError> {
     sqlx::query(
         "WITH label AS ( \
@@ -83,8 +83,8 @@ async fn ensure_root_on(conn: &mut PgConnection, library_id: LibraryId) -> Resul
     .execute(&mut *conn)
     .await?;
 
-    // Rilettura invece del `RETURNING`: con `DO NOTHING` la riga esistente non
-    // viene restituita, e l'esistente è esattamente quella che serve.
+    // Re-read instead of `RETURNING`: with `DO NOTHING` the existing row is
+    // not returned, and the existing row is exactly what's needed.
     let row: Option<FolderRow> = sqlx::query_as(&format!(
         "SELECT {COLUMNS} FROM folders WHERE library_id = $1 AND parent_id IS NULL"
     ))
@@ -95,9 +95,9 @@ async fn ensure_root_on(conn: &mut PgConnection, library_id: LibraryId) -> Resul
     row.ok_or(DbError::NotFound)?.into_domain()
 }
 
-/// Come sopra per un figlio: il percorso del genitore viene riletto dal
-/// database, così un `Folder` in mano al chiamante da prima di uno spostamento
-/// non produce un percorso sbagliato.
+/// Same as above for a child: the parent's path is re-read from the
+/// database, so a `Folder` the caller has been holding since before a move
+/// does not produce a wrong path.
 async fn ensure_child_on(
     conn: &mut PgConnection,
     parent: &Folder,
@@ -131,13 +131,13 @@ async fn ensure_child_on(
     row.ok_or(DbError::NotFound)?.into_domain()
 }
 
-/// Come `ensure_child_on`, ma marca la cartella con `culling_role` (Fase 9
-/// Task 2): `_taken`/`_skipped` non sono riconosciute dal nome, dalla
-/// colonna. Auto-guarigione se la cartella esisteva già senza ruolo (creata
-/// a mano prima che Keeppix ne avesse bisogno come speciale, o da una
-/// versione precedente di questa funzione): l'`UPDATE` dopo l'`INSERT`
-/// ignorato la marca comunque, invece di lasciare una `_taken` che si
-/// comporta come una cartella qualunque.
+/// Same as `ensure_child_on`, but marks the folder with `culling_role`:
+/// `_taken`/`_skipped` are recognized by the column, not by name.
+/// Self-heals if the folder already existed without a role (created by
+/// hand before Keeppix needed it as special, or by an earlier version of
+/// this function): the `UPDATE` after the ignored `INSERT` marks it
+/// anyway, instead of leaving a `_taken` that behaves like an ordinary
+/// folder.
 async fn ensure_culling_child_on(
     conn: &mut PgConnection,
     parent: &Folder,
@@ -189,37 +189,38 @@ impl<'a> FolderRepo<'a> {
         Self { db }
     }
 
-    /// Radice della libreria, creandola se non esiste.
+    /// The library's root, creating it if it does not exist.
     ///
-    /// Non prende un `AuthContext` perché la chiama lo scanner, che non agisce
-    /// per conto di un utente — come `LibraryRepo::mark_scanned`.
+    /// Does not take an `AuthContext` because the scanner calls this, and
+    /// it does not act on behalf of a user — like
+    /// `LibraryRepo::mark_scanned`.
     ///
     /// # Errors
-    /// `NotFound` se la libreria non esiste.
+    /// `NotFound` if the library does not exist.
     pub async fn ensure_root(&self, library_id: LibraryId) -> Result<Folder, DbError> {
         let mut conn = self.db.pool().acquire().await?;
         ensure_root_on(&mut conn, library_id).await
     }
 
-    /// Figlio di nome `name`, creandolo se non esiste.
+    /// The child named `name`, creating it if it does not exist.
     ///
-    /// Idempotente anche sotto concorrenza: `ON CONFLICT DO NOTHING` più
-    /// rilettura, non `SELECT` seguito da `INSERT`. Senza `AuthContext` per la
-    /// stessa ragione di `ensure_root`.
+    /// Idempotent even under concurrency: `ON CONFLICT DO NOTHING` plus a
+    /// re-read, not a `SELECT` followed by an `INSERT`. No `AuthContext`
+    /// for the same reason as `ensure_root`.
     ///
     /// # Errors
-    /// `NotFound` se il genitore non esiste più.
+    /// `NotFound` if the parent no longer exists.
     pub async fn ensure_child(&self, parent: &Folder, name: &str) -> Result<Folder, DbError> {
         let mut conn = self.db.pool().acquire().await?;
         ensure_child_on(&mut conn, parent, name).await
     }
 
-    /// `_taken`/`_skipped` dentro un lotto di culling (Fase 9 Task 2),
-    /// creata se non c'è, sempre marcata dal `culling_role` giusto — mai
-    /// riconosciuta dal nome.
+    /// `_taken`/`_skipped` inside a culling lot, created if missing,
+    /// always marked with the right `culling_role` — never recognized by
+    /// name.
     ///
     /// # Errors
-    /// Come `ensure_child`.
+    /// Same as `ensure_child`.
     pub async fn ensure_culling_child(
         &self,
         parent: &Folder,
@@ -233,15 +234,14 @@ impl<'a> FolderRepo<'a> {
         ensure_culling_child_on(&mut conn, parent, name, role).await
     }
 
-    /// Crea l'intera catena `relative` sotto la radice della libreria e
-    /// restituisce l'ultima cartella. Senza `AuthContext`: la chiama lo
-    /// scanner.
+    /// Creates the entire `relative` chain under the library's root and
+    /// returns the last folder. No `AuthContext`: the scanner calls this.
     ///
-    /// Tutto in una transazione: una scansione interrotta a metà non lascia
-    /// rami a cui manca un pezzo.
+    /// Everything in one transaction: a scan interrupted halfway through
+    /// does not leave a branch missing a piece.
     ///
     /// # Errors
-    /// `NotFound` se la libreria non esiste.
+    /// `NotFound` if the library does not exist.
     pub async fn ensure_path(
         &self,
         library_id: LibraryId,
@@ -259,23 +259,23 @@ impl<'a> FolderRepo<'a> {
     }
 
     /// # Errors
-    /// `Forbidden` se il chiamante non vede la libreria della cartella — anche
-    /// quando l'id non esiste, per non offrire un oracolo di esistenza.
-    /// `NotFound` solo a un admin che chiede un id inesistente.
+    /// `Forbidden` if the caller cannot see the folder's library — even
+    /// when the id does not exist, so as not to offer an existence oracle.
+    /// `NotFound` only for an admin requesting a nonexistent id.
     pub async fn find_by_id(&self, ctx: &AuthContext, id: FolderId) -> Result<Folder, DbError> {
         Ok(self.visible(ctx, id).await?.0)
     }
 
-    /// Come `find_by_id`, più la libreria che la contiene — stesso cancello
-    /// di visibilità, non quello più stretto owner/admin di
-    /// `LibraryRepo::find_by_id`. Serve a `CullingRepo::set_pick` (Fase 9
-    /// Task 4) per leggere `culling_root_folder_id` senza restringere a
-    /// owner/admin chi può impostare scelto/scartato: quel permesso resta
-    /// quello di sempre (visibilità), lo spostamento fisico dentro un lotto
-    /// lo stringe da sé tramite `AssetRepo::move_asset`.
+    /// Same as `find_by_id`, plus the library that contains it — the same
+    /// visibility gate, not the narrower owner/admin gate of
+    /// `LibraryRepo::find_by_id`. Used by `CullingRepo::set_pick` to read
+    /// `culling_root_folder_id` without restricting who can set
+    /// pick/reject to owner/admin: that permission stays the usual one
+    /// (visibility) — the physical move inside a lot narrows it on its own
+    /// via `AssetRepo::move_asset`.
     ///
     /// # Errors
-    /// Come `find_by_id`.
+    /// Same as `find_by_id`.
     pub async fn find_with_library(
         &self,
         ctx: &AuthContext,
@@ -284,17 +284,17 @@ impl<'a> FolderRepo<'a> {
         self.visible(ctx, id).await
     }
 
-    /// Permesso di scrittura sulla cartella: owner della libreria, admin,
-    /// oppure `editor` esplicito via `PermissionRepo::effective_role` — lo
-    /// stesso cancello di `move_subtree` e di `UploadSessionRepo::create`,
-    /// ora riusabile senza duplicarlo una terza volta per `WebDAV`
-    /// `PUT`/`MKCOL`/`MOVE`/`COPY` (Task 7, Fase 5).
+    /// Write permission on the folder: library owner, admin, or an
+    /// explicit `editor` via `PermissionRepo::effective_role` — the same
+    /// gate as `move_subtree` and `UploadSessionRepo::create`, now
+    /// reusable without duplicating it a third time for `WebDAV`
+    /// `PUT`/`MKCOL`/`MOVE`/`COPY`.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante vede la cartella ma non può scriverci (un
-    /// viewer, o nessun permesso) — mai `NotFound`, per non offrire un
-    /// oracolo di esistenza a chi sonda un id che non gli appartiene.
-    /// Altrimenti come `find_by_id`.
+    /// `Forbidden` if the caller can see the folder but cannot write to it
+    /// (a viewer, or no permission) — never `NotFound`, so as not to
+    /// offer an existence oracle to someone probing an id that isn't
+    /// theirs. Otherwise same as `find_by_id`.
     pub async fn assert_editor(
         &self,
         ctx: &AuthContext,
@@ -313,10 +313,10 @@ impl<'a> FolderRepo<'a> {
         Ok((folder, library))
     }
 
-    /// Albero visibile al chiamante, in ordine di `path`.
+    /// The tree visible to the caller, in `path` order.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn tree(&self, ctx: &AuthContext) -> Result<Vec<Folder>, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 1);
@@ -333,11 +333,11 @@ impl<'a> FolderRepo<'a> {
         rows.into_iter().map(FolderRow::into_domain).collect()
     }
 
-    /// Radici della foresta visibile: librerie possedute per l'owner,
-    /// cartelle concesse per chi ha uno share. Non l'albero intero.
+    /// Roots of the visible forest: owned libraries for the owner, granted
+    /// folders for anyone with a share. Not the whole tree.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn roots(&self, ctx: &AuthContext) -> Result<Vec<Folder>, DbError> {
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("folders.path", "folders.library_id", "NULL::uuid", 1);
@@ -362,10 +362,10 @@ impl<'a> FolderRepo<'a> {
         rows.into_iter().map(FolderRow::into_domain).collect()
     }
 
-    /// Figli diretti, in ordine di nome.
+    /// Direct children, in name order.
     ///
     /// # Errors
-    /// Come `find_by_id`.
+    /// Same as `find_by_id`.
     pub async fn children(
         &self,
         ctx: &AuthContext,
@@ -389,11 +389,11 @@ impl<'a> FolderRepo<'a> {
         rows.into_iter().map(FolderRow::into_domain).collect()
     }
 
-    /// La cartella e tutti i suoi discendenti: una condizione indicizzata
-    /// (`path <@ prefisso`) invece di una ricorsione.
+    /// The folder and all its descendants: an indexed condition
+    /// (`path <@ prefix`) instead of a recursion.
     ///
     /// # Errors
-    /// Come `find_by_id`.
+    /// Same as `find_by_id`.
     pub async fn subtree(
         &self,
         ctx: &AuthContext,
@@ -420,19 +420,18 @@ impl<'a> FolderRepo<'a> {
         rows.into_iter().map(FolderRow::into_domain).collect()
     }
 
-    /// Sposta la cartella, e con lei tutto il sottoalbero, sotto `new_parent`.
+    /// Moves the folder, and with it the entire subtree, under `new_parent`.
     ///
-    /// I percorsi dei discendenti si riscrivono con **una** UPDATE: spostare
-    /// una cartella con 40.000 foto tocca le righe di `folders`, non quelle di
-    /// `assets`, ed è la ragione per cui nessun asset porta un percorso
-    /// assoluto denormalizzato.
+    /// Descendant paths are rewritten with **one** UPDATE: moving a folder
+    /// with 40,000 photos touches `folders` rows, not `assets` rows, which
+    /// is why no asset carries a denormalized absolute path.
     ///
     /// # Errors
-    /// `Conflict` se `new_parent` sta nel sottoalbero da spostare (compresa la
-    /// cartella stessa): il sottoalbero si scollegherebbe e non sarebbe più
-    /// raggiungibile da nessuna radice. `Conflict` anche se le due cartelle
-    /// stanno in librerie diverse, o se il nuovo genitore ha già un figlio con
-    /// quel nome. Altrimenti come `find_by_id`.
+    /// `Conflict` if `new_parent` is inside the subtree being moved
+    /// (including the folder itself): the subtree would get disconnected
+    /// and unreachable from any root. `Conflict` also if the two folders
+    /// are in different libraries, or if the new parent already has a
+    /// child with that name. Otherwise same as `find_by_id`.
     pub async fn move_subtree(
         &self,
         ctx: &AuthContext,
@@ -453,18 +452,17 @@ impl<'a> FolderRepo<'a> {
 
         let mut tx = self.db.pool().begin().await?;
 
-        // La riga di `libraries` è il lucchetto dell'albero: la prendono anche
-        // gli `ensure_*`, incrementando il contatore. Senza, fra il controllo
-        // del ciclo e l'UPDATE un altro spostamento potrebbe rendere
-        // `new_parent` un discendente, e il sottoalbero si scollegherebbe.
-        // Un solo lucchetto per libreria, quindi nessun deadlock.
+        // The `libraries` row is the tree's lock: the `ensure_*` functions
+        // take it too, when incrementing the counter. Without it, between
+        // the cycle check and the UPDATE another move could turn
+        // `new_parent` into a descendant, disconnecting the subtree. A
+        // single lock per library, so no deadlock.
         sqlx::query("SELECT 1 FROM libraries WHERE id = $1 FOR UPDATE")
             .bind(folder.library_id.as_uuid())
             .execute(&mut *tx)
             .await?;
 
-        // Riletti sotto lucchetto: i percorsi visti prima possono essere già
-        // vecchi.
+        // Re-read under the lock: the paths seen earlier may already be stale.
         let folder = match load(&mut tx, folder_id).await? {
             Some(folder) => folder,
             None if ctx.is_admin() => return Err(DbError::NotFound),
@@ -481,20 +479,20 @@ impl<'a> FolderRepo<'a> {
                 "a folder cannot be moved to another library".to_owned(),
             ));
         }
-        // Il controllo va prima dell'UPDATE. `is_descendant_of` ha la
-        // semantica di `<@`, quindi copre anche lo spostamento su se stessa;
-        // e siccome ogni cartella discende dalla radice, la radice non è
-        // spostabile.
+        // The check goes before the UPDATE. `is_descendant_of` has `<@`
+        // semantics, so it also covers moving a folder into itself; and
+        // since every folder descends from the root, the root cannot be
+        // moved.
         if parent.path.is_descendant_of(&folder.path) {
             return Err(DbError::Conflict(
                 "a folder cannot be moved inside its own subtree".to_owned(),
             ));
         }
 
-        // `subpath(path, nlevel(old) - 1)` tiene l'etichetta della cartella
-        // spostata e tutto ciò che le sta sotto, e la riattacca al nuovo
-        // genitore. Le etichette sono uniche per libreria, quindi il nuovo
-        // percorso non può collidere.
+        // `subpath(path, nlevel(old) - 1)` keeps the moved folder's own
+        // label and everything under it, and reattaches it to the new
+        // parent. Labels are unique per library, so the new path cannot
+        // collide.
         sqlx::query(
             "UPDATE folders \
                 SET path  = $3::text::ltree || subpath(path, nlevel($2::text::ltree) - 1), \
@@ -516,15 +514,15 @@ impl<'a> FolderRepo<'a> {
         Ok(())
     }
 
-    /// Rimuove la cartella e tutto il suo sottoalbero **solo dal
-    /// database** (`WebDAV DELETE`, Task 8 Fase 5): il chiamante deve aver
-    /// già cestinato ogni asset del sottoalbero (`TrashRepo::choose` con
-    /// `DiskAction::MovedToTrash` — mai un `rm -rf`) prima di chiamare
-    /// questo metodo, e rimuove la directory fisica separatamente dopo,
-    /// come `dav::delete::folder`.
+    /// Removes the folder and its entire subtree **from the database
+    /// only** (`WebDAV DELETE`): the caller must have already trashed
+    /// every asset in the subtree (`TrashRepo::choose` with
+    /// `DiskAction::MovedToTrash` — never an `rm -rf`) before calling this
+    /// method, and removes the physical directory separately afterward,
+    /// like `dav::delete::folder`.
     ///
     /// # Errors
-    /// `403` se il chiamante non è editor sulla cartella. Altrimenti come
+    /// `403` if the caller is not editor on the folder. Otherwise same as
     /// `assert_editor`.
     pub async fn delete_subtree(
         &self,
@@ -540,13 +538,13 @@ impl<'a> FolderRepo<'a> {
         Ok(())
     }
 
-    /// Percorso su disco della cartella, ricostruito risalendo l'albero.
+    /// The folder's on-disk path, reconstructed by walking up the tree.
     ///
-    /// I nomi vengono dal database, mai dal client.
+    /// Names come from the database, never from the client.
     ///
     /// # Errors
-    /// `Corrupted` se un nome memorizzato non è un singolo componente di
-    /// percorso. Altrimenti come `find_by_id`.
+    /// `Corrupted` if a stored name is not a single path component.
+    /// Otherwise same as `find_by_id`.
     pub async fn absolute_path(
         &self,
         ctx: &AuthContext,
@@ -556,10 +554,10 @@ impl<'a> FolderRepo<'a> {
         self.join_folder_path(library.root_path, folder_id).await
     }
 
-    /// Come `absolute_path`, per lo scanner: niente `AuthContext`.
+    /// Same as `absolute_path`, for the scanner: no `AuthContext`.
     ///
     /// # Errors
-    /// `NotFound` se la cartella non esiste; `Corrupted` su un nome illegale.
+    /// `NotFound` if the folder does not exist; `Corrupted` on an illegal name.
     pub async fn absolute_path_for_scan(&self, folder_id: FolderId) -> Result<PathBuf, DbError> {
         let mut conn = self.db.pool().acquire().await?;
         let Some(folder) = load(&mut conn, folder_id).await? else {
@@ -598,10 +596,10 @@ impl<'a> FolderRepo<'a> {
         Ok(path)
     }
 
-    /// Risolve la visibilità dallo scope (prefissi di cartella), non dalla
-    /// sola proprietà della libreria: una cartella condivisa deve essere
-    /// raggiungibile. `Forbidden` prima di `NotFound`.
-    /// Restituisce anche la libreria, che serve a `absolute_path`.
+    /// Resolves visibility from the scope (folder prefixes), not just
+    /// library ownership: a shared folder must be reachable. `Forbidden`
+    /// takes priority over `NotFound`. Also returns the library, needed
+    /// by `absolute_path`.
     async fn visible(&self, ctx: &AuthContext, id: FolderId) -> Result<(Folder, Library), DbError> {
         let mut conn = self.db.pool().acquire().await?;
 
@@ -630,8 +628,8 @@ impl<'a> FolderRepo<'a> {
     }
 }
 
-/// Un nome di cartella deve essere un solo componente: né vuoto, né `.`, né
-/// `..`, né contenente separatori.
+/// A folder name must be a single component: not empty, not `.`, not
+/// `..`, and containing no separators.
 fn is_single_component(name: &str) -> bool {
     let mut components = Path::new(name).components();
     matches!(
@@ -661,7 +659,7 @@ mod tests {
 
     #[test]
     fn traversal_and_separators_are_rejected() {
-        // Se uno di questi passasse, `absolute_path` uscirebbe dalla libreria.
+        // If any of these passed, `absolute_path` would escape the library.
         assert!(!is_single_component(""));
         assert!(!is_single_component("."));
         assert!(!is_single_component(".."));

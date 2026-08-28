@@ -65,8 +65,8 @@ const fn role_str(role: SystemRole) -> &'static str {
     }
 }
 
-/// Traduce la violazione dell'indice unico in un conflitto leggibile,
-/// distinguendo username ed email così il client sa quale campo cambiare.
+/// Translates the unique index violation into a readable conflict,
+/// distinguishing username and email so the client knows which field to change.
 fn map_unique_violation(err: sqlx::Error) -> DbError {
     if let sqlx::Error::Database(ref db_err) = err
         && db_err.code().as_deref() == Some("23505")
@@ -90,12 +90,12 @@ impl<'a> UserRepo<'a> {
         Self { db }
     }
 
-    /// Numero totale di utenti. Non richiede `AuthContext` perché serve a
-    /// stabilire se l'istanza è ancora vergine, cioè prima che un contesto
-    /// possa esistere.
+    /// Total number of users. Does not require an `AuthContext` because
+    /// it is used to establish whether the instance is still pristine,
+    /// i.e. before a context can even exist.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn count(&self) -> Result<i64, DbError> {
         let n: i64 = sqlx::query_scalar("SELECT count(*) FROM users")
             .fetch_one(self.db.pool())
@@ -103,12 +103,12 @@ impl<'a> UserRepo<'a> {
         Ok(n)
     }
 
-    /// Primo admin attivo per `created_at`. Usato dai job di background che
-    /// devono creare un'`Operation` senza richiesta HTTP (Fase 7
-    /// `AiAnalysis`): l'avanzamento WS è visibile a quell'owner.
+    /// First active admin by `created_at`. Used by background jobs that
+    /// need to create an `Operation` without an HTTP request (e.g.
+    /// `AiAnalysis`): the WS progress is visible to that owner.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn first_admin_id(&self) -> Result<Option<UserId>, DbError> {
         let id: Option<uuid::Uuid> = sqlx::query_scalar(
             "SELECT id FROM users \
@@ -121,16 +121,16 @@ impl<'a> UserRepo<'a> {
         Ok(id.map(UserId::from_uuid))
     }
 
-    /// Crea il primo amministratore. Unica scrittura priva di `AuthContext`,
-    /// permessa solo finché la tabella è vuota.
+    /// Creates the first administrator. The only write without an
+    /// `AuthContext`, allowed only while the table is empty.
     ///
     /// # Errors
-    /// `DbError::Conflict` se esistono già utenti.
+    /// `DbError::Conflict` if users already exist.
     pub async fn create_bootstrap_admin(&self, new: NewUser) -> Result<User, DbError> {
         let mut tx = self.db.pool().begin().await?;
 
-        // Blocca la tabella per la durata della transazione: due richieste di
-        // setup concorrenti non possono creare due amministratori.
+        // Locks the table for the duration of the transaction: two
+        // concurrent setup requests cannot create two administrators.
         sqlx::query("LOCK TABLE users IN EXCLUSIVE MODE")
             .execute(&mut *tx)
             .await?;
@@ -150,8 +150,8 @@ impl<'a> UserRepo<'a> {
     }
 
     /// # Errors
-    /// `DbError::Forbidden` se il chiamante non è admin; `DbError::Conflict`
-    /// se username o email sono già in uso.
+    /// `DbError::Forbidden` if the caller is not admin; `DbError::Conflict`
+    /// if username or email are already in use.
     pub async fn create(&self, ctx: &AuthContext, new: NewUser) -> Result<User, DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -162,11 +162,11 @@ impl<'a> UserRepo<'a> {
         row.into_domain()
     }
 
-    /// Ricerca per il login: restituisce anche l'hash della password.
-    /// Non richiede `AuthContext` perché è il passo che lo produce.
+    /// Lookup for login: also returns the password hash. Does not
+    /// require an `AuthContext` because this is the step that produces one.
     ///
     /// # Errors
-    /// `DbError::Connection` se la query fallisce.
+    /// `DbError::Connection` if the query fails.
     pub async fn find_by_username(
         &self,
         username: &Username,
@@ -184,8 +184,8 @@ impl<'a> UserRepo<'a> {
     }
 
     /// # Errors
-    /// `DbError::Forbidden` se un utente non-admin chiede un id diverso dal
-    /// proprio; `DbError::NotFound` se l'utente non esiste.
+    /// `DbError::Forbidden` if a non-admin user requests an id other than
+    /// their own; `DbError::NotFound` if the user does not exist.
     pub async fn find_by_id(&self, ctx: &AuthContext, id: UserId) -> Result<User, DbError> {
         if !ctx.is_admin() && ctx.user_id() != Some(id) {
             return Err(DbError::Forbidden);
@@ -203,17 +203,18 @@ impl<'a> UserRepo<'a> {
         row.ok_or(DbError::NotFound)?.into_domain()
     }
 
-    /// Ruolo attuale di un utente, senza `AuthContext` — stesso motivo di
-    /// [`Self::find_by_username`]: usata per **ricostruire** l'`AuthContext`
-    /// di un job in background che continua un'azione già autorizzata al
-    /// momento della richiesta HTTP (es. `BulkRename`, Task 10), non per
-    /// un'ispezione arbitraria. Rilegge il ruolo **corrente**, non quello
-    /// catturato quando il job è stato accodato: se nel frattempo un admin
-    /// viene retrocesso, il job lo scopre qui, non prima.
+    /// A user's current role, without an `AuthContext` — same reason as
+    /// [`Self::find_by_username`]: used to **reconstruct** the
+    /// `AuthContext` of a background job that continues an action already
+    /// authorized at HTTP request time (e.g. `BulkRename`), not for
+    /// arbitrary inspection. Rereads the **current** role, not the one
+    /// captured when the job was enqueued: if an admin gets demoted in
+    /// the meantime, the job discovers it here, not before.
     ///
     /// # Errors
-    /// `DbError::NotFound` se l'utente non esiste (più cancellato del
-    /// consueto in questo contesto: l'account che aveva accodato il job).
+    /// `DbError::NotFound` if the user does not exist (more likely
+    /// deleted than usual in this context: the account that had
+    /// enqueued the job).
     pub async fn role_for(&self, id: UserId) -> Result<SystemRole, DbError> {
         let role: Option<String> = sqlx::query_scalar("SELECT role FROM users WHERE id = $1")
             .bind(id.as_uuid())
@@ -227,10 +228,10 @@ impl<'a> UserRepo<'a> {
         }
     }
 
-    /// Elenco di tutti gli utenti. Solo admin.
+    /// List of all users. Admin only.
     ///
     /// # Errors
-    /// `Forbidden` se non admin.
+    /// `Forbidden` if not admin.
     pub async fn list(&self, ctx: &AuthContext) -> Result<Vec<User>, DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -245,12 +246,12 @@ impl<'a> UserRepo<'a> {
         rows.into_iter().map(UserRow::into_domain).collect()
     }
 
-    /// Aggiorna `display_name`, `locale` e/o `role`. Admin può chiunque;
-    /// altrimenti solo sé, e non il ruolo.
+    /// Updates `display_name`, `locale`, and/or `role`. An admin can
+    /// target anyone; otherwise only self, and never the role.
     ///
     /// # Errors
-    /// `Forbidden` / `NotFound` come `find_by_id`. `Forbidden` se un non-admin
-    /// prova a cambiare il ruolo.
+    /// `Forbidden` / `NotFound` same as `find_by_id`. `Forbidden` if a
+    /// non-admin tries to change the role.
     pub async fn update_profile(
         &self,
         ctx: &AuthContext,
@@ -283,11 +284,11 @@ impl<'a> UserRepo<'a> {
         row.into_domain()
     }
 
-    /// Imposta `disabled_at = now()`. Solo admin. Non revoca le sessioni:
-    /// lo fa il chiamante HTTP con `SessionRepo`.
+    /// Sets `disabled_at = now()`. Admin only. Does not revoke sessions:
+    /// the HTTP caller does that with `SessionRepo`.
     ///
     /// # Errors
-    /// `Forbidden` se non admin; `NotFound` se l'id non esiste.
+    /// `Forbidden` if not admin; `NotFound` if the id does not exist.
     pub async fn disable(&self, ctx: &AuthContext, id: UserId) -> Result<(), DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -300,7 +301,7 @@ impl<'a> UserRepo<'a> {
         .execute(self.db.pool())
         .await?;
         if result.rows_affected() == 0 {
-            // Già disabilitato o inesistente: distingue.
+            // Already disabled or nonexistent: distinguish between the two.
             let exists: bool =
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
                     .bind(id.as_uuid())
@@ -315,10 +316,10 @@ impl<'a> UserRepo<'a> {
         Ok(())
     }
 
-    /// Azzera `disabled_at`. Solo admin.
+    /// Clears `disabled_at`. Admin only.
     ///
     /// # Errors
-    /// `Forbidden` se non admin; `NotFound` se l'id non esiste.
+    /// `Forbidden` if not admin; `NotFound` if the id does not exist.
     pub async fn enable(&self, ctx: &AuthContext, id: UserId) -> Result<(), DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -345,11 +346,11 @@ impl<'a> UserRepo<'a> {
         Ok(())
     }
 
-    /// Sostituisce l'hash della password. Il chiamante ha già verificato
-    /// la password attuale (o è un reset admin futuro).
+    /// Replaces the password hash. The caller has already verified the
+    /// current password (or this is a future admin reset).
     ///
     /// # Errors
-    /// `Forbidden` / `NotFound` come `find_by_id`.
+    /// `Forbidden` / `NotFound` same as `find_by_id`.
     pub async fn set_password_hash(
         &self,
         ctx: &AuthContext,

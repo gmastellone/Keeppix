@@ -65,9 +65,10 @@ fn wkt(point: Option<GeoPoint>) -> Option<String> {
     point.map(|p| format!("SRID=4326;POINT({} {})", p.lon, p.lat))
 }
 
-/// Stato di `asset_overrides` e di `assets.location_source` prima di un batch.
-/// `had_override` distingue una riga con tutti i campi `NULL` dall'assenza
-/// della riga: in `undo_batch` diventano rispettivamente UPSERT e DELETE.
+/// State of `asset_overrides` and `assets.location_source` before a batch.
+/// `had_override` distinguishes a row with all fields `NULL` from the
+/// absence of the row: in `undo_batch` these become an UPSERT and a
+/// DELETE, respectively.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredOverride {
     /// `false` means that the asset had no `asset_overrides` row. Older batch
@@ -83,19 +84,19 @@ struct StoredOverride {
     place_id: Option<i64>,
     orientation: Option<i16>,
     updated_by: Option<uuid::Uuid>,
-    /// Compatibility flag for batches written before Task 4. `None` is a
-    /// valid previous source, so presence cannot be represented by the source
-    /// field alone.
+    /// Compatibility flag for batches written before this field existed.
+    /// `None` is a valid previous source, so presence cannot be
+    /// represented by the source field alone.
     #[serde(default)]
     location_source_captured: bool,
     #[serde(default)]
     location_source: Option<String>,
 }
 
-/// Chiave: `asset_id` come stringa (i campi jsonb non possono avere chiavi
-/// non testuali). I vecchi payload usano `None` per un asset senza override;
-/// i nuovi usano `StoredOverride::had_override` per poter salvare anche la
-/// precedente `location_source`.
+/// Key: `asset_id` as a string (jsonb fields cannot have non-text keys).
+/// Older payloads use `None` for an asset with no override; newer ones use
+/// `StoredOverride::had_override` so they can also save the previous
+/// `location_source`.
 type PreviousBatch = BTreeMap<String, Option<StoredOverride>>;
 
 const fn default_true() -> bool {
@@ -116,12 +117,13 @@ impl<'a> OverrideRepo<'a> {
         Self { db }
     }
 
-    /// `COALESCE(override, exif)` campo per campo (spec §3.2). Un override
-    /// parziale non azzera i campi non toccati.
+    /// `COALESCE(override, exif)` field by field. A partial override does
+    /// not clear the fields it does not touch.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non vede l'asset — anche quando l'id non
-    /// esiste. `NotFound` solo a un admin che chiede un id inesistente.
+    /// `Forbidden` if the caller cannot see the asset — even when the id
+    /// does not exist. `NotFound` only for an admin requesting a
+    /// nonexistent id.
     pub async fn effective(
         &self,
         ctx: &AuthContext,
@@ -156,12 +158,12 @@ impl<'a> OverrideRepo<'a> {
         }
     }
 
-    /// Applica una modifica a un solo asset, senza registrarla per
-    /// l'annullamento — quello lo fa solo [`Self::apply_batch`].
+    /// Applies a change to a single asset, without recording it for undo
+    /// — only [`Self::apply_batch`] does that.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non vede l'asset, o lo vede solo come
-    /// viewer (spec §1.2: modificare i metadati è editor+).
+    /// `Forbidden` if the caller cannot see the asset, or can see it only
+    /// as a viewer (editing metadata requires editor+).
     pub async fn apply(
         &self,
         ctx: &AuthContext,
@@ -185,13 +187,13 @@ impl<'a> OverrideRepo<'a> {
         enqueue_sidecar_sweep(self.db).await
     }
 
-    /// Applica la **stessa** modifica a molti asset in un'unica transazione
-    /// — non 500 round-trip — e registra i valori precedenti per
+    /// Applies the **same** change to many assets in a single transaction
+    /// — not 500 round trips — and records the previous values for
     /// [`Self::undo_batch`].
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo asset non è visibile al chiamante, o
-    /// lo è solo come viewer.
+    /// `Forbidden` if even one asset is not visible to the caller, or is
+    /// visible only as a viewer.
     pub async fn apply_batch(
         &self,
         ctx: &AuthContext,
@@ -201,11 +203,11 @@ impl<'a> OverrideRepo<'a> {
         self.apply_batch_inner(ctx, asset_ids, patch, None).await
     }
 
-    /// Come [`Self::apply_batch`], a riuscita parziale: gli asset non
-    /// scrivibili finiscono in `failed` e non entrano nel batch di undo.
+    /// Like [`Self::apply_batch`], with partial success: non-writable
+    /// assets end up in `failed` and do not enter the undo batch.
     ///
     /// # Errors
-    /// `Forbidden` senza utente autenticato; `Connection` sul database.
+    /// `Forbidden` without an authenticated user; `Connection` on DB error.
     pub async fn apply_batch_partial(
         &self,
         ctx: &AuthContext,
@@ -216,12 +218,12 @@ impl<'a> OverrideRepo<'a> {
             .await
     }
 
-    /// Applica una posizione uniforme e registra su `assets.location_source`
-    /// chi l'ha assegnata. La sorgente fa parte della stessa transazione e
-    /// dello stesso snapshot di annullamento degli override.
+    /// Applies a uniform location and records on `assets.location_source`
+    /// who assigned it. The source is part of the same transaction and
+    /// the same undo snapshot as the overrides.
     ///
     /// # Errors
-    /// Come [`Self::apply_batch`].
+    /// Same as [`Self::apply_batch`].
     pub async fn apply_location_batch(
         &self,
         ctx: &AuthContext,
@@ -233,10 +235,10 @@ impl<'a> OverrideRepo<'a> {
             .await
     }
 
-    /// Variante a riuscita parziale di [`Self::apply_location_batch`].
+    /// Partial-success variant of [`Self::apply_location_batch`].
     ///
     /// # Errors
-    /// Come [`Self::apply_batch_partial`].
+    /// Same as [`Self::apply_batch_partial`].
     pub async fn apply_location_batch_partial(
         &self,
         ctx: &AuthContext,
@@ -311,11 +313,12 @@ impl<'a> OverrideRepo<'a> {
         Ok(batch_id)
     }
 
-    /// Legge in un solo giro il timestamp effettivo degli asset da abbinare a
-    /// una traccia GPX. Gli asset senza data vengono omessi dal risultato.
+    /// Reads, in a single round trip, the effective timestamp of assets to
+    /// match against a GPX track. Assets with no date are omitted from
+    /// the result.
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo asset non è visibile o modificabile.
+    /// `Forbidden` if even one asset is not visible or editable.
     pub async fn effective_taken_at(
         &self,
         ctx: &AuthContext,
@@ -347,12 +350,12 @@ impl<'a> OverrideRepo<'a> {
             .collect())
     }
 
-    /// Applica coordinate diverse per asset con un solo `UNNEST`, registrando
-    /// un unico batch annullabile. È il writer parametrico usato dal matching
-    /// GPX; non esegue un `apply()` per fotografia.
+    /// Applies different coordinates per asset with a single `UNNEST`,
+    /// recording a single undoable batch. This is the parametric writer
+    /// used by GPX matching; it does not run one `apply()` per photo.
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo asset non è visibile o modificabile.
+    /// `Forbidden` if even one asset is not visible or editable.
     pub async fn apply_geotag_points(
         &self,
         ctx: &AuthContext,
@@ -391,14 +394,15 @@ impl<'a> OverrideRepo<'a> {
         Ok(batch_id)
     }
 
-    /// Applica timestamp diversi per asset in un unico batch annullabile.
+    /// Applies different timestamps per asset in a single undoable batch.
     ///
-    /// È il writer parametrico del ricalcolo dei fusi: conserva tutti gli
-    /// altri campi dell'override e riusa `metadata_batches`/`undo_batch`.
-    /// Un elenco vuoto è un no-op e non crea una riga batch vuota.
+    /// This is the parametric writer for timezone recalculation: it
+    /// preserves every other override field and reuses
+    /// `metadata_batches`/`undo_batch`. An empty list is a no-op and does
+    /// not create an empty batch row.
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo asset non è visibile o modificabile.
+    /// `Forbidden` if even one asset is not visible or editable.
     pub async fn apply_taken_at_batch(
         &self,
         ctx: &AuthContext,
@@ -429,27 +433,28 @@ impl<'a> OverrideRepo<'a> {
         Ok(batch_id)
     }
 
-    /// Ripristina esattamente i valori precedenti di un batch — anche
-    /// quando il valore precedente era `NULL`, e anche quando l'asset non
-    /// aveva ancora nessun override (in quel caso la riga viene cancellata,
-    /// non lasciata con campi tutti `NULL`).
+    /// Restores exactly the previous values of a batch — even when the
+    /// previous value was `NULL`, and even when the asset had no override
+    /// at all yet (in that case the row is deleted, not left with all
+    /// fields `NULL`).
     ///
-    /// Idempotente: annullare un batch già annullato non fa nulla.
+    /// Idempotent: undoing an already-undone batch does nothing.
     ///
-    /// **Finestra di annullamento** (spec §8: «annulla ripristina i valori
-    /// precedenti finché il sidecar non è stato scritto»): se il sidecar di
-    /// **anche un solo** asset del batch è già stato scritto con i valori
-    /// di questo batch (`xmp_written_at >= metadata_batches.applied_at`),
-    /// l'annullamento è rifiutato con `Conflict` invece di riportare
-    /// indietro il database lasciando il file — già consegnato, magari
-    /// esportato altrove — con un valore che il database non ricorda più
-    /// come "attuale". Prima di quel momento l'annullamento è sempre
-    /// permesso: il file non ha ancora visto il valore sbagliato.
+    /// **Undo window** ("undo restores the previous values until the
+    /// sidecar has been written"): if the sidecar of **even one** asset
+    /// in the batch has already been written with this batch's values
+    /// (`xmp_written_at >= metadata_batches.applied_at`), the undo is
+    /// rejected with `Conflict` instead of rolling the database back
+    /// while leaving the file — already delivered, perhaps exported
+    /// elsewhere — with a value the database no longer remembers as
+    /// "current". Before that moment, undo is always allowed: the file
+    /// has not yet seen the wrong value.
     ///
     /// # Errors
-    /// `Forbidden` se il batch non è del chiamante — anche quando l'id non
-    /// esiste. `NotFound` solo a un admin che chiede un id inesistente.
-    /// `Conflict` se il sidecar è già stato scritto per questo batch.
+    /// `Forbidden` if the batch does not belong to the caller — even when
+    /// the id does not exist. `NotFound` only for an admin requesting a
+    /// nonexistent id. `Conflict` if the sidecar has already been written
+    /// for this batch.
     pub async fn undo_batch(&self, ctx: &AuthContext, batch_id: BatchId) -> Result<(), DbError> {
         let mut tx = self.db.pool().begin().await?;
 
@@ -475,7 +480,7 @@ impl<'a> OverrideRepo<'a> {
         }
 
         if row.undone_at.is_some() {
-            // Già annullato: nessun lavoro da fare, non un errore.
+            // Already undone: nothing to do, not an error.
             tx.commit().await?;
             return Ok(());
         }
@@ -512,20 +517,19 @@ impl<'a> OverrideRepo<'a> {
         Ok(())
     }
 
-    /// **Scostamento di N ore** sulla data di scatto (spec §8): il rimedio
-    /// per l'orologio della fotocamera sbagliato dopo un viaggio, offerto
-    /// come operazione a sé — non calcolato dal client sottraendo due date
-    /// assolute — perché ogni asset del batch può avere un `taken_at` di
-    /// partenza diverso. Un solo statement calcola
-    /// `COALESCE(override, exif) + N ore` per riga, così vale sia per un
-    /// singolo asset sia per 5.000.
+    /// **Shift of N hours** on the shot date: the fix for a camera clock
+    /// that drifted after a trip, offered as its own operation — not
+    /// computed by the client by subtracting two absolute dates — because
+    /// each asset in the batch can have a different starting `taken_at`.
+    /// A single statement computes `COALESCE(override, exif) + N hours`
+    /// per row, so it works the same for a single asset or 5,000.
     ///
-    /// Registra un batch di annullamento esattamente come
-    /// [`Self::apply_batch`]: la stessa [`Self::undo_batch`] lo ripristina.
+    /// Records an undo batch exactly like [`Self::apply_batch`]: the same
+    /// [`Self::undo_batch`] restores it.
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo asset non è visibile al chiamante, o
-    /// lo è solo come viewer.
+    /// `Forbidden` if even one asset is not visible to the caller, or is
+    /// visible only as a viewer.
     pub async fn shift_taken_at(
         &self,
         ctx: &AuthContext,
@@ -564,11 +568,11 @@ impl<'a> OverrideRepo<'a> {
         Ok(batch_id)
     }
 
-    /// Variante a riuscita parziale di [`Self::shift_taken_at`]: solo gli
-    /// asset modificabili entrano nel batch di undo.
+    /// Partial-success variant of [`Self::shift_taken_at`]: only the
+    /// editable assets enter the undo batch.
     ///
     /// # Errors
-    /// `Forbidden` senza utente; `Connection` sul database.
+    /// `Forbidden` without a user; `Connection` on DB error.
     pub async fn shift_taken_at_partial(
         &self,
         ctx: &AuthContext,
@@ -585,15 +589,15 @@ impl<'a> OverrideRepo<'a> {
         Ok((Some(batch_id), editable, failed))
     }
 
-    /// Asset con override non ancora scritti su file:
+    /// Assets with overrides not yet written to file:
     /// `updated_at > COALESCE(xmp_written_at, '-infinity')`.
     ///
-    /// Non prende un `AuthContext`: la chiama il job `WriteSidecar` (Task 5),
-    /// che attraversa tutte le librerie in background — come
+    /// Does not take an `AuthContext`: the `WriteSidecar` job calls this,
+    /// sweeping all libraries in the background — like
     /// `LibraryRepo::mark_scanned`.
     ///
     /// # Errors
-    /// `Connection` se la query fallisce.
+    /// `Connection` if the query fails.
     pub async fn pending_sidecars(&self, limit: i64) -> Result<Vec<AssetId>, DbError> {
         let rows: Vec<uuid::Uuid> = sqlx::query_scalar(
             "SELECT asset_id FROM asset_overrides \
@@ -607,19 +611,19 @@ impl<'a> OverrideRepo<'a> {
         Ok(rows.into_iter().map(AssetId::from_uuid).collect())
     }
 
-    /// Ciò che serve al job `WriteSidecar` per sincronizzare un asset: i
-    /// valori effettivi (`COALESCE(override, exif)`) più il voto del
-    /// **proprietario della libreria** — `xmp:Rating`/`xmp:Label` sono
-    /// valori singoli, quindi solo il suo voto finisce sul file (spec
-    /// §3.4, §4.1); gli altri restano solo in Keeppix.
+    /// What the `WriteSidecar` job needs to sync an asset: the effective
+    /// values (`COALESCE(override, exif)`) plus the **library owner's**
+    /// vote — `xmp:Rating`/`xmp:Label` are single-valued, so only the
+    /// owner's vote ends up on the file; everyone else's stays in Keeppix
+    /// only.
     ///
-    /// Non prende un `AuthContext`: la chiama il job in background su
-    /// tutte le librerie, stessa giustificazione di
+    /// Does not take an `AuthContext`: the background job calls this
+    /// across all libraries, same justification as
     /// [`Self::pending_sidecars`].
     ///
     /// # Errors
-    /// `NotFound` se l'asset non esiste più — cancellato fra l'accodamento
-    /// del job e la sua esecuzione, non un bug.
+    /// `NotFound` if the asset no longer exists — deleted between the
+    /// job's enqueue and its execution, not a bug.
     pub async fn sidecar_source(&self, asset_id: AssetId) -> Result<SidecarSource, DbError> {
         let row: Option<SidecarRow> = sqlx::query_as(
             "SELECT o.title, o.description, \
@@ -643,16 +647,16 @@ impl<'a> OverrideRepo<'a> {
         row.ok_or(DbError::NotFound)?.into_domain()
     }
 
-    /// Registra che il sidecar è stato scritto **e verificato** — mai
-    /// prima: se il processo muore fra la scrittura e questa chiamata, il
-    /// prossimo giro di [`Self::pending_sidecars`] lo ritenta, invece di
-    /// dare per sincronizzato un file che potrebbe non esserlo.
+    /// Records that the sidecar has been written **and verified** — never
+    /// before: if the process dies between the write and this call, the
+    /// next round of [`Self::pending_sidecars`] retries it, instead of
+    /// assuming a file is synced when it might not be.
     ///
-    /// Non prende un `AuthContext`, stessa giustificazione di
+    /// Does not take an `AuthContext`, same justification as
     /// [`Self::sidecar_source`].
     ///
     /// # Errors
-    /// `Connection` se l'aggiornamento fallisce.
+    /// `Connection` if the update fails.
     pub async fn mark_sidecar_written(&self, asset_id: AssetId) -> Result<(), DbError> {
         sqlx::query("UPDATE asset_overrides SET xmp_written_at = now() WHERE asset_id = $1")
             .bind(asset_id.as_uuid())
@@ -662,10 +666,11 @@ impl<'a> OverrideRepo<'a> {
     }
 }
 
-/// Dati che il job `WriteSidecar` (keeppix-jobs) traduce in un
-/// `keeppix_media::xmp::SidecarData`. Vive qui, non in keeppix-media,
-/// perché porta tipi di dominio (`Rating`, `Pick`) che il crate dei media
-/// non deve conoscere altrettanto quanto non deve conoscere il database.
+/// Data that the `WriteSidecar` job (keeppix-jobs) translates into a
+/// `keeppix_media::xmp::SidecarData`. Lives here, not in keeppix-media,
+/// because it carries domain types (`Rating`, `Pick`) that the media
+/// crate should not know about any more than it should know about the
+/// database.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SidecarSource {
     pub effective: EffectiveMetadata,
@@ -721,14 +726,15 @@ impl SidecarRow {
     }
 }
 
-/// Sveglia il job `WriteSidecar` dopo che un override ha reso qualche asset
-/// "pendente" (spec §3.3: «DB prima, file poi»). Un'unica chiave di dedup
-/// (`write_sidecar`) fa sì che 500 asset in un `apply_batch` producano un
-/// solo job, non 500: il job stesso rilegge `pending_sidecars` e processa
-/// tutto ciò che trova, ri-accodandosi da solo se ce n'è più di un batch.
+/// Wakes up the `WriteSidecar` job after an override has made some asset
+/// "pending" ("DB first, file second"). A single dedup key
+/// (`write_sidecar`) means 500 assets in one `apply_batch` produce a
+/// single job, not 500: the job itself re-reads `pending_sidecars` and
+/// processes everything it finds, re-queueing itself if there is more
+/// than one batch's worth.
 ///
 /// # Errors
-/// `Connection` se l'inserimento in coda fallisce.
+/// `Connection` if the enqueue fails.
 pub(crate) async fn enqueue_sidecar_sweep(db: &Db) -> Result<(), DbError> {
     JobRepo::new(db)
         .enqueue(
@@ -749,8 +755,8 @@ struct BatchRow {
     previous: serde_json::Value,
 }
 
-/// Le chiavi di [`PreviousBatch`] sono `asset_id` come stringa (vincolo di
-/// JSONB); qui si torna a `Uuid` per interrogare `asset_overrides`.
+/// The keys of [`PreviousBatch`] are `asset_id` as a string (a JSONB
+/// constraint); here we convert back to `Uuid` to query `asset_overrides`.
 fn previous_asset_ids(previous: &PreviousBatch) -> Result<Vec<uuid::Uuid>, DbError> {
     previous
         .keys()
@@ -761,10 +767,10 @@ fn previous_asset_ids(previous: &PreviousBatch) -> Result<Vec<uuid::Uuid>, DbErr
         .collect()
 }
 
-/// Upsert di `patch` su `asset_ids`, preservando i campi non toccati di
-/// ciascuna riga esistente. Un solo statement: `CASE WHEN <touched> THEN
-/// <nuovo valore> ELSE <colonna esistente> END` per campo, così lo stesso
-/// giro serve tanto un singolo asset (`apply`) quanto 500 (`apply_batch`).
+/// Upserts `patch` onto `asset_ids`, preserving the untouched fields of
+/// each existing row. A single statement: `CASE WHEN <touched> THEN <new
+/// value> ELSE <existing column> END` per field, so the same round trip
+/// serves both a single asset (`apply`) and 500 (`apply_batch`).
 async fn apply_patch(
     conn: &mut PgConnection,
     asset_ids: &[uuid::Uuid],
@@ -930,10 +936,10 @@ async fn apply_location_source(
     Ok(())
 }
 
-/// Applica lo scostamento di `hours` ore al `taken_at` effettivo
-/// (`COALESCE(override, exif)`) di ciascun asset, in un solo statement.
-/// Un asset senza alcuna data di scatto nota (né override né exif) resta
-/// senza data: uno scostamento non può inventare un'origine.
+/// Applies a shift of `hours` hours to the effective `taken_at`
+/// (`COALESCE(override, exif)`) of each asset, in a single statement. An
+/// asset with no known shot date at all (neither override nor exif) stays
+/// undated: a shift cannot invent an origin.
 async fn apply_shift(
     conn: &mut PgConnection,
     asset_ids: &[uuid::Uuid],
@@ -967,8 +973,8 @@ async fn apply_shift(
     Ok(())
 }
 
-/// Legge lo stato attuale di `asset_ids` prima di sovrascriverlo, per
-/// popolare `metadata_batches.previous`.
+/// Reads the current state of `asset_ids` before overwriting it, to
+/// populate `metadata_batches.previous`.
 async fn load_previous(
     conn: &mut PgConnection,
     asset_ids: &[uuid::Uuid],
@@ -1015,10 +1021,10 @@ async fn load_previous(
         .collect())
 }
 
-/// Contrario di [`apply_patch`]: per gli asset senza override precedente,
-/// cancella la riga; per gli altri, riscrive esattamente i valori
-/// catturati — compresi quelli `NULL`, che un `COALESCE` a valle
-/// confonderebbe con "non toccare" se si saltasse la riscrittura.
+/// The reverse of [`apply_patch`]: for assets with no previous override,
+/// deletes the row; for the others, rewrites exactly the captured values
+/// — including `NULL` ones, which a downstream `COALESCE` would confuse
+/// with "do not touch" if the rewrite were skipped.
 async fn restore_previous(
     conn: &mut PgConnection,
     previous: &PreviousBatch,

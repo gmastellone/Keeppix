@@ -7,13 +7,13 @@ use sqlx::PgConnection;
 use crate::visibility::VisibilityScope;
 use crate::{AssetRepo, Db, DbError, FolderRepo};
 
-/// Giorni di retention per `moved_to_trash` prima della pulizia (spec §6).
+/// Retention days for `moved_to_trash` before cleanup.
 pub const TRASH_RETENTION_DAYS: i64 = 30;
 
-/// Nome della cartella del cestino, dentro la radice della libreria.
-/// **Deve** restare identico a quello escluso dal walker
-/// (`keeppix_media::walk::is_excluded_name`): un disallineamento qui
-/// produrrebbe un ciclo infinito di reindicizzazione su una libreria grande.
+/// Name of the trash folder, inside the library root. **Must** stay
+/// identical to the one excluded by the walker
+/// (`keeppix_media::walk::is_excluded_name`): a mismatch here would
+/// produce an infinite reindexing loop on a large library.
 pub const TRASH_DIR_NAME: &str = ".keeppix-trash";
 
 const COLUMNS: &str = "id, asset_id, deleted_by, deleted_at, original_path, trash_path, \
@@ -73,15 +73,15 @@ impl<'a> TrashRepo<'a> {
         Self { db }
     }
 
-    /// Applica una delle tre opzioni di cancellazione (spec §6) a un asset,
-    /// e registra sempre una riga di audit in `trash_entries`.
+    /// Applies one of the three deletion options to an asset, and always
+    /// records an audit row in `trash_entries`.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non vede l'asset — anche quando l'id non
-    /// esiste — se chiede [`DiskAction::Purged`] senza essere il
-    /// proprietario della libreria o un admin, o se chiede
-    /// [`DiskAction::MovedToTrash`] / [`DiskAction::Kept`] senza ruolo
-    /// editor (spec §1.2). `Io` se l'operazione sul filesystem fallisce.
+    /// `Forbidden` if the caller cannot see the asset — even when the id
+    /// does not exist — if requesting [`DiskAction::Purged`] without
+    /// being the library owner or an admin, or if requesting
+    /// [`DiskAction::MovedToTrash`] / [`DiskAction::Kept`] without editor
+    /// role. `Io` if the filesystem operation fails.
     pub async fn choose(
         &self,
         ctx: &AuthContext,
@@ -115,10 +115,10 @@ impl<'a> TrashRepo<'a> {
                 row
             }
             DiskAction::Purged => {
-                // DB prima del filesystem: se il commit riesce e `remove_file`
-                // fallisce resta un orfano su disco (la prossima scansione lo
-                // reindicizza). L'inverso — file già cancellato e riga ancora
-                // in `assets` — è perdita di dati senza audit.
+                // DB before the filesystem: if the commit succeeds and
+                // `remove_file` fails, an orphan is left on disk (the next
+                // scan reindexes it). The reverse — file already deleted
+                // and the row still in `assets` — is data loss with no audit.
                 let mut tx = self.db.pool().begin().await?;
                 let row = insert_entry(
                     &mut tx,
@@ -142,11 +142,11 @@ impl<'a> TrashRepo<'a> {
                 let root = PathBuf::from(&library.root_path);
                 let trash_path =
                     prepare_trash_path(&root, &folder_abs, entry_id, asset.filename.as_str())?;
-                // Stesso ordine di `Purged`: commit dell'audit + status
-                // `trashed`, poi `rename()`. Se il rename fallisce la riga
-                // resta (file ancora in `original_path`) e un retry può
-                // completare lo spostamento; l'inverso lasciava un file nel
-                // cestino senza riga di audit, invisibile all'UI.
+                // Same ordering as `Purged`: commit the audit row + `trashed`
+                // status, then `rename()`. If the rename fails the row
+                // stays (file still in `original_path`) and a retry can
+                // complete the move; the reverse would leave a file in the
+                // trash with no audit row, invisible to the UI.
                 let mut tx = self.db.pool().begin().await?;
                 let row = insert_entry(
                     &mut tx,
@@ -179,21 +179,22 @@ impl<'a> TrashRepo<'a> {
         row.into_domain()
     }
 
-    /// Verifica che il chiamante possa richiedere [`DiskAction::Purged`] su
-    /// **tutti** gli asset del lotto, senza eseguire alcuna scrittura né su
-    /// database né su filesystem. Usata da `POST /assets/batch/delete`
-    /// (spec Fase 10 §Task 4) per rendere `purged` all-or-nothing
-    /// sull'autorizzazione: a differenza di `kept`/`moved_to_trash`, dove un
-    /// id non autorizzato finisce in `failed` senza bloccare gli altri, un
-    /// solo id non purgabile deve rifiutare l'intero lotto **prima** che
-    /// [`Self::choose`] tocchi il primo file — non un'eliminazione a metà.
+    /// Checks that the caller can request [`DiskAction::Purged`] on
+    /// **all** assets in the batch, without performing any write to
+    /// either the database or the filesystem. Used by
+    /// `POST /assets/batch/delete` to make `purged` all-or-nothing on
+    /// authorization: unlike `kept`/`moved_to_trash`, where an
+    /// unauthorized id ends up in `failed` without blocking the others,
+    /// a single non-purgeable id must reject the entire batch **before**
+    /// [`Self::choose`] touches the first file — not a half-completed
+    /// deletion.
     ///
-    /// Riusa lo stesso cancello di [`Self::choose`] ([`authorize_choose`]),
-    /// non una copia: nessuna nuova regola di autorizzazione nasce qui.
+    /// Reuses the same gate as [`Self::choose`] ([`authorize_choose`]),
+    /// not a copy: no new authorization rule is introduced here.
     ///
     /// # Errors
-    /// `Forbidden` come [`Self::choose`] con [`DiskAction::Purged`], al
-    /// primo id del lotto che non lo supera.
+    /// `Forbidden` same as [`Self::choose`] with [`DiskAction::Purged`],
+    /// at the first id in the batch that does not pass it.
     pub async fn assert_batch_purge_authorized(
         &self,
         ctx: &AuthContext,
@@ -205,17 +206,17 @@ impl<'a> TrashRepo<'a> {
         Ok(())
     }
 
-    /// Riporta al percorso originale il file più recentemente spostato nel
-    /// cestino per questo asset, e l'asset a `indexed`.
+    /// Restores to its original path the most recently trashed file for
+    /// this asset, and the asset back to `indexed`.
     ///
-    /// **Non sovrascrive**: se il percorso originale è di nuovo occupato —
-    /// da un altro file, o da un ripristino concorrente — l'operazione
-    /// fallisce con `Conflict` senza toccare nulla.
+    /// **Never overwrites**: if the original path is occupied again — by
+    /// another file, or by a concurrent restore — the operation fails
+    /// with `Conflict` without touching anything.
     ///
     /// # Errors
-    /// `Forbidden` come [`Self::choose`]. `Conflict` se l'asset non ha un
-    /// cestinamento pendente, o se il percorso originale è occupato. `Io` se
-    /// il `rename()` fallisce.
+    /// `Forbidden` same as [`Self::choose`]. `Conflict` if the asset has
+    /// no pending trash entry, or if the original path is occupied. `Io`
+    /// if `rename()` fails.
     pub async fn restore(&self, ctx: &AuthContext, asset_id: AssetId) -> Result<(), DbError> {
         AssetRepo::new(self.db)
             .assert_visible(ctx, std::slice::from_ref(&asset_id))
@@ -242,9 +243,9 @@ impl<'a> TrashRepo<'a> {
 
         let original = PathBuf::from(&pending.original_path);
         let trash = PathBuf::from(&trash_path);
-        // Se un `choose(MovedToTrash)` ha committato il DB ma il `rename`
-        // successivo è fallito, il file è ancora in `original_path`. Non c'è
-        // nulla da ripristinare sul disco: basta riaprire l'asset.
+        // If a `choose(MovedToTrash)` committed the DB but the subsequent
+        // `rename` failed, the file is still at `original_path`. There is
+        // nothing to restore on disk: reopening the asset is enough.
         let needs_rename = if !trash.exists() && original.exists() {
             false
         } else if original.exists() {
@@ -270,11 +271,11 @@ impl<'a> TrashRepo<'a> {
             .bind(asset_id.as_uuid())
             .execute(&mut *tx)
             .await?;
-        // La condizione `restored_at IS NULL` chiude la corsa fra due
-        // ripristini concorrenti sullo stesso cestinamento: solo il primo a
-        // arrivare qui lo marca, ma entrambi hanno già superato il controllo
-        // "il percorso originale è libero" sopra — un residuo noto e
-        // documentato, non risolto in questo task (vedi ledger).
+        // The `restored_at IS NULL` condition closes the race between two
+        // concurrent restores on the same trash entry: only the first to
+        // get here marks it, but both have already passed the "the
+        // original path is free" check above — a known, documented
+        // residual race, not resolved here.
         sqlx::query(
             "UPDATE trash_entries SET restored_at = now() \
               WHERE id = $1 AND restored_at IS NULL",
@@ -286,11 +287,11 @@ impl<'a> TrashRepo<'a> {
         Ok(())
     }
 
-    /// Elenco keyset dei cestinamenti ancora recuperabili (`moved_to_trash`
-    /// non ripristinati), filtrato sulla visibilità del chiamante.
+    /// Keyset list of still-recoverable trash entries (`moved_to_trash`
+    /// not yet restored), filtered by the caller's visibility.
     ///
     /// # Errors
-    /// `Connection` se una query fallisce.
+    /// `Connection` if a query fails.
     pub async fn list_pending(
         &self,
         ctx: &AuthContext,
@@ -329,13 +330,13 @@ impl<'a> TrashRepo<'a> {
         rows.into_iter().map(EntryRow::into_domain).collect()
     }
 
-    /// Svuota subito il cestino delle librerie visibili al chiamante. Solo
-    /// owner di almeno una libreria o admin: un utente senza librerie proprie
-    /// riceve `Forbidden`.
+    /// Immediately empties the trash of libraries visible to the caller.
+    /// Owner of at least one library, or admin, only: a user with no
+    /// libraries of their own gets `Forbidden`.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non è admin e non possiede alcuna
-    /// libreria. `Connection` se una query fallisce.
+    /// `Forbidden` if the caller is not admin and does not own any
+    /// library. `Connection` if a query fails.
     pub async fn empty(&self, ctx: &AuthContext) -> Result<u64, DbError> {
         if !ctx.is_admin() {
             let Some(owner_id) = ctx.user_id() else {
@@ -393,19 +394,18 @@ impl<'a> TrashRepo<'a> {
         Ok(emptied)
     }
 
-    /// Pulizia notturna del cestino (spec §6): ogni `moved_to_trash` ancora
-    /// pendente più vecchio di `before` viene cancellato dal disco e la sua
-    /// riga rimossa. Non ancora agganciata a un job schedulato (fuori dai
-    /// file di questo task) — chi la chiamerà passerà `Utc::now() -
-    /// Duration::days(30)`.
+    /// Nightly trash cleanup: every still-pending `moved_to_trash` entry
+    /// older than `before` is deleted from disk and its row removed. Not
+    /// yet wired to a scheduled job — whoever calls it will pass
+    /// `Utc::now() - Duration::days(30)`.
     ///
-    /// Non prende un `AuthContext`: è manutenzione di sistema su tutte le
-    /// librerie, come `LibraryRepo::mark_scanned`.
+    /// Does not take an `AuthContext`: this is system maintenance across
+    /// all libraries, like `LibraryRepo::mark_scanned`.
     ///
     /// # Errors
-    /// `Connection` se una query fallisce. Un singolo file che non si
-    /// riesce a cancellare (permessi, disco già staccato) non abortisce il
-    /// giro: viene loggato e quella riga resta per il prossimo tentativo.
+    /// `Connection` if a query fails. A single file that cannot be
+    /// deleted (permissions, disk already unmounted) does not abort the
+    /// run: it is logged and that row stays for the next attempt.
     pub async fn cleanup_expired(&self, before: DateTime<Utc>) -> Result<u64, DbError> {
         let rows: Vec<PendingRow> = sqlx::query_as(
             "SELECT id, asset_id, original_path, trash_path FROM trash_entries \
@@ -441,23 +441,23 @@ impl<'a> TrashRepo<'a> {
     }
 }
 
-/// Cancelli comuni a [`TrashRepo::choose`] e a
-/// [`TrashRepo::assert_batch_purge_authorized`], estratti perché il secondo
-/// deve poterli eseguire senza scrivere nulla — solo verificare.
+/// Gates shared by [`TrashRepo::choose`] and
+/// [`TrashRepo::assert_batch_purge_authorized`], extracted because the
+/// latter must be able to run them without writing anything — only checking.
 ///
 /// # Errors
-/// `Forbidden` se il chiamante non vede l'asset — anche quando l'id non
-/// esiste — se chiede [`DiskAction::Purged`] senza essere il proprietario
-/// della libreria o un admin, o se chiede [`DiskAction::MovedToTrash`] /
-/// [`DiskAction::Kept`] senza ruolo editor (spec §1.2).
+/// `Forbidden` if the caller cannot see the asset — even when the id does
+/// not exist — if requesting [`DiskAction::Purged`] without being the
+/// library owner or an admin, or if requesting
+/// [`DiskAction::MovedToTrash`] / [`DiskAction::Kept`] without editor role.
 async fn authorize_choose(
     db: &Db,
     ctx: &AuthContext,
     asset_id: AssetId,
     action: DiskAction,
 ) -> Result<(Asset, LibraryInfo, PathBuf), DbError> {
-    // Cancello comune alle tre opzioni: senza visibilità sull'asset nessuna
-    // delle tre è ammessa.
+    // Gate common to all three options: without visibility on the asset,
+    // none of the three is allowed.
     AssetRepo::new(db)
         .assert_visible(ctx, std::slice::from_ref(&asset_id))
         .await?;
@@ -465,17 +465,17 @@ async fn authorize_choose(
     let asset = AssetRepo::new(db).get_for_scan(asset_id).await?;
     let library = library_info_for_folder(db, asset.folder_id).await?;
 
-    // Viewer vede, non scrive: cestino e "kept" sono editor+ (spec §1.2).
-    // Purged resta owner/admin — un editor non distrugge i file.
+    // A viewer can see, not write: trash and "kept" require editor+.
+    // Purged stays owner/admin — an editor cannot destroy files.
     if !matches!(action, DiskAction::Purged) {
         crate::PermissionRepo::new(db)
             .assert_can_edit_assets(ctx, std::slice::from_ref(&asset_id))
             .await?;
     }
 
-    // Secondo cancello, più stretto e solo per `Purged`: la cancellazione
-    // dal disco resta di owner/admin anche quando altri hanno visibilità
-    // sull'asset (design §4.2: «un editor non può distruggere file»).
+    // Second, narrower gate, only for `Purged`: deleting from disk stays
+    // owner/admin even when others have visibility on the asset (an
+    // editor cannot destroy files).
     if matches!(action, DiskAction::Purged) && !may_purge(ctx, UserId::from_uuid(library.owner_id))
     {
         return Err(DbError::Forbidden);
@@ -525,13 +525,13 @@ async fn insert_entry(
     Ok(row)
 }
 
-/// Solo owner e admin possono chiedere [`DiskAction::Purged`] (spec §4.2:
-/// «un editor non può distruggere file»). Estratta come funzione pura,
-/// separata dalla risoluzione async di libreria/visibilità, così la regola
-/// si può pinnare con un test diretto senza passare dal database — la
-/// visibilità odierna (solo owner o admin, nessuna condivisione prima della
-/// Fase 3) renderebbe altrimenti questo cancello indistinguibile dal
-/// controllo di visibilità che lo precede in [`TrashRepo::choose`].
+/// Only owner and admin can request [`DiskAction::Purged`] (an editor
+/// cannot destroy files). Extracted as a pure function, separate from the
+/// async resolution of library/visibility, so the rule can be pinned with
+/// a direct test without going through the database — visibility alone
+/// (only owner or admin, no sharing before this point) would otherwise
+/// make this gate indistinguishable from the visibility check that
+/// precedes it in [`TrashRepo::choose`].
 fn may_purge(ctx: &AuthContext, library_owner: UserId) -> bool {
     ctx.is_admin() || ctx.user_id() == Some(library_owner)
 }
@@ -544,12 +544,12 @@ fn remove_file_tolerant(path: &Path) -> Result<(), DbError> {
     }
 }
 
-/// Calcola (e crea le cartelle di) la destinazione in
-/// `<library_root>/.keeppix-trash/`, senza ancora muovere il file.
+/// Computes (and creates the folders for) the destination under
+/// `<library_root>/.keeppix-trash/`, without moving the file yet.
 ///
-/// Il sottopercorso relativo resta navigabile a mano; il nome è prefissato
-/// con `entry_id` — univoco per costruzione, niente collisione con un altro
-/// file già cestinato con lo stesso basename.
+/// The relative subpath stays manually browsable; the name is prefixed
+/// with `entry_id` — unique by construction, no collision with another
+/// file already trashed with the same basename.
 fn prepare_trash_path(
     library_root: &Path,
     folder_abs: &Path,

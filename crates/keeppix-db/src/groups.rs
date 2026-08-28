@@ -1,4 +1,4 @@
-//! Gestione dei gruppi di utenti. Solo admin può creare, modificare, cancellare.
+//! User group management. Only an admin can create, modify, or delete groups.
 
 use keeppix_domain::{AuthContext, GroupId, UserId};
 
@@ -59,10 +59,10 @@ impl<'a> GroupRepo<'a> {
         Self { db }
     }
 
-    /// Elenco di tutti i gruppi. Solo admin.
+    /// List of all groups. Admin only.
     ///
     /// # Errors
-    /// `DbError::Forbidden` se non admin.
+    /// `DbError::Forbidden` if not admin.
     pub async fn list(&self, ctx: &AuthContext) -> Result<Vec<GroupView>, DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -74,10 +74,10 @@ impl<'a> GroupRepo<'a> {
         Ok(rows.into_iter().map(Group::into_domain).collect())
     }
 
-    /// Crea un nuovo gruppo. Solo admin. Il nome è unico case-insensitive (409 in conflitto).
+    /// Creates a new group. Admin only. The name is unique case-insensitively (409 on conflict).
     ///
     /// # Errors
-    /// `DbError::Forbidden` se non admin; `DbError::Conflict` se il nome esiste già.
+    /// `DbError::Forbidden` if not admin; `DbError::Conflict` if the name already exists.
     pub async fn create(&self, ctx: &AuthContext, name: &str) -> Result<GroupView, DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
@@ -96,7 +96,7 @@ impl<'a> GroupRepo<'a> {
         Ok(row.into_domain())
     }
 
-    /// Rinomina un gruppo. Solo admin. 409 se il nuovo nome è già in uso.
+    /// Renames a group. Admin only. 409 if the new name is already in use.
     ///
     /// # Errors
     /// `DbError::Forbidden` / `DbError::NotFound` / `DbError::Conflict`.
@@ -120,11 +120,11 @@ impl<'a> GroupRepo<'a> {
         row.ok_or(DbError::NotFound).map(Group::into_domain)
     }
 
-    /// Cancella un gruppo. Solo admin.
+    /// Deletes a group. Admin only.
     ///
-    /// Se il gruppo ha permessi attivi e `cascade = false`, ritorna
-    /// `DbError::Conflict`. Se `cascade = true`, cancella prima i permessi poi
-    /// il gruppo.
+    /// If the group has active permissions and `cascade = false`, returns
+    /// `DbError::Conflict`. If `cascade = true`, deletes the permissions
+    /// first, then the group.
     ///
     /// # Errors
     /// `DbError::Forbidden` / `DbError::NotFound` / `DbError::Conflict`.
@@ -138,7 +138,7 @@ impl<'a> GroupRepo<'a> {
             return Err(DbError::Forbidden);
         }
 
-        // Verifica esistenza
+        // Check existence
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM groups WHERE id = $1)")
             .bind(id.as_uuid())
             .fetch_one(self.db.pool())
@@ -188,7 +188,7 @@ impl<'a> GroupRepo<'a> {
         Ok(())
     }
 
-    /// Elenco dei membri di un gruppo. Solo admin.
+    /// List of a group's members. Admin only.
     ///
     /// # Errors
     /// `DbError::Forbidden` / `DbError::NotFound`.
@@ -222,10 +222,10 @@ impl<'a> GroupRepo<'a> {
             .collect())
     }
 
-    /// Aggiunge un utente a un gruppo. Solo admin. Idempotente (ON CONFLICT DO NOTHING).
+    /// Adds a user to a group. Admin only. Idempotent (ON CONFLICT DO NOTHING).
     ///
     /// # Errors
-    /// `DbError::Forbidden` / `DbError::NotFound` se il gruppo non esiste.
+    /// `DbError::Forbidden` / `DbError::NotFound` if the group does not exist.
     pub async fn add_member(
         &self,
         ctx: &AuthContext,
@@ -242,10 +242,10 @@ impl<'a> GroupRepo<'a> {
         if !exists {
             return Err(DbError::NotFound);
         }
-        // Anche se l'utente non esiste, la FK lo rifiuterà con un errore di
-        // integrità referenziale — trattato come Connection, non come NotFound,
-        // perché il client ha già il controllo dal livello HTTP (404 su UserId
-        // inesistente viene dalla UserRepo).
+        // Even if the user does not exist, the FK will reject it with a
+        // referential-integrity error — treated as Connection, not
+        // NotFound, because the client already gets that check from the
+        // HTTP layer (404 on a nonexistent UserId comes from UserRepo).
         sqlx::query(
             "INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) \
              ON CONFLICT DO NOTHING",
@@ -258,11 +258,11 @@ impl<'a> GroupRepo<'a> {
         Ok(())
     }
 
-    /// Rimuove un utente da un gruppo. Solo admin. Non cancella il gruppo se
-    /// rimane senza membri.
+    /// Removes a user from a group. Admin only. Does not delete the group
+    /// if it ends up with no members.
     ///
     /// # Errors
-    /// `DbError::Forbidden` / `DbError::NotFound` se il gruppo non esiste.
+    /// `DbError::Forbidden` / `DbError::NotFound` if the group does not exist.
     pub async fn remove_member(
         &self,
         ctx: &AuthContext,

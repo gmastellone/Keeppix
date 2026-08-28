@@ -1,56 +1,53 @@
-//! Rinomina con formula (Fase 9 Task 8-10): risoluzione dei valori per
-//! asset, i tre ambiti, la co-rinomina dei file affiancati di una pila,
-//! l'applicazione con audit per l'annullamento, e l'avanzamento/annullamento
-//! di un'operazione lunga (Task 10, `OperationKind::BulkRename`). Il motore
-//! vero e proprio (`render_base`/`apply_base_to_filename`) è puro, in
-//! `keeppix-domain`.
+//! Formula-based renaming: value resolution per asset, the three scopes,
+//! co-renaming the side-by-side files of a stack, applying with an audit
+//! trail for undo, and progress/cancellation of a long-running operation
+//! (`OperationKind::BulkRename`). The actual engine
+//! (`render_base`/`apply_base_to_filename`) is pure, in `keeppix-domain`.
 //!
-//! **`apply`/`undo` fanno da "worker" della propria operazione** (Task 10),
-//! ma non allo stesso modo dal 27 agosto. Progettazione originale:
-//! a differenza di `LibraryScan`/`AiAnalysis`/`FaceDetection` (guidate da un
-//! job di `keeppix-jobs`, perché lente e legate a inferenza di modello), la
-//! rinomina era veloce — ogni passo un `move_asset` — quindi restava
-//! sincrona dentro la richiesta HTTP; un lotto da migliaia di foto su
-//! storage lento restava comunque un blocco di minuti senza modo di
-//! annullarlo, scoperto quando qualcuno ha chiesto un annullamento reale.
-//! **`apply` ora gira dentro `keeppix-jobs::rename_batch`** (stessa forma
-//! di `LibraryScan`): il chiamante HTTP (`routes/rename.rs::apply_batch`)
-//! fa i controlli fallibili a monte (permessi/visibilità), crea
-//! l'`Operation`, accoda il job e risponde `202` con l'id subito — nessun
-//! `Err` precoce può comunque lasciare un'operazione orfana, la sicurezza
-//! è la stessa, solo spostata dal dentro-`apply` al chiamante. `undo` resta
-//! sincrona come prima (non nello scopo di questo cambio, stesso
-//! `track_operation: bool`, non toccato) — un debito dichiarato, non
-//! dimenticato: se un batch annullabile può arrivare alla stessa scala di
-//! `apply`, merita lo stesso trattamento. Da lì in poi entrambe interrogano
-//! `is_cancel_requested` fra un asset e il successivo e chiudono da sole lo
-//! stato finale (`finish_done`/`finish_cancelled`). L'id
-//! (`Option<OperationId>`) torna al chiamante dentro
-//! `RenameBatchOutcome`/`RenameUndoOutcome`.
+//! **`apply`/`undo` act as the "worker" of their own operation**, but not
+//! always in the same way. Original design: unlike
+//! `LibraryScan`/`AiAnalysis`/`FaceDetection` (driven by a `keeppix-jobs`
+//! job, because they are slow and tied to model inference), renaming was
+//! fast — each step just a `move_asset` — so it stayed synchronous inside
+//! the HTTP request; a batch of thousands of photos on slow storage still
+//! turned into a multi-minute block with no way to cancel it, discovered
+//! when someone asked for a real cancellation. **`apply` now runs inside
+//! `keeppix-jobs::rename_batch`** (the same shape as `LibraryScan`): the
+//! HTTP caller (`routes/rename.rs::apply_batch`) does the fallible checks
+//! upstream (permissions/visibility), creates the `Operation`, enqueues
+//! the job, and responds `202` with the id right away — no early `Err`
+//! can still leave an orphaned operation; the safety property is the
+//! same, just moved from inside `apply` to the caller. `undo` stays
+//! synchronous as before (out of scope for this change, same
+//! `track_operation: bool`, untouched) — declared debt, not forgotten: if
+//! an undoable batch can reach the same scale as `apply`, it deserves the
+//! same treatment. From there on, both poll `is_cancel_requested` between
+//! one asset and the next and close their own final state
+//! (`finish_done`/`finish_cancelled`). The id (`Option<OperationId>`)
+//! comes back to the caller inside `RenameBatchOutcome`/`RenameUndoOutcome`.
 //!
-//! **Difetto 1 chiuso qui** (spec §62.3d, rinviato dal Task 7): la
-//! collisione è verificata contro l'intero database — anteprima e
-//! applicazione entrambe, non solo dentro il gruppo che si sta rinominando.
+//! **Collision-scope fix closed here**: the collision check runs against
+//! the entire database — both preview and apply, not just within the
+//! group being renamed.
 //!
-//! **Ambito**: questo modulo non risolve "tutti gli asset di una cartella"
-//! o "tutti quelli di un lotto" da sé — riceve sempre un `&[AssetId]` già
-//! esplicito. È la correzione che il piano chiede per "Rinomina cartella…"
-//! (spec, Task 8: "L'ambito va reso esplicito nella richiesta e nel testo"):
-//! nessuna narrowing silenziosa dentro questa funzione, il chiamante (Task
-//! 10/11) decide e dichiara l'elenco esatto prima di chiamare.
+//! **Scope**: this module never resolves "all assets in a folder" or "all
+//! assets in a batch" on its own — it always receives an already-explicit
+//! `&[AssetId]`. This is the deliberate fix for "Rename folder...": no
+//! silent narrowing happens inside this function, the caller decides and
+//! declares the exact list before calling.
 //!
-//! **Rinvio dichiarato**: `resolve_place_label`'s middle candidate
-//! (posizione della cartella) non è mai popolato qui — non esiste alcuna
-//! colonna di posizione sulle cartelle nello schema di Keeppix oggi
-//! (verificato: nessuna migrazione la introduce). Il fallback al nome del
-//! lotto di culling non è wired nemmeno lui in questo commit — richiede la
-//! stessa logica di `culling_lot_of` (privata in `culling.rs`), non
-//! duplicata qui senza un secondo requisito reale davanti. Entrambi restano
-//! `None`: la foto stessa (`assets.place_id`/`asset_overrides.place_id`) è
-//! l'unica fonte oggi. Un caso stretto (una foto senza posizione propria,
-//! in un lotto appena importato senza nulla di geotaggato) userebbe
-//! `{luogo}` vuoto invece del nome del lotto — non un difetto silenzioso,
-//! dichiarato qui.
+//! **Declared deferral**: `resolve_place_label`'s middle candidate (the
+//! folder's location) is never populated here — no location column exists
+//! on folders in Keeppix's schema today (verified: no migration
+//! introduces one). The fallback to the culling lot's name is not wired
+//! up in this commit either — it would need the same logic as
+//! `culling_lot_of` (private in `culling.rs`), not duplicated here
+//! without a second real requirement in front of it. Both stay `None`:
+//! the photo itself (`assets.place_id`/`asset_overrides.place_id`) is the
+//! only source today. A narrow case (a photo with no location of its own,
+//! in a freshly imported lot with nothing geotagged) would use an empty
+//! `{place}` instead of the lot's name — not a silent defect, declared
+//! here.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -63,11 +60,10 @@ use uuid::Uuid;
 
 use crate::{AssetRepo, Db, DbError, OperationsRepo, PermissionRepo};
 
-/// Stato di un asset prima di un batch di rinomina, chiave = `AssetId` come
-/// testo (stesso schema di `metadata_batches.previous`,
-/// `overrides.rs::PreviousBatch` — un `BTreeMap` chiavi-stringa, non un
-/// `HashMap<Uuid, _>`, perché `serde_json` richiede chiavi di oggetto
-/// testuali).
+/// State of an asset before a rename batch, keyed by `AssetId` as text
+/// (same schema as `metadata_batches.previous`,
+/// `overrides.rs::PreviousBatch` — a string-keyed `BTreeMap`, not a
+/// `HashMap<Uuid, _>`, because `serde_json` requires object keys to be text).
 type PreviousRenameState = BTreeMap<String, PreviousLocation>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,30 +76,30 @@ pub struct RenameRepo<'a> {
     db: &'a Db,
 }
 
-/// Il risultato calcolato per **un file fisico** (non per pila): due membri
-/// affiancati della stessa pila producono due voci con la stessa base e
-/// l'estensione propria di ciascuno.
+/// The result computed for **one physical file** (not per stack): two
+/// side-by-side members of the same stack produce two entries with the
+/// same base and each one's own extension.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenamePreviewItem {
     pub asset_id: AssetId,
     pub folder_id: FolderId,
     pub current_name: String,
     pub new_name: String,
-    /// `true` se `new_name` coincide, nella stessa cartella, con un altro
-    /// asset — di questo lotto **o già presente sul disco/database fuori
-    /// dal lotto** (difetto 1). Un nome invariato (`new_name ==
-    /// current_name`) non conta mai come collisione con se stesso.
+    /// `true` if `new_name` matches, in the same folder, another asset —
+    /// either from this batch **or already present on disk/database
+    /// outside the batch**. An unchanged name (`new_name ==
+    /// current_name`) never counts as a collision with itself.
     pub collides: bool,
 }
 
 #[derive(Debug)]
 pub struct RenameBatchOutcome {
-    /// `None` se nessun asset è stato rinominato con successo — nulla da
-    /// annullare, nessuna riga scritta in `rename_batches`.
+    /// `None` if no asset was successfully renamed — nothing to undo, no
+    /// row written to `rename_batches`.
     pub batch_id: Option<BatchId>,
-    /// Lo stesso `operation_id` passato ad [`RenameRepo::apply`] — solo
-    /// rispedito indietro per comodità del chiamante (`apply` non lo crea
-    /// più lei stessa, vedi il commento su [`RenameRepo::apply`]).
+    /// The same `operation_id` passed to [`RenameRepo::apply`] — just
+    /// sent back for the caller's convenience (`apply` no longer creates
+    /// it itself, see the comment on [`RenameRepo::apply`]).
     pub operation_id: Option<OperationId>,
     pub renamed: Vec<Asset>,
     pub failed: Vec<(AssetId, DbError)>,
@@ -111,13 +107,13 @@ pub struct RenameBatchOutcome {
 
 #[derive(Debug)]
 pub struct RenameUndoOutcome {
-    /// `true` se il batch era già stato annullato — non un errore
-    /// (`OverrideRepo::undo_batch` tratta un secondo annullamento allo
-    /// stesso modo: nessun lavoro da fare, non un fallimento).
+    /// `true` if the batch had already been undone — not an error
+    /// (`OverrideRepo::undo_batch` treats a second undo the same way: no
+    /// work to do, not a failure).
     pub already_undone: bool,
-    /// Come [`RenameBatchOutcome::operation_id`] — creata dopo la verifica
-    /// di proprietà del batch, così anche il caso "già annullato" ne crea
-    /// una regolarmente chiusa subito, mai un'operazione fantasma.
+    /// Same as [`RenameBatchOutcome::operation_id`] — created after
+    /// verifying batch ownership, so even the "already undone" case
+    /// creates one that closes right away, never a phantom operation.
     pub operation_id: Option<OperationId>,
     pub restored: Vec<Asset>,
     pub failed: Vec<(AssetId, DbError)>,
@@ -131,10 +127,10 @@ struct AssetRow {
     stack_id: Option<Uuid>,
 }
 
-/// Riga grezza condivisa da `load_rows`/`load_stack_members` — stessa forma
-/// di [`AssetRow`], separata solo perché deve derivare `sqlx::FromRow` a
-/// livello di modulo (clippy `items_after_statements` vieta di dichiararla
-/// dentro le funzioni che la usano).
+/// Raw row shared by `load_rows`/`load_stack_members` — same shape as
+/// [`AssetRow`], kept separate only because it must derive `sqlx::FromRow`
+/// at module level (clippy's `items_after_statements` forbids declaring
+/// it inside the functions that use it).
 #[derive(sqlx::FromRow)]
 struct AssetLookupRow {
     id: Uuid,
@@ -170,15 +166,15 @@ impl<'a> RenameRepo<'a> {
         Self { db }
     }
 
-    /// Calcola i nomi risultanti senza scrivere nulla — dischi e database
-    /// intatti. `asset_ids` è già l'ambito esplicito (Task 8): questa
-    /// funzione non lo allarga né lo restringe, solo espande automaticamente
-    /// ogni pila (RAW+JPEG) i cui membri non fossero già tutti presenti,
-    /// perché si rinominano sempre insieme.
+    /// Computes the resulting names without writing anything — disk and
+    /// database untouched. `asset_ids` is already the explicit scope:
+    /// this function neither widens nor narrows it, it only automatically
+    /// expands any stack (RAW+JPEG) whose members were not all already
+    /// present, because they always get renamed together.
     ///
     /// # Errors
-    /// `Forbidden` se anche un solo asset non è visibile o non modificabile
-    /// dal chiamante.
+    /// `Forbidden` if even one asset is not visible or not editable by
+    /// the caller.
     pub async fn preview(
         &self,
         ctx: &AuthContext,
@@ -189,45 +185,44 @@ impl<'a> RenameRepo<'a> {
         Ok(items)
     }
 
-    /// Come [`Self::preview`], poi rinomina per davvero via
-    /// [`crate::AssetRepo::move_asset`]. Il permesso resta un cancello
-    /// **unico per l'intera chiamata** (come `OverrideRepo::apply_batch`,
-    /// non la sua variante `_partial`): se anche un solo asset dell'ambito
-    /// non è modificabile, `compute` rifiuta tutto prima di tentare il
-    /// primo `move_asset` — non ha senso rinominare metà di un gruppo
-    /// scelto dall'utente per un problema di permesso su un altro membro.
-    /// Le **collisioni**, invece, sono per natura note solo al momento
-    /// della scrittura (una corsa fra due chiamate concorrenti, o due voci
-    /// del gruppo destinate allo stesso nome): quelle finiscono in
-    /// `failed` senza bloccare il resto — riuscita parziale sul dato, non
-    /// sul permesso. Registra un `rename_batches` **solo** per gli asset
-    /// rinominati con successo — un fallimento parziale non lascia
-    /// annullabile ciò che non è mai cambiato.
+    /// Like [`Self::preview`], then actually renames via
+    /// [`crate::AssetRepo::move_asset`]. Permission stays a **single gate
+    /// for the whole call** (like `OverrideRepo::apply_batch`, not its
+    /// `_partial` variant): if even one asset in scope is not editable,
+    /// `compute` rejects everything before attempting the first
+    /// `move_asset` — it makes no sense to rename half of a group the
+    /// user selected because of a permission problem on another member.
+    /// **Collisions**, on the other hand, are by nature only knowable at
+    /// write time (a race between two concurrent calls, or two entries in
+    /// the group destined for the same name): those end up in `failed`
+    /// without blocking the rest — partial success on the data, not on
+    /// permission. Records a `rename_batches` row **only** for
+    /// successfully renamed assets — a partial failure does not leave
+    /// undoable something that never changed.
     ///
-    /// `operation_id` (Task 10, `OperationKind::BulkRename`; forma cambiata
-    /// il 27 agosto — il chiamante lo crea **prima** di invocare `apply`,
-    /// non più `apply` stessa): a differenza della progettazione originale
-    /// (creare l'operazione qui dentro, dopo `compute`, per non lasciarne
-    /// una orfana se i controlli a monte falliscono), ora `apply` gira
-    /// dentro un job in background (`keeppix-jobs::rename_batch`) — il
-    /// chiamante HTTP deve conoscere l'id **prima** di accodare il job, per
-    /// restituirlo subito nella risposta `202` (stesso bisogno di
-    /// `LibraryScan`). La sicurezza "mai un'operazione fantasma" resta,
-    /// spostata a monte: il chiamante crea l'operazione solo **dopo** aver
-    /// già verificato permesso/ambito, esattamente come faceva `apply`
-    /// prima — vedi `routes/rename.rs::apply_batch`. Da qui in poi `apply`
-    /// gioca comunque il ruolo di worker sull'id ricevuto: totale e fase
-    /// impostati prima del giro, `cancel_requested` interrogato fra un
-    /// asset e il successivo — un annullamento a metà **non** è un rollback
-    /// (Ruling Task 16, `operation.rs`): gli asset già rinominati restano
-    /// rinominati, quelli non ancora tentati restano com'erano, né riusciti
-    /// né falliti. Lo stato finale (`Done`/`Cancelled`) lo chiude questa
-    /// stessa funzione, non il chiamante. `None` per i chiamanti di test che
-    /// non seguono l'avanzamento.
+    /// `operation_id` (`OperationKind::BulkRename`; the caller now creates
+    /// it **before** invoking `apply`, no longer `apply` itself): unlike
+    /// the original design (creating the operation in here, after
+    /// `compute`, so as not to leave one orphaned if upstream checks
+    /// fail), `apply` now runs inside a background job
+    /// (`keeppix-jobs::rename_batch`) — the HTTP caller needs to know the
+    /// id **before** enqueueing the job, to return it right away in the
+    /// `202` response (the same need as `LibraryScan`). The "never a
+    /// phantom operation" safety property still holds, moved upstream:
+    /// the caller creates the operation only **after** already verifying
+    /// permission/scope, exactly as `apply` used to do — see
+    /// `routes/rename.rs::apply_batch`. From here on, `apply` still plays
+    /// the worker role on the id it receives: total and phase set before
+    /// the loop, `cancel_requested` polled between one asset and the next
+    /// — cancelling midway is **not** a rollback: assets already renamed
+    /// stay renamed, ones not yet attempted stay as they were, neither
+    /// succeeded nor failed. This same function closes the final state
+    /// (`Done`/`Cancelled`), not the caller. `None` for test callers that
+    /// do not track progress.
     ///
     /// # Errors
-    /// `Forbidden` se il chiamante non è autenticato. Gli errori per
-    /// singolo asset finiscono in `failed`, non propagati.
+    /// `Forbidden` if the caller is not authenticated. Per-asset errors
+    /// end up in `failed`, not propagated.
     pub async fn apply(
         &self,
         ctx: &AuthContext,
@@ -331,41 +326,41 @@ impl<'a> RenameRepo<'a> {
         })
     }
 
-    /// Annulla un batch di rinomina (Task 9): richiama
-    /// [`crate::AssetRepo::move_asset`] "al contrario" per ogni asset
-    /// registrato — non un semplice ripristino di colonna come
-    /// `OverrideRepo::undo_batch`, perché `filename`/`folder_id` vivono su
-    /// `assets` e servono spostamenti fisici veri, non righe da riscrivere.
+    /// Undoes a rename batch: calls [`crate::AssetRepo::move_asset`]
+    /// "backward" for every recorded asset — not a simple column restore
+    /// like `OverrideRepo::undo_batch`, because `filename`/`folder_id`
+    /// live on `assets` and require real physical moves, not rows to
+    /// rewrite.
     ///
-    /// **Nessuna guardia "già sincronizzato"** equivalente a quella XMP di
-    /// `OverrideRepo::undo_batch` (`xmp_written_at >= applied_at`): quella
-    /// esiste perché un job asincrono può consumare il valore del batch
-    /// prima dell'annullamento — per la rinomina non c'è un consumatore
-    /// asincrono paragonabile, lo spostamento fisico è l'intero effetto,
-    /// avvenuto sincrono al momento di `apply`. Un tentativo di guardia
-    /// analoga su `assets.updated_at > applied_at` è stato scartato: quella
-    /// colonna viene toccata da operazioni senza alcun rapporto con il nome
-    /// (stato di scansione, `thumbhash`, `stack_id`, `location_source`...),
-    /// quindi bloccherebbe l'annullamento per motivi quasi sempre estranei
-    /// al file. Se l'asset è stato rinominato di nuovo da allora,
-    /// `move_asset` lo sposta comunque indietro al nome di `previous` — lo
-    /// stesso comportamento di annullare un passo qualunque di una
-    /// cronologia lineare, indipendente da cosa sia successo dopo.
+    /// **No "already synced" guard** equivalent to the XMP one in
+    /// `OverrideRepo::undo_batch` (`xmp_written_at >= applied_at`): that
+    /// one exists because an async job can consume the batch's value
+    /// before the undo — for renaming there is no comparable async
+    /// consumer, the physical move is the entire effect, and it happened
+    /// synchronously at `apply` time. An attempt at an analogous guard on
+    /// `assets.updated_at > applied_at` was discarded: that column is
+    /// touched by operations with no relation to the name (scan state,
+    /// `thumbhash`, `stack_id`, `location_source`...), so it would block
+    /// the undo for reasons almost always unrelated to the file. If the
+    /// asset has been renamed again since then, `move_asset` still moves
+    /// it back to the name in `previous` — the same behavior as undoing
+    /// any single step of a linear history, independent of what happened
+    /// afterward.
     ///
-    /// Riuscita parziale come [`Self::apply`]: una collisione al percorso
-    /// precedente (qualcun altro occupa già quel nome) finisce in `failed`
-    /// senza bloccare gli altri asset del batch.
+    /// Partial success like [`Self::apply`]: a collision at the previous
+    /// path (someone else already occupies that name) ends up in `failed`
+    /// without blocking the other assets in the batch.
     ///
-    /// `track_operation` (Task 10): stesso ruolo di worker di
-    /// [`Self::apply`] — l'operazione si crea **qui**, dopo il controllo di
-    /// proprietà del batch, mai prima: anche il caso "già annullato" ne crea
-    /// una regolarmente, chiusa `Done` subito (nessun giro da fare), invece
-    /// di lasciarne una fantasma se la chiamata fosse fallita prima.
+    /// `track_operation`: same worker role as [`Self::apply`] — the
+    /// operation is created **here**, after the batch ownership check,
+    /// never before: even the "already undone" case creates one normally,
+    /// closed as `Done` right away (nothing to iterate), instead of
+    /// leaving a phantom one if the call had failed earlier.
     ///
     /// # Errors
-    /// `NotFound`/`Forbidden` se il batch non esiste o non appartiene al
-    /// chiamante (non admin). Gli errori per singolo asset finiscono in
-    /// `failed`, non propagati.
+    /// `NotFound`/`Forbidden` if the batch does not exist or does not
+    /// belong to the caller (non-admin). Per-asset errors end up in
+    /// `failed`, not propagated.
     pub async fn undo(
         &self,
         ctx: &AuthContext,
@@ -409,8 +404,8 @@ impl<'a> RenameRepo<'a> {
 
         if row.undone_at.is_some() {
             tx.commit().await?;
-            // Nessun giro da fare, ma un'operazione appena creata va
-            // comunque chiusa: altrimenti resterebbe `running` per sempre.
+            // Nothing to iterate, but a freshly created operation still
+            // needs to be closed: otherwise it would stay `running` forever.
             if let Some(op_id) = operation_id {
                 operations.finish_done(op_id).await?;
             }
@@ -422,14 +417,14 @@ impl<'a> RenameRepo<'a> {
             });
         }
 
-        // Marca annullato subito, prima di qualunque move_asset: un secondo
-        // undo concorrente sullo stesso batch trova già undone_at
-        // valorizzato invece di rientrare in corsa con questo. Lo
-        // spostamento fisico che segue non è più protetto dal lock di riga
-        // (move_asset apre una connessione propria, non nidificabile in
-        // questa transazione) — accettabile: il rischio che resta è lo
-        // stesso di apply(), una collisione al momento della scrittura, già
-        // gestita per-asset in `failed`.
+        // Mark it undone right away, before any move_asset: a second
+        // concurrent undo on the same batch finds undone_at already set
+        // instead of racing with this one. The physical move that
+        // follows is no longer protected by the row lock (move_asset
+        // opens its own connection, which cannot be nested inside this
+        // transaction) — acceptable: the remaining risk is the same as
+        // apply(), a collision at write time, already handled per-asset
+        // in `failed`.
         sqlx::query("UPDATE rename_batches SET undone_at = now() WHERE id = $1")
             .bind(batch_id.as_uuid())
             .execute(&mut *tx)
@@ -466,11 +461,11 @@ impl<'a> RenameRepo<'a> {
         })
     }
 
-    /// Il giro per-asset di [`Self::undo`]: richiamato `move_asset` "al
-    /// contrario" per ogni voce di `previous`, con lo stesso schema di
-    /// riuscita parziale e interruzione da annullamento di [`Self::apply`].
-    /// Estratto solo per stare sotto il limite di righe di clippy — nessuna
-    /// logica propria oltre a quella già descritta su `undo`.
+    /// The per-asset loop of [`Self::undo`]: calls `move_asset`
+    /// "backward" for every entry in `previous`, with the same
+    /// partial-success and cancellation-interruption pattern as
+    /// [`Self::apply`]. Extracted only to stay under clippy's line limit
+    /// — no logic of its own beyond what is already described on `undo`.
     async fn restore_previous_locations(
         &self,
         ctx: &AuthContext,
@@ -485,7 +480,7 @@ impl<'a> RenameRepo<'a> {
         for (raw_id, location) in previous {
             let asset_id = match raw_id.parse::<Uuid>() {
                 Ok(id) => AssetId::from_uuid(id),
-                Err(_) => continue, // scritto solo da apply(): un id malformato non può esistere.
+                Err(_) => continue, // written only by apply(): a malformed id cannot exist.
             };
             if let Some(op_id) = operation_id
                 && operations.is_cancel_requested(op_id).await?
@@ -524,10 +519,10 @@ impl<'a> RenameRepo<'a> {
         Ok((restored, failed, cancelled))
     }
 
-    /// Il calcolo condiviso da `preview`/`apply`: cancello di permesso,
-    /// espansione delle pile, risoluzione dei valori, la base per pila, e
-    /// il controllo delle collisioni (difetto 1: dentro il gruppo **e**
-    /// contro il resto del database).
+    /// The computation shared by `preview`/`apply`: permission gate,
+    /// stack expansion, value resolution, the per-stack base, and the
+    /// collision check (within the group **and** against the rest of the
+    /// database).
     async fn compute(
         &self,
         ctx: &AuthContext,
@@ -558,10 +553,10 @@ impl<'a> RenameRepo<'a> {
         let primaries = self.load_stack_primaries(&stack_ids).await?;
         let members_by_stack = self.load_stack_members(&stack_ids).await?;
 
-        // Gruppi logici nell'ordine di `asset_ids` (spec: il contatore
-        // "segue l'ordine dell'array delle foto dell'ambito"): un asset in
-        // pila rappresenta l'intero gruppo alla sua prima apparizione, le
-        // apparizioni successive (sue o di un fratello) sono ignorate.
+        // Logical groups in the order of `asset_ids` (the counter follows
+        // the order of the scope's photo array): an asset in a stack
+        // represents the whole group at its first appearance, later
+        // appearances (its own or a sibling's) are ignored.
         let mut seen: HashSet<Uuid> = HashSet::new();
         let mut groups: Vec<(Uuid, Vec<AssetRow>)> = Vec::new();
         for &id in &ids {
@@ -569,7 +564,7 @@ impl<'a> RenameRepo<'a> {
                 continue;
             }
             let Some(row) = requested_by_id.get(&id) else {
-                continue; // non visibile/trashed: assert_visible sopra lo avrebbe già rifiutato per un utente non-admin.
+                continue; // not visible/trashed: assert_visible above would already have rejected this for a non-admin user.
             };
             if let Some(stack_id) = row.stack_id {
                 let members = members_by_stack.get(&stack_id).cloned().unwrap_or_default();
@@ -660,9 +655,9 @@ impl<'a> RenameRepo<'a> {
         Ok(by_stack)
     }
 
-    /// I valori risolti (data/fotocamera/obiettivo/luogo/titolo) per ogni
-    /// asset rappresentante di un gruppo — mai per i membri non
-    /// rappresentanti, che ereditano la base del loro rappresentante.
+    /// The resolved values (date/camera/lens/place/title) for each
+    /// representative asset of a group — never for non-representative
+    /// members, which inherit their representative's base.
     async fn load_values(&self, ids: &[Uuid]) -> Result<HashMap<Uuid, RenameValues>, DbError> {
         if ids.is_empty() {
             return Ok(HashMap::new());
@@ -697,12 +692,11 @@ impl<'a> RenameRepo<'a> {
             .collect())
     }
 
-    /// Marca `collides` su ogni voce: dentro il gruppo (due membri di
-    /// questa stessa chiamata puntano allo stesso nome nella stessa
-    /// cartella) **e** contro il resto del database — asset non compresi
-    /// in questa chiamata che già occupano quel nome (difetto 1, spec
-    /// §62.3d, chiuso qui invece che nel Task 7 perché serve l'elenco degli
-    /// asset coinvolti, che questo modulo è il primo ad avere).
+    /// Flags `collides` on every entry: within the group (two members of
+    /// this same call point to the same name in the same folder) **and**
+    /// against the rest of the database — assets not included in this
+    /// call that already occupy that name (this needs the list of
+    /// involved assets, which this module is the first to have).
     async fn flag_collisions(
         &self,
         batch_ids: &[Uuid],
