@@ -180,7 +180,7 @@ async fn operation_progress_arrives_over_a_connection_opened_mid_scan() {
     loop {
         assert!(
             tokio::time::Instant::now() < deadline,
-            "la scansione non ha fatto abbastanza progresso prima di connettersi"
+            "the scan did not make enough progress before connecting"
         );
         if ops.find(&ctx, op_id).await.unwrap().done >= 3 {
             break;
