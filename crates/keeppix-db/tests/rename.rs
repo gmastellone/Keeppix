@@ -242,7 +242,7 @@ mod preview {
             .await
             .unwrap();
 
-        assert_eq!(items.len(), 3, "raw + jpeg affiancato + other");
+        assert_eq!(items.len(), 3, "raw + paired jpeg + other");
         let by_id = |id: AssetId| items.iter().find(|i| i.asset_id == id).unwrap();
         assert_eq!(
             by_id(raw).new_name,

@@ -14,9 +14,9 @@ async fn secret_is_generated_once_and_then_stable() {
 
     assert_eq!(
         first, second,
-        "il segreto non deve cambiare fra due letture"
+        "the secret must not change between two reads"
     );
-    assert_ne!(first, [0u8; 32], "il segreto non deve essere nullo");
+    assert_ne!(first, [0u8; 32], "the secret must not be null");
 }
 
 #[tokio::test]
@@ -46,7 +46,7 @@ async fn concurrent_generation_yields_a_single_secret() {
     assert_eq!(
         a.unwrap(),
         b.unwrap(),
-        "due avvii concorrenti non devono divergere"
+        "two concurrent startups must not diverge"
     );
 }
 

@@ -513,7 +513,7 @@ async fn set_kind_persists_and_unchanged_upsert_does_not_reset_it() {
 
     assert!(
         repo.upsert_discovered(new).await.unwrap().is_none(),
-        "file invariato"
+        "unchanged file"
     );
     let again = repo.get_for_scan(asset.id).await.unwrap();
     assert_eq!(again.kind, AssetKind::RawImage);

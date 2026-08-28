@@ -96,7 +96,7 @@ async fn a_user_with_no_libraries_matches_zero_rows() {
     .bind(filter.assets())
     .fetch_one(test.db().pool())
     .await
-    .expect("uno scope vuoto non è un errore");
+    .expect("an empty scope is not an error");
     assert_eq!(n, 0);
 }
 
