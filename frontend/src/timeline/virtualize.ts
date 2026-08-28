@@ -1,32 +1,30 @@
 /**
- * Virtualizzatore scritto in casa (Fase 11 Task 4, Ruling della spec
- * fase-11-interfaccia.md §2): somme prefisse delle altezze di riga più
- * ricerca binaria su `scrollTop`. Nessuna libreria — un virtualizzatore a
- * misurazione risolverebbe un problema che qui non esiste, perché la
- * geometria (Fase 10) dà larghezza e altezza di ogni scatto *prima* di
- * disegnare: le altezze di riga sono calcolabili in anticipo con
- * esattezza, non misurate riga per riga mentre entrano nella finestra.
+ * A hand-written virtualizer: prefix sums of row heights plus binary
+ * search on `scrollTop`. No library — a measurement-based virtualizer
+ * would solve a problem that doesn't exist here, because the geometry
+ * payload gives the width and height of every shot *before* drawing: row
+ * heights can be computed exactly ahead of time, not measured row by row
+ * as they enter the viewport.
  *
- * Agnostico rispetto a cosa *sia* una riga (griglia di foto, intestazione
- * di mese): riceve solo un array di altezze in pixel, nello stesso ordine
- * in cui le righe vanno disegnate dall'alto verso il basso.
+ * Agnostic to what a "row" *is* (a grid of photos, a month header): it
+ * only receives an array of pixel heights, in the same order the rows
+ * are drawn from top to bottom.
  */
 
 export interface VisibleRange {
-  /** Indice della prima riga da montare (inclusivo). */
+  /** Index of the first row to mount (inclusive). */
   start: number
-  /** Indice oltre l'ultima riga da montare (esclusivo, come `Array.slice`). */
+  /** Index past the last row to mount (exclusive, like `Array.slice`). */
   end: number
 }
 
 export class RowVirtualizer {
-  /** Altezza totale del contenuto: dà alla barra di scorrimento la sua
-   * lunghezza vera fin dal primo istante (documento funzionale §66.2),
-   * senza dover montare una sola riga. */
+  /** Total content height: gives the scrollbar its true length from the
+   * very first instant, without having to mount a single row. */
   readonly totalHeight: number
 
   private readonly heights: readonly number[]
-  /** `prefix[i]` = somma delle altezze di tutte le righe prima di `i`.
+  /** `prefix[i]` = sum of the heights of all rows before `i`.
    * `prefix.length === heights.length + 1`; `prefix[heights.length] ===
    * totalHeight`. */
   private readonly prefix: Float64Array
@@ -45,7 +43,7 @@ export class RowVirtualizer {
     return this.heights.length
   }
 
-  /** Coordinata `y` (in pixel, dall'alto del contenuto) a cui inizia la riga. */
+  /** The `y` coordinate (in pixels, from the top of the content) where the row starts. */
   rowTop(index: number): number {
     return this.prefix[index] ?? this.totalHeight
   }
@@ -55,15 +53,15 @@ export class RowVirtualizer {
   }
 
   /**
-   * Indice della riga la cui banda `[top, top+height)` contiene `y` — o
-   * l'ultima riga se `y` cade oltre la fine del contenuto. Ricerca binaria
-   * sulle somme prefisse, `O(log n)`: è il nucleo di `visibleRange`, insieme
-   * a `firstRowStartingAtOrAfter` qui sotto.
+   * Index of the row whose band `[top, top+height)` contains `y` — or the
+   * last row if `y` falls past the end of the content. Binary search over
+   * the prefix sums, `O(log n)`: this is the core of `visibleRange`,
+   * together with `firstRowStartingAtOrAfter` below.
    */
   private rowAtOffset(y: number): number {
     if (this.heights.length === 0) return 0
     let lo = 0
-    let hi = this.heights.length // esclusivo
+    let hi = this.heights.length // exclusive
     while (lo < hi) {
       const mid = (lo + hi) >>> 1
       if (this.prefix[mid + 1]! <= y) lo = mid + 1
@@ -73,18 +71,18 @@ export class RowVirtualizer {
   }
 
   /**
-   * Indice della prima riga che comincia a `y` o oltre — l'estremo
-   * superiore esclusivo dell'intervallo di righe che iniziano prima di `y`.
-   * Non è lo stesso calcolo di `rowAtOffset`: su un confine esatto fra due
-   * righe (`y` uguale esattamente a un `rowTop`), `rowAtOffset(y)`
-   * risponde con la riga che *comincia* lì (convenzione a intervallo
-   * semiaperto `[top, bottom)`), ma quella riga non si sovrappone a
-   * `[…, y)` — usare `rowAtOffset(to) + 1` come limite superiore
-   * includerebbe una riga di troppo esattamente su quel confine.
+   * Index of the first row that starts at or after `y` — the exclusive
+   * upper bound of the range of rows starting before `y`. This isn't the
+   * same computation as `rowAtOffset`: on an exact boundary between two
+   * rows (`y` exactly equal to a `rowTop`), `rowAtOffset(y)` returns the
+   * row that *starts* there (half-open interval convention
+   * `[top, bottom)`), but that row doesn't overlap `[…, y)` — using
+   * `rowAtOffset(to) + 1` as the upper bound would include one extra row
+   * right on that boundary.
    */
   private firstRowStartingAtOrAfter(y: number): number {
     let lo = 0
-    let hi = this.heights.length // esclusivo, il caso limite è "nessuna"
+    let hi = this.heights.length // exclusive, the limiting case is "none"
     while (lo < hi) {
       const mid = (lo + hi) >>> 1
       if (this.prefix[mid]! < y) lo = mid + 1
@@ -94,10 +92,9 @@ export class RowVirtualizer {
   }
 
   /**
-   * Righe da montare per `scrollTop`/`viewportHeight` correnti, con
-   * `overscan` pixel di margine sopra e sotto — nel documento funzionale
-   * (§66.3) "circa uno schermo e un quarto", perché lo scorrimento veloce
-   * non arrivi mai prima del contenuto.
+   * Rows to mount for the current `scrollTop`/`viewportHeight`, with
+   * `overscan` pixels of margin above and below — roughly one and a
+   * quarter screens, so fast scrolling never outpaces the content.
    */
   visibleRange(scrollTop: number, viewportHeight: number, overscan = 0): VisibleRange {
     if (this.heights.length === 0) return { start: 0, end: 0 }

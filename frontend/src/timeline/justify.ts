@@ -18,7 +18,7 @@ export type JustifiedRow = {
   cells: JustifiedCell[]
 }
 
-/** Righe di altezza costante, larghezze proporzionali all'aspect ratio. */
+/** Rows of constant height, widths proportional to aspect ratio. */
 export function justify(
   items: AspectItem[],
   containerWidth: number,
@@ -27,8 +27,8 @@ export function justify(
   if (containerWidth <= 0 || targetRowHeight <= 0 || items.length === 0) {
     return []
   }
-  // GRID_GAP del prototipo (keeppix-mockup.html riga 4593) — non un valore
-  // stimato: 4 non aveva alcuna fonte nel mockup.
+  // GRID_GAP from the prototype (keeppix-mockup.html) — not an estimated
+  // value: 4 had no basis in the mockup.
   const gap = 6
   const rows: JustifiedRow[] = []
   let row: AspectItem[] = []
@@ -69,10 +69,10 @@ export function justify(
   return rows
 }
 
-/** §60.2 "Densità griglia" (Task 14, 1/N): due intervalli distinti,
- * desktop 2-12 e mobile 2-6 — la stessa funzione serviva prima solo il
- * caso desktop (`useDensity`, unico consumatore fino a questo task, mai
- * usato su un intervallo diverso). */
+/** "Grid density": two distinct ranges, desktop 2-12 and mobile 2-6 —
+ * this same function previously only served the desktop case
+ * (`useDensity`, its only consumer before this, never used with a
+ * different range). */
 export function clampDensity(n: number, mobile = false): number {
   const max = mobile ? 6 : 12
   return Math.min(max, Math.max(2, Math.round(n)))

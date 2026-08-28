@@ -19,12 +19,12 @@ export interface MapCluster {
   count: number
   cover_asset_id: string
   clustered: boolean
-  /** Id della cartella di `cover_asset_id` — per "Apri cartella" dal
-   * popover della mappa (Task 10, §27) senza una seconda richiesta. */
+  /** Id of `cover_asset_id`'s folder — for "Open folder" from the map
+   * popover without a second request. */
   folder_id: string
-  /** Etichetta leggibile del luogo (geocodifica inversa) — assente
-   * (`serde(skip_serializing_if)`, mai `null`) finché l'asset di
-   * copertina non ha un luogo assegnato. */
+  /** Human-readable place label (reverse geocoding) — absent
+   * (`serde(skip_serializing_if)`, never `null`) until the cover asset
+   * has a place assigned. */
   place_label?: string
 }
 

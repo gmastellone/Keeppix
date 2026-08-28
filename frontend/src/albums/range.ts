@@ -1,14 +1,14 @@
 import { monthFull } from '@/timeline/scrubber'
 
-/** §41/§42, l'`<intervallo>` di `"<N> foto · <intervallo>"`: il mockup lo
- * legge da una stringa statica `a.range` scritta a mano nei dati di
- * partenza (`ALBUMS`) — sul backend reale non esiste un campo simile,
- * va calcolato dalle date scatto dei membri effettivi (`taken_at_utc`),
- * stesso principio già preso per `monthFull`/`monthAbbrev` dello
- * scrubber: mesi localizzati via `Intl.DateTimeFormat`, non una tabella
- * di stringhe italiane. `null` quando l'album non ha (ancora) membri con
- * una data nota — il chiamante sceglie il testo di ripiego appropriato
- * (album manuale vuoto vs. filtro dinamico senza corrispondenze). */
+/** The `<range>` in `"<N> photos · <range>"`: the mockup reads it from a
+ * static `a.range` string hand-written into its seed data (`ALBUMS`) —
+ * on the real backend there's no such field, it has to be computed from
+ * the actual members' shot dates (`taken_at_utc`), the same principle
+ * already used for the scrubber's `monthFull`/`monthAbbrev`: months
+ * localized via `Intl.DateTimeFormat`, not a table of Italian strings.
+ * `null` when the album has no (yet) members with a known date — the
+ * caller picks the appropriate fallback text (empty manual album vs. a
+ * dynamic filter with no matches). */
 export function albumMonthRange(assets: { taken_at_utc: string | null }[], locale: string): string | null {
   const months = assets
     .map((asset) => asset.taken_at_utc)

@@ -8,24 +8,23 @@ import { i18n } from '@/i18n'
 import { useToastStore } from './toast'
 
 /**
- * Il cuoricino di SP-1/SP-2 (documento funzionale §8.4, §10.3, §12.3):
- * aggiunge/rimuove dai preferiti, "subito, senza conferma né toast" per il
- * singolo tocco sulla tessera; con toast neutro solo per l'azione di
- * gruppo della barra di selezione.
+ * The favorite heart toggle: adds/removes from favorites, "immediately,
+ * with no confirmation or toast" for a single tap on a thumbnail; with a
+ * neutral toast only for the selection bar's bulk action.
  *
- * `PUT /assets/{id}/flags` è un **rimpiazzo completo** del voto, non una
- * patch (commento di `AssetFlagsBody::favorite` in
- * crates/keeppix-api/src/routes/flags.rs) — scrivere `favorite` da solo
- * azzererebbe silenziosamente `rating`/`pick`/`color_label` già presenti.
- * Per questo ogni scrittura qui legge prima i flag correnti dell'asset:
- * la timeline/Preferiti non li tengono in memoria (non fanno parte di
- * `TimelineAsset`), a differenza della sessione di culling che li tiene
- * tutti già caricati.
+ * `PUT /assets/{id}/flags` is a **full replacement** of the vote, not a
+ * patch (see the comment on `AssetFlagsBody::favorite` in
+ * crates/keeppix-api/src/routes/flags.rs) — writing `favorite` alone
+ * would silently clear any existing `rating`/`pick`/`color_label`. That's
+ * why every write here first reads the asset's current flags: the
+ * timeline/Favorites views don't keep them in memory (they aren't part of
+ * `TimelineAsset`), unlike the culling session, which keeps them all
+ * preloaded.
  */
 export const useFavoritesStore = defineStore('favorites', () => {
-  /** Sovrascritture ottimistiche rispetto a `TimelineAsset.favorite`
-   * (l'istantanea con cui la lista è stata caricata) — solo per gli id
-   * toccati in questa sessione di navigazione, mai persistito. */
+  /** Optimistic overrides on top of `TimelineAsset.favorite` (the
+   * snapshot the list was loaded with) — only for ids touched in this
+   * browsing session, never persisted. */
   const overlay = ref<Record<string, boolean>>({})
 
   function isFavorite(asset: TimelineAsset): boolean {
@@ -42,10 +41,10 @@ export const useFavoritesStore = defineStore('favorites', () => {
     }
   }
 
-  /** Cuoricino singolo (SP-1): ottimistico, nessun toast — se la scrittura
-   * fallisce l'ottimismo viene disfatto e solo lì compare un errore, non
-   * previsto dal prototipo (che è client-side puro) ma coerente con la
-   * disciplina di errore già in uso altrove nell'app. */
+  /** Single favorite toggle: optimistic, no toast — if the write fails
+   * the optimistic update is undone and only then does an error appear,
+   * consistent with the error-handling discipline already in use
+   * elsewhere in the app. */
   async function toggleOne(asset: TimelineAsset): Promise<void> {
     const next = !isFavorite(asset)
     overlay.value = { ...overlay.value, [asset.id]: next }
@@ -56,12 +55,12 @@ export const useFavoritesStore = defineStore('favorites', () => {
     }
   }
 
-  /** Azione di gruppo della barra di selezione (§12.3): il toggle
-   * add/remove è deciso dal chiamante (dipende dallo stato di *tutta* la
-   * selezione, che questo store non conosce), qui solo l'applicazione
-   * sequenziale — stesso principio di `removeMany` nel culling store: una
-   * selezione di libreria è tipicamente decine o centinaia di foto, non
-   * migliaia, e l'ordine "una alla volta" conta più della parallelizzazione. */
+  /** Selection bar bulk action: the add/remove toggle is decided by the
+   * caller (it depends on the state of *the whole* selection, which this
+   * store doesn't know), this only applies it sequentially — same
+   * principle as `removeMany` in the culling store: a library selection
+   * is typically dozens or hundreds of photos, not thousands, and
+   * "one at a time" ordering matters more than parallelizing. */
   async function setMany(assets: TimelineAsset[], value: boolean): Promise<void> {
     if (assets.length === 0) return
     const previous = { ...overlay.value }

@@ -1,9 +1,8 @@
-// Fase 11 — sottosistema di caricamento (`docs/ui/caricamento-nuove-foto.md`
-// §4, "Cosa entra e cosa no"), verificato riga per riga contro la tabella
-// esatta delle estensioni (righe 95-102).
+// Upload subsystem (`docs/ui/caricamento-nuove-foto.md`, "What comes in
+// and what doesn't"), verified against the exact extension table.
 //
-// `dng` è trattato come RAW, non come immagine — un contenitore RAW a tutti
-// gli effetti (§4, nota dopo la tabella), non un'eccezione dimenticata.
+// `dng` is treated as RAW, not as an image — a RAW container in every
+// meaningful sense, not a forgotten exception.
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'jpe', 'png', 'tif', 'tiff', 'webp', 'heic', 'heif'])
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v'])
 const RAW_EXTENSIONS = new Set([
@@ -28,20 +27,19 @@ export function categorize(filename: string): FileCategory {
 }
 
 export interface ClassifiedFiles {
-  /** Immagini e video: quello che parte subito (§4, "quello che può entrare
-   * parte subito"). */
+  /** Images and video: whatever can go in starts uploading immediately. */
   accepted: File[]
-  /** RAW, con rimando al Culling — mai un errore silenzioso (§4.1). */
+  /** RAW files, pointed toward Culling instead — never a silent error. */
   rejectedRaw: File[]
-  /** Tutto il resto, formato non supportato. */
+  /** Everything else: an unsupported format. */
   rejectedUnsupported: File[]
 }
 
 /**
- * Divide un rilascio/selezione senza mai rifiutare l'intero gruppo per la
- * presenza di RAW o formati ignoti (§4: "Rifiutare l'intero rilascio
- * sarebbe ostile e gli farebbe perdere il lavoro buono insieme a quello
- * scartato").
+ * Splits a drop/selection without ever rejecting the whole group just
+ * because it contains RAW files or unknown formats — rejecting the
+ * entire drop would be hostile to the user, throwing away the good work
+ * along with the discarded files.
  */
 export function classifyFiles(files: File[]): ClassifiedFiles {
   const accepted: File[] = []

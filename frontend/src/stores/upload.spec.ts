@@ -27,7 +27,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('pannello di upload persistente — store', () => {
+describe('persistent upload panel — store', () => {
   it('pre_check_skips_files_already_in_library', async () => {
     vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-b.jpg'] })
@@ -100,8 +100,8 @@ describe('pannello di upload persistente — store', () => {
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({
       unknown_hashes: ['hash-1.jpg', 'hash-2.jpg', 'hash-3.jpg', 'hash-4.jpg']
     })
-    // Non risolve mai: basta a osservare lo stato "uploading" senza dover
-    // simulare l'intero ciclo di chunk.
+    // Never resolves: enough to observe the "uploading" state without
+    // simulating the entire chunk cycle.
     vi.mocked(uploadApi.createSession).mockReturnValue(new Promise(() => {}))
 
     const store = useUploadStore()
@@ -110,8 +110,8 @@ describe('pannello di upload persistente — store', () => {
       'folder-1'
     )
 
-    // L'avvio è differito (schedulePump): appena dopo addFiles, nulla è
-    // ancora partito.
+    // The start is deferred (schedulePump): right after addFiles, nothing
+    // has started yet.
     expect(store.sessions.filter((s) => s.status === 'uploading')).toHaveLength(0)
 
     await vi.runOnlyPendingTimersAsync()
@@ -134,7 +134,7 @@ describe('pannello di upload persistente — store', () => {
   })
 })
 
-describe('destinazione (§5, "Ordine di precedenza")', () => {
+describe('destination ("order of precedence")', () => {
   it('a file added with no explicit context, and no queue in flight, stays destinationless', async () => {
     vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-a.jpg'] })
@@ -163,7 +163,7 @@ describe('destinazione (§5, "Ordine di precedenza")', () => {
     expect(store.sessions.filter((s) => s.status === 'uploading')).toHaveLength(2)
   })
 
-  it('a file added while a destination-resolved queue is in flight inherits that destination — rule 3, "non si ridirigono file già partiti"', async () => {
+  it('a file added while a destination-resolved queue is in flight inherits that destination — rule 3, "files already in flight are never redirected"', async () => {
     vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-a.jpg', 'hash-b.jpg'] })
     vi.mocked(uploadApi.createSession).mockReturnValue(new Promise(() => {}))
@@ -180,9 +180,9 @@ describe('destinazione (§5, "Ordine di precedenza")', () => {
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-a.jpg'] })
 
     const store = useUploadStore()
-    // "a.jpg" arriva già completato (nessuna sessione attiva con quella
-    // cartella): simula una coda precedente conclusa senza dover rigirare
-    // l'intero ciclo di chunk.
+    // "a.jpg" arrives already completed (no active session with that
+    // folder): simulates a previous, fully concluded queue without
+    // re-running the entire chunk cycle.
     store.sessions.push({
       id: 'done-1',
       filename: 'old.jpg',
@@ -197,7 +197,7 @@ describe('destinazione (§5, "Ordine di precedenza")', () => {
   })
 })
 
-describe('comandi di coda (§6.4)', () => {
+describe('queue commands', () => {
   it('pauseAll stops every queued/uploading session, leaving completed ones alone', async () => {
     vi.useFakeTimers()
     vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
@@ -259,7 +259,7 @@ describe('comandi di coda (§6.4)', () => {
     store.cancelAll()
     expect(store.sessions).toHaveLength(0)
 
-    // Un file nuovo, senza contesto esplicito, non eredita più folder-1.
+    // A new file, with no explicit context, no longer inherits folder-1.
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-b.jpg'] })
     await store.addFiles([file('b.jpg')])
     expect(store.sessions[0].targetFolderId).toBeNull()
@@ -278,7 +278,7 @@ describe('comandi di coda (§6.4)', () => {
     expect(store.rejectedRaw).toEqual([])
   })
 
-  it('removeCompleted removes done, skipped AND error sessions — §6.4 says "concluse, saltate ed errate"', () => {
+  it('removeCompleted removes done, skipped AND error sessions — spec says "done, skipped, and errored"', () => {
     const store = useUploadStore()
     store.sessions.push(
       { id: 'a', filename: 'a.jpg', targetFolderId: 'f', expectedSize: 1, receivedBytes: 1, status: 'done' },
@@ -292,7 +292,7 @@ describe('comandi di coda (§6.4)', () => {
   })
 })
 
-describe('addFilesFromPicker — punto d\'ingresso comune al trascinamento, "Carica" e il "+" mobile (§4)', () => {
+describe('addFilesFromPicker — common entry point for drag-and-drop, "Upload", and the mobile "+"', () => {
   it('classifies before queuing: RAW and unsupported files never become sessions', async () => {
     vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-a.jpg', 'hash-c.mp4'] })
@@ -318,7 +318,7 @@ describe('addFilesFromPicker — punto d\'ingresso comune al trascinamento, "Car
     expect(store.rejectedUnsupported).toEqual(['b.txt'])
   })
 
-  it('rejections REPLACE the previous batch\'s, they never accumulate — verified against uploadAddFiles() (mockup riga 2754)', async () => {
+  it('rejections REPLACE the previous batch\'s, they never accumulate', async () => {
     vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: [] })
 
@@ -329,12 +329,12 @@ describe('addFilesFromPicker — punto d\'ingresso comune al trascinamento, "Car
     await store.addFilesFromPicker([file('b.arw')], 'folder-1')
     expect(store.rejectedRaw).toEqual(['b.arw'])
 
-    // Un lotto tutto accettato azzera anche i rifiuti del lotto precedente.
+    // A fully-accepted batch also clears the rejections from the previous batch.
     await store.addFilesFromPicker([file('c.jpg')], 'folder-1')
     expect(store.rejectedRaw).toEqual([])
   })
 
-  it('addFilesFromPicker always opens the panel, even for an all-rejected batch — verified against uploadAddFiles() (mockup riga 2770)', async () => {
+  it('addFilesFromPicker always opens the panel, even for an all-rejected batch', async () => {
     const store = useUploadStore()
     expect(store.panelOpen).toBe(false)
 
@@ -343,7 +343,7 @@ describe('addFilesFromPicker — punto d\'ingresso comune al trascinamento, "Car
   })
 })
 
-describe('striscia della coda (§6.1)', () => {
+describe('queue strip', () => {
   it('needsDestination is true only while something pending has no resolved destination', async () => {
     vi.mocked(uploadApi.hashFile).mockImplementation(async (f) => `hash-${(f as File).name}`)
     vi.mocked(uploadApi.checkHashes).mockResolvedValue({ unknown_hashes: ['hash-a.jpg'] })
@@ -360,10 +360,9 @@ describe('striscia della coda (§6.1)', () => {
 
   it('needsDestination stays true for a folder-less session paused before pump() ever picked it up — bug found writing UploadPanel.spec.ts', () => {
     const store = useUploadStore()
-    // pause(id)/pauseAll non controllano la cartella: una sessione
-    // "queued" senza cartella può restare bloccata anche da "paused",
-    // non solo da "queued" — checking solo status==='queued' mancava
-    // questo caso reale.
+    // pause(id)/pauseAll don't check the folder: a "queued" session
+    // without a folder can also end up stuck as "paused", not just
+    // "queued" — checking only status==='queued' missed this real case.
     store.sessions.push({
       id: 'a',
       filename: 'a.jpg',

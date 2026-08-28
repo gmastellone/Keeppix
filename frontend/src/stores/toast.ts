@@ -1,13 +1,10 @@
-// SP-6/SP-28/SP-29 (Fase 11 Task 2): il toast ha tre nature (documento
-// funzionale, commento del prototipo su `showToast`): il successo resta
-// neutro e sparisce da solo — è il caso normale, non merita colore né
-// attenzione; l'errore e la riuscita parziale portano un filetto colorato,
-// restano a schermo più a lungo (leggere "cosa non ha funzionato" richiede
-// più tempo che leggere "fatto") e possono avere un'azione, quasi sempre
-// "Riprova" — un toast con azione non sparisce mentre ci si sta
-// ragionando sopra: passandoci il mouse il timer si ferma. Ogni numero qui
-// è letto da `showToast`/`showErrorToast`/`showPartialToast` in
-// docs/ui/keeppix-mockup.html, non stimato.
+// A toast has three natures: success stays neutral and disappears on its
+// own — it's the normal case, it doesn't deserve color or attention;
+// error and partial success carry a colored accent, stay on screen
+// longer (reading "what went wrong" takes more time than reading "done")
+// and can carry an action, almost always "Retry" — a toast with an
+// action doesn't disappear while the user is still considering it:
+// hovering the mouse over it pauses the timer.
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
@@ -18,11 +15,11 @@ import {
   TOAST_REMOVE_AFTER_MS,
   TOAST_SHOW_DELAY_MS
 } from '@/design/tokens'
-// Le etichette dipendono dalla lingua corrente ma questo store non è un
-// componente: niente `useI18n()`. `i18n.global.t` è la stessa istanza che
-// i componenti leggono, importata direttamente (stesso pattern già in uso
-// altrove per codice non-componente che deve tradurre, es. `api/client.ts`
-// negli errori di rete).
+// Labels depend on the current language, but this store isn't a
+// component: no `useI18n()`. `i18n.global.t` is the same instance that
+// components read, imported directly (same pattern already used
+// elsewhere by non-component code that needs to translate, e.g.
+// `api/client.ts` for network errors).
 import { i18n } from '@/i18n'
 
 export type ToastKind = 'ok' | 'error' | 'partial'
@@ -37,8 +34,8 @@ export interface Toast {
   message: string
   kind: ToastKind
   action?: ToastAction
-  /** `false` finché non è passato `TOAST_SHOW_DELAY_MS`: pilota la
-   * transizione d'ingresso, che altrimenti partirebbe già visibile. */
+  /** `false` until `TOAST_SHOW_DELAY_MS` has elapsed: drives the entry
+   * transition, which would otherwise start already visible. */
   visible: boolean
 }
 
@@ -60,8 +57,7 @@ export const useToastStore = defineStore('toast', () => {
     )
   }
 
-  /** Solo i toast con azione lo usano (stesso comportamento del
-   * prototipo): al passaggio del mouse. */
+  /** Only toasts with an action use this, on mouse hover. */
   function pause(id: number) {
     const timer = timers.get(id)
     if (timer) clearTimeout(timer)
@@ -72,8 +68,7 @@ export const useToastStore = defineStore('toast', () => {
     if (toast) arm(id, toast.kind, Boolean(toast.action))
   }
 
-  /** Restituisce una funzione per chiudere il toast prima del tempo —
-   * stessa forma di `showToast` nel prototipo. */
+  /** Returns a function that closes the toast early. */
   function show(message: string, opts: { kind?: ToastKind; action?: ToastAction } = {}): () => void {
     const id = nextId++
     const kind = opts.kind ?? 'ok'
@@ -90,8 +85,8 @@ export const useToastStore = defineStore('toast', () => {
     return show(message, { kind: 'error', action: retry ? { label: retryLabel(), run: retry } : undefined })
   }
 
-  /** `failedCount` sempre ≥ 1: un successo pieno non produce un toast di
-   * riuscita parziale. */
+  /** `failedCount` is always ≥ 1: a full success never produces a
+   * partial-success toast. */
   function showPartial(okCount: number, failedCount: number, retry?: () => void): () => void {
     return show(partialMessage(okCount, failedCount), {
       kind: 'partial',

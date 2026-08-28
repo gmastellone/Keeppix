@@ -41,7 +41,7 @@ describe('clampDensity', () => {
     expect(clampDensity(7.2)).toBe(7)
   })
 
-  it('stays inside 2–6 on mobile (§60.2)', () => {
+  it('stays inside 2–6 on mobile', () => {
     expect(clampDensity(1, true)).toBe(2)
     expect(clampDensity(9, true)).toBe(6)
     expect(clampDensity(4.4, true)).toBe(4)

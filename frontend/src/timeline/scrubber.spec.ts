@@ -3,11 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { monthAbbrev, monthAtOffset, monthFull } from './scrubber'
 
 describe('monthAtOffset', () => {
-  // Conteggi deliberatamente sbilanciati: se l'algoritmo pesasse per
-  // `count` (comportamento pre-Fase-11, sbagliato — vedi il commento
-  // nella sorgente), il mese da 90 scatti occuperebbe quasi tutta la
-  // barra. Il documento funzionale (§8.3) lo esclude esplicitamente: i
-  // mesi sono equidistanti.
+  // Deliberately unbalanced counts: if the algorithm weighted by `count`
+  // (an earlier, incorrect behavior — see the comment in the source),
+  // the month with 90 shots would take up nearly the whole bar. Months
+  // are equidistant instead.
   const buckets = [
     { month: '2024-08', count: 10 },
     { month: '2024-07', count: 90 },
@@ -23,9 +22,9 @@ describe('monthAtOffset', () => {
   })
 
   it('is equidistant by index, not weighted by count', () => {
-    // 3 mesi, indici 0/1/2 su ratio 0..1: il centro esatto (ratio 0.5)
-    // arrotonda a round(0.5*2)=1, il mese di mezzo — non quello con più
-    // scatti, che qui non è nemmeno al centro dell'elenco.
+    // 3 months, indices 0/1/2 over ratio 0..1: the exact center (ratio
+    // 0.5) rounds to round(0.5*2)=1, the middle month — not the one with
+    // the most shots, which isn't even in the middle of the list here.
     expect(monthAtOffset(buckets, 50, 100)).toBe('2024-07')
   })
 
@@ -54,9 +53,9 @@ describe('monthFull', () => {
   })
 
   it('does not drift across a month boundary regardless of the runtime timezone', () => {
-    // Un mese costruito da un giorno 1 in UTC: se la formattazione non
-    // forzasse timeZone:'UTC', un fuso negativo potrebbe leggere il 30 del
-    // mese precedente.
+    // A month built from day 1 in UTC: if the formatting didn't force
+    // timeZone:'UTC', a negative offset timezone could read the 30th of
+    // the previous month.
     expect(monthFull('2026-01', 'en')).toBe('January 2026')
     expect(monthFull('2025-12', 'en')).toBe('December 2025')
   })

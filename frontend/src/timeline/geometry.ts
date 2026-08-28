@@ -1,14 +1,13 @@
 /**
- * Decodificatore del payload binario di `GET /timeline/geometry` (Fase 11
- * Task 4, spec documento funzionale §66.9): intestazione da 8 byte
- * (versione u32, conteggio u32) seguita da un record da 6 byte per scatto
- * (larghezza u16, altezza u16, mese u16 = anno*12+mese), tutto little-endian
- * — vedi `crates/keeppix-api/src/routes/timeline.rs::encode_geometry`, la
- * fonte di verità del formato.
+ * Decoder for the binary payload of `GET /timeline/geometry`: an 8-byte
+ * header (u32 version, u32 count) followed by a 6-byte record per shot
+ * (u16 width, u16 height, u16 month = year*12+month), all little-endian —
+ * see `crates/keeppix-api/src/routes/timeline.rs::encode_geometry`, the
+ * source of truth for the format.
  *
- * Un `DataView` sull'`ArrayBuffer` grezzo, non 214.000 oggetti `{w,h,month}`:
- * la Ruling della spec (§3) è esplicita sul perché — ~50 MB di heap e
- * pressione sul GC ad ogni scroll contro 4,7 MB senza spazzatura.
+ * A `DataView` over the raw `ArrayBuffer`, not 214,000 `{w,h,month}`
+ * objects: roughly 50 MB of heap and GC pressure on every scroll versus
+ * 4.7 MB with no garbage generated.
  */
 const SUPPORTED_FORMAT_VERSION = 1
 const HEADER_BYTES = 8
@@ -45,18 +44,17 @@ export class TimelineGeometry {
     return this.view.getUint16(HEADER_BYTES + index * RECORD_BYTES + 2, true)
   }
 
-  /** `anno*12 + mese_di_calendario (1..=12)`, lo stesso indice del backend. */
+  /** `year*12 + calendar_month (1..=12)`, the same index the backend uses. */
   month(index: number): number {
     return this.view.getUint16(HEADER_BYTES + index * RECORD_BYTES + 4, true)
   }
 
   /**
-   * Unisce i buffer di più pagine (Task 4-bis, caricamento a schermo
-   * freddo) in una `TimelineGeometry` sola — un'unica intestazione con il
-   * conteggio sommato, i record concatenati nell'ordine di arrivo. Le pagine
-   * arrivano già in ordine (`taken_at_utc DESC, id DESC`, lo stesso cursore
-   * lato server), quindi qui basta copiare i byte, senza ricontrollare
-   * l'ordinamento.
+   * Merges buffers from multiple pages (cold-start loading) into a
+   * single `TimelineGeometry` — one header with the summed count,
+   * records concatenated in arrival order. Pages already arrive in order
+   * (`taken_at_utc DESC, id DESC`, the same cursor used server-side), so
+   * this only needs to copy bytes, without re-checking the ordering.
    */
   static concat(buffers: readonly ArrayBuffer[]): TimelineGeometry {
     if (buffers.length === 1) return new TimelineGeometry(buffers[0])

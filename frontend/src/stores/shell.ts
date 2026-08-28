@@ -1,9 +1,10 @@
-// Fase 11 Task 6: i dati della shell (sidebar desktop, header/"Altro"
-// mobile) — cartelle, spazio libero, badge di navigazione — dietro
-// un'unica chiamata a `GET /api/v1/bootstrap`. Uno store a sé, non parte
-// di `stores/session.ts`: quello risponde "chi sono e sono autenticato",
-// questo risponde "cosa mostra il telaio" — due domande diverse anche se
-// il backend chiama entrambe le richieste "bootstrap".
+// Shell data (desktop sidebar, mobile header/"More") — folders, free
+// space, navigation badges — behind a single call to
+// `GET /api/v1/bootstrap`. A store of its own, not part of
+// `stores/session.ts`: that one answers "who am I and am I
+// authenticated", this one answers "what does the shell show" — two
+// different questions even though the backend calls both requests
+// "bootstrap".
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 

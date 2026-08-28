@@ -27,7 +27,7 @@ describe('categorize', () => {
     expect(categorize(name)).toBe('raw')
   })
 
-  it('treats .dng as RAW, not as an image — it is a RAW container (§4)', () => {
+  it('treats .dng as RAW, not as an image — it is a RAW container', () => {
     expect(categorize('DSC26.dng')).toBe('raw')
     expect(categorize('DSC26.DNG')).toBe('raw')
   })
@@ -40,7 +40,7 @@ describe('categorize', () => {
 })
 
 describe('classifyFiles', () => {
-  it('never rejects the whole batch for the presence of RAW or unsupported files (§4)', () => {
+  it('never rejects the whole batch for the presence of RAW or unsupported files', () => {
     const result = classifyFiles([file('a.jpg'), file('b.arw'), file('c.txt'), file('d.mp4')])
     expect(result.accepted.map((f) => f.name)).toEqual(['a.jpg', 'd.mp4'])
     expect(result.rejectedRaw.map((f) => f.name)).toEqual(['b.arw'])

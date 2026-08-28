@@ -2,24 +2,24 @@ import { justify } from './justify'
 import type { TimelineGeometry } from './geometry'
 
 /**
- * Costanti verificate alla fonte in `docs/ui/keeppix-mockup.html`
- * (`planPhotoRows`/`planStream`, righe 4593-4666), non stimate: il
- * prototipo calcola già questa stessa geometria per il proprio scrubber
- * dei mesi, ed è la fonte di verità per questi numeri.
+ * Constants verified against the source in `docs/ui/keeppix-mockup.html`
+ * (`planPhotoRows`/`planStream`), not estimated: the prototype already
+ * computes this same geometry for its own month scrubber, and it's the
+ * source of truth for these numbers.
  */
 export const GRID_GAP = 6
-export const MONTH_HEAD_H = 29 // .month-head (riga a 16px, ~19px) + margin-bottom 10px
+export const MONTH_HEAD_H = 29 // .month-head (16px line, ~19px) + 10px margin-bottom
 export const MONTH_GAP = 26 // .month-block margin-bottom
-export const STREAM_OVERSCAN = 1.25 // schermi di margine tenuti montati sopra e sotto
+export const STREAM_OVERSCAN = 1.25 // screens of margin kept mounted above and below
 
-/** `targetH` del prototipo: `max(64, (larghezza - gap fra colonne) / colonne / 1.3)`. */
+/** `targetH` from the prototype: `max(64, (width - gap between columns) / columns / 1.3)`. */
 export function targetRowHeight(width: number, density: number): number {
   return Math.max(64, (width - (density - 1) * GRID_GAP) / density / 1.3)
 }
 
 export interface HeaderRow {
   type: 'header'
-  /** `"YYYY-MM"`, lo stesso formato di `MonthBucket.month`. */
+  /** `"YYYY-MM"`, the same format as `MonthBucket.month`. */
   month: string
   count: number
   height: number
@@ -29,11 +29,11 @@ export interface GridCell {
   x: number
   w: number
   h: number
-  /** Posizione dello scatto dentro il mese, nello stesso ordine con cui
-   * `/timeline?bucket=` restituisce le pagine di quel mese (`ORDER BY
-   * taken_at_utc DESC, id DESC` sia lato geometria sia lato pagine) —
-   * l'indice per risalire dall'oggetto geometria all'asset vero una
-   * volta che la pagina di quel mese è caricata. */
+  /** Position of the shot within the month, in the same order
+   * `/timeline?bucket=` returns that month's pages (`ORDER BY
+   * taken_at_utc DESC, id DESC` on both the geometry and page sides) —
+   * the index used to map from the geometry object back to the real
+   * asset once that month's page has loaded. */
   offsetInMonth: number
 }
 
@@ -48,25 +48,25 @@ export type StreamRow = HeaderRow | GridRow
 
 export interface StreamPlan {
   rows: StreamRow[]
-  /** Un'altezza di "slot" per riga: uguale a `rows[i].height`, salvo
-   * sull'ultima riga di ogni mese dove include anche `MONTH_GAP` — lo
-   * spazio vuoto verso il mese successivo è margine fra le sezioni, non
-   * contenuto della riga stessa, ma va comunque contato perché il
-   * virtualizzatore sappia dove comincia la riga dopo. */
+  /** A "slot" height per row: equal to `rows[i].height`, except on the
+   * last row of each month, where it also includes `MONTH_GAP` — the
+   * empty space toward the next month is margin between sections, not
+   * the row's own content, but it still needs to be counted so the
+   * virtualizer knows where the next row starts. */
   rowHeights: number[]
   totalHeight: number
 }
 
-/** `"YYYY-MM"` → `anno*12 + mese_di_calendario (1..=12)`, lo stesso indice
- * di `month_index` in `crates/keeppix-api/src/routes/timeline.rs`. */
+/** `"YYYY-MM"` → `year*12 + calendar_month (1..=12)`, the same index as
+ * `month_index` in `crates/keeppix-api/src/routes/timeline.rs`. */
 export function monthIndexOf(month: string): number {
   const [year, mm] = month.split('-').map(Number)
   return year * 12 + mm
 }
 
-/** L'inverso di `monthIndexOf` — solo per il caso difensivo in cui la
- * geometria contenga un mese assente dall'elenco dei bucket (le due
- * richieste non condividono un'istantanea atomica del database). */
+/** The inverse of `monthIndexOf` — only for the defensive case where the
+ * geometry contains a month absent from the bucket list (the two
+ * requests don't share an atomic database snapshot). */
 function monthLabelOf(index: number): string {
   const year = Math.floor((index - 1) / 12)
   const mm = index - year * 12
@@ -74,18 +74,16 @@ function monthLabelOf(index: number): string {
 }
 
 /**
- * Costruisce il piano completo della timeline da geometria + conteggi dei
- * bucket: un'intestazione più N righe giustificate per ogni mese
- * effettivamente presente in `geometry`. Pura aritmetica sui rapporti
- * d'aspetto — nessun accesso al DOM — eseguibile su tutta la libreria in
- * un colpo solo (§66.3 del documento funzionale, e il commento del
- * prototipo su `planPhotoRows`: "si può eseguire su tutta la libreria in
- * un colpo solo").
+ * Builds the complete timeline plan from geometry + bucket counts: a
+ * header plus N justified rows for every month actually present in
+ * `geometry`. Pure arithmetic over aspect ratios — no DOM access — so it
+ * can run over the entire library in one shot, same as the prototype's
+ * `planPhotoRows`.
  *
- * Guidato dai confini di mese della geometria stessa, non dall'elenco dei
- * bucket: quest'ultimo alimenta solo l'etichetta del conteggio mostrato
- * (`count`), con un ripiego sulla lunghezza del segmento se un mese della
- * geometria non ha un bucket corrispondente.
+ * Driven by the geometry's own month boundaries, not by the bucket list:
+ * the bucket list only feeds the displayed count label (`count`),
+ * falling back to the segment's length if a month in the geometry has no
+ * matching bucket.
  */
 export function planStream(
   geometry: TimelineGeometry,
@@ -134,11 +132,11 @@ export function planStream(
       rowHeights.push(row.height)
     }
 
-    // MONTH_GAP verso il mese successivo, contato sull'ultima riga appena
-    // emessa: non è una riga a sé, solo lo spazio prima della prossima.
+    // MONTH_GAP toward the next month, counted on the row just emitted:
+    // not a row of its own, just the space before the next one.
     rowHeights[rowHeights.length - 1] += MONTH_GAP
   }
-  // L'ultimo mese non ha un "prossimo": lo spazio aggiunto sopra va tolto.
+  // The last month has no "next": the space added above must be removed.
   rowHeights[rowHeights.length - 1] -= MONTH_GAP
 
   const totalHeight = rowHeights.reduce((a, b) => a + b, 0)

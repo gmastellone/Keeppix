@@ -12,8 +12,8 @@ afterEach(() => {
   localStorage.clear()
 })
 
-describe('useAvatarColorStore — §61.2 Colore avatar', () => {
-  it('defaults to "accent" (Arancione) before load()', () => {
+describe('useAvatarColorStore — avatar color', () => {
+  it('defaults to "accent" (Orange) before load()', () => {
     const store = useAvatarColorStore()
     expect(store.colorId).toBe('accent')
     expect(store.hex).toBeNull()

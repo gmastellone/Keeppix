@@ -1,19 +1,18 @@
 /**
- * Cache LRU delle pagine caricate (Fase 11 Task 4, piano §4.8): a 200.000
- * scatti l'unica cosa che cresce senza limite scorrendo l'intera libreria
- * è la cache degli asset già scaricati — geometria (~1,2 MB in tutto) e
- * somme prefisse restano piccole e **non si sfrattano mai**, vivono fuori
- * da questa classe.
+ * LRU cache of loaded pages: at 200,000 shots, the only thing that grows
+ * without bound while scrolling the entire library is the cache of
+ * already-downloaded assets — geometry (~1.2 MB total) and prefix sums
+ * stay small and **are never evicted**, they live outside this class.
  *
- * Tetto esplicito sul numero di pagine residenti, non sul numero di
- * asset: una pagina sfrattata si ricarica con una richiesta quando torna
- * a servire (`TimelineView` la richiede di nuovo a `IntersectionObserver`),
- * non è persa per sempre.
+ * An explicit cap on the number of resident pages, not on the number of
+ * assets: an evicted page reloads with a single request once it's needed
+ * again (`TimelineView` requests it again from `IntersectionObserver`),
+ * it's not lost forever.
  */
 export class LruPageCache<K, V> {
   private readonly capacity: number
-  // L'ordine di inserimento di `Map` è la struttura LRU: ri-settare una
-  // chiave esistente la sposta in fondo senza una lista collegata a parte.
+  // `Map`'s insertion order is the LRU structure: re-setting an existing
+  // key moves it to the end without a separate linked list.
   private readonly map = new Map<K, V>()
 
   constructor(capacity: number) {

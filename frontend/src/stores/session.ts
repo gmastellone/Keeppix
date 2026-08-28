@@ -9,8 +9,8 @@ import { applyProfileLocale, setLocale, type Locale } from '@/i18n'
 
 export type { User }
 
-/** TTL cookie 30 giorni: un giro ogni 12 ore, e solo a scheda visibile,
- * tiene la sessione viva senza ruotare tutta la notte su un Pi. */
+/** Cookie TTL is 30 days: a ping every 12 hours, only while the tab is
+ * visible, keeps the session alive without spinning all night on a Pi. */
 export const SESSION_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000
 
 export const useSessionStore = defineStore('session', () => {
@@ -18,15 +18,16 @@ export const useSessionStore = defineStore('session', () => {
   const initialised = ref<boolean | null>(null)
   const ready = ref(false)
   const unavailable = ref(false)
-  /** True se l'ultimo logout ha azzerato la sessione localmente senza
-   * conferma dal server. Letto (e azzerato) dalla vista che accoglie
-   * l'utente dopo il redirect, per segnalarlo senza bloccare l'uscita. */
+  /** True if the last logout cleared the session locally without
+   * confirmation from the server. Read (and cleared) by the view that
+   * greets the user after the redirect, to surface it without blocking
+   * the sign-out. */
   const logoutError = ref(false)
 
   let timer: ReturnType<typeof setInterval> | undefined
   let listening = false
 
-  /** Determina lo stato dell'istanza e ripristina la sessione se presente. */
+  /** Determines the instance's state and restores the session if present. */
   async function bootstrap(): Promise<void> {
     unavailable.value = false
     try {
@@ -40,7 +41,7 @@ export const useSessionStore = defineStore('session', () => {
           applyProfileLocale(result.user.locale)
           startWatchdog()
         } catch (error) {
-          // 401 è normale: nessuna sessione attiva.
+          // 401 is normal: no active session.
           if (!(error instanceof ApiProblem) || error.status !== 401) throw error
           user.value = null
           stopWatchdog()
@@ -78,8 +79,8 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   /**
-   * Persist the UI language on the profile (spec §10.10) and keep the
-   * localStorage cache in sync for the next first paint.
+   * Persist the UI language on the profile and keep the localStorage
+   * cache in sync for the next first paint.
    */
   async function changeLocale(locale: Locale): Promise<void> {
     setLocale(locale)
@@ -93,12 +94,11 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   /**
-   * §61.1 "Dati account", pulsante "Salva modifiche" — a differenza del
-   * mockup ("non è collegato a nulla: nessun `id`, nessun gestore"), qui
-   * scrive per davvero via la stessa `PATCH /users/{id}` già usata da
-   * `changeLocale`. Solo `display_name`: l'email non ha un percorso di
-   * scrittura sul backend (`UserView` la espone in sola lettura, Fase 11
-   * Task 14 2/N).
+   * Account data "Save changes" button — unlike the mockup, which wasn't
+   * wired to anything, this actually writes via the same
+   * `PATCH /users/{id}` already used by `changeLocale`. `display_name`
+   * only: email has no write path on the backend (`UserView` exposes it
+   * read-only).
    */
   async function updateDisplayName(displayName: string): Promise<void> {
     const current = user.value
@@ -111,12 +111,12 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   /**
-   * Il logout è un'azione di sicurezza: se la revoca server-side fallisce
-   * (quasi certamente un errore di rete — il backend risponde comunque
-   * `204` sui fallimenti che riesce a gestire), l'utente non deve restare
-   * bloccato in un'interfaccia che lo mostra ancora autenticato. Si azzera
-   * lo stato locale in ogni caso, e si segnala l'accaduto tramite
-   * `logoutError` invece di propagare l'eccezione al chiamante.
+   * Logout is a security action: if the server-side revocation fails
+   * (almost certainly a network error — the backend still responds `204`
+   * for the failures it can handle), the user must not stay stuck in a
+   * UI that still shows them as authenticated. Local state is cleared
+   * either way, and the failure is surfaced through `logoutError` instead
+   * of propagating the exception to the caller.
    */
   async function logout(): Promise<void> {
     try {

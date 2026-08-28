@@ -76,10 +76,10 @@ describe('LruPageCache', () => {
   })
 
   /**
-   * Verifica del piano (Task 4, §4.8): dopo uno scroll completo simulato
-   * (qui: 4000 mesi caricati in sequenza, molti oltre i 214.000 scatti
-   * reali della libreria di riferimento) la cache non supera mai il tetto
-   * dichiarato — le pagine sfrattate, non quelle nuove, pagano il costo.
+   * Verifies that after a fully simulated scroll (here: 4000 months
+   * loaded in sequence, well beyond the 214,000 real shots of the
+   * reference library) the cache never exceeds its declared cap — the
+   * evicted pages, not the new ones, pay the cost.
    */
   it('never exceeds its cap while simulating a full scroll through a very large library', () => {
     const capacity = 50
@@ -89,7 +89,7 @@ describe('LruPageCache', () => {
       expect(cache.size).toBeLessThanOrEqual(capacity)
     }
     expect(cache.size).toBe(capacity)
-    // Solo gli ultimi `capacity` mesi visti restano residenti.
+    // Only the last `capacity` months seen stay resident.
     for (let month = 4000 - capacity; month < 4000; month++) {
       expect(cache.has(month)).toBe(true)
     }

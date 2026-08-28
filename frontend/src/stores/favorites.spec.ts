@@ -99,7 +99,7 @@ describe('favorites store — toggleOne', () => {
   })
 })
 
-describe('favorites store — setMany (SP-2 group toggle)', () => {
+describe('favorites store — setMany (group toggle)', () => {
   it('is a no-op on an empty selection: no toast, no writes', async () => {
     const store = useFavoritesStore()
     const toast = useToastStore()
@@ -109,7 +109,7 @@ describe('favorites store — setMany (SP-2 group toggle)', () => {
     expect(toast.toasts).toHaveLength(0)
   })
 
-  it('applies to every asset and shows the exact documented toast on full success — §12.3', async () => {
+  it('applies to every asset and shows the exact documented toast on full success', async () => {
     const store = useFavoritesStore()
     const toast = useToastStore()
     const assets = [photo('a'), photo('b'), photo('c')]
@@ -122,7 +122,7 @@ describe('favorites store — setMany (SP-2 group toggle)', () => {
     expect(toast.toasts.at(-1)?.kind).toBe('ok')
   })
 
-  it('shows the exact "removed" wording when removing — §12.3', async () => {
+  it('shows the exact "removed" wording when removing', async () => {
     const store = useFavoritesStore()
     const toast = useToastStore()
     await store.setMany([photo('a', true)], false)

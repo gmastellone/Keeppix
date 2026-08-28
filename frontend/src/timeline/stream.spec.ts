@@ -18,7 +18,7 @@ function encode(records: { w: number; h: number; month: number }[]): ArrayBuffer
 }
 
 describe('monthIndexOf', () => {
-  it('matches the backend month_index formula (anno*12 + mese)', () => {
+  it('matches the backend month_index formula (year*12 + month)', () => {
     expect(monthIndexOf('2026-08')).toBe(2026 * 12 + 8)
     expect(monthIndexOf('2025-12')).toBe(2025 * 12 + 12)
     expect(monthIndexOf('2025-01')).toBe(2025 * 12 + 1)
@@ -84,9 +84,9 @@ describe('planStream', () => {
     )
     const plan = planStream(geometry, [{ month: '2026-08', count: 1 }, { month: '2026-07', count: 1 }], 800, 4)
     expect(plan.rowHeights.reduce((a, b) => a + b, 0)).toBe(plan.totalHeight)
-    // L'ultimo mese (luglio) non ha un MONTH_GAP dopo: lo "slot" della sua
-    // ultima riga coincide esattamente con l'altezza visiva della riga,
-    // non ne include uno gonfiato.
+    // The last month (July) has no MONTH_GAP after it: its last row's
+    // "slot" exactly matches the row's visual height, it doesn't include
+    // an inflated one.
     const lastRow = plan.rows[plan.rows.length - 1]
     const lastSlotHeight = plan.rowHeights[plan.rowHeights.length - 1]
     expect(lastSlotHeight).toBe(lastRow.height)
@@ -112,21 +112,21 @@ describe('planStream', () => {
 
   it('builds a full plan for a 200,000-shot geometry across many months without ballooning row count', () => {
     const recordCount = 200_000
-    const monthsSpanned = 240 // 20 anni
+    const monthsSpanned = 240 // 20 years
     const records = Array.from({ length: recordCount }, (_, i) => ({
       w: 1600 + (i % 7) * 200,
       h: 1200 + (i % 5) * 150,
       month: AUG - Math.floor((i / recordCount) * monthsSpanned)
     }))
     const geometry = new TimelineGeometry(encode(records))
-    // Bucket volutamente vuoto: esercita il ripiego su `monthLabelOf` +
-    // conteggio dal solo segmento di geometria, non la corrispondenza coi
-    // bucket già coperta dai test sopra.
+    // Deliberately empty bucket list: exercises the fallback to
+    // `monthLabelOf` + counting from the geometry segment alone, not the
+    // bucket matching already covered by the tests above.
     const plan = planStream(geometry, [], 1200, 6)
     expect(plan.rows.length).toBeGreaterThan(0)
-    // Ogni riga giustificata sta per costruzione dentro la larghezza del
-    // contenitore (più il margine di arrotondamento dell'ultima riga di un
-    // mese, che il piano non stira) — nessuna riga infinita o degenere.
+    // Every justified row fits, by construction, inside the container's
+    // width (plus the rounding margin on the last row of a month, which
+    // the plan doesn't stretch) — no infinite or degenerate row.
     for (const row of plan.rows) {
       if (row.type === 'grid') {
         const last = row.cells.at(-1)

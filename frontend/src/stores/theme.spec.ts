@@ -33,7 +33,7 @@ afterEach(() => {
   document.documentElement.removeAttribute('data-theme')
 })
 
-describe('useThemeStore — §60.1 Aspetto', () => {
+describe('useThemeStore — Appearance', () => {
   it('applies "light" for the documented default (chiaro) even before load()', () => {
     stubSystemDark(false)
     const theme = useThemeStore()
@@ -73,10 +73,10 @@ describe('useThemeStore — §60.1 Aspetto', () => {
   })
 
   it('"sistema" reacts live to a system preference change', async () => {
-    // Stessa `MediaQueryList` (finta) per tutto il test: un browser vero
-    // aggiorna `.matches` sull'oggetto esistente prima di sparare
-    // `change`, non ne restituisce uno nuovo da una seconda chiamata a
-    // `matchMedia` — mutare qui lo stesso oggetto imita quel comportamento.
+    // The same (fake) `MediaQueryList` throughout the test: a real
+    // browser updates `.matches` on the existing object before firing
+    // `change`, it doesn't return a new one from a second call to
+    // `matchMedia` — mutating the same object here mimics that behavior.
     let onChange: (() => void) | undefined
     const query = {
       matches: false,

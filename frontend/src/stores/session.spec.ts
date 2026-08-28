@@ -48,7 +48,7 @@ describe('session bootstrap', () => {
     vi.useRealTimers()
   })
 
-  it('su 503 marca unavailable e non lancia', async () => {
+  it('a 503 marks unavailable and does not throw', async () => {
     vi.mocked(auth.getSetupStatus).mockRejectedValue(
       new ApiProblem('keeppix/service-unavailable', 'unavailable', 503)
     )
@@ -59,7 +59,7 @@ describe('session bootstrap', () => {
     expect(session.user).toBeNull()
   })
 
-  it('su 401 di me() è sessione assente, non un outage', async () => {
+  it('a 401 from me() means no session, not an outage', async () => {
     vi.mocked(auth.getSetupStatus).mockResolvedValue({ initialised: true })
     vi.mocked(auth.me).mockRejectedValue(
       new ApiProblem('keeppix/unauthenticated', 'unauthenticated', 401)
@@ -71,7 +71,7 @@ describe('session bootstrap', () => {
     expect(session.ready).toBe(true)
   })
 
-  it('login applica users.locale al i18n', async () => {
+  it("login applies the user's locale to i18n", async () => {
     vi.mocked(auth.login).mockResolvedValue({
       user: { ...user, locale: 'it' }
     })
@@ -105,7 +105,7 @@ describe('session refresh watchdog', () => {
     return session
   }
 
-  it('rinnova la sessione a intervallo mentre la scheda è visibile', async () => {
+  it('refreshes the session at an interval while the tab is visible', async () => {
     await loggedIn()
     expect(auth.refresh).not.toHaveBeenCalled()
 
@@ -116,7 +116,7 @@ describe('session refresh watchdog', () => {
     expect(auth.refresh).toHaveBeenCalledTimes(2)
   })
 
-  it('non rinnova se la scheda è nascosta', async () => {
+  it('does not refresh while the tab is hidden', async () => {
     setVisibility('hidden')
     await loggedIn()
 
@@ -124,7 +124,7 @@ describe('session refresh watchdog', () => {
     expect(auth.refresh).not.toHaveBeenCalled()
   })
 
-  it('al ritorno in primo piano rinnova, senza aspettare l’intervallo', async () => {
+  it('refreshes on return to the foreground, without waiting for the interval', async () => {
     setVisibility('hidden')
     await loggedIn()
     await vi.advanceTimersByTimeAsync(SESSION_REFRESH_INTERVAL_MS)
@@ -136,7 +136,7 @@ describe('session refresh watchdog', () => {
     expect(auth.refresh).toHaveBeenCalledTimes(1)
   })
 
-  it('un 401 del rinnovo azzera l’utente: il prossimo giro è il login', async () => {
+  it('a 401 on refresh clears the user: the next step is login', async () => {
     vi.mocked(auth.refresh).mockRejectedValue(
       new ApiProblem('keeppix/unauthenticated', 'unauthenticated', 401)
     )
@@ -150,7 +150,7 @@ describe('session refresh watchdog', () => {
     expect(auth.refresh).toHaveBeenCalledTimes(1)
   })
 
-  it('un 503 del rinnovo non espelle: il database è giù, la sessione no', async () => {
+  it('a 503 on refresh does not log out: the database is down, not the session', async () => {
     vi.mocked(auth.refresh).mockRejectedValue(
       new ApiProblem('keeppix/service-unavailable', 'unavailable', 503)
     )
@@ -160,7 +160,7 @@ describe('session refresh watchdog', () => {
     expect(session.user).toEqual(user)
   })
 
-  it('dopo il logout il watchdog non chiama più refresh', async () => {
+  it('after logout the watchdog no longer calls refresh', async () => {
     const session = await loggedIn()
     await session.logout()
     vi.mocked(auth.refresh).mockClear()

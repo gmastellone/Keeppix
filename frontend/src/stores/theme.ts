@@ -1,29 +1,24 @@
-// Fase 11 Task 14 (1/N) — documento funzionale §60.1 "Aspetto", verificato
-// contro il commento già presente in `AppTopbar.vue` (Task 6, 2/N): "il
-// tema si imposta da Impostazioni → Aspetto, un solo posto invece di due
-// controlli ridondanti" — nessun interruttore rapido altrove, per
-// costruzione (nessun secondo consumatore lo chiama).
+// Theme is set from Settings -> Appearance, a single place instead of two
+// redundant controls — there's no quick-toggle elsewhere in the UI, by
+// construction (no second consumer calls it).
 //
-// Store Pinia, non un composable a ref di modulo come `useDensity`: il
-// tema è overo davvero globale — cambia SEMPRE l'intera interfaccia nello
-// stesso istante, non solo la vista che lo legge — e questo file è
-// l'unico punto che scrive `data-theme` sul documento, quindi ha bisogno
-// di un singleton reattivo condiviso, non di un valore fresco per ogni
-// chiamante come la densità (dove "sincronizzato alla prossima visita" è
-// già il comportamento accettato).
+// A Pinia store, not a module-ref composable like `useDensity`: theme is
+// genuinely global — it ALWAYS changes the entire interface at the same
+// instant, not just the view that reads it — and this file is the only
+// place that writes `data-theme` on the document, so it needs a shared
+// reactive singleton, not a fresh value per caller like density (where
+// "synced on next visit" is already the accepted behavior).
 //
-// `--duration-theme` (design/tokens.ts, già presente dal Task 1) era
-// dichiarata "cambio di tema, 2 casi" da prima ancora che questa funzione
-// esistesse — la feature era già anticipata nei token, non un'aggiunta a
-// sorpresa.
+// `--duration-theme` (design/tokens.ts) was already labeled "theme
+// change, 2 cases" before this feature existed — it was anticipated in
+// the design tokens, not a surprise addition.
 //
-// Il tema si legge dalle preferenze **del server**
-// (`GET /users/me/preferences`, Fase 10 Task 9, mai consumate dal
-// frontend prima d'ora) — richiede quindi una sessione autenticata:
-// prima del login la pagina resta al comportamento di default già
-// esistente (`@media (prefers-color-scheme: dark)` in `style.css`,
-// invariato). Non è una scelta stilistica: non esiste alcuna rotta che
-// legga le preferenze di un utente non autenticato.
+// Theme is read from the **server-side** preferences
+// (`GET /users/me/preferences`, never consumed by the frontend before
+// this) — which requires an authenticated session: before login the page
+// keeps the existing default behavior (`@media (prefers-color-scheme:
+// dark)` in `style.css`, unchanged). This isn't a stylistic choice: there
+// is no route that reads an unauthenticated user's preferences.
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
@@ -57,16 +52,16 @@ export const useThemeStore = defineStore('theme', () => {
       const prefs = await fetchPreferences()
       preference.value = prefs.theme
     } catch {
-      // Nessuna preferenza leggibile (rete, sessione appena scaduta): resta
-      // "chiaro", lo stesso predefinito del documento (§60.2).
+      // No preference could be read (network error, session just
+      // expired): stays at the light default.
     }
     apply()
     loaded.value = true
   }
 
-  /** Ripristina il comportamento di default (segue il sistema) quando non
-   * c'è più un utente le cui preferenze applicare — es. dopo il logout,
-   * prima di tornare alla pagina di login. */
+  /** Restores the default behavior (follow the system) when there's no
+   * longer a user whose preferences apply — e.g. after logout, before
+   * returning to the login page. */
   function reset() {
     preference.value = 'chiaro'
     loaded.value = false

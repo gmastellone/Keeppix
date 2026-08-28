@@ -1,23 +1,20 @@
-// Fase 11 Task 14 (2/N), §61.2 "Colore avatar" — documento funzionale
-// verificato riga per riga (righe 9154-9180). Nessuna preferenza server per
-// questo campo: `GET/PATCH /users/me/preferences` (Fase 10 Task 9) non ha un
-// campo colore — costruirne uno richiederebbe una rotta/colonna nuova, fuori
-// scope per un task di sola interfaccia (stesso principio seguito per ogni
-// altra deviazione di questa fase).
+// No server-side preference exists for this field:
+// `GET/PATCH /users/me/preferences` has no color field — adding one would
+// need a new route/column, out of scope for a UI-only task.
 //
-// `localStorage`, non le preferenze server come `theme`/densità: a
-// differenza di quei due valori — letti anche da **altri** utenti in
-// condivisione (mai il caso qui: `avatarColorFor(id)` hash-based è l'unica
-// cosa che un altro utente vede mai, MAI questa scelta personale) — una
-// scelta di colore avatar è per costruzione visibile solo nel proprio
-// browser (sidebar/header/Profilo dell'utente corrente). Chiave per
-// `userId`, non globale: su un browser condiviso da più account
-// dell'istanza, la scelta di un utente non deve comparire sotto un altro
-// che accede dallo stesso dispositivo — lo stesso principio che ha spostato
-// la densità della griglia da `localStorage` a preferenze server (un valore
-// per utente, non per browser), applicato qui nel solo modo disponibile
-// senza una colonna nuova: non segue l'account fra dispositivi diversi,
-// l'unico limite onesto rimasto.
+// `localStorage`, not server-side preferences like `theme`/density:
+// unlike those two values — which are also read by **other** users when
+// sharing (never the case here: the hash-based `avatarColorFor(id)` is
+// the only thing another user ever sees, NEVER this personal choice) —
+// an avatar color choice is by construction visible only in one's own
+// browser (sidebar/header/current user's Profile). Keyed by `userId`,
+// not global: on a browser shared by multiple accounts on the instance,
+// one user's choice must not appear under another user accessing from
+// the same device — the same principle that moved grid density from
+// `localStorage` to server-side preferences (a value per user, not per
+// browser), applied here in the only way available without a new
+// column: it doesn't follow the account across different devices, the
+// one honest limitation that remains.
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
@@ -63,10 +60,10 @@ export const useAvatarColorStore = defineStore('avatarColor', () => {
     try {
       localStorage.setItem(storageKey(userId), id)
     } catch {
-      // localStorage indisponibile (modalità privata, quota piena): la
-      // scelta resta valida per questa sessione di pagina, solo non
-      // sopravvive a un ricaricamento — nessun errore da mostrare per una
-      // preferenza puramente cosmetica.
+      // localStorage unavailable (private browsing, quota full): the
+      // choice stays valid for this page session, it just won't survive
+      // a reload — no error worth showing for a purely cosmetic
+      // preference.
     }
   }
 

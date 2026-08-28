@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { RowVirtualizer } from './virtualize'
 
-/** Riferimento a scansione lineare, per verificare la ricerca binaria contro un'implementazione ovvia. */
+/** A linear-scan reference, to verify the binary search against an obvious implementation. */
 function linearVisibleRange(heights: number[], scrollTop: number, viewportHeight: number, overscan: number) {
   const from = Math.max(0, scrollTop - overscan)
   const to = scrollTop + viewportHeight + overscan
@@ -68,11 +68,11 @@ describe('RowVirtualizer', () => {
   })
 
   /**
-   * L'assunzione da verificare del piano (Task 4): su una geometria da
-   * 200.000 record, il numero di righe montate resta sotto una soglia
-   * esplicita durante uno scroll simulato — non l'intera libreria in una
-   * volta. `rowHeight` variabile (non costante) per non testare un caso
-   * fortunato dove ogni riga ha la stessa altezza.
+   * The assumption to verify: over a 200,000-record geometry, the
+   * number of mounted rows stays under an explicit cap during a
+   * simulated scroll — never the entire library at once. `rowHeight` is
+   * variable (not constant) so this doesn't test a lucky case where
+   * every row happens to have the same height.
    */
   it('stays within an explicit mounted-row cap while scrolling a 200,000-row geometry', () => {
     const rowCount = 200_000
@@ -81,8 +81,8 @@ describe('RowVirtualizer', () => {
     expect(v.rowCount).toBe(rowCount)
 
     const viewportHeight = 900
-    const overscan = viewportHeight * 1.25 // "circa uno schermo e un quarto", documento funzionale §66.3
-    const maxMountedRows = 40 // ben sotto le ~3 schermate di tessere della spec §3, in righe
+    const overscan = viewportHeight * 1.25 // "roughly one and a quarter screens"
+    const maxMountedRows = 40 // well below the ~3 screens' worth of tiles from the spec, in rows
 
     const positions = [0, v.totalHeight * 0.1, v.totalHeight * 0.5, v.totalHeight * 0.9, v.totalHeight]
     for (const scrollTop of positions) {

@@ -16,25 +16,23 @@ export interface LotAsset extends TimelineAsset {
 }
 
 /**
- * Store del lotto di culling aperto (documento funzionale §15, Fase 11
- * Task 17). Sostituisce interamente `stores/culling.ts` (Task 17 4/N la
- * rimuove): quella era una sessione a voto per-utente su "quanto già
- * caricato in timeline", senza spostamento fisico — un ripiego prima che
- * le rotte dei lotti esistessero (Ruling, 24 agosto 2026: "il culling non
- * c'entra più nulla con le foto normali, è una sezione che lavora solo su
- * una cartella specifica e sposta fisicamente le foto").
+ * Store for the open culling lot. Entirely replaces the old
+ * `stores/culling.ts`: that was a per-user voting session on "what's
+ * already uploaded to the timeline", with no physical file movement — a
+ * stopgap from before lot routes existed. Culling has nothing to do with
+ * regular photos: it's a section that works on one specific folder and
+ * physically moves photos.
  *
- * **Nessuna coda offline qui**, a differenza del vecchio store: `pick`
- * sposta un file per davvero, un fallimento (permesso, collisione) deve
- * arrivare all'utente subito, non essere accodato e ritentato in
- * background come un semplice voto.
+ * **No offline queue here**, unlike the old store: `pick` moves a file
+ * for real, so a failure (permission, collision) needs to reach the user
+ * immediately, not be queued and retried in the background like a simple
+ * vote.
  *
- * **Lo stato "preso/scartato/da vedere" viene dalla cartella, non da un
- * flag riletto**: `set_pick` (Fase 9 Task 4) sposta fisicamente il file in
- * `_taken`/`_skipped` quando l'asset è dentro un lotto, e la rotta
- * restituisce l'asset aggiornato con il nuovo `folder_id` — è quella la
- * fonte di verità per `cullState`, non un secondo giro per rileggere i
- * flag.
+ * **The "taken/skipped/pending" state comes from the folder, not a
+ * re-read flag**: `set_pick` physically moves the file into
+ * `_taken`/`_skipped` when the asset is inside a lot, and the route
+ * returns the updated asset with its new `folder_id` — that's the source
+ * of truth for `cullState`, not a second round-trip to re-read flags.
  */
 export const useCullingLotStore = defineStore('cullingLot', () => {
   const lotId = ref<string | null>(null)
@@ -48,19 +46,18 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
   const loadError = ref(false)
   const busy = ref<Set<string>>(new Set())
 
-  // Task 17 (4/N), §15.3 controlli 20-25: pool di selezione indipendente da
-  // quello della libreria (stores/selection.ts lo dichiara già dei due pool
-  // paralleli, "non si parlano e non si azzerano a vicenda") — più
-  // l'ancora dello shift+click/shift+freccia, che vive solo qui perché
-  // serve `order` per calcolare l'intervallo.
+  // Selection pool independent from the library's (`stores/selection.ts`
+  // already documents the two parallel pools: they don't talk to each
+  // other and don't clear each other) — plus the shift+click/shift+arrow
+  // anchor, which lives only here because it needs `order` to compute the
+  // range.
   const pool = useSelectionStore().culling
-  // `pool` è l'oggetto reattivo esposto dallo store `selection` — i suoi
-  // ref interni sono già spacchettati dal proxy di Pinia (stesso
-  // comportamento di `selection.library.selectedIds` altrove nel
-  // frontend, mai `.value`). Un `computed` invece di catturare
-  // `pool.selectedIds` una volta sola: quel valore viene *rimpiazzato*
-  // (non mutato) a ogni selezione, un riferimento catturato staticamente
-  // andrebbe stantio.
+  // `pool` is the reactive object exposed by the `selection` store — its
+  // internal refs are already unwrapped by Pinia's proxy (same behavior
+  // as `selection.library.selectedIds` elsewhere in the frontend, never
+  // `.value`). A `computed` rather than capturing `pool.selectedIds`
+  // once: that value gets *replaced* (not mutated) on every selection, so
+  // a statically captured reference would go stale.
   const selectedIds = computed(() => pool.selectedIds)
   const selectedCount = computed(() => pool.selectedIds.size)
   const selectAnchor = ref<string | null>(null)
@@ -94,7 +91,7 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
 
   const currentAsset = computed<LotAsset | undefined>(() => assetsById.value.get(order.value[position.value] ?? ''))
 
-  /** §15.A.3: i tre contatori sono sempre sul **lotto intero**, mai sulla coda filtrata. */
+  /** The three counters are always over the **entire lot**, never the filtered queue. */
   const counts = computed(() => {
     let pending = 0
     let taken = 0
@@ -108,12 +105,12 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
   })
 
   /**
-   * Compone la lista di un lotto da tre chiamate al più: gli asset diretti
-   * del lotto (in attesa) più, se esistono già, i figli `_taken`/`_skipped`
-   * (`ensure_culling_child` li crea solo al primo "Scelta"/"Scarta" —
-   * spesso non esistono ancora). Nessuna rotta "dammi tutto il lotto" da
-   * inventare: la stessa composizione che il lotto aperto farebbe comunque
-   * per mostrare le tre code.
+   * Builds a lot's list from at most three calls: the lot's direct
+   * (pending) assets, plus, if they already exist, the `_taken`/`_skipped`
+   * children (`ensure_culling_child` only creates them on the first
+   * "Take"/"Skip" — they often don't exist yet). No need to invent a
+   * "give me the whole lot" route: this is the same composition the open
+   * lot would need anyway to show its three queues.
    */
   async function open(id: string, name: string): Promise<void> {
     lotId.value = id
@@ -162,10 +159,10 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     if (idx >= 0) position.value = idx
   }
 
-  /** Il giro reale su una sola foto: chiamata HTTP + aggiornamento locale.
-   * Condiviso fra `decide` (che sceglie `nextPick` con la regola del
-   * toggle) e `decideMany` (che lo forza, senza toggle — §15.3 controlli
-   * 23-24, "Porta tutte le selezionate a taken/skipped"). */
+  /** The actual round-trip for a single photo: HTTP call plus local
+   * update. Shared by `decide` (which picks `nextPick` using the toggle
+   * rule) and `decideMany` (which forces it, without toggling — "move all
+   * selected to taken/skipped"). */
   async function applyPick(assetId: string, nextPick: PickValue): Promise<boolean> {
     const asset = assetsById.value.get(assetId)
     if (!asset || busy.value.has(assetId)) return false
@@ -190,10 +187,10 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
   }
 
   /**
-   * "Scelta"/"Scarta" (`decideCulling`): click identico a un'etichetta,
-   * mai un dialog. Ripetere la stessa decisione la annulla (torna
-   * `pending`); decidere l'opposto passa direttamente da uno stato
-   * all'altro, senza transitare per `pending`.
+   * "Take"/"Skip" (`decideCulling`): a click behaves like a toggle
+   * label, never a dialog. Repeating the same decision undoes it (back
+   * to `pending`); deciding the opposite goes straight from one state to
+   * the other, without passing through `pending`.
    */
   async function decide(assetId: string, target: 'taken' | 'skipped'): Promise<void> {
     const asset = assetsById.value.get(assetId)
@@ -203,11 +200,11 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     if (ok) recomputeOrder()
   }
 
-  /** Barra di selezione, "Scelta"/"Scarta" di massa (§15.3 controlli 23-24):
-   * a differenza di `decide`, **forza** lo stato target invece di fare
-   * toggle — foto già a quello stato vengono saltate (contano comunque fra
-   * le riuscite, non c'è nulla da correggere). Riuscita parziale come
-   * "Svuota scartati": chi fallisce resta dov'era. */
+  /** Selection bar bulk "Take"/"Skip": unlike `decide`, this **forces**
+   * the target state instead of toggling — photos already in that state
+   * are skipped over (they still count as succeeded, since there's
+   * nothing to fix). Partial success is allowed, same as "Empty
+   * skipped": whatever fails stays where it was. */
   async function decideMany(ids: string[], target: 'taken' | 'skipped'): Promise<{ succeeded: number; failed: number }> {
     let succeeded = 0
     let failed = 0
@@ -232,9 +229,9 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     selectAnchor.value = null
   }
 
-  /** Intervallo `[a..b]` dentro `order`, in qualunque verso siano passati
-   * gli estremi — la stessa forma qualunque sia il controllo che l'ha
-   * chiesta (filmino, tastiera). */
+  /** Range `[a..b]` within `order`, regardless of which order the
+   * endpoints are passed in — the same shape no matter which control
+   * requested it (filmstrip, keyboard). */
   function rangeIds(fromId: string, toId: string): string[] {
     const from = order.value.indexOf(fromId)
     const to = order.value.indexOf(toId)
@@ -243,26 +240,25 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     return order.value.slice(start, end + 1)
   }
 
-  /** Checkbox della miniatura, senza shift: inverte quella sola foto e
-   * sposta l'ancora su di essa (§15.4, "Click sulla checkbox"). */
+  /** Thumbnail checkbox, no shift: toggles that single photo and moves
+   * the anchor onto it. */
   function toggleSelect(id: string) {
     pool.toggle(id)
     selectAnchor.value = id
   }
 
-  /** Shift+click sul corpo della miniatura: seleziona sempre l'intero
-   * intervallo `[ancora..id]`, sostituendo la selezione precedente — mai
-   * additiva (§15.5, "non si sommano a una selezione precedente, si
-   * sostituiscono ad essa"). Senza ancora, usa la foto aperta; l'ancora
-   * resta quella già in uso una volta impostata. */
+  /** Shift+click on the thumbnail body: always selects the entire
+   * `[anchor..id]` range, replacing the previous selection — never
+   * additive. Without an anchor, uses the currently open photo; the
+   * anchor stays whatever's already in use once set. */
   function selectRangeToThumb(id: string) {
     const anchor = selectAnchor.value ?? currentAsset.value?.id ?? id
     selectAnchor.value = anchor
     pool.selectedIds = new Set(rangeIds(anchor, id))
   }
 
-  /** Shift+click sulla checkbox: come sopra, ma solo se un'ancora esiste
-   * già; altrimenti si comporta come un click semplice (§15.4). */
+  /** Shift+click on the checkbox: same as above, but only if an anchor
+   * already exists; otherwise behaves like a plain click. */
   function selectRangeOrToggle(id: string) {
     if (!selectAnchor.value) {
       toggleSelect(id)
@@ -271,9 +267,9 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     pool.selectedIds = new Set(rangeIds(selectAnchor.value, id))
   }
 
-  /** Shift+freccia da tastiera (§15.5): l'ancora è quella già in uso o la
-   * foto corrente; l'indice si sposta di `delta`, poi l'intero intervallo
-   * `[ancora..nuovo indice]` viene ricalcolato da zero. */
+  /** Keyboard shift+arrow: the anchor is whatever's already in use, or
+   * the current photo; the index moves by `delta`, then the entire
+   * `[anchor..new index]` range is recalculated from scratch. */
   function selectRangeByArrow(delta: number) {
     if (order.value.length === 0) return
     const anchor = selectAnchor.value ?? currentAsset.value?.id ?? order.value[position.value]
@@ -283,37 +279,37 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     pool.selectedIds = new Set(rangeIds(anchor, newId))
   }
 
-  /** Icona "Seleziona tutto" (§15.3 controllo 8, fuori dalla barra di
-   * selezione): aggiunge tutta la coda corrente e azzera l'ancora. */
+  /** "Select all" icon (outside the selection bar): adds the entire
+   * current queue and clears the anchor. */
   function selectAllInQueue() {
     pool.selectedIds = new Set([...pool.selectedIds, ...order.value])
     selectAnchor.value = null
   }
 
-  /** "Seleziona tutte" dentro la barra di selezione (§15.3 controllo 22):
-   * interruttore sulla coda corrente, non un semplice "aggiungi tutto". */
+  /** "Select all" inside the selection bar: a toggle over the current
+   * queue, not a plain "add everything". */
   function toggleSelectAllInQueue() {
     pool.selectAllVisible(order.value)
   }
 
-  /** Recupera i flag (valutazione, preferito) solo per l'asset richiesto —
-   * mai per l'intero lotto: un lotto può avere centinaia di foto, e non
-   * esiste una rotta di lettura in blocco (`POST /flags/batch` è solo
-   * scrittura). Chiamata all'apertura di ogni foto, non a caricamento del
-   * lotto. */
+  /** Fetches flags (rating, favorite) only for the requested asset —
+   * never for the whole lot: a lot can have hundreds of photos, and
+   * there's no bulk-read route (`POST /flags/batch` is write-only).
+   * Called when each photo opens, not when the lot loads. */
   async function ensureFlagsLoaded(assetId: string): Promise<void> {
     if (assetId in flagsById.value) return
     try {
       const remote = await fetchFlags(assetId)
       flagsById.value = { ...flagsById.value, [assetId]: remote }
     } catch {
-      // silenzioso: la valutazione resta a 0 stelle finché non si riprova
+      // silent: rating stays at 0 stars until retried
     }
   }
 
-  /** Stelle / tasti `1`-`5`: ripremere lo stesso numero azzera (SP-20). Non
-   * ottimistico: legge i flag correnti prima di scrivere, così non
-   * sovrascrive `favorite`/`color_label` con un rimpiazzo parziale. */
+  /** Star rating / keys `1`-`5`: pressing the same number again clears
+   * it. Not optimistic: reads current flags before writing, so it
+   * doesn't overwrite `favorite`/`color_label` with a partial
+   * replacement. */
   async function setRating(assetId: string, rating: number): Promise<void> {
     const asset = assetsById.value.get(assetId)
     if (!asset || busy.value.has(assetId)) return
@@ -332,8 +328,8 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     }
   }
 
-  /** Preferito (lightbox, `@toggle-favorite`): asse indipendente da
-   * `cullState`, stesso principio di `stores/favorites.ts`. */
+  /** Favorite (lightbox, `@toggle-favorite`): an axis independent from
+   * `cullState`, same principle as `stores/favorites.ts`. */
   async function toggleFavorite(assetId: string): Promise<void> {
     await ensureFlagsLoaded(assetId)
     const current = flagsFor(assetId)
@@ -343,8 +339,9 @@ export const useCullingLotStore = defineStore('cullingLot', () => {
     assets.value = assets.value.map((a) => (a.id === assetId ? { ...a, favorite: patch.favorite } : a))
   }
 
-  /** "Svuota scartati": cancellazione definitiva, riuscita parziale — un
-   * asset il cui purge fallisce resta nel lotto, non sparisce a metà. */
+  /** "Empty skipped": permanent deletion, partial success allowed — an
+   * asset whose purge fails stays in the lot, it doesn't disappear
+   * halfway. */
   async function emptySkippedFolder(): Promise<{ succeeded: number; failed: number }> {
     if (!lotId.value) return { succeeded: 0, failed: 0 }
     const outcome = await emptySkipped(lotId.value)

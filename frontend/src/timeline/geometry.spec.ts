@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { TimelineGeometry, UnsupportedGeometryFormatError } from './geometry'
 
 /**
- * Stesso layout di `encode_geometry` in
- * `crates/keeppix-api/src/routes/timeline.rs`: intestazione (versione u32,
- * conteggio u32) + N record da 6 byte (w:u16, h:u16, month:u16), LE.
+ * Same layout as `encode_geometry` in
+ * `crates/keeppix-api/src/routes/timeline.rs`: header (u32 version, u32
+ * count) + N 6-byte records (w:u16, h:u16, month:u16), LE.
  */
 function encode(records: { w: number; h: number; month: number }[], version = 1): ArrayBuffer {
   const buffer = new ArrayBuffer(8 + records.length * 6)
@@ -27,7 +27,7 @@ describe('TimelineGeometry', () => {
       encode([
         { w: 4000, h: 3000, month: 24313 }, // 2026*12 + 1
         { w: 1080, h: 1920, month: 24312 }, // 2025*12 + 12
-        { w: 0, h: 0, month: 24312 } // sizing non ancora arrivato (§ saturating_u16)
+        { w: 0, h: 0, month: 24312 } // sizing not yet available (saturating_u16)
       ])
     )
 

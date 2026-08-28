@@ -1,4 +1,4 @@
-/** Decodifica DC + luma AC di un thumbhash (hex) in data URL. */
+/** Decodes DC + luma AC of a thumbhash (hex) into a data URL. */
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2)
