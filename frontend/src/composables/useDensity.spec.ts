@@ -12,11 +12,10 @@ vi.mock('@/api/preferences', () => ({
   patchPreferences: (...args: unknown[]) => patchPreferencesMock(...args)
 }))
 
-// `useDensity` chiama `onMounted`/`onBeforeUnmount` da Task 14 (1/N) in
-// poi (prima non ne aveva bisogno, un semplice ref sincrono sostenuto da
-// `localStorage`): fuori da un componente montato quegli hook non
-// scattano affatto (Vue si limita ad avvisare, senza errore). Un piccolo
-// host, stesso principio già usato per `AlbumPickerDialog.spec.ts`.
+// `useDensity` calls `onMounted`/`onBeforeUnmount`, so those hooks simply
+// don't fire outside a mounted component (Vue only warns, it doesn't
+// error). A small host component works around that, same approach as
+// `AlbumPickerDialog.spec.ts`.
 function mountDensity(isMobile: boolean) {
   vi.stubGlobal(
     'matchMedia',
@@ -61,7 +60,7 @@ async function flush() {
   await Promise.resolve()
 }
 
-describe('useDensity — §60.2 densità griglia', () => {
+describe('useDensity — grid density', () => {
   it('starts at the documented default (4 desktop) before the server value loads', () => {
     const { density } = mountDensity(false)
     expect(density.value).toBe(4)

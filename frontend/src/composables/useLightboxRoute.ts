@@ -2,30 +2,24 @@ import { ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-// Fase 11 Task 3 (router): il visore a schermo intero come stato
-// dell'URL, non un ref locale isolato. Il documento funzionale (§7)
-// indica esplicitamente il caso che rende necessaria una rotta reale —
-// "mando a un collega il link a questa foto" — e dichiara altrettanto
-// esplicitamente che il prototipo non ce l'ha: *"niente
-// history.pushState, niente URL per vista... il ripristino della
-// posizione di scorrimento non è implementato"*. Non c'è quindi un
-// comportamento del prototipo da riprodurre qui — è una scelta di
-// design nuova, documentata di seguito invece che dedotta da un
-// commento del mockup che non esiste.
+// The full-screen lightbox as URL state, not an isolated local ref. This is
+// a deliberate design decision (the case that makes a real route
+// necessary is sharing a direct link to a photo with someone else), not a
+// reproduction of prototype behavior — the prototype had no such thing.
 //
-// Compone qualunque vista con un visore a foto singola (Timeline,
-// Cerca) dietro un'unica fonte di verità: il parametro di query
-// `photo`. Tre casi distinti, tre azioni di navigazione diverse:
-// - **Apertura** (tocco su una tessera): `push` — un Indietro del
-//   browser deve chiudere il visore, non uscire dalla vista.
-// - **Passo avanti/indietro** dentro il visore già aperto: `replace` —
-//   scorrere venti foto non deve accumulare venti voci di cronologia
-//   che l'utente dovrebbe poi attraversare a ritroso una per una.
-// - **Chiusura**: `back()` se l'apertura è avvenuta in questa stessa
-//   sessione di navigazione (il caso normale, il click su una
-//   tessera); altrimenti `replace` senza `photo` — un link diretto o
-//   un ricaricamento della pagina non hanno una voce nostra da
-//   rimuovere, e usare `back()` lì porterebbe fuori dall'app.
+// Composes any view with a single-photo lightbox (Timeline, Search) behind
+// one source of truth: the `photo` query parameter. Three distinct cases,
+// three different navigation actions:
+// - **Opening** (tapping a tile): `push` — a browser Back should close the
+//   lightbox, not leave the view.
+// - **Stepping forward/back** inside an already-open lightbox: `replace` —
+//   scrolling through twenty photos shouldn't pile up twenty history
+//   entries the user would then have to step back through one by one.
+// - **Closing**: `back()` if the lightbox was opened during this same
+//   navigation session (the normal case, a tap on a tile); otherwise
+//   `replace` without `photo` — a direct link or a page reload has no
+//   entry of ours to remove, and using `back()` there would navigate out
+//   of the app.
 export function useLightboxRoute<T extends { id: string }>(
   findLocal: (id: string) => T | undefined,
   loadRemote: (id: string) => Promise<T>

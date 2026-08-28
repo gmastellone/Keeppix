@@ -39,7 +39,7 @@ describe('classifyError', () => {
 })
 
 describe('canRetry', () => {
-  it('is true only for unreachable and permission-denied (spec fase-10-api-interfaccia.md §7)', () => {
+  it('is true only for unreachable and permission-denied', () => {
     expect(canRetry('unreachable')).toBe(true)
     expect(canRetry('permission-denied')).toBe(true)
     expect(canRetry('file-missing')).toBe(false)

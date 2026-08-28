@@ -119,7 +119,7 @@ describe('useLightboxRoute', () => {
 
     expect(backSpy).not.toHaveBeenCalled()
     expect(router.currentRoute.value.query.photo).toBeUndefined()
-    // Non è mai uscita dall'app: siamo ancora sulla stessa rotta.
+    // Never left the app: still on the same route.
     expect(router.currentRoute.value.path).toBe('/')
   })
 

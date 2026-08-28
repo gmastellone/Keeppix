@@ -1,11 +1,9 @@
-// §41/§42: la copertina di un album è un gradiente CSS generato, non
-// una miniatura reale — `AlbumView.cover_tint`/`monochrome`
-// (`crates/keeppix-api/src/routes/albums.rs:37-40`) esistono come
-// colonne ma nessuna rotta le scrive mai (`PatchAlbumBody` non ha
-// questi campi): sempre assenti/`false` in pratica. Calcolato quindi
-// lato client, deterministico sull'id — la stessa scelta già presa per
-// `avatarColorFor` (Task 11 1/N), stesso principio "SP-16: hash-based,
-// nessuna formula esatta nel documento oltre al vincolo".
+// An album cover is a generated CSS gradient, not a real thumbnail —
+// `AlbumView.cover_tint`/`monochrome` exist as columns but no route ever
+// writes them (`PatchAlbumBody` has no such fields), so they're always
+// absent/`false` in practice. Computed client-side instead, deterministic
+// on the id — the same approach used for `avatarColorFor`: hash-based,
+// with no exact formula beyond that constraint.
 export function albumCoverGradient(seed: string): string {
   let hash = 0
   for (let i = 0; i < seed.length; i += 1) {

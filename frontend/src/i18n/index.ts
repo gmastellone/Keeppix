@@ -8,7 +8,8 @@ export type Locale = (typeof SUPPORTED)[number]
 
 const STORAGE_KEY = 'keeppix.locale'
 
-/** Nessuna lingua predefinita: si rileva, poi vince la scelta esplicita. */
+/** No hardcoded default language: it's detected, but an explicit choice
+ * always wins. */
 export function detectLocale(): Locale {
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored && SUPPORTED.includes(stored as Locale)) {
@@ -31,7 +32,7 @@ export function setLocale(locale: Locale): void {
 }
 
 /**
- * Spec §10.10: the user profile is the source of truth once a session exists.
+ * The user profile is the source of truth once a session exists.
  * `localStorage` remains a first-paint / logged-out cache, synced from here.
  */
 export function applyProfileLocale(locale: string | null | undefined): void {
@@ -41,24 +42,24 @@ export function applyProfileLocale(locale: string | null | undefined): void {
 }
 
 /**
- * Plurali: si usa la **sintassi nativa di vue-i18n** (`'una foto | {n} foto'`),
- * non ICU MessageFormat.
+ * Plurals: this uses **vue-i18n's native syntax** (`'one photo | {n} photos'`),
+ * not ICU MessageFormat.
  *
- * Lo spec §10.10 chiede ICU e il motivo dichiarato è «plurali corretti». Per
- * italiano e inglese le due sintassi danno lo stesso risultato: entrambe le
- * lingue hanno due categorie plurali (CLDR `one`/`other`), che è esattamente
- * ciò che la forma nativa esprime. ICU costerebbe una dipendenza runtime in più
- * (`intl-messageformat`, ~25 KB gzip su un budget di 150 KB di cui 77 già usati)
- * più un `messageCompiler` custom da mantenere, per zero differenze osservabili
- * sulle lingue spedite.
+ * The goal is "correct pluralization". For Italian and English, the two
+ * syntaxes give the same result: both languages have two plural categories
+ * (CLDR `one`/`other`), which is exactly what the native form expresses.
+ * ICU would cost an extra runtime dependency (`intl-messageformat`, ~25 KB
+ * gzip against a 150 KB budget already mostly used) plus a custom
+ * `messageCompiler` to maintain, for zero observable difference on the
+ * languages currently shipped.
  *
- * **Quando riaprire la decisione:** all'aggiunta della prima lingua con più di
- * due categorie plurali — russo, polacco, arabo. Allora la scelta giusta è un
- * compilatore ICU a build time (`@intlify/unplugin-vue-i18n`), non
- * a runtime; e in quel momento le chiavi plurali da riscrivere si contano,
- * mentre oggi sono zero. `@intlify/core-base` era dichiarato fra le
- * `dependencies` e non importato da nessuna parte — impronta di un tentativo
- * abbandonato — ed è stato rimosso.
+ * **When to revisit this:** when adding the first language with more than
+ * two plural categories — Russian, Polish, Arabic. At that point the right
+ * choice is a build-time ICU compiler (`@intlify/unplugin-vue-i18n`), not a
+ * runtime one; and by then the plural keys that would need rewriting are
+ * countable, whereas today there are zero. `@intlify/core-base` was
+ * previously listed in `dependencies` and never imported anywhere — a
+ * leftover from an abandoned attempt — and has since been removed.
  */
 export const i18n = createI18n({
   legacy: false,

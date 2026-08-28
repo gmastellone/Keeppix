@@ -1,20 +1,19 @@
 import { ApiProblem } from '@/api/client'
 
 /**
- * Fase 11 Task 5 (documento funzionale §68.9 + spec fase-10-api-
- * interfaccia.md §7): quattro nature di fallimento, più un ripiego onesto.
- * `§7` fissa questa stessa tassonomia lato backend per `BulkFailure.reason`
- * (le operazioni di massa) — qui è la stessa idea applicata al
- * caricamento di un'intera schermata, dove il backend non porta un
- * `reason` dedicato: la natura si deduce dallo `status`/`type` del
- * `Problem` (RFC 9457) o da un fallimento di rete puro, non da un campo
- * che non esiste per le richieste singole.
+ * Four failure natures, plus an honest fallback. The backend applies the
+ * same taxonomy for `BulkFailure.reason` (bulk operations); here it's the
+ * same idea applied to loading an entire screen, where the backend doesn't
+ * carry a dedicated `reason` — the nature is inferred from the
+ * `status`/`type` of the `Problem` (RFC 9457) response or from a plain
+ * network failure, not from a field that doesn't exist for single
+ * requests.
  */
 export type ErrorNature = 'unreachable' | 'permission-denied' | 'file-missing' | 'timeout' | 'unknown'
 
-/** "Riprova" ha senso solo per `unreachable` e `permission-denied`
- * (spec §7: gli altri due richiedono un'azione diversa — una scansione,
- * o frazionare la richiesta — non un nuovo tentativo identico). */
+/** "Retry" only makes sense for `unreachable` and `permission-denied` — the
+ * other two require a different action (a rescan, or splitting up the
+ * request), not an identical retry. */
 const RETRYABLE = new Set<ErrorNature>(['unreachable', 'permission-denied'])
 
 export function canRetry(nature: ErrorNature): boolean {
@@ -22,22 +21,20 @@ export function canRetry(nature: ErrorNature): boolean {
 }
 
 /**
- * Deduce la natura da un errore reale, non da un campo che il backend non
- * invia per le richieste singole:
- * - `ApiProblem` con `type: 'service-unavailable'` (il `Problem` che
- *   `DbError::Connection` produce, `crates/keeppix-api/src/problem.rs`) →
- *   `unreachable`, la stessa natura testuale ("il server o la libreria di
- *   rete non risponde").
+ * Infers the nature from a real error, not from a field the backend
+ * doesn't send for single requests:
+ * - `ApiProblem` with `type: 'service-unavailable'` (the `Problem` that
+ *   `DbError::Connection` produces) → `unreachable`, i.e. "the server or
+ *   the network can't be reached".
  * - `type: 'forbidden'` → `permission-denied`.
  * - `type: 'not-found'` → `file-missing`.
- * - un `TypeError` non è un `ApiProblem`: è `fetch()` stesso che non è
- *   riuscito a raggiungere la rete (DNS, offline, connessione rifiutata) —
- *   comportamento noto della Fetch API, non un'invenzione — anche questo
- *   `unreachable`.
- * - un `AbortError` (richiesta interrotta per tempo scaduto) → `timeout`.
- * - tutto il resto → `unknown`, onesto invece di forzare una delle
- *   quattro nature note (stesso principio del quinto valore `Unknown`
- *   lato backend).
+ * - a `TypeError` isn't an `ApiProblem`: it's `fetch()` itself failing to
+ *   reach the network (DNS, offline, connection refused) — known Fetch API
+ *   behavior, not a guess — also treated as `unreachable`.
+ * - an `AbortError` (request aborted due to timeout) → `timeout`.
+ * - everything else → `unknown`, an honest fallback rather than forcing
+ *   one of the four known natures (mirrors the backend's own `Unknown`
+ *   fifth value).
  */
 export function classifyError(error: unknown): ErrorNature {
   if (error instanceof ApiProblem) {

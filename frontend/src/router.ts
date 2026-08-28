@@ -4,14 +4,11 @@ import { useSessionStore } from '@/stores/session'
 
 export const router = createRouter({
   history: createWebHistory(),
-  // Fase 11 Task 3: "il ripristino della posizione di scorrimento non è
-  // implementato: tornando in una sezione si riparte dall'alto" —
-  // dichiarato esplicitamente come assente nel prototipo (documento
-  // funzionale §7.6), non un comportamento da riprodurre. `savedPosition`
-  // è valorizzato da vue-router solo per una navigazione avanti/indietro
-  // nella cronologia — esattamente il caso "tornando in una vista" del
-  // piano — mai per un click che apre una nuova vista, che deve sempre
-  // ripartire dall'alto.
+  // Scroll position restoration was explicitly absent from the prototype,
+  // not a behavior to reproduce here. `savedPosition` is only set by
+  // vue-router for a back/forward history navigation — exactly the
+  // "returning to a view" case — never for a click that opens a new view,
+  // which should always start at the top.
   scrollBehavior(_to, _from, savedPosition) {
     return savedPosition ?? { top: 0 }
   },
@@ -22,8 +19,8 @@ export const router = createRouter({
     { path: '/search', component: () => import('@/views/SearchView.vue'), meta: { auth: true } },
     { path: '/problems', component: () => import('@/views/ProblemsView.vue'), meta: { auth: true } },
     { path: '/duplicates', component: () => import('@/views/DuplicatesView.vue'), meta: { auth: true } },
-    // Chunk lazy come mappa e impostazioni (§10.9): il budget dei 150 KB
-    // iniziali riguarda solo ciò che `index.html` carica subito.
+    // Lazy chunk, same as map and settings: the initial 150 KB budget only
+    // covers what `index.html` loads right away.
     { path: '/map', component: () => import('@/views/MapView.vue'), meta: { auth: true } },
     {
       path: '/settings',
@@ -76,8 +73,8 @@ export const router = createRouter({
       component: () => import('@/views/CullingLotView.vue'),
       meta: { auth: true }
     },
-    // PWA Share Target (§4.2 fase-5): il service worker redirige qui dopo
-    // aver intercettato un POST "Condividi -> Keeppix" dalla galleria.
+    // PWA Share Target: the service worker redirects here after
+    // intercepting a "Share -> Keeppix" POST from the gallery.
     {
       path: '/share-target',
       component: () => import('@/views/ShareTargetView.vue'),
@@ -92,9 +89,9 @@ export const router = createRouter({
       meta: { auth: true }
     },
     { path: '/albums', component: () => import('@/views/AlbumsView.vue'), meta: { auth: true } },
-    // Segmento statico prima del parametrico: vue-router 4 preferisce già
-    // `/albums/new` a `/albums/:id` a parità di specificità, ma l'ordine
-    // qui lo rende anche leggibile a chi legge la lista.
+    // Static segment before the parametric one: vue-router 4 already
+    // prefers `/albums/new` over `/albums/:id` at equal specificity, but
+    // the order here also makes it readable at a glance.
     {
       path: '/albums/new',
       component: () => import('@/views/AlbumCreateView.vue'),
@@ -105,9 +102,8 @@ export const router = createRouter({
       component: () => import('@/views/AlbumDetailView.vue'),
       meta: { auth: true }
     },
-    // Solo shell mobile (§6): la quarta scheda "Altro" della tab bar
-    // (Task 6, prossimo sotto-passo). Nessun link diretto da nessuna
-    // parte della shell desktop.
+    // Mobile shell only: the fourth "More" tab in the tab bar. No direct
+    // link from anywhere in the desktop shell.
     { path: '/more', component: () => import('@/views/MoreView.vue'), meta: { auth: true } },
     { path: '/shares', component: () => import('@/views/SharesView.vue'), meta: { auth: true } },
     { path: '/trash', component: () => import('@/views/TrashView.vue'), meta: { auth: true } },
@@ -131,7 +127,7 @@ router.beforeEach(async (to) => {
     return true
   }
 
-  // Istanza vergine: qualsiasi percorso porta al setup.
+  // Fresh instance: any path leads to setup.
   if (session.initialised === false) {
     return to.path === '/setup' ? true : '/setup'
   }

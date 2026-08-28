@@ -33,13 +33,13 @@ describe('useScrollRestoration', () => {
     const first = mount(Host, { global: { plugins: [router] } })
     first.vm.el!.scrollTop = 456
     first.unmount()
-    // vue-router resetta `currentRoute` a START_LOCATION quando l'ultima app
-    // che lo usa fa unmount (pulizia interna, vedi vue-router `installedApps`)
-    // — un artefatto di questo test che monta/smonta un'intera app Vue in
-    // sequenza, non qualcosa che accade in una SPA reale (dove l'app non
-    // viene mai smontata, solo le viste al suo interno). Una navigazione
-    // vera arriva già sulla rotta di destinazione prima che il nuovo
-    // componente venga montato, quindi si ripristina qui lo stesso ordine.
+    // vue-router resets `currentRoute` to START_LOCATION when the last app
+    // using it unmounts (internal cleanup, see vue-router's
+    // `installedApps`) — an artifact of this test mounting/unmounting a
+    // whole Vue app in sequence, not something that happens in a real SPA
+    // (where the app itself is never unmounted, only the views inside it).
+    // A real navigation already lands on the destination route before the
+    // new component is mounted, so the same order is restored here.
     await router.push('/scroll-a')
 
     const second = mount(Host, { global: { plugins: [router] } })

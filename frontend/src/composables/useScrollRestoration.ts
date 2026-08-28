@@ -2,26 +2,26 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import type { Ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-// Fase 11 Task 3: "il ripristino della posizione di scorrimento non è
-// implementato: tornando in una sezione si riparte dall'alto" (documento
-// funzionale §7.6) — dichiarato esplicitamente assente nel prototipo, una
-// scelta di design nuova qui, non una riproduzione.
+// Scroll position restoration is a deliberate new design decision here, not
+// a reproduction of prototype behavior — the prototype explicitly left it
+// unimplemented ("returning to a section starts back at the top").
 //
-// `scrollBehavior` di vue-router (già impostato in router.ts) copre solo lo
-// scroll di `window`, ma questa app non ne ha uno: `html, body, #app` sono
-// vincolati a `height:100%` (style.css), ogni vista scorre dentro un
-// proprio contenitore interno (`overflow-auto`). Nessuna vista è tenuta
-// viva fra una navigazione e l'altra (niente `<KeepAlive>` nel router), quindi
-// l'elemento scrollabile è un nodo DOM nuovo ogni volta — serve una cache
-// esplicita per rotta, non un semplice "ricordati dov'eri" sull'istanza.
+// vue-router's `scrollBehavior` (already set in router.ts) only covers
+// `window` scrolling, but this app doesn't scroll the window: `html, body,
+// #app` are constrained to `height:100%` (style.css), and every view
+// scrolls inside its own inner container (`overflow-auto`). No view is kept
+// alive across navigations (no `<KeepAlive>` in the router), so the
+// scrollable element is a brand-new DOM node every time — this needs an
+// explicit per-route cache, not a simple "remember where you were" on the
+// instance.
 const positions = new Map<string, number>()
 
 export function useScrollRestoration(el: Ref<HTMLElement | null>, key?: string) {
   const route = useRoute()
-  // Catturata una volta sola al montaggio: `route.fullPath` a `onUnmounted`
-  // potrebbe già riflettere la rotta di arrivo, non quella che si sta
-  // lasciando, a seconda dell'ordine con cui Vue Router aggiorna route e
-  // albero dei componenti.
+  // Captured once on mount: `route.fullPath` read in `onUnmounted` could
+  // already reflect the destination route rather than the one being left,
+  // depending on the order in which Vue Router updates the route and the
+  // component tree.
   const cacheKey = key ?? route.fullPath
 
   function save() {
@@ -35,9 +35,9 @@ export function useScrollRestoration(el: Ref<HTMLElement | null>, key?: string) 
     }
   })
 
-  // `onUnmounted`, non `onBeforeUnmount`, arriverebbe tardi: Vue azzera i
-  // ref del template prima di invocare gli hook di unmount, quindi
-  // `el.value` sarebbe già `null` e non ci sarebbe nulla da salvare.
+  // `onUnmounted`, not `onBeforeUnmount`, would fire too late: Vue clears
+  // template refs before invoking unmount hooks, so `el.value` would
+  // already be `null` and there'd be nothing to save.
   onBeforeUnmount(save)
 
   return { save }

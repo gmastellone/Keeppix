@@ -1,20 +1,19 @@
 export type IsoCmp = 'gt' | 'gte' | 'lt' | 'lte' | 'eq'
 
-/** Voto di culling (spec fase-2/9): rispecchia `keeppix_domain::Pick`
+/** Culling verdict: mirrors `keeppix_domain::Pick`
  * (`#[serde(rename_all="snake_case")]`, `{None,Pick,Reject}`). */
 export type PickValue = 'none' | 'pick' | 'reject'
 
-/** AST della ricerca (spec fase-10 §23-25): mai costruito da una sintassi
- * digitata (Task 9, `frontend/src/search/parse.ts`, ritirato in questo
- * task — vedi `SearchView.vue`) ma solo da pillole strutturate + un nodo
- * `text` per la descrizione libera, esattamente come nel mockup. Ogni
- * variante rispecchia `SearchNode` di `crates/keeppix-db/src/search.rs`
- * (`#[serde(tag="op", rename_all="snake_case")]`): questo file non è che
- * il sottoinsieme che la barra di ricerca, la creazione album (Task 12
- * 2/N, `Rating`/`Pick`/`DateRange`) e la griglia/dettaglio Persone (Task
- * 16 1/N, `Person`) sanno produrre, non l'intero enum del backend (che ha
- * anche `Day`/`Month`/`Aperture`/`Shutter`/`Place`/`Category`/`Semantic`/
- * `PersonGroup`/`PersonCount` — restano fuori campo, altre schermate). */
+/** Search AST: never built from typed syntax — only from structured pills
+ * plus a `text` node for free-text description, exactly as in the mockup.
+ * Each variant mirrors `SearchNode` from `crates/keeppix-db/src/search.rs`
+ * (`#[serde(tag="op", rename_all="snake_case")]`): this file is only the
+ * subset that the search bar, album creation (`Rating`/`Pick`/`DateRange`),
+ * and the People grid/detail view (`Person`) know how to produce — not the
+ * backend's full enum (which also has
+ * `Day`/`Month`/`Aperture`/`Shutter`/`Place`/`Category`/`Semantic`/
+ * `PersonGroup`/`PersonCount` — those are out of scope, used by other
+ * screens). */
 export type SearchNode =
   | { op: 'and'; args: SearchNode[] }
   | { op: 'or'; args: SearchNode[] }
@@ -27,34 +26,31 @@ export type SearchNode =
   | { op: 'year'; value: number }
   | { op: 'folder'; id: string }
   | { op: 'has_gps' }
-  /** `SearchNode::Favorite` nel backend: variante unitaria, serializzata
-   * come `{op:'favorite'}` da sola. Costruita a mano dalla vista Preferiti
-   * (Task 7) e dal chip "Preferiti" della barra di ricerca (Task 9). */
+  /** `SearchNode::Favorite` in the backend: a unit variant, serialized as
+   * `{op:'favorite'}` alone. Built by hand from the Favorites view and the
+   * "Favorites" chip in the search bar. */
   | { op: 'favorite' }
-  /** Pillola `tag` (§24.2): `SearchNode::Tag{id}` nel backend — solo tag
-   * **confermati** (`state='confirmed'`), mai proposte IA in attesa. */
+  /** `tag` pill: `SearchNode::Tag{id}` in the backend — only **confirmed**
+   * tags (`state='confirmed'`), never pending AI suggestions. */
   | { op: 'tag'; id: string }
-  /** Pillola `country` (§24.2): `SearchNode::Country{value}`, confronto
-   * esatto (case-insensitive lato backend) sul codice paese ISO di
-   * `places.country_code` — non un nome leggibile, vedi `SearchView.vue`
-   * per il perché non esiste una tabella di traduzione codice→nome. */
+  /** `country` pill: `SearchNode::Country{value}`, an exact
+   * (case-insensitive on the backend) comparison against the ISO country
+   * code in `places.country_code` — not a human-readable name; see
+   * `SearchView.vue` for why there's no code→name translation table. */
   | { op: 'country'; value: string }
-  /** Task 12 (2/N), campo "Valutazione minima" della creazione album:
-   * `SearchNode::Rating{cmp,value}` nel backend, per-utente, `IsoCmp`
-   * riusato (stesso confronto numerico di `Iso`) — sempre `cmp:'gte'` da
-   * qui, "valutazione minima" non è un intervallo. */
+  /** The "Minimum rating" field in album creation:
+   * `SearchNode::Rating{cmp,value}` in the backend, per-user, reusing
+   * `IsoCmp` (same numeric comparison as `Iso`) — always `cmp:'gte'` from
+   * here, since "minimum rating" isn't a range. */
   | { op: 'rating'; cmp: IsoCmp; value: number }
-  /** Campo "Pick/Scarta": `SearchNode::Pick{value}`, stato di culling
-   * dell'utente che esegue la ricerca. */
+  /** The "Pick/Reject" field: `SearchNode::Pick{value}`, the culling state
+   * set by the user running the search. */
   | { op: 'pick'; value: PickValue }
-  /** Campo "Intervallo di date": `SearchNode::DateRange{from,to}`,
-   * entrambi gli estremi inclusi, timestamp UTC. */
+  /** The "Date range" field: `SearchNode::DateRange{from,to}`, both ends
+   * inclusive, UTC timestamps. */
   | { op: 'date_range'; from: string; to: string }
-  /** Fase 11 Task 16 (1/N): `SearchNode::Person{id}` nel backend — foto
-   * con un volto **confermato** di questa persona (mai proposte in
-   * attesa). Portato qui dentro l'ambito del file (era esplicitamente
-   * "fuori campo" nel commento sopra, scritto prima che esistesse un
-   * consumatore reale): la griglia Persone e il dettaglio persona lo
-   * usano per "le foto di questa persona" — `photosForPerson()` del
-   * documento (§32) — non esiste altra rotta che lo calcoli. */
+  /** `SearchNode::Person{id}` in the backend — photos with a **confirmed**
+   * face of this person (never pending suggestions). Used by the People
+   * grid and person detail view for "photos of this person" — no other
+   * route computes that. */
   | { op: 'person'; id: string }

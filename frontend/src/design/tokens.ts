@@ -1,13 +1,12 @@
-// Fase 11 Task 1 — le costanti di tempo del disegno, misurate riga per riga
-// su docs/ui/keeppix-mockup.html, non stimate. La controparte CSS
-// (`--duration-*`) vive in src/style.css: qui solo i valori che il codice
-// JavaScript/TypeScript deve conoscere (setTimeout, vibrazione, ciclo di
-// vita del toast) — un componente che anima via CSS usa `var(--duration-*)`
-// direttamente, non questo modulo.
+// Design timing constants, measured directly from the UI mockup rather than
+// estimated. The CSS counterpart (`--duration-*`) lives in src/style.css:
+// this module only holds the values that JavaScript/TypeScript code needs
+// to know (setTimeout, vibration, toast lifecycle) — a component that
+// animates via CSS uses `var(--duration-*)` directly, not this module.
 
-/** Le sole sette durate che il prototipo usa (108/111 casi con la curva
- * `ease`) — mai un numero fuori da questo insieme in un componente nuovo,
- * verificato da `tokens.spec.ts`. */
+/** The only seven durations the prototype uses (almost all with an `ease`
+ * curve) — never introduce a number outside this set in a new component;
+ * enforced by `tokens.spec.ts`. */
 export const DURATION_MS = {
   xs: 100,
   fast: 120,
@@ -20,24 +19,23 @@ export const DURATION_MS = {
 
 export type DurationToken = keyof typeof DURATION_MS
 
-/** SP-6/SP-28/SP-29: il toast compare con un ritardo minimo (evita un
- * lampo su una transizione istantanea), sparisce dal DOM 250ms dopo aver
- * iniziato a dissolversi, e resta visibile una durata diversa secondo la
- * sua natura. */
+/** A toast appears after a minimum delay (avoids a flash on an instant
+ * transition), is removed from the DOM 250ms after it starts fading out,
+ * and stays visible for a duration that depends on its kind. */
 export const TOAST_SHOW_DELAY_MS = 10
 export const TOAST_REMOVE_AFTER_MS = 250
 export const TOAST_LIFE_SUCCESS_MS = 2400
-/** Vale sia per l'errore sia per la riuscita parziale (SP-28/SP-29) — il
- * prototipo non li distingue in durata, solo nel contenuto. */
+/** Applies to both errors and partial successes — the prototype doesn't
+ * distinguish them by duration, only by content. */
 export const TOAST_LIFE_ERROR_MS = 4200
-/** Con un'azione (es. "Annulla"): il timer si ferma mentre il puntatore è
- * sopra il toast, altrimenti sparirebbe proprio mentre si decide se
- * premerlo. */
+/** With an action (e.g. "Undo"): the timer pauses while the pointer is over
+ * the toast, otherwise it could disappear right as the user decides
+ * whether to press it. */
 export const TOAST_LIFE_WITH_ACTION_MS = 6500
 
-/** Tocco prolungato su mobile: soglia e vibrazione dell'API `Vibration`. */
+/** Long press on mobile: threshold and vibration for the `Vibration` API. */
 export const LONG_PRESS_THRESHOLD_MS = 500
 export const LONG_PRESS_VIBRATE_MS = 15
 
-/** Pulsazione dell'indicatore di analisi in corso. */
+/** Pulse animation for the "analysis in progress" indicator. */
 export const ANALYSIS_PULSE_MS = 1400

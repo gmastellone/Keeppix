@@ -8,16 +8,16 @@ interface ShareTargetIndexEntry {
 }
 
 /**
- * Legge (e consuma) i file lasciati dal service worker in Cache Storage
- * dopo un "Condividi -> Keeppix" dalla galleria del telefono (vedi
- * `public/sw.js`). Il nome della cache e le chiavi sono duplicati lì:
- * questo file non può importarli, perché il service worker è servito
- * com'è da `/public` e non passa dal bundler.
+ * Reads (and consumes) the files left by the service worker in Cache
+ * Storage after a "Share -> Keeppix" from the phone's gallery (see
+ * `public/sw.js`). The cache name and keys are duplicated there: this file
+ * can't import them, because the service worker is served as-is from
+ * `/public` and doesn't go through the bundler.
  *
- * Ritorna `[]` (mai un errore) sia quando non c'è nulla in coda, sia
- * quando `caches` non esiste (browser senza Cache Storage, o ambiente di
- * test jsdom): la vista che chiama questa funzione tratta "nessun file" e
- * "impossibile leggerli" allo stesso modo.
+ * Returns `[]` (never throws) both when there's nothing queued and when
+ * `caches` doesn't exist (a browser without Cache Storage, or a jsdom test
+ * environment): the view calling this function treats "no files" and
+ * "couldn't read them" the same way.
  */
 export async function readAndClearSharedFiles(): Promise<File[]> {
   if (typeof caches === 'undefined') return []

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-// Alias obbligati: `it` collide con la funzione di test `it` importata da
-// vitest sopra (stesso identificatore nello stesso scope di modulo — errore
-// di parse, non di risoluzione moduli). Il piano usava `it`/`en` diretti.
+// Renamed imports: `it` would collide with the `it` test function imported
+// from vitest above (same identifier in the same module scope — a parse
+// error, not a module resolution one).
 import enMessages from './en.json'
 import { applyProfileLocale, i18n, setLocale } from './index'
 import itMessages from './it.json'
 
-/// Appiattisce un oggetto annidato in un elenco di chiavi puntate.
+/// Flattens a nested object into a list of dotted keys.
 function keys(obj: Record<string, unknown>, prefix = ''): string[] {
   return Object.entries(obj).flatMap(([k, v]) =>
     typeof v === 'object' && v !== null
@@ -16,14 +16,14 @@ function keys(obj: Record<string, unknown>, prefix = ''): string[] {
   )
 }
 
-describe('traduzioni', () => {
-  it('italiano e inglese hanno le stesse chiavi', () => {
+describe('translations', () => {
+  it('Italian and English have the same keys', () => {
     const itKeys = keys(itMessages).sort()
     const enKeys = keys(enMessages).sort()
     expect(itKeys).toEqual(enKeys)
   })
 
-  it('nessuna traduzione è vuota', () => {
+  it('no translation is empty', () => {
     for (const [locale, messages] of [['it', itMessages], ['en', enMessages]] as const) {
       for (const key of keys(messages)) {
         const value = key.split('.').reduce<unknown>(
@@ -36,7 +36,7 @@ describe('traduzioni', () => {
   })
 })
 
-describe('users.locale come fonte di verità', () => {
+describe('users.locale as the source of truth', () => {
   beforeEach(() => {
     localStorage.clear()
     setLocale('en')
@@ -47,14 +47,14 @@ describe('users.locale come fonte di verità', () => {
     setLocale('en')
   })
 
-  it('applyProfileLocale sincronizza i18n e localStorage dal profilo', () => {
+  it('applyProfileLocale syncs i18n and localStorage from the profile', () => {
     applyProfileLocale('it')
     expect(i18n.global.locale.value).toBe('it')
     expect(localStorage.getItem('keeppix.locale')).toBe('it')
     expect(document.documentElement.lang).toBe('it')
   })
 
-  it('applyProfileLocale ignora locale assente o non supportato', () => {
+  it('applyProfileLocale ignores a missing or unsupported locale', () => {
     setLocale('en')
     applyProfileLocale(null)
     expect(i18n.global.locale.value).toBe('en')

@@ -71,7 +71,7 @@ describe('useBrowseFilters — dimensions built from real data', () => {
     expect(type?.options.map((o) => o.label)).toEqual(['RAW+JPEG', 'RAW', 'JPEG'])
   })
 
-  it('"Persone" is entirely absent when no visible person has at least one face — §11.2', async () => {
+  it('"Persone" is entirely absent when no visible person has at least one face', async () => {
     fetchPersonsMock.mockResolvedValue([
       { id: 'p1', name: 'Marta', hidden: false, face_count: 0 },
       { id: 'p2', name: 'Nascosta', hidden: true, face_count: 5 }
@@ -134,7 +134,7 @@ describe('useBrowseFilters — dimensions built from real data', () => {
   })
 })
 
-describe('useBrowseFilters — matching (AND across dimensions, OR within one — §11.3)', () => {
+describe('useBrowseFilters — matching (AND across dimensions, OR within one)', () => {
   it('with no filter selected, every asset passes', () => {
     const assets = [photo({ id: 'a' }), photo({ id: 'b' })]
     const { hook } = mountHook(assets)

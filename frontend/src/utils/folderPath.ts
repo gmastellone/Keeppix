@@ -1,12 +1,12 @@
 import type { FolderView } from '@/api/folders'
 
 /**
- * Briciola di **nomi** di cartella, non un percorso su disco: il backend
- * non espone un percorso assoluto per una cartella qualunque (solo
- * `Library.root_path`, la radice della libreria intera —
- * `FolderView` porta solo `name`/`parent_id`/`depth`). Risale `parent_id`
- * dentro `byId` fino alla radice. `null` se `folderId` non è (più) in
- * `byId` — es. la cartella configurata è stata spostata o cancellata.
+ * A breadcrumb of folder **names**, not a disk path: the backend doesn't
+ * expose an absolute path for an arbitrary folder (only `Library.root_path`,
+ * the whole library's root — `FolderView` only carries
+ * `name`/`parent_id`/`depth`). Walks `parent_id` up through `byId` to the
+ * root. Returns `null` if `folderId` is no longer in `byId` — e.g. the
+ * configured folder was moved or deleted.
  */
 export function folderPathName(folderId: string, byId: Map<string, FolderView>): string | null {
   const chain: string[] = []

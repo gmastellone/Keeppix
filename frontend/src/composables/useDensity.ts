@@ -3,26 +3,20 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { fetchPreferences, patchPreferences } from '@/api/preferences'
 import { clampDensity } from '@/timeline/justify'
 
-// Estratto da `TimelineView.vue` (Fase 11 Task 4) al comparire del
-// secondo consumatore (Task 7: `FavoritesView` — stessa griglia
-// giustificata, stessa densità). Stesso principio già seguito per
-// `useIsMobile.ts`/`nav/routeTitles.ts`: dedup proattivo appena serve
-// altrove, non un refactor speculativo.
+// Extracted from `TimelineView.vue` when a second consumer appeared
+// (`FavoritesView` — same justified grid, same density).
 //
-// Task 14 (1/N), §60.2 "Densità griglia": due valori distinti — desktop
-// e mobile, ognuno con il proprio intervallo (`clampDensity`, Task 14) —
-// invece dell'unico interruttore globale di prima. Persistenza spostata
-// da `localStorage` a `GET/PATCH /users/me/preferences` (Fase 10 Task 9,
-// mai consumate dal frontend prima di questo task): un valore per utente,
-// non per browser, coerente con "salvata separatamente da desktop e
-// mobile" del documento — che parla di due dispositivi dello stesso
-// account, non di due schede dello stesso browser.
+// Two distinct values — desktop and mobile, each with its own range
+// (`clampDensity`) — instead of a single global toggle. Persistence moved
+// from `localStorage` to `GET/PATCH /users/me/preferences`: a value per
+// user, not per browser, matching the requirement that density be "saved
+// separately for desktop and mobile" — meaning two devices on the same
+// account, not two tabs in the same browser.
 //
-// Stesso principio di sincronizzazione "alla prossima visita" di prima
-// (non un valore condiviso in tempo reale fra viste già montate): ogni
-// chiamata a `useDensity()` parte da un valore predefinito e lo
-// riconcilia in modo asincrono col server al montaggio — chi scrive con
-// `setDensity` non notifica le altre istanze già aperte altrove.
+// Sync happens "on next visit", not as a value shared live across already
+// mounted views: each call to `useDensity()` starts from a default and
+// reconciles it asynchronously with the server on mount — a write via
+// `setDensity` does not notify other instances already open elsewhere.
 const MOBILE_BREAKPOINT_QUERY = '(max-width: 767px)'
 
 export function useDensity() {
@@ -45,8 +39,8 @@ export function useDensity() {
         density.value = clampDensity(stored, isMobile.value)
       })
       .catch(() => {
-        // Nessuna preferenza leggibile (rete, sessione appena scaduta):
-        // resta il predefinito già assegnato sopra (§60.2: 4 desktop, 3
+        // No preference could be read (network issue, session just
+        // expired): keep the default already assigned above (4 desktop, 3
         // mobile).
       })
   })

@@ -44,17 +44,17 @@ describe('the timing palette matches the prototype, not an estimate', () => {
   })
 })
 
-/** Ogni valore di `DURATION_MS`, nelle due forme in cui può comparire in CSS
- * (`120ms` oppure `.12s`). Un componente che dichiara `transition-duration`
- * o `animation-duration` fuori da questo insieme non sta seguendo il
- * disegno misurato sul prototipo — sta inventando un tempo nuovo. */
+/** Every value of `DURATION_MS`, in the two forms it can appear in CSS
+ * (`120ms` or `.12s`). A component that declares `transition-duration` or
+ * `animation-duration` outside this set isn't following the timing
+ * measured on the prototype — it's inventing a new duration. */
 const ALLOWED_CSS_DURATIONS = new Set(
   Object.values(DURATION_MS).flatMap((ms) => [`${ms}ms`, `.${(ms / 1000).toString().slice(2)}s`])
 )
 
-// `process.cwd()` invece di `import.meta.url`: Vitest esegue i test dalla
-// radice del pacchetto (`frontend/`), e non ogni ambiente di trasformazione
-// dà a `import.meta.url` uno schema `file://` reale.
+// `process.cwd()` instead of `import.meta.url`: Vitest runs tests from the
+// package root (`frontend/`), and not every transform environment gives
+// `import.meta.url` a real `file://` scheme.
 const SRC_ROOT = join(process.cwd(), 'src')
 
 function collectVueFiles(dir: string, out: string[] = []): string[] {
@@ -70,9 +70,9 @@ function collectVueFiles(dir: string, out: string[] = []): string[] {
   return out
 }
 
-/** Cerca `transition-duration:`/`animation-duration:` e la scorciatoia
- * `transition:`/`animation:` seguite da un tempo esplicito, ovunque compaia
- * un valore in ms o s — non solo il primo. */
+/** Matches `transition-duration:`/`animation-duration:` and the shorthand
+ * `transition:`/`animation:` followed by an explicit time, wherever a ms or
+ * s value appears — not just the first one. */
 const DURATION_DECLARATION = /(?:transition|animation)(?:-duration)?\s*:\s*[^;]*?(\d+(?:\.\d+)?m?s)/gi
 
 describe('no component declares a duration outside the timing palette', () => {
@@ -89,8 +89,9 @@ describe('no component declares a duration outside the timing palette', () => {
       const offenders: string[] = []
       for (const match of content.matchAll(DURATION_DECLARATION)) {
         const value = match[1]
-        // `0s`/`0ms` (nessuna transizione) non fa parte della palette per
-        // costruzione, ma non è un tempo inventato: è "niente".
+        // `0s`/`0ms` (no transition) isn't part of the palette by
+        // construction, but it isn't an invented duration either: it's
+        // "nothing".
         if (value === '0s' || value === '0ms') continue
         if (!ALLOWED_CSS_DURATIONS.has(value)) offenders.push(value)
       }

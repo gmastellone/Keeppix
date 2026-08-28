@@ -8,26 +8,23 @@ import { matchesFilters, type FilterSelection, type MatchDimension } from '@/des
 import type { QuickFilterDimension } from '@/components/ui/QuickFilter.vue'
 import { useShellStore } from '@/stores/shell'
 
-// Fase 11 Task 7 (5/N) — SP-3 (§11, definizione canonica), le sei
-// dimensioni reali. `QuickFilter.vue` e `design/quickFilter.ts` sono
-// generici da subito (Task 2, dichiaratamente in attesa di questo
-// momento): qui solo i dati veri e le sei `getValues`. Estratto come
-// composable perché Timeline e Preferiti (§9.3: "le stesse sei
-// dimensioni della timeline") lo consumano identico — secondo
-// consumatore già noto, stesso principio di `useDensity`/`useIsMobile`.
+// The six real filter dimensions. `QuickFilter.vue` and `design/quickFilter.ts`
+// are generic by design: this module supplies the real data and the six
+// `getValues` implementations. Extracted as a composable because both
+// Timeline and Favorites consume it identically ("the same six timeline
+// dimensions") — same approach as `useDensity`/`useIsMobile`.
 //
-// "Categorie" e "Tag" sono due dimensioni **separate**, non una con un
-// caso speciale: `matchesFilters` fa già AND-fra-dimensioni/OR-dentro,
-// quindi trattarle come due voci del `dimensions[]` produce da sola
-// l'esempio del documento ("Tipo = RAW E Persone = Marta E Luogo =
-// Urbino") senza bisogno di logica dedicata. Stesso motivo per cui
-// "Persone" quando il riconoscimento volti è spento **non serve un
-// controllo esplicito**: la sezione qui sotto la nasconde già
-// (elenco vuoto), e se per qualche motivo un filtro Persone restasse
-// selezionato con l'elenco svuotato, `getValues` non restituirebbe mai
-// quel valore — `matchesFilters` lo azzera da sola, `return false`
-// secco del documento (§11.3) ottenuto gratis dalla combinazione
-// generica, non da un ramo if in più.
+// "Categories" and "Tags" are two **separate** dimensions, not one with a
+// special case: `matchesFilters` already does AND-across-dimensions /
+// OR-within-a-dimension, so treating them as two entries in `dimensions[]`
+// produces the required combination ("Type = RAW AND People = Marta AND
+// Location = Urbino") on its own, with no dedicated logic needed. Same
+// reason "People" **doesn't need an explicit check** when face recognition
+// is off: the section below already hides it (empty list), and if a People
+// filter were somehow left selected with an empty list, `getValues` would
+// never return that value — `matchesFilters` zeroes it out on its own, a
+// hard `return false` obtained for free from the generic combination logic
+// rather than an extra if-branch.
 export const BROWSE_FILE_TYPE_OPTIONS = ['raw+jpeg', 'raw', 'jpeg'] as const
 
 export function useBrowseFilters(assets: Ref<TimelineAsset[]>) {
@@ -45,11 +42,11 @@ export function useBrowseFilters(assets: Ref<TimelineAsset[]>) {
     ])
   })
 
-  // "Persone non nascoste con almeno una foto" (§11.2, `visiblePeople()`):
-  // il conteggio filtra da solo il caso "riconoscimento volti mai attivo",
-  // e con l'elenco vuoto la sezione sotto non viene disegnata affatto —
-  // stesso comportamento del prototipo anche senza un interruttore
-  // esplicito da leggere (nessuno esiste ancora nel frontend, Task 14).
+  // "Non-hidden people with at least one photo": this filter naturally
+  // covers the "face recognition never enabled" case, and with an empty
+  // list the section below isn't rendered at all — matching the prototype
+  // behavior without needing an explicit toggle to read (none exists yet
+  // in the frontend).
   const visiblePersons = computed(() => persons.value.filter((p) => !p.hidden && (p.face_count ?? 0) > 0))
   const tagOptions = computed(() => tags.value.filter((tg) => tg.kind === 'tag'))
   const categoryOptions = computed(() => tags.value.filter((tg) => tg.kind === 'category'))

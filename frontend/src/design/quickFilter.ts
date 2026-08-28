@@ -1,23 +1,20 @@
-// SP-3 (Fase 11 Task 2): la logica di combinazione del filtro rapido a
-// chip (documento funzionale §11.3, `photoMatchesBrowseFilters`) — pura
-// e indipendente da qualunque modello di foto/tag/persona reale, perché
-// quegli store non esistono ancora in questa sessione. Regola esatta del
-// documento: dentro una stessa dimensione i valori scelti sono in OR,
-// fra dimensioni diverse è un AND (esempio del commento originale: "Tipo
-// = RAW E Persone = Marta E Luogo = Urbino").
+// The combination logic for the quick-filter chips (`photoMatchesBrowseFilters`)
+// is pure and independent of any real photo/tag/person model, so it can be
+// unit-tested on its own. Rule: within a dimension the chosen values are
+// OR'd together; across dimensions it's an AND (e.g. "Type = RAW AND People
+// = Marta AND Location = Urbino").
 
 export type FilterSelection = Record<string, Set<string>>
 
 export interface MatchDimension<T> {
   id: string
-  /** I valori che *questo* elemento porta per questa dimensione — un
-   * array anche per un campo a valore singolo (es. la fotocamera),
-   * perché l'OR-dentro-la-dimensione si esprime allo stesso modo per
-   * campi singoli e multipli (tag). Una dimensione disattivata (es.
-   * "Persone" quando il riconoscimento volti è spento) può restituire
-   * sempre `[]`: nessun valore potrà mai intersecare la selezione,
-   * riproducendo lo `return false` secco del documento senza bisogno di
-   * un caso speciale nel confronto. */
+  /** The values *this* item carries for this dimension — an array even for
+   * a single-value field (e.g. camera), because OR-within-a-dimension is
+   * expressed the same way for both single and multi-value fields (tags).
+   * A disabled dimension (e.g. "People" when face recognition is off) can
+   * always return `[]`: no value will ever intersect the selection, which
+   * naturally reproduces a hard `return false` without needing a special
+   * case in the comparison. */
   getValues: (item: T) => string[]
 }
 

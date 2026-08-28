@@ -2,36 +2,32 @@ import type { Ref } from 'vue'
 
 import { useUploadStore } from '@/stores/upload'
 
-// Fase 11, sottosistema di caricamento — documento §3.2/§3.3 (comando
-// "Carica" in topbar, "+" mobile), condiviso perché sono lo stesso
-// meccanismo con due sole differenze visive (etichetta/icona), non due
-// componenti indipendenti — evita una seconda copia divergente
-// dell'input nascosto, scritta prima di avere entrambi i chiamanti
-// pronti (stesso principio già applicato a `nav/routeTitles.ts`).
+// The upload subsystem's picker — shared between the topbar "Upload"
+// command and the mobile "+" button because they're the same mechanism
+// with only two visual differences (label/icon), not two independent
+// components — this avoids a second, diverging copy of the hidden input.
 //
-// Estensioni esatte dell'`accept` del prototipo (riga 1449 del mockup):
-// niente RAW — è solo un suggerimento al selettore del sistema
-// operativo, non applicato in modo uniforme dai browser, quindi
-// `classifyFiles` (§4) resta comunque l'unica barriera vera dentro
+// The `accept` extension list matches the prototype exactly: no RAW — it's
+// only a hint to the OS file picker, not applied consistently across
+// browsers, so `classifyFiles` remains the real gatekeeper inside
 // `addFilesFromPicker`.
 export const UPLOAD_ACCEPT =
   '.jpg,.jpeg,.jpe,.png,.tif,.tiff,.webp,.heic,.heif,.mp4,.mov,.m4v,image/*,video/mp4,video/quicktime'
 
 /**
- * `inputEl` è del chiamante, non di questo composable: deve restare un
- * `ref()` dichiarato localmente nel componente e legato con `ref="..."`
- * nel template — un `ref` restituito da un composable e solo
- * ridestrutturato non viene riconosciuto come "usato" dal controllo
- * `noUnusedLocals` di `vue-tsc` quando l'unico uso è quel legame di
- * template (falso positivo verificato scrivendo questo componente).
+ * `inputEl` belongs to the caller, not to this composable: it must stay a
+ * `ref()` declared locally in the component and bound with `ref="..."` in
+ * the template — a `ref` returned from a composable and merely
+ * destructured is not recognized as "used" by `vue-tsc`'s `noUnusedLocals`
+ * check when the only use is that template binding (verified false
+ * positive while writing this component).
  */
 export function useUploadPicker(inputEl: Ref<HTMLInputElement | null>) {
   const upload = useUploadStore()
 
-  /** `destHint` (righe 2876-2883 del mockup): il contesto da cui si è
-   * premuto il comando. Sempre `null` in questa app oggi — nessuna vista
-   * porta un `currentFolder` osservabile (stesso debito già dichiarato
-   * più volte per la timeline filtrata per cartella). */
+  /** `destHint`: the context the upload command was triggered from. Always
+   * `null` in this app today — no view exposes an observable
+   * `currentFolder` yet. */
   function open(): void {
     inputEl.value?.click()
   }

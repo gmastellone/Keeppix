@@ -62,7 +62,7 @@ async function mountApp(path = '/', isMobile = false) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/', component: { template: '<div data-testid="home">contenuto della vista</div>' } },
+      { path: '/', component: { template: '<div data-testid="home">view content</div>' } },
       { path: '/search', component: { template: '<div />' } },
       { path: '/culling', component: { template: '<div />' } },
       { path: '/map', component: { template: '<div />' } },
@@ -82,11 +82,11 @@ async function mountApp(path = '/', isMobile = false) {
   const wrapper = mount(App, {
     global: {
       plugins: [router, i18n],
-      // L'overlay di upload ha il proprio motore già testato altrove
-      // (`UploadPanel.spec.ts`, `stores/upload.spec.ts`): qui non
-      // serve, e caricarlo per davvero (import differito + store reale)
-      // sposterebbe il test dall'oggetto di questo file — il cablaggio
-      // dell'impalcatura — a tutt'altro.
+      // The upload overlay has its own engine already tested elsewhere
+      // (`UploadPanel.spec.ts`, `stores/upload.spec.ts`): not needed here,
+      // and actually loading it (deferred import + real store) would shift
+      // this test away from its subject — the shell wiring — to something
+      // else entirely.
       stubs: { UploadPanel: true }
     },
     attachTo: document.body
@@ -102,12 +102,12 @@ describe('App', () => {
     session.unavailable = false
     await flushPromises()
 
-    // Un solo <a href="/culling"> reale prova che AppSidebar è montata
-    // per davvero, non un segnaposto.
+    // A single real <a href="/culling"> proves AppSidebar is actually
+    // mounted, not a placeholder.
     expect(wrapper.findAll('a').some((a) => a.attributes('href') === '/culling')).toBe(true)
-    // Il campo di scorciatoia della ricerca prova che AppTopbar è montata.
+    // The search shortcut field proves AppTopbar is mounted.
     expect(wrapper.find('#topSearch').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="home"]').text()).toBe('contenuto della vista')
+    expect(wrapper.find('[data-testid="home"]').text()).toBe('view content')
   })
 
   it('on a mobile viewport, shows the mobile header/tabbar instead of the sidebar/topbar', async () => {
@@ -116,17 +116,17 @@ describe('App', () => {
     session.unavailable = false
     await flushPromises()
 
-    // La tab bar mobile ha un <a href="/more"> reale, che AppTopbar/
-    // AppSidebar non hanno mai.
+    // The mobile tab bar has a real <a href="/more">, which AppTopbar/
+    // AppSidebar never have.
     expect(wrapper.findAll('a').some((a) => a.attributes('href') === '/more')).toBe(true)
     expect(wrapper.find('#topSearch').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="home"]').text()).toBe('contenuto della vista')
+    expect(wrapper.find('[data-testid="home"]').text()).toBe('view content')
   })
 
   it.each([
     ['desktop', false],
     ['mobile', true]
-  ])('shows the real upload queue strip on %s once something is queued (§6.1)', async (_label, isMobile) => {
+  ])('shows the real upload queue strip on %s once something is queued', async (_label, isMobile) => {
     const { wrapper, session } = await mountApp('/', isMobile)
     session.user = testUser
     session.unavailable = false
