@@ -23,13 +23,13 @@ async fn setup_admin(server: &TestServer) -> UserId {
         }))
         .send()
         .await
-        .expect("richiesta di setup");
-    let body: serde_json::Value = response.json().await.expect("corpo JSON");
+        .expect("setup request");
+    let body: serde_json::Value = response.json().await.expect("JSON body");
     body["user"]["id"]
         .as_str()
-        .expect("id utente")
+        .expect("user id")
         .parse()
-        .expect("uuid valido")
+        .expect("valid uuid")
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -46,20 +46,20 @@ async fn ensure_folder(server: &TestServer, admin: UserId, root: &std::path::Pat
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
-    fs::create_dir_all(root.join("2024")).expect("cartella su disco");
+    fs::create_dir_all(root.join("2024")).expect("folder on disk");
     FolderRepo::new(&server.db)
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id
 }
 
-/// Un solo asset dentro una cartella già preparata da [`ensure_folder`]:
-/// separato per poter seminare più asset sotto la stessa radice senza
-/// ricreare la libreria (un secondo `create` sulla stessa `root_path`
-/// fallirebbe con `Conflict`).
+/// A single asset inside a folder already prepared by [`ensure_folder`]:
+/// kept separate so multiple assets can be seeded under the same root
+/// without recreating the library (a second `create` on the same
+/// `root_path` would fail with `Conflict`).
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_indexed_asset(
     server: &TestServer,
@@ -67,13 +67,13 @@ async fn seed_indexed_asset(
     root: &std::path::Path,
     filename: &str,
 ) -> AssetId {
-    fs::write(root.join("2024").join(filename), b"contenuto").expect("file su disco");
+    fs::write(root.join("2024").join(filename), b"content").expect("file on disk");
 
     let repo = AssetRepo::new(&server.db);
     let asset = repo
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse(filename).expect("nome"),
+            filename: AssetName::parse(filename).expect("name"),
             size_bytes: 9,
             mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
             inode: None,
@@ -90,14 +90,14 @@ async fn seed_indexed_asset(
         100,
     )
     .await
-    .expect("indicizzazione");
+    .expect("indexing");
     asset
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!("keeppix-api-metadata-{}", uuid::Uuid::now_v7()));
-    fs::create_dir_all(&root).expect("radice di test");
+    fs::create_dir_all(&root).expect("test root");
     root
 }
 
@@ -119,7 +119,7 @@ async fn a_partial_patch_only_touches_the_fields_it_names() {
     assert_eq!(response.status(), 200);
     let before: serde_json::Value = response.json().await.unwrap();
     assert_eq!(before["title"], serde_json::Value::Null);
-    assert!(before["taken_at"].is_string(), "viene dall'exif");
+    assert!(before["taken_at"].is_string(), "comes from exif");
 
     let response = server
         .client
@@ -142,16 +142,17 @@ async fn a_partial_patch_only_touches_the_fields_it_names() {
     assert_eq!(after["title"], "Alba sul mare");
     assert_eq!(
         after["taken_at"], before["taken_at"],
-        "un campo non nominato nel patch non deve cambiare"
+        "a field not named in the patch must not change"
     );
 
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Pin sulla distinzione fra "campo assente" e "campo `null`" (§3.2): un
-/// client manda `null` per azzerare esplicitamente un campo già valorizzato,
-/// non per lasciarlo stare. Senza `double_option`, `Option<Option<T>>`
-/// tratterebbe i due casi allo stesso modo e questo test fallirebbe.
+/// Pins the distinction between "field absent" and "field `null`": a
+/// client sends `null` to explicitly clear a field that already has a
+/// value, not to leave it alone. Without `double_option`,
+/// `Option<Option<T>>` would treat the two cases the same way and this
+/// test would fail.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn an_explicit_null_erases_a_field_but_an_absent_key_does_not() {
@@ -169,7 +170,7 @@ async fn an_explicit_null_erases_a_field_but_an_absent_key_does_not() {
         .await
         .unwrap();
 
-    // Assente: non deve toccare description.
+    // Absent: must not touch description.
     server
         .client
         .patch(server.url(&format!("/api/v1/assets/{asset_id}/metadata")))
@@ -186,12 +187,9 @@ async fn an_explicit_null_erases_a_field_but_an_absent_key_does_not() {
         .json()
         .await
         .unwrap();
-    assert_eq!(
-        mid["description"], "Nota",
-        "description assente non toccata"
-    );
+    assert_eq!(mid["description"], "Nota", "absent description not touched");
 
-    // Presente con null: deve azzerare.
+    // Present with null: must clear it.
     server
         .client
         .patch(server.url(&format!("/api/v1/assets/{asset_id}/metadata")))
@@ -211,11 +209,11 @@ async fn an_explicit_null_erases_a_field_but_an_absent_key_does_not() {
     assert_eq!(
         after["description"],
         serde_json::Value::Null,
-        "null esplicito azzera il campo"
+        "explicit null clears the field"
     );
     assert_eq!(
         after["title"], "Titolo definitivo",
-        "il campo non nominato nell'ultima richiesta resta"
+        "the field not named in the last request stays"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -282,8 +280,8 @@ async fn apply_batch_touches_every_asset_and_is_undoable() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Spec §3: lotto misto → HTTP 200, `succeeded`/`failed` per id, e
-/// `undo` sul `batch_id` annulla solo i riusciti.
+/// A mixed batch → HTTP 200, `succeeded`/`failed` per id, and `undo` on
+/// the `batch_id` only reverts the successful ones.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
 async fn metadata_batch_partial_success_and_undo_only_touches_succeeded() {
@@ -490,8 +488,9 @@ async fn shift_taken_at_moves_the_effective_date_by_n_hours() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Spec §3: `shift-taken-at` su un lotto misto riesce sugli asset propri e
-/// riporta `permission-denied` per quelli altrui, senza abortire la richiesta.
+/// `shift-taken-at` on a mixed batch succeeds on the caller's own assets
+/// and reports `permission-denied` for the others, without aborting the
+/// request.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
 async fn shift_taken_at_reports_partial_success_when_one_asset_is_foreign() {

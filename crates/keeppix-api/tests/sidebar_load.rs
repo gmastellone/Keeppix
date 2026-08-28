@@ -62,13 +62,13 @@ fn assert_no_per_row_count_fields(value: &serde_json::Value, context: &str) {
             }
         }
         serde_json::Value::Object(map) => {
-            // `item_count` is checked separately per endpoint below (Task 15
-            // adds it, deliberately, to share links only): `asset_count` and
+            // `item_count` is checked separately per endpoint below (it's
+            // deliberately added to share links only): `asset_count` and
             // `member_count` never shipped and stay forbidden everywhere.
             for forbidden in ["asset_count", "member_count"] {
                 assert!(
                     !map.contains_key(forbidden),
-                    "{context} must not expose `{forbidden}` (Task 11)"
+                    "{context} must not expose `{forbidden}`"
                 );
             }
         }
@@ -86,7 +86,7 @@ fn assert_no_item_count_field(value: &serde_json::Value, context: &str) {
         serde_json::Value::Object(map) => {
             assert!(
                 !map.contains_key("item_count"),
-                "{context} must not expose `item_count` (Task 11)"
+                "{context} must not expose `item_count`"
             );
         }
         _ => {}
@@ -181,10 +181,10 @@ async fn sidebar_endpoints_do_not_expose_per_row_counts() {
     assert_no_per_row_count_fields(&links, "GET /share/links");
     assert!(
         links[0]["view_count"].is_number(),
-        "view_count resta: conta accessi al link, non elementi condivisi"
+        "view_count stays: it counts visits to the link, not shared items"
     );
     assert_eq!(
         links[0]["item_count"], 0,
-        "item_count (Task 15): presente ma zero — l'unico asset è discovered, non indexed"
+        "item_count is present but zero — the only asset is discovered, not indexed"
     );
 }

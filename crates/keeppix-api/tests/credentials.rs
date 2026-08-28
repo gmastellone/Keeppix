@@ -56,9 +56,9 @@ async fn creating_an_app_password_returns_the_secret_once() {
     let secret = body["secret"].as_str().unwrap().to_owned();
     assert!(!secret.is_empty());
 
-    // Il segreto funziona davvero contro il repository — non solo la forma
-    // della risposta, ma la sostanza: è l'hash Argon2id di *questo*
-    // segreto, e nessun altro.
+    // The secret actually works against the repository — not just the
+    // shape of the response, but the substance: it's the Argon2id hash of
+    // *this* secret, and no other.
     let verified = AppPasswordRepo::new(&server.db)
         .verify("giovanni", &secret)
         .await
@@ -94,11 +94,11 @@ async fn listing_does_not_expose_the_secret() {
     assert!(entries[0]["last_used_at"].is_null());
     assert!(
         entries[0].get("secret").is_none(),
-        "il segreto non deve mai comparire in una GET"
+        "the secret must never appear in a GET"
     );
     assert!(
         entries[0].get("secret_hash").is_none(),
-        "nemmeno l'hash deve comparire in una GET"
+        "not even the hash should appear in a GET"
     );
 }
 
@@ -111,7 +111,7 @@ async fn deleting_returns_204_and_verify_fails_immediately() {
     let created = server
         .client
         .post(server.url("/api/v1/users/me/app-passwords"))
-        .json(&json!({ "label": "telefono" }))
+        .json(&json!({ "label": "phone" }))
         .send()
         .await
         .unwrap();
@@ -119,7 +119,7 @@ async fn deleting_returns_204_and_verify_fails_immediately() {
     let id = body["id"].as_str().unwrap().to_owned();
     let secret = body["secret"].as_str().unwrap().to_owned();
 
-    // Prima della cancellazione, il segreto è ancora valido.
+    // Before deletion, the secret is still valid.
     let repo = AppPasswordRepo::new(&server.db);
     assert!(repo.verify("giovanni", &secret).await.unwrap().is_some());
 
@@ -133,7 +133,7 @@ async fn deleting_returns_204_and_verify_fails_immediately() {
 
     assert!(
         repo.verify("giovanni", &secret).await.unwrap().is_none(),
-        "una password cancellata deve fallire la verifica immediatamente"
+        "a deleted password must fail verification immediately"
     );
 
     let listed = server
@@ -145,7 +145,7 @@ async fn deleting_returns_204_and_verify_fails_immediately() {
     let listed_body: serde_json::Value = listed.json().await.unwrap();
     assert!(
         listed_body.as_array().unwrap().is_empty(),
-        "una app-password revocata non deve comparire nell'elenco"
+        "a revoked app password must not appear in the listing"
     );
 }
 
@@ -171,7 +171,7 @@ async fn deleting_someone_elses_app_password_is_forbidden_never_not_found() {
     let created = server
         .client
         .post(server.url("/api/v1/users/me/app-passwords"))
-        .json(&json!({ "label": "MacBook di Giovanni" }))
+        .json(&json!({ "label": "Giovanni's MacBook" }))
         .send()
         .await
         .unwrap();
@@ -188,8 +188,8 @@ async fn deleting_someone_elses_app_password_is_forbidden_never_not_found() {
         .unwrap();
     assert_eq!(response.status(), 403);
 
-    // Un id inesistente sotto lo stesso path deve dare la stessa risposta,
-    // così l'endpoint non è un oracolo di esistenza.
+    // A nonexistent id under the same path must give the same response,
+    // so the endpoint isn't an existence oracle.
     let missing = uuid::Uuid::now_v7();
     let missing_response = mario
         .delete(server.url(&format!("/api/v1/users/me/app-passwords/{missing}")))

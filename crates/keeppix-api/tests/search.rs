@@ -41,9 +41,8 @@ async fn search_from_ast_does_not_run_user_sql() {
     assert!(empty["assets"].as_array().unwrap().is_empty());
 }
 
-/// `AssetView` è condiviso, ma `favorite` è per chiamante (Task 10
-/// fase-10): la pagina di ricerca deve risolverlo con il set del chiamante,
-/// come la timeline.
+/// `AssetView` is shared, but `favorite` is per-caller: the search page
+/// must resolve it against the caller's own set, like the timeline does.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn search_page_resolves_the_callers_favorite_on_each_tile() {
@@ -86,9 +85,9 @@ async fn search_page_resolves_the_callers_favorite_on_each_tile() {
     assert_eq!(after["assets"][0]["favorite"], true);
 }
 
-/// Il chip "Preferiti" di Cerca (spec fase-10 §7bis.1) — stesso
-/// `SearchNode::Favorite` già coperto dal Task 6, riverificato qui a
-/// livello HTTP con l'endpoint di scrittura di questo task.
+/// Search's "Favorites" chip — the same `SearchNode::Favorite` already
+/// covered at a lower level, reverified here at the HTTP layer against
+/// the write endpoint.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn the_favorite_search_chip_finds_only_the_callers_favorites() {
@@ -138,17 +137,18 @@ async fn the_favorite_search_chip_finds_only_the_callers_favorites() {
     assert_eq!(found[0]["id"], loved_id);
 }
 
-/// Round-trip completo del Task 10: l'API embedda la query di testo via
-/// `OpenClipXlmr` (`keeppix-db` non conosce ort), la passa alla subquery
-/// pgvector, e il risultato torna nella pagina di ricerca. Modello
-/// deterministico: stesso testo → stesso embedding sia per il "finto asset"
-/// seminato qui sia per la query, quindi l'asset finisce nei K più vicini.
+/// Full round-trip: the API embeds the text query via `OpenClipXlmr`
+/// (`keeppix-db` doesn't know about ort), passes it to the pgvector
+/// subquery, and the result comes back on the search page. Deterministic
+/// model: same text → same embedding for both the "fake asset" seeded
+/// here and the query, so the asset ends up among the K nearest
+/// neighbors.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn semantic_search_finds_the_asset_embedded_with_the_same_text() {
     let Some(model_dir) = keeppix_media::openclip_xlmr::first_complete_model_dir() else {
         eprintln!(
-            "skipping: openclip-xlmr-it-en incomplete (girare .github/workflows/export-openclip-xlmr.yml)"
+            "skipping: openclip-xlmr-it-en incomplete (run .github/workflows/export-openclip-xlmr.yml)"
         );
         return;
     };
@@ -189,9 +189,9 @@ async fn semantic_search_finds_the_asset_embedded_with_the_same_text() {
     assert_eq!(hits[0]["id"], asset_id.to_string());
 }
 
-/// `/search/suggest` restituisce oggetti tipizzati (spec fase-10 §23), non
-/// più stringhe piatte: il frontend deve poter distinguere `kind` senza
-/// indovinarlo dal valore.
+/// `/search/suggest` returns typed objects, no longer flat strings: the
+/// frontend must be able to tell `kind` apart without guessing it from
+/// the value.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn suggest_returns_typed_pills_not_bare_strings() {
@@ -370,8 +370,9 @@ async fn seed_photo(server: &TestServer, name: &str) {
         .unwrap();
 }
 
-/// Come [`seed_photo`], ma restituisce l'id dell'asset creato: serve al
-/// test `Semantic` per scrivere un embedding su quello specifico asset.
+/// Like [`seed_photo`], but returns the created asset's id: the
+/// `Semantic` test needs it to write an embedding for that specific
+/// asset.
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn seed_photo_returning_id(server: &TestServer, name: &str) -> keeppix_domain::AssetId {
     setup(server).await;
@@ -422,10 +423,9 @@ async fn seed_photo_returning_id(server: &TestServer, name: &str) -> keeppix_dom
     a.id
 }
 
-/// Come [`seed_photo`], ma per due file nella **stessa** libreria —
-/// `libraries_root_path_key` è unico, quindi due chiamate a `seed_photo`
-/// (che crea una libreria a ogni volta) non possono condividere una
-/// cartella.
+/// Like [`seed_photo`], but for two files in the **same** library —
+/// `libraries_root_path_key` is unique, so two calls to `seed_photo`
+/// (which creates a library each time) can't share a folder.
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn seed_two_photos_in_the_same_library(server: &TestServer, first: &str, second: &str) {
     setup(server).await;

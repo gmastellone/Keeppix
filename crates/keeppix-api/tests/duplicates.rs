@@ -23,13 +23,13 @@ async fn setup_admin(server: &TestServer) -> UserId {
         }))
         .send()
         .await
-        .expect("richiesta di setup");
-    let body: serde_json::Value = response.json().await.expect("corpo JSON");
+        .expect("setup request");
+    let body: serde_json::Value = response.json().await.expect("JSON body");
     body["user"]["id"]
         .as_str()
-        .expect("id utente")
+        .expect("user id")
         .parse()
-        .expect("uuid valido")
+        .expect("valid uuid")
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -46,13 +46,13 @@ async fn ensure_folder(server: &TestServer, admin: UserId, root: &std::path::Pat
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
-    fs::create_dir_all(root.join("2024")).expect("cartella su disco");
+    fs::create_dir_all(root.join("2024")).expect("folder on disk");
     FolderRepo::new(&server.db)
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id
 }
 
@@ -64,13 +64,13 @@ async fn seed_asset_with_hash(
     filename: &str,
     hash: [u8; 32],
 ) -> AssetId {
-    fs::write(root.join("2024").join(filename), b"contenuto").expect("file su disco");
+    fs::write(root.join("2024").join(filename), b"content").expect("file on disk");
 
     let repo = AssetRepo::new(&server.db);
     let asset = repo
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse(filename).expect("nome"),
+            filename: AssetName::parse(filename).expect("name"),
             size_bytes: 1_000_000,
             mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
             inode: None,
@@ -88,7 +88,7 @@ async fn seed_asset_with_hash(
 fn temp_root() -> PathBuf {
     let root =
         std::env::temp_dir().join(format!("keeppix-api-duplicates-{}", uuid::Uuid::now_v7()));
-    fs::create_dir_all(&root).expect("radice di test");
+    fs::create_dir_all(&root).expect("test root");
     root
 }
 
@@ -125,11 +125,11 @@ async fn a_group_with_two_copies_lists_members_and_reclaimable_space() {
         .unwrap()
         .iter()
         .find(|g| g["content_hash"] == hex(&hash))
-        .expect("gruppo presente");
+        .expect("group present");
     assert_eq!(group["count"], 2);
     assert_eq!(
         group["reclaimable_bytes"], 1_000_000,
-        "size_bytes * (copie - 1), non la somma totale"
+        "size_bytes * (copies - 1), not the total sum"
     );
 
     let members: serde_json::Value = server
@@ -175,7 +175,7 @@ async fn resolving_a_group_trashes_every_member_except_the_one_kept() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["resolved"], 1);
 
-    // Un solo membro resta visibile come duplicato: `b` è cestinato.
+    // Only one member remains visible as a duplicate: `b` is trashed.
     let members: serde_json::Value = server
         .client
         .get(server.url(&format!("/api/v1/duplicates/{}", hex(&hash))))

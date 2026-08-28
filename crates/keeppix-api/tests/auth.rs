@@ -5,21 +5,21 @@ use keeppix_db::UserRepo;
 use keeppix_domain::{AuthContext, SystemRole};
 use serde_json::json;
 
-/// `keeppix_api::router(state)` — il router *con* stato, montato da
-/// `TestServer` e usato da tutti i test di questo file — applica gli stessi
-/// quattro header di sicurezza del router senza stato (`router_without_state`,
-/// coperto da `tests/health.rs` e `tests/openapi.rs`). I due router
-/// impostano il fallback e chiamano `with_common_layers` separatamente
-/// (`crates/keeppix-api/src/lib.rs`): senza questo test, un errore
-/// nell'ordine specifico di `router(state)` non farebbe fallire nessun test,
-/// perché nessun altro test di questo file guarda gli header — solo lo
-/// status code e il corpo delle risposte.
+/// `keeppix_api::router(state)` — the router *with* state, mounted by
+/// `TestServer` and used by every test in this file — applies the same
+/// four security headers as the stateless router (`router_without_state`,
+/// covered by `tests/health.rs` and `tests/openapi.rs`). The two routers
+/// set up the fallback and call `with_common_layers` separately
+/// (`crates/keeppix-api/src/lib.rs`): without this test, a bug in the
+/// specific ordering of `router(state)` would not fail any test, because
+/// no other test in this file looks at the headers — only the status code
+/// and the response body.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn router_with_state_carries_the_security_headers() {
     let server = TestServer::start().await;
 
-    // Una rotta esistente.
+    // An existing route.
     let ok_response = server
         .client
         .get(server.url("/api/v1/setup/status"))
@@ -29,10 +29,10 @@ async fn router_with_state_carries_the_security_headers() {
     assert_eq!(ok_response.status(), reqwest::StatusCode::OK);
     assert_security_headers(ok_response.headers());
 
-    // Il fallback 404 (nessuna rotta API di questo tipo esiste).
+    // The 404 fallback (no API route of this kind exists).
     let not_found_response = server
         .client
-        .get(server.url("/api/v1/questa-rotta-non-esiste"))
+        .get(server.url("/api/v1/this-route-does-not-exist"))
         .send()
         .await
         .unwrap();
@@ -40,12 +40,12 @@ async fn router_with_state_carries_the_security_headers() {
     assert_security_headers(not_found_response.headers());
 }
 
-/// Spec §9.4: niente CDN sui contenuti privati, `Cache-Control: private` su
-/// tutto ciò che è autenticato. Senza l'header, `GET /auth/me` — che restituisce
-/// l'utente della sessione — è eleggibile alla cache euristica di un proxy
-/// condiviso. Il layer usa `if_not_present`: la controprova che non schiacci le
-/// politiche legittime è `assets_are_served_as_immutable` in
-/// `keeppix-server/tests/embed.rs`.
+/// No CDN caching on private content: `Cache-Control: private` on
+/// everything authenticated. Without the header, `GET /auth/me` — which
+/// returns the session's user — is eligible for a shared proxy's
+/// heuristic cache. The layer uses `if_not_present`: the counter-proof
+/// that it doesn't clobber legitimate policies is
+/// `assets_are_served_as_immutable` in `keeppix-server/tests/embed.rs`.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn authenticated_responses_are_marked_private() {
@@ -63,9 +63,9 @@ async fn authenticated_responses_are_marked_private() {
     assert_eq!(me.headers().get("cache-control").unwrap(), "private");
 }
 
-/// §61 (Profilo) mostra il nome del server e l'ultima modifica password:
-/// `UserView` li porta ora su ogni risposta che restituisce l'utente, non
-/// solo su `/auth/me`.
+/// The profile view shows the server name and the last password change:
+/// `UserView` now carries both on every response that returns the user,
+/// not just on `/auth/me`.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn me_response_carries_server_name_and_password_changed_at() {
@@ -86,24 +86,23 @@ async fn me_response_carries_server_name_and_password_changed_at() {
     assert_eq!(me["user"]["server_name"], "Casa Mastellone");
     assert!(
         me["user"]["password_changed_at"].is_string(),
-        "password_changed_at deve essere una data, non assente: {me}"
+        "password_changed_at must be a date, not absent: {me}"
     );
 }
 
-/// Le tre rejection che axum produce **prima** dell'handler devono restare
-/// dentro il contratto RFC 9457 (spec §9.2): `Content-Type` sbagliato, corpo
-/// malformato, metodo sbagliato. Senza il wrapper `keeppix_api::Json` e il
-/// `method_not_allowed_fallback` uscirebbero come `text/plain` (o corpo vuoto)
-/// e un client che ramifica sul `type` non troverebbe niente da leggere. Il
-/// valore del test cresce con la Fase 1, che aggiunge ~20 rotte a questo
-/// stesso stampo.
+/// The three rejections axum produces **before** the handler must stay
+/// within the RFC 9457 contract: wrong `Content-Type`, malformed body,
+/// wrong method. Without the `keeppix_api::Json` wrapper and the
+/// `method_not_allowed_fallback`, these would come out as `text/plain`
+/// (or an empty body), leaving a client that branches on `type` with
+/// nothing to read.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn a_wrong_content_type_is_rejected_as_problem_json() {
     let server = TestServer::start().await;
 
-    // È anche la forma che userebbe un form HTML cross-site: senza
-    // `application/json` la richiesta non arriva mai all'handler.
+    // Also the shape a cross-site HTML form would use: without
+    // `application/json` the request never reaches the handler.
     let response = server
         .client
         .post(server.url("/api/v1/auth/login"))
@@ -140,7 +139,7 @@ async fn a_malformed_json_body_is_rejected_as_problem_json() {
         .await
         .unwrap();
 
-    assert_eq!(broken.status(), 400, "sintassi JSON non valida");
+    assert_eq!(broken.status(), 400, "invalid JSON syntax");
     assert_eq!(
         broken.headers().get("content-type").unwrap(),
         "application/problem+json"
@@ -148,8 +147,9 @@ async fn a_malformed_json_body_is_rejected_as_problem_json() {
     let body: serde_json::Value = broken.json().await.unwrap();
     assert_eq!(body["type"], "keeppix/invalid-json");
 
-    // JSON valido ma di forma inattesa: axum distingue con `422`, il `type`
-    // resta lo stesso perché per il client il problema è lo stesso.
+    // Valid JSON but the wrong shape: axum distinguishes this with `422`,
+    // but the `type` stays the same because for the client it's the same
+    // problem.
     let wrong_shape = server
         .client
         .post(server.url("/api/v1/auth/login"))
@@ -158,12 +158,12 @@ async fn a_malformed_json_body_is_rejected_as_problem_json() {
         .await
         .unwrap();
 
-    assert_eq!(wrong_shape.status(), 422, "manca il campo password");
+    assert_eq!(wrong_shape.status(), 422, "missing password field");
     let body: serde_json::Value = wrong_shape.json().await.unwrap();
     assert_eq!(body["type"], "keeppix/invalid-json");
     assert!(
         body["detail"].as_str().unwrap().contains("password"),
-        "il detail deve dire quale campo manca: {body}"
+        "the detail must say which field is missing: {body}"
     );
 }
 
@@ -183,22 +183,22 @@ async fn a_wrong_method_is_rejected_as_problem_json() {
     assert_eq!(
         response.headers().get("content-type").unwrap(),
         "application/problem+json",
-        "il 405 di default di axum ha il corpo vuoto"
+        "axum's default 405 has an empty body"
     );
-    // Il 405 nasce dal fallback di un `MethodRouter`, non dal router: se
-    // finisse fuori da `with_common_layers` uscirebbe senza CSP.
+    // The 405 comes from a `MethodRouter`'s fallback, not the router: if
+    // it fell outside `with_common_layers` it would come out without CSP.
     assert_security_headers(response.headers());
 
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["type"], "keeppix/method-not-allowed");
 }
 
-/// La metà server-side della difesa CSRF (spec §9.5). Il client costruito qui
-/// è deliberatamente *senza* `x-keeppix-client`: è ciò che può fare un `<form>`
-/// su un sito ostile, che invia la POST con i cookie ma non può impostare
-/// header custom. Le mutazioni senza corpo — `logout` e `refresh` — sono le
-/// uniche che non passavano nemmeno dal controllo sul `Content-Type` di
-/// `Json<T>`, quindi erano interamente scoperte.
+/// The server-side half of the CSRF defense. The client built here is
+/// deliberately *without* `x-keeppix-client`: it's what a `<form>` on a
+/// hostile site can do — send the POST with cookies attached but without
+/// being able to set custom headers. The body-less mutations — `logout`
+/// and `refresh` — are the only ones that didn't even go through
+/// `Json<T>`'s `Content-Type` check, so they were entirely uncovered.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn a_mutation_without_the_client_header_is_rejected() {
@@ -209,7 +209,7 @@ async fn a_mutation_without_the_client_header_is_rejected() {
     for path in ["/api/v1/auth/logout", "/api/v1/auth/refresh"] {
         let response = forged.post(server.url(path)).send().await.unwrap();
 
-        assert_eq!(response.status(), 403, "{path} senza header custom");
+        assert_eq!(response.status(), 403, "{path} without custom header");
         assert_eq!(
             response.headers().get("content-type").unwrap(),
             "application/problem+json"
@@ -218,14 +218,14 @@ async fn a_mutation_without_the_client_header_is_rejected() {
         assert_eq!(body["type"], "keeppix/csrf-check-failed");
     }
 
-    // Le letture non richiedono l'header: negarle romperebbe l'apertura
-    // diretta di un URL e non comprerebbe nulla.
+    // Reads don't require the header: denying them would break opening a
+    // URL directly and would buy nothing.
     let read = forged
         .get(server.url("/api/v1/setup/status"))
         .send()
         .await
         .unwrap();
-    assert_eq!(read.status(), 200, "un GET non cambia stato");
+    assert_eq!(read.status(), 200, "a GET does not change state");
 }
 
 #[tokio::test]
@@ -234,7 +234,7 @@ async fn a_mutation_with_the_client_header_succeeds() {
     let server = TestServer::start().await;
     setup(&server).await;
 
-    // `server.client` porta l'header per default, come `apiFetch` del frontend.
+    // `server.client` carries the header by default, like the frontend's `apiFetch`.
     let response = server
         .client
         .post(server.url("/api/v1/auth/logout"))
@@ -283,7 +283,7 @@ async fn setup_creates_the_first_admin_and_logs_in() {
     let cookie = response
         .headers()
         .get("set-cookie")
-        .expect("il setup deve autenticare subito")
+        .expect("setup must authenticate immediately")
         .to_str()
         .unwrap()
         .to_owned();
@@ -371,7 +371,7 @@ async fn login_succeeds_with_correct_credentials() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 200, "lo username è case-insensitive");
+    assert_eq!(response.status(), 200, "username is case-insensitive");
 }
 
 #[tokio::test]
@@ -383,7 +383,7 @@ async fn login_fails_with_wrong_password() {
     let response = server
         .client
         .post(server.url("/api/v1/auth/login"))
-        .json(&json!({ "username": "giovanni", "password": "password sbagliata" }))
+        .json(&json!({ "username": "giovanni", "password": "wrong password" }))
         .send()
         .await
         .unwrap();
@@ -402,7 +402,7 @@ async fn login_fails_identically_for_unknown_user() {
     let response = server
         .client
         .post(server.url("/api/v1/auth/login"))
-        .json(&json!({ "username": "nessuno", "password": "correct horse battery staple" }))
+        .json(&json!({ "username": "nobody", "password": "correct horse battery staple" }))
         .send()
         .await
         .unwrap();
@@ -411,7 +411,7 @@ async fn login_fails_identically_for_unknown_user() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(
         body["type"], "keeppix/invalid-credentials",
-        "utente inesistente e password errata devono essere indistinguibili"
+        "a nonexistent user and a wrong password must be indistinguishable"
     );
 }
 
@@ -421,7 +421,7 @@ async fn me_requires_authentication() {
     let server = TestServer::start().await;
     setup(&server).await;
 
-    // Client nuovo, senza cookie.
+    // Fresh client, no cookie.
     let anonymous = plain_client();
     let response = anonymous
         .get(server.url("/api/v1/auth/me"))
@@ -434,21 +434,21 @@ async fn me_requires_authentication() {
     assert_eq!(body["type"], "keeppix/unauthenticated");
 }
 
-/// Un blip del database non deve presentarsi come «sessione scaduta»: il
-/// frontend tratta il `401` come «nessuna sessione attiva», azzera l'utente e
-/// lo manda a `/login`. Con la mappatura precedente — qualsiasi `DbError` →
-/// `401` — dieci secondi di riavvio di Postgres erano un logout di massa
-/// invisibile come 5xx. Qui il database viene davvero spento: non c'è nessun
-/// mock fra l'handler e il pool, quindi è l'unico modo di osservare la
-/// proprietà end-to-end.
+/// A database blip must not present itself as "expired session": the
+/// frontend treats `401` as "no active session", clears the user, and
+/// sends them to `/login`. With the previous mapping — any `DbError` →
+/// `401` — ten seconds of Postgres restarting was a mass logout invisible
+/// as a 5xx. Here the database is actually shut down: there's no mock
+/// between the handler and the pool, so this is the only way to observe
+/// the property end-to-end.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn a_database_outage_is_a_503_not_a_401() {
     let server = TestServer::start_stoppable().await;
     setup(&server).await;
 
-    // Sanity check: la sessione vale *prima* dello spegnimento, altrimenti il
-    // 503 atteso sotto potrebbe venire da un cookie mai emesso.
+    // Sanity check: the session is valid *before* shutdown, otherwise the
+    // expected 503 below could come from a cookie that was never issued.
     let before = server
         .client
         .get(server.url("/api/v1/auth/me"))
@@ -459,8 +459,8 @@ async fn a_database_outage_is_a_503_not_a_401() {
 
     if !server.stop_database().await {
         eprintln!(
-            "KEEPPIX_TEST_DATABASE_URL è impostata: il server Postgres è condiviso \
-             e non può essere fermato, test saltato"
+            "KEEPPIX_TEST_DATABASE_URL is set: the Postgres server is shared \
+             and cannot be stopped, skipping test"
         );
         return;
     }
@@ -475,12 +475,12 @@ async fn a_database_outage_is_a_503_not_a_401() {
     assert_eq!(
         response.status(),
         503,
-        "un database irraggiungibile non è una sessione non valida"
+        "an unreachable database is not an invalid session"
     );
     assert_eq!(
         response.headers().get("retry-after").unwrap(),
         "5",
-        "il client deve sapere che l'errore è transitorio"
+        "the client must know the error is transient"
     );
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["type"], "keeppix/service-unavailable");
@@ -521,9 +521,9 @@ async fn refresh_rotates_the_session_cookie() {
     assert_eq!(refresh.status(), 204);
     let after = session_value_from(&refresh);
 
-    assert_ne!(before, after, "il cookie deve cambiare a ogni refresh");
+    assert_ne!(before, after, "the cookie must change on every refresh");
 
-    // Il nuovo cookie continua a valere.
+    // The new cookie continues to be valid.
     let me = server
         .client
         .get(server.url("/api/v1/auth/me"))
@@ -532,11 +532,11 @@ async fn refresh_rotates_the_session_cookie() {
         .unwrap();
     assert_eq!(me.status(), 200);
 
-    // Il vecchio cookie, invece, non deve più valere: la rotazione deve aver
-    // consumato il genitore, non solo emesso un figlio in parallelo. Un
-    // client fresco senza cookie store, con il valore pre-refresh presentato
-    // esplicitamente, è l'unico modo di dimostrarlo — il cookie store di
-    // `server.client` ha già sostituito `before` con `after`.
+    // The old cookie, however, must no longer be valid: rotation must have
+    // consumed the parent, not just issued a child in parallel. A fresh
+    // client with no cookie store, presenting the pre-refresh value
+    // explicitly, is the only way to demonstrate this — `server.client`'s
+    // cookie store has already replaced `before` with `after`.
     let replay_me = plain_client()
         .get(server.url("/api/v1/auth/me"))
         .header("cookie", format!("__Host-kpx_session={before}"))
@@ -546,13 +546,13 @@ async fn refresh_rotates_the_session_cookie() {
     assert_eq!(
         replay_me.status(),
         401,
-        "il token pre-refresh deve essere stato consumato, non solo affiancato da uno nuovo"
+        "the pre-refresh token must have been consumed, not just joined by a new one"
     );
 }
 
-/// `authenticate` non slitta `expires_at`. Senza un `POST /auth/refresh`
-/// (ora dal watchdog della SPA, a scheda visibile) la sessione è assoluta:
-/// scaduto, il prossimo GET è 401.
+/// `authenticate` does not slide `expires_at`. Without a `POST
+/// /auth/refresh` (now from the SPA's watchdog, while the tab is visible)
+/// the session is absolute: once expired, the next GET is 401.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn an_expired_session_is_unauthenticated_without_calling_refresh() {
@@ -583,11 +583,11 @@ async fn an_expired_session_is_unauthenticated_without_calling_refresh() {
     assert_eq!(body["type"], "keeppix/unauthenticated");
 }
 
-/// `SessionRepo::rotate` revoca l'intera famiglia quando un token già
-/// consumato viene ripresentato — il segnale che una copia sia finita in
-/// mano a qualcun altro. La documentazione di `refresh` lo promette
-/// esplicitamente, ma senza questo test la copertura HTTP di quel ramo era
-/// nulla.
+/// `SessionRepo::rotate` revokes the entire family when an already-
+/// consumed token is presented again — the signal that a copy ended up in
+/// someone else's hands. `refresh`'s documentation promises this
+/// explicitly, but without this test the HTTP coverage of that branch was
+/// nil.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn refresh_rejects_a_reused_token() {
@@ -606,7 +606,7 @@ async fn refresh_rejects_a_reused_token() {
         .unwrap();
     let before = session_value_from(&setup_response);
 
-    // Consuma il token una prima volta con il flusso normale.
+    // Consume the token once through the normal flow.
     let first_refresh = server
         .client
         .post(server.url("/api/v1/auth/refresh"))
@@ -615,7 +615,7 @@ async fn refresh_rejects_a_reused_token() {
         .unwrap();
     assert_eq!(first_refresh.status(), 204);
 
-    // Ripresentare il token pre-refresh, già consumato, deve essere rifiutato.
+    // Presenting the already-consumed pre-refresh token again must be rejected.
     let reused = plain_client()
         .post(server.url("/api/v1/auth/refresh"))
         .header("cookie", format!("__Host-kpx_session={before}"))
@@ -624,11 +624,11 @@ async fn refresh_rejects_a_reused_token() {
         .unwrap();
     assert_eq!(reused.status(), 401);
 
-    // Il 401 sopra da solo non distingue "token consumato rifiutato" da
-    // "intera famiglia revocata": il primo lo darebbe anche una `rotate` che
-    // si limitasse a restituire un errore. La prova del ramo di revoca è che
-    // anche il token *nuovo* — emesso dalla rotazione e valido fino a un
-    // istante fa — smetta di funzionare.
+    // The 401 above alone doesn't distinguish "consumed token rejected"
+    // from "entire family revoked": a `rotate` that merely returned an
+    // error would also produce the former. The proof of the revocation
+    // branch is that even the *new* token — issued by the rotation and
+    // valid until a moment ago — stops working.
     let after = session_value_from(&first_refresh);
     let survivor = plain_client()
         .get(server.url("/api/v1/auth/me"))
@@ -639,13 +639,13 @@ async fn refresh_rejects_a_reused_token() {
     assert_eq!(
         survivor.status(),
         401,
-        "il riuso deve revocare l'intera famiglia, non solo il token ripresentato"
+        "reuse must revoke the entire family, not just the replayed token"
     );
 }
 
-/// `rotate` ricontrolla `disabled_at`. Il disable HTTP revoca anche le
-/// sessioni: qui si imposta solo la colonna, altrimenti il 401 sarebbe
-/// per token revocato e il join passerebbe inosservato.
+/// `rotate` re-checks `disabled_at`. The HTTP disable endpoint also
+/// revokes sessions: here only the column is set, otherwise the 401 would
+/// be for a revoked token and the join would go unnoticed.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn refresh_rejects_a_disabled_user() {
@@ -690,8 +690,8 @@ async fn refresh_rejects_a_disabled_user() {
     assert_eq!(body["type"], "keeppix/unauthenticated");
 }
 
-/// TTL breve: senza refresh la sessione cade; con un refresh a scheda
-/// attiva sopravvive oltre la scadenza originale.
+/// Short TTL: without refresh the session drops; with a refresh while the
+/// tab is active it survives past the original expiry.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn refresh_slides_expiry_so_an_active_session_survives() {
@@ -729,7 +729,7 @@ async fn refresh_slides_expiry_so_an_active_session_survives() {
     assert_eq!(
         me.status(),
         200,
-        "il refresh deve aver slittato expires_at oltre la scadenza originale"
+        "the refresh must have slid expires_at past the original expiry"
     );
 }
 
@@ -750,9 +750,10 @@ async fn logout_invalidates_the_session() {
         .unwrap();
     let session_value = session_value_from(&setup_response);
 
-    // Popola la cache di `Auth` prima della revoca: senza questo GET, un
-    // cache-aside che non invalida su `revoke` resterebbe verde — la cache
-    // sarebbe vuota e il 401 arriverebbe dal database, non dalla drop.
+    // Populate `Auth`'s cache before revocation: without this GET, a
+    // cache-aside that doesn't invalidate on `revoke` would stay green —
+    // the cache would be empty and the 401 would come from the database,
+    // not from the drop.
     let warmed = server
         .client
         .get(server.url("/api/v1/auth/me"))
@@ -769,10 +770,10 @@ async fn logout_invalidates_the_session() {
         .unwrap();
     assert_eq!(response.status(), 204);
 
-    // Client fresco, senza cookie store: replica esplicitamente il cookie
-    // pre-logout. Se ci affidassimo al cookie store di `server.client`, la
-    // richiesta successiva partirebbe senza alcun cookie — il logout locale
-    // del client, non la revoca lato server, spiegherebbe il 401.
+    // Fresh client, no cookie store: replays the pre-logout cookie
+    // explicitly. If we relied on `server.client`'s cookie store, the next
+    // request would start with no cookie at all — the client's local
+    // logout, not server-side revocation, would explain the 401.
     let replay_me = plain_client()
         .get(server.url("/api/v1/auth/me"))
         .header("cookie", format!("__Host-kpx_session={session_value}"))
@@ -782,19 +783,20 @@ async fn logout_invalidates_the_session() {
     assert_eq!(
         replay_me.status(),
         401,
-        "la sessione deve essere invalidata lato server, non solo dimenticata dal client"
+        "the session must be invalidated server-side, not just forgotten by the client"
     );
 }
 
-/// Host fittizio di produzione. Serve solo da guardia di regressione: con il
-/// fix `Secure` è incondizionato, quindi qualunque valore dichiari l'header
-/// `Host` — reale (`127.0.0.1:<porta>`, l'host effettivo dell'harness) o
-/// contraffatto come questo — l'attributo deve comparire comunque. Se in
-/// futuro qualcuno reintroducesse una logica condizionata dall'host, questo
-/// test continuerebbe a passare quanto quello sul default e non lo
-/// distinguerebbe: il test che davvero prova la proprietà rotta è
+/// Fake production host. This exists purely as a regression guard: with
+/// the fix, `Secure` is unconditional, so whatever value the `Host`
+/// header declares — real (`127.0.0.1:<port>`, the harness's actual host)
+/// or spoofed like this one — the attribute must still appear. If someone
+/// were to reintroduce host-conditional logic in the future, this test
+/// would keep passing just as much as the one against the default host
+/// and would not catch it: the test that actually proves the fixed
+/// property is
 /// `login_issues_the_cookie_with_a_valid_host_prefix_on_the_default_test_host`
-/// più sotto, contro l'host reale dell'harness senza alcuna contraffazione.
+/// below, against the harness's real host with no spoofing at all.
 const PRODUCTION_HOST: &str = "photos.example.com";
 
 #[tokio::test]
@@ -831,17 +833,18 @@ async fn login_issues_the_cookie_with_a_valid_host_prefix() {
         .unwrap();
 
     assert_eq!(response.status(), 200);
-    // `Max-Age` è il TTL di sessione dell'harness (3600 secondi).
+    // `Max-Age` is the harness's session TTL (3600 seconds).
     assert_host_prefix_attributes(&response, "Max-Age=3600");
 }
 
-/// Il test che dimostra davvero il difetto corretto da questo fix round: con
-/// il client di default (nessun `Host` contraffatto, header reale
-/// `127.0.0.1:<porta>` — l'host effettivo su cui ascolta `TestServer`) il
-/// cookie di sessione emesso da `logout` porta comunque `Secure`. Prima del
-/// fix, `should_be_secure` riconosceva `127.0.0.1` come loopback e ometteva
-/// `Secure`: quel cookie sarebbe stato scartato per intero da un browser
-/// reale, anche in chiaro su loopback (vedi il commento su `cookie.rs`).
+/// The test that actually demonstrates the bug this fix corrected: with
+/// the default client (no spoofed `Host`, the real header
+/// `127.0.0.1:<port>` — the actual host `TestServer` listens on), the
+/// session cookie issued by `logout` still carries `Secure`. Before the
+/// fix, `should_be_secure` recognized `127.0.0.1` as loopback and omitted
+/// `Secure`: that cookie would have been discarded entirely by a real
+/// browser, even in the clear on loopback (see the comment on
+/// `cookie.rs`).
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn logout_clears_the_cookie_with_a_valid_host_prefix_on_the_default_test_host() {
@@ -859,9 +862,9 @@ async fn logout_clears_the_cookie_with_a_valid_host_prefix_on_the_default_test_h
     assert_host_prefix_attributes(&response, "Max-Age=0");
 }
 
-/// Come sopra, ma per `login`: prova che il cookie emesso contro l'host reale
-/// dei test (loopback, non contraffatto) è comunque valido secondo il
-/// prefisso `__Host-`.
+/// As above, but for `login`: proves that the cookie issued against the
+/// test's real host (loopback, not spoofed) is still valid under the
+/// `__Host-` prefix.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn login_issues_the_cookie_with_a_valid_host_prefix_on_the_default_test_host() {
@@ -880,20 +883,19 @@ async fn login_issues_the_cookie_with_a_valid_host_prefix_on_the_default_test_ho
     assert_host_prefix_attributes(&response, "Max-Age=3600");
 }
 
-/// Test comportamentale che affianca `assert_host_prefix_attributes`
-/// (letterale, sull'header): dopo un login riuscito contro l'host reale
-/// dell'harness (nessun `Host` contraffatto), lo **stesso client `reqwest`**
-/// con cookie-jar automatico — non un cookie riattaccato a mano — riesce a
-/// chiamare `/api/v1/auth/me`. È la sequenza "login → richiesta successiva
-/// resta autenticata" del criterio di completamento della Fase 0, ed è
-/// esattamente la proprietà che era rotta: prima del fix, `cookie_store`
-/// riceveva un `Set-Cookie` senza `Secure`, e — coerentemente con la regola
-/// del prefisso `__Host-` che nessuna libreria HTTP generica implementa — lo
-/// avrebbe comunque riaccettato (`cookie_store` non conosce `__Host-`); il
-/// bug era osservabile solo in un browser reale, mai in questo round-trip.
-/// Questo test da solo quindi *non* troverebbe una regressione a
-/// `should_be_secure`: la sua funzione è pinnare che il flusso normale
-/// funziona, non sostituire `assert_host_prefix_attributes`.
+/// Behavioral test that complements `assert_host_prefix_attributes`
+/// (which checks the header literally): after a successful login against
+/// the harness's real host (no spoofed `Host`), the **same `reqwest`
+/// client** with its automatic cookie jar — not a cookie re-attached by
+/// hand — can call `/api/v1/auth/me`. This is exactly the property that
+/// was broken: before the fix, `cookie_store` would receive a
+/// `Set-Cookie` without `Secure`, and — consistent with the `__Host-`
+/// prefix rule that no generic HTTP library implements — would have
+/// re-accepted it anyway (`cookie_store` doesn't know about `__Host-`);
+/// the bug was only observable in a real browser, never in this
+/// round-trip. This test alone therefore would *not* catch a regression
+/// in `should_be_secure`: its job is to pin that the normal flow works,
+/// not to replace `assert_host_prefix_attributes`.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn login_then_me_stays_authenticated_on_the_same_client() {
@@ -918,50 +920,51 @@ async fn login_then_me_stays_authenticated_on_the_same_client() {
     assert_eq!(
         me.status(),
         200,
-        "il client con cookie-jar deve restare autenticato"
+        "the client with cookie-jar must remain authenticated"
     );
 }
 
-/// Verifica sull'header `set-cookie` grezzo tutti gli attributi che rendono
-/// accettabile un cookie con prefisso `__Host-`: un browser conforme scarta
-/// **per intero** un `__Host-` privo di `Secure` o di `Path=/`
-/// (RFC 6265bis §4.1.3.2). Sul cookie cancellante l'effetto è che il logout non
-/// cancella nulla e la sessione sopravvive nel browser; su quello di sessione,
-/// che il cookie viaggia anche in chiaro. Nessuna delle due cose si vede in
-/// test — l'harness parla HTTP su 127.0.0.1 — quindi la si pinna qui.
+/// Checks every attribute on the raw `set-cookie` header that makes a
+/// `__Host-`-prefixed cookie acceptable: a compliant browser discards
+/// **entirely** a `__Host-` cookie missing `Secure` or `Path=/` (RFC
+/// 6265bis §4.1.3.2). On the clearing cookie, the effect is that logout
+/// clears nothing and the session survives in the browser; on the session
+/// cookie, that it also travels in the clear. Neither of these is visible
+/// in tests — the harness speaks HTTP on 127.0.0.1 — so it's pinned here
+/// instead.
 ///
-/// Si legge la risposta, non il cookie store di `reqwest`, per un motivo
-/// diverso da quanto si potrebbe pensare: **non** è che `reqwest` scarti un
-/// cookie `Secure` ricevuto in chiaro su loopback — verificato empiricamente,
-/// non lo fa: `cookie_store` (la libreria che `reqwest` usa per il jar)
-/// applica alla lettera la stessa eccezione di "origine potenzialmente
-/// affidabile" dei browser reali per loopback. Il motivo è che il cookie
-/// store non implementa affatto la validazione del prefisso `__Host-` (è
-/// un'estensione specifica dei browser, non parte del nucleo di RFC 6265):
-/// leggere il jar non potrebbe mai rilevare l'assenza di `Secure`,
-/// `Path=/` o `Domain`, qualunque cosa faccia il server. Solo ispezionare
-/// l'header letterale (o un vero motore browser, come nella verifica a mano
-/// con Playwright del Task 12) prova questa proprietà.
+/// The response is read directly rather than `reqwest`'s cookie store,
+/// for a reason different from what one might expect: it is **not** that
+/// `reqwest` discards a `Secure` cookie received in the clear on
+/// loopback — verified empirically, it does not: `cookie_store` (the
+/// library `reqwest` uses for its jar) applies the same "potentially
+/// trustworthy origin" exception for loopback that real browsers do. The
+/// reason is that the cookie store does not implement `__Host-` prefix
+/// validation at all (it's a browser-specific extension, not part of core
+/// RFC 6265): reading the jar could never detect a missing `Secure`,
+/// `Path=/`, or `Domain`, no matter what the server does. Only inspecting
+/// the literal header (or a real browser engine, as in a manual
+/// Playwright check) proves this property.
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 fn assert_host_prefix_attributes(response: &reqwest::Response, expected_max_age: &str) {
     let set_cookie = response
         .headers()
         .get("set-cookie")
-        .expect("set-cookie presente")
+        .expect("set-cookie present")
         .to_str()
         .unwrap()
         .to_owned();
 
-    // Gli attributi si confrontano per intero, non con `contains` sull'header:
-    // il valore del token è casuale e potrebbe contenere una qualsiasi di
-    // queste stringhe.
+    // Attributes are compared as whole tokens, not with `contains` on the
+    // header: the token value is random and could contain any of these
+    // strings.
     let mut parts = set_cookie.split(';').map(str::trim);
-    let name_value = parts.next().expect("coppia nome=valore");
+    let name_value = parts.next().expect("name=value pair");
     let attributes: Vec<&str> = parts.collect();
 
     assert!(
         name_value.starts_with("__Host-kpx_session="),
-        "cookie inatteso: {set_cookie}"
+        "unexpected cookie: {set_cookie}"
     );
     for expected in [
         "Secure",
@@ -972,7 +975,7 @@ fn assert_host_prefix_attributes(response: &reqwest::Response, expected_max_age:
     ] {
         assert!(
             attributes.contains(&expected),
-            "manca `{expected}` in `{set_cookie}`"
+            "missing `{expected}` in `{set_cookie}`"
         );
     }
 }
@@ -992,15 +995,15 @@ async fn setup(server: &TestServer) {
         .unwrap();
 }
 
-/// Estrae il valore del cookie di sessione dall'header `set-cookie` di una
-/// risposta. Il cookie store di `reqwest` non è ispezionabile, quindi si legge
-/// direttamente ciò che il server ha emesso.
+/// Extracts the session cookie's value from a response's `set-cookie`
+/// header. `reqwest`'s cookie store isn't inspectable, so this reads what
+/// the server emitted directly.
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 fn session_value_from(response: &reqwest::Response) -> String {
     response
         .headers()
         .get("set-cookie")
-        .expect("set-cookie presente")
+        .expect("set-cookie present")
         .to_str()
         .unwrap()
         .split(';')

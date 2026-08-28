@@ -105,7 +105,7 @@ async fn a_plain_user_can_create_list_get_patch_and_delete_tags() {
     assert_eq!(tag["parent_id"], cat_id);
     assert!(
         tag["has_embedding"].as_bool().unwrap(),
-        "create di un tag deve calcolare l'embedding testuale quando i pesi ci sono"
+        "creating a tag must compute the text embedding when the weights are present"
     );
 
     let listed: serde_json::Value = client
@@ -251,7 +251,7 @@ async fn categories_do_not_require_a_text_embedding() {
     assert_eq!(cat["has_embedding"], false);
 }
 
-/// Task 9: coda di revisione — list / confirm / reject / bulk + badge revision.
+/// Review queue — list / confirm / reject / bulk + revision badge.
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
 async fn review_queue_lists_confirms_rejects_and_updates_bootstrap_revision() {
@@ -413,11 +413,11 @@ async fn review_queue_lists_confirms_rejects_and_updates_bootstrap_revision() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Fase 11 Task 7 (§13.3 campo 5, dialog di scelta tag): assegna un tag a
-/// mano a più asset in un colpo solo — `state='confirmed', source='user'`,
-/// mai una proposta in attesa — poi lo toglie di nuovo con la freccia
-/// opposta dello stesso pulsante (`unassign_batch`), che deve cancellare la
-/// riga invece di lasciarla decisa.
+/// Manually assigns a tag to several assets in one shot —
+/// `state='confirmed', source='user'`, never a pending proposal — then
+/// removes it again via the reverse direction of the same button
+/// (`unassign_batch`), which must delete the row instead of leaving it
+/// decided.
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
 async fn assign_batch_confirms_the_tag_as_user_sourced_on_every_asset() {
@@ -522,10 +522,10 @@ async fn assign_batch_confirms_the_tag_as_user_sourced_on_every_asset() {
         assert_eq!(row.1, "user");
     }
 
-    // Fase 11 Task 7 (§13.3 campo 5, dialog di scelta tag): la freccia
-    // opposta dello stesso pulsante — verificato sul prototipo reale
-    // (`openTagPickerDialog`, `docs/ui/keeppix-mockup.html`) — deve
-    // cancellare la riga, non lasciarla `'rejected'`.
+    // The reverse direction of the same button — verified against the
+    // real prototype (`openTagPickerDialog`,
+    // `docs/ui/keeppix-mockup.html`) — must delete the row, not leave it
+    // `'rejected'`.
     let remove_outcome: serde_json::Value = server
         .client
         .post(server.url(&format!("/api/v1/tags/{tag_id}/assets/batch/remove")))
@@ -553,10 +553,9 @@ async fn assign_batch_confirms_the_tag_as_user_sourced_on_every_asset() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Fase 11 Task 8 (§19.2 campi 14-17): `GET /assets/{id}/tags` per il
-/// pannello informazioni, verificato end-to-end via HTTP — la logica di
-/// stato/provenienza è già coperta a fondo dai test di
-/// `AssetTagRepo::for_asset` in `keeppix-db`.
+/// `GET /assets/{id}/tags` for the info panel, verified end-to-end via
+/// HTTP — the state/source logic itself is already covered thoroughly by
+/// `AssetTagRepo::for_asset`'s tests in `keeppix-db`.
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
 async fn list_tags_for_asset_reflects_confirmed_state_and_source() {
@@ -643,8 +642,8 @@ async fn list_tags_for_asset_reflects_confirmed_state_and_source() {
     assert_eq!(tags[0]["state"], "confirmed");
     assert_eq!(tags[0]["source"], "user");
 
-    // §19.3: la `×` sui chip confermati rimuove permanentemente — mai
-    // più nell'elenco dopo.
+    // The `×` on confirmed chips removes permanently — never in the list
+    // again afterward.
     let remove = server
         .client
         .post(server.url(&format!("/api/v1/tags/{tag_id}/assets/{asset}/remove")))

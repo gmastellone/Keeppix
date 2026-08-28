@@ -467,7 +467,7 @@ async fn timeline_geometry_requires_auth() {
 async fn timeline_geometry_returns_ordered_binary_records() {
     let server = TestServer::start().await;
     let (folder, _) = seed_library(&server).await;
-    // Più vecchio -> più recente: la geometria deve uscire come la timeline,
+    // Oldest -> newest: the geometry must come out like the timeline,
     // taken_at DESC, id DESC.
     index_photo_sized(&server, folder, "old.jpg", 2024, 7, 1, 100, 50).await;
     index_photo_sized(&server, folder, "new.jpg", 2024, 8, 1, 6000, 4000).await;
@@ -487,7 +487,7 @@ async fn timeline_geometry_returns_ordered_binary_records() {
     let body = response.bytes().await.unwrap();
     let records = decode_geometry(&body);
     assert_eq!(records.len(), 2);
-    // record 0 = new.jpg (più recente)
+    // record 0 = new.jpg (most recent)
     assert_eq!(records[0], (6000, 4000, 2024 * 12 + 8));
     assert_eq!(records[1], (100, 50, 2024 * 12 + 7));
 }
@@ -533,7 +533,7 @@ async fn timeline_geometry_encodes_missing_dimensions_as_zero() {
     assert_eq!(
         records[0],
         (0, 0, 2024 * 12 + 7),
-        "un asset non ancora dimensionato entra con w=0,h=0, non viene escluso"
+        "an asset not yet sized enters with w=0,h=0, it is not excluded"
     );
 }
 
@@ -708,13 +708,12 @@ async fn timeline_reports_stack_size_one_for_an_unstacked_asset() {
     assert_eq!(items[0]["raw_kind"], "jpeg");
     assert_eq!(
         items[0]["favorite"], false,
-        "un asset mai votato non è preferito"
+        "an asset that was never voted on is not a favorite"
     );
 }
 
-/// `AssetView` è condiviso, ma `favorite` è per chiamante (Task 10 fase-10):
-/// la timeline deve risolverlo dal set del chiamante, non lasciarlo sempre
-/// `false`.
+/// `AssetView` is shared, but `favorite` is per-caller: the timeline must
+/// resolve it from the caller's own set, not always leave it `false`.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn timeline_page_resolves_the_callers_favorite_on_each_tile() {
@@ -761,14 +760,13 @@ async fn timeline_page_resolves_the_callers_favorite_on_each_tile() {
         let expected = item["id"] == loved_id;
         assert_eq!(
             item["favorite"], expected,
-            "solo l'asset marcato preferito deve tornare favorite=true"
+            "only the asset marked as favorite should return favorite=true"
         );
     }
 }
 
-/// `GET /assets/{id}` (pannello informazioni del lightbox, spec fase-10
-/// §7bis.1) deve anch'esso risolvere `favorite` del chiamante, non solo la
-/// pagina della timeline.
+/// `GET /assets/{id}` (the lightbox info panel) must also resolve
+/// `favorite` for the caller, not just the timeline page.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn get_single_asset_resolves_the_callers_favorite() {
@@ -817,10 +815,8 @@ async fn get_single_asset_resolves_the_callers_favorite() {
     assert_eq!(after["favorite"], true);
 }
 
-/// Fase 11 Task 8 (§19.2 campi 6-9, sezione "SCATTO" del lightbox):
-/// `full_exif` è additivo su `GET /assets/{id}` soltanto — mai su
-/// `/timeline`, un giro di query in più per riga che nessuna pagina della
-/// timeline legge.
+/// `full_exif` is additive on `GET /assets/{id}` only — never on
+/// `/timeline`, an extra query per row that no timeline page reads.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn get_single_asset_includes_full_exif_but_timeline_page_never_does() {
@@ -913,13 +909,13 @@ async fn probing_someone_elses_library_geometry_is_forbidden() {
     assert_eq!(body["type"], "keeppix/forbidden");
 }
 
-/// Decodifica il formato binario di `/timeline/geometry`: intestazione da 8
-/// byte (versione, conteggio) poi record da 6 byte (w, h, month), tutto LE.
+/// Decodes `/timeline/geometry`'s binary format: an 8-byte header
+/// (version, count) then 6-byte records (w, h, month), all little-endian.
 #[allow(clippy::unwrap_used)]
 fn decode_geometry(body: &[u8]) -> Vec<(u16, u16, u16)> {
-    assert!(body.len() >= 8, "intestazione da 8 byte assente");
+    assert!(body.len() >= 8, "missing 8-byte header");
     let version = u32::from_le_bytes(body[0..4].try_into().unwrap());
-    assert_eq!(version, 1, "versione del formato binario");
+    assert_eq!(version, 1, "binary format version");
     let count = u32::from_le_bytes(body[4..8].try_into().unwrap()) as usize;
     assert_eq!(body.len(), 8 + count * 6);
     (0..count)
@@ -1065,11 +1061,11 @@ async fn seed_user(server: &TestServer, username: &str) {
         .unwrap();
 }
 
-/// Fase 11 Task 7 (SP-3 §11, dimensione "Fotocamera") — campo additivo su
-/// `AssetView`, condiviso da `enrich_views` fra `/timeline` e `/search`.
-/// Server senza pgvector di proposito: dimostra che `tags`/`faces` restano
-/// `[]` per grazia (nessun errore) quando lo schema AI non esiste affatto —
-/// `camera_model` non dipende da pgvector, `asset_exif` è schema core.
+/// Additive field on `AssetView`, shared by `enrich_views` between
+/// `/timeline` and `/search`. Deliberately a server without pgvector:
+/// demonstrates that `tags`/`faces` degrade gracefully to `[]` (no error)
+/// when the AI schema doesn't exist at all — `camera_model` doesn't
+/// depend on pgvector, `asset_exif` is core schema.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn timeline_page_includes_camera_model_and_empty_tags_faces_without_vector() {
@@ -1135,9 +1131,9 @@ async fn timeline_page_includes_camera_model_and_empty_tags_faces_without_vector
     assert!(no_exif.get("camera_model").is_none());
 }
 
-/// Fase 11 Task 7 (SP-3 §11, dimensioni "Tag"/"Categorie"/"Persone") — la
-/// stessa `enrich_views` che il test sopra dimostra graziosa senza
-/// pgvector deve popolare per davvero quando lo schema AI c'è.
+/// The same `enrich_views` the test above shows degrading gracefully
+/// without pgvector must actually populate `tags`/`faces` when the AI
+/// schema is present.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::too_many_lines)]
 async fn timeline_page_includes_confirmed_tags_and_faces_with_vector() {

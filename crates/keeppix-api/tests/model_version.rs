@@ -1,15 +1,15 @@
-//! `keeppix-db` duplica `MODEL_VERSION` per non dipendere da `keeppix-media`
-//! (`deny.toml`). Le due costanti devono restare identiche: un mismatch
-//! silenzioso renderebbe `SearchNode::Semantic` cieco a tutti gli embedding
-//! già scritti (spec fase-7 §4.1, filtro `model_version = $1`).
+//! `keeppix-db` duplicates `MODEL_VERSION` so it doesn't have to depend on
+//! `keeppix-media` (`deny.toml`). The two constants must stay identical: a
+//! silent mismatch would make `SearchNode::Semantic` blind to every
+//! embedding already written (the `model_version = $1` filter).
 
 #[test]
 fn db_and_media_agree_on_the_embedding_model_version() {
     assert_eq!(
         keeppix_db::MODEL_VERSION,
         keeppix_media::openclip_xlmr::MODEL_VERSION,
-        "keeppix-db::MODEL_VERSION è duplicato da keeppix-media::MODEL_VERSION: \
-         se divergono, gli embedding scritti da keeppix-jobs (media) smettono \
-         di essere trovati dalla ricerca (db)"
+        "keeppix-db::MODEL_VERSION is duplicated from keeppix-media::MODEL_VERSION: \
+         if they diverge, embeddings written by keeppix-jobs (media) stop \
+         being found by search (db)"
     );
 }

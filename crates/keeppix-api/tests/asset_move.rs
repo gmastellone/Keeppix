@@ -1,5 +1,5 @@
-//! Fase 11 Task 7 (§13.3 campo 8, "Sposta in cartella") — `POST
-//! /assets/batch/move`, primo consumatore di `AssetRepo::move_to_folder`.
+//! `POST /assets/batch/move`, the first consumer of
+//! `AssetRepo::move_to_folder`.
 
 mod harness;
 
@@ -27,25 +27,25 @@ async fn setup_admin(server: &TestServer) -> UserId {
         }))
         .send()
         .await
-        .expect("richiesta di setup");
-    let body: serde_json::Value = response.json().await.expect("corpo JSON");
+        .expect("setup request");
+    let body: serde_json::Value = response.json().await.expect("JSON body");
     body["user"]["id"]
         .as_str()
-        .expect("id utente")
+        .expect("user id")
         .parse()
-        .expect("uuid valido")
+        .expect("valid uuid")
 }
 
-/// Bug reale trovato e corretto qui: la vecchia `ensure_folder` creava una
-/// libreria nuova a ogni chiamata usando `root` come `root_path` — chiamarla
-/// due volte con la stessa radice (`"2024"` poi `"2024/Scelte"`, come fanno
-/// entrambi i test qui sotto) violava il vincolo `libraries_root_path_key`
-/// alla seconda chiamata. Mai emerso prima d'ora: la CI non arrivava fino
-/// allo step dei test finché `cargo fmt --check` falliva su altri file.
-/// Separata in "crea la libreria una volta" + "assicura un percorso di
-/// cartelle dentro quella libreria, quante volte serve" — `ensure_path`
-/// (`crates/keeppix-db/src/folders.rs:245-259`) è già idempotente per
-/// costruzione su percorsi che si sovrappongono, non serve altro.
+/// Real bug found and fixed here: the old `ensure_folder` created a new
+/// library on every call using `root` as `root_path` — calling it twice
+/// with the same root (`"2024"` then `"2024/Scelte"`, as both tests below
+/// do) violated the `libraries_root_path_key` constraint on the second
+/// call. It never surfaced before because CI never reached the test step
+/// while `cargo fmt --check` was failing on other files. Split into
+/// "create the library once" + "ensure a folder path inside that library,
+/// as many times as needed" — `ensure_path`
+/// (`crates/keeppix-db/src/folders.rs:245-259`) is already idempotent by
+/// construction for overlapping paths, so nothing else is needed.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn ensure_library(server: &TestServer, admin: UserId, root: &std::path::Path) -> LibraryId {
     let ctx = AuthContext::user(admin, SystemRole::Admin);
@@ -60,7 +60,7 @@ async fn ensure_library(server: &TestServer, admin: UserId, root: &std::path::Pa
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -75,11 +75,11 @@ async fn ensure_folder(
     for segment in segments {
         dir = dir.join(segment);
     }
-    fs::create_dir_all(&dir).expect("cartella su disco");
+    fs::create_dir_all(&dir).expect("folder on disk");
     FolderRepo::new(&server.db)
         .ensure_path(library, segments)
         .await
-        .expect("cartella")
+        .expect("folder")
         .id
 }
 
@@ -90,28 +90,28 @@ async fn seed_indexed_asset(
     dir: &std::path::Path,
     filename: &str,
 ) -> AssetId {
-    fs::write(dir.join(filename), b"contenuto").expect("file su disco");
+    fs::write(dir.join(filename), b"content").expect("file on disk");
 
     let repo = AssetRepo::new(&server.db);
     let asset = repo
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse(filename).expect("nome"),
+            filename: AssetName::parse(filename).expect("name"),
             size_bytes: 9,
             mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
             inode: None,
             kind: AssetKind::Image,
         })
         .await
-        .expect("indicizzazione");
-    asset.expect("nuovo asset").id
+        .expect("indexing");
+    asset.expect("new asset").id
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root() -> PathBuf {
     let root =
         std::env::temp_dir().join(format!("keeppix-api-asset-move-{}", uuid::Uuid::now_v7()));
-    fs::create_dir_all(&root).expect("radice di test");
+    fs::create_dir_all(&root).expect("test root");
     root
 }
 
@@ -149,7 +149,7 @@ async fn moves_every_asset_in_the_batch_keeping_its_filename() {
         .await
         .unwrap();
     assert_eq!(moved.folder_id, dst);
-    assert_eq!(moved.filename.as_str(), "a.jpg", "spostare non rinomina");
+    assert_eq!(moved.filename.as_str(), "a.jpg", "moving does not rename");
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -186,7 +186,7 @@ async fn a_collision_fails_only_that_asset_not_the_whole_batch() {
     assert!(root.join("2024").join("Scelte").join("clean.jpg").is_file());
     assert!(
         root.join("2024").join("taken.jpg").is_file(),
-        "il file in conflitto resta al suo posto"
+        "the conflicting file stays in place"
     );
 
     let _ = fs::remove_dir_all(&root);

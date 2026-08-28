@@ -23,13 +23,13 @@ async fn setup_admin(server: &TestServer) -> UserId {
         }))
         .send()
         .await
-        .expect("richiesta di setup");
-    let body: serde_json::Value = response.json().await.expect("corpo JSON");
+        .expect("setup request");
+    let body: serde_json::Value = response.json().await.expect("JSON body");
     body["user"]["id"]
         .as_str()
-        .expect("id utente")
+        .expect("user id")
         .parse()
-        .expect("uuid valido")
+        .expect("valid uuid")
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -46,17 +46,17 @@ async fn ensure_folder(server: &TestServer, admin: UserId, root: &std::path::Pat
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
-    fs::create_dir_all(root.join("2024")).expect("cartella su disco");
+    fs::create_dir_all(root.join("2024")).expect("folder on disk");
     FolderRepo::new(&server.db)
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id
 }
 
-/// Un solo asset dentro una cartella già preparata da [`ensure_folder`].
+/// A single asset inside a folder already prepared by [`ensure_folder`].
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_asset(
     server: &TestServer,
@@ -64,12 +64,12 @@ async fn seed_asset(
     root: &std::path::Path,
     filename: &str,
 ) -> AssetId {
-    fs::write(root.join("2024").join(filename), b"contenuto").expect("file su disco");
+    fs::write(root.join("2024").join(filename), b"content").expect("file on disk");
 
     AssetRepo::new(&server.db)
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse(filename).expect("nome"),
+            filename: AssetName::parse(filename).expect("name"),
             size_bytes: 9,
             mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
             inode: None,
@@ -84,7 +84,7 @@ async fn seed_asset(
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!("keeppix-api-flags-{}", uuid::Uuid::now_v7()));
-    fs::create_dir_all(&root).expect("radice di test");
+    fs::create_dir_all(&root).expect("test root");
     root
 }
 
@@ -113,7 +113,7 @@ async fn setting_and_reading_back_the_callers_flags_round_trips() {
     let response = server
         .client
         .put(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
-        .json(&json!({ "rating": 4, "pick": "pick", "color_label": "rosso", "favorite": true }))
+        .json(&json!({ "rating": 4, "pick": "pick", "color_label": "red", "favorite": true }))
         .send()
         .await
         .unwrap();
@@ -130,14 +130,14 @@ async fn setting_and_reading_back_the_callers_flags_round_trips() {
         .unwrap();
     assert_eq!(after["rating"], 4);
     assert_eq!(after["pick"], "pick");
-    assert_eq!(after["color_label"], "rosso");
+    assert_eq!(after["color_label"], "red");
     assert_eq!(after["favorite"], true);
 
     let _ = fs::remove_dir_all(&root);
 }
 
-/// `favorite` non è un riuso di `pick` (spec fase-10 §7bis.1): scartare uno
-/// scatto nel culling non deve azzerare il preferito.
+/// `favorite` is not a reuse of `pick`: discarding a shot during culling
+/// must not clear the favorite flag.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn discarding_in_culling_does_not_clear_favorite() {
@@ -155,8 +155,8 @@ async fn discarding_in_culling_does_not_clear_favorite() {
         .await
         .unwrap();
 
-    // Scarta nello scoring del culling: pick passa a reject, favorite resta
-    // esplicitamente true nel corpo (rimpiazzo completo del voto).
+    // Discard in the culling score: pick moves to reject, favorite stays
+    // explicitly true in the body (a full replacement of the vote).
     server
         .client
         .put(server.url(&format!("/api/v1/assets/{asset_id}/flags")))
@@ -177,7 +177,7 @@ async fn discarding_in_culling_does_not_clear_favorite() {
     assert_eq!(after["pick"], "reject");
     assert_eq!(
         after["favorite"], true,
-        "scartare nel culling non deve azzerare il preferito"
+        "discarding in culling must not clear the favorite flag"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -273,7 +273,7 @@ async fn two_users_voting_on_the_same_asset_do_not_overwrite_each_other() {
         .unwrap();
     assert_eq!(
         admin_flags["rating"], 5,
-        "il voto di mario non deve sovrascrivere quello dell'admin"
+        "mario's vote must not overwrite the admin's"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -326,8 +326,9 @@ async fn batch_set_applies_the_same_flags_to_every_asset() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Spec §3: un lotto misto non è tutto-o-niente — l'asset visibile riesce,
-/// quello altrui finisce in `failed` con `permission-denied`, HTTP 200.
+/// A mixed batch is not all-or-nothing — the visible asset succeeds, the
+/// one belonging to someone else ends up in `failed` with
+/// `permission-denied`, HTTP 200.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn flags_batch_reports_partial_success_when_one_asset_is_foreign() {

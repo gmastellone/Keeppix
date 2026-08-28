@@ -19,7 +19,7 @@ async fn replaying_the_same_mutation_key_and_body_returns_the_cached_response() 
 
     assert_eq!(
         replay_body, first_body,
-        "lo stesso Idempotency-Key deve restituire il payload già salvato"
+        "the same Idempotency-Key must return the already-saved payload"
     );
 
     let albums = server
@@ -35,7 +35,7 @@ async fn replaying_the_same_mutation_key_and_body_returns_the_cached_response() 
     assert_eq!(
         list.len(),
         1,
-        "la stessa mutazione non deve rieseguire la creazione dell'album"
+        "the same mutation must not re-execute the album creation"
     );
     assert_eq!(list[0]["id"], first_body["id"]);
 }
@@ -67,7 +67,7 @@ async fn reusing_the_same_mutation_key_with_a_different_body_is_a_conflict() {
     assert_eq!(
         list.len(),
         1,
-        "il body conflittuale non deve creare un nuovo album"
+        "the conflicting body must not create a new album"
     );
     assert_eq!(list[0]["name"], "Vacanze");
 }
@@ -164,7 +164,7 @@ fn session_cookie_value(response: &reqwest::Response) -> String {
     response
         .headers()
         .get("set-cookie")
-        .expect("set-cookie presente")
+        .expect("set-cookie present")
         .to_str()
         .unwrap()
         .split(';')

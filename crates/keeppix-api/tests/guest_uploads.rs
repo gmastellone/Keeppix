@@ -1,4 +1,4 @@
-//! Guest upload through a public share link (Task 13d).
+//! Guest upload through a public share link.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod harness;

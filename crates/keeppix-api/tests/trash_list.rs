@@ -53,7 +53,7 @@ async fn login_as(server: &TestServer, username: &str, password: &str) -> reqwes
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root(server: &TestServer, name: &str) -> PathBuf {
     let root = server.photos_root.join(name);
-    fs::create_dir_all(&root).expect("radice");
+    fs::create_dir_all(&root).expect("root");
     root
 }
 
@@ -74,7 +74,7 @@ async fn seed_library(
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -89,15 +89,15 @@ async fn seed_asset(
     let folder_id = FolderRepo::new(&server.db)
         .ensure_path(library, &[folder])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id;
-    fs::create_dir_all(root.join(folder)).expect("cartella su disco");
-    fs::write(root.join(folder).join(filename), b"contenuto").expect("file");
+    fs::create_dir_all(root.join(folder)).expect("folder on disk");
+    fs::write(root.join(folder).join(filename), b"content").expect("file");
 
     AssetRepo::new(&server.db)
         .upsert_discovered(NewAsset {
             folder_id,
-            filename: AssetName::parse(filename).expect("nome"),
+            filename: AssetName::parse(filename).expect("name"),
             size_bytes: 9,
             mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
             inode: None,
@@ -149,7 +149,7 @@ async fn trash_list_is_keyset_paginated() {
     assert_eq!(page1["items"].as_array().unwrap().len(), 2);
     let cursor = page1["next_cursor"]
         .as_str()
-        .expect("next_cursor sulla prima pagina");
+        .expect("next_cursor on the first page");
 
     let page2 = server
         .client

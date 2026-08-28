@@ -14,10 +14,10 @@ use keeppix_domain::{
 use keeppix_jobs::{ActivityTracker, IngestHandler, WorkerPool};
 use serde_json::json;
 
-/// Dal 27 agosto `POST /assets/batch/rename` accoda un `JobKind::BulkRename`
-/// invece di rinominare dentro la richiesta (vedi il commento in cima a
-/// `routes/rename.rs`) — stesso pattern di `scan.rs::drain_workers`, gira il
-/// worker finché la coda non è vuota.
+/// `POST /assets/batch/rename` enqueues a `JobKind::BulkRename` instead of
+/// renaming inline within the request (see the comment at the top of
+/// `routes/rename.rs`) — same pattern as `scan.rs::drain_workers`, runs
+/// the worker until the queue is empty.
 #[allow(clippy::expect_used)]
 async fn drain_workers(server: &TestServer, data_dir: &std::path::Path) {
     let tracker = std::sync::Arc::new(ActivityTracker::new());
@@ -72,13 +72,13 @@ async fn setup_admin(server: &TestServer) -> UserId {
         }))
         .send()
         .await
-        .expect("richiesta di setup");
-    let body: serde_json::Value = response.json().await.expect("corpo JSON");
+        .expect("setup request");
+    let body: serde_json::Value = response.json().await.expect("JSON body");
     body["user"]["id"]
         .as_str()
-        .expect("id utente")
+        .expect("user id")
         .parse()
-        .expect("uuid valido")
+        .expect("valid uuid")
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -95,13 +95,13 @@ async fn ensure_folder(server: &TestServer, admin: UserId, root: &std::path::Pat
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
-    fs::create_dir_all(root.join("2024")).expect("cartella su disco");
+    fs::create_dir_all(root.join("2024")).expect("folder on disk");
     FolderRepo::new(&server.db)
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id
 }
 
@@ -112,13 +112,13 @@ async fn seed_indexed_asset(
     root: &std::path::Path,
     filename: &str,
 ) -> AssetId {
-    fs::write(root.join("2024").join(filename), b"contenuto").expect("file su disco");
+    fs::write(root.join("2024").join(filename), b"content").expect("file on disk");
 
     let repo = AssetRepo::new(&server.db);
     let asset = repo
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse(filename).expect("nome"),
+            filename: AssetName::parse(filename).expect("name"),
             size_bytes: 9,
             mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
             inode: None,
@@ -135,14 +135,14 @@ async fn seed_indexed_asset(
         100,
     )
     .await
-    .expect("indicizzazione");
+    .expect("indexing");
     asset
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!("keeppix-api-rename-{}", uuid::Uuid::now_v7()));
-    fs::create_dir_all(&root).expect("radice di test");
+    fs::create_dir_all(&root).expect("test root");
     root
 }
 
@@ -172,7 +172,7 @@ async fn preview_computes_names_and_writes_nothing() {
 
     assert!(
         root.join("2024").join("a.jpg").is_file(),
-        "preview non tocca il disco"
+        "preview does not touch the disk"
     );
     assert!(!root.join("2024").join("vacanza_01.JPG").exists());
 
@@ -196,8 +196,8 @@ async fn apply_batch_renames_on_disk_and_tracks_a_finished_operation() {
         .send()
         .await
         .unwrap();
-    // Dal 27 agosto: 202 subito, il lavoro vero gira in background
-    // (JobKind::BulkRename) — vedi il commento in cima a routes/rename.rs.
+    // 202 right away, the actual work runs in the background
+    // (JobKind::BulkRename) — see the comment at the top of routes/rename.rs.
     assert_eq!(response.status(), 202);
     let body: serde_json::Value = response.json().await.unwrap();
     let operation_id: keeppix_domain::OperationId =
@@ -220,9 +220,10 @@ async fn apply_batch_renames_on_disk_and_tracks_a_finished_operation() {
     assert_eq!(operation.phase, "renaming");
     assert_eq!(operation.succeeded.len(), 2);
 
-    // `undo` non è nello scopo del cambio del 27 agosto (debito dichiarato
-    // in keeppix_db::rename) — resta sincrona, batch_id letto dal database
-    // invece che dalla vecchia risposta di apply, che non lo porta più.
+    // `undo` is out of scope for the background-job change (see the
+    // acknowledged debt noted in keeppix_db::rename) — it stays
+    // synchronous, with batch_id read from the database instead of from
+    // apply's old response, which no longer carries it.
     let batch_id: uuid::Uuid =
         sqlx::query_scalar("SELECT id FROM rename_batches ORDER BY id LIMIT 1")
             .fetch_one(server.db.pool())
@@ -272,25 +273,26 @@ async fn apply_batch_reports_a_collision_without_blocking_the_rest() {
     drain_workers(&server, &server.data_dir.join("rename-collision-data")).await;
 
     // `a` and `b` both compute to `target.JPG`: collisions are only known
-    // for certain at write time (Ruling, `rename.rs`), so `apply` processes
+    // for certain at write time (see `rename.rs`), so `apply` processes
     // the group sequentially — the first one through wins the name, the
-    // second finds it already taken and fails with `collision`. Dal 27
-    // agosto la rotta risponde subito col solo `operation_id` (il lavoro
-    // gira in background): il motivo preciso del fallimento (`"collision"`)
-    // non sopravvive più fino al chiamante — solo `succeeded`/`done`/`total`
-    // restano leggibili sull'`Operation`, stesso limite già presente per
-    // ogni altra operazione in background di questo sistema (`LibraryScan`
-    // non riporta perché un file è fallito, solo quanti sono riusciti).
+    // second finds it already taken and fails with `collision`. The route
+    // responds right away with just an `operation_id` (the work runs in
+    // the background): the precise reason for the failure
+    // (`"collision"`) no longer survives to the caller — only
+    // `succeeded`/`done`/`total` remain readable on the `Operation`, the
+    // same limitation already present for every other background
+    // operation in this system (`LibraryScan` doesn't report why a file
+    // failed, only how many succeeded).
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let operation = OperationsRepo::new(&server.db)
         .find(&ctx, operation_id)
         .await
         .unwrap();
     assert_eq!(operation.status, OperationStatus::Done);
-    assert_eq!(operation.total, Some(2), "entrambi calcolano un nome nuovo");
+    assert_eq!(operation.total, Some(2), "both compute a new name");
     assert_eq!(
         operation.done, 1,
-        "solo il primo dei due vince il nome conteso"
+        "only the first of the two wins the contested name"
     );
     assert_eq!(operation.succeeded.len(), 1);
 

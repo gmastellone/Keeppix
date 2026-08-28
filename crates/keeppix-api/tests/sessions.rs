@@ -25,8 +25,8 @@ async fn setup(server: &TestServer) {
     assert_eq!(response.status(), 201);
 }
 
-/// Un secondo "dispositivo": client con proprio cookie-jar, proprio
-/// `User-Agent`, loggato sullo stesso utente creato da `setup`.
+/// A second "device": client with its own cookie jar, its own
+/// `User-Agent`, logged in as the same user created by `setup`.
 #[allow(clippy::unwrap_used)]
 async fn login_second_device(server: &TestServer, user_agent: &str) -> reqwest::Client {
     let device = reqwest::Client::builder()
@@ -111,7 +111,7 @@ async fn a_second_device_shows_up_and_only_the_caller_is_marked_current() {
         .unwrap();
     assert_ne!(
         current_id_from_a, current_id_from_b,
-        "ognuno vede sé stesso come corrente, non l'altro dispositivo"
+        "each one sees itself as current, not the other device"
     );
 }
 
@@ -157,7 +157,7 @@ async fn revoking_another_session_logs_it_out_without_touching_the_caller() {
     assert_eq!(
         b_me.status(),
         401,
-        "il token del dispositivo revocato non deve più autenticare"
+        "the revoked device's token must no longer authenticate"
     );
 
     let a_me = server
@@ -166,7 +166,7 @@ async fn revoking_another_session_logs_it_out_without_touching_the_caller() {
         .send()
         .await
         .unwrap();
-    assert_eq!(a_me.status(), 200, "la sessione chiamante resta valida");
+    assert_eq!(a_me.status(), 200, "the caller's session remains valid");
 }
 
 #[tokio::test]
@@ -196,7 +196,7 @@ async fn the_current_session_cannot_be_revoked_via_delete() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["type"], "keeppix/session-is-current");
 
-    // Non è stata revocata: la sessione chiamante deve ancora funzionare.
+    // It was not revoked: the caller's session must still work.
     let me = server
         .client
         .get(server.url("/api/v1/auth/me"))
@@ -212,8 +212,7 @@ async fn revoking_a_session_that_belongs_to_someone_else_is_forbidden_not_not_fo
     let server = TestServer::start().await;
     setup(&server).await;
 
-    // Un secondo utente amministra sé stesso creando il proprio account con
-    // `/setup` non è possibile due volte; si crea un secondo utente da admin.
+    // `/setup` can't run twice, so a second user is created by the admin instead.
     server
         .client
         .post(server.url("/api/v1/users"))
@@ -261,7 +260,7 @@ async fn revoking_a_session_that_belongs_to_someone_else_is_forbidden_not_not_fo
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["type"], "keeppix/forbidden");
 
-    // La sessione dell'admin non deve essere stata toccata dal tentativo.
+    // The admin's session must not have been touched by the attempt.
     let me = server
         .client
         .get(server.url("/api/v1/auth/me"))
@@ -293,11 +292,7 @@ async fn revoke_others_logs_out_every_other_device_but_keeps_the_caller() {
             .send()
             .await
             .unwrap();
-        assert_eq!(
-            me.status(),
-            401,
-            "i dispositivi non chiamanti devono cadere"
-        );
+        assert_eq!(me.status(), 401, "non-caller devices must be logged out");
     }
 
     let a_me = server
@@ -306,7 +301,7 @@ async fn revoke_others_logs_out_every_other_device_but_keeps_the_caller() {
         .send()
         .await
         .unwrap();
-    assert_eq!(a_me.status(), 200, "il chiamante resta autenticato");
+    assert_eq!(a_me.status(), 200, "the caller remains authenticated");
 
     let sessions: serde_json::Value = server
         .client

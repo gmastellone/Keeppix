@@ -1,7 +1,7 @@
-//! Fase 8 Task 6/7/8: rotte HTTP di persone/gruppi e coda di revisione volti.
-//! Le regole di visibilità/centroide sono già coperte a fondo dai test di
-//! `keeppix-db`; qui si verifica soprattutto il filo che le collega a HTTP —
-//! percorsi montati, forma del JSON, codici di stato.
+//! HTTP routes for persons/groups and the face review queue.
+//! Visibility/centroid rules are already covered thoroughly by
+//! `keeppix-db`'s tests; this mostly verifies the wire connecting them to
+//! HTTP — mounted paths, JSON shape, status codes.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -67,10 +67,10 @@ async fn seed_scanned_asset(server: &TestServer, tag: &str) -> AssetId {
     asset_id
 }
 
-/// Inserisce e conferma un volto direttamente via repository (nessuna rotta
-/// HTTP di rilevamento in questa fase: quella la guida la pipeline, non un
-/// client) — mette la persona nello stato che le rotte HTTP devono poi
-/// gestire correttamente.
+/// Inserts and confirms a face directly via the repository (there's no
+/// HTTP route for detection: that's driven by the pipeline, not a
+/// client) — puts the person into the state the HTTP routes then have to
+/// handle correctly.
 async fn seed_confirmed_face(
     server: &TestServer,
     asset_id: AssetId,
@@ -362,7 +362,7 @@ async fn review_queue_confirm_and_reject_via_http() {
         .unwrap();
     assert_eq!(proposals.as_array().unwrap().len(), 2);
 
-    // Conferma singola su face_a via /faces/{id}/confirm.
+    // Single confirmation on face_a via /faces/{id}/confirm.
     let resp = server
         .client
         .post(server.url(&format!("/api/v1/faces/{}/confirm", face_a.id)))
@@ -371,7 +371,7 @@ async fn review_queue_confirm_and_reject_via_http() {
         .unwrap();
     assert_eq!(resp.status(), 204);
 
-    // "Rifiuta tutti" per il candidato rifiuta ciò che resta (face_b).
+    // "Reject all" for the candidate rejects whatever's left (face_b).
     let outcome: Value = server
         .client
         .post(server.url(&format!(
@@ -481,7 +481,7 @@ async fn bootstrap_badge_counts_pending_face_proposals() {
     assert_eq!(bootstrap["badges"]["revision"], 1);
 }
 
-// ---- Gruppi di persone ----
+// ---- Person groups ----
 
 #[tokio::test]
 async fn person_group_crud_and_membership() {

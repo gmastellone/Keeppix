@@ -1,6 +1,6 @@
-//! Sessioni di upload riprendibili in stile tus (Task 1, Fase 5): pre-check,
-//! creazione, checksum per chunk, finalizzazione con verifica end-to-end e
-//! risoluzione di collisione sul nome.
+//! Resumable upload sessions in tus style: pre-check, creation, per-chunk
+//! checksums, finalization with end-to-end verification, and filename
+//! collision resolution.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod harness;
@@ -31,12 +31,12 @@ fn blake3_hex(bytes: &[u8]) -> String {
     hex(blake3::hash(bytes).as_bytes())
 }
 
-/// Libreria vuota con una singola cartella radice, pronta a ricevere upload.
+/// An empty library with a single root folder, ready to receive uploads.
 ///
-/// Un root folder non esiste finché il walker non scopre almeno un file
-/// dentro (`FolderRepo::ensure_path` in `discover.rs`): per una libreria
-/// ancora vuota lo si crea qui direttamente, invece di aspettare una
-/// scansione che non troverebbe nulla da indicizzare.
+/// A root folder doesn't exist until the walker discovers at least one
+/// file inside it (`FolderRepo::ensure_path` in `discover.rs`): for a
+/// still-empty library it's created directly here, instead of waiting for
+/// a scan that wouldn't find anything to index.
 async fn library_with_folder(server: &TestServer, name_hint: &str) -> (String, PathBuf) {
     setup_admin(server).await;
     let root = server
@@ -133,9 +133,8 @@ async fn upload_offset(server: &TestServer, session_id: &str) -> String {
         .to_owned()
 }
 
-/// Caso 1: 47 hash di cui alcuni sconosciuti — qui due, uno noto e uno no —
-/// la risposta elenca esattamente quelli sconosciuti, zero falsi
-/// positivi/negativi.
+/// A set of hashes, some unknown — here two, one known and one not — the
+/// response lists exactly the unknown ones, zero false positives/negatives.
 #[tokio::test]
 async fn precheck_returns_only_the_unknown_hashes() {
     let server = TestServer::start().await;
@@ -170,8 +169,8 @@ async fn precheck_returns_only_the_unknown_hashes() {
     assert_eq!(unknowns, vec![unknown_hex.as_str()]);
 }
 
-/// Caso 2: `Upload-Offset` diverso da `received_bytes` reale → `409`, non
-/// un'accettazione silenziosa che corrompe il file.
+/// `Upload-Offset` different from the actual `received_bytes` → `409`,
+/// not a silent acceptance that corrupts the file.
 #[tokio::test]
 async fn patch_with_wrong_offset_is_rejected_with_409() {
     let server = TestServer::start().await;
@@ -192,9 +191,8 @@ async fn patch_with_wrong_offset_is_rejected_with_409() {
     assert_eq!(upload_offset(&server, &session_id).await, "0");
 }
 
-/// Caso 3: checksum del chunk che non combacia → `460`, il chunk **non**
-/// viene scritto, il client può rispedirlo senza perdere l'offset
-/// precedente.
+/// A chunk checksum that doesn't match → `460`, the chunk is **not**
+/// written, the client can resend it without losing the previous offset.
 #[tokio::test]
 async fn patch_with_wrong_chunk_checksum_is_rejected_and_does_not_advance() {
     let server = TestServer::start().await;
@@ -216,9 +214,9 @@ async fn patch_with_wrong_chunk_checksum_is_rejected_and_does_not_advance() {
     assert_eq!(upload_offset(&server, &session_id).await, "0");
 }
 
-/// Caso 4: a file completo, l'hash blake3 totale non combacia con
-/// `expected_hash` → il file non entra mai in libreria, temporaneo
-/// eliminato, sessione marcata fallita.
+/// With a complete file, the total blake3 hash doesn't match
+/// `expected_hash` → the file never enters the library, the temp file is
+/// deleted, the session is marked failed.
 #[tokio::test]
 async fn completing_with_a_wrong_expected_hash_never_enters_the_library() {
     let server = TestServer::start().await;
@@ -247,28 +245,28 @@ async fn completing_with_a_wrong_expected_hash_never_enters_the_library() {
 
     assert!(
         !Path::new(&temp_path).exists(),
-        "il temporaneo di un hash sbagliato va ripulito"
+        "the temp file for a wrong hash must be cleaned up"
     );
     let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
         .bind(uuid::Uuid::parse_str(&session_id).unwrap())
         .fetch_one(server.db.pool())
         .await
         .unwrap();
-    assert_eq!(sessions, 0, "la sessione fallita va cancellata");
+    assert_eq!(sessions, 0, "the failed session must be deleted");
     let assets: i64 =
         sqlx::query_scalar("SELECT count(*) FROM assets WHERE filename = 'photo.jpg'")
             .fetch_one(server.db.pool())
             .await
             .unwrap();
-    assert_eq!(assets, 0, "un hash sbagliato non deve mai creare un asset");
+    assert_eq!(assets, 0, "a wrong hash must never create an asset");
     assert!(!root.join("photo.jpg").exists());
 }
 
-/// Due `PATCH` in sequenza completano l'upload: verifica che
-/// `write_chunk_checked` scriva davvero in append (streaming, mai
-/// bufferizzato per intero in RAM) e non sovrascriva quanto già ricevuto —
-/// l'hash end-to-end che finalizza la sessione è quello del file intero,
-/// non del solo ultimo chunk.
+/// Two `PATCH`es in sequence complete the upload: verifies that
+/// `write_chunk_checked` really writes in append mode (streaming, never
+/// buffered entirely in RAM) and doesn't overwrite what was already
+/// received — the end-to-end hash that finalizes the session is that of
+/// the whole file, not just the last chunk.
 #[tokio::test]
 async fn a_multi_chunk_upload_completes_across_two_patches() {
     let server = TestServer::start().await;
@@ -277,7 +275,7 @@ async fn a_multi_chunk_upload_completes_across_two_patches() {
     let bytes = fs::read(tiny_fixture_path()).unwrap();
     assert!(
         bytes.len() > 4,
-        "il fixture deve poter essere spezzato in due chunk"
+        "the fixture must be splittable into two chunks"
     );
     let (first, second) = bytes.split_at(bytes.len() / 2);
 
@@ -310,16 +308,16 @@ async fn a_multi_chunk_upload_completes_across_two_patches() {
     assert_eq!(fs::read(root.join("multi.jpg")).unwrap(), bytes);
 }
 
-/// Caso 5: verifica di decodificabilità fallita (header corrotto) anche con
-/// hash corretto → stesso esito del caso 4: mai in libreria, segnalato,
-/// temporaneo e sessione ripuliti.
+/// A failed decodability check (corrupted header) even with a correct
+/// hash → the same outcome as above: never enters the library, reported,
+/// temp file and session cleaned up.
 #[tokio::test]
 async fn completing_with_undecodable_content_never_enters_the_library() {
     let server = TestServer::start().await;
     let (library_id, root) = library_with_folder(&server, "undecodable").await;
     let folder_id = root_folder_id(&server, &library_id).await;
-    // Nessun magic number riconosciuto da `keeppix_media::detect_kind`: non
-    // JPEG, PNG, GIF, WEBP/AVI (RIFF), TIFF, ISOBMFF (`ftyp`) né EBML/MKV.
+    // No magic number recognized by `keeppix_media::detect_kind`: not
+    // JPEG, PNG, GIF, WEBP/AVI (RIFF), TIFF, ISOBMFF (`ftyp`), or EBML/MKV.
     let garbage =
         b"garbage payload, not a real image or video, long enough to fill the sniffed header"
             .to_vec();
@@ -340,9 +338,9 @@ async fn completing_with_undecodable_content_never_enters_the_library() {
             .await
             .unwrap();
 
-    // L'hash del chunk (per-chunk) e l'`expected_hash` (end-to-end)
-    // coincidono qui perché il chunk è l'intero file: l'hash è corretto,
-    // solo il contenuto non è decodificabile.
+    // The chunk's (per-chunk) hash and the `expected_hash` (end-to-end)
+    // coincide here because the chunk is the whole file: the hash is
+    // correct, only the content isn't decodable.
     let response = patch_chunk(&server, &session_id, 0, &hash, &garbage).await;
     assert_eq!(response.status(), 422);
     let body: serde_json::Value = response.json().await.unwrap();
@@ -350,29 +348,26 @@ async fn completing_with_undecodable_content_never_enters_the_library() {
 
     assert!(
         !Path::new(&temp_path).exists(),
-        "il temporaneo di un file non decodificabile va ripulito"
+        "the temp file for an undecodable file must be cleaned up"
     );
     let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
         .bind(uuid::Uuid::parse_str(&session_id).unwrap())
         .fetch_one(server.db.pool())
         .await
         .unwrap();
-    assert_eq!(sessions, 0, "la sessione fallita va cancellata");
+    assert_eq!(sessions, 0, "the failed session must be deleted");
     let assets: i64 =
         sqlx::query_scalar("SELECT count(*) FROM assets WHERE filename = 'garbage.jpg'")
             .fetch_one(server.db.pool())
             .await
             .unwrap();
-    assert_eq!(
-        assets, 0,
-        "un file non decodificabile non deve mai creare un asset"
-    );
+    assert_eq!(assets, 0, "an undecodable file must never create an asset");
     assert!(!root.join("garbage.jpg").exists());
 }
 
-/// `client_mtime` dichiarato dal client all'apertura della sessione finisce
-/// su `assets.mtime` dell'asset finalizzato (spec §1.3: fallback di
-/// `taken_at` quando l'EXIF non ce l'ha).
+/// The `client_mtime` the client declares when opening the session ends
+/// up on the finalized asset's `assets.mtime` (a fallback for `taken_at`
+/// when EXIF doesn't have it).
 #[tokio::test]
 async fn client_mtime_is_preserved_on_the_finalized_asset() {
     let server = TestServer::start().await;
@@ -416,8 +411,8 @@ async fn client_mtime_is_preserved_on_the_finalized_asset() {
     );
 }
 
-/// Caso 6: stesso nome e stesso hash di un asset già presente → si salta, si
-/// segnala, nessun secondo file.
+/// Same name and same hash as an asset already present → it's skipped,
+/// reported, no second file.
 #[tokio::test]
 async fn same_name_and_hash_is_skipped_as_a_duplicate() {
     let server = TestServer::start().await;
@@ -446,11 +441,11 @@ async fn same_name_and_hash_is_skipped_as_a_duplicate() {
         .fetch_one(server.db.pool())
         .await
         .unwrap();
-    assert_eq!(count, 1, "nessun secondo file per un duplicato esatto");
+    assert_eq!(count, 1, "no second file for an exact duplicate");
 }
 
-/// Caso 7: stesso nome, hash diverso → si salva come `nome_1.ext`, mai una
-/// sovrascrittura silenziosa.
+/// Same name, different hash → saved as `name_1.ext`, never a silent
+/// overwrite.
 #[tokio::test]
 async fn same_name_different_hash_is_saved_with_a_numeric_suffix() {
     let server = TestServer::start().await;
@@ -482,7 +477,7 @@ async fn same_name_different_hash_is_saved_with_a_numeric_suffix() {
     assert_eq!(
         fs::read(root.join("photo.jpg")).unwrap(),
         existing_bytes,
-        "il file esistente non va mai sovrascritto"
+        "the existing file must never be overwritten"
     );
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM assets a JOIN folders f ON f.id = a.folder_id \
@@ -495,8 +490,8 @@ async fn same_name_different_hash_is_saved_with_a_numeric_suffix() {
     assert_eq!(count, 2);
 }
 
-/// Caso 8: un link condiviso senza `allow_upload` riceve `403` alla
-/// creazione della sessione, prima di accettare qualunque byte.
+/// A share link without `allow_upload` gets `403` when creating the
+/// session, before accepting any bytes.
 #[tokio::test]
 async fn opening_a_session_from_a_share_link_without_allow_upload_is_forbidden() {
     let server = TestServer::start().await;
@@ -532,8 +527,8 @@ async fn opening_a_session_from_a_share_link_without_allow_upload_is_forbidden()
     assert_eq!(sessions, 0);
 }
 
-/// Caso 9: `expires_at` superato → la sessione è già stata ripulita, e
-/// `PATCH` la trova sparita, non semplicemente inaccessibile.
+/// `expires_at` in the past → the session has already been cleaned up,
+/// and `PATCH` finds it gone, not merely inaccessible.
 #[tokio::test]
 async fn patch_on_an_expired_session_reports_it_is_gone() {
     let server = TestServer::start().await;
@@ -561,10 +556,10 @@ async fn patch_on_an_expired_session_reports_it_is_gone() {
     assert_eq!(response.status(), 410);
 }
 
-/// Il punto della fase (Task 2): un file caricato non deve aspettare i 15
-/// minuti del watcher. Alla finalizzazione, un job `extract_metadata` a
-/// `JobPriority::High` (valore 1) deve essere in coda con il payload
-/// `asset_id` corretto.
+/// An uploaded file must not have to wait for the watcher's 15-minute
+/// cycle. On finalization, an `extract_metadata` job at
+/// `JobPriority::High` (value 1) must be queued with the correct
+/// `asset_id` payload.
 #[tokio::test]
 async fn finalizing_an_upload_enqueues_a_high_priority_extract_metadata_job() {
     let server = TestServer::start().await;
@@ -590,15 +585,15 @@ async fn finalizing_an_upload_enqueues_a_high_priority_extract_metadata_job() {
             .bind(format!("meta:{asset_id}"))
             .fetch_one(server.db.pool())
             .await
-            .expect("un job extract_metadata deve essere in coda dopo la finalizzazione");
+            .expect("an extract_metadata job must be queued after finalization");
     assert_eq!(job.0, "extract_metadata");
-    assert_eq!(job.1, 1, "JobPriority::High vale 1");
+    assert_eq!(job.1, 1, "JobPriority::High is worth 1");
     assert_eq!(job.2["asset_id"], asset_id);
 }
 
-/// Due upload finalizzati in concomitanza sulla stessa cartella accodano
-/// due job separati: la dedup key è per-asset (non per-libreria come il
-/// rescan), quindi non collidono tra loro.
+/// Two uploads finalized concurrently in the same folder enqueue two
+/// separate jobs: the dedup key is per-asset (not per-library like
+/// rescan), so they don't collide with each other.
 #[tokio::test]
 async fn two_concurrent_finalizations_enqueue_two_separate_high_priority_jobs() {
     let server = TestServer::start().await;
@@ -655,12 +650,12 @@ async fn two_concurrent_finalizations_enqueue_two_separate_high_priority_jobs() 
     expected.sort();
     assert_eq!(
         dedup_keys, expected,
-        "due finalizzazioni concorrenti devono accodare due job distinti, non collidere"
+        "two concurrent finalizations must enqueue two distinct jobs, not collide"
     );
 }
 
-/// Spazio su disco insufficiente per `expected_size` → rifiutato **alla
-/// creazione** della sessione, non scoperto a metà upload.
+/// Insufficient disk space for `expected_size` → rejected **at session
+/// creation**, not discovered mid-upload.
 #[tokio::test]
 async fn insufficient_disk_space_is_rejected_at_session_creation() {
     let server = TestServer::start().await;

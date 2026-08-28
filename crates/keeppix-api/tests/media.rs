@@ -181,7 +181,7 @@ async fn full_of_a_raw_is_drawable_webp_not_the_arw() {
     let full_path = keeppix_media::full_derivative_path(&server.data_dir, &hash);
     assert!(
         !full_path.is_file(),
-        "il livello full non si genera con la derivazione iniziale"
+        "the full tier is not generated during the initial derivation"
     );
 
     let first = server
@@ -207,7 +207,10 @@ async fn full_of_a_raw_is_drawable_webp_not_the_arw() {
         .unwrap();
     assert_eq!(second.status(), 200);
     let mtime2 = std::fs::metadata(&full_path).unwrap().modified().unwrap();
-    assert_eq!(mtime, mtime2, "la seconda richiesta non rigenera il file");
+    assert_eq!(
+        mtime, mtime2,
+        "the second request does not regenerate the file"
+    );
 
     let original = server
         .client
@@ -221,7 +224,7 @@ async fn full_of_a_raw_is_drawable_webp_not_the_arw() {
     );
 }
 
-/// Field test R1: the Sony ARW class embeds a JPEG at preview size
+/// Field test: the Sony ARW class embeds a JPEG at preview size
 /// (1616×1080 on the archive, same class as `sample.arw`). `/media/full`
 /// must return something *strictly* larger, otherwise zoom shows the
 /// pixels already on screen.
@@ -483,40 +486,41 @@ async fn seed_user(server: &TestServer, username: &str) {
         .unwrap();
 }
 
-/// Le URL dei derivati escono `immutable`: il browser non rivalida per un
-/// anno. Ma l'hash indirizza il file **sorgente**, non i byte serviti, quindi
-/// cambiare la ricetta cambia il contenuto dello stesso URL e chi ha la
-/// vecchia in cache se la tiene. Il frontend appende `?v=DERIVATIVE_VERSION`
-/// per rendere l'URL una vera chiave di contenuto — ma solo se i due numeri
-/// restano uguali, e nessuno se ne accorgerebbe leggendo un file solo.
+/// Derivative URLs go out `immutable`: the browser won't revalidate for a
+/// year. But the hash addresses the **source** file, not the served
+/// bytes, so changing the derivation recipe changes the content behind
+/// the same URL, and whoever has the old one cached keeps it. The
+/// frontend appends `?v=DERIVATIVE_VERSION` to turn the URL into a real
+/// content key — but only if the two numbers stay in sync, and nobody
+/// would notice by reading just one file.
 ///
-/// Il difetto che questo test previene si è già visto: la pagina mostrava
-/// un'anteprima a 1616×1080 mentre `curl` sullo stesso URL ne restituiva una
-/// a 3012×2012.
+/// The bug this test prevents has already happened once: the page showed
+/// a 1616×1080 preview while `curl` on the same URL returned a
+/// 3012×2012 one.
 #[test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 fn the_frontend_derivative_version_matches_the_backend() {
     let ts =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../frontend/src/api/media.ts");
     let source =
-        std::fs::read_to_string(&ts).unwrap_or_else(|e| panic!("leggo {}: {e}", ts.display()));
+        std::fs::read_to_string(&ts).unwrap_or_else(|e| panic!("reading {}: {e}", ts.display()));
 
     let line = source
         .lines()
         .find(|l| l.contains("export const DERIVATIVE_VERSION"))
-        .expect("frontend/src/api/media.ts deve esportare DERIVATIVE_VERSION");
+        .expect("frontend/src/api/media.ts must export DERIVATIVE_VERSION");
     let frontend: u32 = line
         .rsplit('=')
         .next()
         .and_then(|v| v.trim().trim_end_matches(';').parse().ok())
-        .unwrap_or_else(|| panic!("non riesco a leggere il numero da: {line}"));
+        .unwrap_or_else(|| panic!("cannot parse the number from: {line}"));
 
     assert_eq!(
         frontend,
         keeppix_media::DERIVATIVE_VERSION,
-        "frontend/src/api/media.ts dice {frontend}, keeppix-media dice {}. \
-         Vanno incrementati insieme: se cambia la ricetta dei derivati e la \
-         versione no, i browser continuano a mostrare le immagini vecchie.",
+        "frontend/src/api/media.ts says {frontend}, keeppix-media says {}. \
+         They must be bumped together: if the derivative recipe changes and \
+         the version doesn't, browsers keep showing the old images.",
         keeppix_media::DERIVATIVE_VERSION
     );
 }

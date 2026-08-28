@@ -33,11 +33,11 @@ async fn a_websocket_ticket_cannot_be_reused() {
     let first = handshake(&server, ticket, &origin).await;
     assert!(
         first == 101 || first == 400 || first == 426,
-        "primo handshake deve consumare il ticket, got {first}"
+        "the first handshake must consume the ticket, got {first}"
     );
 
     let second = handshake(&server, ticket, &origin).await;
-    assert_eq!(second, 403, "ticket già usato");
+    assert_eq!(second, 403, "ticket already used");
 }
 
 #[tokio::test]
@@ -60,8 +60,8 @@ async fn a_wrong_origin_is_forbidden() {
     assert_eq!(status, 403);
 }
 
-/// Il socket è un canale di notifica: un asset nuovo deve uscire come
-/// `assets.upserted` senza che il client ricarichi la pagina.
+/// The socket is a notification channel: a new asset must come out as
+/// `assets.upserted` without the client reloading the page.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn a_new_asset_is_pushed_as_assets_upserted() {
@@ -96,10 +96,10 @@ async fn a_new_asset_is_pushed_as_assets_upserted() {
         .unwrap()
         .unwrap();
 
-    // Non necessariamente il primissimo messaggio: con più tipi di evento
-    // sullo stesso canale (Task 19), una libreria appena creata può anche
-    // produrre `scan.progress` sullo stesso giro di poll. Un client reale
-    // filtra per `type`, non assume un ordine.
+    // Not necessarily the very first message: with several event types
+    // on the same channel, a library just created can also produce
+    // `scan.progress` on the same poll round. A real client filters by
+    // `type`, it doesn't assume an order.
     let msg = recv_matching(&mut ws, "assets.upserted").await;
     assert_eq!(msg["v"], 1);
     let ids = msg["payload"]["ids"].as_array().expect("ids");
@@ -111,18 +111,17 @@ async fn a_new_asset_is_pushed_as_assets_upserted() {
     );
 }
 
-/// Verifica di Task 16: "l'avanzamento arriva anche se il client si
-/// riconnette a metà operazione". Qui il client non si è mai connesso prima
-/// — è la stessa proprietà: `operations` è la fonte di verità letta dal
-/// poll, non uno stato che vive nella connessione, quindi una connessione
-/// aperta a metà scansione vede comunque l'avanzamento corrente al primo
-/// giro utile.
+/// "Progress arrives even if the client reconnects mid-operation". Here
+/// the client never connected before — it's the same property:
+/// `operations` is the source of truth read by the poll, not state that
+/// lives in the connection, so a connection opened mid-scan still sees
+/// the current progress on the first useful round.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn operation_progress_arrives_over_a_connection_opened_mid_scan() {
-    // Fase 10 Task 21: la scrittura del discover è a lotti multi-riga da
-    // `PRODUCTION_BATCH_SIZE` file — con meno file del lotto intero l'intera
-    // scansione si scrive in una sola istruzione, senza finestra "a metà".
+    // Discover writes in multi-row batches of `PRODUCTION_BATCH_SIZE`
+    // files — with fewer files than a full batch, the entire scan writes
+    // in a single statement, with no "midway" window.
     const TOTAL: usize = 5 * keeppix_jobs::PRODUCTION_BATCH_SIZE;
     let server = TestServer::start().await;
     setup(&server).await;
@@ -206,7 +205,7 @@ async fn operation_progress_arrives_over_a_connection_opened_mid_scan() {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         assert!(
             remaining > Duration::ZERO,
-            "nessun operation.progress arrivato dopo la connessione a metà scansione"
+            "no operation.progress arrived after connecting mid-scan"
         );
         let msg = tokio::time::timeout(remaining, recv_json(&mut ws))
             .await
@@ -218,10 +217,10 @@ async fn operation_progress_arrives_over_a_connection_opened_mid_scan() {
     }
 }
 
-/// Task 19 (Fase 10): una libreria che va offline è un problema reale
-/// (`ProblemsRepo::list`, già usato da `GET /problems`) — il WebSocket deve
-/// solo notificare che c'è qualcosa di nuovo da rileggere, non trasportare i
-/// dettagli (contratto: "canale di notifica, non fonte di verità").
+/// A library going offline is a real problem (`ProblemsRepo::list`,
+/// already used by `GET /problems`) — the WebSocket must only notify that
+/// there's something new to reread, not carry the details (contract:
+/// "notification channel, not source of truth").
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn an_offline_library_is_pushed_as_problems_changed() {
@@ -265,10 +264,10 @@ async fn an_offline_library_is_pushed_as_problems_changed() {
     assert!(msg["payload"]["count"].as_i64().unwrap() >= 1);
 }
 
-/// Fase 10 Task 19 lasciava `suggestions.changed` scablato — "nessun codice
-/// di Fase 7/8 esiste da cui leggerlo". Ora che Fase 8 esiste (proposte di
-/// volti), l'emettitore è cablato: la stessa somma tag+volti del badge
-/// `bootstrap.badges.revision`.
+/// `suggestions.changed` was originally left unwired — there was no code
+/// yet to read it from. Now that face proposals exist, the emitter is
+/// wired up: the same tag+face sum as the `bootstrap.badges.revision`
+/// badge.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn a_proposed_face_is_pushed_as_suggestions_changed() {
@@ -334,10 +333,10 @@ async fn a_proposed_face_is_pushed_as_suggestions_changed() {
     assert!(msg["payload"]["count"].as_i64().unwrap() >= 1);
 }
 
-/// Task 19: un backup che finisce (`BackupRepo::complete_run`, già usato dal
-/// job reale di `keeppix-jobs::backup::run_one`) deve uscire come
-/// `backup.finished` — senza push, la pagina Impostazioni saprebbe l'esito
-/// solo ricaricando.
+/// A backup that finishes (`BackupRepo::complete_run`, already used by
+/// the real `keeppix-jobs::backup::run_one` job) must come out as
+/// `backup.finished` — without a push, the Settings page would only know
+/// the outcome by reloading.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn a_finished_backup_run_is_pushed_as_backup_finished() {
@@ -371,10 +370,10 @@ async fn a_finished_backup_run_is_pushed_as_backup_finished() {
     assert_eq!(msg["payload"]["size_bytes"], 4096);
 }
 
-/// Task 19: la transcodifica video (Fase 6) scrive il proprio esito nella
-/// coda `jobs` come qualunque altro job — il poll del WebSocket lo legge da
-/// lì (`JobRepo::list_recently_done`) e lo traduce in `asset.derivative.ready`
-/// solo per gli asset visibili al chiamante.
+/// Video transcoding writes its outcome to the `jobs` queue like any
+/// other job — the WebSocket's poll reads it from there
+/// (`JobRepo::list_recently_done`) and translates it into
+/// `asset.derivative.ready` only for assets visible to the caller.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn a_finished_video_transcode_is_pushed_as_asset_derivative_ready() {
@@ -429,10 +428,10 @@ async fn a_finished_video_transcode_is_pushed_as_asset_derivative_ready() {
     assert_eq!(msg["payload"]["asset_id"], asset.id.to_string());
 }
 
-/// Task 19: `scan.progress` legge la stessa fonte già usata da `GET
+/// `scan.progress` reads the same source already used by `GET
 /// /libraries/{id}/scan` (`JobRepo::discover_status_for_library` +
-/// `AssetRepo::count_in_library`), non un secondo stato inventato — le due
-/// superfici non possono raccontare fasi diverse per la stessa libreria.
+/// `AssetRepo::count_in_library`), not a second, invented state — the two
+/// surfaces can't tell different stories for the same library.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn a_library_scan_pushes_scan_progress() {
@@ -492,7 +491,7 @@ async fn a_library_scan_pushes_scan_progress() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(remaining > Duration::ZERO, "nessun scan.progress arrivato");
+        assert!(remaining > Duration::ZERO, "no scan.progress arrived");
         let msg = tokio::time::timeout(remaining, recv_json(&mut ws))
             .await
             .expect("timeout");
@@ -503,11 +502,10 @@ async fn a_library_scan_pushes_scan_progress() {
     }
 }
 
-/// Task 21: `RegionView` porta già `downloaded_bytes`, `status` e
-/// `last_error` (Task 4/Fase 4) ma l'avanzamento del download di una mappa
-/// non era mai spinto — l'unica strada per saperlo era interrogare `GET
-/// /regions` a intervalli. Stessa fonte di verità (`RegionRepo`), non un
-/// secondo stato inventato.
+/// `RegionView` already carries `downloaded_bytes`, `status`, and
+/// `last_error`, but a map download's progress was never pushed — the
+/// only way to know was polling `GET /regions` at intervals. Same source
+/// of truth (`RegionRepo`), not a second, invented state.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn a_region_download_progress_is_pushed_as_region_progress() {
@@ -568,9 +566,9 @@ async fn admin_ctx(server: &TestServer) -> AuthContext {
     AuthContext::user(user.id, SystemRole::Admin)
 }
 
-/// Legge finché non arriva un messaggio del `type` cercato, ignorando
-/// ping/pong e altri eventi (`assets.upserted` per l'inserimento della
-/// libreria stessa, `resync`, …) che possono intercalarsi sullo stesso poll.
+/// Reads until a message of the sought `type` arrives, ignoring
+/// ping/pong and other events (`assets.upserted` for the library's own
+/// insertion, `resync`, …) that can interleave on the same poll.
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn recv_matching(ws: &mut LiveSocket, kind: &str) -> serde_json::Value {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -673,8 +671,8 @@ async fn open_socket(server: &TestServer, ticket: &str) -> LiveSocket {
     ws
 }
 
-/// Il primo ping prova che `socket_loop` ha passato `head_seq`: inserire
-/// prima di quel punto farebbe avanzare il cursore *oltre* l'asset nuovo.
+/// The first ping proves `socket_loop` has passed `head_seq`: inserting
+/// before that point would advance the cursor *past* the new asset.
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn wait_until_looping(ws: &mut LiveSocket) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);

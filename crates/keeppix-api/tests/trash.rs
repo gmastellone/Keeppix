@@ -27,13 +27,13 @@ async fn setup_admin(server: &TestServer) -> UserId {
         }))
         .send()
         .await
-        .expect("richiesta di setup");
-    let body: serde_json::Value = response.json().await.expect("corpo JSON");
+        .expect("setup request");
+    let body: serde_json::Value = response.json().await.expect("JSON body");
     body["user"]["id"]
         .as_str()
-        .expect("id utente")
+        .expect("user id")
         .parse()
-        .expect("uuid valido")
+        .expect("valid uuid")
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -50,20 +50,20 @@ async fn seed_asset(server: &TestServer, admin: UserId, root: &std::path::Path) 
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
     let folder: FolderId = FolderRepo::new(&server.db)
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id;
-    fs::create_dir_all(root.join("2024")).expect("cartella su disco");
-    fs::write(root.join("2024").join("foto.jpg"), b"contenuto").expect("file su disco");
+    fs::create_dir_all(root.join("2024")).expect("folder on disk");
+    fs::write(root.join("2024").join("foto.jpg"), b"content").expect("file on disk");
 
     AssetRepo::new(&server.db)
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse("foto.jpg").expect("nome"),
+            filename: AssetName::parse("foto.jpg").expect("name"),
             size_bytes: 9,
             mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
             inode: None,
@@ -78,13 +78,13 @@ async fn seed_asset(server: &TestServer, admin: UserId, root: &std::path::Path) 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!("keeppix-api-trash-{}", uuid::Uuid::now_v7()));
-    fs::create_dir_all(&root).expect("radice di test");
+    fs::create_dir_all(&root).expect("test root");
     root
 }
 
-/// Crea un utente e autentica `server.client` con le sue credenziali —
-/// sostituisce il cookie di sessione dell'admin, come nella prova di
-/// probing già presente in questo file.
+/// Creates a user and authenticates `server.client` with their
+/// credentials — replaces the admin's session cookie, same as the
+/// probing test already in this file.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn create_and_login(server: &TestServer, admin: UserId, username: &str) -> UserId {
     let ctx = AuthContext::user(admin, SystemRole::Admin);
@@ -106,7 +106,7 @@ async fn create_and_login(server: &TestServer, admin: UserId, username: &str) ->
             },
         )
         .await
-        .expect("utente")
+        .expect("user")
         .id;
 
     let login = server
@@ -121,9 +121,10 @@ async fn create_and_login(server: &TestServer, admin: UserId, username: &str) ->
     user_id
 }
 
-/// Libreria con una cartella e `filenames.len()` asset dentro, tutti presenti
-/// su disco. Ritorna id di libreria, cartella e degli asset (nello stesso
-/// ordine di `filenames`), più i percorsi assoluti dei file.
+/// A library with one folder and `filenames.len()` assets inside, all
+/// present on disk. Returns the library and folder ids and the assets'
+/// ids (in the same order as `filenames`), plus the files' absolute
+/// paths.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_library_with_assets(
     server: &TestServer,
@@ -144,24 +145,24 @@ async fn seed_library_with_assets(
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
     let folder: FolderId = FolderRepo::new(&server.db)
         .ensure_path(library, &[subdir])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id;
-    fs::create_dir_all(root.join(subdir)).expect("cartella su disco");
+    fs::create_dir_all(root.join(subdir)).expect("folder on disk");
 
     let mut asset_ids = Vec::new();
     let mut paths = Vec::new();
     for filename in filenames {
         let path = root.join(subdir).join(filename);
-        fs::write(&path, b"contenuto").expect("file su disco");
+        fs::write(&path, b"content").expect("file on disk");
         let asset_id = AssetRepo::new(&server.db)
             .upsert_discovered(NewAsset {
                 folder_id: folder,
-                filename: AssetName::parse(filename).expect("nome"),
+                filename: AssetName::parse(filename).expect("name"),
                 size_bytes: 9,
                 mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
                 inode: None,
@@ -195,7 +196,7 @@ async fn deleting_to_trash_then_restoring_round_trips_the_file() {
         .await
         .unwrap();
     assert_eq!(response.status(), 204);
-    assert!(!original.exists(), "il file è passato nel cestino");
+    assert!(!original.exists(), "the file moved into the trash");
 
     let response = server
         .client
@@ -204,7 +205,7 @@ async fn deleting_to_trash_then_restoring_round_trips_the_file() {
         .await
         .unwrap();
     assert_eq!(response.status(), 204);
-    assert!(original.is_file(), "il file torna al percorso originale");
+    assert!(original.is_file(), "the file returns to its original path");
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -239,8 +240,8 @@ async fn probing_someone_elses_asset_is_forbidden_not_found() {
     let root = temp_root();
     let asset_id = seed_asset(&server, admin, &root).await;
 
-    // Un secondo utente, autenticato ma senza alcuna libreria propria: non
-    // vede l'asset dell'admin.
+    // A second user, authenticated but with no library of their own:
+    // can't see the admin's asset.
     keeppix_db::UserRepo::new(&server.db)
         .create(
             &AuthContext::user(admin, SystemRole::Admin),
@@ -260,8 +261,8 @@ async fn probing_someone_elses_asset_is_forbidden_not_found() {
         .await
         .unwrap();
 
-    // `server.client` porta un cookie store: accedere come mario sostituisce
-    // il cookie di sessione dell'admin con il suo, sullo stesso client.
+    // `server.client` carries a cookie store: logging in as mario replaces
+    // the admin's session cookie with his, on the same client.
     let login = server
         .client
         .post(server.url("/api/v1/auth/login"))
@@ -283,10 +284,10 @@ async fn probing_someone_elses_asset_is_forbidden_not_found() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Task 4: `purged` è la seconda cancello, più stretto di `assert_visible` —
-/// un editor vede e modifica, ma non può distruggere dal disco. Sul batch
-/// questo deve rifiutare l'intero lotto **prima** di toccare qualunque file,
-/// non lasciare un'eliminazione a metà.
+/// `purged` is the second gate, stricter than `assert_visible` — an
+/// editor can see and modify, but cannot destroy from disk. On a batch
+/// this must reject the whole lot **before** touching any file, not leave
+/// a half-finished deletion.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn batch_delete_purged_by_a_non_owner_editor_rejects_the_whole_batch_untouched() {
@@ -310,7 +311,7 @@ async fn batch_delete_purged_by_a_non_owner_editor_rejects_the_whole_batch_untou
             },
         )
         .await
-        .expect("permesso editor");
+        .expect("editor permission");
 
     let response = server
         .client
@@ -324,17 +325,17 @@ async fn batch_delete_purged_by_a_non_owner_editor_rejects_the_whole_batch_untou
     for path in &paths {
         assert!(
             path.exists(),
-            "nessun file va toccato quando l'autorizzazione fallisce per il lotto"
+            "no file should be touched when authorization fails for the batch"
         );
     }
 
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Task 4: `choose` per elemento — un file già assente non deve bloccare gli
-/// altri. `moved_to_trash` non è tollerante come `purged` sul file mancante
-/// (`std::fs::rename` fallisce sul serio), quindi è la scelta giusta per
-/// osservare il fallimento.
+/// Per-item `choose` — a file that's already missing must not block the
+/// others. `moved_to_trash` is not as tolerant of a missing file as
+/// `purged` is (`std::fs::rename` genuinely fails), so it's the right
+/// choice to observe the failure.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn batch_delete_partial_success_when_one_file_is_already_missing() {
@@ -350,9 +351,9 @@ async fn batch_delete_partial_success_when_one_file_is_already_missing() {
     )
     .await;
 
-    // Il file del secondo asset scompare dal disco senza che il database lo
-    // sappia — come un utente che lo cancella da fuori Keeppix.
-    fs::remove_file(&paths[1]).expect("rimozione manuale del file");
+    // The second asset's file disappears from disk without the database
+    // knowing — like a user deleting it from outside Keeppix.
+    fs::remove_file(&paths[1]).expect("manual file removal");
 
     let response = server
         .client
@@ -379,17 +380,17 @@ async fn batch_delete_partial_success_when_one_file_is_already_missing() {
 
     assert!(
         !paths[0].exists(),
-        "il primo file è passato nel cestino regolarmente"
+        "the first file moved into the trash normally"
     );
 
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Task 4: caso reale più probabile secondo il brief — una cartella del
-/// cestino non scrivibile. I due asset vivono in due sottocartelle diverse
-/// (`2024/ok`, `2024/blocked`), così il cestino li smista in due directory
-/// separate: solo quella di `blocked` è resa di sola lettura, quindi solo
-/// quell'asset deve fallire con `permission-denied`.
+/// The realistic scenario: a trash folder that's not writable. The two
+/// assets live in two different subfolders (`2024/ok`, `2024/blocked`),
+/// so trash sorts them into two separate directories: only `blocked`'s is
+/// made read-only, so only that asset should fail with
+/// `permission-denied`.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn batch_delete_partial_success_when_the_trash_folder_is_not_writable() {
@@ -409,7 +410,7 @@ async fn batch_delete_partial_success_when_the_trash_folder_is_not_writable() {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
 
     let mut asset_ids = Vec::new();
@@ -417,14 +418,14 @@ async fn batch_delete_partial_success_when_the_trash_folder_is_not_writable() {
         let folder = FolderRepo::new(&server.db)
             .ensure_path(library, &subdir.split('/').collect::<Vec<_>>())
             .await
-            .expect("cartella")
+            .expect("folder")
             .id;
-        fs::create_dir_all(root.join(subdir)).expect("cartella su disco");
-        fs::write(root.join(subdir).join(filename), b"contenuto").expect("file su disco");
+        fs::create_dir_all(root.join(subdir)).expect("folder on disk");
+        fs::write(root.join(subdir).join(filename), b"content").expect("file on disk");
         let asset_id = AssetRepo::new(&server.db)
             .upsert_discovered(NewAsset {
                 folder_id: folder,
-                filename: AssetName::parse(filename).expect("nome"),
+                filename: AssetName::parse(filename).expect("name"),
                 size_bytes: 9,
                 mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
                 inode: None,
@@ -437,14 +438,14 @@ async fn batch_delete_partial_success_when_the_trash_folder_is_not_writable() {
         asset_ids.push(asset_id);
     }
 
-    // La sottocartella di cestino di `blocked` esiste già ma di sola
-    // lettura: `create_dir_all` la trova e non tenta scritture, ma il
-    // successivo `rename()` che ci sposta dentro il file deve fallire.
+    // `blocked`'s trash subfolder already exists but is read-only:
+    // `create_dir_all` finds it and doesn't attempt any writes, but the
+    // subsequent `rename()` that moves the file into it must fail.
     let blocked_trash_dir = root.join(".keeppix-trash").join("2024").join("blocked");
-    fs::create_dir_all(&blocked_trash_dir).expect("cartella di cestino preesistente");
+    fs::create_dir_all(&blocked_trash_dir).expect("pre-existing trash folder");
     let mut perms = fs::metadata(&blocked_trash_dir).unwrap().permissions();
     perms.set_mode(0o555);
-    fs::set_permissions(&blocked_trash_dir, perms).expect("chmod sola lettura");
+    fs::set_permissions(&blocked_trash_dir, perms).expect("read-only chmod");
 
     let response = server
         .client
@@ -454,11 +455,11 @@ async fn batch_delete_partial_success_when_the_trash_folder_is_not_writable() {
         .await
         .unwrap();
 
-    // Ripristina i permessi prima di ogni assert/panic: altrimenti la pulizia
-    // della radice temporanea a fine test fallirebbe a sua volta.
+    // Restore permissions before any assert/panic: otherwise cleaning up
+    // the temp root at the end of the test would fail too.
     let mut restored = fs::metadata(&blocked_trash_dir).unwrap().permissions();
     restored.set_mode(0o755);
-    fs::set_permissions(&blocked_trash_dir, restored).expect("ripristino permessi");
+    fs::set_permissions(&blocked_trash_dir, restored).expect("permission restore");
 
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json().await.unwrap();

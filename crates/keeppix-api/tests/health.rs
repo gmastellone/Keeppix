@@ -6,9 +6,9 @@ use harness::TestServer;
 use keeppix_test_support::assert_security_headers;
 use tower::ServiceExt as _;
 
-/// La variante senza stato di `/health` non tocca il database (usata qui per
-/// non richiedere Postgres) — il router *con* stato lo controlla per davvero
-/// (`Db::ping`, debito chiuso il 26 agosto: verificato sotto in
+/// The stateless variant of `/health` does not touch the database (used
+/// here so this doesn't require Postgres) — the router *with* state
+/// actually checks it (`Db::ping`, verified below in
 /// `health_reports_the_real_database_status`).
 fn app() -> axum::Router {
     keeppix_api::router_without_state()
@@ -36,12 +36,11 @@ async fn health_returns_ok() {
     assert_eq!(json["database"], "not checked");
 }
 
-/// Il router *con* stato (quello reale, montato in produzione) deve
-/// controllare per davvero il database, non limitarsi a rispondere vivo —
-/// altrimenti un umano che fa `curl /health` per capire perché Keeppix non
-/// funziona vede "ok" anche con Postgres giù. `Db::ping` esisteva dalla Fase
-/// 0 senza consumatore (`scripts/wired-exceptions.txt`, chiuso il 26
-/// agosto).
+/// The router *with* state (the real one, mounted in production) must
+/// actually check the database, not just answer that it's alive —
+/// otherwise a human running `curl /health` to figure out why Keeppix
+/// isn't working sees "ok" even with Postgres down. `Db::ping` existed
+/// for a while with no consumer before this test wired it up.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn health_reports_the_real_database_status() {
@@ -75,8 +74,9 @@ async fn security_headers_are_present() {
     assert_security_headers(response.headers());
 }
 
-/// Anche il router senza stato deve avere il `method_not_allowed_fallback`:
-/// è quello che montano i test, e la coppia di router va tenuta allineata.
+/// The stateless router must also have the `method_not_allowed_fallback`:
+/// it's the one the tests mount, and the pair of routers must be kept in
+/// sync.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn wrong_method_returns_problem_json() {

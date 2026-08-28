@@ -185,7 +185,7 @@ async fn a_plain_user_lists_only_its_own_libraries() {
         .unwrap();
     assert_eq!(created.status(), 201);
 
-    // Libreria di Mario via repository (owner diverso dall'admin).
+    // Mario's library via the repository (owner different from the admin).
     keeppix_db::LibraryRepo::new(&server.db)
         .create(
             &AuthContext::user(admin_id, SystemRole::Admin),
@@ -354,7 +354,7 @@ async fn a_path_that_escapes_via_dotdot_is_rejected() {
     let server = TestServer::start().await;
     setup_admin(&server).await;
 
-    // Fuori dall'allowlist, ma raggiungibile come `{photos}/../outside`.
+    // Outside the allowlist, but reachable as `{photos}/../outside`.
     let outside = server.data_dir.join("outside");
     fs::create_dir_all(&outside).unwrap();
     let escaped = server.photos_root.join("..").join("outside");

@@ -22,13 +22,13 @@ async fn setup_admin(server: &TestServer) -> UserId {
         }))
         .send()
         .await
-        .expect("richiesta di setup");
-    let body: serde_json::Value = response.json().await.expect("corpo JSON");
+        .expect("setup request");
+    let body: serde_json::Value = response.json().await.expect("JSON body");
     body["user"]["id"]
         .as_str()
-        .expect("id utente")
+        .expect("user id")
         .parse()
-        .expect("uuid valido")
+        .expect("valid uuid")
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -45,12 +45,12 @@ async fn seed_folder(server: &TestServer, admin: UserId) -> FolderId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
     FolderRepo::new(&server.db)
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id
 }
 
@@ -65,7 +65,7 @@ async fn seed_indexed_asset(
     let asset = repo
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse(filename).expect("nome"),
+            filename: AssetName::parse(filename).expect("name"),
             size_bytes: 10,
             mtime: Utc.with_ymd_and_hms(2024, 7, 1, 0, 0, 0).unwrap(),
             inode: None,
@@ -73,7 +73,7 @@ async fn seed_indexed_asset(
         })
         .await
         .expect("asset")
-        .expect("nuovo asset");
+        .expect("new asset");
     repo.set_indexed(
         asset.id,
         Utc.with_ymd_and_hms(2024, 7, 2, 12, 0, 0).unwrap(),
@@ -84,8 +84,8 @@ async fn seed_indexed_asset(
     .expect("indexed");
 }
 
-/// L'esito di `refresh` è l'involucro di riuscita parziale del Task 1: le
-/// foto entrate nell'album finiscono in `succeeded`.
+/// The result of `refresh` wraps partial success: photos added to the
+/// album end up in `succeeded`.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn refresh_returns_added_ids_as_succeeded_bulk_outcome() {
@@ -119,7 +119,7 @@ async fn refresh_returns_added_ids_as_succeeded_bulk_outcome() {
     assert_eq!(
         succeeded.len(),
         1,
-        "solo la foto deve entrare, non il video"
+        "only the photo should be included, not the video"
     );
     assert!(body["failed"].as_array().unwrap().is_empty());
 
@@ -135,7 +135,7 @@ async fn refresh_returns_added_ids_as_succeeded_bulk_outcome() {
     assert_eq!(members.as_array().unwrap().len(), 1);
 }
 
-/// Un album senza `rule` non è aggiornabile: `400`, non `403`/`500`.
+/// An album without a `rule` cannot be refreshed: `400`, not `403`/`500`.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn refresh_without_a_rule_is_a_bad_request() {
@@ -165,8 +165,8 @@ async fn refresh_without_a_rule_is_a_bad_request() {
     assert_eq!(problem["type"], "keeppix/album-has-no-rule");
 }
 
-/// Un utente senza permesso sull'album riceve `403`, mai `404`: niente
-/// oracolo di esistenza, nemmeno sul refresh.
+/// A user without permission on the album receives `403`, never `404`: no
+/// existence oracle, not even on refresh.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn refresh_on_a_foreign_album_is_forbidden() {
@@ -195,10 +195,9 @@ async fn refresh_on_a_foreign_album_is_forbidden() {
     assert_eq!(response.status(), 403);
 }
 
-/// Fase 11 Task 8 (§19.2 campo 18, sezione ALBUM del pannello informazioni
-/// del lightbox): la freccia opposta di `GET /albums/{id}/assets` —
-/// verificata end-to-end via HTTP, la logica di visibilità è già coperta
-/// dai test di `AlbumRepo::for_asset` in `keeppix-db`.
+/// The reverse direction of `GET /albums/{id}/assets` — verified
+/// end-to-end via HTTP; the visibility logic itself is already covered by
+/// the `AlbumRepo::for_asset` tests in `keeppix-db`.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn list_for_asset_returns_only_the_albums_the_asset_belongs_to() {

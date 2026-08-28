@@ -17,18 +17,18 @@ async fn setup_admin(server: &TestServer) -> UserId {
         }))
         .send()
         .await
-        .expect("richiesta di setup");
-    let body: serde_json::Value = response.json().await.expect("corpo JSON");
+        .expect("setup request");
+    let body: serde_json::Value = response.json().await.expect("JSON body");
     body["user"]["id"]
         .as_str()
-        .expect("id utente")
+        .expect("user id")
         .parse()
-        .expect("uuid valido")
+        .expect("valid uuid")
 }
 
-/// Task 13 (Fase 10): `GET /problems` resta additivo — i tre secchi grezzi
-/// non sono spariti — ma porta in più `problems`, l'elenco piatto composto
-/// (spec §47) che la UI userà.
+/// `GET /problems` stays additive — the three raw buckets haven't gone
+/// away — but now also carries `problems`, the composed flat list the UI
+/// will use.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn the_flat_list_reports_an_offline_library_in_italian_by_default() {
@@ -62,14 +62,14 @@ async fn the_flat_list_reports_an_offline_library_in_italian_by_default() {
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json().await.unwrap();
 
-    // Additivo: i secchi grezzi restano, per non rompere un client vecchio.
+    // Additive: the raw buckets stay, so an old client doesn't break.
     assert_eq!(body["offline_libraries"].as_array().unwrap().len(), 1);
 
     let flat = body["problems"].as_array().unwrap();
     let problem = flat
         .iter()
         .find(|p| p["library_id"] == library.id.to_string())
-        .expect("la libreria offline deve comparire nell'elenco piatto");
+        .expect("the offline library must appear in the flat list");
     assert_eq!(problem["severity"], "error");
     assert!(problem["title"].as_str().unwrap().contains("Braies"));
     assert!(

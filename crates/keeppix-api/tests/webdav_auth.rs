@@ -1,8 +1,8 @@
-//! Task 5 (Fase 5): scaffolding `WebDAV` — router, autenticazione via
-//! app-password, deroga CSRF. Nessun metodo `WebDAV` reale ancora: qui si
-//! verifica solo che l'autenticazione Basic funzioni davvero (e che la
-//! password di login non valga come app-password), e che la deroga CSRF
-//! non allarghi il perimetro di `/api/v1`.
+//! `WebDAV` scaffolding — router, app-password authentication, CSRF
+//! exemption. No real `WebDAV` method yet: this only verifies that Basic
+//! auth actually works (and that the login password doesn't count as an
+//! app password), and that the CSRF exemption doesn't widen `/api/v1`'s
+//! perimeter.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod harness;
@@ -19,9 +19,10 @@ fn basic_auth_header(username: &str, secret: &str) -> String {
     format!("Basic {}", STANDARD.encode(raw))
 }
 
-/// Nessun `Authorization` → `401` con `WWW-Authenticate: Basic`, non un
-/// redirect e non un 404: un client WebDAV (Finder, rclone) deve poter
-/// distinguere "qui serve autenticarsi" da "questo percorso non esiste".
+/// No `Authorization` → `401` with `WWW-Authenticate: Basic`, not a
+/// redirect and not a 404: a WebDAV client (Finder, rclone) must be able
+/// to tell "authentication is required here" apart from "this path
+/// doesn't exist".
 #[tokio::test]
 async fn dav_without_authorization_returns_401_with_www_authenticate_header() {
     let server = TestServer::start().await;
@@ -43,8 +44,8 @@ async fn dav_without_authorization_returns_401_with_www_authenticate_header() {
     assert_eq!(header, r#"Basic realm="Keeppix""#);
 }
 
-/// Un'app-password valida supera l'autenticazione: in questa fase non c'è
-/// ancora un dispatch reale, quindi la risposta è `501`, ma **non** `401`.
+/// A valid app-password passes authentication: there's no real dispatch
+/// yet at this point, so the response is `501`, but **not** `401`.
 #[tokio::test]
 async fn dav_with_valid_app_password_does_not_return_401() {
     let server = TestServer::start().await;
@@ -73,9 +74,9 @@ async fn dav_with_valid_app_password_does_not_return_401() {
     assert_eq!(response.status(), 501);
 }
 
-/// Il test più importante: le app-password non sono le password di login.
-/// Usare `username:password_di_login` come Basic Auth su `/dav/` deve
-/// fallire con `401`, non passare "per comodità".
+/// The most important test: app passwords are not login passwords. Using
+/// `username:login_password` as Basic Auth on `/dav/` must fail with
+/// `401`, not pass "for convenience".
 #[tokio::test]
 async fn dav_with_login_password_returns_401() {
     let server = TestServer::start().await;
@@ -95,14 +96,14 @@ async fn dav_with_login_password_returns_401() {
     assert_eq!(response.status(), 401);
 }
 
-/// La deroga CSRF per `/dav/*` non deve indebolire `/api/v1`: una mutazione
-/// senza `x-keeppix-client` resta bloccata con `403`.
+/// The CSRF exemption for `/dav/*` must not weaken `/api/v1`: a mutation
+/// without `x-keeppix-client` stays blocked with `403`.
 #[tokio::test]
 async fn csrf_exemption_does_not_affect_api_v1() {
     let server = TestServer::start().await;
     setup_admin(&server).await;
 
-    // Deliberatamente senza `x-keeppix-client`: stesso client "forgiato" di
+    // Deliberately without `x-keeppix-client`: same "forged" client as
     // `auth.rs::a_mutation_without_the_client_header_is_rejected`.
     let forged = reqwest::Client::new();
     let response = forged

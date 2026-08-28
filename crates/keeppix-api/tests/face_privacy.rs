@@ -1,13 +1,13 @@
-//! Fase 8 Task 1 — la regola che viene prima di tutto: i volti sono dati
-//! biometrici e non compaiono **mai** su un link pubblico condiviso, in
-//! nessun campo, su nessuna forma di oggetto condivisibile (foto, cartella,
-//! album). Non è configurabile.
+//! The rule that comes before everything else: faces are biometric data
+//! and **never** appear on a publicly shared link, in any field, on any
+//! kind of shareable object (photo, folder, album). It is not
+//! configurable.
 //!
-//! Il test non ispeziona i campi noti di `ShareInfoResponse`/
-//! `SharedContentResponse` uno per uno: cammina l'intero corpo JSON e
-//! rifiuta qualunque chiave che somigli a "volto" o "persona", così un
-//! futuro campo aggiunto per distrazione lo fa fallire comunque, non solo i
-//! campi che qualcuno ha pensato di controllare oggi.
+//! The test does not inspect the known fields of `ShareInfoResponse`/
+//! `SharedContentResponse` one by one: it walks the entire JSON body and
+//! rejects any key that resembles "face" or "person", so a future field
+//! added carelessly still fails the test, not just the fields someone
+//! thought to check today.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -26,11 +26,10 @@ use keeppix_db::{FaceRepo, NewDetectedFace, PersonRepo};
 use keeppix_domain::{AssetId, AuthContext, FaceBBox, PersonName, SystemRole, UserId};
 use serde_json::Value;
 
-/// Cammina ricorsivamente un `serde_json::Value` e raccoglie ogni chiave di
-/// oggetto il cui nome, in minuscolo, contiene "face" o "person" — in
-/// italiano od inglese ("volto"/"persona") non compaiono mai nei nomi di
-/// campo del codice (le convenzioni del progetto sono in inglese), quindi
-/// controllare le radici inglesi copre lo stesso rischio reale.
+/// Recursively walks a `serde_json::Value` and collects every object key
+/// whose name, lowercased, contains "face" or "person" — field names in
+/// the codebase are always English (the project's naming convention),
+/// so checking the English roots covers the same real risk.
 fn find_face_or_person_keys(value: &Value, path: &str, hits: &mut Vec<String>) {
     match value {
         Value::Object(map) => {
@@ -70,9 +69,9 @@ async fn admin_id(server: &TestServer) -> UserId {
         .id
 }
 
-/// Un asset reale (scansione vera, non un `INSERT` a mano) con un volto
-/// confermato su una persona con nome — lo scenario più favorevole possibile
-/// a una fuga di dati, per rendere il test onesto.
+/// A real asset (an actual scan, not a hand-crafted `INSERT`) with a face
+/// confirmed against a named person — the scenario most favorable to a
+/// data leak, to keep the test honest.
 async fn seed_asset_with_confirmed_face(server: &TestServer) -> (AssetId, String) {
     let root = server
         .photos_root
@@ -223,8 +222,8 @@ async fn a_shared_single_asset_never_exposes_face_or_person_data() {
 
 #[test]
 fn the_scanner_itself_catches_a_planted_leak() {
-    // Prova che `find_face_or_person_keys` funziona davvero: se il corpo
-    // contenesse un campo come questo, il test lo troverebbe.
+    // Proves that `find_face_or_person_keys` actually works: if the body
+    // contained a field like this, the test would find it.
     let planted = serde_json::json!({
         "assets": [{"id": "x", "faces": [{"person_name": "Marta"}]}]
     });

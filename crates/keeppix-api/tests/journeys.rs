@@ -948,34 +948,33 @@ async fn v13_album_asset_ids(server: &TestServer, album_id: &str) -> Vec<String>
         .collect()
 }
 
-/// Fase 9 Task 11 — "chiusa quando un viaggio vero (import su più giorni,
-/// culling, rinomina, prelievo da `WebDAV`, sviluppo esterno, cancellazione
-/// dei RAW) si completa senza toccare il filesystem a mano, e senza che
-/// nessuna foto perda valutazione, tag o appartenenza agli album lungo il
-/// percorso." Ogni passo qui sotto passa da un'API reale (HTTP o `WebDAV`),
-/// mai da una scrittura diretta sul disco fuori da quelle — la sola eccezione
-/// è la creazione iniziale dell'archivio sorgente, che nella vita reale è la
-/// scheda di memoria della fotocamera, non un'azione dentro Keeppix.
+/// This journey is done when a real trip (import across multiple days,
+/// culling, renaming, downloading via `WebDAV`, external editing, deleting
+/// RAW files) completes without touching the filesystem by hand, and
+/// without any photo losing its rating, tags, or album membership along
+/// the way. Every step below goes through a real API (HTTP or `WebDAV`),
+/// never a direct disk write outside of those — the only exception is the
+/// initial creation of the source archive, which in real life is the
+/// camera's memory card, not an action inside Keeppix.
 ///
-/// **Ambito dichiarato**: "culling" copre sia il voto per-utente (`pick`/
-/// `reject`/`rating`, `PUT .../flags`) sia — da Fase 11 Task 17, che ha
-/// scritto le rotte mancanti — lo spostamento fisico nei lotti
-/// `_taken`/`_skipped` (`CullingRepo::set_pick`/`list_lots`/
-/// `empty_skipped`, Fase 9 Task 2-4). Un quinto asset, fuori dall'ambito
-/// della rinomina/WebDAV/cestino già provate sugli altri quattro, chiude in
-/// fondo al test la radice designata via `PATCH .../culling-root`, l'elenco
-/// lotti, lo spostamento fisico di uno scarto e lo svuotamento definitivo —
-/// prima d'ora questo passo era provato solo dalla suite di `keeppix-db`
-/// che chiama il repository direttamente, non da una rotta HTTP reale
-/// (buco trovato dalla verifica del 24 agosto 2026).
-/// Stesso discorso per i tag: nell'app sono solo proposti dall'IA e confermati
-/// (`Fase 7 Task 8/9`), non assegnabili a mano via HTTP — non rientrano in
-/// questa prova. "Cancellazione dei RAW" è provata con `DELETE /dav/asset/…`
-/// su un asset qualunque: il percorso di cancellazione è lo stesso qualunque
-/// sia il tipo del file (verificato leggendo `dav::write`/`TrashRepo::choose`
-/// — nessun ramo specifico per `AssetKind::RawImage`), quindi un secondo JPEG
-/// prova lo stesso meccanismo di un vero `.arw` senza richiedere un decoder
-/// RAW reale nell'ambiente di test.
+/// **Declared scope**: "culling" covers both the per-user vote (`pick`/
+/// `reject`/`rating`, `PUT .../flags`) and the physical move into the
+/// `_taken`/`_skipped` lots (`CullingRepo::set_pick`/`list_lots`/
+/// `empty_skipped`). A fifth asset, outside the scope of the
+/// renaming/WebDAV/trash already exercised by the other four, closes out
+/// the test with the designated root via `PATCH .../culling-root`, the
+/// lot listing, the physical move of a rejected shot, and the final
+/// emptying — until this test was added, this step was only exercised by
+/// the `keeppix-db` suite calling the repository directly, never by a
+/// real HTTP route.
+/// Same story for tags: in the app they are only proposed by the AI and
+/// confirmed, not assignable by hand via HTTP — they're out of scope for
+/// this test. "Deleting RAW files" is exercised with `DELETE
+/// /dav/asset/…` on any asset: the deletion path is the same regardless
+/// of file type (verified by reading `dav::write`/`TrashRepo::choose` —
+/// no branch specific to `AssetKind::RawImage`), so a second JPEG
+/// exercises the same mechanism as a real `.arw` without requiring an
+/// actual RAW decoder in the test environment.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
 async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
@@ -984,9 +983,9 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     setup_admin(&server).await;
     let secret = v13_create_app_password(&server, "Finder").await;
 
-    // Import su più giorni: due cartelle-giorno, due JPEG ciascuna — la
-    // "scheda di memoria" della fotocamera, l'unica scrittura su disco di
-    // questo test che non passa da un'API di Keeppix.
+    // Import across multiple days: two day-folders, two JPEGs each — the
+    // camera's "memory card", the only disk write in this test that
+    // doesn't go through a Keeppix API.
     let root = server
         .photos_root
         .join(format!("trip-{}", uuid::Uuid::now_v7().simple()));
@@ -998,10 +997,10 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
             fs::write(dir.join(format!("IMG_{i}.jpg")), &bytes).unwrap();
         }
     }
-    // Quinto asset, dedicato al passo di culling a lotti in fondo al test
-    // (vedi "Ambito dichiarato" sopra): fuori dall'ambito di
-    // rinomina/WebDAV/cestino già provate sugli altri quattro, così
-    // aggiungerlo non tocca nessuna delle asserzioni esistenti.
+    // Fifth asset, dedicated to the batch culling step at the end of the
+    // test (see "Declared scope" above): outside the scope of the
+    // renaming/WebDAV/trash already exercised by the other four, so
+    // adding it doesn't touch any of the existing assertions.
     fs::write(root.join("2026-08-15").join("IMG_2.jpg"), &bytes).unwrap();
     let library_id = create_library(&server, "Viaggio", &root).await;
     scan_and_wait(&server, &library_id, 5, deadline).await;
@@ -1014,18 +1013,18 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     let other2 = v13_asset_id_by_name(&server, &day2, "IMG_1.jpg").await;
     let culling_target = v13_asset_id_by_name(&server, &day2, "IMG_2.jpg").await;
 
-    // Culling: voto per-utente via l'API reale, prima di rinominare.
+    // Culling: per-user vote via the real API, before renaming.
     v13_set_flags(&server, &keeper, json!({"rating": 5, "pick": "pick"})).await;
     v13_set_flags(&server, &rejected, json!({"pick": "reject"})).await;
     v13_set_flags(&server, &other1, json!({"favorite": true})).await;
 
-    // Appartenenza agli album: solo i due "presi" entrano nell'album.
+    // Album membership: only the two "picked" ones go into the album.
     let album_id = v13_create_album(&server, "Migliori del viaggio").await;
     v13_add_to_album(&server, &album_id, &keeper).await;
     v13_add_to_album(&server, &album_id, &other1).await;
 
-    // Rinomina di massa sull'intero ambito (Fase 9 Task 10 — la rotta reale,
-    // non `RenameRepo` direttamente).
+    // Batch rename across the whole scope (the real route, not
+    // `RenameRepo` directly).
     let asset_ids = vec![
         keeper.clone(),
         rejected.clone(),
@@ -1046,7 +1045,7 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     assert_eq!(preview_items.len(), 4);
     assert!(
         preview_items.iter().all(|item| item["collides"] == false),
-        "l'anteprima non deve segnalare collisioni su un ambito senza doppioni: {preview:?}"
+        "the preview must not report collisions on a scope with no duplicates: {preview:?}"
     );
     let expected_names: std::collections::HashMap<String, String> = preview_items
         .iter()
@@ -1058,10 +1057,10 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
         })
         .collect();
 
-    // Dal 27 agosto la rinomina gira in background (JobKind::BulkRename):
-    // la richiesta risponde 202 con solo operation_id, l'esito va letto
-    // dopo aver drenato i worker — stesso motivo per cui scan_and_wait
-    // esiste già in questo stesso file per la scansione.
+    // The rename runs in the background (JobKind::BulkRename): the
+    // request responds 202 with just an operation_id, the outcome has to
+    // be read after draining the workers — the same reason `scan_and_wait`
+    // already exists in this file for scanning.
     let applied = server
         .client
         .post(server.url("/api/v1/assets/batch/rename"))
@@ -1075,8 +1074,8 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
 
     drain_workers(&server, deadline).await;
 
-    // L'operazione tracciata (Task 10) è arrivata a `Done`, non lasciata
-    // `running` — la stessa fonte di verità che il `WebSocket` legge.
+    // The tracked operation reached `Done`, not left `running` — the same
+    // source of truth the `WebSocket` reads.
     let (op_status, op_done, op_total): (String, i64, Option<i64>) = sqlx::query_as(
         "SELECT status, done, total FROM operations WHERE id = $1 AND kind = 'bulk_rename'",
     )
@@ -1088,8 +1087,8 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     assert_eq!(op_done, 4);
     assert_eq!(op_total, Some(4));
 
-    // I file sono rinominati per davvero sul disco, con i nomi
-    // dell'anteprima — non solo la riga del database.
+    // The files are actually renamed on disk, with the names from the
+    // preview — not just the database row.
     assert!(
         root.join("2026-08-14")
             .join(&expected_names[&keeper])
@@ -1102,8 +1101,8 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     );
     assert!(!root.join("2026-08-14").join("IMG_0.jpg").exists());
 
-    // Nessuna foto ha perso il voto o l'appartenenza all'album passando per
-    // la rinomina — l'identità (`asset_id`) non cambia con `move_asset`.
+    // No photo lost its vote or album membership by going through the
+    // rename — identity (`asset_id`) doesn't change with `move_asset`.
     let keeper_flags = v13_get_flags(&server, &keeper).await;
     assert_eq!(keeper_flags["rating"], 5);
     assert_eq!(keeper_flags["pick"], "pick");
@@ -1117,8 +1116,8 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     expected_members.sort();
     assert_eq!(album_members, expected_members);
 
-    // Prelievo da WebDAV: lo stesso asset, scaricato per id (mai per nome —
-    // il nome è appena cambiato) restituisce esattamente i byte originali.
+    // Download via WebDAV: the same asset, downloaded by id (never by
+    // name — the name just changed) returns exactly the original bytes.
     let auth = v13_basic_auth_header("giovanni", &secret);
     let download = server
         .client
@@ -1130,8 +1129,8 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     assert_eq!(download.status(), 200);
     assert_eq!(download.bytes().await.unwrap().as_ref(), bytes.as_slice());
 
-    // Sviluppo esterno: un client `WebDAV` (Lightroom, Finder, ...) deposita
-    // un file modificato accanto agli originali rinominati.
+    // External editing: a `WebDAV` client (Lightroom, Finder, ...) drops a
+    // modified file next to the renamed originals.
     let mut edited_bytes = bytes.clone();
     edited_bytes.push(0);
     let put_response = server
@@ -1151,12 +1150,12 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     let developed_id = v13_asset_id_by_name(&server, &day1, "sviluppo-esterno.jpg").await;
     assert_ne!(
         developed_id, keeper,
-        "il file depositato è un asset nuovo, non un duplicato"
+        "the deposited file is a new asset, not a duplicate"
     );
 
-    // Cancellazione: `DELETE` via `WebDAV` sposta nel cestino, non cancella
-    // dal filesystem in silenzio (stesso percorso di `dav::write` per
-    // qualunque tipo di file, RAW incluso — vedi la nota sopra la funzione).
+    // Deletion: `DELETE` via `WebDAV` moves to trash, it doesn't silently
+    // delete from the filesystem (the same path as `dav::write` for any
+    // file type, RAW included — see the note above the function).
     let delete_response = server
         .client
         .delete(server.url(&format!("/dav/asset/{other2}")))
@@ -1174,19 +1173,19 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     assert_eq!(disk_action, "moved_to_trash");
     assert!(std::path::Path::new(&trash_path.unwrap()).exists());
 
-    // Nessun effetto collaterale sulle altre foto: il voto, il preferito e
-    // l'album del resto del viaggio restano quelli di prima della
-    // cancellazione — cancellare uno non ha toccato gli altri.
+    // No side effects on the other photos: the vote, the favorite, and
+    // the album for the rest of the trip stay the same as before the
+    // deletion — deleting one didn't touch the others.
     let keeper_flags_after = v13_get_flags(&server, &keeper).await;
     assert_eq!(keeper_flags_after, keeper_flags);
     let mut album_members_after = v13_album_asset_ids(&server, &album_id).await;
     album_members_after.sort();
     assert_eq!(album_members_after, expected_members);
 
-    // Culling a lotti (Fase 9 Task 2-4, rotte HTTP di Fase 11 Task 17): la
-    // radice designata fa contare le cartelle-giorno stesse come lotti,
-    // senza restrutturare la libreria (spec §2.6). Il quinto asset non è
-    // stato toccato da nessuno dei passi sopra — dedicato a questo.
+    // Batch culling: the designated root makes the day-folders themselves
+    // count as lots, without restructuring the library. The fifth asset
+    // hasn't been touched by any of the steps above — it's dedicated to
+    // this.
     let root_folder_id = v13_library_root_folder_id(&server, &library_id).await;
     let updated_library: serde_json::Value = server
         .client
@@ -1216,20 +1215,19 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     assert_eq!(
         lots.len(),
         2,
-        "2026-08-14 e 2026-08-15 contano come lotti sotto la radice designata: {lots:?}"
+        "2026-08-14 and 2026-08-15 count as lots under the designated root: {lots:?}"
     );
     let day2_lot = lots
         .iter()
         .find(|lot| lot["folder_id"] == day2)
-        .expect("day2 è un lotto");
+        .expect("day2 is a lot");
     assert_eq!(
         day2_lot["pending"], 2,
-        "other1 e il quinto asset sono ancora in attesa in day2: {day2_lot:?}"
+        "other1 and the fifth asset are still pending in day2: {day2_lot:?}"
     );
 
-    // Scartare dentro un lotto sposta fisicamente il file in `_skipped`, non
-    // solo il flag — la parte del Task 4 che il 24 agosto risultava ancora
-    // priva di un chiamante HTTP.
+    // Rejecting inside a lot physically moves the file to `_skipped`, not
+    // just the flag — this part previously had no HTTP caller.
     let picked: serde_json::Value = server
         .client
         .post(server.url(&format!("/api/v1/assets/{culling_target}/pick")))
@@ -1243,21 +1241,20 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
     let new_folder_id = picked["folder_id"].as_str().unwrap().to_owned();
     assert_ne!(
         new_folder_id, day2,
-        "l'asset scartato dentro un lotto si sposta in _skipped, non resta nella cartella del lotto"
+        "an asset rejected inside a lot moves to _skipped, it doesn't stay in the lot's folder"
     );
     assert!(
         root.join("2026-08-15")
             .join("_skipped")
             .join("IMG_2.jpg")
             .is_file(),
-        "il file è davvero sul disco dentro _skipped"
+        "the file is actually on disk inside _skipped"
     );
     let target_flags = v13_get_flags(&server, &culling_target).await;
     assert_eq!(target_flags["pick"], "reject");
 
-    // "Svuota scartati": cancellazione definitiva, riuscita parziale
-    // (`BulkOutcome`) invece di tutto-o-niente (Ruling nel ledger del 24
-    // agosto 2026).
+    // "Empty skipped": permanent deletion, partial success (`BulkOutcome`)
+    // instead of all-or-nothing.
     let emptied: serde_json::Value = server
         .client
         .post(server.url(&format!("/api/v1/culling/lots/{day2}/empty-skipped")))
@@ -1277,7 +1274,7 @@ async fn v13_a_real_trip_survives_culling_rename_webdav_and_raw_cleanup() {
             .join("_skipped")
             .join("IMG_2.jpg")
             .exists(),
-        "svuotare gli scartati cancella davvero il file dal disco"
+        "emptying skipped actually deletes the file from disk"
     );
 
     let _ = fs::remove_dir_all(&root);

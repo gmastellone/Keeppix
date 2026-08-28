@@ -1,7 +1,6 @@
-//! Task 7 (Fase 5): `PUT`, `MKCOL`, `MOVE` — le operazioni di scrittura
-//! `WebDAV`. `COPY` non è implementata (resta `501`, vedi il ledger del
-//! Task 7): nessun test qui la esercita, come esplicitamente permesso dal
-//! brief.
+//! `PUT`, `MKCOL`, `MOVE` — the `WebDAV` write operations. `COPY` is not
+//! implemented (stays `501`): no test here exercises it, as explicitly
+//! permitted by the brief.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod harness;
@@ -39,13 +38,13 @@ async fn create_app_password(client: &reqwest::Client, server: &TestServer, labe
 struct Fixture {
     album_a: String,
     album_b: String,
-    /// Radice della libreria su disco (`root/album-a`, `root/album-b`).
+    /// The library's root on disk (`root/album-a`, `root/album-b`).
     root: PathBuf,
     secret: String,
 }
 
-/// Libreria con due cartelle (`album-a`, `album-b`), tre `tiny.jpg` ciascuna
-/// (vedi `journey::build_fixture_archive`), scansionata e indicizzata.
+/// A library with two folders (`album-a`, `album-b`), three `tiny.jpg`
+/// each (see `journey::build_fixture_archive`), scanned and indexed.
 async fn setup_fixture(server: &TestServer) -> Fixture {
     setup_admin(server).await;
     let secret = create_app_password(&server.client, server, "Finder").await;
@@ -87,11 +86,11 @@ async fn put(server: &TestServer, path: &str, auth: &str, bytes: &[u8]) -> reqwe
         .unwrap()
 }
 
-/// Come [`put`], ma con un `Content-Length` dichiarato a mano — diverso dal
-/// corpo effettivo che `reqwest` manda per davvero (`bytes`). Serve a
-/// esercitare la guardia sulla dimensione dichiarata (fix round Task 7,
-/// Important #1) senza dover davvero spedire terabyte di corpo: il server
-/// deve rispondere guardando solo l'header, prima di leggere un solo byte.
+/// Like [`put`], but with a `Content-Length` declared by hand — different
+/// from the actual body `reqwest` really sends (`bytes`). Exercises the
+/// guard on the declared size without actually having to send terabytes
+/// of body: the server must respond by looking at the header alone,
+/// before reading a single byte.
 async fn put_with_declared_length(
     server: &TestServer,
     path: &str,
@@ -129,9 +128,8 @@ async fn move_folder(
         .unwrap()
 }
 
-/// `parent_id` della cartella secondo `/api/v1/folders/tree` (sessione
-/// admin già nel cookie store di `server.client`, impostata da
-/// `setup_admin`).
+/// The folder's `parent_id` per `/api/v1/folders/tree` (admin session
+/// already in `server.client`'s cookie store, set by `setup_admin`).
 async fn folder_parent_id(server: &TestServer, folder_id: &str) -> Option<String> {
     let tree: serde_json::Value = server
         .client
@@ -229,11 +227,10 @@ async fn mkcol_disk_failure_leaves_no_phantom_folder_row() {
     let fixture = setup_fixture(&server).await;
     let auth = basic_auth_header("giovanni", &fixture.secret);
 
-    // Un file omonimo già sul disco impedisce a `create_dir_all` di
-    // riuscire (errore di I/O reale, non un `NotFound`/permessi che root
-    // potrebbe bypassare in CI) — ordine invertito (fix round Task 7,
-    // Important #2): il DB non deve mai vedere una riga per una cartella
-    // che non esiste sul disco.
+    // A same-named file already on disk stops `create_dir_all` from
+    // succeeding (a real I/O error, not a `NotFound`/permissions issue
+    // that root could bypass in CI) — inverted order: the DB must never
+    // see a row for a folder that doesn't exist on disk.
     let colliding_path = fixture.root.join("album-a").join("blocked");
     std::fs::write(&colliding_path, b"not a directory").unwrap();
 
@@ -291,8 +288,8 @@ async fn put_creates_an_asset_and_enqueues_high_priority_indexing() {
     let on_disk = fixture.root.join("album-a").join("new-photo.jpg");
     assert_eq!(std::fs::read(on_disk).unwrap(), bytes);
 
-    // Stesso punto del brief di Task 1: nessuno dei 15 minuti del watcher,
-    // un job `extract_metadata` ad alta priorità deve essere già in coda.
+    // Same point as elsewhere: no waiting for the watcher's 15 minutes,
+    // a high-priority `extract_metadata` job must already be queued.
     let job: (String, i16, serde_json::Value) =
         sqlx::query_as("SELECT kind, priority, payload FROM jobs WHERE dedup_key = $1")
             .bind(format!("meta:{asset_id}"))
@@ -300,7 +297,7 @@ async fn put_creates_an_asset_and_enqueues_high_priority_indexing() {
             .await
             .expect("a high-priority extract_metadata job must be enqueued after PUT");
     assert_eq!(job.0, "extract_metadata");
-    assert_eq!(job.1, 1, "JobPriority::High vale 1");
+    assert_eq!(job.1, 1, "JobPriority::High is worth 1");
     assert_eq!(job.2["asset_id"], asset_id);
 }
 
@@ -309,8 +306,8 @@ async fn put_of_same_content_skips_without_creating_a_second_file() {
     let server = TestServer::start().await;
     let fixture = setup_fixture(&server).await;
     let auth = basic_auth_header("giovanni", &fixture.secret);
-    // `photo-0.jpg` esiste già in `album-a` con esattamente questo contenuto
-    // (vedi `journey::build_fixture_archive`).
+    // `photo-0.jpg` already exists in `album-a` with exactly this content
+    // (see `journey::build_fixture_archive`).
     let bytes = std::fs::read(tiny_fixture_path()).unwrap();
 
     let response = put(
@@ -364,8 +361,8 @@ async fn put_of_same_name_different_content_saves_with_suffix() {
         .to_owned();
     assert!(location.starts_with("/dav/asset/"));
 
-    // Mai una sovrascrittura silenziosa (AGENTS.md): il file originale resta
-    // intatto, il nuovo prende un suffisso numerico.
+    // Never a silent overwrite: the original file stays intact, the new
+    // one gets a numeric suffix.
     assert_eq!(
         std::fs::read(fixture.root.join("album-a").join("photo-0.jpg")).unwrap(),
         original,
@@ -385,9 +382,9 @@ async fn put_with_a_declared_content_length_over_the_limit_returns_413() {
     let auth = basic_auth_header("giovanni", &fixture.secret);
     let bytes = std::fs::read(tiny_fixture_path()).unwrap();
 
-    // Il corpo vero è minuscolo (`tiny.jpg`); l'header dichiara 100 TiB,
-    // ben oltre `MAX_BODY_BYTES` (10 GiB) — il server deve respingerlo
-    // guardando solo `Content-Length`, senza mai scrivere un file.
+    // The actual body is tiny (`tiny.jpg`); the header declares 100 TiB,
+    // well over `MAX_BODY_BYTES` (10 GiB) — the server must reject it by
+    // looking at `Content-Length` alone, without ever writing a file.
     let response = put_with_declared_length(
         &server,
         &format!("/dav/folder/{}/too-big.jpg", fixture.album_a),
@@ -416,9 +413,9 @@ async fn put_of_dotfile_saves_on_disk_but_does_not_index() {
     let auth = basic_auth_header("giovanni", &fixture.secret);
     let bytes = b"macOS Finder metadata cache, not a photo".to_vec();
 
-    // La scansione iniziale della fixture ha già accodato 6 job
-    // `extract_metadata` (uno a foto): si confronta il conteggio prima/dopo,
-    // non uno zero assoluto.
+    // The fixture's initial scan has already queued 6 `extract_metadata`
+    // jobs (one per photo): compare the count before/after, not an
+    // absolute zero.
     let jobs_before: i64 =
         sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'extract_metadata'")
             .fetch_one(server.db.pool())

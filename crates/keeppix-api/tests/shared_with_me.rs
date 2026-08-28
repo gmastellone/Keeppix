@@ -1,4 +1,4 @@
-//! `GET /api/v1/shared-with-me` (Task 15, §29 "Condivisi con me").
+//! `GET /api/v1/shared-with-me`.
 
 mod harness;
 mod journey;

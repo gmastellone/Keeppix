@@ -94,13 +94,13 @@ impl tracing::field::Visit for SqlFieldVisitor {
     fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
 }
 
-/// Capture sqlx **process-wide**: `set_default` (TLS) perde gli eventi quando
-/// sqlx logga da un worker diverso dal task del test (CI parallela →
-/// `individual=0`). `set_global_default` una volta per binario; **tutti e
-/// tre** i test di questo file si serializzano su `BUDGET_LOCK` — non solo
-/// i due che leggono il conteggio, perché la cattura è globale: le query
-/// HTTP di un terzo test in esecuzione concorrente finirebbero comunque
-/// nella stessa finestra di cattura.
+/// Capture sqlx **process-wide**: `set_default` (thread-local) loses
+/// events when sqlx logs from a worker other than the test's own task
+/// (parallel CI → `individual=0`). `set_global_default` is installed once
+/// per binary; **all three** tests in this file serialize on
+/// `BUDGET_LOCK` — not just the two that read the count, because capture
+/// is global: a third test running concurrently would have its HTTP
+/// queries land in the same capture window regardless.
 fn global_sql_capture() -> Arc<Mutex<Vec<String>>> {
     static CAPTURE: std::sync::OnceLock<Arc<Mutex<Vec<String>>>> = std::sync::OnceLock::new();
     static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
@@ -111,9 +111,9 @@ fn global_sql_capture() -> Arc<Mutex<Vec<String>>> {
         let subscriber = tracing_subscriber::Registry::default()
             .with(tracing_subscriber::EnvFilter::new("sqlx=debug"))
             .with(SqlCapture(captured.clone()));
-        // Ok se un altro test ha già installato un global: in quel caso il
-        // capture non riceve nulla e l'assert individual>0 fallisce in modo
-        // esplicito — meglio di un falso verde.
+        // Fine if another test already installed a global: in that case
+        // the capture receives nothing and the individual>0 assert fails
+        // explicitly — better than a false green.
         let _ = tracing::subscriber::set_global_default(subscriber);
     });
     captured
@@ -127,7 +127,7 @@ async fn traced_db(url: &str) -> (Db, Arc<Mutex<Vec<String>>>) {
         .log_statements(tracing::log::LevelFilter::Debug);
     let db = Db::connect_with(options, 5)
         .await
-        .expect("connessione tracciata");
+        .expect("traced connection");
     (db, captured)
 }
 
@@ -148,22 +148,22 @@ async fn load_individual_repos(db: &Db, ctx: &AuthContext) {
             .await
             .expect("storage");
     }
-    // Fase 11 Task 17: metà culling del badge — stessa query di `compose`,
-    // saltata per le librerie senza radice designata (nessuna in questo
-    // test, quindi zero query in più oggi; qui per parità con le librerie
-    // che nel mondo reale ne hanno una).
+    // Culling half of the badge — same query as `compose`, skipped for
+    // libraries with no designated root (none in this test, so zero extra
+    // queries today; kept here for parity with libraries that do have one
+    // in the real world).
     let culling_repo = keeppix_db::CullingRepo::new(db);
     for library in &libraries {
         if library.culling_root_folder_id.is_some() {
             culling_repo.list_lots(ctx, library.id).await.expect("lots");
         }
     }
-    // Fase 7 Task 9: metà tag del badge `revision` — stessa query di `compose`.
+    // Tag half of the `revision` badge — same query as `compose`.
     keeppix_db::AssetTagRepo::new(db)
         .count_proposed_visible(ctx)
         .await
         .expect("proposed count");
-    // Fase 8 Task 8: metà volti dello stesso badge — stessa query di `compose`.
+    // Faces half of the same badge — same query as `compose`.
     keeppix_db::FaceRepo::new(db)
         .count_proposed_visible(ctx)
         .await
@@ -180,14 +180,14 @@ async fn load_bootstrap_repos(db: &Db, ctx: &AuthContext) {
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn bootstrap_matches_individual_endpoints() {
-    // Non tocca il budget di query, ma `global_sql_capture` è **process-wide**
-    // (serve perché sqlx logga da un worker diverso dal task del test in CI
-    // parallela): senza serializzarsi anche qui, le query HTTP di questo test
-    // possono cadere dentro la finestra di cattura di uno degli altri due
-    // test dello stesso binario, gonfiando `bootstrap`/`individual` in modo
-    // non deterministico — esattamente il difetto preesistente segnalato nel
-    // ledger di Fase 10 ("fallisce quando gira insieme all'altro test,
-    // isolato passa sempre").
+    // Doesn't touch the query budget, but `global_sql_capture` is
+    // **process-wide** (needed because sqlx logs from a worker other than
+    // the test's own task under parallel CI): without serializing here
+    // too, this test's HTTP queries can land inside the capture window of
+    // one of the other two tests in the same binary, inflating
+    // `bootstrap`/`individual` nondeterministically — exactly the
+    // preexisting flakiness this lock was added to fix ("fails when run
+    // alongside the other test, passes in isolation").
     let _serial = BUDGET_LOCK.lock().await;
     let server = TestServer::start().await;
     let admin = setup_admin(&server).await;
@@ -247,7 +247,7 @@ async fn bootstrap_matches_individual_endpoints() {
     assert_eq!(body["badges"]["revision"], 0);
 }
 
-/// Budget di query di `compose`: deve restare ≤ alla somma dei repo singoli.
+/// `compose`'s query budget: must stay ≤ the sum of the individual repos.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn bootstrap_emits_no_more_queries_than_individual_repos() {
@@ -259,7 +259,7 @@ async fn bootstrap_emits_no_more_queries_than_individual_repos() {
     assert_bootstrap_query_budget(&server.database_url, &ctx).await;
 }
 
-/// Stesso budget **dopo** un giro HTTP come `bootstrap_matches_*`.
+/// Same budget **after** an HTTP round trip like `bootstrap_matches_*`.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn bootstrap_query_budget_still_holds_after_http_bootstrap_round_trip() {
@@ -297,11 +297,11 @@ async fn assert_bootstrap_query_budget(database_url: &str, ctx: &AuthContext) {
 
     assert!(
         individual > 0,
-        "il test deve catturare query dai singoli repository (individual=0: subscriber assente?)"
+        "the test must capture queries from the individual repositories (individual=0: subscriber missing?)"
     );
     assert!(
         bootstrap <= individual,
-        "bootstrap={bootstrap} query, singoli={individual}: deve essere ≤"
+        "bootstrap={bootstrap} queries, individual={individual}: must be ≤"
     );
 }
 

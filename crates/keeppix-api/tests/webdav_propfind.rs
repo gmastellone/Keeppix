@@ -1,8 +1,8 @@
-//! Task 6 (Fase 5): `PROPFIND` risponde dal database (mai da `stat()` sul
-//! filesystem), `GET` supporta `Range`. `Depth: infinity` è rifiutato con
-//! `403` per non esplodere la RAM; una cartella senza permesso restituisce
-//! `403`, mai una lista vuota o `404` — non deve diventare un oracolo di
-//! esistenza.
+//! `PROPFIND` answers from the database (never from `stat()` on the
+//! filesystem), `GET` supports `Range`. `Depth: infinity` is rejected
+//! with `403` so it can't blow up RAM; a folder without permission
+//! returns `403`, never an empty list or `404` — it must not become an
+//! existence oracle.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod harness;
@@ -50,19 +50,19 @@ async fn propfind(server: &TestServer, path: &str, auth: &str, depth: &str) -> r
         .unwrap()
 }
 
-/// Estrae il primo id `/dav/asset/{id}` dal corpo del `multistatus`: un
-/// UUID è sempre 36 caratteri, che il PROPFIND appena eseguito ha appena
-/// prodotto lui stesso.
+/// Extracts the first `/dav/asset/{id}` id from the `multistatus` body: a
+/// UUID is always 36 characters, which the PROPFIND that just ran
+/// produced itself.
 fn first_asset_id(body: &str) -> String {
     let marker = "/dav/asset/";
     let start = body.find(marker).expect("an asset href in the body") + marker.len();
     body[start..start + 36].to_owned()
 }
 
-/// Libreria con due cartelle (`album-a`, `album-b`), tre `tiny.jpg` ciascuna
-/// (vedi `journey::build_fixture_archive`), scansionata e indicizzata.
-/// Restituisce l'id di `album-a` e il segreto di un'app-password
-/// dell'amministratore autenticato da `setup_admin`.
+/// A library with two folders (`album-a`, `album-b`), three `tiny.jpg`
+/// each (see `journey::build_fixture_archive`), scanned and indexed.
+/// Returns `album-a`'s id and an app-password secret for the admin
+/// authenticated by `setup_admin`.
 async fn setup_fixture(server: &TestServer) -> (String, String) {
     setup_admin(server).await;
     let secret = create_app_password(&server.client, server, "Finder").await;

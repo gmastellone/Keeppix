@@ -287,7 +287,7 @@ async fn copy_assignment_uses_effective_source_location_and_records_copied_sourc
         .await
         .unwrap();
 
-    // Nessun setup di PMTiles: copiare coordinate è indipendente dallo sfondo.
+    // No PMTiles setup: copying coordinates is independent of the map background.
     let response = server
         .client
         .post(server.url("/api/v1/metadata/batch/copy-location"))
@@ -401,7 +401,7 @@ async fn gpx_import_interpolates_and_uses_the_default_five_minute_tolerance() {
           </trkseg></trk>
         </gpx>"#;
 
-    // Nessuna regione PMTiles viene montata: l'import deve funzionare lo stesso.
+    // No PMTiles region is mounted: the import must still work.
     let response = server
         .client
         .post(server.url("/api/v1/metadata/batch/import-gpx"))
@@ -441,8 +441,9 @@ async fn gpx_import_interpolates_and_uses_the_default_five_minute_tolerance() {
     let _ = fs::remove_dir_all(root);
 }
 
-/// Spec §3: un target altrui in `copy-location` non abortisce il lotto —
-/// finisce in `failed` con `permission-denied`, gli altri target restano.
+/// A target belonging to someone else in `copy-location` does not abort
+/// the batch — it ends up in `failed` with `permission-denied`, the other
+/// targets remain.
 #[tokio::test]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn copy_location_reports_partial_success_for_a_foreign_target() {
@@ -493,8 +494,9 @@ async fn copy_location_reports_partial_success_for_a_foreign_target() {
     let _ = fs::remove_dir_all(mario_root);
 }
 
-/// Spec §3: un asset altrui in `import-gpx` finisce in `failed`, gli abbinati
-/// restano in `succeeded` sotto un unico `batch_id`.
+/// An asset belonging to someone else in `import-gpx` ends up in
+/// `failed`, the matched ones remain in `succeeded` under a single
+/// `batch_id`.
 #[tokio::test]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn gpx_import_reports_partial_success_when_one_asset_is_foreign() {

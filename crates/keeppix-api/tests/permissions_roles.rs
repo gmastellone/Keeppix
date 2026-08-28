@@ -1,5 +1,5 @@
-//! Viewer vs editor on metadata and trash (Task 14b). Spec §1.2: a viewer
-//! may see; an editor may edit metadata and move to trash.
+//! Viewer vs editor on metadata and trash: a viewer may see; an editor may
+//! edit metadata and move to trash.
 
 mod harness;
 mod journey;

@@ -1,6 +1,6 @@
-//! Budget HTTP di ordine di grandezza (Fase 2R Task 8). Soglie larghe per
-//! il bersaglio Raspberry Pi 5; in CI debug possono essere più lenti del
-//! misurato su hardware reale.
+//! Order-of-magnitude HTTP budgets. Thresholds are generous for the
+//! Raspberry Pi 5 target; debug CI builds can be slower than what's
+//! measured on real hardware.
 
 mod harness;
 
@@ -43,8 +43,8 @@ async fn admin_ctx(server: &TestServer) -> AuthContext {
     AuthContext::user(user.id, SystemRole::Admin)
 }
 
-/// Diecimila asset indicizzati con `taken_at_utc` nello stesso mese — i
-/// trigger mantengono `folder_month_counts` allineato.
+/// Ten thousand assets indexed with `taken_at_utc` in the same month — the
+/// triggers keep `folder_month_counts` in sync.
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn seed_timeline_assets(server: &TestServer) -> String {
     setup_admin(server).await;
@@ -97,7 +97,7 @@ async fn seed_timeline_assets(server: &TestServer) -> String {
     assert_eq!(
         counted,
         i64::try_from(TIMELINE_ASSETS).expect("count fits i64"),
-        "i trigger devono aver riempito folder_month_counts"
+        "the triggers must have populated folder_month_counts"
     );
 
     "2024-06".to_owned()
@@ -144,11 +144,11 @@ async fn timeline_buckets_with_ten_thousand_assets_stays_within_budget() {
     let body: serde_json::Value = response.json().await.expect("json");
     assert!(
         body.as_array().is_some_and(|a| !a.is_empty()),
-        "bucket attesi con asset indicizzati"
+        "buckets expected with indexed assets"
     );
     assert!(
         elapsed < Duration::from_millis(200),
-        "GET /timeline/buckets su {TIMELINE_ASSETS} asset: {elapsed:?} (budget 200 ms)"
+        "GET /timeline/buckets with {TIMELINE_ASSETS} assets: {elapsed:?} (budget 200 ms)"
     );
 }
 
@@ -172,11 +172,11 @@ async fn timeline_page_with_ten_thousand_assets_stays_within_budget() {
     let body: serde_json::Value = response.json().await.expect("json");
     assert!(
         body["assets"].as_array().is_some_and(|a| !a.is_empty()),
-        "pagina timeline non vuota"
+        "non-empty timeline page"
     );
     assert!(
         elapsed < Duration::from_millis(300),
-        "GET /timeline su {TIMELINE_ASSETS} asset: {elapsed:?} (budget 300 ms)"
+        "GET /timeline with {TIMELINE_ASSETS} assets: {elapsed:?} (budget 300 ms)"
     );
 }
 
@@ -201,10 +201,10 @@ async fn listing_twenty_libraries_stays_within_budget() {
     assert_eq!(
         list.as_array().map(Vec::len),
         Some(LIBRARY_COUNT),
-        "lista completa delle librerie create"
+        "full list of created libraries"
     );
     assert!(
         elapsed < Duration::from_millis(100),
-        "GET /libraries con {LIBRARY_COUNT} librerie: {elapsed:?} (budget 100 ms)"
+        "GET /libraries with {LIBRARY_COUNT} libraries: {elapsed:?} (budget 100 ms)"
     );
 }

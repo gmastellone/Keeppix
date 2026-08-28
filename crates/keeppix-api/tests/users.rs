@@ -163,7 +163,7 @@ async fn duplicate_username_and_email_are_distinct_conflicts() {
             .unwrap()
             .to_lowercase()
             .contains("username"),
-        "detail deve nominare username: {}",
+        "detail must name username: {}",
         problem["detail"]
     );
 
@@ -188,7 +188,7 @@ async fn duplicate_username_and_email_are_distinct_conflicts() {
             .unwrap()
             .to_lowercase()
             .contains("email"),
-        "detail deve nominare email: {}",
+        "detail must name email: {}",
         problem["detail"]
     );
 }
@@ -285,7 +285,7 @@ async fn changing_your_password_revokes_other_sessions() {
         .unwrap();
     assert_eq!(changed.status(), 204);
 
-    // La sessione corrente resta; l'altra no.
+    // The current session stays; the other one does not.
     let me = server
         .client
         .get(server.url("/api/v1/auth/me"))
@@ -301,7 +301,7 @@ async fn changing_your_password_revokes_other_sessions() {
         .unwrap();
     assert_eq!(other_after.status(), 401);
 
-    // Login con la nuova password.
+    // Log in with the new password.
     let fresh = login_as(&server, "giovanni", "a brand new password ok").await;
     let me2 = fresh
         .get(server.url("/api/v1/auth/me"))

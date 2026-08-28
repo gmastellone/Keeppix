@@ -5,15 +5,16 @@ use axum::http::{Request, StatusCode};
 use harness::{TestServer, assert_security_headers};
 use tower::ServiceExt as _;
 
-/// Il documento non tocca il database: nasce dalle annotazioni sui tipi.
-/// Attenzione: questo router monta solo `/health` e `/api/openapi.json`, non
-/// `/api/v1` — per interrogare le rotte reali serve `TestServer`.
+/// The document doesn't touch the database: it's generated from
+/// annotations on the types. Careful: this router only mounts `/health`
+/// and `/api/openapi.json`, not `/api/v1` — querying the real routes
+/// requires `TestServer`.
 fn app() -> axum::Router {
     keeppix_api::router_without_state()
 }
 
-/// I metodi che in un Path Item Object di `OpenAPI` 3.1 sono operazioni; le
-/// altre chiavi (`summary`, `parameters`, `servers`, …) non lo sono.
+/// The methods that count as operations in an `OpenAPI` 3.1 Path Item
+/// Object; the other keys (`summary`, `parameters`, `servers`, …) don't.
 const HTTP_METHODS: [&str; 8] = [
     "get", "put", "post", "delete", "options", "head", "patch", "trace",
 ];
@@ -137,7 +138,7 @@ async fn openapi_document_is_served_and_complete() {
         "/api/v1/upload",
         "/api/v1/upload/{id}",
     ] {
-        assert!(doc["paths"][path].is_object(), "manca il percorso {path}");
+        assert!(doc["paths"][path].is_object(), "missing path {path}");
     }
 
     assert!(doc["components"]["schemas"]["UserView"].is_object());
@@ -158,11 +159,12 @@ async fn openapi_document_is_served_and_complete() {
     );
 }
 
-/// Pin sul punto in cui è facile sbagliare: la rotta va montata **dentro**
-/// l'argomento di `common_layers`, non concatenata dopo la sua chiamata. Nel
-/// secondo caso i `.layer(...)` non la avvolgerebbero e il documento uscirebbe
-/// senza CSP, nosniff, referrer-policy e permissions-policy — lo stesso difetto
-/// che il fallback 404 ha già pinnato in `tests/health.rs`.
+/// Pins the spot that's easy to get wrong: the route must be mounted
+/// **inside** `common_layers`'s argument, not chained after its call. In
+/// the latter case the `.layer(...)` calls wouldn't wrap it and the
+/// document would come out without CSP, nosniff, referrer-policy, and
+/// permissions-policy — the same bug the 404 fallback already pins in
+/// `tests/health.rs`.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn openapi_document_carries_the_security_headers() {
@@ -180,22 +182,25 @@ async fn openapi_document_carries_the_security_headers() {
     assert_security_headers(response.headers());
 }
 
-/// Lega il documento alle rotte davvero montate. Percorso e metodo di ogni
-/// operazione sono stringhe scritte a mano dentro `#[utoipa::path]`: niente nel
-/// compilatore le confronta con le `Router::route(...)` di `lib.rs`, quindi
-/// senza questo test un refuso nell'attributo pubblicherebbe un'operazione che
-/// non esiste — o esiste con un altro metodo — e tutta la suite resterebbe
-/// verde. Ogni operazione viene chiamata sul router **reale con stato**: uno
-/// status 404 significa percorso inesistente, 405 percorso giusto e metodo
-/// sbagliato. Qualunque altro esito va bene: qui non si verifica la logica
-/// degli handler, solo che la superficie HTTP descritta esista.
+/// Ties the document to the routes that are actually mounted. Each
+/// operation's path and method are strings written by hand inside
+/// `#[utoipa::path]`: nothing in the compiler checks them against
+/// `lib.rs`'s `Router::route(...)` calls, so without this test a typo in
+/// the attribute would publish an operation that doesn't exist — or
+/// exists under a different method — and the whole suite would stay
+/// green. Every operation is called against the **real, stateful**
+/// router: a 404 status means the path doesn't exist, 405 means the path
+/// is right but the method is wrong. Any other outcome is fine: this test
+/// doesn't verify handler logic, only that the described HTTP surface
+/// exists.
 ///
-/// **Direzione non coperta: rotta montata e non documentata.** Servirebbe
-/// enumerare le rotte del router, e axum 0.8 non espone la propria tabella
-/// (`Router` non ha API di introspezione). Chi aggiunge una `route(...)` senza
-/// il corrispondente `#[utoipa::path]` non trova qui nessun avviso: il
-/// controllo va fatto in review, oppure in CI confrontando il documento con
-/// l'elenco delle rotte una volta che axum lo renderà leggibile.
+/// **Direction not covered: a route mounted but undocumented.** That
+/// would require enumerating the router's routes, and axum 0.8 doesn't
+/// expose its own table (`Router` has no introspection API). Someone
+/// adding a `route(...)` without the matching `#[utoipa::path]` gets no
+/// warning here: that check has to happen in review, or in CI by
+/// comparing the document against the route list once axum makes that
+/// readable.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn documented_operations_are_all_mounted() {
@@ -230,32 +235,33 @@ async fn documented_operations_are_all_mounted() {
             assert_ne!(
                 status,
                 reqwest::StatusCode::NOT_FOUND,
-                "il documento dichiara {method} {path}, ma quel percorso non è montato"
+                "the document declares {method} {path}, but that path isn't mounted"
             );
             assert_ne!(
                 status,
                 reqwest::StatusCode::METHOD_NOT_ALLOWED,
-                "il documento dichiara {method} {path}, ma la rotta non accetta quel metodo"
+                "the document declares {method} {path}, but the route doesn't accept that method"
             );
             checked += 1;
         }
     }
 
-    // Senza questo, un documento vuoto — o un `paths` che smette di essere un
-    // oggetto di operazioni — farebbe passare il test a ciclo mai eseguito.
+    // Without this, an empty document — or a `paths` that stops being an
+    // object of operations — would make the test pass with a loop that
+    // never ran.
     assert_eq!(
         checked, 184,
-        "il documento deve descrivere centottantaquattro operazioni"
+        "the document must describe one hundred eighty-four operations"
     );
 }
 
-/// I nomi degli schemi di sicurezza sono letterali dentro `#[utoipa::path]` e
-/// non possono riferirsi a `openapi::SESSION_SCHEME`: se le due scritture
-/// divergono, il documento dichiara `security` verso uno schema inesistente e
-/// un generatore di client non sa quale credenziale mandare. Qui si verifica
-/// che ogni requisito punti a uno schema dichiarato, che le due rotte protette
-/// lo abbiano, e che il cookie descritto sia davvero quello che l'extractor
-/// legge.
+/// Security scheme names are literals inside `#[utoipa::path]` and cannot
+/// reference `openapi::SESSION_SCHEME`: if the two spellings diverge, the
+/// document declares `security` against a nonexistent scheme, and a
+/// client generator won't know which credential to send. This checks
+/// that every requirement points to a declared scheme, that the protected
+/// routes carry it, and that the cookie described is really the one the
+/// extractor reads.
 #[test]
 #[allow(clippy::unwrap_used, clippy::too_many_lines)]
 fn security_requirements_name_a_declared_scheme() {
@@ -281,7 +287,7 @@ fn security_requirements_name_a_declared_scheme() {
                 for name in requirement.as_object().unwrap().keys() {
                     assert!(
                         schemes.contains_key(name),
-                        "{method} {path} richiede lo schema {name}, che non è dichiarato in components"
+                        "{method} {path} requires scheme {name}, which is not declared in components"
                     );
                 }
             }
@@ -472,11 +478,12 @@ fn security_requirements_name_a_declared_scheme() {
     );
 }
 
-/// `operationId` diventa il nome del metodo nei client generati e deve essere
-/// unico in tutto il documento. Derivarlo dal nome della funzione Rust non
-/// basta: `setup::create` e un futuro `albums::create` produrrebbero due
-/// `create`. Gli `operation_id` sono quindi espliciti e con prefisso di area;
-/// questo test fallisce se due operazioni tornano a chiamarsi allo stesso modo.
+/// `operationId` becomes the method name in generated clients and must be
+/// unique across the whole document. Deriving it from the Rust function
+/// name isn't enough: `setup::create` and a future `albums::create` would
+/// both produce `create`. `operation_id`s are therefore explicit and
+/// prefixed by area; this test fails if two operations end up with the
+/// same name.
 #[test]
 #[allow(clippy::unwrap_used, clippy::too_many_lines)]
 fn operation_ids_are_explicit_and_unique() {
@@ -496,7 +503,7 @@ fn operation_ids_are_explicit_and_unique() {
     ids.sort();
     let unique = ids.len();
     ids.dedup();
-    assert_eq!(ids.len(), unique, "operationId duplicato: {ids:?}");
+    assert_eq!(ids.len(), unique, "duplicate operationId: {ids:?}");
     assert_eq!(
         ids,
         [
@@ -688,10 +695,11 @@ fn operation_ids_are_explicit_and_unique() {
     );
 }
 
-/// `utoipa` prende la summary dalla prima riga di rustdoc se `summary =` manca.
-/// Quando il doc comment inizia con `/// # Errors`, quella heading finisce nel
-/// documento pubblico e nei client generati. Ogni operazione deve avere una
-/// summary inglese esplicita (o un rustdoc che non sia una sezione Errors).
+/// `utoipa` takes the summary from rustdoc's first line if `summary =` is
+/// missing. When the doc comment starts with `/// # Errors`, that heading
+/// ends up in the public document and in generated clients. Every
+/// operation must have an explicit English summary (or rustdoc that
+/// isn't an Errors section).
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn openapi_summaries_do_not_contain_errors_heading() {
@@ -730,17 +738,17 @@ async fn openapi_summaries_do_not_contain_errors_heading() {
     }
     assert_eq!(
         checked, 184,
-        "il documento deve descrivere centottantaquattro operazioni"
+        "the document must describe one hundred eighty-four operations"
     );
 }
 
-/// Estrae le chiamate `.route("...", VERBO(...))` dal testo di `lib.rs`,
-/// bilanciando le parentesi (una `.route(...)` può contenere più verbi
-/// incatenati, es. `get(a).post(b)`, e può andare su più righe). Non è un
-/// parser Rust: è la controparte pragmatica del fatto che axum 0.8 non offre
-/// introspezione sul `Router` (vedi il commento sopra
-/// `documented_operations_are_all_mounted`) — l'unica fonte di verità
-/// sulle rotte davvero montate è il testo che le dichiara.
+/// Extracts `.route("...", VERB(...))` calls from `lib.rs`'s source text,
+/// balancing parentheses (a single `.route(...)` can chain multiple
+/// verbs, e.g. `get(a).post(b)`, and can span multiple lines). This is
+/// not a Rust parser: it's the pragmatic counterpart to axum 0.8 not
+/// offering introspection on `Router` (see the comment above
+/// `documented_operations_are_all_mounted`) — the only source of truth
+/// for routes actually mounted is the text that declares them.
 fn extract_route_calls(source: &str) -> Vec<(String, Vec<&'static str>)> {
     const VERBS: [(&str, &str); 6] = [
         ("get(", "get"),
@@ -810,16 +818,18 @@ fn extract_route_calls(source: &str) -> Vec<(String, Vec<&'static str>)> {
     out
 }
 
-/// **Il controllo CI richiesto dal Task 23**: fallisce se una rotta
-/// registrata nel router (`crates/keeppix-api/src/lib.rs`) non compare in
-/// `openapi.json` con lo stesso metodo. Copre la direzione che
-/// `documented_operations_are_all_mounted` lascia esplicitamente scoperta
-/// (rotta montata e non documentata) — le due insieme chiudono il cerchio.
+/// **The CI check for the reverse direction**: fails if a route
+/// registered in the router (`crates/keeppix-api/src/lib.rs`) doesn't
+/// appear in `openapi.json` with the same method. Covers the direction
+/// that `documented_operations_are_all_mounted` explicitly leaves
+/// uncovered (a route mounted but undocumented) — the two together close
+/// the loop.
 ///
-/// Il testo di `lib.rs` è la fonte di verità: `fn api_routes` monta sotto
-/// `/api/v1`, `fn all_routes` monta senza prefisso (eccetto `/dav/{*path}`,
-/// fuori contratto di proposito — vedi il commento in `lib.rs` — e
-/// `/api/openapi.json`, che è il documento stesso, non un'operazione).
+/// `lib.rs`'s source text is the source of truth: `fn api_routes` mounts
+/// under `/api/v1`, `fn all_routes` mounts with no prefix (except
+/// `/dav/{*path}`, deliberately out of contract — see the comment in
+/// `lib.rs` — and `/api/openapi.json`, which is the document itself, not
+/// an operation).
 #[test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 fn router_registered_routes_are_all_documented() {
@@ -856,12 +866,13 @@ fn router_registered_routes_are_all_documented() {
         }
     }
 
-    // Guardia anti-regressione del parser stesso: se smettesse di trovare
-    // rotte (es. per una riformattazione di `lib.rs` che rompe l'assunzione
-    // su `.route(`), questo test passerebbe a vuoto senza controllare nulla.
+    // Regression guard on the parser itself: if it stopped finding routes
+    // (e.g. from a reformatting of `lib.rs` that breaks the assumption
+    // about `.route(`), this test would pass vacuously without checking
+    // anything.
     assert!(
         registered.len() > 100,
-        "il parser ha trovato solo {} rotte in lib.rs: probabilmente si è rotto, non che le rotte siano diminuite",
+        "the parser found only {} routes in lib.rs: it probably broke, routes didn't just shrink",
         registered.len()
     );
 
@@ -884,13 +895,13 @@ fn router_registered_routes_are_all_documented() {
     missing.dedup();
     assert!(
         missing.is_empty(),
-        "rotte montate in lib.rs ma assenti da openapi.json (manca #[utoipa::path] o la \
-         registrazione in ApiDoc::paths): {missing:#?}"
+        "routes mounted in lib.rs but missing from openapi.json (missing #[utoipa::path] or \
+         the registration in ApiDoc::paths): {missing:#?}"
     );
 }
 
-/// Blocca la specifica su disco: da questo file si generano i client mobile,
-/// quindi una modifica va vista prima di essere pubblicata, non dopo.
+/// Pins the on-disk spec: mobile clients are generated from this file, so
+/// a change must be seen before it's published, not after.
 #[test]
 #[allow(clippy::unwrap_used)]
 fn openapi_snapshot_matches_the_committed_file() {
@@ -915,12 +926,12 @@ fn openapi_snapshot_matches_the_committed_file() {
     assert_eq!(
         committed.trim(),
         generated.trim(),
-        "il contratto pubblico è cambiato: il codice non produce più il documento \
-         committato in docs/api/openapi.json. Da quel file si generano i client \
-         Kotlin, Swift, Dart e TypeScript, e lo spec lo dichiara congelato (solo \
-         aggiunte entro /api/v1). Non rigenerarlo per far tornare verde il test: \
-         guarda che cosa è cambiato e decidi. Se il cambiamento non è voluto, \
-         correggi il codice; se lo è ed è compatibile, aggiorna il file committato \
-         di proposito e spiega perché nel messaggio di commit."
+        "the public contract changed: the code no longer produces the document \
+         committed in docs/api/openapi.json. The Kotlin, Swift, Dart, and \
+         TypeScript clients are generated from that file, and it's declared \
+         frozen (additions only within /api/v1). Don't regenerate it just to \
+         make the test green: look at what changed and decide. If the change \
+         is unintended, fix the code; if it's intended and compatible, update \
+         the committed file deliberately and explain why in the commit message."
     );
 }

@@ -56,9 +56,9 @@ async fn clusters_return_the_scoped_map_payload() {
     assert!(rows[0]["cover_asset_id"].as_str().is_some());
 }
 
-/// Il popover del cluster (spec fase-10 §27) deve poter navigare alla
-/// cartella e mostrare l'etichetta del luogo senza una seconda richiesta:
-/// `folder_id` e `place_label` sono additivi su `MapClusterView`.
+/// The cluster popover must be able to navigate to the folder and show
+/// the place label without a second request: `folder_id` and
+/// `place_label` are additive on `MapClusterView`.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn cluster_carries_enough_data_to_open_its_folder_without_a_second_request() {
@@ -82,11 +82,11 @@ async fn cluster_carries_enough_data_to_open_its_folder_without_a_second_request
     assert_eq!(
         rows[0]["folder_id"].as_str().unwrap(),
         seeded.folder_id.to_string(),
-        "id di destinazione per aprire la cartella dal popover"
+        "destination id to open the folder from the popover"
     );
     assert_eq!(
         rows[0]["place_label"], "Roma",
-        "etichetta leggibile del luogo, dalla geocodifica inversa di Fase 4"
+        "human-readable place label, from reverse geocoding"
     );
 }
 

@@ -73,9 +73,9 @@ async fn drain_workers(server: &TestServer, data_dir: &std::path::Path) {
     }
 }
 
-/// Task 16: la richiesta che ottiene davvero il job accodato deve poter
-/// seguirlo — senza un `operation_id` non c'è niente da annullare né da
-/// mostrare sul WebSocket.
+/// The request that actually enqueues the job must be able to follow it —
+/// without an `operation_id` there's nothing to cancel or show on the
+/// WebSocket.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn starting_a_scan_returns_an_operation_id_that_reaches_done() {
@@ -121,9 +121,9 @@ async fn starting_a_scan_returns_an_operation_id_that_reaches_done() {
     assert_eq!(op.succeeded.len(), 1);
 }
 
-/// Task 16 Ruling: un secondo `POST /scan` mentre il primo job è ancora in
-/// coda non deve creare un'operazione orfana — quella non ha nessun job che
-/// la faccia avanzare, e resterebbe `running` per sempre.
+/// A second `POST /scan` while the first job is still queued must not
+/// create an orphaned operation — one with no job that would ever advance
+/// it, staying `running` forever.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn a_scan_request_while_one_is_already_queued_reports_no_operation() {
@@ -167,23 +167,22 @@ async fn a_scan_request_while_one_is_already_queued_reports_no_operation() {
     let second_body: serde_json::Value = second.json().await.unwrap();
     assert!(
         second_body["operation_id"].is_null(),
-        "il job del primo scan vince il dedup: la seconda richiesta non ha nulla da seguire"
+        "the first scan's job wins the dedup: the second request has nothing to follow"
     );
 }
 
 use harness::spawn_worker_pool;
 
-/// Verifica di Task 16: annullare a metà (dopo aver visto qualche successo)
-/// lascia esattamente ciò che è stato applicato, come `BulkOutcome` — non un
-/// rollback. La stessa proprietà provata a livello di `keeppix-jobs`
-/// (`discover_operations.rs`), qui passando per davvero dalla rotta HTTP.
+/// Cancelling midway (after seeing some successes) leaves exactly what
+/// was applied, like `BulkOutcome` — not a rollback. Same property proven
+/// at the `keeppix-jobs` level (`discover_operations.rs`), here actually
+/// going through the HTTP route.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn cancelling_a_scan_via_the_api_leaves_a_partial_bulk_outcome() {
-    // Fase 10 Task 21: la scrittura del discover è a lotti multi-riga da
-    // `PRODUCTION_BATCH_SIZE` file — con meno file del lotto intero l'intera
-    // scansione si scrive in una sola istruzione, senza finestra "a metà"
-    // da poter annullare.
+    // Discover writes in multi-row batches of `PRODUCTION_BATCH_SIZE`
+    // files — with fewer files than a full batch, the entire scan writes
+    // in a single statement, with no "midway" window to cancel.
     const TOTAL: usize = 5 * keeppix_jobs::PRODUCTION_BATCH_SIZE;
     let server = TestServer::start().await;
     setup_admin(&server).await;
@@ -233,7 +232,7 @@ async fn cancelling_a_scan_via_the_api_leaves_a_partial_bulk_outcome() {
     loop {
         assert!(
             tokio::time::Instant::now() < deadline,
-            "la scansione non ha fatto abbastanza progresso da poter annullare"
+            "the scan hasn't made enough progress to be cancellable"
         );
         if ops.find(&ctx, op_id).await.unwrap().done >= 3 {
             break;
@@ -252,20 +251,20 @@ async fn cancelling_a_scan_via_the_api_leaves_a_partial_bulk_outcome() {
     let succeeded = outcome["succeeded"].as_array().unwrap();
     assert!(
         !succeeded.is_empty(),
-        "la risposta deve elencare almeno ciò che era già applicato al momento dell'annullamento"
+        "the response must list at least what was already applied at the moment of cancellation"
     );
     assert!(outcome["failed"].as_array().unwrap().is_empty());
 
     tokio::time::timeout(Duration::from_secs(20), worker)
         .await
-        .expect("il worker non si è fermato dopo l'annullamento")
+        .expect("the worker did not stop after cancellation")
         .unwrap();
 
     let finished = ops.find(&ctx, op_id).await.unwrap();
     assert_eq!(finished.status, keeppix_domain::OperationStatus::Cancelled);
     assert!(
         finished.done < i64::try_from(TOTAL).unwrap(),
-        "un annullamento che completa comunque tutti i file non ha provato nulla: done={}",
+        "a cancellation that still completes every file proved nothing: done={}",
         finished.done
     );
     assert!(finished.done > 0);
@@ -276,13 +275,13 @@ async fn cancelling_a_scan_via_the_api_leaves_a_partial_bulk_outcome() {
         .unwrap();
     assert_eq!(
         asset_count, finished.done,
-        "gli asset scritti devono combaciare con l'esito parziale finale, non con la cartella intera"
+        "the written assets must match the final partial outcome, not the whole folder"
     );
 }
 
-/// Come ogni altro id sondabile nel sistema: chi non è owner né admin
-/// riceve `Forbidden`, non `NotFound` — altrimenti l'endpoint diventa un
-/// oracolo di esistenza sugli `operation_id` in corso.
+/// Like every other probeable id in the system: someone who is neither
+/// owner nor admin gets `Forbidden`, not `NotFound` — otherwise the
+/// endpoint becomes an existence oracle over in-flight `operation_id`s.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn cancelling_someone_elses_operation_is_forbidden() {
@@ -455,7 +454,7 @@ async fn starting_a_scan_twice_does_not_double_the_work() {
     .fetch_one(server.db.pool())
     .await
     .unwrap();
-    assert_eq!(n, 1, "dedup_key deve collassare le due richieste");
+    assert_eq!(n, 1, "dedup_key must collapse the two requests");
 }
 
 #[tokio::test]
@@ -482,7 +481,7 @@ async fn a_library_created_after_boot_is_watched() {
         .to_owned();
     let library_id: keeppix_domain::LibraryId = id.parse().unwrap();
 
-    // Lascia avviare il watcher avviato alla create.
+    // Let the watcher started at creation time spin up.
     tokio::time::sleep(Duration::from_millis(400)).await;
     sqlx::query("UPDATE jobs SET status = 'done' WHERE kind = 'discover_library'")
         .execute(server.db.pool())
@@ -497,7 +496,7 @@ async fn a_library_created_after_boot_is_watched() {
     loop {
         assert!(
             start.elapsed() < Duration::from_secs(8),
-            "watcher non ha accodato discover dopo un file nuovo"
+            "watcher did not enqueue discover after a new file"
         );
         let n: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM jobs WHERE kind = 'discover_library' AND status = 'pending'",
@@ -569,7 +568,7 @@ async fn an_unreachable_library_goes_offline_and_deletes_nothing() {
         .await
         .unwrap();
     assert_eq!(again.status(), 202);
-    // Solo discovery: root mancante → offline, niente cancellazioni.
+    // Discovery only: missing root → offline, no deletions.
     keeppix_jobs::discover::run(&server.db, library_id, Duration::ZERO)
         .await
         .unwrap();

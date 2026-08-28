@@ -35,7 +35,7 @@ async fn setup_admin(server: &TestServer) -> UserId {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_root(server: &TestServer, name: &str) -> PathBuf {
     let root = server.photos_root.join(name);
-    fs::create_dir_all(&root).expect("radice");
+    fs::create_dir_all(&root).expect("root");
     root
 }
 
@@ -57,19 +57,19 @@ async fn seed_stacked_pair(
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
     let folder = FolderRepo::new(&server.db)
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id;
-    fs::create_dir_all(root.join("2024")).expect("cartella su disco");
+    fs::create_dir_all(root.join("2024")).expect("folder on disk");
 
     let raw = AssetRepo::new(&server.db)
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse("DSC_0042.ARW").expect("nome"),
+            filename: AssetName::parse("DSC_0042.ARW").expect("name"),
             size_bytes: 1000,
             mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
             inode: None,
@@ -82,7 +82,7 @@ async fn seed_stacked_pair(
     let jpeg = AssetRepo::new(&server.db)
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse("DSC_0042.JPG").expect("nome"),
+            filename: AssetName::parse("DSC_0042.JPG").expect("name"),
             size_bytes: 500,
             mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
             inode: None,
