@@ -1,4 +1,4 @@
-//! Pannello permessi: elenco, concessione, revoca, explain.
+//! Permissions panel: list, grant, revoke, explain.
 #![allow(clippy::missing_errors_doc)]
 
 use axum::extract::{Path, Query, State};
