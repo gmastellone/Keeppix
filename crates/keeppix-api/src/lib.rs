@@ -1,5 +1,5 @@
-//! Superficie HTTP di Keeppix. Non contiene SQL: ogni accesso ai dati passa
-//! dai repository di `keeppix-db`, che richiedono un `AuthContext`.
+//! Keeppix's HTTP surface. Contains no SQL: every data access goes through
+//! `keeppix-db`'s repositories, which require an `AuthContext`.
 
 pub mod cookie;
 pub mod csrf;
@@ -29,44 +29,45 @@ use tower_http::compression::CompressionLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
-/// Content Security Policy restrittiva, **senza deroghe `unsafe-*`**.
+/// Restrictive Content Security Policy, **with no `unsafe-*` exemptions**.
 ///
-/// `style-src` ammetteva `'unsafe-inline'` «perché Vue inietta stili scoped a
-/// runtime». Non è vero, ed è stato verificato sul bundle prodotto: Vite
-/// estrae gli stili scoped delle SFC a build time in un foglio esterno
-/// (`dist/index.html` carica `<link rel="stylesheet">` e non contiene un solo
-/// `<style>` né un attributo `style=`), e gli stili che Vue e Reka UI
-/// impostano davvero a runtime lo fanno via CSSOM (`element.style`), che la CSP
-/// non intercetta. La deroga indeboliva una policy dichiarata restrittiva senza
-/// comprare nulla; spec §9.5 chiede esplicitamente «CSP senza `unsafe-inline`».
+/// `style-src` used to allow `'unsafe-inline'` on the theory that Vue
+/// injects scoped styles at runtime. That's not true, and it was verified
+/// on the produced bundle: Vite extracts SFC scoped styles at build time
+/// into an external stylesheet (`dist/index.html` loads a
+/// `<link rel="stylesheet">` and contains not a single `<style>` tag or
+/// `style=` attribute), and the styles Vue and Reka UI actually set at
+/// runtime do so via the CSSOM (`element.style`), which the CSP doesn't
+/// intercept. The exemption weakened a policy declared restrictive without
+/// buying anything; the CSP is required to ship with no `unsafe-inline`.
 ///
-/// Se un giorno servisse rimetterla, va detto *cosa* la richiede, con un
-/// riferimento verificabile: `keeppix-test-support` fa fallire i test se una
-/// deroga `unsafe-*` ricompare in `script-src`.
+/// If it's ever needed again, state *what* requires it, with a verifiable
+/// reference: `keeppix-test-support` fails the tests if an `unsafe-*`
+/// exemption reappears in `script-src`.
 const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
                    img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; \
                    base-uri 'none'; form-action 'self'";
 
-/// HSTS, richiesto da spec §9.5. Un anno con i sottodomini.
+/// HSTS. One year, including subdomains.
 ///
-/// È incondizionato di proposito, e non rompe l'accesso in chiaro in LAN: un
-/// browser **ignora** `Strict-Transport-Security` ricevuto su HTTP, per
-/// definizione (RFC 6797 §8.1), quindi l'header ha effetto solo dove esiste già
-/// il TLS che dichiara di pretendere — cioè dietro il reverse proxy che
-/// `docs/DEPLOY.md` descrive come installazione normale. `preload` **non** è
-/// incluso: iscriverebbe il dominio dell'utente a una lista globale
-/// difficilmente reversibile, e non è una decisione che Keeppix può prendere
-/// per lui.
+/// It's unconditional on purpose, and doesn't break plaintext access on a
+/// LAN: a browser **ignores** `Strict-Transport-Security` received over
+/// HTTP, by definition (RFC 6797 §8.1), so the header only takes effect
+/// where the TLS it claims to require already exists — i.e. behind the
+/// reverse proxy that `docs/DEPLOY.md` describes as the normal
+/// installation. `preload` is **not** included: it would enroll the user's
+/// domain in a globally distributed list that's hard to reverse, and that
+/// isn't a decision Keeppix can make on their behalf.
 const HSTS: &str = "max-age=31536000; includeSubDomains";
 
-/// Router con stato, montato dai test che vogliono un 404 in JSON invece del
-/// fallback SPA (quest'ultimo lo aggiunge solo il binario, vedi
+/// Stateful router, mounted by tests that want a JSON 404 instead of the
+/// SPA fallback (the latter is only added by the binary, see
 /// `keeppix_server::embed::mount`).
 pub fn router(state: AppState) -> Router {
     with_common_layers(all_routes(state).fallback(not_found))
 }
 
-/// Router senza stato, per i test che non toccano il database.
+/// Stateless router, for tests that don't touch the database.
 pub fn router_without_state() -> Router {
     with_common_layers(
         Router::new()
@@ -77,25 +78,25 @@ pub fn router_without_state() -> Router {
     )
 }
 
-/// Rotte di Keeppix, **senza** layer né fallback: chi le monta decide sia il
-/// fallback (404 JSON qui sopra, SPA nel binario) sia il momento in cui
-/// applicare `with_common_layers` — che deve essere *dopo* aver impostato il
-/// fallback, per il motivo spiegato lì.
+/// Keeppix's routes, **with no** layers or fallback: whoever mounts them
+/// decides both the fallback (JSON 404 above, SPA in the binary) and when
+/// to apply `with_common_layers` — which must come *after* the fallback is
+/// set, for the reason explained there.
 pub fn router_parts(state: AppState) -> Router {
     all_routes(state)
 }
 
-/// Applica gli strati comuni a tutte le risposte del server: header di
-/// sicurezza, compressione, tracing. **Il router passato deve già avere il
-/// proprio fallback impostato** — in axum 0.8 `Router::fallback` sostituisce
-/// direttamente il servizio di fallback, mentre `.layer()` avvolge soltanto
-/// il fallback già presente al momento in cui viene chiamato. Se si aggiunge
-/// un fallback *dopo* questa funzione, quel fallback esce senza CSP,
-/// `x-content-type-options`, `referrer-policy` e `permissions-policy` —
-/// per un 404 è già un difetto (corretto nel Task 9), ma per il fallback SPA
-/// del binario (Task 13) sarebbe peggio: è proprio `index.html`, il documento
-/// che carica l'intera applicazione, che uscirebbe senza CSP in produzione.
-/// Non spostare l'ordine: fallback prima, `with_common_layers` dopo.
+/// Applies the common layers to every response from the server: security
+/// headers, compression, tracing. **The router passed in must already have
+/// its own fallback set** — in axum 0.8, `Router::fallback` directly
+/// replaces the fallback service, while `.layer()` only wraps whatever
+/// fallback is already present at the time it's called. Adding a fallback
+/// *after* this function means that fallback comes out with no CSP,
+/// `x-content-type-options`, `referrer-policy`, or `permissions-policy` —
+/// already a defect for a 404, but worse for the binary's SPA fallback:
+/// that's `index.html` itself, the document that loads the whole
+/// application, which would ship with no CSP in production. Don't
+/// reorder this: fallback first, `with_common_layers` after.
 pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {
     router
         .layer(SetResponseHeaderLayer::overriding(
@@ -118,12 +119,12 @@ pub fn with_common_layers<S: Clone + Send + Sync + 'static>(router: Router<S>) -
             axum::http::header::STRICT_TRANSPORT_SECURITY,
             HeaderValue::from_static(HSTS),
         ))
-        // Spec §9.4: «`Cache-Control: private` su tutto ciò che è autenticato».
-        // `if_not_present`, **non** `overriding`: le rotte che impostano una
-        // propria politica di cache devono vincere — gli asset hashati del
-        // frontend escono con `public, max-age=31536000, immutable`
-        // (`keeppix_server::embed`). `/media/*` è autenticato: `private` +
-        // `immutable` sulla rotta (i link pubblici arrivano in Fase 3).
+        // `Cache-Control: private` on everything authenticated.
+        // `if_not_present`, **not** `overriding`: routes that set their own
+        // cache policy must win — the frontend's hashed assets come out
+        // with `public, max-age=31536000, immutable`
+        // (`keeppix_server::embed`). `/media/*` is authenticated: `private`
+        // + `immutable` on the route (public links get their own policy).
         .layer(SetResponseHeaderLayer::if_not_present(
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("private"),
@@ -557,10 +558,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
                 .patch(routes::upload::patch)
                 .layer(DefaultBodyLimit::disable()),
         )
-        // Metà server-side della difesa CSRF (spec §9.5): un layer, non un
-        // controllo per handler, così le rotte della Fase 1 sono coperte per
-        // costruzione. Vedi `csrf.rs` per la proprietà comprata e le deroghe
-        // già previste (WebDAV, tus).
+        // Server-side half of the CSRF defense: a layer, not a per-handler
+        // check, so routes are covered by construction. See `csrf.rs` for
+        // the property being bought and the exemptions already planned
+        // for (WebDAV, tus).
         .layer(axum::middleware::from_fn_with_state(
             state,
             idempotency::apply,
@@ -579,17 +580,18 @@ fn all_routes(state: AppState) -> Router {
         .route("/media/video/{id}/playback", get(routes::video::playback))
         .route("/media/video/{id}/poster", get(routes::video::poster))
         .route("/media/video/{id}/hls/{file}", get(routes::video::hls))
-        // WebDAV (Fase 5): fuori da `/api/v1` di proposito — non è un'API
-        // REST e non va nel contratto congelato. Autenticazione via
-        // app-password Basic Auth, mai cookie di sessione (`dav::handler`).
-        // `axum::routing::any` cattura anche i metodi non standard che i
-        // client WebDAV usano (PROPFIND, MKCOL, MOVE, COPY, LOCK, UNLOCK).
+        // WebDAV: outside `/api/v1` on purpose — it isn't a REST API and
+        // doesn't belong in the frozen contract. Authentication via
+        // app-password Basic Auth, never a session cookie (`dav::handler`).
+        // `axum::routing::any` also catches the non-standard methods that
+        // WebDAV clients use (PROPFIND, MKCOL, MOVE, COPY, LOCK, UNLOCK).
         .route("/dav/{*path}", axum::routing::any(dav::handler))
         .nest("/api/v1", api_routes(state.clone()))
-        // Va chiamata **dopo** aver registrato le rotte: imposta il fallback
-        // di ogni `MethodRouter` già presente, e un `route(...)` aggiunto in
-        // seguito tornerebbe al `405` a corpo vuoto di axum. Stessa classe di
-        // trappola dell'ordine di `.fallback(...)` documentato sotto.
+        // Must be called **after** registering the routes: it sets the
+        // fallback of every `MethodRouter` already present, and a
+        // `route(...)` added afterward would fall back to axum's
+        // empty-body `405`. Same class of ordering trap as `.fallback(...)`
+        // documented above.
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state)
 }
@@ -598,9 +600,9 @@ async fn not_found() -> Problem {
     Problem::not_found()
 }
 
-/// `405` dentro il contratto RFC 9457: senza questo fallback axum risponde con
-/// un corpo vuoto e nessun `type`, e un client che ramifica sul codice
-/// d'errore non ha niente da leggere.
+/// `405` inside the RFC 9457 contract: without this fallback axum responds
+/// with an empty body and no `type`, and a client branching on the error
+/// code has nothing to read.
 async fn method_not_allowed() -> Problem {
     Problem::method_not_allowed()
 }

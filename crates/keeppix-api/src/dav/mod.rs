@@ -1,21 +1,21 @@
-//! `WebDAV` — dispatcher e autenticazione. Autentica con app-password via
-//! Basic Auth (`401` senza redirect per credenziali assenti o sbagliate),
-//! poi dispatcha `PROPFIND`/`GET` (Task 6), `PUT`/`MKCOL`/`MOVE` (Task 7) e
-//! `DELETE`/`LOCK`/`UNLOCK` (Task 8); `COPY` resta `501` — vedi il ledger
-//! del Task 7 sul perché non è implementata.
+//! `WebDAV` — dispatcher and authentication. Authenticates with an
+//! app-password via Basic Auth (`401` with no redirect for missing or
+//! wrong credentials), then dispatches `PROPFIND`/`GET`, `PUT`/`MKCOL`/`MOVE`
+//! and `DELETE`/`LOCK`/`UNLOCK`; `COPY` stays `501` — see `write.rs` for why
+//! it isn't implemented.
 //!
-//! Mai cookie di sessione qui: i client `WebDAV` (Finder, rclone, …) parlano
-//! solo Basic Auth, e le uniche credenziali accettate sono le app-password
-//! (`AppPasswordRepo::verify`) — mai la password di login.
+//! Never a session cookie here: `WebDAV` clients (Finder, rclone, …) only
+//! speak Basic Auth, and the only credentials accepted are app-passwords
+//! (`AppPasswordRepo::verify`) — never the login password.
 //!
-//! **Path → risorsa (Task 6, semplificazione documentata nel ledger)**: si
-//! naviga per `id`, non per nome — `/dav/folder/{folder_id}` e
-//! `/dav/asset/{asset_id}` — invece di risolvere una gerarchia di nomi
-//! contro `ltree`. Costo: Finder (che naviga per nome umano) non funziona
-//! ancora; rclone e Cyberduck sì, perché confrontano l'`ETag`, non il path.
-//! Task 7 estende lo schema con `/dav/folder/{folder_id}/{name}` — un
-//! figlio non ancora creato (`PUT`/`MKCOL`) — e con lo stesso schema nella
-//! `Destination` di `MOVE`.
+//! **Path → resource**: navigation is by `id`, not by name —
+//! `/dav/folder/{folder_id}` and `/dav/asset/{asset_id}` — instead of
+//! resolving a hierarchy of names against `ltree`. Cost: Finder (which
+//! navigates by human-readable name) doesn't work yet; rclone and Cyberduck
+//! do, because they compare the `ETag`, not the path. The write module
+//! extends the scheme with `/dav/folder/{folder_id}/{name}` — a child not
+//! yet created (`PUT`/`MKCOL`) — and with the same scheme in `MOVE`'s
+//! `Destination`.
 
 pub mod delete;
 pub mod lock;
@@ -37,10 +37,10 @@ use crate::problem::Problem;
 use crate::routes::media::{mime_for_name, stream_file};
 use crate::state::AppState;
 
-/// Estrae `username`/`secret` dall'header `Authorization: Basic`.
-/// Restituisce `None` se l'header è assente, non `Basic`, non valido
-/// base64, non UTF-8, o privo del separatore `:` — mai un `500` per un
-/// header malformato inviato da un client bacato o ostile.
+/// Extracts `username`/`secret` from the `Authorization: Basic` header.
+/// Returns `None` if the header is missing, not `Basic`, not valid base64,
+/// not UTF-8, or missing the `:` separator — never a `500` for a malformed
+/// header sent by a buggy or hostile client.
 fn parse_basic_auth(req: &Request<Body>) -> Option<(String, String)> {
     let header = req.headers().get(axum::http::header::AUTHORIZATION)?;
     let header = header.to_str().ok()?;
@@ -51,13 +51,13 @@ fn parse_basic_auth(req: &Request<Body>) -> Option<(String, String)> {
     Some((username.to_owned(), secret.to_owned()))
 }
 
-/// Risorsa `WebDAV` indirizzata da un path sotto `/dav/`. Vedi il commento
-/// di modulo sulla semplificazione "per id, non per nome" del Task 6.
+/// `WebDAV` resource addressed by a path under `/dav/`. See the module
+/// comment on the "by id, not by name" simplification.
 ///
-/// `FolderChild` (Task 7) è un figlio non ancora creato di una cartella —
-/// `/dav/folder/{folder_id}/{name}` — indirizzato da `PUT` (il nome è un
-/// filename) e da `MKCOL` (il nome è la nuova sotto-cartella), e dalla
-/// `Destination` di `MOVE`.
+/// `FolderChild` is a not-yet-created child of a folder —
+/// `/dav/folder/{folder_id}/{name}` — addressed by `PUT` (the name is a
+/// filename) and by `MKCOL` (the name is the new subfolder), and by
+/// `MOVE`'s `Destination`.
 #[derive(Debug, Clone)]
 pub(crate) enum Resource {
     Folder(FolderId),
@@ -65,11 +65,12 @@ pub(crate) enum Resource {
     FolderChild(FolderId, String),
 }
 
-/// `None` per qualunque path che non sia `folder/{uuid}`, `folder/{uuid}/{name}`
-/// o `asset/{uuid}` (con o senza `/` finale) — compreso un id malformato, un
-/// nome vuoto/con separatori dopo la decodifica percentuale, o più di un
-/// livello di annidamento: risponde `501` come un metodo non implementato,
-/// non un errore diverso che rivelerebbe se un id è sintatticamente valido.
+/// `None` for any path that isn't `folder/{uuid}`, `folder/{uuid}/{name}`,
+/// or `asset/{uuid}` (with or without a trailing `/`) — including a
+/// malformed id, an empty name or one containing separators after
+/// percent-decoding, or more than one level of nesting: this responds
+/// `501` as an unimplemented method, not a different error that would
+/// reveal whether an id is syntactically valid.
 fn parse_resource(path: &str) -> Option<Resource> {
     let trimmed = path.trim_matches('/');
     let (kind, rest) = trimmed.split_once('/')?;
@@ -91,11 +92,11 @@ fn parse_folder_resource(rest: &str) -> Option<Resource> {
     }
 }
 
-/// Un solo componente di percorso: né vuoto, né `.`/`..`, né contenente un
-/// separatore — altrimenti un nome percent-decoded potrebbe far uscire il
-/// file scritto dalla cartella prevista (traversal). Stesse regole di
-/// `keeppix_domain::AssetName::parse`, replicate qui perché si applicano
-/// anche al nome di una cartella (`MKCOL`), non solo a un filename.
+/// A single path component: not empty, not `.`/`..`, and containing no
+/// separator — otherwise a percent-decoded name could make the written
+/// file escape the intended folder (traversal). Same rules as
+/// `keeppix_domain::AssetName::parse`, replicated here because they also
+/// apply to a folder name (`MKCOL`), not just a filename.
 fn is_valid_path_component(name: &str) -> bool {
     !name.is_empty()
         && !name.contains('/')
@@ -105,11 +106,11 @@ fn is_valid_path_component(name: &str) -> bool {
         && name != ".."
 }
 
-/// Decodifica percent-encoding (RFC 3986 §2.1): un client `WebDAV` reale
-/// (Finder, davfs2) percent-encoda gli spazi e gli altri caratteri non-ASCII
-/// nel path di un nome file con spazi. `None` per una sequenza `%XX` non
-/// esadecimale o per byte che non ricompongono UTF-8 valido — mai un
-/// panic su un input ostile.
+/// Decodes percent-encoding (RFC 3986 §2.1): a real `WebDAV` client (Finder,
+/// davfs2) percent-encodes spaces and other non-ASCII characters in the
+/// path of a filename with spaces. `None` for a non-hex `%XX` sequence or
+/// for bytes that don't recompose valid UTF-8 — never a panic on hostile
+/// input.
 fn percent_decode(input: &str) -> Option<String> {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -127,10 +128,10 @@ fn percent_decode(input: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Estrae `(dst_parent_id, name)` dall'header `Destination` di `MOVE`
-/// (RFC 4918 §9.9.2): il client manda tipicamente un URI assoluto
-/// (`http://host/dav/folder/{id}/{name}`), a volte solo il path — entrambi
-/// accettati, spogliando schema e autorità quando presenti.
+/// Extracts `(dst_parent_id, name)` from `MOVE`'s `Destination` header
+/// (RFC 4918 §9.9.2): the client typically sends an absolute URI
+/// (`http://host/dav/folder/{id}/{name}`), sometimes just the path — both
+/// are accepted, stripping the scheme and authority when present.
 fn parse_destination(value: &str) -> Option<(FolderId, String)> {
     let path = strip_origin(value);
     let path = path.strip_prefix("/dav/")?;
@@ -147,8 +148,8 @@ fn strip_origin(value: &str) -> &str {
     after_scheme.find('/').map_or("/", |i| &after_scheme[i..])
 }
 
-/// Handler `WebDAV` principale. Autentica prima, poi dispatcha per metodo
-/// e risorsa. `COPY` non è implementata e resta `501`.
+/// Main `WebDAV` handler. Authenticates first, then dispatches by method
+/// and resource. `COPY` isn't implemented and stays `501`.
 pub async fn handler(State(state): State<AppState>, req: Request<Body>) -> Response {
     let Some((username, secret)) = parse_basic_auth(&req) else {
         return unauthorized();
@@ -162,16 +163,15 @@ pub async fn handler(State(state): State<AppState>, req: Request<Body>) -> Respo
         Ok(None) => return unauthorized(),
         Ok(Some(user_id)) => user_id,
     };
-    // Ruling (Task 6): il ruolo reale non viene interrogato con una query
-    // separata — `SystemRole::User` qui significa solo "non trattare come
-    // admin". `FolderRepo`/`AssetRepo` filtrano comunque per `user_id`, non
-    // per ruolo: un amministratore che usa WebDAV vede le sue librerie
-    // possedute e le condivisioni come qualunque proprietario, e ogni id
-    // che non gli appartiene risponde `Forbidden` — mai `NotFound`, perché
-    // `ctx.is_admin()` non è mai vero per un attore WebDAV in questo task.
-    // Costo se sbagliato: un vero admin perderebbe la visibilità
-    // "onnisciente" su WebDAV che ha nella web app — nessun rischio di
-    // sicurezza, solo una funzionalità non ancora replicata lì.
+    // The caller's real role isn't looked up with a separate query —
+    // `SystemRole::User` here just means "don't treat as admin".
+    // `FolderRepo`/`AssetRepo` still filter by `user_id`, not by role: an
+    // administrator using WebDAV sees their owned libraries and shares like
+    // any other owner, and any id that doesn't belong to them responds
+    // `Forbidden` — never `NotFound`, because `ctx.is_admin()` is never
+    // true for a WebDAV actor here. Cost if wrong: a real admin would lose
+    // the "all-seeing" visibility over WebDAV that they have in the web
+    // app — no security risk, just a feature not yet replicated there.
     let ctx = AuthContext::user(user_id, SystemRole::User);
 
     let path = req.uri().path().strip_prefix("/dav/").unwrap_or("");
@@ -179,9 +179,9 @@ pub async fn handler(State(state): State<AppState>, req: Request<Body>) -> Respo
         return not_implemented();
     };
 
-    // Il metodo e gli header che servono si estraggono qui, come valori
-    // posseduti: da questo punto `req` può essere consumato per il corpo
-    // (`PUT`) senza un conflitto di prestito con `req.method()`/`req.headers()`.
+    // The method and headers we need are extracted here, as owned values:
+    // from this point `req` can be consumed for the body (`PUT`) without a
+    // borrow conflict with `req.method()`/`req.headers()`.
     let method = req.method().as_str().to_owned();
     let headers = req.headers().clone();
     let body = req.into_body();
@@ -207,11 +207,11 @@ pub async fn handler(State(state): State<AppState>, req: Request<Body>) -> Respo
             respond(write::mkcol(&state, &ctx, parent_id, &name).await)
         }
         ("MOVE", Resource::Folder(src_id)) => {
-            // Il nome finale nella `Destination` non viene applicato: `MOVE`
-            // qui sposta di genitore, non rinomina (ledger Task 7,
-            // `move_subtree` non supporta la rinomina contestuale). Un
-            // client che chiede anche un nome diverso vede il vecchio nome
-            // sopravvivere sotto il nuovo genitore.
+            // The final name in `Destination` is not applied: `MOVE` here
+            // moves between parents, it doesn't rename (`move_subtree`
+            // doesn't support a rename-in-place). A client that also asks
+            // for a different name sees the old name survive under the
+            // new parent.
             let Some((dst_parent_id, _name)) = destination_header(&headers) else {
                 return Problem::bad_request(
                     "missing-destination",
@@ -228,11 +228,12 @@ pub async fn handler(State(state): State<AppState>, req: Request<Body>) -> Respo
             let if_header = headers.get("if").and_then(|v| v.to_str().ok());
             respond(lock::lock(&state, &ctx, &resource, depth_header, if_header).await)
         }
-        // `UNLOCK` non guarda quale risorsa: il token nell'header
-        // `Lock-Token` è l'unica identità che conta (RFC 4918 §9.11) — un
-        // `Resource` non parsabile per questo path non blocca `UNLOCK`
-        // perché il dispatch non arriva nemmeno qui in quel caso (vedi
-        // `parse_resource` sopra, che risponde `501` prima del `match`).
+        // `UNLOCK` doesn't look at which resource: the token in the
+        // `Lock-Token` header is the only identity that matters (RFC 4918
+        // §9.11) — a `Resource` that fails to parse for this path doesn't
+        // block `UNLOCK`, because the dispatch doesn't even get here in
+        // that case (see `parse_resource` above, which responds `501`
+        // before the `match`).
         ("UNLOCK", _) => {
             let lock_token = headers.get("lock-token").and_then(|v| v.to_str().ok());
             respond(lock::unlock(&state, lock_token).await)

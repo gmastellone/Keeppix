@@ -1,15 +1,15 @@
-//! Extractor e risposta JSON che restano dentro il contratto RFC 9457.
+//! JSON extractor and response that stay inside the RFC 9457 contract.
 //!
-//! `axum::Json` rifiuta da sé le richieste malformate, ma con una risposta
-//! `text/plain` e senza `type` stabile: un `Content-Type` mancante darebbe un
-//! `415` di testo, un corpo rotto un `400` di testo. Il contratto congelato
-//! (spec §9.2) dice che *ogni* errore è `application/problem+json` con un
-//! `type` su cui il client ramifica, quindi le rotte usano questo wrapper al
-//! posto di `axum::Json`.
+//! `axum::Json` rejects malformed requests on its own, but with a
+//! `text/plain` response and no stable `type`: a missing `Content-Type`
+//! would give a plain-text `415`, a broken body a plain-text `400`. The
+//! frozen contract says *every* error is `application/problem+json` with a
+//! `type` the client can branch on, so routes use this wrapper instead of
+//! `axum::Json`.
 //!
-//! Avvolge entrambe le direzioni — estrazione e risposta — così che una rotta
-//! importi un solo tipo e non possa per distrazione estrarre con
-//! `axum::Json` e rispondere con questo, o viceversa.
+//! Wraps both directions — extraction and response — so a route imports a
+//! single type and can't accidentally extract with `axum::Json` and
+//! respond with this one, or vice versa.
 
 use axum::extract::{FromRequest, Request};
 use axum::response::{IntoResponse, Response};
@@ -18,7 +18,7 @@ use serde::de::DeserializeOwned;
 
 use crate::problem::Problem;
 
-/// Come `axum::Json`, ma la rejection è un `Problem`.
+/// Like `axum::Json`, but the rejection is a `Problem`.
 pub struct Json<T>(pub T);
 
 impl<T, S> FromRequest<S> for Json<T>
@@ -29,8 +29,8 @@ where
     type Rejection = Problem;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        // La traduzione della rejection sta in `From<JsonRejection> for Problem`
-        // (`problem.rs`): è lì che vivono tutti i `type` stabili.
+        // The rejection translation lives in `From<JsonRejection> for Problem`
+        // (`problem.rs`): that's where all the stable `type`s live.
         let axum::Json(value) = axum::Json::<T>::from_request(req, state).await?;
         Ok(Self(value))
     }

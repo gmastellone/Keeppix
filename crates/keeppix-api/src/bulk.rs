@@ -1,22 +1,22 @@
-//! Involucro di riuscita parziale per le operazioni di massa (spec Fase 10 §3).
+//! Partial-success envelope for bulk operations.
 //!
-//! HTTP **200** anche con fallimenti parziali: il corpo elenca `succeeded` e
-//! `failed` per id. `reason` è un insieme chiuso (kebab-case) così il
-//! frontend decide se mostrare "Riprova" senza parsare testo libero.
+//! HTTP **200** even with partial failures: the body lists `succeeded` and
+//! `failed` by id. `reason` is a closed set (kebab-case) so the frontend
+//! can decide whether to show "Retry" without parsing free-form text.
 
 use keeppix_db::DbError;
 use keeppix_domain::{AssetId, BatchId, FaceId};
 use serde::{Deserialize, Serialize};
 
-/// Esito di un'operazione di massa: ogni elemento è una transazione a sé
-/// (spec §3: non all-or-nothing sul lotto intero).
+/// Outcome of a bulk operation: each element is its own transaction (not
+/// all-or-nothing over the whole batch).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct BulkOutcome {
     #[schema(value_type = Vec<String>)]
     pub succeeded: Vec<AssetId>,
     pub failed: Vec<BulkFailure>,
-    /// Presente quando l'operazione ha registrato un batch annullabile.
-    /// `flags/batch` lo lascia `null`: i voti non sono annullabili via
+    /// Present when the operation recorded an undoable batch.
+    /// `flags/batch` leaves it `null`: votes aren't undoable via
     /// `metadata/batch/{id}/undo`.
     #[schema(value_type = Option<String>)]
     pub batch_id: Option<BatchId>,
@@ -31,8 +31,8 @@ pub struct BulkFailure {
     pub detail: Option<String>,
 }
 
-/// Tassonomia chiusa (spec §7). Il quinto valore `Unknown` è onesto: meglio
-/// un caso in più che fingere una delle quattro nature.
+/// Closed taxonomy. The fifth value `Unknown` is honest: better one extra
+/// case than pretending it's one of the other four.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
 #[schema(rename_all = "kebab-case")]
@@ -41,20 +41,20 @@ pub enum FailureReason {
     PermissionDenied,
     FileMissing,
     Timeout,
-    /// Destinazione di uno spostamento/rinomina già occupata da un altro
-    /// asset (Fase 9 Task 1, `DbError::Collision`) — distinta da `Unknown`:
-    /// un ambito da 500 file deve poter dire "questi si scontravano", non
-    /// solo "qualcosa non ha funzionato".
+    /// Destination of a move/rename already occupied by another asset
+    /// (`DbError::Collision`) — distinct from `Unknown`: a 500-file batch
+    /// needs to be able to say "these collided", not just "something
+    /// didn't work".
     Collision,
     Unknown,
 }
 
 impl FailureReason {
-    /// Mappa un [`DbError`] sulla natura più vicina **senza inventare**.
-    /// Errori di connessione → `unreachable`; permessi / probing →
-    /// `permission-denied`; IO di file assente → `file-missing`; collisione
-    /// di nome/cartella → `collision`; il resto (Conflict, Corrupted, …) →
-    /// `unknown`.
+    /// Maps a [`DbError`] to the closest nature **without inventing one**.
+    /// Connection errors → `unreachable`; permissions / probing →
+    /// `permission-denied`; IO for a missing file → `file-missing`;
+    /// name/folder collision → `collision`; the rest (Conflict, Corrupted,
+    /// …) → `unknown`.
     #[must_use]
     pub fn from_db_error(error: &DbError) -> Self {
         match error {
@@ -102,12 +102,12 @@ impl BulkOutcome {
     }
 }
 
-/// Gemello di [`BulkOutcome`] tipizzato su [`FaceId`] — la coda di revisione
-/// volti (Fase 8 Task 8) lavora su volti, non su asset. Stessa forma e
-/// stessa [`FailureReason`] di `BulkOutcome`: `FailureReason::FileMissing`
-/// non ha senso qui (nessun percorso sul filesystem è coinvolto), ma tenerlo
-/// nell'enum condiviso costa meno di una seconda tassonomia — il chiamante
-/// semplicemente non lo produce mai per un volto.
+/// Twin of [`BulkOutcome`] typed on [`FaceId`] — the face review queue
+/// works on faces, not assets. Same shape and same [`FailureReason`] as
+/// `BulkOutcome`: `FailureReason::FileMissing` doesn't make sense here (no
+/// filesystem path is involved), but keeping it in the shared enum costs
+/// less than a second taxonomy — the caller simply never produces it for a
+/// face.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct FaceBulkOutcome {
     #[schema(value_type = Vec<String>)]

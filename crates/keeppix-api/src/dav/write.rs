@@ -1,22 +1,17 @@
-//! `PUT`, `MKCOL`, `MOVE` (Task 7, Fase 5) — le operazioni di scrittura
-//! `WebDAV`, riusando gli stessi repository del resto dell'API: nessuna
-//! query SQL qui, solo `FolderRepo`/`AssetRepo`/`JobRepo` come ovunque nel
-//! resto del crate.
+//! `PUT`, `MKCOL`, `MOVE` — the `WebDAV` write operations, reusing the same
+//! repositories as the rest of the API: no raw SQL here, only
+//! `FolderRepo`/`AssetRepo`/`JobRepo` as everywhere else in the crate.
 //!
-//! **`COPY` non è implementata** (resta `501` nel dispatch di
-//! `dav::handler`): copiare un intero sottoalbero — id nuovi per ogni
-//! cartella e ogni asset, eventualmente attraverso librerie diverse (il
-//! brief chiede di verificare lo spazio libero sulla libreria di
-//! *destinazione*, che può differire da quella di partenza) — è
-//! esplicitamente segnalata dal brief come "se troppo complessa,
-//! implementarla come stub 501". Vedi il ledger del Task 7 per il
-//! ragionamento completo.
+//! **`COPY` is not implemented** (stays `501` in `dav::handler`'s dispatch):
+//! copying an entire subtree — new ids for every folder and asset,
+//! potentially across different libraries (which requires checking free
+//! space on the *destination* library, which can differ from the source
+//! one) — is complex enough that it ships as a `501` stub for now.
 //!
-//! **Mai una sovrascrittura silenziosa su `PUT`** (invariante di
-//! `AGENTS.md`): stesso nome e stesso hash è un duplicato, saltato
-//! (`204`); stesso nome e hash diverso prende un suffisso numerico (`201`,
-//! nome finale diverso da quello richiesto) — la stessa regola di
-//! `UploadSessionRepo::finalize` (Task 1), applicata qui da
+//! **Never a silent overwrite on `PUT`**: same name and same hash is a
+//! duplicate, skipped (`204`); same name and different hash gets a numeric
+//! suffix (`201`, final name different from the one requested) — the same
+//! rule as `UploadSessionRepo::finalize`, applied here by
 //! `AssetRepo::ingest_direct`.
 
 use std::path::Path;
@@ -33,26 +28,24 @@ use crate::routes::share::peek_header;
 use crate::routes::upload::enqueue_indexing;
 use crate::state::AppState;
 
-/// Tetto assoluto per un corpo `PUT` `WebDAV`, indipendentemente da quanto
-/// dichiara `Content-Length` (o dalla sua assenza, con `Transfer-Encoding:
-/// chunked`) — Ruling (fix round Task 7): senza questo, un client che non
-/// manda affatto `Content-Length` bypasserebbe sia questo controllo sia
-/// `ensure_disk_space` (che ha bisogno di una dimensione dichiarata per
-/// girare), e potrebbe riempire il disco in streaming senza che nessun
-/// controllo lo intercetti. 10 GiB è ben oltre qualunque file fotografico o
-/// video reale che Keeppix indicizza; costo se sbagliato: un client che
-/// carica legittimamente un file più grande riceve un `413` invece che un
-/// upload riuscito — va rivisto se un giorno servirà per RAW/video enormi.
+/// Absolute ceiling for a `WebDAV` `PUT` body, regardless of what
+/// `Content-Length` declares (or its absence, with `Transfer-Encoding:
+/// chunked`) — without this, a client that sends no `Content-Length` at all
+/// would bypass both this check and `ensure_disk_space` (which needs a
+/// declared size to run), and could fill the disk while streaming without
+/// any check catching it. 10 GiB is well beyond any real photo or video file
+/// that Keeppix indexes; cost if wrong: a client legitimately uploading a
+/// larger file gets a `413` instead of a successful upload — revisit if
+/// huge RAW/video files are ever needed.
 const MAX_BODY_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 
-/// Convalida la dimensione dichiarata dal client contro [`MAX_BODY_BYTES`]
-/// e restituisce il tetto da imporre effettivamente allo streaming: la
-/// dimensione dichiarata se presente e nel limite, altrimenti
-/// `MAX_BODY_BYTES` (corpo senza `Content-Length`, tipicamente
-/// `Transfer-Encoding: chunked`).
+/// Validates the size declared by the client against [`MAX_BODY_BYTES`] and
+/// returns the cap to actually enforce on the stream: the declared size if
+/// present and within the limit, otherwise `MAX_BODY_BYTES` (body with no
+/// `Content-Length`, typically `Transfer-Encoding: chunked`).
 ///
 /// # Errors
-/// `413` se `Content-Length` supera `MAX_BODY_BYTES`.
+/// `413` if `Content-Length` exceeds `MAX_BODY_BYTES`.
 fn check_declared_size(content_length: Option<u64>) -> Result<u64, Problem> {
     match content_length {
         Some(len) if len > MAX_BODY_BYTES => Err(Problem::payload_too_large()),
@@ -61,24 +54,22 @@ fn check_declared_size(content_length: Option<u64>) -> Result<u64, Problem> {
     }
 }
 
-/// `PUT /dav/folder/{folder_id}/{filename}` — stesso percorso del `tus`
-/// upload (Task 1), senza sessione: il corpo arriva già intero in streaming,
-/// si scrive su un temporaneo in `.keeppix-tmp/` dentro la libreria, poi un
-/// `rename()` atomico lo sposta al posto finale sullo stesso filesystem.
+/// `PUT /dav/folder/{folder_id}/{filename}` — same idea as the `tus` upload
+/// path, without a session: the body arrives already whole in a stream,
+/// gets written to a temp file in `.keeppix-tmp/` inside the library, then
+/// an atomic `rename()` moves it to its final place on the same filesystem.
 ///
-/// Un nome che inizia con `.` (`.DS_Store`, `._foto.jpg`, i sidecar
-/// nascosti di macOS) viene **accettato e salvato su disco** — un client
-/// `WebDAV` non deve ricevere un errore inaspettato per un file che non ha
-/// chiesto lui di caricare — ma **non indicizzato**: nessuna riga `assets`,
-/// nessun job (vedi [`put_dotfile`]).
+/// A name starting with `.` (`.DS_Store`, `._photo.jpg`, macOS's hidden
+/// sidecar files) is **accepted and saved to disk** — a `WebDAV` client
+/// shouldn't get an unexpected error for a file it didn't ask to upload —
+/// but **not indexed**: no `assets` row, no job (see [`put_dotfile`]).
 ///
 /// # Errors
-/// `400` se il nome non è un componente di percorso valido, o se il corpo
-/// è vuoto. `403` se il chiamante non è editor sulla cartella. `413` se
-/// `Content-Length` (o il corpo effettivo, per un client senza
-/// `Content-Length`) supera [`MAX_BODY_BYTES`]. `507` se lo spazio libero
-/// sulla libreria è sotto la dimensione dichiarata. `500` per un errore di
-/// I/O.
+/// `400` if the name isn't a valid path component, or if the body is
+/// empty. `403` if the caller isn't an editor on the folder. `413` if
+/// `Content-Length` (or the actual body, for a client without
+/// `Content-Length`) exceeds [`MAX_BODY_BYTES`]. `507` if the free space on
+/// the library is below the declared size. `500` for an I/O error.
 pub async fn put(
     state: &AppState,
     ctx: &AuthContext,
@@ -91,11 +82,11 @@ pub async fn put(
         .assert_editor(ctx, folder_id)
         .await?;
 
-    // Guardia (fix round Task 7, Important #1): prima di toccare il disco,
-    // non dopo — un `Content-Length` dichiarato più grande dello spazio
-    // libero viene respinto senza scrivere un solo byte del temporaneo,
-    // sullo stesso principio di `UploadSessionRepo::create` per la sessione
-    // `tus` (`crates/keeppix-db/src/uploads.rs`).
+    // Guard before touching the disk, not after — a `Content-Length`
+    // declared larger than the free space is rejected without writing a
+    // single byte of the temp file, on the same principle as
+    // `UploadSessionRepo::create` for the `tus` session
+    // (`crates/keeppix-db/src/uploads.rs`).
     let cap = check_declared_size(content_length)?;
     if let Some(len) = content_length {
         let expected = i64::try_from(len).unwrap_or(i64::MAX);
@@ -142,13 +133,12 @@ pub async fn put(
     Ok(put_response(outcome.asset_id, &outcome.collision))
 }
 
-/// Salva il dotfile al posto finale senza passare dal controllo di
-/// collisione degli asset — vedi la doc di [`put`]. Sovrascrive un omonimo
-/// già presente: è esattamente il comportamento che un file di cache del
-/// sistema operativo del client si aspetta (`.DS_Store` viene riscritto in
-/// continuazione da Finder), e l'invariante "mai sovrascrittura silenziosa"
-/// dell'`AGENTS.md` protegge le foto dell'utente, non la sua cache
-/// (Ruling, Task 7).
+/// Saves the dotfile to its final place without going through the asset
+/// collision check — see [`put`]'s doc. Overwrites an existing same-named
+/// file: that's exactly the behavior the client OS's cache file expects
+/// (`.DS_Store` gets rewritten continuously by Finder), and the "never a
+/// silent overwrite" invariant protects the user's photos, not the client's
+/// cache.
 async fn put_dotfile(
     db: &keeppix_db::Db,
     ctx: &AuthContext,
@@ -165,9 +155,9 @@ async fn put_dotfile(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-/// `201 Created` + `Location: /dav/asset/{id}` per un file nuovo (creato o
-/// rinominato per collisione); `204 No Content` per un duplicato esatto —
-/// mai una risposta che suggerisca una sovrascrittura silenziosa.
+/// `201 Created` + `Location: /dav/asset/{id}` for a new file (created or
+/// renamed on collision); `204 No Content` for an exact duplicate — never a
+/// response that would suggest a silent overwrite.
 fn put_response(asset_id: AssetId, collision: &CollisionOutcome) -> Response {
     match collision {
         CollisionOutcome::SkippedDuplicate { .. } => StatusCode::NO_CONTENT.into_response(),
@@ -181,33 +171,32 @@ fn put_response(asset_id: AssetId, collision: &CollisionOutcome) -> Response {
     }
 }
 
-/// `MKCOL /dav/folder/{parent_id}/{new_name}` — crea prima la directory sul
-/// disco, poi la riga nel database (`FolderRepo::ensure_child`, idempotente
-/// per costruzione).
+/// `MKCOL /dav/folder/{parent_id}/{new_name}` — creates the directory on
+/// disk first, then the row in the database (`FolderRepo::ensure_child`,
+/// idempotent by construction).
 ///
-/// Ordine invertito rispetto alla prima versione (ledger Task 7, fix round,
-/// Important #2): scrivere prima su disco e poi nel database, mai il
-/// contrario — se l'`INSERT` andasse prima e la `create_dir_all` fallisse
-/// dopo (permessi, disco pieno, mount caduto), resterebbe una riga
-/// `folders` senza la directory corrispondente, una cartella fantasma che
-/// nessun client vedrebbe mai sparire da solo. Con l'ordine giusto, un
-/// fallimento su disco non tocca il database per niente; un fallimento
-/// dell'`INSERT` **dopo** che la directory è stata creata da questa stessa
-/// chiamata la rimuove best-effort (`remove_dir`, silenzioso se non vuota o
-/// già sparita) — non se la directory esisteva già prima (`MKCOL`
-/// idempotente su un secondo tentativo, o una directory lasciata da uno
-/// scanner): non è nostra da cancellare.
+/// Order matters: write to disk first, then to the database, never the
+/// other way around — if the `INSERT` went first and `create_dir_all`
+/// failed afterward (permissions, disk full, mount dropped), a `folders`
+/// row would be left with no corresponding directory, a ghost folder that
+/// no client would ever see disappear on its own. With the right order, a
+/// disk failure never touches the database at all; an `INSERT` failure
+/// **after** the directory was created by this same call removes it on a
+/// best-effort basis (`remove_dir`, silent if non-empty or already gone) —
+/// but not if the directory already existed beforehand (`MKCOL` idempotent
+/// on a second attempt, or a directory left by a scanner): that one isn't
+/// ours to delete.
 ///
-/// Semplificazione (ledger Task 7): un `MKCOL` ripetuto sullo stesso nome
-/// non fallisce con `405` (RFC 4918 §9.3) — restituisce di nuovo `201`
-/// sulla cartella già esistente, perché `ensure_child` è idempotente per lo
-/// stesso motivo per cui lo scanner lo richiama senza duplicare nulla.
-/// Nessun client reale in uso qui dipende dal `405`.
+/// Simplification: a repeated `MKCOL` on the same name doesn't fail with
+/// `405` (RFC 4918 §9.3) — it returns `201` again on the already-existing
+/// folder, because `ensure_child` is idempotent for the same reason the
+/// scanner calls it repeatedly without duplicating anything. No real client
+/// in use here depends on the `405`.
 ///
 /// # Errors
-/// `403` se il chiamante non è editor sulla cartella genitore. `500` per un
-/// errore di I/O nella creazione della directory o per un errore del
-/// database dopo che la directory è già stata creata.
+/// `403` if the caller isn't an editor on the parent folder. `500` for an
+/// I/O error creating the directory or a database error after the
+/// directory has already been created.
 pub async fn mkcol(
     state: &AppState,
     ctx: &AuthContext,
@@ -245,31 +234,29 @@ pub async fn mkcol(
     Ok((StatusCode::CREATED, headers).into_response())
 }
 
-/// `MOVE /dav/folder/{src_id}` con `Destination: /dav/folder/{dst_parent_id}/{name}`
-/// — verifica il permesso di editor su **entrambe** le cartelle coinvolte
-/// (il brief lo richiede esplicitamente: `FolderRepo::move_subtree` da sola
-/// controlla solo la cartella sorgente), poi riusa `move_subtree`, che
-/// conserva rating/album/descrizioni per costruzione, e infine sposta anche
-/// la directory su disco.
+/// `MOVE /dav/folder/{src_id}` with `Destination: /dav/folder/{dst_parent_id}/{name}`
+/// — checks editor permission on **both** folders involved
+/// (`FolderRepo::move_subtree` on its own only checks the source folder),
+/// then reuses `move_subtree`, which preserves rating/albums/descriptions
+/// by construction, and finally moves the directory on disk too.
 ///
-/// Nota (ledger Task 7): `move_subtree` **non** chiama `rename()` — riscrive
-/// solo `folders.path` nel database (il brief lo dava per scontato, ma non
-/// è così: verificato leggendo il codice). Lo spostamento fisico qui sotto
-/// avviene **dopo** il commit di `move_subtree`: se il `rename()` fallisse
-/// (solo un errore di I/O reale, perché `move_subtree` ha già validato
-/// ciclo/libreria/collisione di nome prima di arrivare qui), la cartella
-/// sarebbe già spostata nel database ma non sul disco — un'inconsistenza
-/// da correggere a mano, la stessa identica lacuna già presente e non
-/// toccata in questo task in `PATCH /api/v1/folders/{id}` (che oggi non
-/// sposta la directory per niente). Il `MOVE` `WebDAV` qui è quindi già più
-/// corretto dell'endpoint REST esistente, non più fragile.
+/// Note: `move_subtree` does **not** call `rename()` — it only rewrites
+/// `folders.path` in the database (verified by reading the code). The
+/// physical move below happens **after** `move_subtree`'s commit: if the
+/// `rename()` were to fail (only a genuine I/O error, since `move_subtree`
+/// has already validated cycle/library/name-collision before getting here),
+/// the folder would already be moved in the database but not on disk — an
+/// inconsistency to fix by hand, the same gap already present and untouched
+/// in `PATCH /api/v1/folders/{id}` (which today doesn't move the directory
+/// at all). The `WebDAV` `MOVE` here is therefore already more correct than
+/// the existing REST endpoint, not more fragile.
 ///
 /// # Errors
-/// `403` se il chiamante non è editor su `src_id` o su `dst_parent_id`.
-/// `409` se `dst_parent_id` sta nel sottoalbero di `src_id` (compresa la
-/// cartella stessa), se le due cartelle sono in librerie diverse, o se il
-/// nuovo genitore ha già un figlio con lo stesso nome. `500` se il
-/// `rename()` fisico fallisce dopo che il database è già stato aggiornato.
+/// `403` if the caller isn't an editor on `src_id` or on `dst_parent_id`.
+/// `409` if `dst_parent_id` is in `src_id`'s subtree (including the folder
+/// itself), if the two folders are in different libraries, or if the new
+/// parent already has a child with the same name. `500` if the physical
+/// `rename()` fails after the database has already been updated.
 pub async fn move_folder(
     state: &AppState,
     ctx: &AuthContext,
@@ -300,23 +287,21 @@ pub async fn move_folder(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-/// Scrive il corpo della richiesta su `path` in streaming — mai
-/// bufferizzato per intero in RAM, sullo stile di
-/// `crate::routes::upload::write_chunk_checked`, ma senza checksum: qui non
-/// c'è un `Upload-Checksum` a cui confrontarlo, l'hash si calcola a file
-/// completo (vedi [`hash_temp_file`]), esattamente come
-/// `crate::routes::upload::finalize_upload`.
+/// Writes the request body to `path` in a stream — never buffered whole in
+/// RAM, in the style of `crate::routes::upload::write_chunk_checked`, but
+/// without a checksum: there's no `Upload-Checksum` to compare against
+/// here, the hash is computed over the whole file (see [`hash_temp_file`]),
+/// exactly like `crate::routes::upload::finalize_upload`.
 ///
-/// `max_len` (fix round Task 7, Important #1) è imposto byte per byte
-/// durante lo streaming, non solo controllato una volta su
-/// `Content-Length`: un client che dichiara un corpo piccolo ma poi ne manda
-/// uno più grande (o che non dichiara affatto una dimensione, `chunked`)
-/// viene troncato allo stesso modo, sullo stile di
+/// `max_len` is enforced byte by byte during streaming, not just checked
+/// once against `Content-Length`: a client that declares a small body but
+/// then sends a larger one (or that declares no size at all, `chunked`) is
+/// truncated the same way, in the style of
 /// `crate::routes::share::write_body_capped`.
 ///
 /// # Errors
-/// `400` se il corpo non si può leggere. `413` se il corpo scritto supera
-/// `max_len`. `500` per un errore di I/O sul temporaneo.
+/// `400` if the body can't be read. `413` if the written body exceeds
+/// `max_len`. `500` for an I/O error on the temp file.
 async fn write_body_to_file(path: &Path, body: Body, max_len: u64) -> Result<u64, Problem> {
     use http_body::Body as _;
     use tokio::io::AsyncWriteExt as _;
@@ -364,7 +349,7 @@ async fn write_body_to_file(path: &Path, body: Body, max_len: u64) -> Result<u64
     Ok(written)
 }
 
-/// Hash blake3 dell'intero temporaneo, fuori dal thread async — come
+/// Blake3 hash of the whole temp file, off the async thread — same as
 /// `crate::routes::upload::finalize_upload`.
 async fn hash_temp_file(path: &Path) -> Result<[u8; 32], Problem> {
     let path = path.to_path_buf();

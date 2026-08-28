@@ -96,8 +96,9 @@ impl SessionCache {
         }
     }
 
-    /// Svuota la cache. Usato dopo revoke di massa (disable / cambio password)
-    /// così un token già revocato non resta valido fino a 30s.
+    /// Empties the cache. Used after a mass revoke (disable / password
+    /// change) so an already-revoked token doesn't stay valid for up to
+    /// 30s.
     pub fn clear(&self) {
         if let Ok(mut guard) = self.inner.lock() {
             guard.clear();
@@ -199,24 +200,25 @@ pub struct AppState {
     /// unit tests that never exercise those paths.
     pub database_url: String,
     pub on_authenticated: Option<Arc<dyn Fn() + Send + Sync>>,
-    /// Gancio per `POST /viewport` (Task 20): un cambio di vista, non solo
-    /// una richiesta autenticata qualunque — alimenta la soglia di 4 secondi
-    /// della pausa automatica dell'analisi, molto più corta dei 5 minuti di
-    /// `on_authenticated`. Chiamato anche quando non c'è nulla da
-    /// promuovere: è comunque un segnale di navigazione.
+    /// Hook for `POST /viewport`: a viewport change, not just any
+    /// authenticated request — feeds the 4-second threshold of the
+    /// automatic analysis pause, much shorter than `on_authenticated`'s 5
+    /// minutes. Called even when there's nothing to promote: it's still a
+    /// navigation signal.
     pub on_viewport_activity: Option<Arc<dyn Fn() + Send + Sync>>,
     pub tickets: TicketStore,
     pub sessions: SessionCache,
     pub allowed_origins: Vec<String>,
-    /// Radici sotto le quali può puntare una libreria. Default produzione:
-    /// `["/photos"]`. Validare `root_path` **dopo** `canonicalize`.
+    /// Roots a library is allowed to point under. Production default:
+    /// `["/photos"]`. Validate `root_path` **after** `canonicalize`.
     pub library_roots: Vec<PathBuf>,
-    /// Watcher delle librerie; `None` solo nei test che non li esercitano.
+    /// Library watchers; `None` only in tests that don't exercise them.
     pub library_watchers: Option<keeppix_jobs::watch::LibraryWatchers>,
-    /// Tetto in byte della cache `*-full.webp`. Default 512 MiB.
+    /// Ceiling in bytes for the `*-full.webp` cache. Default 512 MiB.
     pub full_cache_bytes: u64,
-    /// Demosaic RAW per `/media/full`. In produzione è `SandboxDemosaic`;
-    /// i test iniettano un finto per non dipendere da `dcraw_emu`.
+    /// RAW demosaic for `/media/full`. In production it's
+    /// `SandboxDemosaic`; tests inject a fake to avoid depending on
+    /// `dcraw_emu`.
     pub demosaic: std::sync::Arc<dyn keeppix_jobs::raw::Demosaic>,
     /// Rate limiter for public share link access (per token).
     pub share_limiter: RateLimiter,
@@ -226,8 +228,8 @@ pub struct AppState {
     pub share_unlocks: ShareUnlockStore,
     pub tz_previews: TimezonePreviewStore,
     pub idempotency_locks: IdempotencyLockStore,
-    /// Nome del server mostrato nel Profilo (`UserView::server_name`).
-    /// Puramente cosmetico: `"Keeppix"` di default (`KEEPPIX_SERVER_NAME`).
+    /// Server name shown in the Profile (`UserView::server_name`). Purely
+    /// cosmetic: `"Keeppix"` by default (`KEEPPIX_SERVER_NAME`).
     pub server_name: String,
 }
 

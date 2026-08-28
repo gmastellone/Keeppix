@@ -1,10 +1,10 @@
-//! `PROPFIND` (RFC 4918 §9.1): risponde **dal database**, mai da `stat()`
-//! sul filesystem — la stessa tabella `folders`/`assets` che alimenta la
-//! timeline ha già nome, dimensione, mtime, hash. Per una libreria con
-//! meno di 10.000 file l'intero corpo `multistatus` in un `Vec<u8>` sta
-//! comodamente in RAM (qualche MB); la vera streaming a blocchi è
-//! un'ottimizzazione per scale molto più grandi, differita finché non
-//! serve davvero — vedi ledger del Task 6.
+//! `PROPFIND` (RFC 4918 §9.1): responds **from the database**, never from
+//! `stat()` on the filesystem — the same `folders`/`assets` table that feeds
+//! the timeline already has name, size, mtime, hash. For a library with
+//! fewer than 10,000 files, the entire `multistatus` body fits comfortably
+//! in a `Vec<u8>` in RAM (a few MB); real chunked streaming is an
+//! optimization for much larger scales, deferred until it's actually
+//! needed.
 
 use std::io;
 
@@ -22,26 +22,25 @@ use crate::routes::media::mime_for_name;
 use crate::routes::timeline::hex_hash;
 use crate::state::AppState;
 
-/// `Depth` richiesto dal client. `infinity` è rifiutato prima di leggere
-/// qualunque riga — vedi [`parse_depth`].
+/// `Depth` requested by the client. `infinity` is rejected before reading
+/// a single row — see [`parse_depth`].
 #[derive(Debug)]
 pub enum Depth {
     Zero,
     One,
 }
 
-/// Header `Depth` assente: trattato come `1`, il caso comune di un client
-/// che lista una cartella (non è il default RFC 4918, che sarebbe
-/// `infinity` — ma rifiutare `infinity` senza offrire un'alternativa
-/// sensata all'assenza dell'header renderebbe PROPFIND senza header
-/// inutile). Un valore diverso da `0`/`1`/`infinity` è trattato con la
-/// stessa tolleranza (`1`): un client `WebDAV` bacato non deve ricevere un
-/// errore invece di un elenco.
+/// Missing `Depth` header: treated as `1`, the common case of a client
+/// listing a folder (not the RFC 4918 default, which would be `infinity` —
+/// but rejecting `infinity` without offering a sensible fallback for a
+/// missing header would make PROPFIND without a header useless). A value
+/// other than `0`/`1`/`infinity` is treated with the same tolerance (`1`):
+/// a buggy `WebDAV` client shouldn't get an error instead of a listing.
 ///
 /// # Errors
-/// `403 Forbidden` per `Depth: infinity` — costruire l'XML dell'intera
-/// libreria in un `Vec<u8>` esploderebbe la RAM su una libreria grande;
-/// niente in questo task fa streaming a blocchi (vedi doc del modulo).
+/// `403 Forbidden` for `Depth: infinity` — building the XML for the entire
+/// library in a `Vec<u8>` would blow up RAM on a large library; nothing in
+/// this module does chunked streaming (see the module doc).
 pub fn parse_depth(raw: Option<&str>) -> Result<Depth, Problem> {
     match raw.map(str::trim) {
         None | Some("1") => Ok(Depth::One),
@@ -71,12 +70,11 @@ fn folder_entry(folder: &Folder) -> Entry {
         display_name: folder.name.clone(),
         is_collection: true,
         size: None,
-        // `folders` non porta un mtime nel modello di dominio (solo
-        // `created_at` in tabella, non caricato da `FolderRepo`): un client
-        // WebDAV usa `getlastmodified` per decidere se un file è cambiato,
-        // non una cartella — l'ETag degli asset è la chiave di sync reale
-        // (spec §2.3). "adesso" è un valore innocuo: nessun client ne
-        // dipende per le cartelle. Vedi ledger Task 6.
+        // `folders` doesn't carry an mtime in the domain model (only
+        // `created_at` in the table, not loaded by `FolderRepo`): a WebDAV
+        // client uses `getlastmodified` to decide whether a file changed,
+        // not a folder — the asset ETag is the real sync key. "now" is a
+        // harmless value: no client relies on it for folders.
         last_modified: http_date(Utc::now()),
         etag: None,
         content_type: None,
@@ -103,10 +101,10 @@ fn http_date(at: DateTime<Utc>) -> String {
 }
 
 /// # Errors
-/// `Forbidden` se il chiamante non vede la cartella — mai una lista vuota:
-/// altrimenti l'endpoint diventerebbe un oracolo di esistenza. `Internal`
-/// se la codifica XML fallisce (praticamente irraggiungibile scrivendo su
-/// un `Vec<u8>`, ma propagato invece di un `unwrap()`).
+/// `Forbidden` if the caller can't see the folder — never an empty list:
+/// otherwise the endpoint would become an existence oracle. `Internal` if
+/// the XML encoding fails (practically unreachable when writing to a
+/// `Vec<u8>`, but propagated instead of an `unwrap()`).
 pub async fn folder(
     state: &AppState,
     ctx: &AuthContext,
@@ -130,12 +128,12 @@ pub async fn folder(
     multistatus_response(&entries)
 }
 
-/// PROPFIND su un singolo asset (un client `WebDAV` che sonda un file prima
-/// di un `GET`): un solo `D:response`, indipendente da `Depth` — un file
-/// non ha figli.
+/// PROPFIND on a single asset (a `WebDAV` client probing a file before a
+/// `GET`): a single `D:response`, independent of `Depth` — a file has no
+/// children.
 ///
 /// # Errors
-/// Come [`folder`], sull'asset.
+/// Same as [`folder`], on the asset.
 pub async fn asset(
     state: &AppState,
     ctx: &AuthContext,
@@ -278,13 +276,12 @@ mod tests {
         assert!(text.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"?>"));
         assert!(text.contains("<D:multistatus xmlns:D=\"DAV:\">"));
         assert!(text.contains("<D:href>/dav/asset/abc</D:href>"));
-        // `&` deve uscire come entità: un client XML non tollera un `&`
-        // letterale nel testo di un elemento.
+        // `&` must come out as an entity: an XML client won't tolerate a
+        // literal `&` in an element's text.
         assert!(text.contains("photo &amp; friends.jpg"));
-        // Le virgolette dell'ETag sono escaped come `&quot;` nel testo
-        // dell'elemento — XML valido (RFC 4918 §15.6): un client li
-        // decodifica di nuovo a `"deadbeef"`, il valore letterale
-        // dell'ETag comprese le virgolette.
+        // The ETag's quotes are escaped as `&quot;` in the element's text —
+        // valid XML (RFC 4918 §15.6): a client decodes them back to
+        // `"deadbeef"`, the literal ETag value including the quotes.
         assert!(text.contains("<D:getetag>&quot;deadbeef&quot;</D:getetag>"));
         assert!(text.contains("<D:status>HTTP/1.1 200 OK</D:status>"));
     }

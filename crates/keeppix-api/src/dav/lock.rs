@@ -1,12 +1,11 @@
-//! `LOCK`/`UNLOCK` (Task 8, Fase 5) — `WebDAV` Class 2, richiesto da Finder
-//! e Windows Explorer prima di scrivere un file: senza risposta a questi
-//! due metodi i client nativi si rifiutano di salvare, non solo "vanno più
-//! lento".
+//! `LOCK`/`UNLOCK` — `WebDAV` Class 2, required by Finder and Windows
+//! Explorer before writing a file: without a response to these two
+//! methods, native clients refuse to save, not just "go slower".
 //!
-//! Nessun arbitraggio reale di scrittura concorrente avviene qui: il lock
-//! è un contratto col client (nessun secondo writer coordinato da questo
-//! codice), serve solo a soddisfare il protocollo che Finder/Explorer si
-//! aspettano prima di un `PUT`.
+//! No real concurrent-write arbitration happens here: the lock is a
+//! contract with the client (no second writer is actually coordinated by
+//! this code), it only serves to satisfy the protocol that Finder/Explorer
+//! expect before a `PUT`.
 
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -18,15 +17,15 @@ use super::Resource;
 use crate::problem::Problem;
 use crate::state::AppState;
 
-/// Deve restare identico al TTL impostato da `DavLockRepo::create`/
-/// `refresh` (`crates/keeppix-db/src/dav_locks.rs`) — è solo il valore
-/// mostrato nel corpo XML di risposta, la fonte di verità sulla scadenza
-/// resta `dav_locks.timeout_at` nel database.
+/// Must stay identical to the TTL set by `DavLockRepo::create`/`refresh`
+/// (`crates/keeppix-db/src/dav_locks.rs`) — this is only the value shown in
+/// the response's XML body; the source of truth for expiry remains
+/// `dav_locks.timeout_at` in the database.
 const LOCK_TIMEOUT_SECONDS: u64 = 3600;
 
-/// Percorso opaco usato come chiave in `dav_locks.resource_path` — lo
-/// stesso path `/dav/...` con cui il client indirizza la risorsa, mai un
-/// percorso filesystem (stesso principio del resto di `dav::mod`).
+/// Opaque path used as the key in `dav_locks.resource_path` — the same
+/// `/dav/...` path the client uses to address the resource, never a
+/// filesystem path (same principle as the rest of `dav::mod`).
 fn resource_key(resource: &Resource) -> String {
     match resource {
         Resource::Folder(id) => format!("/dav/folder/{id}"),
@@ -35,9 +34,9 @@ fn resource_key(resource: &Resource) -> String {
     }
 }
 
-/// Il chiamante deve almeno vedere la risorsa (o, per un figlio non ancora
-/// creato, la cartella genitore) — un lock non deve rivelare a un estraneo
-/// nemmeno l'esistenza di una risorsa che non gli appartiene.
+/// The caller must at least be able to see the resource (or, for a
+/// not-yet-created child, the parent folder) — a lock must not reveal to a
+/// stranger even the existence of a resource that isn't theirs.
 async fn assert_visible(
     state: &AppState,
     ctx: &AuthContext,
@@ -59,27 +58,28 @@ async fn assert_visible(
     Ok(())
 }
 
-/// Estrae il token da un header `If: (<token>)` (RFC 4918 §10.4) — solo la
-/// forma con un singolo token, senza liste `And`/`Or`: nessun client reale
-/// in uso qui (Finder, Windows Explorer) manda altro per un semplice
-/// rinnovo.
+/// Extracts the token from an `If: (<token>)` header (RFC 4918 §10.4) —
+/// only the single-token form, without `And`/`Or` lists: no real client in
+/// use here (Finder, Windows Explorer) sends anything else for a plain
+/// renewal.
 fn parse_if_token(raw: &str) -> Option<String> {
     let inner = raw.trim().trim_start_matches('(').trim_end_matches(')');
     strip_angle_brackets(inner)
 }
 
-/// Estrae il token da un header `Lock-Token: <token>` (`UNLOCK`) o dal
-/// valore restituito da `LOCK` — entrambi portano il token fra `<`/`>`.
+/// Extracts the token from a `Lock-Token: <token>` header (`UNLOCK`) or
+/// from the value returned by `LOCK` — both carry the token between
+/// `<`/`>`.
 fn strip_angle_brackets(raw: &str) -> Option<String> {
     let inner = raw.trim().trim_start_matches('<').trim_end_matches('>');
     (!inner.is_empty()).then(|| inner.to_owned())
 }
 
 fn lockdiscovery_xml(token: &str, depth: &str) -> String {
-    // Niente continuazioni `\` a fine riga: dopo un `\` seguito da a-capo,
-    // Rust rimuove anche gli spazi di indentazione della riga successiva —
-    // qui servono spazi letterali nel corpo XML, quindi ogni riga è un
-    // `\n` esplicito su un'unica riga di codice.
+    // No trailing `\` line continuations: after a `\` followed by a
+    // newline, Rust also strips the leading whitespace of the next line —
+    // literal spaces are needed here in the XML body, so each line is an
+    // explicit `\n` on a single line of code.
     format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<D:prop xmlns:D=\"DAV:\">\n  <D:lockdiscovery>\n    <D:activelock>\n      <D:locktype><D:write/></D:locktype>\n      <D:lockscope><D:exclusive/></D:lockscope>\n      <D:depth>{depth}</D:depth>\n      <D:timeout>Second-{LOCK_TIMEOUT_SECONDS}</D:timeout>\n      <D:locktoken><D:href>{token}</D:href></D:locktoken>\n    </D:activelock>\n  </D:lockdiscovery>\n</D:prop>"
     )
@@ -98,16 +98,17 @@ fn lock_response(token: &str, depth: &str) -> Response {
     (StatusCode::OK, headers, body).into_response()
 }
 
-/// `LOCK` — senza `If:` crea un nuovo lock esclusivo (`423 Locked` se la
-/// risorsa ne ha già uno attivo); con `If: (<token>)` tenta un rinnovo
-/// (`412 Precondition Failed` se il token non esiste o è già scaduto — mai
-/// un `200` che farebbe credere al client di possedere ancora il lock).
+/// `LOCK` — without `If:` creates a new exclusive lock (`423 Locked` if the
+/// resource already has one active); with `If: (<token>)` attempts a
+/// renewal (`412 Precondition Failed` if the token doesn't exist or has
+/// already expired — never a `200` that would make the client believe it
+/// still holds the lock).
 ///
 /// # Errors
-/// `403` se il chiamante non vede la risorsa (o, per un figlio non ancora
-/// creato, la cartella genitore). `412` per un rinnovo su un token
-/// scaduto/inesistente. `423` per una nuova richiesta su una risorsa già
-/// bloccata da un altro token attivo.
+/// `403` if the caller can't see the resource (or, for a not-yet-created
+/// child, the parent folder). `412` for a renewal on an expired/nonexistent
+/// token. `423` for a new request on a resource already locked by another
+/// active token.
 pub(crate) async fn lock(
     state: &AppState,
     ctx: &AuthContext,
@@ -137,19 +138,18 @@ pub(crate) async fn lock(
     Ok(lock_response(&token, &depth))
 }
 
-/// `UNLOCK` — richiede l'header `Lock-Token: <token>` (RFC 4918 §9.11).
+/// `UNLOCK` — requires the `Lock-Token: <token>` header (RFC 4918 §9.11).
 ///
-/// Usa `DavLockRepo::refresh` come test-and-set: se il token esiste ed è
-/// ancora attivo lo rinnova (effetto collaterale innocuo, la riga viene
-/// cancellata immediatamente dopo) e restituisce `true`, così l'unica altra
-/// via — un token scaduto o mai esistito — è indistinguibile da qui in
-/// avanti, ed entrambe diventano `404`. Evita di introdurre nella spec un
-/// quinto metodo di repository non richiesto dal brief solo per questo
-/// controllo.
+/// Uses `DavLockRepo::refresh` as a test-and-set: if the token exists and
+/// is still active it renews it (a harmless side effect, since the row is
+/// deleted right afterward) and returns `true`, so the only other case — a
+/// token that's expired or never existed — is indistinguishable from here
+/// on, and both become `404`. This avoids adding a fifth repository method
+/// just for this check.
 ///
 /// # Errors
-/// `400` se l'header manca o non porta un token leggibile. `404` se il
-/// token non esiste o è già scaduto.
+/// `400` if the header is missing or doesn't carry a readable token. `404`
+/// if the token doesn't exist or has already expired.
 pub async fn unlock(
     state: &AppState,
     lock_token_header: Option<&str>,

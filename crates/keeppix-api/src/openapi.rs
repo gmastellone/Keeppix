@@ -1,8 +1,9 @@
-//! Documento `OpenAPI` generato dalle annotazioni sugli handler e sui tipi:
-//! nasce dal codice, quindi non può divergere dalla *forma dei dati*. Percorso
-//! e metodo di ogni operazione restano però stringhe scritte a mano
-//! nell'attributo `#[utoipa::path]`: a legarli alle rotte davvero montate ci
-//! pensa `documented_operations_are_all_mounted` in `tests/openapi.rs`.
+//! `OpenAPI` document generated from the annotations on handlers and types:
+//! it's derived from the code, so it can't diverge from the *shape of the
+//! data*. The path and method of each operation, though, remain hand-written
+//! strings in the `#[utoipa::path]` attribute: tying them to the routes
+//! actually mounted is `documented_operations_are_all_mounted`'s job, in
+//! `tests/openapi.rs`.
 
 use utoipa::OpenApi;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
@@ -16,15 +17,16 @@ use crate::routes::{
     viewport, ws,
 };
 
-/// Nome dello schema di sicurezza nel documento. Gli attributi
-/// `#[utoipa::path(security(("session_cookie" = [])))]` devono ripeterlo come
-/// letterale — le macro non accettano una costante — quindi
+/// Name of the security scheme in the document. The
+/// `#[utoipa::path(security(("session_cookie" = [])))]` attributes have to
+/// repeat it as a literal — the macros don't accept a constant — so
 /// `security_requirements_name_a_declared_scheme` in `tests/openapi.rs`
-/// verifica che le due scritture non divergano.
+/// verifies the two spellings don't diverge.
 pub const SESSION_SCHEME: &str = "session_cookie";
 
-/// Descrive l'autenticazione a cookie. Il nome del cookie non è riscritto a
-/// mano: viene da `SESSION_COOKIE`, la stessa costante che l'extractor legge.
+/// Describes cookie authentication. The cookie name isn't rewritten by
+/// hand: it comes from `SESSION_COOKIE`, the same constant the extractor
+/// reads.
 struct SecurityAddon;
 
 impl utoipa::Modify for SecurityAddon {
@@ -34,7 +36,7 @@ impl utoipa::Modify for SecurityAddon {
             SESSION_SCHEME,
             SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::with_description(
                 SESSION_COOKIE,
-                "Cookie di sessione emesso da POST /api/v1/setup e POST /api/v1/auth/login.",
+                "Session cookie issued by POST /api/v1/setup and POST /api/v1/auth/login.",
             ))),
         );
     }
@@ -45,7 +47,7 @@ impl utoipa::Modify for SecurityAddon {
     info(
         title = "Keeppix API",
         version = "1.0.0",
-        description = "API di Keeppix. Contratto congelato: solo aggiunte entro /api/v1."
+        description = "Keeppix API. Frozen contract: additions only within /api/v1."
     ),
     modifiers(&SecurityAddon),
     paths(
@@ -234,11 +236,11 @@ impl utoipa::Modify for SecurityAddon {
         upload::head,
         upload::patch,
     ),
-    // Elenco ridondante: utoipa raccoglie da sé gli schemi referenziati dalle
-    // operazioni (verificato — togliendo una voce il documento non cambia di un
-    // byte). Vale come indice leggibile dei tipi pubblici, non come
-    // configurazione: aggiungere qui un tipo che nessuna operazione referenzia
-    // non lo fa comparire nel documento.
+    // Redundant list: utoipa collects the schemas referenced by operations
+    // on its own (verified — removing an entry doesn't change the document
+    // by a single byte). This serves as a readable index of public types,
+    // not as configuration: adding a type here that no operation
+    // references won't make it appear in the document.
     components(schemas(
         auth::UserView,
         auth::LoginRequest,
@@ -392,40 +394,40 @@ impl utoipa::Modify for SecurityAddon {
         upload::UploadCompleteResponse,
     )),
     tags(
-        (name = "setup", description = "Configurazione iniziale dell'istanza"),
-        (name = "auth", description = "Autenticazione e sessioni"),
-        (name = "users", description = "Gestione utenti"),
-        (name = "timeline", description = "Bucket mensili e pagine keyset"),
-        (name = "folders", description = "Albero delle cartelle"),
-        (name = "media", description = "Miniature, preview e originali"),
-        (name = "search", description = "Ricerca da AST e ricerche salvate"),
-        (name = "places", description = "Geocoding locale GeoNames"),
-        (name = "map", description = "Cluster geografici con visibilità applicata"),
-        (name = "events", description = "WebSocket di notifica"),
-        (name = "library", description = "Problemi e duplicati"),
-        (name = "libraries", description = "Librerie e percorsi indicizzati"),
-        (name = "trash", description = "Cancellazione a tre opzioni e ripristino"),
-        (name = "metadata", description = "Metadati effettivi ed editing in blocco"),
-        (name = "flags", description = "Voti di culling per utente: rating, pick, etichetta colore"),
-        (name = "culling", description = "Lotti di culling a cartelle: elenco, scelta/scarto fisico, svuota scartati"),
+        (name = "setup", description = "Initial instance configuration"),
+        (name = "auth", description = "Authentication and sessions"),
+        (name = "users", description = "User management"),
+        (name = "timeline", description = "Monthly buckets and keyset pages"),
+        (name = "folders", description = "Folder tree"),
+        (name = "media", description = "Thumbnails, previews, and originals"),
+        (name = "search", description = "AST-based search and saved searches"),
+        (name = "places", description = "Local GeoNames geocoding"),
+        (name = "map", description = "Geographic clusters with visibility applied"),
+        (name = "events", description = "Notification WebSocket"),
+        (name = "library", description = "Problems and duplicates"),
+        (name = "libraries", description = "Libraries and indexed paths"),
+        (name = "trash", description = "Three-option deletion and restore"),
+        (name = "metadata", description = "Effective metadata and bulk editing"),
+        (name = "flags", description = "Per-user culling votes: rating, pick, color label"),
+        (name = "culling", description = "Folder culling lots: listing, physical pick/reject, empty rejected"),
         (name = "health", description = "Liveness check"),
-        (name = "operations", description = "Annullamento delle operazioni lunghe"),
-        (name = "albums", description = "Album virtuali: CRUD e gestione asset"),
-        (name = "tags", description = "Vocabolario condiviso di tag e categorie"),
-        (name = "faces", description = "Volti rilevati, coda di revisione"),
-        (name = "persons", description = "Persone e gruppi di persone fotografate"),
-        (name = "groups", description = "Gruppi utente"),
-        (name = "permissions", description = "Pannello permessi: elenco, concessione, revoca, explain"),
-        (name = "share", description = "Link pubblici e accesso guest"),
-        (name = "audit", description = "Registro audit append-only"),
-        (name = "backup", description = "Wizard di backup"),
-        (name = "restore", description = "Wizard di restore"),
-        (name = "upload", description = "Sessioni di upload riprendibili in stile tus")
+        (name = "operations", description = "Cancellation of long-running operations"),
+        (name = "albums", description = "Virtual albums: CRUD and asset management"),
+        (name = "tags", description = "Shared vocabulary of tags and categories"),
+        (name = "faces", description = "Detected faces, review queue"),
+        (name = "persons", description = "People and groups of photographed people"),
+        (name = "groups", description = "User groups"),
+        (name = "permissions", description = "Permissions panel: list, grant, revoke, explain"),
+        (name = "share", description = "Public links and guest access"),
+        (name = "audit", description = "Append-only audit log"),
+        (name = "backup", description = "Backup wizard"),
+        (name = "restore", description = "Restore wizard"),
+        (name = "upload", description = "tus-style resumable upload sessions")
     )
 )]
 pub struct ApiDoc;
 
-/// Serve il documento su `GET /api/openapi.json`.
+/// Serves the document at `GET /api/openapi.json`.
 pub async fn serve() -> axum::Json<utoipa::openapi::OpenApi> {
     axum::Json(ApiDoc::openapi())
 }

@@ -1,27 +1,29 @@
-//! Metà server-side della difesa CSRF richiesta dallo spec §9.5.
+//! Server-side half of the CSRF defense.
 //!
-//! Lo spec chiede tre cose insieme: `SameSite=Lax` sul cookie, obbligo di
-//! `Content-Type: application/json` e un header custom sulle mutazioni. Le
-//! prime due c'erano già (`cookie.rs` e l'extractor `crate::json::Json`, che
-//! rifiuta con `415` un corpo non-JSON); questo modulo aggiunge la terza, che
-//! è anche l'unica che copre le mutazioni **senza corpo** —
-//! `POST /auth/refresh` e `POST /auth/logout` non passano da `Json<T>`.
+//! Three things are required together: `SameSite=Lax` on the cookie, a
+//! mandatory `Content-Type: application/json`, and a custom header on
+//! mutations. The first two already existed (`cookie.rs` and the
+//! `crate::json::Json` extractor, which rejects a non-JSON body with
+//! `415`); this module adds the third, which is also the only one that
+//! covers mutations **with no body** — `POST /auth/refresh` and
+//! `POST /auth/logout` don't go through `Json<T>`.
 //!
-//! La proprietà comprata è precisa: un `<form>` HTML su un sito ostile può
-//! inviare una POST cross-site con i cookie (per questo `SameSite=Lax` non
-//! basta contro un attaccante *same-site*: `evil.example.com` e
-//! `photos.example.com` sono lo stesso sito per `SameSite`, e il prefisso
-//! `__Host-` impedisce di *impostare* il cookie per il dominio, non di
-//! *inviarlo*), ma **non può impostare un header custom** — servirebbe
-//! `fetch`/`XHR`, cioè il preflight CORS, che l'istanza non concede.
+//! The property being bought here is precise: an HTML `<form>` on a hostile
+//! site can send a cross-site POST with cookies attached (which is why
+//! `SameSite=Lax` alone isn't enough against a *same-site* attacker:
+//! `evil.example.com` and `photos.example.com` are the same site as far as
+//! `SameSite` is concerned, and the `__Host-` prefix prevents *setting* the
+//! cookie for the domain, not *sending* it), but it **cannot set a custom
+//! header** — that would require `fetch`/`XHR`, i.e. a CORS preflight,
+//! which this instance doesn't grant.
 //!
-//! Il controllo è un layer e non un controllo per handler, così le rotte che la
-//! Fase 1 aggiunge dentro `api_routes()` sono coperte senza doversene
-//! ricordare. Deroghe da prevedere quando arriveranno: `WebDAV` (Fase 5: i
-//! client sono Finder e rclone, che non mandano header di Keeppix) e gli
-//! upload **tus** (`application/offset+octet-stream`); entrambi vivranno fuori
-//! da `/api/v1` e quindi fuori da questo layer, ma la decisione va presa
-//! esplicitamente, non per distrazione.
+//! The check is a layer, not a per-handler check, so routes added later
+//! inside `api_routes()` are covered without anyone having to remember.
+//! Exemptions to plan for as they arrive: `WebDAV` (its clients are Finder
+//! and rclone, which never send Keeppix headers) and **tus** uploads
+//! (`application/offset+octet-stream`); both live outside `/api/v1` and
+//! therefore outside this layer, but the decision needs to be made
+//! explicitly, not by oversight.
 
 use axum::extract::Request;
 use axum::http::Method;
@@ -30,22 +32,21 @@ use axum::response::{IntoResponse as _, Response};
 
 use crate::problem::Problem;
 
-/// Header che ogni client di Keeppix invia sulle mutazioni. Il frontend lo
-/// imposta in `apiFetch` (`frontend/src/api/client.ts`) su **tutte** le
-/// chiamate; il valore non conta, conta che un form cross-site non possa
-/// produrlo.
+/// Header every Keeppix client sends on mutations. The frontend sets it in
+/// `apiFetch` (`frontend/src/api/client.ts`) on **all** calls; the value
+/// doesn't matter, what matters is that a cross-site form can't produce it.
 pub const CLIENT_HEADER: &str = "x-keeppix-client";
 
-/// Rifiuta con `403 keeppix/csrf-check-failed` una mutazione priva di
-/// `x-keeppix-client`. I metodi sicuri (`GET`, `HEAD`, `OPTIONS`) passano
-/// sempre: non cambiano stato, e richiedere l'header su di essi romperebbe
-/// l'apertura diretta di un URL.
+/// Rejects a mutation missing `x-keeppix-client` with
+/// `403 keeppix/csrf-check-failed`. Safe methods (`GET`, `HEAD`, `OPTIONS`)
+/// always pass: they don't change state, and requiring the header on them
+/// would break directly opening a URL.
 pub async fn require_client_header(req: Request, next: Next) -> Response {
-    // Deroga per `/dav/*` (Fase 5): i client WebDAV (Finder, rclone, …) non
-    // mandano mai `x-keeppix-client`, e non c'è cookie di sessione da
-    // proteggere lì — l'autenticazione è Basic Auth con app-password. La
-    // deroga è per prefisso di path, non per assenza di cookie: non
-    // restringe `/api/v1`, che resta coperto per intero.
+    // Exemption for `/dav/*`: WebDAV clients (Finder, rclone, …) never send
+    // `x-keeppix-client`, and there's no session cookie to protect there —
+    // authentication is Basic Auth with an app-password. The exemption is
+    // by path prefix, not by absence of a cookie: it doesn't narrow
+    // `/api/v1`, which stays fully covered.
     if req.uri().path().starts_with("/dav/") {
         return next.run(req).await;
     }

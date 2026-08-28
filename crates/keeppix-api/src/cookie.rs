@@ -5,30 +5,31 @@ use keeppix_domain::{SessionToken, ShareToken};
 
 use crate::extract::{SESSION_COOKIE, SHARE_LINK_COOKIE, SHARE_UNLOCK_COOKIE};
 
-/// Cookie di sessione con prefisso `__Host-`.
+/// Session cookie with the `__Host-` prefix.
 ///
-/// Il prefisso `__Host-` (RFC 6265bis §4.1.3.2) impone `Secure`, `Path=/` e
-/// vieta `Domain`: un client conforme che riceve un `Set-Cookie` con quel
-/// prefisso ma privo anche di uno solo di questi requisiti scarta il cookie
-/// **per intero**, non solo l'attributo mancante. Questo vale sempre,
-/// indipendentemente dal trasporto della richiesta: `Secure` va impostato
-/// anche quando si parla in chiaro su `127.0.0.1` in sviluppo, perché è la
-/// *presenza letterale* dell'attributo nell'header a essere richiesta, non
-/// l'uso effettivo di TLS.
+/// The `__Host-` prefix (RFC 6265bis §4.1.3.2) mandates `Secure`, `Path=/`,
+/// and forbids `Domain`: a compliant client that receives a `Set-Cookie`
+/// with that prefix but is missing even one of these requirements discards
+/// the cookie **entirely**, not just the missing attribute. This always
+/// applies, regardless of the request's transport: `Secure` must be set
+/// even when talking in plaintext over `127.0.0.1` in development, because
+/// it's the *literal presence* of the attribute in the header that's
+/// required, not actual TLS usage.
 ///
-/// Da non confondere con una regola diversa e più permissiva che i browser
-/// applicano *a valle*: un'origine "potenzialmente affidabile" come
-/// `127.0.0.1`/`localhost`/`::1` è esentata dal requisito che `Secure`
-/// **funzioni** solo su una connessione cifrata, quindi un browser (e,
-/// verificato empiricamente, anche `cookie_store`/`reqwest` nella versione
-/// usata da questo workspace) accetta e rinvia un cookie `Secure` ricevuto in
-/// chiaro su loopback. Ma questo non rende mai opzionale *impostare*
-/// l'attributo lato server: se manca, il prefisso `__Host-` fa scartare il
-/// cookie a prescindere da dove sia diretta la richiesta. Un'implementazione
-/// precedente ometteva `Secure` su host che sembravano loopback pensando che
-/// servisse a renderlo osservabile nei test: era doppiamente sbagliato, sia
-/// perché rompeva ogni sessione aperta in sviluppo locale via browser reale,
-/// sia perché la libreria di test già gestiva correttamente il caso.
+/// Not to be confused with a different, more permissive rule that browsers
+/// apply *downstream*: a "potentially trustworthy" origin like
+/// `127.0.0.1`/`localhost`/`::1` is exempted from the requirement that
+/// `Secure` **only works** over an encrypted connection, so a browser (and,
+/// verified empirically, also `cookie_store`/`reqwest` at the version used
+/// by this workspace) accepts and resends a `Secure` cookie received in
+/// plaintext over loopback. But this never makes it optional to *set* the
+/// attribute server-side: if it's missing, the `__Host-` prefix causes the
+/// cookie to be discarded regardless of where the request is headed. A
+/// previous implementation omitted `Secure` on hosts that looked like
+/// loopback, thinking it was needed to make the cookie observable in
+/// tests: that was doubly wrong, both because it broke every session
+/// opened in local development via a real browser, and because the test
+/// library already handled that case correctly.
 #[must_use]
 pub fn session_cookie(token: &SessionToken, ttl: Duration) -> Cookie<'static> {
     let mut cookie = Cookie::new(SESSION_COOKIE, token.as_str().to_owned());
@@ -42,10 +43,10 @@ pub fn session_cookie(token: &SessionToken, ttl: Duration) -> Cookie<'static> {
     cookie
 }
 
-/// Stessa forma di `session_cookie`: un `__Host-` cancellante che omettesse
-/// `Secure` o `SameSite` verrebbe scartato per intero da un browser conforme
-/// (RFC 6265bis §4.1.3.2), lasciando il cookie di sessione scaduto — ma
-/// ancora inviato dal client — sopravvivere al logout in produzione.
+/// Same shape as `session_cookie`: a clearing `__Host-` cookie that omitted
+/// `Secure` or `SameSite` would be discarded entirely by a compliant
+/// browser (RFC 6265bis §4.1.3.2), leaving the expired — but still sent by
+/// the client — session cookie surviving logout in production.
 #[must_use]
 pub fn clearing_cookie() -> Cookie<'static> {
     let mut cookie = Cookie::new(SESSION_COOKIE, "");

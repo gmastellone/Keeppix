@@ -14,29 +14,31 @@ pub const SHARE_UNLOCK_COOKIE: &str = "__Host-kpx_share";
 /// Share-link token for same-origin media requests that cannot set headers.
 pub const SHARE_LINK_COOKIE: &str = "__Host-kpx_share_link";
 
-/// Traduce l'errore di una verifica di sessione. È l'unico posto in cui questa
-/// decisione viene presa: la usano sia l'extractor `Auth` sia l'handler
-/// `refresh`, che sono i due punti in cui un token viene consultato.
+/// Translates a session-verification error into a `Problem`. This is the
+/// only place where this decision is made: both the `Auth` extractor and
+/// the `refresh` handler use it, the two places where a token is looked up.
 ///
-/// La distinzione che conta è fra «questa sessione non vale» e «il database non
-/// risponde». Mappare tutto su `401` faceva sì che dieci secondi di riavvio di
-/// Postgres si presentassero a ogni client come «sessione scaduta»: il
-/// frontend azzera l'utente e la guardia del router lo manda a `/login`, cioè
-/// un logout di massa che non compare come 5xx in nessuna metrica. Un `503`
-/// con `Retry-After` dice al client la verità — riprova, non rifare il login.
+/// The distinction that matters is between "this session isn't valid" and
+/// "the database isn't responding". Mapping everything to `401` meant that
+/// ten seconds of Postgres restarting would show up to every client as
+/// "session expired": the frontend clears the user and the router guard
+/// sends them to `/login`, i.e. a mass logout that doesn't show up as a 5xx
+/// in any metric. A `503` with `Retry-After` tells the client the truth —
+/// retry, don't log in again.
 pub(crate) fn session_problem(err: DbError) -> Problem {
     match err {
         DbError::Connection(e) => {
             tracing::error!(error = %e, "session lookup failed: database unavailable");
             Problem::service_unavailable()
         }
-        // Token sconosciuto, scaduto, revocato, consumato, utente disabilitato,
-        // riuso rilevato: la sessione non vale, e il client deve rifare il
-        // login. Le cause non si distinguono di proposito.
+        // Unknown, expired, revoked, or consumed token, disabled user, reuse
+        // detected: the session isn't valid, and the client must log in
+        // again. The causes are deliberately not distinguished.
         DbError::NotFound | DbError::Forbidden => Problem::unauthenticated(),
-        // Riga illeggibile (per esempio un `role` fuori dal CHECK) o migrazione
-        // fallita: non è una sessione non valida, è un difetto del server. Non
-        // concede accesso, ma non va nemmeno spacciato per scadenza.
+        // Unreadable row (e.g. a `role` outside the CHECK constraint) or a
+        // failed migration: not an invalid session, a server defect. This
+        // doesn't grant access, but it shouldn't be passed off as expiry
+        // either.
         other => {
             tracing::error!(error = %other, "session lookup failed");
             Problem::internal()
@@ -44,9 +46,9 @@ pub(crate) fn session_problem(err: DbError) -> Problem {
     }
 }
 
-/// Estrae il contesto di autenticazione dal cookie di sessione.
-/// Ogni handler che tratta dati di un utente **deve** prendere questo
-/// extractor: è il modo in cui l'`AuthContext` raggiunge i repository.
+/// Extracts the authentication context from the session cookie. Every
+/// handler that touches a user's data **must** take this extractor: it's
+/// how `AuthContext` reaches the repositories.
 pub struct Auth(pub AuthContext);
 
 impl FromRequestParts<AppState> for Auth {
@@ -210,7 +212,7 @@ impl FromRequestParts<AppState> for SessionOrShare {
     }
 }
 
-/// Come `Auth`, ma rifiuta chi non è amministratore.
+/// Like `Auth`, but rejects anyone who isn't an administrator.
 pub struct AdminAuth(pub AuthContext);
 
 impl FromRequestParts<AppState> for AdminAuth {
@@ -234,11 +236,12 @@ mod tests {
     use axum::http::StatusCode;
     use keeppix_db::DbError;
 
-    /// Pin sulla tassonomia: se qualcuno riscrivesse `session_problem` come
-    /// `|_| Problem::unauthenticated()` — che è com'era prima — questo test
-    /// fallisce. È l'unica asserzione deterministica sulla proprietà: la prova
-    /// end-to-end (`a_database_outage_is_a_503_not_a_401` in `tests/auth.rs`)
-    /// richiede di spegnere un container e si salta dove non è possibile.
+    /// Pin on the taxonomy: if someone rewrote `session_problem` as
+    /// `|_| Problem::unauthenticated()` — which is how it used to be —
+    /// this test fails. It's the only deterministic assertion of this
+    /// property: the end-to-end proof (`a_database_outage_is_a_503_not_a_401`
+    /// in `tests/auth.rs`) requires shutting down a container and is
+    /// skipped where that isn't possible.
     #[test]
     fn a_database_outage_is_transient_a_bad_session_is_not() {
         let outage = session_problem(DbError::Connection(sqlx::Error::PoolClosed));
@@ -255,7 +258,7 @@ mod tests {
         assert_eq!(
             corrupted.status,
             StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-            "una riga illeggibile non è una sessione scaduta"
+            "an unreadable row is not an expired session"
         );
     }
 }
