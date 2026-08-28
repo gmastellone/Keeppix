@@ -103,8 +103,7 @@ async fn failed_jobs_are_admin_only() {
     assert!(as_user.failed_jobs.is_empty());
 }
 
-/// Task 13 (Fase 10): l'elenco piatto composto lato server, non i tre secchi
-/// grezzi di `list`.
+/// The server-composed flat list, not `list`'s three raw buckets.
 #[tokio::test]
 async fn composed_flat_list_has_an_offline_library_problem_with_a_retry_action() {
     let test = TestDb::start().await;
@@ -123,7 +122,7 @@ async fn composed_flat_list_has_an_offline_library_problem_with_a_retry_action()
     let problem = problems
         .iter()
         .find(|p| p.library_id == Some(library))
-        .expect("la libreria offline deve comparire come problema");
+        .expect("the offline library must appear as a problem");
     assert_eq!(problem.severity, ProblemSeverity::Error);
     assert!(problem.title.contains("Foto"), "{}", problem.title);
     assert!(problem.title.to_lowercase().contains("offline"));
@@ -167,12 +166,11 @@ async fn composed_flat_list_translates_the_offline_library_problem_in_english() 
     );
 }
 
-/// Riproduce il messaggio reale che arriva su `jobs.last_error`: il job
-/// `write_sidecar` avvolge ogni fallimento per-asset in un
-/// `JobError::Worker`, poi l'intero batch in un altro `JobError::Worker` —
-/// due prefissi "worker: " annidati (vedi `keeppix-jobs::xmp`). Il
-/// marcatore `permission-denied:` deve restare riconoscibile anche dentro
-/// questo annidamento.
+/// Reproduces the real message that lands in `jobs.last_error`: the
+/// `write_sidecar` job wraps each per-asset failure in a `JobError::Worker`,
+/// then wraps the whole batch in another `JobError::Worker` — two nested
+/// "worker: " prefixes (see `keeppix-jobs::xmp`). The `permission-denied:`
+/// marker must stay recognizable even inside this nesting.
 fn realistic_permission_denied_last_error(asset_id: keeppix_domain::AssetId) -> String {
     format!("worker: {asset_id}: worker: permission-denied: io: Permission denied (os error 13)")
 }
@@ -216,7 +214,7 @@ async fn composed_flat_list_recognizes_the_unwritable_sidecar_nature() {
     let problem = problems
         .iter()
         .find(|p| p.folder_id == Some(folder.id))
-        .expect("il fallimento di permesso deve diventare un problema composto");
+        .expect("the permission failure must become a composite problem");
     assert_eq!(problem.severity, ProblemSeverity::Warning);
     assert!(
         problem.title.to_lowercase().contains("sidecar"),
@@ -238,7 +236,7 @@ async fn composed_flat_list_recognizes_the_unwritable_sidecar_nature() {
     );
     assert!(
         !problem.actions.is_empty(),
-        "deve proporre almeno un'azione"
+        "must propose at least one action"
     );
 }
 

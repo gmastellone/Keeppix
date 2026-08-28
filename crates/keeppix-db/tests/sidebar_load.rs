@@ -1,5 +1,5 @@
-//! Task 11: la sidebar non deve pagare aggregati per riga (cartelle, album,
-//! link). Il conteggio del culling resta altrove (per lotto, non qui).
+//! The sidebar must not pay for per-row aggregates (folders, albums,
+//! links). The culling count lives elsewhere (per lot, not here).
 
 mod harness;
 
@@ -32,7 +32,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -41,7 +41,7 @@ async fn seed_folder_tree(test: &TestDb, library: LibraryId) -> FolderId {
     FolderRepo::new(test.db())
         .ensure_path(library, &["2024", "Urbino", "Centro"])
         .await
-        .expect("albero")
+        .expect("tree")
         .id
 }
 
@@ -51,7 +51,7 @@ async fn seed_indexed_asset(test: &TestDb, folder: FolderId, filename: &str) {
     let asset = repo
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse(filename).expect("nome"),
+            filename: AssetName::parse(filename).expect("name"),
             size_bytes: 10,
             mtime: Utc.with_ymd_and_hms(2024, 7, 1, 0, 0, 0).unwrap(),
             inode: None,
@@ -59,7 +59,7 @@ async fn seed_indexed_asset(test: &TestDb, folder: FolderId, filename: &str) {
         })
         .await
         .expect("discovered")
-        .expect("nuovo asset");
+        .expect("new asset");
     repo.set_indexed(
         asset.id,
         Utc.with_ymd_and_hms(2024, 7, 2, 12, 0, 0).unwrap(),
@@ -138,12 +138,12 @@ async fn sidebar_load_emits_no_per_row_aggregation_queries() {
 
     assert!(
         !queries.is_empty(),
-        "il test deve catturare almeno una query sqlx del caricamento sidebar"
+        "the test must capture at least one sqlx query from the sidebar load"
     );
     for sql in queries {
         assert!(
             !is_per_row_aggregation_query(&sql),
-            "aggregato per riga vietato dal Task 11: {sql}"
+            "per-row aggregate is not allowed here: {sql}"
         );
     }
 }

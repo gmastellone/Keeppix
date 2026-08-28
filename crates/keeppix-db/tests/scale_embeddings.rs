@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-//! Task 11: misura scansione vettoriale su 200k impronte.
-//! Soglia interattiva: 1 s (prova di chiusura fase). Linear > soglia → `IVFFlat`.
+//! Measures vector scan performance over 200k embeddings.
+//! Interactive threshold: 1 s. Linear > threshold -> `IVFFlat`.
 
 mod harness;
 
@@ -17,10 +17,10 @@ const INTERACTIVE_BUDGET: Duration = Duration::from_secs(1);
 const N: i32 = 200_000;
 const K: u32 = 50;
 
-/// Popola `N` asset sintetici + i loro embedding e prepara la sessione per la
-/// misura (`ANALYZE`, `ivfflat.probes`). Separata da
-/// [`vector_search_stays_interactive_with_ivfflat`] solo per restare sotto il
-/// tetto clippy di righe per funzione — nessun comportamento diverso.
+/// Populates `N` synthetic assets + their embeddings and preps the session
+/// for measurement (`ANALYZE`, `ivfflat.probes`). Split out from
+/// [`vector_search_stays_interactive_with_ivfflat`] only to stay under
+/// clippy's lines-per-function ceiling — no behavioral difference.
 async fn seed_scale_fixture(test: &TestDb, folder_id: uuid::Uuid) {
     sqlx::query("ALTER TABLE assets DISABLE TRIGGER assets_month_counts")
         .execute(test.db().pool())
@@ -62,13 +62,13 @@ async fn seed_scale_fixture(test: &TestDb, folder_id: uuid::Uuid) {
     .unwrap();
     eprintln!("seeded {N} embeddings in {:?}", seed_emb.elapsed());
 
-    // `assets` appena riempita da 0 a 200k righe in un solo INSERT: senza un
-    // `ANALYZE` esplicito le sue statistiche restano quelle di prima
-    // dell'inserimento (o assenti), e il planner sceglie il piano del join
-    // `topk`/`assets` alla cieca — a volte quello giusto (nested loop sui
-    // ≤500 id della CTE), a volte no, in modo intermittente fra run
-    // identiche. `scale_200k.rs` lo fa già per lo stesso motivo sulla stessa
-    // tabella; qui mancava.
+    // `assets` just went from 0 to 200k rows in a single INSERT: without an
+    // explicit `ANALYZE`, its statistics stay whatever they were before the
+    // insert (or absent), and the planner picks the `topk`/`assets` join
+    // plan blind — sometimes the right one (nested loop over the CTE's
+    // <=500 ids), sometimes not, intermittently between identical runs.
+    // `scale_200k.rs` already does this for the same reason on the same
+    // table; it was missing here.
     sqlx::query("ANALYZE assets")
         .execute(test.db().pool())
         .await
@@ -137,7 +137,7 @@ async fn vector_search_stays_interactive_with_ivfflat() {
     .unwrap();
     let raw_elapsed = raw.elapsed();
     let raw_ms = raw_elapsed.as_secs_f64() * 1000.0;
-    eprintln!("MEASUREMENT Task 11 raw ORDER BY <=> : {raw_ms:.1} ms");
+    eprintln!("MEASUREMENT raw ORDER BY <=> : {raw_ms:.1} ms");
 
     let scope = VisibilityScope::resolve(test.db(), &ctx).await.unwrap();
     assert!(scope.is_unrestricted());
@@ -172,7 +172,7 @@ async fn vector_search_stays_interactive_with_ivfflat() {
         .unwrap();
     let elapsed = timed.elapsed();
     eprintln!(
-        "MEASUREMENT Task 11 SearchRepo Semantic: N={N} K={K} hits={} elapsed_ms={:.1} \
+        "MEASUREMENT SearchRepo Semantic: N={N} K={K} hits={} elapsed_ms={:.1} \
          raw_ms={raw_ms:.1} budget_ms={}",
         hits.len(),
         elapsed.as_secs_f64() * 1000.0,
@@ -180,33 +180,32 @@ async fn vector_search_stays_interactive_with_ivfflat() {
     );
 
     assert_eq!(hits.len(), K as usize);
-    // Task 11 decide sull'indice: il raw `ORDER BY <=>` deve stare sotto
-    // budget. Non correlato a Task A/B (piano modelli IA): né l'uno né
-    // l'altro toccano questo test, la migrazione 0045 o `Dockerfile.db` —
-    // verificato via `git log`. Budget alzato da 500ms dopo due fallimenti
-    // CI reali consecutivi sullo stesso commit (1491ms, poi 2328,5ms — in
-    // peggioramento, non rumore che oscilla intorno a una media), mentre
-    // il percorso applicativo reale (`SearchRepo::run`, stesso indice
-    // IVFFlat, assert sotto) è rimasto sotto 200ms in entrambi i run: il
-    // regressore che conta davvero è quello sotto, non questo. 4s resta
-    // ordini di grandezza sotto una scansione sequenziale reale su 200k
-    // righe × 512 dimensioni (l'indice che smette di essere usato per
-    // davvero si vedrebbe qui, non in una CI un po' più lenta del solito).
+    // This test decides on the index: the raw `ORDER BY <=>` must stay
+    // under budget. Verified via `git log` to be unrelated to unrelated
+    // work on migration 0045 or `Dockerfile.db`. Budget raised from 500ms
+    // after two consecutive real CI failures on the same commit (1491ms,
+    // then 2328.5ms — worsening, not noise oscillating around an average),
+    // while the real application path (`SearchRepo::run`, same IVFFlat
+    // index, asserted below) stayed under 200ms in both runs: the
+    // regression that actually matters is the one below, not this one. 4s
+    // stays orders of magnitude below a real sequential scan over 200k
+    // rows x 512 dimensions (an index that has truly stopped being used
+    // would show up here, not just in a slightly slower-than-usual CI
+    // run).
     assert!(
         raw_elapsed < Duration::from_secs(4),
         "raw vector scan {raw_ms:.1} ms should be interactive with IVFFlat"
     );
-    // Debito Fase 7 pagato (Task 14): la CTE `topk` guida il join invece di
-    // filtrare la heap ordinata per `taken_at_utc` — `elapsed_ms` ora segue
-    // `raw_ms` da vicino invece di restare fisso a ≈1,3–1,4s indipendentemente
-    // da esso (misurato: 5 run locali consecutive, 170–190ms di path
-    // completo contro 174–220ms di scansione grezza, overhead di join a due
-    // cifre di millisecondi o meno). Budget riportato da 2000ms — così largo
-    // da non verificare più nulla di specifico da quando esisteva solo il
-    // filtro post-hoc — a 800ms: margine reale (~4× il tipico locale, e
-    // ancora ampio anche se la sola scansione grezza arrivasse al rumore di
-    // CI più alto osservato finora, ~650ms), non il minimo per far passare
-    // la CI di oggi.
+    // The `topk` CTE now drives the join instead of filtering a heap
+    // ordered by `taken_at_utc` — `elapsed_ms` now tracks `raw_ms` closely
+    // instead of staying pinned at ~1.3-1.4s regardless of it (measured: 5
+    // consecutive local runs, 170-190ms full path vs 174-220ms raw scan,
+    // low-double-digit-millisecond join overhead or less). Budget brought
+    // down from 2000ms — so loose it no longer verified anything specific
+    // once only the post-hoc filter existed — to 800ms: a real margin
+    // (~4x typical local, and still ample even if the raw scan alone hit
+    // the highest CI noise observed so far, ~650ms), not the bare minimum
+    // to pass today's CI.
     assert!(
         elapsed < Duration::from_millis(800),
         "SearchRepo semantic {elapsed:?} (raw {raw_ms:.1} ms) regresses beyond the 800ms budget \

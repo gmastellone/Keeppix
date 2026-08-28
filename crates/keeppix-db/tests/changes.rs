@@ -20,12 +20,12 @@ async fn seed_library_and_folder(test: &TestDb, owner: UserId) -> FolderId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
     FolderRepo::new(test.db())
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id
 }
 
@@ -33,7 +33,7 @@ async fn seed_library_and_folder(test: &TestDb, owner: UserId) -> FolderId {
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 100,
         mtime: chrono::Utc::now(),
         inode: None,
@@ -122,7 +122,7 @@ async fn deleting_a_folder_still_logs_asset_deletes() {
     let page = ChangeLogRepo::new(test.db()).since(&ctx, 0).await.unwrap();
     assert!(
         page.deleted.contains(&asset.id),
-        "CASCADE dalla cartella non deve far cadere il log: folders è già sparita"
+        "the folder's CASCADE must not drop the log entry: folders row is already gone"
     );
 }
 
@@ -135,8 +135,8 @@ async fn overlapping_transactions_do_not_drop_rows() {
     let folder = seed_library_and_folder(&test, admin).await;
     let repo = ChangeLogRepo::new(test.db());
 
-    // Due transazioni sovrapposte: A prende seq più basso ma committà dopo B.
-    // Un cursore che avanza fino al max seq visibile perderebbe A.
+    // Two overlapping transactions: A gets a lower seq but commits after B.
+    // A cursor that advances to the max visible seq would drop A.
     let mut tx_a = test.db().pool().begin().await.unwrap();
     let id_a = insert_asset_on(&mut tx_a, folder, "a.jpg").await;
 
@@ -147,7 +147,7 @@ async fn overlapping_transactions_do_not_drop_rows() {
     let first = repo.since(&ctx, 0).await.unwrap();
     assert!(
         first.upserted.contains(&id_b),
-        "B è committata, deve comparire"
+        "B is committed, it must appear"
     );
 
     tx_a.commit().await.unwrap();
@@ -161,7 +161,7 @@ async fn overlapping_transactions_do_not_drop_rows() {
         .collect();
     assert!(
         seen.contains(&id_a),
-        "A ha seq più basso ma è committata dopo: il cursore non deve averla saltata (cursor={})",
+        "A has a lower seq but commits later: the cursor must not have skipped it (cursor={})",
         first.cursor
     );
     assert!(seen.contains(&id_b));
@@ -186,6 +186,6 @@ async fn a_plain_user_does_not_see_someone_elses_changes() {
         .unwrap();
     assert!(
         !page.upserted.contains(&asset.id),
-        "il delta non è un oracolo sulle foto altrui"
+        "the delta must not be an oracle over other users' photos"
     );
 }

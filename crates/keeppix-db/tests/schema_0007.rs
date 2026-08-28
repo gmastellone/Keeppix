@@ -24,15 +24,15 @@ async fn pending_dedup_keys_are_unique() {
     let test = TestDb::start().await;
     insert_job(&test, "pending", Some("hash:abc"))
         .await
-        .expect("primo pending");
+        .expect("first pending");
 
     let dup = insert_job(&test, "pending", Some("hash:abc")).await;
-    let err = dup.expect_err("due pending con la stessa chiave sono lo stesso lavoro");
-    let db_err = err.as_database_error().expect("errore postgres");
+    let err = dup.expect_err("two pending jobs with the same key are the same work");
+    let db_err = err.as_database_error().expect("postgres error");
     assert_eq!(
         db_err.code().as_deref(),
         Some("23505"),
-        "deve essere l'indice unico parziale, non un'altra violazione"
+        "must be the partial unique index, not another violation"
     );
 }
 
@@ -45,7 +45,7 @@ async fn a_done_job_does_not_block_a_new_pending() {
         .expect("done");
     insert_job(&test, "pending", Some("hash:abc"))
         .await
-        .expect("un pending dopo un done è una nuova esecuzione");
+        .expect("a pending after a done is a new run");
 }
 
 #[tokio::test]
@@ -54,15 +54,15 @@ async fn an_unknown_status_is_rejected() {
     let test = TestDb::start().await;
     insert_job(&test, "pending", None)
         .await
-        .expect("pending valido");
+        .expect("valid pending");
 
     let bad = insert_job(&test, "queued", None).await;
-    let err = bad.expect_err("status accetta solo pending, running, done, failed");
-    let db_err = err.as_database_error().expect("errore postgres");
+    let err = bad.expect_err("status only accepts pending, running, done, failed");
+    let db_err = err.as_database_error().expect("postgres error");
     assert_eq!(
         db_err.code().as_deref(),
         Some("23514"),
-        "deve essere il CHECK, non un'altra violazione"
+        "must be the CHECK, not another violation"
     );
 }
 
@@ -83,6 +83,6 @@ async fn the_claim_index_exists() {
 
     assert!(
         present,
-        "il claim SKIP LOCKED pagina su (priority, run_after, id)"
+        "the SKIP LOCKED claim paginates on (priority, run_after, id)"
     );
 }

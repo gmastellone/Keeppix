@@ -11,7 +11,7 @@ async fn ltree_extension_is_enabled() {
             .fetch_one(test.db().pool())
             .await
             .unwrap();
-    assert!(enabled, "ltree serve all'albero delle cartelle");
+    assert!(enabled, "ltree is needed for the folder tree");
 }
 
 #[tokio::test]
@@ -25,7 +25,7 @@ async fn a_library_requires_an_existing_owner() {
     .bind(uuid::Uuid::now_v7())
     .execute(test.db().pool())
     .await;
-    assert!(orphan.is_err(), "owner_id deve essere una foreign key");
+    assert!(orphan.is_err(), "owner_id must be a foreign key");
 }
 
 #[tokio::test]
@@ -54,7 +54,7 @@ async fn root_path_is_unique() {
 
     assert!(
         duplicate.is_err(),
-        "due librerie non possono indicizzare lo stesso path"
+        "two libraries cannot index the same path"
     );
 }
 
@@ -92,7 +92,7 @@ async fn deleting_a_library_removes_its_folders() {
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert_eq!(remaining, 0, "le cartelle seguono la libreria");
+    assert_eq!(remaining, 0, "folders follow the library");
 }
 
 #[tokio::test]
@@ -136,8 +136,5 @@ async fn sibling_folders_cannot_share_a_name() {
         .execute(test.db().pool())
         .await;
 
-    assert!(
-        duplicate.is_err(),
-        "due sorelle non possono chiamarsi uguale"
-    );
+    assert!(duplicate.is_err(), "two siblings cannot share a name");
 }

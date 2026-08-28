@@ -1,6 +1,6 @@
-//! Fase 9 Task 8: `RenameRepo::preview`/`apply` — i tre ambiti, la
-//! co-rinomina delle pile, e la collisione verificata anche fuori dal
-//! gruppo (difetto 1 del Task 7, chiuso qui).
+//! `RenameRepo::preview`/`apply` — the three scopes, co-renaming of
+//! stacks, and collision checking that also covers assets outside the
+//! renamed group (a defect fixed here).
 
 mod harness;
 
@@ -25,10 +25,10 @@ fn temp_library_root(label: &str) -> PathBuf {
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("orologio di sistema")
+            .expect("system clock")
             .as_nanos()
     ));
-    fs::create_dir_all(&root).expect("creazione della radice di test");
+    fs::create_dir_all(&root).expect("create test root");
     root
 }
 
@@ -45,7 +45,7 @@ async fn seed_library_at(test: &TestDb, owner: UserId, root: &std::path::Path) -
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -53,7 +53,7 @@ async fn seed_library_at(test: &TestDb, owner: UserId, root: &std::path::Path) -
 fn discovered(folder: keeppix_domain::FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 9,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: None,
@@ -110,8 +110,8 @@ async fn set_title(test: &TestDb, asset_id: AssetId, title: &str) {
     .unwrap();
 }
 
-/// Un luogo del catalogo, con un punto qualunque (non è la geometria che
-/// conta per questi test, solo il nome).
+/// A catalog place, with an arbitrary point (the geometry doesn't matter
+/// for these tests, only the name).
 #[allow(clippy::unwrap_used)]
 async fn seed_place(test: &TestDb, id: i64, name: &str) {
     sqlx::query(
@@ -196,8 +196,8 @@ mod preview {
         )
         .await;
 
-        // L'ordine dell'ambito è quello dell'array passato, non l'ordine di
-        // creazione: passo `second` prima di `first`.
+        // The scope's order follows the array passed in, not creation
+        // order: `second` is passed before `first`.
         let items = RenameRepo::new(test.db())
             .preview(&ctx, &[second, first], "IMG_{n:2}")
             .await
@@ -228,14 +228,15 @@ mod preview {
             .regroup_folder(folder.id)
             .await
             .unwrap();
-        // Un terzo asset, indipendente: verifica che la pila non "consumi"
-        // più di un posto nel contatore condiviso con foto non impilate.
+        // A third, independent asset: checks that the stack doesn't
+        // "consume" more than one slot in the counter shared with
+        // non-stacked photos.
         let other = indexed_asset(&assets, folder.id, "c.jpg", taken_at).await;
         set_title(&test, raw, "Alba").await;
         set_title(&test, jpeg, "Non dovrebbe contare: solo il primario").await;
 
-        // Solo il RAW è passato esplicitamente: il JPEG affiancato deve
-        // comparire comunque nel risultato, con lo stesso nome base.
+        // Only the RAW is passed explicitly: the paired JPEG must still
+        // show up in the result, with the same base name.
         let items = RenameRepo::new(test.db())
             .preview(&ctx, &[raw, other], "{titolo}_{n:2}")
             .await
@@ -246,18 +247,18 @@ mod preview {
         assert_eq!(
             by_id(raw).new_name,
             "Alba_01.ARW",
-            "il RAW è il primario della pila: il suo titolo vince"
+            "the RAW is the stack's primary: its title wins"
         );
         assert_eq!(
             by_id(jpeg).new_name,
             "Alba_01.JPG",
-            "stessa base del RAW, propria estensione — non il proprio titolo"
+            "same base as the RAW, its own extension — not its own title"
         );
         assert_eq!(
             by_id(other).new_name,
             "02.JPG",
-            "'other' occupa lo slot 2, non 3: la pila ha contato come un solo elemento \
-             (titolo vuoto lascia solo il numero, il Task 7 rifila il separatore orfano davanti)"
+            "'other' occupies slot 2, not 3: the stack counted as a single element \
+             (an empty title leaves just the number, with the orphaned leading separator trimmed)"
         );
     }
 
@@ -319,7 +320,7 @@ mod preview {
 
         assert_eq!(
             items[0].new_name, "Sony-A7-IV_FE-24-70mm-f-28.JPG",
-            "slug() elimina anche il punto dentro \"f/2.8\" (spec: rimuove . e ,, non solo gli spazi)"
+            "slug() also strips the dot inside \"f/2.8\" (it removes . and ,, not just spaces)"
         );
     }
 
@@ -339,7 +340,7 @@ mod preview {
         let a = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
         let b = indexed_asset(&assets, folder.id, "b.jpg", taken_at).await;
 
-        // Schema fisso, nessun {n}: entrambe le foto producono lo stesso nome.
+        // A fixed schema, no {n}: both photos produce the same name.
         let items = RenameRepo::new(test.db())
             .preview(&ctx, &[a, b], "{data}")
             .await
@@ -351,8 +352,8 @@ mod preview {
     #[tokio::test]
     #[allow(clippy::unwrap_used, clippy::expect_used)]
     async fn colliding_with_an_asset_outside_the_group_is_still_flagged() {
-        // Difetto 1 (spec §62.3d): il prototipo controllava solo dentro il
-        // gruppo. Qui "outside" non è nemmeno passato a preview.
+        // The early prototype only checked collisions within the group.
+        // Here, "outside" is not even passed to preview.
         let test = TestDb::start().await;
         let admin = harness::seed_admin(&test).await;
         let root = temp_library_root("collide-outside");
@@ -363,9 +364,9 @@ mod preview {
 
         let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
         let taken_at = Utc.with_ymd_and_hms(2026, 8, 14, 0, 0, 0).unwrap();
-        // Estensione maiuscola: è sempre come render_filename la produce
-        // (spec §62.3b punto 1), quindi è la forma esatta con cui un
-        // asset "target.JPG" già presente collide con lo schema "target".
+        // Uppercase extension: that's always how render_filename produces
+        // it, so it's the exact form an already-present "target.JPG" asset
+        // collides with under the "target" schema.
         let _outside = indexed_asset(&assets, folder.id, "target.JPG", taken_at).await;
         let moving = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
 
@@ -377,7 +378,7 @@ mod preview {
         assert_eq!(items.len(), 1);
         assert!(
             items[0].collides,
-            "target.JPG esiste già nella cartella, fuori da questo ambito"
+            "target.JPG already exists in the folder, outside this scope"
         );
     }
 
@@ -393,9 +394,9 @@ mod preview {
         let assets = AssetRepo::new(test.db());
 
         let folder = folders.ensure_path(library, &["2024"]).await.unwrap();
-        // Estensione già maiuscola: uno schema che ricalcola esattamente lo
-        // stesso nome è un vero no-op solo se la forma coincide byte per
-        // byte con quella (sempre maiuscola) che render_filename produce.
+        // Extension already uppercase: a schema that recomputes exactly
+        // the same name is a true no-op only if the form matches byte for
+        // byte the one (always uppercase) that render_filename produces.
         let asset_id = indexed_asset(
             &assets,
             folder.id,
@@ -533,7 +534,7 @@ mod apply {
         assert_eq!(
             outcome.renamed.len(),
             2,
-            "il JPEG affiancato si rinomina insieme al RAW anche se non passato esplicitamente"
+            "the paired JPEG is renamed together with the RAW even though it wasn't passed explicitly"
         );
         assert!(root.join("2024").join("Alba.ARW").is_file());
         assert!(root.join("2024").join("Alba.JPG").is_file());
@@ -567,9 +568,9 @@ mod apply {
             .await
             .unwrap();
 
-        // move_asset stesso rifiuta la collisione al secondo tentativo: il
-        // primo elaborato riesce a occupare il nome, il secondo la trova
-        // già presa — riuscita parziale, non un blocco totale silenzioso.
+        // move_asset itself rejects the collision on the second attempt:
+        // the first one processed claims the name, the second finds it
+        // already taken — a partial success, not a silent full block.
         assert_eq!(outcome.renamed.len(), 1);
         assert_eq!(outcome.failed.len(), 1);
         assert!(matches!(outcome.failed[0].1, DbError::Collision(_)));
@@ -629,9 +630,10 @@ mod apply {
             .unwrap();
         let editor_ctx = AuthContext::user(editor, SystemRole::User);
 
-        // compute() pretende editor su tutto l'ambito (assert_can_edit_assets):
-        // un solo asset di sola visione basta a rifiutare l'intera chiamata,
-        // prima ancora di tentare il primo move_asset.
+        // compute() requires editor access over the whole scope
+        // (assert_can_edit_assets): a single view-only asset is enough to
+        // reject the entire call, before even attempting the first
+        // move_asset.
         let result = RenameRepo::new(test.db())
             .apply(&editor_ctx, &[a, b], "x", None)
             .await;
@@ -639,7 +641,7 @@ mod apply {
         assert!(matches!(result, Err(DbError::Forbidden)), "{result:?}");
         assert!(
             root.join("Editabile").join("a.jpg").is_file(),
-            "niente si muove"
+            "nothing moves"
         );
 
         let _ = fs::remove_dir_all(&root);
@@ -727,7 +729,7 @@ mod undo {
 
         let undone = repo.undo(&ctx, batch_id, false).await.unwrap();
 
-        assert_eq!(undone.restored.len(), 2, "raw + jpeg affiancato");
+        assert_eq!(undone.restored.len(), 2, "raw + paired jpeg");
         assert!(root.join("2024").join("DSC_0042.ARW").is_file());
         assert!(root.join("2024").join("DSC_0042.JPG").is_file());
         let jpeg_row = assets.find_by_id(&ctx, jpeg).await.unwrap();
@@ -797,9 +799,9 @@ mod undo {
         let applied = repo.apply(&ctx, &[asset_id], "b", None).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
-        // Un editor con accesso pieno all'asset, ma non è chi ha applicato
-        // il batch: l'annullamento resta personale, non basta poter
-        // modificare l'asset.
+        // An editor with full access to the asset, but not the one who
+        // applied the batch: undo stays personal, being able to edit the
+        // asset is not enough.
         let editor = harness::seed_user(&test, admin, "editor").await;
         PermissionRepo::new(test.db())
             .grant(
@@ -820,7 +822,7 @@ mod undo {
         let result = repo.undo(&editor_ctx, batch_id, false).await;
 
         assert!(matches!(result, Err(DbError::Forbidden)), "{result:?}");
-        assert!(root.join("2024").join("b.JPG").is_file(), "niente si muove");
+        assert!(root.join("2024").join("b.JPG").is_file(), "nothing moves");
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -847,7 +849,7 @@ mod undo {
         let batch_id = applied.batch_id.unwrap();
         assert!(root.join("2024").join("b.JPG").is_file());
 
-        // Qualcun altro occupa ora "a.jpg", il vecchio nome dell'asset.
+        // Someone else now occupies "a.jpg", the asset's old name.
         fs::write(root.join("2024").join("a.jpg"), b"intruso").unwrap();
         let _intruder = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
 
@@ -858,7 +860,7 @@ mod undo {
         assert!(matches!(undone.failed[0].1, DbError::Collision(_)));
         assert!(
             root.join("2024").join("b.JPG").is_file(),
-            "il file resta dov'era, l'annullamento non ha toccato nulla"
+            "the file stays where it was, undo touched nothing"
         );
 
         let _ = fs::remove_dir_all(&root);
@@ -902,10 +904,10 @@ mod operation_tracking {
         let a = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
         let b = indexed_asset(&assets, folder.id, "b.jpg", taken_at).await;
 
-        // Dal 27 agosto `apply` non crea più la propria operazione (l'ha
-        // fatta girare in background, `keeppix-jobs::rename_batch`): il
-        // chiamante — qui il test, la rotta HTTP in produzione — la crea
-        // prima, come farebbe `apply_batch`.
+        // `apply` no longer creates its own operation (that moved to a
+        // background job, `keeppix-jobs::rename_batch`): the caller — here
+        // the test, the HTTP route in production — creates it beforehand,
+        // the same way `apply_batch` would.
         let op = operations
             .create(&ctx, keeppix_domain::OperationKind::BulkRename)
             .await
@@ -935,14 +937,14 @@ mod operation_tracking {
     #[tokio::test]
     #[allow(clippy::unwrap_used, clippy::expect_used)]
     async fn apply_stops_partway_when_cancel_is_requested_mid_batch() {
-        // Dal 27 agosto il chiamante crea l'operazione prima di invocare
-        // apply() (vedi il test sopra), quindi l'id è noto subito — non
-        // serve più list_running per scoprirlo. Il test corre apply() su un
-        // lotto abbastanza grande da lasciare una finestra reale, e un
-        // secondo task interroga find(op_id) finché non vede almeno un
-        // successo (`done > 0`, davvero a metà, non annullata prima di
-        // iniziare) per chiederne l'annullamento — polling, non un'attesa
-        // fissa, per non essere un test instabile.
+        // The caller creates the operation before invoking apply() (see
+        // the test above), so the id is known right away — list_running is
+        // no longer needed to discover it. This test runs apply() on a
+        // batch large enough to leave a real window, and a second task
+        // polls find(op_id) until it sees at least one success (`done >
+        // 0`, genuinely partway through, not cancelled before it starts)
+        // before requesting cancellation — polling, not a fixed wait, so
+        // the test doesn't become flaky.
         let test = TestDb::start().await;
         let admin = harness::seed_admin(&test).await;
         let root = temp_library_root("op-cancel");
@@ -993,13 +995,10 @@ mod operation_tracking {
             .unwrap();
         let found_it = canceller.await.unwrap();
 
-        assert!(
-            found_it,
-            "il canceller non ha trovato l'operazione in tempo"
-        );
+        assert!(found_it, "the canceller did not find the operation in time");
         assert!(
             outcome.renamed.len() < asset_ids.len(),
-            "l'annullamento deve aver fermato il giro prima della fine: {} rinominati su {}",
+            "cancellation must have stopped the loop before it finished: {} renamed out of {}",
             outcome.renamed.len(),
             asset_ids.len()
         );
@@ -1009,7 +1008,7 @@ mod operation_tracking {
         assert_eq!(
             finished.done,
             i64::try_from(outcome.renamed.len()).unwrap(),
-            "il conteggio dell'operazione e i rinominati restituiti concordano"
+            "the operation's count and the returned renamed list agree"
         );
 
         let _ = fs::remove_dir_all(&root);

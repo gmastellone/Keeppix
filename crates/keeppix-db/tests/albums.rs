@@ -85,7 +85,7 @@ async fn grant_album(
         .unwrap();
 }
 
-/// Una foto può stare in molti album senza essere duplicata su disco.
+/// A photo can live in many albums without being duplicated on disk.
 #[tokio::test]
 async fn an_asset_can_live_in_many_albums() {
     let test = TestDb::start().await;
@@ -130,16 +130,16 @@ async fn an_asset_can_live_in_many_albums() {
     assert_eq!(in_a[0].asset.id, photo);
     assert_eq!(in_b[0].asset.id, photo);
 
-    // L'asset esiste una sola volta nella tabella assets.
+    // The asset exists exactly once in the assets table.
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM assets WHERE id = $1")
         .bind(photo.as_uuid())
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert_eq!(count, 1, "l'asset deve esistere una sola volta");
+    assert_eq!(count, 1, "the asset must exist exactly once");
 }
 
-/// Rimuovere una foto da un album non cancella la foto.
+/// Removing a photo from an album does not delete the photo.
 #[tokio::test]
 async fn removing_from_an_album_does_not_delete_the_asset() {
     let test = TestDb::start().await;
@@ -166,18 +166,15 @@ async fn removing_from_an_album_does_not_delete_the_asset() {
     repo.add_asset(&ctx, album.id, photo).await.unwrap();
     repo.remove_asset(&ctx, album.id, photo).await.unwrap();
 
-    // L'album è vuoto.
+    // The album is empty.
     let in_album = repo.list_assets(&ctx, album.id).await.unwrap();
-    assert!(
-        in_album.is_empty(),
-        "l'album deve essere vuoto dopo la rimozione"
-    );
+    assert!(in_album.is_empty(), "the album must be empty after removal");
 
-    // L'asset ancora esiste.
+    // The asset still exists.
     let asset = AssetRepo::new(test.db()).find_by_id(&ctx, photo).await;
     assert!(
         asset.is_ok(),
-        "l'asset deve esistere ancora dopo la rimozione dall'album"
+        "the asset must still exist after removal from the album"
     );
     assert_eq!(
         AssetRepo::new(test.db())
@@ -185,12 +182,12 @@ async fn removing_from_an_album_does_not_delete_the_asset() {
             .await
             .unwrap(),
         1,
-        "l'asset deve essere ancora indexed"
+        "the asset must still be indexed"
     );
 }
 
-/// Condividere un album con un utente gli concede la visibilità degli asset
-/// in quell'album, ma non espone la cartella in cui quei file risiedono.
+/// Sharing an album with a user grants them visibility of the assets in
+/// that album, but does not expose the folder those files actually live in.
 #[tokio::test]
 async fn sharing_an_album_grants_its_assets_but_not_their_folders() {
     let test = TestDb::start().await;
@@ -204,24 +201,24 @@ async fn sharing_an_album_grants_its_assets_but_not_their_folders() {
     let folder = seed_folder(&test, lib, "Privato").await;
     let photo = index_photo(&test, folder, "vacanze.jpg").await;
 
-    // Prima di condividere: mario non vede nulla.
+    // Before sharing: mario sees nothing.
     assert_eq!(
         AssetRepo::new(test.db())
             .count_by_status(&mario_ctx, AssetStatus::Indexed)
             .await
             .unwrap(),
         0,
-        "prima della condivisione mario non deve vedere asset"
+        "before sharing, mario must not see any asset"
     );
     assert!(
         AssetRepo::new(test.db())
             .find_by_id(&mario_ctx, photo)
             .await
             .is_err(),
-        "find_by_id deve rispondere Forbidden prima della condivisione"
+        "find_by_id must return Forbidden before sharing"
     );
 
-    // Crea l'album e ci aggiunge la foto.
+    // Create the album and add the photo to it.
     let repo = AlbumRepo::new(test.db());
     let album = repo
         .create(
@@ -236,35 +233,35 @@ async fn sharing_an_album_grants_its_assets_but_not_their_folders() {
         .unwrap();
     repo.add_asset(&owner_ctx, album.id, photo).await.unwrap();
 
-    // Condivide l'album con mario.
+    // Share the album with mario.
     grant_album(&test, admin, mario, album.id, ObjectRole::Viewer).await;
 
-    // Ora mario vede la foto tramite il grant sull'album.
+    // Now mario sees the photo via the grant on the album.
     assert_eq!(
         AssetRepo::new(test.db())
             .count_by_status(&mario_ctx, AssetStatus::Indexed)
             .await
             .unwrap(),
         1,
-        "dopo la condivisione mario deve vedere l'asset"
+        "after sharing, mario must see the asset"
     );
     assert!(
         AssetRepo::new(test.db())
             .find_by_id(&mario_ctx, photo)
             .await
             .is_ok(),
-        "find_by_id deve riuscire dopo la condivisione"
+        "find_by_id must succeed after sharing"
     );
 
-    // Ma mario non vede la cartella "Privato".
+    // But mario does not see the "Privato" folder.
     let tree = FolderRepo::new(test.db()).tree(&mario_ctx).await.unwrap();
     assert!(
         tree.is_empty(),
-        "la cartella non deve essere visibile: mario ha accesso via album, non via cartella"
+        "the folder must not be visible: mario has access via the album, not via the folder"
     );
 }
 
-/// Eliminare un album non elimina le foto in esso contenute.
+/// Deleting an album deletes none of the photos it contains.
 #[tokio::test]
 async fn deleting_an_album_deletes_no_photo() {
     let test = TestDb::start().await;
@@ -293,7 +290,7 @@ async fn deleting_an_album_deletes_no_photo() {
 
     repo.delete(&ctx, album.id).await.unwrap();
 
-    // Le foto sono ancora lì.
+    // The photos are still there.
     assert!(AssetRepo::new(test.db()).find_by_id(&ctx, p1).await.is_ok());
     assert!(AssetRepo::new(test.db()).find_by_id(&ctx, p2).await.is_ok());
     assert_eq!(
@@ -302,15 +299,15 @@ async fn deleting_an_album_deletes_no_photo() {
             .await
             .unwrap(),
         2,
-        "dopo l'eliminazione dell'album devono restare 2 asset indexed"
+        "2 indexed assets must remain after the album is deleted"
     );
 
-    // L'album è sparito.
+    // The album is gone.
     let albums = repo.list(&ctx).await.unwrap();
-    assert!(albums.is_empty(), "l'album deve essere eliminato");
+    assert!(albums.is_empty(), "the album must be deleted");
 }
 
-/// Un utente senza permesso sull'album riceve Forbidden — non NotFound.
+/// A user without permission on the album gets Forbidden — not NotFound.
 #[tokio::test]
 async fn probing_an_album_without_permission_is_forbidden() {
     let test = TestDb::start().await;
@@ -337,7 +334,7 @@ async fn probing_an_album_without_permission_is_forbidden() {
         .unwrap();
     repo.add_asset(&ctx_admin, album.id, photo).await.unwrap();
 
-    // Mario non ha nessun permesso: deve ricevere Forbidden.
+    // Mario has no permission at all: he must get Forbidden.
     assert!(matches!(
         repo.get(&ctx_mario, album.id).await,
         Err(DbError::Forbidden)
@@ -347,13 +344,13 @@ async fn probing_an_album_without_permission_is_forbidden() {
         Err(DbError::Forbidden)
     ));
 
-    // L'album non deve comparire nella lista di mario.
+    // The album must not appear in mario's list.
     let list = repo.list(&ctx_mario).await.unwrap();
     assert!(list.is_empty());
 }
 
-/// Un album senza `rule` non può essere aggiornato: non è un difetto di
-/// autorizzazione, è che non c'è nulla da rilanciare.
+/// An album without a `rule` cannot be refreshed: this is not an
+/// authorization defect, it's simply that there is nothing to re-run.
 #[tokio::test]
 async fn refreshing_an_album_without_a_rule_returns_none() {
     let test = TestDb::start().await;
@@ -376,14 +373,14 @@ async fn refreshing_an_album_without_a_rule_returns_none() {
     let outcome = repo.refresh(&ctx, album.id).await.unwrap();
     assert!(
         outcome.is_none(),
-        "un album senza rule non deve produrre un esito di refresh"
+        "an album without a rule must not produce a refresh outcome"
     );
 }
 
-/// Il refresh riapplica la `rule` con cui l'album è stato creato: le foto che
-/// combaciano entrano, quelle che non combaciano più (o che erano state
-/// aggiunte a mano fuori dal filtro) escono. Un secondo refresh senza
-/// modifiche al catalogo non deve produrre duplicati né movimenti.
+/// Refresh re-applies the `rule` the album was created with: photos that
+/// match are added, ones that no longer match (or that were added by hand
+/// outside the filter) are removed. A second refresh with no catalog
+/// changes must not produce duplicates or movements.
 #[tokio::test]
 async fn refresh_adds_matches_and_removes_non_matches_and_is_idempotent() {
     let test = TestDb::start().await;
@@ -395,7 +392,7 @@ async fn refresh_adds_matches_and_removes_non_matches_and_is_idempotent() {
     let jpeg = index_photo(&test, folder, "a.jpg").await;
     let another_jpeg = index_photo(&test, folder, "b.jpg").await;
 
-    // Un video, fuori dal filtro type:image.
+    // A video, outside the type:image filter.
     let video_repo = AssetRepo::new(test.db());
     let video = video_repo
         .upsert_discovered(NewAsset {
@@ -434,23 +431,23 @@ async fn refresh_adds_matches_and_removes_non_matches_and_is_idempotent() {
         .await
         .unwrap();
 
-    // Aggiunto a mano, fuori dal filtro: il refresh deve rimuoverlo.
+    // Added by hand, outside the filter: refresh must remove it.
     repo.add_asset(&ctx, album.id, video.id).await.unwrap();
 
     let refresh = repo
         .refresh(&ctx, album.id)
         .await
         .unwrap()
-        .expect("l'album ha una rule");
+        .expect("the album has a rule");
     let mut added: Vec<AssetId> = refresh.added.clone();
     added.sort_by_key(AssetId::as_uuid);
     let mut expected_added = vec![jpeg, another_jpeg];
     expected_added.sort_by_key(AssetId::as_uuid);
-    assert_eq!(added, expected_added, "le due foto devono essere aggiunte");
+    assert_eq!(added, expected_added, "the two photos must be added");
     assert_eq!(
         refresh.removed,
         vec![video.id],
-        "il video fuori dal filtro deve essere rimosso"
+        "the video outside the filter must be removed"
     );
 
     let members = repo.list_assets(&ctx, album.id).await.unwrap();
@@ -458,30 +455,31 @@ async fn refresh_adds_matches_and_removes_non_matches_and_is_idempotent() {
     member_ids.sort_by_key(AssetId::as_uuid);
     assert_eq!(member_ids, expected_added);
 
-    // rule_run_at è stato scritto.
+    // rule_run_at has been written.
     let rule_run_at: Option<chrono::DateTime<Utc>> =
         sqlx::query_scalar("SELECT rule_run_at FROM albums WHERE id = $1")
             .bind(album.id.as_uuid())
             .fetch_one(test.db().pool())
             .await
             .unwrap();
-    assert!(rule_run_at.is_some(), "rule_run_at deve essere impostato");
+    assert!(rule_run_at.is_some(), "rule_run_at must be set");
 
-    // Un secondo refresh, senza cambi nel catalogo, non deve aggiungere né
-    // rimuovere nulla: idempotenza.
+    // A second refresh, with no catalog changes, must add or remove
+    // nothing: idempotence.
     let second = repo.refresh(&ctx, album.id).await.unwrap().unwrap();
     assert!(
         second.added.is_empty(),
-        "il secondo refresh non deve aggiungere duplicati"
+        "the second refresh must not add duplicates"
     );
     assert!(
         second.removed.is_empty(),
-        "il secondo refresh non deve rimuovere nulla di già coerente"
+        "the second refresh must not remove anything already consistent"
     );
 }
 
-/// Un utente senza permesso sull'album riceve `Forbidden` — mai `NotFound` —
-/// anche per il refresh, stesso invariante degli altri endpoint dell'album.
+/// A user without permission on the album gets `Forbidden` — never
+/// `NotFound` — for refresh too, the same invariant as the album's other
+/// endpoints.
 #[tokio::test]
 async fn refreshing_a_foreign_album_is_forbidden() {
     let test = TestDb::start().await;
@@ -511,9 +509,8 @@ async fn refreshing_a_foreign_album_is_forbidden() {
     ));
 }
 
-// Fase 11 Task 8 (§19.2 campo 18, sezione ALBUM del pannello informazioni
-// del lightbox): la freccia opposta di `list_assets` — dato un asset, a
-// quali album appartiene già.
+// The reverse direction of `list_assets` (used by the ALBUM section of the
+// lightbox info panel): given an asset, which albums it already belongs to.
 
 #[tokio::test]
 async fn for_asset_lists_every_album_the_asset_is_a_member_of() {
@@ -549,7 +546,7 @@ async fn for_asset_lists_every_album_the_asset_is_a_member_of() {
         )
         .await
         .unwrap();
-    // Un terzo album di cui la foto NON fa parte: non deve comparire.
+    // A third album the photo is NOT part of: it must not show up.
     repo.create(
         &ctx,
         NewAlbum {
@@ -570,7 +567,7 @@ async fn for_asset_lists_every_album_the_asset_is_a_member_of() {
     assert_eq!(
         names,
         vec!["Famiglia", "Vacanze"],
-        "ordinati per nome, solo i due di cui la foto è membro"
+        "ordered by name, only the two the photo is a member of"
     );
 }
 
@@ -635,7 +632,7 @@ async fn for_asset_hides_albums_the_caller_cannot_see_but_still_lists_the_shared
     assert_eq!(
         names,
         vec!["Condiviso"],
-        "solo l'album con permesso condiviso, mai quello privato altrui"
+        "only the album shared with the caller, never someone else's private one"
     );
 }
 
@@ -651,11 +648,11 @@ async fn for_asset_is_forbidden_on_an_asset_the_caller_cannot_see_at_all() {
     let folder = seed_folder(&test, lib, "2024").await;
     let photo = index_photo(&test, folder, "privata.jpg").await;
 
-    // La visibilità dell'asset viene controllata **prima** di quella
-    // dell'album: anche se `stranger` avesse un album proprio in cui
-    // infilare questo id (non qui, l'album è di admin), l'appartenenza a
-    // un album non deve mai rivelare l'esistenza di un asset altrimenti
-    // invisibile al chiamante.
+    // Asset visibility is checked **before** album visibility: even if
+    // `stranger` had their own album to slot this id into (not the case
+    // here, the album belongs to admin), membership in an album must
+    // never reveal the existence of an asset that would otherwise be
+    // invisible to the caller.
     let repo = AlbumRepo::new(test.db());
     let album = repo
         .create(

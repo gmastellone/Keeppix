@@ -1,4 +1,4 @@
-//! Fase 7 Task 7: CRUD vocabolario condiviso `tags` (un livello di nesting).
+//! CRUD for the shared `tags` vocabulary (one level of nesting).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -24,14 +24,14 @@ async fn seed_library(test: &TestDb, owner: UserId, path: &str) -> keeppix_domai
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 100,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: Some(1),
@@ -202,7 +202,7 @@ async fn tag_names_are_unique_per_kind() {
         .await
         .unwrap();
 
-    // Stesso nome, stesso kind → conflict.
+    // Same name, same kind -> conflict.
     let err = TagRepo::new(test.db())
         .create(
             &ctx,
@@ -221,7 +221,7 @@ async fn tag_names_are_unique_per_kind() {
         .unwrap_err();
     assert!(matches!(err, keeppix_db::DbError::Conflict(_)));
 
-    // Stesso nome, kind diverso → ok (UNIQUE è su (name, kind)).
+    // Same name, different kind -> ok (UNIQUE is on (name, kind)).
     TagRepo::new(test.db())
         .create(
             &ctx,
@@ -378,16 +378,13 @@ async fn patching_stores_a_text_embedding_without_touching_asset_embeddings() {
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert!(
-        stored.starts_with('['),
-        "embedding materializzato: {stored}"
-    );
+    assert!(stored.starts_with('['), "materialized embedding: {stored}");
 
     let asset_emb: i64 = sqlx::query_scalar("SELECT count(*)::bigint FROM asset_embeddings")
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert_eq!(asset_emb, 0, "il CRUD del tag non deve toccare le foto");
+    assert_eq!(asset_emb, 0, "the tag CRUD must not touch photos");
 }
 
 #[tokio::test]

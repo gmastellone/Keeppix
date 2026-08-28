@@ -1,5 +1,4 @@
-//! Fase 8 Task 3/4: `faces` — rilevamento, assegnazione manuale, proposte,
-//! coda di revisione.
+//! `faces` — detection, manual assignment, proposals, review queue.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -17,10 +16,9 @@ async fn seed_person(test: &TestDb) -> PersonId {
     PersonRepo::new(test.db()).create(None).await.unwrap().id
 }
 
-/// Stato grezzo di una riga `faces`, letto direttamente via SQL: a
-/// differenza di `FaceRepo::list_for_asset` (che esclude i rifiutati per
-/// disegno), qui i test devono poter osservare anche lo stato dopo un
-/// rifiuto.
+/// Raw state of a `faces` row, read directly via SQL: unlike
+/// `FaceRepo::list_for_asset` (which excludes rejected rows by design),
+/// these tests need to observe state even after a rejection.
 struct FaceState {
     person_id: Option<uuid::Uuid>,
     assigned_by: Option<uuid::Uuid>,
@@ -66,8 +64,8 @@ fn bbox() -> FaceBBox {
     }
 }
 
-/// Vettore unitario lungo l'asse `axis` (0..127) — stesso trucco di
-/// `asset_tags.rs` per confronti di similarità deterministici.
+/// Unit vector along axis `axis` (0..127) — the same trick used in
+/// `asset_tags.rs` for deterministic similarity comparisons.
 fn unit_axis(axis: usize) -> Vec<f32> {
     let mut v = vec![0.0_f32; 128];
     v[axis] = 1.0;
@@ -86,14 +84,14 @@ async fn seed_library(test: &TestDb, owner: UserId, path: &str) -> keeppix_domai
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 100,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: Some(1),
@@ -239,8 +237,8 @@ async fn reject_clears_any_assignment_and_is_permanent() {
     assert!(updated.rejected_at.is_some());
     assert!(updated.person_id.is_none());
 
-    // Un rilevamento successivo non deve poter riassegnare un volto rifiutato
-    // in automatico — resta rifiutato finché un umano non decide altrimenti.
+    // A later detection must not be able to auto-reassign a rejected face —
+    // it stays rejected until a human decides otherwise.
     let other_person = seed_person(&test).await;
     repo.auto_assign(face.id, other_person).await.unwrap();
     let still_rejected = fetch_face_state(&test, face.id).await;
@@ -425,7 +423,7 @@ async fn mark_scanned_removes_the_asset_from_the_pending_queue_even_with_zero_fa
             .any(|p| p.asset_id == asset)
     );
 
-    // Nessun volto trovato — comunque va segnato come analizzato.
+    // No face found — it must still be marked as scanned.
     repo.mark_scanned(asset, FACE_MODEL).await.unwrap();
 
     assert!(
@@ -563,7 +561,7 @@ async fn delete_all_data_wipes_faces_persons_groups_and_scan_state() {
     let _ = (face.id, person, group.id);
 }
 
-// Fase 11 Task 7 (SP-3 §11, dimensione "Persone" — `AssetView`).
+// The "People" dimension of `AssetView`.
 
 #[tokio::test]
 async fn confirmed_among_includes_both_manual_and_auto_assignments() {

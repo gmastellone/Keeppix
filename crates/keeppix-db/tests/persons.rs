@@ -1,5 +1,4 @@
-//! Fase 8 Task 6/7: persone — visibilità transitiva via i volti, unisci,
-//! separa, centroide.
+//! People — transitive visibility via faces, merge, separate, centroid.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -31,14 +30,14 @@ async fn seed_library(test: &TestDb, owner: UserId, path: &str) -> keeppix_domai
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 100,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: Some(1),
@@ -196,8 +195,8 @@ async fn hidden_persons_are_excluded_unless_asked_for() {
 
 #[tokio::test]
 async fn renaming_to_a_blank_name_is_impossible_by_construction() {
-    // `PersonName::parse` rifiuta il vuoto prima ancora di arrivare al repo
-    // — il difetto del prototipo (Task 6) non ha modo di riprodursi qui.
+    // `PersonName::parse` rejects blank input before it even reaches the
+    // repo — the early prototype's defect has no way to reproduce here.
     assert!(PersonName::parse("").is_err());
     assert!(PersonName::parse("   ").is_err());
 }
@@ -293,7 +292,7 @@ async fn separate_creates_a_new_person_and_records_the_split() {
 
 #[tokio::test]
 async fn separate_does_not_restore_a_previous_state_on_a_second_call() {
-    // Domanda aperta n.5 del documento funzionale: separare non è annullabile.
+    // Separating is not undoable.
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
@@ -307,8 +306,8 @@ async fn separate_does_not_restore_a_previous_state_on_a_second_call() {
         .separate(&ctx, source.id, &[leaves], None)
         .await
         .unwrap();
-    // Un secondo tentativo di separare lo stesso volto (già altrove) fallisce
-    // con un conflitto esplicito, non con un ripristino silenzioso.
+    // A second attempt to separate the same face (already moved elsewhere)
+    // fails with an explicit conflict, not a silent restore.
     assert!(matches!(
         repo.separate(&ctx, source.id, &[leaves], None).await,
         Err(keeppix_db::DbError::Conflict(_))

@@ -20,7 +20,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -71,10 +71,13 @@ async fn children_extend_the_parent_path() {
     assert!(event.path.is_descendant_of(&root.path));
     assert!(event.path.is_descendant_of(&year.path));
     assert_eq!(event.depth, 3);
-    assert_eq!(event.name, "Matrimonio Rossi", "il nome resta quello vero");
+    assert_eq!(
+        event.name, "Matrimonio Rossi",
+        "the name stays the real one"
+    );
     assert!(
         !event.path.as_str().contains("Matrimonio"),
-        "il nome non deve MAI finire nel percorso ltree"
+        "the name must NEVER end up in the ltree path"
     );
 }
 
@@ -90,7 +93,7 @@ async fn ensure_child_is_idempotent() {
     let a = repo.ensure_child(&root, "2024").await.unwrap();
     let b = repo.ensure_child(&root, "2024").await.unwrap();
 
-    assert_eq!(a.id, b.id, "riscansionare non duplica le cartelle");
+    assert_eq!(a.id, b.id, "rescanning does not duplicate folders");
 }
 
 #[tokio::test]
@@ -107,9 +110,9 @@ async fn ensure_path_creates_the_whole_chain() {
         .unwrap();
 
     assert_eq!(leaf.name, "Santorini");
-    assert_eq!(leaf.depth, 4, "radice piu tre livelli");
+    assert_eq!(leaf.depth, 4, "root plus three levels");
 
-    // Rieseguirla non crea nulla di nuovo.
+    // Running it again creates nothing new.
     let again = repo
         .ensure_path(library, &["2024", "Grecia", "Santorini"])
         .await
@@ -140,11 +143,11 @@ async fn subtree_returns_descendants_including_itself() {
     let under_2024 = repo.subtree(&ctx, y2024.id).await.unwrap();
     let names: Vec<&str> = under_2024.iter().map(|f| f.name.as_str()).collect();
 
-    assert!(names.contains(&"2024"), "ltree <@ include il nodo stesso");
+    assert!(names.contains(&"2024"), "ltree <@ includes the node itself");
     assert!(names.contains(&"Grecia"));
     assert!(names.contains(&"Santorini"));
     assert!(names.contains(&"Italia"));
-    assert!(!names.contains(&"2023"), "un fratello non e un discendente");
+    assert!(!names.contains(&"2023"), "a sibling is not a descendant");
 }
 
 #[tokio::test]
@@ -165,7 +168,11 @@ async fn children_are_direct_only() {
     let direct = repo.children(&ctx, y2024.id).await.unwrap();
     let names: Vec<&str> = direct.iter().map(|f| f.name.as_str()).collect();
 
-    assert_eq!(names, vec!["Grecia"], "solo i figli diretti, non i nipoti");
+    assert_eq!(
+        names,
+        vec!["Grecia"],
+        "only direct children, not grandchildren"
+    );
 }
 
 #[tokio::test]
@@ -177,7 +184,7 @@ async fn moving_a_subtree_rewrites_every_descendant_path() {
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let repo = FolderRepo::new(test.db());
 
-    // /2024/Grecia/Santorini  ->  spostiamo Grecia sotto /Archivio
+    // /2024/Grecia/Santorini  ->  move Grecia under /Archivio
     repo.ensure_path(library, &["2024", "Grecia", "Santorini"])
         .await
         .unwrap();
@@ -196,18 +203,18 @@ async fn moving_a_subtree_rewrites_every_descendant_path() {
     assert!(moved.path.is_descendant_of(&archive.path));
     assert_eq!(moved.depth, 3);
 
-    // Il nipote deve essere sceso con lui.
+    // The grandchild must have moved down along with it.
     let under_archive = repo.subtree(&ctx, archive.id).await.unwrap();
     let santorini = under_archive
         .iter()
         .find(|f| f.name == "Santorini")
-        .expect("Santorini e sceso con Grecia");
+        .expect("Santorini moved down with Grecia");
     assert!(santorini.path.is_descendant_of(&moved.path));
     assert_eq!(santorini.depth, 4);
 
-    // E non deve piu stare sotto 2024.
+    // And it must no longer be under 2024.
     let under_2024 = repo.subtree(&ctx, y2024.id).await.unwrap();
-    assert_eq!(under_2024.len(), 1, "sotto 2024 resta solo 2024 stesso");
+    assert_eq!(under_2024.len(), 1, "only 2024 itself remains under 2024");
 }
 
 #[tokio::test]
@@ -226,7 +233,7 @@ async fn a_folder_cannot_be_moved_inside_itself() {
     let root = repo.ensure_root(library).await.unwrap();
     let y2024 = repo.ensure_child(&root, "2024").await.unwrap();
 
-    // Spostare 2024 dentro il proprio figlio scollegherebbe il sottoalbero.
+    // Moving 2024 inside its own child would detach the subtree.
     let cycle = repo.move_subtree(&ctx, y2024.id, leaf.id).await;
     assert!(matches!(cycle, Err(DbError::Conflict(_))));
 }
@@ -318,7 +325,7 @@ async fn two_libraries_can_share_the_same_numeric_path() {
             },
         )
         .await
-        .expect("seconda libreria")
+        .expect("second library")
         .id;
     let repo = FolderRepo::new(test.db());
 
@@ -351,11 +358,10 @@ async fn concurrent_ensure_child_does_not_duplicate() {
 
     let a = a.unwrap();
     let b = b.unwrap();
-    assert_eq!(a.id, b.id, "due scan concorrenti non devono duplicare");
+    assert_eq!(a.id, b.id, "two concurrent scans must not duplicate");
 }
 
-/// Fase 9 Task 2: `_taken`/`_skipped` sono riconosciute dalla colonna, non
-/// dal nome.
+/// `_taken`/`_skipped` are recognized by the column, not by name.
 mod culling_role {
     use super::*;
 
@@ -383,11 +389,11 @@ mod culling_role {
         assert_eq!(skipped.culling_role, Some(CullingRole::Skipped));
         assert_eq!(
             lot.culling_role, None,
-            "la radice del lotto stesso non porta un ruolo, solo le due sottocartelle"
+            "the lot root itself carries no role, only the two subfolders do"
         );
 
-        // Idempotente: una seconda chiamata restituisce la stessa riga, non
-        // ne crea una seconda.
+        // Idempotent: a second call returns the same row, it does not
+        // create a second one.
         let again = repo
             .ensure_culling_child(&lot, CullingRole::Taken)
             .await
@@ -395,10 +401,10 @@ mod culling_role {
         assert_eq!(again.id, taken.id);
     }
 
-    /// Una cartella chiamata `_taken` creata a mano (o da una versione
-    /// precedente della funzione) prima che Keeppix la marcasse — l'
-    /// `UPDATE` di auto-guarigione dopo l'`INSERT` ignorato deve comunque
-    /// impostarne il ruolo, non lasciarla `NULL` per sempre.
+    /// A folder named `_taken` created by hand (or by an earlier version of
+    /// the function) before Keeppix marked it — the self-healing `UPDATE`
+    /// after the ignored `INSERT` must still set its role, not leave it
+    /// `NULL` forever.
     #[tokio::test]
     #[allow(clippy::unwrap_used, clippy::expect_used)]
     async fn ensure_culling_child_heals_a_role_missing_folder() {
@@ -408,8 +414,8 @@ mod culling_role {
         let repo = FolderRepo::new(test.db());
         let lot = repo.ensure_path(library, &["Vacanze"]).await.unwrap();
 
-        // Cartella comune, mai passata da `ensure_culling_child`: stesso
-        // nome di quella speciale, ma senza ruolo.
+        // A plain folder, never created through `ensure_culling_child`: the
+        // same name as the special one, but with no role.
         let plain = repo.ensure_child(&lot, "_taken").await.unwrap();
         assert_eq!(plain.culling_role, None);
 
@@ -418,12 +424,12 @@ mod culling_role {
             .await
             .unwrap();
 
-        assert_eq!(healed.id, plain.id, "stessa riga, non una seconda");
+        assert_eq!(healed.id, plain.id, "same row, not a second one");
         assert_eq!(healed.culling_role, Some(CullingRole::Taken));
     }
 }
 
-/// Fase 9 Task 2: `LibraryRepo::set_culling_root`.
+/// `LibraryRepo::set_culling_root`.
 mod culling_root {
     use super::*;
     use keeppix_db::{NewGrant, ObjectType, PermissionRepo, SubjectType};
@@ -506,7 +512,7 @@ mod culling_root {
                 },
             )
             .await
-            .expect("seconda libreria")
+            .expect("second library")
             .id;
         let ctx = AuthContext::user(admin, SystemRole::User);
         let folder_in_b = FolderRepo::new(test.db())
@@ -520,7 +526,7 @@ mod culling_root {
 
         assert!(
             matches!(result, Err(DbError::Conflict(_))),
-            "una cartella di un'altra libreria non può diventare radice: {result:?}"
+            "a folder from another library cannot become a root: {result:?}"
         );
     }
 }

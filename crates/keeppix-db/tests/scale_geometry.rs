@@ -1,16 +1,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-//! Prova di scala per `/timeline/geometry` (fase-10, Task 2): 200.000 righe
-//! `assets`, tutte indicizzate con `width`/`height` noti, in una sola
-//! libreria. Verifica due cose che Task 1bis aveva lasciato in sospeso:
+//! Scale test for `/timeline/geometry`: 200,000 `assets` rows, all indexed
+//! with known `width`/`height`, in a single library. Verifies two things:
 //!
-//! 1. la query di `TimelineRepo::geometry` resta sotto un budget esplicito
-//!    anche sull'intera vista (nessuna paginazione, a differenza di
-//!    `page`/`buckets`);
-//! 2. il piano usa `assets_geometry_idx` in **index-only scan** — l'indice di
-//!    copertura di 0034 (esteso in 0035 con `stack_id`/`kind` per il filtro
-//!    di primario di pila del Task 3), non un seq scan come lo stand-in
-//!    misurato in Task 1bis.
+//! 1. the `TimelineRepo::geometry` query stays under an explicit budget
+//!    even on the whole view (no pagination, unlike `page`/`buckets`);
+//! 2. the plan uses `assets_geometry_idx` in an **index-only scan** — the
+//!    covering index from migration 0034 (extended in 0035 with
+//!    `stack_id`/`kind` for the stack-primary filter), not a seq scan like
+//!    an earlier stand-in measurement showed.
 
 mod harness;
 
@@ -22,17 +20,17 @@ use keeppix_domain::{AuthContext, NewLibrary, SystemRole};
 
 const N: i32 = 200_000;
 
-/// Più alto del budget di `page`/`buckets` (300ms) di proposito: qui non c'è
-/// `LIMIT`, quindi il costo dominante non è il piano (misurato via `EXPLAIN
-/// ANALYZE`: ~110ms server-side, `Index Only Scan` su `assets_geometry_idx`,
-/// `Heap Fetches: 0`) ma il trasferimento e la decodifica lato client di
-/// 200.000 righe in un colpo — che è esattamente il costo che questo
-/// endpoint sostituisce a 1.070 richieste paginate (spec fase-10 §2.2), non
-/// uno che aggiunge. Misurato ~600-650ms end-to-end sul container di sviluppo;
-/// su GitHub Actions (runner condiviso, dopo `LEFT JOIN stacks` del Task 3)
-/// si è visti ~990ms. 1500ms lascia margine di rumore CI senza avvicinarsi
-/// al ~2s del seq scan degradato che la spec cita come alternativa senza
-/// l'indice di copertura.
+/// Deliberately higher than the `page`/`buckets` budget (300ms): there's no
+/// `LIMIT` here, so the dominant cost isn't the plan (measured via `EXPLAIN
+/// ANALYZE`: ~110ms server-side, `Index Only Scan` on `assets_geometry_idx`,
+/// `Heap Fetches: 0`) but the client-side transfer and decoding of 200,000
+/// rows in one shot — which is exactly the cost this endpoint replaces
+/// 1,070 paginated requests with, not one it adds. Measured ~600-650ms
+/// end-to-end on the development container; on GitHub Actions (a shared
+/// runner, after the `LEFT JOIN stacks` for the stack-primary filter) it
+/// ran ~990ms. 1500ms leaves margin for CI noise without getting close to
+/// the ~2s of the degraded seq scan that would happen without the covering
+/// index.
 const GEOMETRY_BUDGET: Duration = Duration::from_millis(1500);
 
 async fn seed_two_hundred_thousand_sized(
@@ -92,16 +90,16 @@ async fn seed_two_hundred_thousand_sized(
         .await
         .unwrap();
 
-    // `VACUUM`, non solo `ANALYZE`: l'index-only scan ha bisogno della
-    // visibility map fresca, che `ANALYZE` da solo non aggiorna. Senza
-    // questo il piano può ancora fare heap fetch per ogni riga anche con
-    // l'indice di copertura presente.
+    // `VACUUM`, not just `ANALYZE`: the index-only scan needs a fresh
+    // visibility map, which `ANALYZE` alone doesn't update. Without this
+    // the plan can still do a heap fetch for every row even with the
+    // covering index in place.
     sqlx::query("VACUUM ANALYZE assets")
         .execute(test.db().pool())
         .await
         .unwrap();
     eprintln!(
-        "MEASUREMENT seed geometria {N} assets: {:?}",
+        "MEASUREMENT seed geometry {N} assets: {:?}",
         seeded.elapsed()
     );
     (ctx, library.id)
@@ -113,42 +111,41 @@ async fn geometry_of_two_hundred_thousand_assets_stays_within_budget_and_index_o
     let (ctx, library_id) = seed_two_hundred_thousand_sized(&test).await;
     let repo = TimelineRepo::new(test.db());
 
-    // Piano prima del budget: una regressione a seq scan va segnalata come
-    // tale, non mascherata da un timeout di trasferimento su runner rumorosi.
+    // Check the plan before the budget: a regression to a seq scan must be
+    // flagged as such, not masked by a transfer timeout on noisy runners.
     let plan = explain_geometry(&test, &ctx, library_id).await;
     eprintln!("EXPLAIN geometry:\n{plan}");
     assert!(
         plan.contains("Index Only Scan") && plan.contains("assets_geometry_idx"),
-        "la query di /timeline/geometry deve servirsi dal solo assets_geometry_idx, \
-         non degradare a seq scan o a heap fetch per riga:\n{plan}"
+        "the /timeline/geometry query must be served from assets_geometry_idx alone, \
+         not degrade to a seq scan or a heap fetch per row:\n{plan}"
     );
 
-    // Un giro a freddo scalda pool/piano; la misura che conta è il successivo.
+    // A cold run warms the pool/plan; the measurement that counts is the next one.
     let _warmup = repo.geometry(&ctx, Some(library_id), None).await.unwrap();
 
     let t0 = Instant::now();
     let geometry = repo.geometry(&ctx, Some(library_id), None).await.unwrap();
     let elapsed = t0.elapsed();
     eprintln!(
-        "MEASUREMENT geometry (whole view) {N}: {elapsed:?} ({} record)",
+        "MEASUREMENT geometry (whole view) {N}: {elapsed:?} ({} records)",
         geometry.records.len()
     );
     assert_eq!(
         geometry.records.len(),
         usize::try_from(N).unwrap(),
-        "tutti gli asset indicizzati con taken_at devono comparire nella geometria"
+        "every indexed asset with a taken_at must appear in the geometry"
     );
     assert!(
         elapsed < GEOMETRY_BUDGET,
-        "geometria di {N} scatti: {elapsed:?} >= {GEOMETRY_BUDGET:?}"
+        "geometry of {N} shots: {elapsed:?} >= {GEOMETRY_BUDGET:?}"
     );
 }
 
-/// Stessa query SQL di `TimelineRepo::geometry`, con lo stesso filtro
-/// libreria del test sopra: duplicata qui di proposito, come
-/// `explain_page_shared` in `scale_200k.rs`, perché la query vera è privata
-/// del repository e l'`EXPLAIN` deve vedere esattamente ciò che gira in
-/// produzione.
+/// Same SQL query as `TimelineRepo::geometry`, with the same library filter
+/// as the test above: duplicated here on purpose, like `explain_page_shared`
+/// in `scale_200k.rs`, because the real query is private to the repository
+/// and `EXPLAIN` must see exactly what runs in production.
 async fn explain_geometry(
     test: &TestDb,
     ctx: &AuthContext,
@@ -170,10 +167,10 @@ async fn explain_geometry(
          ORDER BY a.taken_at_utc DESC, a.id DESC",
         filter.sql()
     );
-    // Stessi bind del test sopra: `Some(library_id)`, non `None` — con
-    // `None` il planner sceglie `assets_timeline_idx` invece del nuovo
-    // indice di copertura (nessun `folder_id` da restringere), un piano
-    // diverso da quello che gira davvero dietro `?library=...`.
+    // Same binds as the test above: `Some(library_id)`, not `None` — with
+    // `None` the planner picks `assets_timeline_idx` instead of the new
+    // covering index (no `folder_id` to restrict on), a different plan
+    // from what actually runs behind `?library=...`.
     let rows: Vec<(String,)> = sqlx::query_as(&sql)
         .bind(filter.bind())
         .bind(filter.holes())

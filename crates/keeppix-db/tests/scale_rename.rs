@@ -5,8 +5,8 @@
     clippy::cast_precision_loss
 )]
 
-//! Fase 9 Task 11: la misura richiesta da `PROSEGUI.md` §5 — "tempo di una
-//! rinomina di massa su 500 file", prodotta, non stimata.
+//! Measures the time of a bulk rename on 500 files, produced, not
+//! estimated.
 
 mod harness;
 
@@ -17,12 +17,11 @@ use harness::TestDb;
 use keeppix_db::{FolderRepo, LibraryRepo, RenameRepo};
 use keeppix_domain::{AuthContext, NewLibrary, SystemRole};
 
-/// Nessun tetto pubblicato in `PROSEGUI.md` per questo numero (a differenza
-/// della soglia interattiva di 1s per la scansione vettoriale, Fase 10 §7
-/// Task 2) — scelto qui come guardia di regressione: 500 `move_asset`
-/// sequenziali, ciascuno una connessione propria più un vero `rename()` su
-/// disco, restano ben dentro un'interazione utente su un ambito di quella
-/// taglia.
+/// No published ceiling exists for this number (unlike the 1s interactive
+/// threshold for the vector scan) — chosen here as a regression guard: 500
+/// sequential `move_asset` calls, each its own connection plus a real
+/// on-disk `rename()`, stay well within a user interaction for a scope of
+/// that size.
 const BUDGET: Duration = Duration::from_secs(5);
 const N: i64 = 500;
 
@@ -35,10 +34,10 @@ async fn renaming_500_files_stays_within_budget() {
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("orologio di sistema")
+            .expect("system clock")
             .as_nanos()
     ));
-    fs::create_dir_all(&root).expect("radice di test");
+    fs::create_dir_all(&root).expect("test root");
 
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let library = LibraryRepo::new(test.db())
@@ -52,23 +51,23 @@ async fn renaming_500_files_stays_within_budget() {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id;
     let folder = FolderRepo::new(test.db())
         .ensure_path(library, &["viaggio"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id;
-    fs::create_dir_all(root.join("viaggio")).expect("cartella su disco");
+    fs::create_dir_all(root.join("viaggio")).expect("folder on disk");
 
-    // 500 file veri su disco (il contenuto non conta: `move_asset` sposta il
-    // percorso, non legge i byte) più le 500 righe `assets` corrispondenti in
-    // un solo INSERT — lo stesso stile di `scale_embeddings.rs`, per tenere
-    // il seeding fuori dal tempo misurato.
+    // 500 real files on disk (content doesn't matter: `move_asset` moves the
+    // path, it doesn't read the bytes) plus the 500 corresponding `assets`
+    // rows in a single INSERT — the same style as `scale_embeddings.rs`, to
+    // keep seeding outside the measured time.
     let seed_files = Instant::now();
     for i in 1..=N {
         fs::write(root.join("viaggio").join(format!("IMG_{i:05}.jpg")), b"x")
-            .expect("file su disco");
+            .expect("file on disk");
     }
     eprintln!("seeded {N} files on disk in {:?}", seed_files.elapsed());
 
@@ -107,11 +106,11 @@ async fn renaming_500_files_stays_within_budget() {
     let outcome = RenameRepo::new(test.db())
         .apply(&ctx, &asset_ids, "Viaggio_{n:3}", None)
         .await
-        .expect("rinomina di massa");
+        .expect("bulk rename");
     let elapsed = timed.elapsed();
     let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
     eprintln!(
-        "MEASUREMENT Fase 9 Task 11: rinomina di massa su {N} file: {elapsed_ms:.1} ms \
+        "MEASUREMENT bulk rename of {N} files: {elapsed_ms:.1} ms \
          ({:.2} ms/file)",
         elapsed_ms / N as f64
     );
@@ -120,7 +119,7 @@ async fn renaming_500_files_stays_within_budget() {
     assert!(outcome.failed.is_empty());
     assert!(
         elapsed < BUDGET,
-        "rinomina di 500 file in {elapsed:?}, oltre il budget di {BUDGET:?}"
+        "renaming 500 files took {elapsed:?}, beyond the {BUDGET:?} budget"
     );
 
     let _ = fs::remove_dir_all(&root);

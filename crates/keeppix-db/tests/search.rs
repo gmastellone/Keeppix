@@ -63,8 +63,9 @@ async fn index(
     .await
 }
 
-/// Come [`index`], ma con un `taken_at_utc` arbitrario — serve ai test di
-/// `Day`/`Month`/`DateRange`, dove il mese fisso di `index` non basta.
+/// Like [`index`], but with an arbitrary `taken_at_utc` — used by the
+/// `Day`/`Month`/`DateRange` tests, where `index`'s fixed month isn't
+/// enough.
 async fn index_at(
     test: &TestDb,
     folder: keeppix_domain::FolderId,
@@ -386,9 +387,9 @@ async fn rating_filter_is_per_user_not_per_asset() {
     let test = TestDb::start().await;
     let (ctx, folder) = seed(&test).await;
     let admin = ctx.user_id().unwrap();
-    // Un secondo utente vota lo stesso file con 5 stelle: se il filtro non
-    // fosse per-utente, il suo voto farebbe comparire l'asset anche per
-    // l'admin, che non ha mai votato quel file.
+    // A second user rates the same file 5 stars: if the filter weren't
+    // per-user, their rating would surface the asset for admin too, even
+    // though admin never rated that file.
     let other_user = harness::seed_user(&test, admin, "marta").await;
     let five_stars = index(&test, folder, "five-stars.jpg", AssetKind::Image, 2).await;
     let unrated = index(&test, folder, "unrated.jpg", AssetKind::Image, 3).await;
@@ -429,7 +430,7 @@ async fn rating_filter_is_per_user_not_per_asset() {
     assert_eq!(
         found.len(),
         1,
-        "il voto di marta su unrated.jpg non deve comparire nella ricerca dell'admin"
+        "marta's rating on unrated.jpg must not appear in admin's search"
     );
     assert_eq!(found[0].id, five_stars);
 }
@@ -439,9 +440,9 @@ async fn favorite_filter_is_per_user_not_per_asset() {
     let test = TestDb::start().await;
     let (ctx, folder) = seed(&test).await;
     let admin = ctx.user_id().unwrap();
-    // Un secondo utente, mai concesso in visibilità su questa libreria: basta
-    // per provare che il filtro guarda `user_id`, non solo `favorite`, senza
-    // dover anche impalcare i permessi di un secondo attore che vede foto.
+    // A second user, never granted visibility on this library: enough to
+    // prove the filter checks `user_id`, not just `favorite`, without also
+    // having to set up permissions for a second actor who can see photos.
     let other_user = harness::seed_user(&test, admin, "marta").await;
     let loved = index(&test, folder, "loved.jpg", AssetKind::Image, 2).await;
     let plain = index(&test, folder, "plain.jpg", AssetKind::Image, 3).await;
@@ -457,7 +458,7 @@ async fn favorite_filter_is_per_user_not_per_asset() {
     assert_eq!(
         found.len(),
         1,
-        "il preferito di marta su plain.jpg non deve comparire nella ricerca dell'admin"
+        "marta's favorite on plain.jpg must not appear in admin's search"
     );
     assert_eq!(found[0].id, loved);
 }
@@ -467,8 +468,8 @@ async fn pick_filter_matches_only_the_current_users_explicit_value() {
     let test = TestDb::start().await;
     let (ctx, folder) = seed(&test).await;
     let admin = ctx.user_id().unwrap();
-    // Come rating/favorite: il pick di un altro utente non deve comparire
-    // nella ricerca di questo.
+    // Like rating/favorite: another user's pick must not appear in this
+    // user's search.
     let other_user = harness::seed_user(&test, admin, "marta").await;
     let taken = index(&test, folder, "taken.jpg", AssetKind::Image, 2).await;
     let skipped = index(&test, folder, "skipped.jpg", AssetKind::Image, 3).await;
@@ -512,14 +513,14 @@ async fn pick_none_matches_both_never_flagged_and_explicitly_cleared() {
     let test = TestDb::start().await;
     let (ctx, folder) = seed(&test).await;
     let admin = ctx.user_id().unwrap();
-    // Mai passato da asset_flags: nessuna riga per questo utente, il modo
-    // in cui la stragrande maggioranza degli asset esiste davvero (nessun
-    // default di colonna scrive 'none' da sola).
+    // Never touched via asset_flags: no row at all for this user, which is
+    // how the vast majority of assets actually exist (no column default
+    // writes 'none' on its own).
     let never_touched = index(&test, folder, "never-touched.jpg", AssetKind::Image, 2).await;
-    // Scelto e poi la scelta annullata (Task 4): riga esplicita pick='none'.
+    // Picked and then the pick was cleared: an explicit pick='none' row.
     let cleared = index(&test, folder, "cleared.jpg", AssetKind::Image, 3).await;
     set_pick(&test, cleared, admin, "none").await;
-    // Il contrario: deve restare fuori da entrambi i risultati sopra.
+    // The opposite case: must stay out of both results above.
     let picked = index(&test, folder, "picked.jpg", AssetKind::Image, 4).await;
     set_pick(&test, picked, admin, "pick").await;
 
@@ -541,18 +542,18 @@ async fn pick_none_matches_both_never_flagged_and_explicitly_cleared() {
     expected.sort();
     assert_eq!(
         ids, expected,
-        "«da valutare» deve includere sia chi non ha mai avuto un flag sia \
-         chi lo ha esplicitamente annullato — mai solo il secondo"
+        "\"to review\" must include both assets that never had a flag and \
+         ones where it was explicitly cleared — never only the latter"
     );
 }
 
-/// EXPLAIN reale su una scala che rende visibile la scelta del
-/// pianificatore, stesso principio di `favorite_search_uses_the_partial_index`
-/// (con pochi asset l'indice parziale e un seq scan costano uguale). Misurato,
-/// non assunto: `asset_flags_user_pick_idx` è parziale su `pick <> 'none'`
-/// (migrazione 0012), quindi il ramo `Pick::None` (`NOT EXISTS ... IN
-/// ('pick','reject')`) non è ovvio che lo usi allo stesso modo del ramo
-/// `Pick::Pick`/`Reject` (`EXISTS ... pick = $2`).
+/// A real EXPLAIN at a scale that makes the planner's choice visible, same
+/// principle as `favorite_search_uses_the_partial_index` (with few assets
+/// the partial index and a seq scan cost the same). Measured, not assumed:
+/// `asset_flags_user_pick_idx` is partial on `pick <> 'none'` (migration
+/// 0012), so it isn't obvious that the `Pick::None` branch (`NOT EXISTS ...
+/// IN ('pick','reject')`) uses it the same way as the `Pick::Pick`/`Reject`
+/// branch (`EXISTS ... pick = $2`).
 #[tokio::test]
 async fn pick_search_uses_the_partial_index_for_pick_and_reject() {
     let test = TestDb::start().await;
@@ -605,7 +606,7 @@ async fn pick_search_uses_the_partial_index_for_pick_and_reject() {
     eprintln!("EXPLAIN pick:\n{plan}");
     assert!(
         plan.contains("asset_flags_user_pick_idx"),
-        "il filtro Pick::Pick deve servirsi dall'indice parziale asset_flags_user_pick_idx:\n{plan}"
+        "the Pick::Pick filter must be served from the partial index asset_flags_user_pick_idx:\n{plan}"
     );
 }
 
@@ -659,8 +660,8 @@ async fn date_range_filter_includes_both_endpoints() {
         .await
         .unwrap();
     let ids: Vec<_> = found.iter().map(|a| a.id).collect();
-    assert!(ids.contains(&start), "l'estremo iniziale è incluso");
-    assert!(ids.contains(&end), "l'estremo finale è incluso");
+    assert!(ids.contains(&start), "the start endpoint is included");
+    assert!(ids.contains(&end), "the end endpoint is included");
     assert!(!ids.contains(&before));
     assert!(!ids.contains(&after));
 }
@@ -784,7 +785,7 @@ async fn country_filter_follows_place_id_to_the_places_catalog() {
     let found = SearchRepo::new(test.db())
         .run(
             &ctx,
-            // Minuscolo di proposito: il confronto normalizza il paese.
+            // Lowercase on purpose: the comparison normalizes the country.
             &SearchNode::Country {
                 value: "it".to_owned(),
             },
@@ -866,7 +867,7 @@ async fn shutter_filter_compares_exposure_time_in_seconds() {
             .unwrap();
     }
 
-    // Più veloce di 1/50s (0.02s): solo 1/1000s (0.001s) qualifica.
+    // Faster than 1/50s (0.02s): only 1/1000s (0.001s) qualifies.
     let found = SearchRepo::new(test.db())
         .run(
             &ctx,
@@ -912,15 +913,15 @@ async fn a_deeply_nested_ast_still_hits_the_depth_guard() {
     let result = SearchRepo::new(test.db()).run(&ctx, &ast, None, 50).await;
     assert!(
         matches!(result, Err(keeppix_db::DbError::Conflict(_))),
-        "un AST di 24 livelli deve essere rifiutato dalla guardia di profondità, non eseguito"
+        "a 24-level AST must be rejected by the depth guard, not executed"
     );
 }
 
-/// EXPLAIN reale su una scala che rende visibile la scelta del pianificatore
-/// (con pochi asset l'indice parziale e un seq scan costano uguale). Stessa
-/// SQL prodotta da `compile_for_sql` per `Favorite`, duplicata qui di
-/// proposito perché quella query è privata del repository — stesso pattern
-/// di `scale_geometry.rs`.
+/// A real EXPLAIN at a scale that makes the planner's choice visible (with
+/// few assets, the partial index and a seq scan cost the same). Same SQL
+/// produced by `compile_for_sql` for `Favorite`, duplicated here on purpose
+/// because that query is private to the repository — same pattern as
+/// `scale_geometry.rs`.
 #[tokio::test]
 async fn favorite_search_uses_the_partial_index() {
     let test = TestDb::start().await;
@@ -968,13 +969,12 @@ async fn favorite_search_uses_the_partial_index() {
     eprintln!("EXPLAIN favorite:\n{plan}");
     assert!(
         plan.contains("asset_flags_favorite_idx"),
-        "il filtro Favorite deve servirsi dall'indice parziale asset_flags_favorite_idx:\n{plan}"
+        "the Favorite filter must be served from the partial index asset_flags_favorite_idx:\n{plan}"
     );
 }
 
-/// Un suggerimento per ognuna delle sei fonti attive (spec fase-10 §23).
-/// `tag` non ha fonte in questo task (Fase 7): non compare mai, ma resta
-/// nell'enum.
+/// A suggestion for each of the six active sources. `tag` has no source
+/// here yet: it never shows up, but it remains in the enum.
 #[tokio::test]
 async fn suggest_returns_a_typed_result_for_each_supported_kind() {
     let test = TestDb::start().await;
@@ -1031,9 +1031,9 @@ async fn suggest_returns_a_typed_result_for_each_supported_kind() {
     set_place(&test, a.id, place.id).await;
 
     let repo = SearchRepo::new(test.db());
-    // (query, kind, value e label attesi — coincidono per tutte le fonti
-    // tranne `folder`, dove `value` è l'id per la navigazione e `label` il
-    // nome leggibile: gestita a parte più sotto).
+    // (query, kind, expected value and label — they coincide for every
+    // source except `folder`, where `value` is the id for navigation and
+    // `label` the readable name: handled separately below).
     let cases = [
         (
             "veranda",
@@ -1053,9 +1053,10 @@ async fn suggest_returns_a_typed_result_for_each_supported_kind() {
     ];
     for (query, kind, value, label) in cases {
         let found = repo.suggest(&ctx, query).await.unwrap();
-        let matching = found.iter().find(|s| s.kind == kind).unwrap_or_else(|| {
-            panic!("nessun suggerimento di tipo {kind:?} per {query:?}: {found:?}")
-        });
+        let matching = found
+            .iter()
+            .find(|s| s.kind == kind)
+            .unwrap_or_else(|| panic!("no suggestion of type {kind:?} for {query:?}: {found:?}"));
         assert_eq!(matching.value, value, "query {query:?}");
         assert_eq!(matching.label, label, "query {query:?}");
     }
@@ -1064,11 +1065,11 @@ async fn suggest_returns_a_typed_result_for_each_supported_kind() {
     let folder_match = folder_found
         .iter()
         .find(|s| s.kind == SuggestionKind::Folder)
-        .expect("nessun suggerimento di tipo folder per \"Cort\"");
+        .expect("no folder-type suggestion for \"Cort\"");
     assert_eq!(
         folder_match.value,
         child.id.as_uuid().to_string(),
-        "il value di un suggerimento cartella è l'id, per costruire SearchNode::Folder"
+        "a folder suggestion's value is the id, used to build SearchNode::Folder"
     );
     assert_eq!(folder_match.label, "Cortile");
 }
@@ -1372,12 +1373,13 @@ async fn semantic_filters_top_k_then_orders_by_date() {
     assert!(!hits.iter().any(|h| h.id == far));
 }
 
-/// Spec §4.2, la parte facile da sbagliare: il K dei vicini semantici va
-/// calcolato **dentro** il perimetro di visibilità, non come K globale
-/// filtrato dopo. Il privato è la corrispondenza esatta e sarebbe il K=1
-/// globale; se la visibilità venisse applicata solo dal `WHERE` esterno (e
-/// non dentro la subquery), lo stranger — che non vede `private` — otterrebbe
-/// zero risultati invece del pubblico, che è comunque un vicino valido.
+/// The part that's easy to get wrong: the K nearest semantic neighbors
+/// must be computed **inside** the visibility perimeter, not as a global K
+/// filtered afterward. The private asset is the exact match and would be
+/// the global K=1; if visibility were applied only by the outer `WHERE`
+/// (and not inside the subquery), the stranger — who can't see `private`
+/// — would get zero results instead of the public one, which is still a
+/// valid neighbor.
 #[tokio::test]
 async fn semantic_search_selects_the_k_nearest_among_visible_assets_only() {
     use keeppix_db::{
@@ -1449,7 +1451,7 @@ async fn semantic_search_selects_the_k_nearest_among_visible_assets_only() {
     assert_eq!(as_admin.len(), 1);
     assert_eq!(
         as_admin[0].id, private_asset,
-        "l'admin vede tutto: il K=1 globale è il privato"
+        "admin sees everything: the global K=1 is the private one"
     );
 
     let stranger_ctx = AuthContext::user(stranger, SystemRole::User);
@@ -1460,8 +1462,8 @@ async fn semantic_search_selects_the_k_nearest_among_visible_assets_only() {
     assert_eq!(
         as_stranger.len(),
         1,
-        "il K nearest va calcolato dentro il perimetro visibile: lo stranger \
-         deve vedere il pubblico, non zero risultati"
+        "K nearest must be computed inside the visible perimeter: the \
+         stranger must see the public one, not zero results"
     );
     assert_eq!(as_stranger[0].id, public_asset);
 }
@@ -1478,6 +1480,6 @@ async fn suggest_never_offers_the_tag_kind_without_a_source() {
         .unwrap();
     assert!(
         !found.iter().any(|s| s.kind == SuggestionKind::Tag),
-        "senza tabella tag popolata non deve inventare suggerimenti tag"
+        "without a populated tag table, it must not invent tag suggestions"
     );
 }

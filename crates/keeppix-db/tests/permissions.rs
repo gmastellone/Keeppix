@@ -144,8 +144,9 @@ fn folder_names(folders: &[Folder]) -> Vec<&str> {
     folders.iter().map(|f| f.name.as_str()).collect()
 }
 
-/// Il fallimento peggiore possibile di una funzione di visibilità è
-/// APRIRSI invece di chiudersi. Va testato per primo, e su ogni repository.
+/// The worst possible failure mode for a visibility function is to OPEN UP
+/// instead of closing down. This must be tested first, and on every
+/// repository.
 #[tokio::test]
 async fn a_user_with_no_permissions_sees_zero_assets_everywhere() {
     let test = TestDb::start().await;
@@ -429,7 +430,7 @@ async fn adding_a_member_grants_access_immediately() {
     assert_eq!(visible_indexed(&test, &ctx).await, 1);
 }
 
-/// Smaschera un elenco di gruppi trasportato nel token invece che derivato.
+/// Exposes a group list carried in the token instead of derived live.
 #[tokio::test]
 async fn removing_a_member_revokes_access_immediately() {
     let test = TestDb::start().await;
@@ -461,7 +462,7 @@ async fn removing_a_member_revokes_access_immediately() {
     assert_eq!(
         visible_indexed(&test, &ctx).await,
         0,
-        "stesso AuthContext, niente nuovo login: i gruppi non stanno nel token"
+        "same AuthContext, no new login: groups are not carried in the token"
     );
 }
 
@@ -536,7 +537,7 @@ async fn a_shared_folder_never_exposes_the_real_disk_path() {
         let blob = format!("{} {} {}", folder.name, folder.path.as_str(), folder.id);
         assert!(
             !blob.contains("/mnt/nas"),
-            "il destinatario vede i nomi, mai il path sul disco: {blob}"
+            "the recipient sees names, never the on-disk path: {blob}"
         );
         assert!(
             folder
@@ -544,7 +545,7 @@ async fn a_shared_folder_never_exposes_the_real_disk_path() {
                 .as_str()
                 .bytes()
                 .all(|b| b.is_ascii_digit() || b == b'.'),
-            "ltree numerico, non un percorso filesystem: {}",
+            "ltree is numeric, not a filesystem path: {}",
             folder.path.as_str()
         );
     }
@@ -637,7 +638,7 @@ async fn a_share_does_not_open_another_library_with_the_same_ltree_label() {
     let b_2024 = folders.ensure_path(lib_b, &["2024"]).await.unwrap();
     assert_eq!(
         a_2024.path, b_2024.path,
-        "le etichette ltree ripartono da 1 in ogni libreria"
+        "ltree labels restart from 1 in every library"
     );
     let visible = index_photo(&test, a_2024.id, "si.jpg").await;
     let hidden = index_photo(&test, b_2024.id, "no.jpg").await;
@@ -717,7 +718,7 @@ async fn explain_uses_names_and_folder_paths_not_uuids() {
         link.granted_on_name.as_str(),
         link.inherited_in.as_deref().unwrap(),
     ] {
-        assert!(!looks_like_uuid(s), "uuid al posto del nome: {s}");
+        assert!(!looks_like_uuid(s), "uuid instead of a name: {s}");
     }
 }
 
@@ -757,16 +758,13 @@ async fn shared_with_me_lists_a_directly_granted_folder() {
     assert_eq!(item.owner_name, "Giovanni");
     assert_eq!(item.role, ObjectRole::Viewer);
     assert_eq!(item.item_count, 1);
-    assert_eq!(
-        item.via_group, None,
-        "un permesso diretto non ha origine di gruppo"
-    );
+    assert_eq!(item.via_group, None, "a direct grant has no group origin");
 }
 
-/// Il punto centrale del task: un oggetto arrivato solo da un gruppo deve
-/// comparire — non solo quelli condivisi direttamente — con l'origine
-/// dell'ereditarietà (il nome del gruppo), non uno stato indistinguibile da
-/// un permesso diretto.
+/// The core point: an object that arrived only through a group must show
+/// up too — not just the ones shared directly — with the inheritance
+/// origin (the group's name), not a state indistinguishable from a direct
+/// grant.
 #[tokio::test]
 async fn shared_with_me_shows_the_group_origin_not_only_direct_grants() {
     let test = TestDb::start().await;
@@ -880,9 +878,9 @@ async fn shared_with_me_never_lists_objects_the_user_cannot_see() {
     assert!(items.is_empty());
 }
 
-/// Diretto e via-gruppo sullo stesso oggetto: una sola riga, ruolo più alto,
-/// e l'origine mostrata è quella diretta perché l'utente ha comunque un
-/// permesso a titolo personale.
+/// Direct and via-group on the same object: a single row, the higher role,
+/// and the origin shown is the direct one because the user also has a
+/// personal grant.
 #[tokio::test]
 async fn shared_with_me_collapses_direct_and_group_grants_on_the_same_object() {
     let test = TestDb::start().await;

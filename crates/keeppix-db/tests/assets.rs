@@ -29,13 +29,13 @@ async fn seed_library(test: &TestDb, owner: UserId, name: &str, path: &str) -> L
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
-/// Una radice di libreria vera sul filesystem, non `/mnt/foto`: `move_asset`
-/// fa `rename()` per davvero (stesso principio di `tests/trash.rs`), quindi
-/// serve un percorso su cui si possa scrivere.
+/// A real library root on the filesystem, not `/mnt/foto`: `move_asset`
+/// does a real `rename()` (same principle as `tests/trash.rs`), so it needs
+/// a path it can actually write to.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_library_root(label: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
@@ -43,10 +43,10 @@ fn temp_library_root(label: &str) -> PathBuf {
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("orologio di sistema")
+            .expect("system clock")
             .as_nanos()
     ));
-    fs::create_dir_all(&root).expect("creazione della radice di test");
+    fs::create_dir_all(&root).expect("create test root");
     root
 }
 
@@ -63,7 +63,7 @@ async fn seed_library_at(test: &TestDb, owner: UserId, root: &Path) -> LibraryId
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -71,7 +71,7 @@ async fn seed_library_at(test: &TestDb, owner: UserId, root: &Path) -> LibraryId
 fn discovered(folder: FolderId, filename: &str, size: i64) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: size,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: Some(42),
@@ -103,7 +103,10 @@ async fn upsert_discovered_is_idempotent_and_refreshes_stat() {
     again.mtime = Utc.with_ymd_and_hms(2024, 6, 2, 12, 0, 0).unwrap();
     let second = repo.upsert_discovered(again).await.unwrap().unwrap();
 
-    assert_eq!(first.id, second.id, "riscansionare non duplica l'asset");
+    assert_eq!(
+        first.id, second.id,
+        "rescanning does not duplicate the asset"
+    );
     assert_eq!(second.size_bytes, 2000);
     assert_eq!(
         second.mtime,
@@ -111,8 +114,8 @@ async fn upsert_discovered_is_idempotent_and_refreshes_stat() {
     );
 }
 
-/// Fase 10 Task 21: l'inserimento a lotti deve produrre gli stessi asset
-/// dell'inserimento a file singolo, in una sola istruzione.
+/// Batch insertion must produce the same assets as single-file insertion,
+/// in a single statement.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn batch_upsert_discovered_inserts_every_new_file() {
@@ -151,9 +154,9 @@ async fn batch_upsert_discovered_inserts_every_new_file() {
     assert_eq!(count, 5);
 }
 
-/// Come `upsert_discovered`: un file già noto con lo stesso mtime/size non
-/// deve comparire nel risultato — il chiamante non deve riaccodare
-/// metadata/hash per lui.
+/// Like `upsert_discovered`: a file already known with the same mtime/size
+/// must not appear in the result — the caller must not re-queue
+/// metadata/hash work for it.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn batch_upsert_discovered_omits_unchanged_files() {
@@ -344,7 +347,7 @@ async fn a_library_tree_and_assets_round_trip_with_permissions() {
         .ensure_path(library, &["2024", "Grecia", "Santorini"])
         .await
         .unwrap();
-    assert_eq!(leaf.depth, 4, "radice piu tre livelli");
+    assert_eq!(leaf.depth, 4, "root plus three levels");
 
     let repo = AssetRepo::new(test.db());
     for i in 1..=12 {
@@ -624,7 +627,7 @@ async fn exif_location_does_not_overwrite_any_assigned_location() {
     );
 }
 
-/// Fase 9 Task 1: la primitiva di spostamento sicuro.
+/// The safe-move primitive.
 mod move_asset {
     use super::*;
 
@@ -662,10 +665,13 @@ mod move_asset {
             .await
             .unwrap();
 
-        assert_eq!(moved.id, asset.id, "stesso id, non un asset nuovo");
+        assert_eq!(moved.id, asset.id, "same id, not a new asset");
         assert_eq!(moved.folder_id, dst.id);
         assert_eq!(moved.filename.as_str(), "scelta.jpg");
-        assert!(!original.exists(), "il file non resta al vecchio percorso");
+        assert!(
+            !original.exists(),
+            "the file must not remain at the old path"
+        );
         let new_path = root.join("2024").join("Scelte").join("scelta.jpg");
         assert!(new_path.is_file());
         assert_eq!(fs::read(&new_path).unwrap(), b"contenuto");
@@ -676,14 +682,14 @@ mod move_asset {
             .unwrap();
         assert_eq!(
             by_id.folder_id, dst.id,
-            "la riga esistente si aggiorna, non se ne crea una seconda"
+            "the existing row is updated, not a second one created"
         );
 
         let _ = fs::remove_dir_all(&root);
     }
 
-    /// Fase 11 Task 7 (§13.3 campo 8, "Sposta in cartella"): il wrapper
-    /// dietro la rotta di massa — sposta senza rinominare.
+    /// The wrapper behind the bulk-move route ("Move to folder") — moves
+    /// without renaming.
     #[tokio::test]
     #[allow(clippy::unwrap_used, clippy::expect_used)]
     async fn move_to_folder_keeps_the_filename_unchanged() {
@@ -767,8 +773,8 @@ mod move_asset {
         assert_eq!(flags.rating, Some(Rating::parse(5).unwrap()));
         assert!(
             flags.favorite,
-            "asset_flags è una chiave esterna su asset_id, non su (folder_id, filename): \
-             lo spostamento non deve perderla"
+            "asset_flags is keyed on asset_id, not on (folder_id, filename): \
+             moving the asset must not lose it"
         );
 
         let _ = fs::remove_dir_all(&root);
@@ -806,16 +812,16 @@ mod move_asset {
 
         assert!(
             matches!(result, Err(DbError::Collision(_))),
-            "b.jpg esiste già nella cartella di destinazione: {result:?}"
+            "b.jpg already exists in the destination folder: {result:?}"
         );
         assert!(
             root.join("2024").join("a.jpg").is_file(),
-            "il file di partenza non deve spostarsi se la collisione blocca l'operazione"
+            "the source file must not move if the collision blocks the operation"
         );
         assert_eq!(
             fs::read(root.join("2024").join("b.jpg")).unwrap(),
             b"b",
-            "il file di destinazione non deve essere toccato"
+            "the destination file must not be touched"
         );
 
         let _ = fs::remove_dir_all(&root);
@@ -856,9 +862,9 @@ mod move_asset {
             )
             .await
             .unwrap();
-        // Deliberatamente nessuna concessione su `dst`: editor solo sulla
-        // cartella di partenza, come l'utente che ha scelto/scartato foto
-        // nel proprio culling ma non ha accesso a `_taken` altrui.
+        // Deliberately no grant on `dst`: editor only on the source folder,
+        // like a user who has picked/discarded photos in their own culling
+        // but has no access to someone else's `_taken`.
 
         let editor_ctx = AuthContext::user(editor, SystemRole::User);
         let result = AssetRepo::new(test.db())
@@ -872,11 +878,11 @@ mod move_asset {
 
         assert!(
             matches!(result, Err(DbError::Forbidden)),
-            "editor solo sulla sorgente non deve poter scrivere nella destinazione: {result:?}"
+            "an editor on the source alone must not be able to write to the destination: {result:?}"
         );
         assert!(
             root.join("Src").join("foto.jpg").is_file(),
-            "un tentativo respinto non deve toccare il file"
+            "a rejected attempt must not touch the file"
         );
 
         let _ = fs::remove_dir_all(&root);
@@ -916,7 +922,7 @@ mod move_asset {
 
         assert!(
             !root.join("2024").join("foto.arw.xmp").exists(),
-            "il sidecar non deve restare al vecchio percorso"
+            "the sidecar must not remain at the old path"
         );
         assert_eq!(
             fs::read(root.join("2025").join("foto.arw.xmp")).unwrap(),
@@ -957,16 +963,13 @@ mod move_asset {
             .unwrap();
 
         assert_eq!(result.id, asset.id);
-        assert!(
-            path.is_file(),
-            "nessun rename inutile sullo stesso percorso"
-        );
+        assert!(path.is_file(), "no needless rename onto the same path");
 
         let _ = fs::remove_dir_all(&root);
     }
 }
 
-// Fase 11 Task 7 (SP-3 §11, dimensione "Fotocamera" — `AssetView`).
+// The "Camera" dimension of `AssetView`.
 mod camera_models_among {
     use super::*;
 
@@ -1042,9 +1045,9 @@ mod camera_models_among {
     }
 }
 
-// Fase 11 Task 8 (§19.2 campi 6-9, sezione "SCATTO" del pannello
-// informazioni): a differenza di `camera_models_among` (bulk, un solo
-// campo), qui il dettaglio pieno per un asset alla volta.
+// Used by the "SHOT" section of the info panel: unlike
+// `camera_models_among` (bulk, a single field), this returns the full
+// detail for one asset at a time.
 mod exif_for {
     use super::*;
 

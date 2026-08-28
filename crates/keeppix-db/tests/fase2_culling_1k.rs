@@ -1,6 +1,6 @@
-//! Criterio Fase 2: batch culling su ≥1000 asset (path flags) sotto soglia
-//! interattiva. I file su disco e l'hash dei RAW sono in `keeppix-media`
-//! (il db non conosce le immagini — `deny.toml`).
+//! Batch culling on >=1000 assets (path flags) must stay under an
+//! interactive latency threshold. Files on disk and RAW hashing live in
+//! `keeppix-media` (the db knows nothing about the images — `deny.toml`).
 
 mod harness;
 
@@ -28,7 +28,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -74,10 +74,10 @@ async fn batch_flags_on_one_thousand_assets_stays_interactive() {
         .await
         .unwrap();
     let flag_elapsed = started.elapsed();
-    eprintln!("MEASUREMENT batch_set flags su {N} asset: {flag_elapsed:?}");
+    eprintln!("MEASUREMENT batch_set flags on {N} assets: {flag_elapsed:?}");
     assert!(
         flag_elapsed.as_secs() < 3,
-        "batch flags su {N} deve restare interattivo, impiegati {flag_elapsed:?}"
+        "batch flags on {N} assets must stay interactive, took {flag_elapsed:?}"
     );
 
     let counted: i64 =

@@ -1,4 +1,4 @@
-//! Fase 7 Task 5: coda pending e upsert di `asset_embeddings`.
+//! The pending queue and upsert for `asset_embeddings`.
 
 mod harness;
 
@@ -27,7 +27,7 @@ async fn seed_library(
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -35,7 +35,7 @@ async fn seed_library(
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 100,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: Some(1),
@@ -91,11 +91,11 @@ async fn list_pending_skips_assets_already_embedded_for_the_same_model() {
     let ids: Vec<_> = batch.iter().map(|p| p.asset_id).collect();
     assert!(
         !ids.contains(&done),
-        "già embedded con lo stesso model_version non deve ricomparire"
+        "already embedded with the same model_version must not reappear"
     );
     assert!(
         ids.contains(&pending),
-        "senza embedding deve restare in coda"
+        "with no embedding it must stay in the queue"
     );
 }
 
@@ -134,11 +134,14 @@ async fn list_pending_excludes_the_entire_culling_subtree() {
         .await
         .unwrap();
     let ids: Vec<_> = batch.iter().map(|p| p.asset_id).collect();
-    assert!(ids.contains(&keep), "fuori dal culling deve restare");
-    assert!(!ids.contains(&in_root), "radice culling esclusa per intero");
+    assert!(ids.contains(&keep), "outside culling it must remain");
+    assert!(
+        !ids.contains(&in_root),
+        "the culling root is excluded entirely"
+    );
     assert!(
         !ids.contains(&in_taken),
-        "sottoalbero culling escluso via path <@"
+        "the culling subtree is excluded via path <@"
     );
 }
 
@@ -160,7 +163,7 @@ async fn list_pending_is_inert_when_culling_root_is_null() {
         .unwrap();
     assert!(
         batch.iter().any(|p| p.asset_id == asset),
-        "senza culling_root il predicato non deve filtrare nulla"
+        "with no culling_root the predicate must not filter anything"
     );
 }
 
@@ -182,7 +185,7 @@ async fn upsert_stores_a_512d_vector_and_is_idempotent_for_same_model() {
     repo.upsert(asset, &emb, MODEL).await.unwrap();
     repo.upsert(asset, &emb, MODEL).await.unwrap();
 
-    let stored = repo.get(asset).await.unwrap().expect("riga");
+    let stored = repo.get(asset).await.unwrap().expect("row");
     assert_eq!(stored.model_version, MODEL);
     assert_eq!(stored.embedding.len(), 512);
     assert!((stored.embedding[0] - 1.0).abs() < 1e-5);

@@ -15,8 +15,8 @@ use keeppix_domain::{
 };
 use uuid::Uuid;
 
-/// Una radice di libreria vera sul filesystem: la sessione scrive un
-/// temporaneo per davvero e `finalize` fa `rename()`.
+/// A real library root on the filesystem: the session writes a real
+/// temporary file and `finalize` does a real `rename()`.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_library_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!(
@@ -24,10 +24,10 @@ fn temp_library_root() -> PathBuf {
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("orologio di sistema")
+            .expect("system clock")
             .as_nanos()
     ));
-    fs::create_dir_all(&root).expect("creazione della radice di test");
+    fs::create_dir_all(&root).expect("create test root");
     root
 }
 
@@ -44,12 +44,12 @@ async fn seed_library(test: &TestDb, owner: UserId, root: &Path) -> LibraryId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
-/// Cartella radice della libreria (sotto la quale i test creano il target),
-/// creata sia come riga di dominio sia come cartella vera sul disco.
+/// The library's root folder (under which the tests create the target),
+/// created both as a domain row and as a real folder on disk.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_target_folder(
     test: &TestDb,
@@ -60,23 +60,23 @@ async fn seed_target_folder(
     let folder = FolderRepo::new(test.db())
         .ensure_path(library, &[name])
         .await
-        .expect("cartella");
-    fs::create_dir_all(root.join(name)).expect("cartella su disco");
+        .expect("folder");
+    fs::create_dir_all(root.join(name)).expect("folder on disk");
     folder.id
 }
 
-/// Stesso algoritmo di `keeppix_media::hash::hash_file`, calcolato qui senza
-/// dipendere da quella crate: `keeppix-db` non deve conoscere le immagini,
-/// nemmeno nei test.
+/// Same algorithm as `keeppix_media::hash::hash_file`, computed here
+/// without depending on that crate: `keeppix-db` must not know about
+/// images, not even in tests.
 #[allow(clippy::expect_used)]
 fn hash_file(path: &Path) -> [u8; 32] {
-    let bytes = fs::read(path).expect("lettura del file per l'hash di test");
+    let bytes = fs::read(path).expect("read the file for the test hash");
     *blake3::hash(&bytes).as_bytes()
 }
 
-/// Un link condiviso vero, con riga in `share_links`: la FK di
-/// `upload_sessions.share_link_id` la richiede, un `Uuid::now_v7()` sciolto
-/// no.
+/// A real share link, with a row in `share_links`: the foreign key on
+/// `upload_sessions.share_link_id` requires it — a bare `Uuid::now_v7()`
+/// won't do.
 #[allow(clippy::expect_used)]
 async fn seed_share_link(
     test: &TestDb,
@@ -103,7 +103,7 @@ async fn seed_share_link(
             },
         )
         .await
-        .expect("creazione del link condiviso");
+        .expect("create share link");
     id
 }
 
@@ -127,7 +127,7 @@ async fn seed_existing_asset(
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(NewAsset {
             folder_id: folder,
-            filename: AssetName::parse(filename).expect("nome"),
+            filename: AssetName::parse(filename).expect("name"),
             size_bytes: 3,
             mtime: chrono::Utc::now(),
             inode: None,
@@ -135,7 +135,7 @@ async fn seed_existing_asset(
         })
         .await
         .expect("insert")
-        .expect("nuovo asset");
+        .expect("new asset");
     AssetRepo::new(test.db())
         .set_hash(asset.id, hash)
         .await
@@ -164,7 +164,7 @@ async fn creating_a_session_puts_the_temp_path_inside_keeppix_tmp() {
         session
             .temp_path
             .starts_with(root.join(keeppix_db::UPLOAD_TMP_DIR_NAME)),
-        "il temporaneo deve stare in .keeppix-tmp dentro la libreria: {}",
+        "the temp file must live in .keeppix-tmp inside the library: {}",
         session.temp_path.display()
     );
 
@@ -181,7 +181,7 @@ async fn insufficient_disk_space_is_rejected_at_creation_not_mid_upload() {
     let folder = seed_target_folder(&test, library, &root, "2024").await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
 
-    // Nessun filesystem reale ha un exabyte libero.
+    // No real filesystem has an exabyte free.
     let huge = 1_000_000_000_000_000_000_i64;
     let result = UploadSessionRepo::new(test.db())
         .create(&ctx, new_session(folder, "gigante.mov", huge))
@@ -192,7 +192,7 @@ async fn insufficient_disk_space_is_rejected_at_creation_not_mid_upload() {
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert_eq!(sessions, 0, "una sessione respinta non deve lasciare righe");
+    assert_eq!(sessions, 0, "a rejected session must not leave any rows");
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -290,7 +290,7 @@ async fn advance_updates_the_offset_and_is_scoped_to_the_owner() {
     let stranger_ctx = AuthContext::user(mario, SystemRole::User);
     let result = repo.advance(&stranger_ctx, session.id, 999).await;
     assert!(matches!(result, Err(DbError::Forbidden)));
-    // L'offset non deve muoversi dal tentativo altrui.
+    // The offset must not move from someone else's attempt.
     let reloaded = repo.load_owned(&ctx, session.id).await.unwrap();
     assert_eq!(reloaded.received_bytes, 512);
 
@@ -320,8 +320,8 @@ async fn probing_someone_elses_session_is_forbidden_never_not_found() {
         Err(DbError::Forbidden)
     ));
 
-    // Un id davvero inesistente resta Forbidden per un non-admin, NotFound
-    // solo per un admin — mai un oracolo di esistenza.
+    // A truly nonexistent id stays Forbidden for a non-admin, NotFound
+    // only for an admin — never an existence oracle.
     let missing = keeppix_domain::UploadSessionId::new();
     assert!(matches!(
         repo.load_owned(&stranger_ctx, missing).await,
@@ -365,7 +365,7 @@ async fn an_expired_session_is_cleaned_up_and_reported_as_gone() {
 
     assert!(
         !session.temp_path.exists(),
-        "il temporaneo di una sessione scaduta va ripulito subito"
+        "the temp file of an expired session must be cleaned up right away"
     );
     let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
         .bind(session.id.as_uuid())
@@ -453,13 +453,14 @@ async fn finalize_creates_a_new_asset_when_there_is_no_collision() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Regressione per il difetto trovato in review: prima, il commit (riga
-/// `assets` creata, sessione cancellata) avveniva **prima** del `rename()`.
-/// Se il `rename()` falliva a quel punto, restava un asset che punta a un
-/// file mai arrivato a destinazione, e nessuna sessione da cui recuperare il
-/// temporaneo. Qui si forza il fallimento del `rename()` cancellando la
-/// cartella target dal disco (ma non dal database) e si verifica che né la
-/// riga `assets` né la cancellazione della sessione siano avvenute.
+/// Regression test for a defect found in review: previously, the commit
+/// (the `assets` row created, the session deleted) happened **before** the
+/// `rename()`. If `rename()` failed at that point, an asset would be left
+/// pointing at a file that never arrived at its destination, with no
+/// session left to recover the temp file from. Here the `rename()` failure
+/// is forced by removing the target folder from disk (but not from the
+/// database), and it verifies that neither the `assets` row nor the
+/// session deletion happened.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn finalize_leaves_no_asset_and_keeps_the_session_when_rename_fails() {
@@ -487,7 +488,7 @@ async fn finalize_leaves_no_asset_and_keeps_the_session_when_rename_fails() {
 
     assert!(
         session.temp_path.exists(),
-        "un rename fallito non deve far sparire il temporaneo"
+        "a failed rename must not make the temp file disappear"
     );
     let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
         .bind(session.id.as_uuid())
@@ -496,7 +497,7 @@ async fn finalize_leaves_no_asset_and_keeps_the_session_when_rename_fails() {
         .unwrap();
     assert_eq!(
         sessions, 1,
-        "la sessione deve restare per un retry, mai cancellata prima di un rename riuscito"
+        "the session must remain for a retry, never deleted before a successful rename"
     );
     let assets: i64 = sqlx::query_scalar("SELECT count(*) FROM assets WHERE filename = 'foto.jpg'")
         .fetch_one(test.db().pool())
@@ -504,7 +505,7 @@ async fn finalize_leaves_no_asset_and_keeps_the_session_when_rename_fails() {
         .unwrap();
     assert_eq!(
         assets, 0,
-        "mai un asset senza il file corrispondente a destinazione"
+        "never an asset without its corresponding file at the destination"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -543,21 +544,21 @@ async fn finalize_skips_a_byte_identical_duplicate_without_a_second_file() {
 
     assert!(
         !session.temp_path.exists(),
-        "il temporaneo del duplicato va rimosso"
+        "the duplicate's temp file must be removed"
     );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM assets WHERE filename = 'foto.jpg'")
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert_eq!(count, 1, "nessun secondo file per un duplicato esatto");
+    assert_eq!(count, 1, "no second file for an exact duplicate");
 
     let _ = fs::remove_dir_all(&root);
 }
 
-/// `delete_expired` deve rimuovere temporaneo e riga insieme per le
-/// sessioni scadute, e non toccare una sessione ancora viva anche se
-/// `received_bytes` è fermo a zero da ore — solo `expires_at` conta (spec
-/// §1.3, Task 2).
+/// `delete_expired` must remove the temp file and the row together for
+/// expired sessions, and must not touch a still-live session even if
+/// `received_bytes` has been stuck at zero for hours — only `expires_at`
+/// counts.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn delete_expired_removes_expired_sessions_but_not_live_ones() {
@@ -587,8 +588,8 @@ async fn delete_expired_removes_expired_sessions_but_not_live_ones() {
         .await
         .unwrap();
     fs::write(&live.temp_path, b"abc").unwrap();
-    // received_bytes fermo da ore non è un segnale di abbandono: solo
-    // expires_at lo è.
+    // received_bytes stuck for hours is not a signal of abandonment: only
+    // expires_at is.
     sqlx::query(
         "UPDATE upload_sessions SET created_at = now() - interval '10 hours' WHERE id = $1",
     )
@@ -602,7 +603,7 @@ async fn delete_expired_removes_expired_sessions_but_not_live_ones() {
 
     assert!(
         !expired.temp_path.exists(),
-        "il temporaneo della sessione scaduta va rimosso"
+        "the expired session's temp file must be removed"
     );
     let expired_rows: i64 =
         sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
@@ -614,7 +615,7 @@ async fn delete_expired_removes_expired_sessions_but_not_live_ones() {
 
     assert!(
         live.temp_path.exists(),
-        "il temporaneo di una sessione non scaduta non va toccato"
+        "a non-expired session's temp file must not be touched"
     );
     let live_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM upload_sessions WHERE id = $1")
         .bind(live.id.as_uuid())
@@ -623,15 +624,15 @@ async fn delete_expired_removes_expired_sessions_but_not_live_ones() {
         .unwrap();
     assert_eq!(
         live_rows, 1,
-        "una sessione non scaduta non va cancellata anche se received_bytes è fermo"
+        "a non-expired session must not be deleted even if received_bytes is stuck"
     );
 
     let _ = fs::remove_dir_all(&root);
 }
 
-/// Un riavvio a metà pulizia (o un crash del server) può aver già rimosso
-/// il temporaneo dal disco senza cancellare la riga: `delete_expired` non
-/// deve fallire su `ENOENT`, e la riga va comunque cancellata.
+/// A restart mid-cleanup (or a server crash) can have already removed the
+/// temp file from disk without deleting the row: `delete_expired` must not
+/// fail on `ENOENT`, and the row must still be deleted.
 #[tokio::test]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn delete_expired_tolerates_an_already_missing_temp_file() {
@@ -647,8 +648,8 @@ async fn delete_expired_tolerates_an_already_missing_temp_file() {
         .create(&ctx, new_session(folder, "sparito.jpg", 3))
         .await
         .unwrap();
-    // Nessun `fs::write`: il temporaneo non esiste mai su disco, come dopo
-    // un crash che ha già svuotato la directory.
+    // No `fs::write`: the temp file never exists on disk, as after a crash
+    // that already emptied the directory.
     sqlx::query(
         "UPDATE upload_sessions SET expires_at = now() - interval '1 second' WHERE id = $1",
     )
@@ -667,7 +668,7 @@ async fn delete_expired_tolerates_an_already_missing_temp_file() {
         .unwrap();
     assert_eq!(
         rows, 0,
-        "la riga va cancellata anche se il file era già sparito"
+        "the row must be deleted even if the file was already gone"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -710,7 +711,7 @@ async fn finalize_renames_on_same_name_different_hash_never_overwriting() {
     assert_eq!(
         fs::read(&existing_path).unwrap(),
         b"originale",
-        "il file esistente non va mai sovrascritto"
+        "the existing file must never be overwritten"
     );
     let renamed_path = root.join("2024").join("foto_1.jpg");
     assert_eq!(fs::read(&renamed_path).unwrap(), b"contenuto diverso");

@@ -2,7 +2,7 @@ mod harness;
 
 use harness::TestDb;
 
-/// Libreria + radice, il minimo per inserire un asset.
+/// Library + root, the minimum needed to insert an asset.
 #[allow(clippy::unwrap_used)]
 async fn seed_folder(test: &TestDb) -> uuid::Uuid {
     let owner = harness::seed_admin(test).await;
@@ -67,7 +67,7 @@ async fn folder_and_filename_are_the_identity() {
 
     assert!(
         duplicate.is_err(),
-        "due file con lo stesso nome nella stessa cartella sono lo stesso asset"
+        "two files with the same name in the same folder are the same asset"
     );
 }
 
@@ -88,7 +88,7 @@ async fn two_assets_may_share_a_content_hash() {
         .unwrap();
     assert_eq!(
         count, 2,
-        "l'hash e indicizzato, non unico: due copie sono due asset"
+        "the hash is indexed, not unique: two copies are two assets"
     );
 }
 
@@ -109,7 +109,7 @@ async fn deleting_a_folder_removes_its_assets() {
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert_eq!(remaining, 0, "gli asset seguono la cartella");
+    assert_eq!(remaining, 0, "assets follow the folder");
 }
 
 #[tokio::test]
@@ -138,7 +138,10 @@ async fn deleting_an_asset_removes_its_exif() {
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert_eq!(remaining, 0, "gli EXIF seguono l'asset, non sopravvivono");
+    assert_eq!(
+        remaining, 0,
+        "exif follows the asset, it doesn't survive it"
+    );
 }
 
 #[tokio::test]
@@ -147,8 +150,8 @@ async fn an_unknown_kind_is_rejected() {
     let test = TestDb::start().await;
     let folder = seed_folder(&test).await;
 
-    // Senza questo inserimento il test passerebbe anche se `assets` non
-    // esistesse: qualsiasi errore soddisfa `is_err()`.
+    // Without this insertion the test would pass even if `assets` didn't
+    // exist: any error satisfies `is_err()`.
     insert_asset(&test, folder, "ok.jpg", None).await;
 
     let bad = sqlx::query(
@@ -160,12 +163,12 @@ async fn an_unknown_kind_is_rejected() {
     .execute(test.db().pool())
     .await;
 
-    let err = bad.expect_err("kind accetta solo image, raw_image, video, unknown");
-    let db_err = err.as_database_error().expect("errore postgres");
+    let err = bad.expect_err("kind only accepts image, raw_image, video, unknown");
+    let db_err = err.as_database_error().expect("postgres error");
     assert_eq!(
         db_err.code().as_deref(),
         Some("23514"),
-        "deve essere il CHECK, non un'altra violazione"
+        "must be the CHECK, not another violation"
     );
 }
 
@@ -186,6 +189,6 @@ async fn the_timeline_index_exists() {
 
     assert!(
         present,
-        "la timeline della Fase 1c pagina su (taken_at_utc DESC, id DESC)"
+        "the timeline paginates on (taken_at_utc DESC, id DESC)"
     );
 }

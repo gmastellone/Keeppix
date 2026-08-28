@@ -84,13 +84,13 @@ async fn duplicates_report_reclaimable_space_not_the_total() {
     let groups = DuplicateRepo::new(test.db()).groups(&ctx).await.unwrap();
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].count, 3);
-    // Tre copie da 1000 byte: recuperabile è 2000 (due copie in eccesso),
-    // non 3000 (la somma di tutte e tre) — la prima copia è la foto, non
-    // spazio da liberare.
+    // Three 1000-byte copies: reclaimable is 2000 (the two extra copies),
+    // not 3000 (the sum of all three) — the first copy is the photo, not
+    // space to reclaim.
     assert_eq!(
         groups[0].reclaimable_bytes(),
         2000,
-        "size * (copie - 1), non la somma totale delle copie"
+        "size * (copies - 1), not the total sum of copies"
     );
 }
 
@@ -133,13 +133,13 @@ async fn a_trashed_copy_does_not_count_as_a_duplicate() {
         .await
         .unwrap();
 
-    // Ancora due copie visibili: il gruppo esiste.
+    // Still two visible copies: the group exists.
     let groups = DuplicateRepo::new(test.db()).groups(&ctx).await.unwrap();
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].count, 2);
 
-    // `b` finisce nel cestino: da questo momento in poi non è più una
-    // "copia recuperabile" — è già in coda per sparire da sola.
+    // `b` ends up in the trash: from this point on it's no longer a
+    // "reclaimable copy" — it's already queued to disappear on its own.
     sqlx::query("UPDATE assets SET status = 'trashed' WHERE id = $1")
         .bind(b.id.as_uuid())
         .execute(test.db().pool())
@@ -149,7 +149,7 @@ async fn a_trashed_copy_does_not_count_as_a_duplicate() {
     let groups = DuplicateRepo::new(test.db()).groups(&ctx).await.unwrap();
     assert!(
         groups.is_empty(),
-        "un solo asset non cestinato non è più un duplicato: {groups:?}"
+        "a single non-trashed asset is no longer a duplicate: {groups:?}"
     );
 
     let members = DuplicateRepo::new(test.db())
@@ -159,7 +159,7 @@ async fn a_trashed_copy_does_not_count_as_a_duplicate() {
     assert_eq!(
         members.len(),
         1,
-        "members() esclude l'asset cestinato quanto groups()"
+        "members() excludes the trashed asset just like groups()"
     );
     assert_eq!(members[0].id, a.id);
 }
@@ -204,9 +204,9 @@ async fn resolve_keeps_the_chosen_asset_and_removes_the_rest_from_the_index() {
         .resolve(&ctx, &hash, a.id, DiskAction::Kept)
         .await
         .unwrap();
-    assert_eq!(resolved, 2, "b e c rimossi, a tenuto");
+    assert_eq!(resolved, 2, "b and c removed, a kept");
 
-    // `Kept` rimuove solo dall'indice: le righe di b e c sono sparite.
+    // `Kept` only removes from the index: the rows for b and c are gone.
     let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM assets WHERE id = ANY($1)")
         .bind([b.id.as_uuid(), c.id.as_uuid()].as_slice())
         .fetch_one(test.db().pool())
@@ -219,7 +219,7 @@ async fn resolve_keeps_the_chosen_asset_and_removes_the_rest_from_the_index() {
             .fetch_one(test.db().pool())
             .await
             .unwrap();
-    assert!(kept_still_exists, "l'asset scelto non viene toccato");
+    assert!(kept_still_exists, "the chosen asset is not touched");
 }
 
 #[tokio::test]

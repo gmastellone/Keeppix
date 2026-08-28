@@ -22,7 +22,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -32,7 +32,7 @@ async fn seed_folder(test: &TestDb, owner: UserId) -> FolderId {
     FolderRepo::new(test.db())
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella")
+        .expect("folder")
         .id
 }
 
@@ -40,7 +40,7 @@ async fn seed_folder(test: &TestDb, owner: UserId) -> FolderId {
 fn discovered(folder: FolderId, filename: &str, kind: AssetKind) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 1000,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: Some(1),
@@ -64,7 +64,7 @@ async fn stack_id_of(test: &TestDb, asset: AssetId) -> Option<Uuid> {
         .bind(asset.as_uuid())
         .fetch_one(test.db().pool())
         .await
-        .expect("lettura stack_id")
+        .expect("read stack_id")
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -73,7 +73,7 @@ async fn primary_of(test: &TestDb, stack: Uuid) -> Option<Uuid> {
         .bind(stack)
         .fetch_optional(test.db().pool())
         .await
-        .expect("lettura primary_asset_id")
+        .expect("read primary_asset_id")
 }
 
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -81,7 +81,7 @@ async fn stack_count(test: &TestDb) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM stacks")
         .fetch_one(test.db().pool())
         .await
-        .expect("conteggio stack")
+        .expect("stack count")
 }
 
 #[tokio::test]
@@ -101,10 +101,10 @@ async fn same_basename_in_the_same_folder_stacks_raw_and_jpeg_together() {
 
     let raw_stack = stack_id_of(&test, raw).await;
     let jpeg_stack = stack_id_of(&test, jpeg).await;
-    assert!(raw_stack.is_some(), "il RAW deve finire in uno stack");
+    assert!(raw_stack.is_some(), "the RAW must end up in a stack");
     assert_eq!(
         raw_stack, jpeg_stack,
-        "stesso nome base nella stessa cartella: devono condividere lo stack"
+        "same base name in the same folder: they must share the stack"
     );
 }
 
@@ -115,12 +115,12 @@ async fn the_raw_is_the_primary_asset_when_present() {
     let admin = harness::seed_admin(&test).await;
     let folder = seed_folder(&test, admin).await;
 
-    // Il JPEG è scritto per primo e il suo nome ordina prima del RAW in
-    // ordine alfabetico ("JPG" < "NEF"), apposta: né l'ordine di
-    // scrittura né l'ordinamento per nome devono decidere il primario,
-    // solo il tipo deve farlo. Con ".ARW" (che ordina prima di ".JPG")
-    // questo test passerebbe anche con un fallback "primo per nome",
-    // senza provare davvero la preferenza per il RAW.
+    // The JPEG is written first and its name sorts before the RAW's
+    // alphabetically ("JPG" < "NEF"), on purpose: neither write order nor
+    // name ordering should decide the primary, only type should. With
+    // ".ARW" (which sorts before ".JPG") this test would also pass with a
+    // "first by name" fallback, without actually proving the preference
+    // for the RAW.
     let jpeg = seed_asset(&test, folder, "DSC_0043.JPG", AssetKind::Image).await;
     let raw = seed_asset(&test, folder, "DSC_0043.NEF", AssetKind::RawImage).await;
 
@@ -134,7 +134,7 @@ async fn the_raw_is_the_primary_asset_when_present() {
     assert_eq!(
         primary,
         Some(raw.as_uuid()),
-        "il RAW ha più informazione: deve essere il primario, non il JPEG"
+        "the RAW carries more information: it must be the primary, not the JPEG"
     );
 }
 
@@ -155,7 +155,7 @@ async fn a_lone_jpeg_does_not_form_a_stack() {
     assert_eq!(
         stack_id_of(&test, jpeg).await,
         None,
-        "un solo file con quel nome base non deve mai formare uno stack"
+        "a single file with that base name must never form a stack"
     );
     assert_eq!(stack_count(&test).await, 0);
 }
@@ -167,10 +167,10 @@ async fn three_files_with_the_same_basename_but_different_extensions_stack_toget
     let admin = harness::seed_admin(&test).await;
     let folder = seed_folder(&test, admin).await;
 
-    // Estensione del RAW scelta apposta perché ordina *dopo* le altre due
-    // alfabeticamente ("HEIC" < "JPG" < "NEF"): la scelta del primario deve
-    // venire dal tipo, non da un fallback "primo per nome" che qui
-    // sceglierebbe l'HEIC.
+    // The RAW's extension was chosen on purpose because it sorts *after*
+    // the other two alphabetically ("HEIC" < "JPG" < "NEF"): the primary
+    // choice must come from type, not from a "first by name" fallback,
+    // which here would pick the HEIC.
     let heic = seed_asset(&test, folder, "DSC_0100.HEIC", AssetKind::Image).await;
     let jpeg = seed_asset(&test, folder, "DSC_0100.JPG", AssetKind::Image).await;
     let raw = seed_asset(&test, folder, "DSC_0100.NEF", AssetKind::RawImage).await;
@@ -184,7 +184,11 @@ async fn three_files_with_the_same_basename_but_different_extensions_stack_toget
     assert_eq!(stack_id_of(&test, jpeg).await, Some(stack));
     assert_eq!(stack_id_of(&test, heic).await, Some(stack));
     assert_eq!(primary_of(&test, stack).await, Some(raw.as_uuid()));
-    assert_eq!(stack_count(&test).await, 1, "un solo stack per i tre file");
+    assert_eq!(
+        stack_count(&test).await,
+        1,
+        "a single stack for the three files"
+    );
 }
 
 #[tokio::test]
@@ -203,8 +207,8 @@ async fn deleting_the_primary_promotes_another_member_instead_of_orphaning_the_s
     let stack = stack_id_of(&test, jpeg).await.expect("stack");
     assert_eq!(primary_of(&test, stack).await, Some(raw.as_uuid()));
 
-    // Cancellazione diretta: deve reggere anche senza passare da StackRepo,
-    // esattamente come farà il cestino di Task 7.
+    // Direct deletion: this must hold up even without going through
+    // StackRepo, exactly as the trash will do too.
     sqlx::query("DELETE FROM assets WHERE id = $1")
         .bind(raw.as_uuid())
         .execute(test.db().pool())
@@ -214,18 +218,18 @@ async fn deleting_the_primary_promotes_another_member_instead_of_orphaning_the_s
     let promoted = primary_of(&test, stack).await;
     assert!(
         promoted == Some(jpeg.as_uuid()) || promoted == Some(heic.as_uuid()),
-        "il primario deve essere promosso a un membro sopravvissuto, non {promoted:?}"
+        "the primary must be promoted to a surviving member, not {promoted:?}"
     );
     assert_ne!(
         promoted,
         Some(raw.as_uuid()),
-        "il RAW appena cancellato non può restare primario"
+        "the just-deleted RAW cannot remain primary"
     );
 
-    // Lo stack non è orfano: i due membri superstiti restano collegati.
+    // The stack is not orphaned: the two surviving members stay linked.
     assert_eq!(stack_id_of(&test, jpeg).await, Some(stack));
     assert_eq!(stack_id_of(&test, heic).await, Some(stack));
-    assert_eq!(stack_count(&test).await, 1, "lo stack non deve sparire");
+    assert_eq!(stack_count(&test).await, 1, "the stack must not disappear");
 }
 
 #[tokio::test]
@@ -242,26 +246,25 @@ async fn regrouping_the_same_folder_twice_is_idempotent() {
     repo.regroup_folder(folder).await.unwrap();
     let stack_first = stack_id_of(&test, jpeg)
         .await
-        .expect("stack dopo il primo giro");
+        .expect("stack after the first pass");
     let primary_first = primary_of(&test, stack_first).await;
     assert_eq!(primary_first, Some(raw.as_uuid()));
 
-    // Una seconda scansione della stessa cartella, immutata: non deve
-    // creare un nuovo stack né spostare il primario. Senza questa
-    // proprietà ogni riscansione produce uno stack nuovo (piano Fase 2,
-    // Task 6).
+    // A second scan of the same, unchanged folder: it must not create a
+    // new stack or move the primary. Without this property, every rescan
+    // would produce a new stack.
     repo.regroup_folder(folder).await.unwrap();
     let stack_second = stack_id_of(&test, jpeg)
         .await
-        .expect("stack dopo il secondo giro");
+        .expect("stack after the second pass");
     assert_eq!(
         stack_first, stack_second,
-        "riscansionare non deve creare un nuovo stack per lo stesso gruppo"
+        "rescanning must not create a new stack for the same group"
     );
     assert_eq!(primary_of(&test, stack_second).await, primary_first);
     assert_eq!(
         stack_count(&test).await,
         1,
-        "una sola riga di stack, non una per ogni scansione"
+        "a single stack row, not one per scan"
     );
 }

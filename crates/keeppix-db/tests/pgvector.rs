@@ -3,10 +3,10 @@ mod harness;
 use harness::TestDb;
 use keeppix_db::{PgVectorStatus, probe_pgvector};
 
-/// Con `postgis/postgis:17-3.5` (senza pacchetto pgvector) il probe deve
-/// riportare assenza — non fallire. È il percorso degradato di chi punta un
-/// Postgres esterno senza l'estensione. Le migrazioni devono comunque
-/// riuscirci (schema AI saltato se `vector` non è installabile).
+/// With `postgis/postgis:17-3.5` (no pgvector package) the probe must
+/// report absence — not fail. This is the degraded path for someone
+/// pointing at an external Postgres without the extension. Migrations must
+/// still succeed there (AI schema skipped if `vector` cannot be installed).
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn postgis_only_image_reports_vector_unavailable() {
@@ -15,22 +15,22 @@ async fn postgis_only_image_reports_vector_unavailable() {
 
     assert!(
         !status.available,
-        "postgis/postgis:17-3.5 non installa pgvector: available deve essere false"
+        "postgis/postgis:17-3.5 does not install pgvector: available must be false"
     );
     assert!(!status.enabled);
     assert!(
         status.message.is_some(),
-        "senza vector serve un messaggio leggibile per l'interfaccia"
+        "without vector, a readable message is needed for the UI"
     );
     let message = status.message.as_deref().unwrap();
     assert!(
         message.contains("pgvector") || message.contains("vector"),
-        "il messaggio deve nominare l'estensione: {message}"
+        "the message must name the extension: {message}"
     );
     assert_eq!(
         status.enable_command.as_deref(),
         Some(PgVectorStatus::ENABLE_SQL),
-        "il messaggio deve indicare il comando SQL da eseguire dopo l'installazione"
+        "the message must give the SQL command to run after installing"
     );
 
     let ai_tables: i64 = sqlx::query_scalar(
@@ -43,22 +43,22 @@ async fn postgis_only_image_reports_vector_unavailable() {
     .unwrap();
     assert_eq!(
         ai_tables, 0,
-        "senza pgvector le tabelle AI non devono esistere (degrade, non fail)"
+        "without pgvector the AI tables must not exist (degrade, not fail)"
     );
 }
 
-/// Sull'immagine bundled (`keeppix-db:dev`) il probe vede l'estensione e la
-/// migrazione Task 4 la abilita.
+/// On the bundled image (`keeppix-db:dev`) the probe sees the extension and
+/// the AI migration enables it.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn bundled_image_enables_vector_via_migration() {
     let test = TestDb::start().await;
     let status = probe_pgvector(test.db()).await.unwrap();
 
-    assert!(status.available, "keeppix-db:dev deve offrire pgvector");
+    assert!(status.available, "keeppix-db:dev must offer pgvector");
     assert!(
         status.enabled,
-        "la migrazione AI deve eseguire CREATE EXTENSION vector"
+        "the AI migration must run CREATE EXTENSION vector"
     );
     assert!(status.message.is_none());
     assert!(status.enable_command.is_none());

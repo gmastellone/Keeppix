@@ -34,8 +34,7 @@ async fn enqueue_is_idempotent_on_dedup_key() {
     assert_eq!(first.id, second.id);
 }
 
-/// Fase 10 Task 21: un solo giro di rete per un intero lotto invece di uno
-/// per file.
+/// A single network round trip for a whole batch instead of one per file.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn enqueue_many_inserts_every_item() {
@@ -60,8 +59,8 @@ async fn enqueue_many_inserts_every_item() {
     assert_eq!(count, 3);
 }
 
-/// Come `enqueue`: un `dedup_key` già in coda `pending`/`running` non deve
-/// produrre una seconda riga, nemmeno dentro lo stesso lotto.
+/// Like `enqueue`: a `dedup_key` already queued as `pending`/`running` must
+/// not produce a second row, not even within the same batch.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn enqueue_many_respects_dedup_key_against_existing_rows() {
@@ -118,8 +117,8 @@ async fn claim_skips_a_locked_row() {
         repo.claim(Uuid::now_v7(), JobPriority::Background),
         repo.claim(Uuid::now_v7(), JobPriority::Background),
     );
-    let a = a.unwrap().expect("primo claim");
-    let b = b.unwrap().expect("secondo claim");
+    let a = a.unwrap().expect("first claim");
+    let b = b.unwrap().expect("second claim");
     assert_ne!(a.id, b.id, "SKIP LOCKED deve dare due job distinti");
 }
 
@@ -335,10 +334,10 @@ async fn promote_raises_pending_jobs() {
     assert_eq!(claimed.priority, JobPriority::Visible);
 }
 
-/// Fase 10 Task 19: `asset.derivative.ready` sul WebSocket legge da qui —
-/// solo i job **nuovi** dopo il cursore, mai quelli già `done` prima che il
-/// cursore fosse fissato (altrimenti un client che si connette ora rivede
-/// transcodifiche finite ore prima).
+/// `asset.derivative.ready` on the WebSocket reads from here — only jobs
+/// that became `done` **after** the cursor, never ones that were already
+/// `done` before the cursor was fixed (otherwise a client connecting now
+/// would resurface transcodes finished hours earlier).
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn list_recently_done_skips_jobs_finished_before_the_cursor() {

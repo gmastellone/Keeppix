@@ -1,4 +1,4 @@
-//! Fase 7 Task 8: abbinamento tag↔foto via similarità CLIP → `asset_tags`.
+//! Tag-to-photo matching via CLIP similarity → `asset_tags`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -16,14 +16,14 @@ use keeppix_domain::{
 
 const MODEL: &str = "openclip-xlmr-it-en";
 
-/// Vettore unitario lungo l'asse `axis` (0..511).
+/// Unit vector along axis `axis` (0..511).
 fn unit_axis(axis: usize) -> Vec<f32> {
     let mut v = vec![0.0_f32; 512];
     v[axis] = 1.0;
     v
 }
 
-/// Due vettori unitari con cosine similarity ≈ `sim` (asse 0 e piano 0/1).
+/// Two unit vectors with cosine similarity ≈ `sim` (axis 0 and the 0/1 plane).
 fn unit_with_similarity(sim: f32) -> Vec<f32> {
     let mut v = vec![0.0_f32; 512];
     let ortho = (1.0 - sim * sim).sqrt();
@@ -44,14 +44,14 @@ async fn seed_library(test: &TestDb, owner: UserId, path: &str) -> keeppix_domai
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 100,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: Some(1),
@@ -310,10 +310,10 @@ async fn propose_for_tag_skips_mismatched_model_version() {
 
 #[tokio::test]
 async fn threshold_only_change_does_not_require_rematch_api_contract() {
-    // Documenta la regola di prodotto: cambiare solo `threshold` non ricalcola
-    // le proposte (governa le analisi future). Qui verifichiamo che un update
-    // solo-soglia non tocchi embedding e che le decisioni restino intatte
-    // senza chiamare propose.
+    // Documents the product rule: changing only `threshold` does not
+    // recompute proposals (governs future rematches). Here we verify that a
+    // threshold-only update leaves the embedding untouched and that
+    // decisions stay intact without calling propose.
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
@@ -330,7 +330,7 @@ async fn threshold_only_change_does_not_require_rematch_api_contract() {
         .upsert(asset, &emb, MODEL)
         .await
         .unwrap();
-    // Prima proposta con soglia alta: sim=1 ≥ 0.9−band → riga.
+    // First proposal with a high threshold: sim=1 >= 0.9-band -> row.
     AssetTagRepo::new(test.db())
         .propose_for_tag(tag_id)
         .await
@@ -354,7 +354,7 @@ async fn threshold_only_change_does_not_require_rematch_api_contract() {
         .await
         .unwrap();
 
-    // Senza propose_for_tag: la riga resta (threshold-only non rematch).
+    // Without calling propose_for_tag: the row remains (threshold-only does not rematch).
     let still = fetch_assignment(&test, asset, tag_id).await.expect("kept");
     assert_eq!(still.0, "proposed");
 }
@@ -375,7 +375,7 @@ async fn propose_for_assets_matches_all_tags_with_embeddings() {
     let emb = unit_axis(0);
     let tag1 = create_tag_with_embedding(&test, &ctx, "TagA", 0.5, emb.clone(), MODEL).await;
     let tag2 = create_tag_with_embedding(&test, &ctx, "TagB", 0.5, emb.clone(), MODEL).await;
-    // Categoria senza embedding: non deve produrre proposte.
+    // Category with no embedding: it must not produce proposals.
     TagRepo::new(test.db())
         .create(
             &ctx,
@@ -417,8 +417,8 @@ async fn propose_for_assets_matches_all_tags_with_embeddings() {
 }
 
 // ---------------------------------------------------------------------------
-// Fase 7 Task 9: la coda di revisione (confirm/reject, singoli e in blocco,
-// list + count con visibilità).
+// The review queue (confirm/reject, single and bulk, list + count with
+// visibility).
 // ---------------------------------------------------------------------------
 
 async fn seed_proposed(test: &TestDb, asset: AssetId, tag: TagId, score: f32) {
@@ -434,8 +434,8 @@ async fn seed_proposed(test: &TestDb, asset: AssetId, tag: TagId, score: f32) {
     .unwrap();
 }
 
-/// Libreria + cartella + tag "vuoto" (nessun embedding, non serve per questi
-/// test) posseduti da `owner`, e un secondo utente qualsiasi senza permessi.
+/// Library + folder + an "empty" tag (no embedding, not needed for these
+/// tests) owned by `owner`, plus a second, unrelated user with no permissions.
 struct ReviewFixture {
     owner: UserId,
     stranger: UserId,
@@ -807,8 +807,8 @@ async fn count_proposed_visible_counts_only_what_the_caller_can_see() {
     );
 }
 
-// Fase 11 Task 7 (§13.3 campo 5, "Aggiungi tag…"): un'aggiunta manuale è
-// già una conferma, non passa dalla coda di revisione.
+// A manual tag addition ("Add tag...") is already a confirmation; it never
+// goes through the review queue.
 
 #[tokio::test]
 async fn assign_inserts_a_confirmed_user_row_from_scratch() {
@@ -875,9 +875,9 @@ async fn assign_is_idempotent_and_forbidden_on_a_foreign_asset() {
     assert_eq!(row.0, "confirmed");
 }
 
-// Fase 11 Task 7 (§13.3 campo 5, dialog di scelta tag): la freccia opposta
-// di `assign`, una `DELETE` vera — non una decisione `'rejected'` (quella è
-// permanente, coda di revisione IA).
+// The opposite of `assign` (used by the tag-picker dialog): a real `DELETE`
+// — not a `'rejected'` decision (that one is permanent, part of the AI
+// review queue).
 
 #[tokio::test]
 async fn unassign_deletes_a_manually_confirmed_row() {
@@ -920,12 +920,12 @@ async fn unassign_reassigning_afterwards_never_hits_the_permanent_rejected_confl
     repo.assign(&ctx, tag, asset).await.unwrap();
     repo.unassign(&ctx, tag, asset).await.unwrap();
 
-    // Se `unassign` avesse scritto `state='rejected'` invece di cancellare,
-    // questo `assign` sarebbe comunque passato (la sua stessa deviazione
-    // dichiarata da `confirm`) — ma è `reject`, non `assign`, a bloccarsi
-    // permanentemente su un `'rejected'` già deciso: la prova vera è che
-    // la riga qui sotto sia tornata `'confirmed'`, non solo che `assign`
-    // non erri.
+    // If `unassign` had written `state='rejected'` instead of deleting, this
+    // `assign` would still have passed (that's its own documented deviation
+    // from `confirm`) — but it is `reject`, not `assign`, that permanently
+    // blocks on an already-decided `'rejected'`: the real proof is that the
+    // row below has come back as `'confirmed'`, not merely that `assign`
+    // doesn't error.
     repo.assign(&ctx, tag, asset).await.unwrap();
 
     let row = fetch_assignment(&test, asset, tag).await.unwrap();
@@ -1041,9 +1041,8 @@ async fn confirmed_among_is_empty_for_an_empty_id_list() {
     assert!(map.is_empty());
 }
 
-// Fase 11 Task 8 (§19.2 campi 14-17, sezione TAG del pannello informazioni
-// del lightbox): un asset alla volta, confermati **e** proposti, mai
-// rifiutati.
+// Used by the TAG section of the lightbox info panel: one asset at a time,
+// confirmed **and** proposed, never rejected.
 
 #[tokio::test]
 async fn for_asset_returns_confirmed_and_proposed_but_never_rejected() {
@@ -1088,7 +1087,7 @@ async fn for_asset_returns_confirmed_and_proposed_but_never_rejected() {
     assert_eq!(by_id[&proposed].state, "proposed");
     assert!(
         !by_id.contains_key(&rejected),
-        "rejected tags never appear (§19.3: removal is permanent)"
+        "rejected tags never appear (removal is permanent)"
     );
 }
 
@@ -1136,7 +1135,7 @@ async fn remove_confirmed_transitions_a_confirmed_tag_to_rejected_permanently() 
         "a rejected tag must never surface in for_asset again"
     );
 
-    // Idempotente: rimuoverlo di nuovo non deve fallire.
+    // Idempotent: removing it again must not fail.
     repo.remove_confirmed(&ctx, tag, asset).await.unwrap();
 }
 
@@ -1146,9 +1145,10 @@ async fn remove_confirmed_conflicts_on_a_still_pending_proposal() {
     let fx = review_fixture(&test).await;
     let ctx = AuthContext::user(fx.owner, SystemRole::Admin);
 
-    // `fx.asset`/`fx.tag` sono ancora 'proposed' (review_fixture li lascia
-    // così): rimuovere un tag non ancora deciso è compito della coda di
-    // revisione (confirm/reject), non di "rimuovi un tag già presente".
+    // `fx.asset`/`fx.tag` are still 'proposed' (review_fixture leaves them
+    // that way): removing a tag that hasn't been decided yet is the job of
+    // the review queue (confirm/reject), not of "remove an already-present
+    // tag".
     assert!(matches!(
         AssetTagRepo::new(test.db())
             .remove_confirmed(&ctx, fx.tag, fx.asset)

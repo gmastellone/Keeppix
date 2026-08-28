@@ -8,21 +8,20 @@ use keeppix_domain::{
     NewUser, Pick, Rating, SystemRole, UserId, Username, hash_password,
 };
 
-/// Un secondo amministratore. Nella Fase 2 non esiste ancora la
-/// condivisione (Fase 3): per provare che il rating è per utente su un
-/// **singolo** asset, i due chiamanti devono vedere la stessa libreria, e
-/// nella Fase 2 solo un admin vede librerie che non possiede.
+/// A second administrator. To prove that rating is per-user on a
+/// **single** asset, both callers must be able to see the same library,
+/// and only an admin can see libraries they don't own.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_second_admin(test: &TestDb, admin: UserId, username: &str) -> UserId {
     use keeppix_domain::Password;
 
-    let password = Password::parse("correct horse battery staple").expect("password valida");
+    let password = Password::parse("correct horse battery staple").expect("valid password");
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     UserRepo::new(test.db())
         .create(
             &ctx,
             NewUser {
-                username: Username::parse(username).expect("username valido"),
+                username: Username::parse(username).expect("valid username"),
                 email: None,
                 display_name: username.to_owned(),
                 password_hash: hash_password(&password).expect("hash").as_str().to_owned(),
@@ -30,7 +29,7 @@ async fn seed_second_admin(test: &TestDb, admin: UserId, username: &str) -> User
             },
         )
         .await
-        .expect("creazione admin")
+        .expect("create admin")
         .id
 }
 
@@ -47,7 +46,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -55,7 +54,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
 fn discovered(folder: keeppix_domain::FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 1000,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: Some(1),
@@ -69,7 +68,7 @@ async fn seed_asset(test: &TestDb, owner: UserId, filename: &str) -> AssetId {
     let folder = FolderRepo::new(test.db())
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella");
+        .expect("folder");
     AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, filename))
         .await
@@ -116,11 +115,10 @@ async fn get_returns_defaults_when_the_caller_never_voted() {
 async fn two_users_rating_the_same_asset_do_not_overwrite_each_other() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
-    // Sia admin che mario devono vedere l'asset: la libreria è dell'admin,
-    // che quindi resta l'unico "proprietario" — mario vota tramite un
-    // amministratore che promuove la visibilità non è nello scope di questa
-    // fase, quindi qui i due voti arrivano entrambi da amministratori sullo
-    // stesso asset per isolare la sola regola "per utente".
+    // Both callers must be able to see the asset: the library belongs to
+    // admin, so admin stays the sole "owner" — having the second caller vote
+    // via a shared-visibility grant is out of scope here, so both votes come
+    // from admins on the same asset, purely to isolate the "per user" rule.
     let luca = seed_second_admin(&test, admin, "luca").await;
     let asset = seed_asset(&test, admin, "DSC_0003.ARW").await;
     let repo = FlagRepo::new(test.db());
@@ -152,7 +150,7 @@ async fn two_users_rating_the_same_asset_do_not_overwrite_each_other() {
     assert_eq!(
         repo.get(&admin_ctx, asset).await.unwrap().rating,
         Some(Rating::parse(5).unwrap()),
-        "il voto dell'admin non deve essere sovrascritto da quello di luca"
+        "the admin's rating must not be overwritten by luca's"
     );
     assert_eq!(
         repo.get(&luca_ctx, asset).await.unwrap().rating,
@@ -224,10 +222,9 @@ async fn a_plain_user_cannot_set_flags_on_someone_elses_asset() {
     ));
 }
 
-/// `favorite` non è un riuso di `Pick` (spec fase-10 §7bis.1): sono colonne
-/// separate. Scartare uno scatto nel culling (`pick = Reject`) non deve
-/// azzerare `favorite`, e viceversa impostare `favorite` non deve toccare
-/// `pick`.
+/// `favorite` is not a reuse of `Pick`: they are separate columns. Skipping
+/// a shot in culling (`pick = Reject`) must not clear `favorite`, and
+/// conversely setting `favorite` must not touch `pick`.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn favorite_and_pick_are_independent_axes() {
@@ -250,7 +247,7 @@ async fn favorite_and_pick_are_independent_axes() {
     .unwrap();
     assert!(repo.get(&ctx, asset).await.unwrap().favorite);
 
-    // "Scartare nel culling": pick passa a Reject, favorite resta true.
+    // "Skip in culling": pick moves to Reject, favorite stays true.
     repo.set(
         &ctx,
         asset,
@@ -266,10 +263,10 @@ async fn favorite_and_pick_are_independent_axes() {
     assert_eq!(after_discard.pick, Pick::Reject);
     assert!(
         after_discard.favorite,
-        "scartare nel culling non deve azzerare il preferito"
+        "skipping in culling must not clear the favorite flag"
     );
 
-    // E viceversa: togliere il preferito non deve toccare pick.
+    // And conversely: unfavoriting must not touch pick.
     repo.set(
         &ctx,
         asset,
@@ -329,7 +326,7 @@ async fn favorites_among_returns_only_the_callers_own_favorites_in_the_given_set
     )
     .await
     .unwrap();
-    // Marta preferisce `plain`, ma non deve mai comparire nel set di admin.
+    // luca favorites `plain`, but it must never show up in admin's set.
     repo.set(
         &luca_ctx,
         plain,

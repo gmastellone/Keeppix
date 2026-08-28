@@ -117,12 +117,12 @@ async fn month_counts_match_indexed_assets_after_index_move_and_delete() {
     assert_eq!(live, 0);
 }
 
-// La pila collassata (fase-10 Task 3) NON tocca `folder_month_counts`: quel
-// trigger resta a conteggio di file, perché altri usi (contatori di
-// cartella, cestino) ne dipendono così com'è — vedi il Ruling nel doc
-// comment di `TimelineRepo::buckets`. Il conteggio "una pila = una tessera"
-// è verificato lì (`buckets_count_stacks_not_files` in
-// `keeppix-db/tests/timeline.rs`), non su questa tabella.
+// The collapsed stack does NOT touch `folder_month_counts`: that trigger
+// stays a file count, because other uses (folder counters, trash) depend
+// on it staying that way — see the doc comment on `TimelineRepo::buckets`.
+// The "one stack = one tile" count is verified there
+// (`buckets_count_stacks_not_files` in `keeppix-db/tests/timeline.rs`),
+// not on this table.
 
 #[tokio::test]
 async fn month_bucket_uses_utc_when_the_session_timezone_is_not() {

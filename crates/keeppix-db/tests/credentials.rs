@@ -51,7 +51,7 @@ async fn a_revoked_app_password_fails_verification_immediately_without_any_cache
 
     let (summary, secret) = repo.create(&ctx, "telefono".to_owned()).await.unwrap();
 
-    // Prima della revoca, il segreto è valido.
+    // Before revocation, the secret is valid.
     assert_eq!(
         repo.verify("giovanni", secret.expose()).await.unwrap(),
         Some(admin)
@@ -59,8 +59,7 @@ async fn a_revoked_app_password_fails_verification_immediately_without_any_cache
 
     repo.revoke(&ctx, summary.id).await.unwrap();
 
-    // Nessuna cache: la revoca ha effetto sulla richiesta immediatamente
-    // successiva.
+    // No cache: revocation takes effect on the very next request.
     assert_eq!(
         repo.verify("giovanni", secret.expose()).await.unwrap(),
         None
@@ -83,10 +82,10 @@ async fn secret_is_never_returned_by_list() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].label, "MacBook Finder");
 
-    // Il tipo di dominio restituito da `list` non ha alcun campo che possa
-    // portare l'hash o il segreto: se qualcuno aggiungesse `secret_hash` ad
-    // `AppPasswordSummary`, questo file non compilerebbe più — è la garanzia
-    // che il tipo stesso, non solo l'endpoint, non può esporlo.
+    // The domain type returned by `list` has no field that could carry the
+    // hash or the secret: if someone added `secret_hash` to
+    // `AppPasswordSummary`, this file would stop compiling — the guarantee
+    // is in the type itself, not just in the endpoint that can't expose it.
     let keeppix_domain::AppPasswordSummary {
         id: _,
         user_id: _,
@@ -132,8 +131,8 @@ async fn revoking_someone_elses_password_is_forbidden() {
     let result = repo.revoke(&mario_ctx, summary.id).await;
     assert!(matches!(result, Err(DbError::Forbidden)));
 
-    // Mai un oracolo di esistenza: un id davvero inesistente resta
-    // Forbidden per un non-admin, NotFound solo per un admin.
+    // Never an existence oracle: a truly nonexistent id stays Forbidden for
+    // a non-admin, NotFound only for an admin.
     let missing = AppPasswordId::new();
     assert!(matches!(
         repo.revoke(&mario_ctx, missing).await,
@@ -144,8 +143,8 @@ async fn revoking_someone_elses_password_is_forbidden() {
         Err(DbError::NotFound)
     ));
 
-    // La password dell'admin non deve essere stata toccata dal tentativo
-    // altrui.
+    // The admin's password must not have been touched by the other user's
+    // attempt.
     let listed = repo.list(&admin_ctx).await.unwrap();
     assert_eq!(listed.len(), 1);
 }
@@ -186,9 +185,9 @@ async fn verify_does_not_touch_a_revoked_password() {
         None
     );
 
-    // Un tentativo su una password già revocata non deve far ricomparire
-    // `last_used_at`: non c'è alcun aggiornamento fire-and-forget da
-    // attendere perché `verify` non trova nemmeno la riga fra i candidati.
+    // An attempt against an already-revoked password must not make
+    // `last_used_at` reappear: there is no fire-and-forget update to wait
+    // for, because `verify` doesn't even find the row among the candidates.
     let revoked_at_is_set: bool = sqlx::query_scalar(
         "SELECT revoked_at IS NOT NULL AND last_used_at IS NULL FROM app_passwords WHERE id = $1",
     )
@@ -198,7 +197,7 @@ async fn verify_does_not_touch_a_revoked_password() {
     .unwrap();
     assert!(
         revoked_at_is_set,
-        "revoked_at deve restare impostato e last_used_at non deve essere toccato da un verify fallito"
+        "revoked_at must stay set and last_used_at must not be touched by a failed verify"
     );
 }
 
@@ -216,8 +215,8 @@ async fn verify_updates_last_used_at_in_the_background() {
         Some(admin)
     );
 
-    // L'aggiornamento è fire-and-forget: si concede un margine breve prima
-    // di osservarlo.
+    // The update is fire-and-forget: allow a short grace period before
+    // checking it.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     let last_used_at: Option<chrono::DateTime<chrono::Utc>> =

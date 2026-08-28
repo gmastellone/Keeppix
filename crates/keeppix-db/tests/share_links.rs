@@ -1,6 +1,5 @@
-//! Task 15: `GET /share/links` (§29) needs an item count per link — a
-//! `GROUP BY` for the whole list, not a `COUNT` per row (same rule as
-//! Task 11's culling count).
+//! `GET /share/links` needs an item count per link — a `GROUP BY` for the
+//! whole list, not a `COUNT` per row (same rule as the culling count).
 #![allow(clippy::unwrap_used)]
 
 mod harness;
@@ -109,7 +108,7 @@ async fn item_counts_reports_indexed_assets_for_a_folder_link() {
     assert_eq!(
         counts.get(&folder.id.as_uuid()),
         Some(&2),
-        "un asset discovered-only non è ancora un elemento condivisibile"
+        "a discovered-only asset is not yet a shareable item"
     );
 }
 
@@ -219,10 +218,10 @@ async fn item_counts_treats_an_asset_link_as_exactly_one() {
     assert_eq!(counts.get(&asset.id.as_uuid()), Some(&1));
 }
 
-/// Un `count(*)` per riga rifatto in un ciclo scalerebbe a N query: la stessa
-/// regola del Task 11 vale anche qui, solo applicata a un campo che quel
-/// task aveva invece rimosso. Due link (una cartella con 2 foto, un'altra
-/// vuota) devono costare due `GROUP BY`, non due `COUNT` singoli.
+/// A `count(*)` per row done in a loop would scale to N queries: the same
+/// rule applies here too, just applied to a field that had instead been
+/// removed. Two links (one folder with 2 photos, another empty one) must
+/// cost two `GROUP BY`, not two individual `COUNT`s.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn item_counts_batches_multiple_folder_links_in_one_query() {
@@ -250,6 +249,6 @@ async fn item_counts_batches_multiple_folder_links_in_one_query() {
     assert_eq!(
         counts.get(&empty.id.as_uuid()),
         None,
-        "una cartella senza asset indicizzati non produce riga nel GROUP BY"
+        "a folder with no indexed assets produces no row in the GROUP BY"
     );
 }

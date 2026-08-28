@@ -42,10 +42,7 @@ async fn bootstrap_admin_can_be_created_once() {
     let second = repo
         .create_bootstrap_admin(new_user("mario", SystemRole::Admin))
         .await;
-    assert!(
-        second.is_err(),
-        "il bootstrap deve essere possibile una sola volta"
-    );
+    assert!(second.is_err(), "bootstrap must be possible only once");
 }
 
 #[tokio::test]
@@ -62,7 +59,7 @@ async fn login_lookup_returns_user_and_hash() {
         .await
         .unwrap();
 
-    let (user, hash) = found.expect("l'utente esiste, la ricerca è case-insensitive");
+    let (user, hash) = found.expect("the user exists, lookup is case-insensitive");
     assert_eq!(user.username.as_str(), "giovanni");
     assert!(hash.as_str().starts_with("$argon2id$"));
 }
@@ -181,9 +178,9 @@ async fn unknown_id_is_not_found() {
     assert!(matches!(missing, Err(keeppix_db::DbError::NotFound)));
 }
 
-/// §61 mostra "Ultima modifica" della password: al momento della creazione
-/// non c'è ancora stato un cambio, quindi il valore iniziale è la creazione
-/// stessa, non `NULL` né un'epoca arbitraria.
+/// The UI shows "Last changed" for the password: at creation time there
+/// has been no change yet, so the initial value is the creation itself,
+/// not `NULL` or an arbitrary epoch.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn password_changed_at_starts_equal_to_created_at() {
@@ -218,7 +215,7 @@ async fn changing_the_password_hash_bumps_password_changed_at() {
     let reloaded = repo.find_by_id(&ctx, admin.id).await.unwrap();
     assert!(
         reloaded.password_changed_at > original,
-        "il cambio password deve aggiornare password_changed_at"
+        "changing the password must update password_changed_at"
     );
 }
 
@@ -236,6 +233,6 @@ async fn two_test_databases_are_isolated() {
     assert_eq!(
         UserRepo::new(b.db()).count().await.unwrap(),
         0,
-        "B deve essere un database vergine"
+        "B must be a fresh database"
     );
 }

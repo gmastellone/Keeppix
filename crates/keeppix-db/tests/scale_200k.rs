@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-//! Prova di scala sintetica: 200.000 righe `assets`, niente file.
-//! Misura le query della timeline e della ricerca, non l'I/O di ingestione.
+//! Synthetic scale test: 200,000 `assets` rows, no files. Measures the
+//! timeline and search queries, not ingestion I/O.
 
 mod harness;
 
@@ -111,37 +111,37 @@ async fn two_hundred_thousand_assets_keep_timeline_and_search_within_budget() {
     );
     assert!(
         buckets_elapsed < TIMELINE_BUDGET,
-        "conteggi mese: {buckets_elapsed:?} >= {TIMELINE_BUDGET:?}"
+        "monthly counts: {buckets_elapsed:?} >= {TIMELINE_BUDGET:?}"
     );
 
-    let newest = buckets.first().expect("almeno un mese").month;
+    let newest = buckets.first().expect("at least one month").month;
     let t1 = Instant::now();
     let first_page = repo.page(&ctx, newest, None, 200).await.unwrap();
     let first_elapsed = t1.elapsed();
     eprintln!(
-        "MEASUREMENT timeline prima pagina {N}: {first_elapsed:?} ({} righe)",
+        "MEASUREMENT timeline first page {N}: {first_elapsed:?} ({} rows)",
         first_page.len()
     );
     assert!(
         first_elapsed < TIMELINE_BUDGET,
-        "prima pagina: {first_elapsed:?} >= {TIMELINE_BUDGET:?}"
+        "first page: {first_elapsed:?} >= {TIMELINE_BUDGET:?}"
     );
 
     let deep_month = buckets[buckets.len() / 2].month;
     let deep_first = repo.page(&ctx, deep_month, None, 200).await.unwrap();
     let cursor = deep_first
         .last()
-        .map(|a| (a.taken_at_utc.expect("indexed ha taken_at"), a.id));
+        .map(|a| (a.taken_at_utc.expect("indexed has taken_at"), a.id));
     let t2 = Instant::now();
     let deep_page = repo.page(&ctx, deep_month, cursor, 200).await.unwrap();
     let deep_elapsed = t2.elapsed();
     eprintln!(
-        "MEASUREMENT timeline keyset profondo {N}: {deep_elapsed:?} ({} righe)",
+        "MEASUREMENT deep timeline keyset {N}: {deep_elapsed:?} ({} rows)",
         deep_page.len()
     );
     assert!(
         deep_elapsed < TIMELINE_BUDGET,
-        "pagina profonda: {deep_elapsed:?} >= {TIMELINE_BUDGET:?}"
+        "deep page: {deep_elapsed:?} >= {TIMELINE_BUDGET:?}"
     );
 
     let search = SearchRepo::new(test.db());
@@ -159,13 +159,13 @@ async fn two_hundred_thousand_assets_keep_timeline_and_search_within_budget() {
         .unwrap();
     let search_elapsed = t3.elapsed();
     eprintln!(
-        "MEASUREMENT ricerca trgm/ILIKE {N}: {search_elapsed:?} ({} hit)",
+        "MEASUREMENT trgm/ILIKE search {N}: {search_elapsed:?} ({} hits)",
         hits.len()
     );
-    assert!(!hits.is_empty(), "IMG_150000.jpg deve esistere fra le 200k");
+    assert!(!hits.is_empty(), "IMG_150000.jpg must exist among the 200k");
     assert!(
         search_elapsed < SEARCH_BUDGET,
-        "ricerca: {search_elapsed:?} >= {SEARCH_BUDGET:?}"
+        "search: {search_elapsed:?} >= {SEARCH_BUDGET:?}"
     );
 
     eprintln!(
@@ -182,10 +182,10 @@ async fn two_hundred_thousand_assets_keep_timeline_and_search_within_budget() {
     );
 }
 
-/// Stessa query di `TimelineRepo::buckets` (Task 3: conta le pile da
-/// `assets` con il filtro di primario, non più `folder_month_counts` — vedi
-/// Ruling nel ledger fase-10). Duplicata qui come `explain_page_shared`,
-/// perché la query vera è privata del repository.
+/// Same query as `TimelineRepo::buckets` (it counts stacks from `assets`
+/// with the primary filter, no longer `folder_month_counts`). Duplicated
+/// here, like `explain_page_shared`, because the real query is private to
+/// the repository.
 async fn explain_buckets(pool: &sqlx::PgPool, library_id: uuid::Uuid) -> String {
     let rows: Vec<(String,)> = sqlx::query_as(
         "EXPLAIN (ANALYZE, BUFFERS) \
@@ -211,9 +211,10 @@ async fn explain_buckets(pool: &sqlx::PgPool, library_id: uuid::Uuid) -> String 
     join_plan(rows)
 }
 
-/// Predicati e ordinamento di `TimelineRepo::page` sulla sola tabella `assets`:
-/// duplicato qui di proposito perché la query vera è privata del repository
-/// (stesso pattern di `favorite_search_uses_the_partial_index` in search.rs).
+/// Predicates and ordering of `TimelineRepo::page` on the `assets` table
+/// alone: duplicated here on purpose because the real query is private to
+/// the repository (same pattern as `favorite_search_uses_the_partial_index`
+/// in search.rs).
 async fn explain_timeline_ordering(pool: &sqlx::PgPool) -> String {
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET LOCAL max_parallel_workers_per_gather = 0")
@@ -325,10 +326,10 @@ fn join_plan(rows: Vec<(String,)>) -> String {
         .join("\n")
 }
 
-/// `TimelineRepo::page` filtra `status = 'indexed' AND kind <> 'unknown'`.
-/// Con vincolo di mese a 200k righe il planner preferisce
-/// `assets_taken_day_idx` (Task 6); sulla sola tabella `assets` l'indice
-/// parziale nuovo sostituisce `assets_timeline_idx` + filtro `kind`.
+/// `TimelineRepo::page` filters `status = 'indexed' AND kind <> 'unknown'`.
+/// With a month constraint over 200k rows the planner prefers
+/// `assets_taken_day_idx`; on the `assets` table alone, the new partial
+/// index replaces `assets_timeline_idx` + a `kind` filter.
 #[tokio::test]
 async fn timeline_page_uses_assets_timeline_indexed_idx() {
     let test = TestDb::start().await;
@@ -353,10 +354,10 @@ async fn timeline_page_uses_assets_timeline_indexed_idx() {
         .await
         .unwrap();
     let plan = explain_timeline_ordering(test.db().pool()).await;
-    eprintln!("EXPLAIN timeline ordering (Task 12):\n{plan}");
+    eprintln!("EXPLAIN timeline ordering:\n{plan}");
     assert!(
         plan.contains("assets_timeline_indexed_idx"),
-        "TimelineRepo::page deve poter servirsi dell'indice parziale \
+        "TimelineRepo::page must be able to use the partial index \
          assets_timeline_indexed_idx:\n{plan}"
     );
 }
@@ -419,35 +420,35 @@ async fn timeline_with_fifty_permissions_stays_under_budget_at_200k() {
     let buckets = repo.buckets(&ctx, None).await.unwrap();
     let buckets_elapsed = t0.elapsed();
     eprintln!(
-        "MEASUREMENT buckets 200k/50perm: {buckets_elapsed:?} ({} mesi)",
+        "MEASUREMENT buckets 200k/50perm: {buckets_elapsed:?} ({} months)",
         buckets.len()
     );
     assert!(
         buckets_elapsed < TIMELINE_BUDGET,
-        "buckets con 50 permessi: {buckets_elapsed:?}"
+        "buckets with 50 grants: {buckets_elapsed:?}"
     );
 
-    let newest = buckets.first().expect("almeno un mese").month;
+    let newest = buckets.first().expect("at least one month").month;
     let t1 = Instant::now();
     let page = repo.page(&ctx, newest, None, 200).await.unwrap();
     let page_elapsed = t1.elapsed();
     eprintln!(
-        "MEASUREMENT timeline 200k/50perm: {page_elapsed:?} ({} righe)",
+        "MEASUREMENT timeline 200k/50perm: {page_elapsed:?} ({} rows)",
         page.len()
     );
     assert!(!page.is_empty());
     assert!(
         page_elapsed < TIMELINE_BUDGET,
-        "timeline con 50 permessi a 200k: {page_elapsed:?}"
+        "timeline with 50 grants at 200k: {page_elapsed:?}"
     );
 
     let scope = VisibilityScope::resolve(test.db(), &ctx).await.unwrap();
     eprintln!(
-        "EXPLAIN EXISTS/NOT EXISTS (scelta) 200k/50perm:\n{}",
+        "EXPLAIN EXISTS/NOT EXISTS (chosen) 200k/50perm:\n{}",
         explain_page_shared(test.db().pool(), newest, &scope).await
     );
     eprintln!(
-        "EXPLAIN CTE ricorsiva (confronto) 200k/50perm:\n{}",
+        "EXPLAIN recursive CTE (comparison) 200k/50perm:\n{}",
         explain_page_cte(test.db().pool(), newest, &scope).await
     );
 }

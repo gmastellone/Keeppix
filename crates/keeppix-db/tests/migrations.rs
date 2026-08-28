@@ -6,15 +6,15 @@ use harness::TestDb;
 #[allow(clippy::expect_used)]
 async fn migrations_apply_to_an_empty_database() {
     let test = TestDb::start().await;
-    test.db().ping().await.expect("il database risponde");
+    test.db().ping().await.expect("the database responds");
 }
 
 #[tokio::test]
 #[allow(clippy::expect_used)]
 async fn migrations_are_idempotent() {
     let test = TestDb::start().await;
-    // Rieseguire il migratore su un database già migrato non deve fallire.
-    test.db().migrate().await.expect("seconda esecuzione");
+    // Re-running the migrator on an already-migrated database must not fail.
+    test.db().migrate().await.expect("second run");
 }
 
 #[tokio::test]
@@ -28,7 +28,7 @@ async fn expected_tables_exist() {
     )
     .fetch_all(test.db().pool())
     .await
-    .expect("elenco tabelle");
+    .expect("table list");
 
     for expected in [
         "idempotency_keys",
@@ -47,17 +47,17 @@ async fn expected_tables_exist() {
     ] {
         assert!(
             tables.contains(&expected.to_owned()),
-            "manca la tabella {expected}"
+            "missing table {expected}"
         );
     }
 }
 
-/// Le due estensioni devono essere attive già dalla `0001`. `postgis` non è
-/// *trusted*: crearla richiede il superuser, quindi va fatto sul database
-/// vuoto appena creato dall'amministratore e non nella migrazione della Fase 4,
-/// quando l'istanza gestita è già piena di dati e l'utente applicativo non ha
-/// più quel privilegio. La roadmap della Fase 4 dà per assodato che la `0001`
-/// l'abbia già abilitata: questo test è ciò che lo rende vero.
+/// Both extensions must already be active as of `0001`. `postgis` is not
+/// *trusted*: creating it requires the superuser, so it has to happen on
+/// the fresh database right after the administrator creates it, not in a
+/// later migration, once the managed instance is already full of data and
+/// the application user no longer has that privilege. Later work assumes
+/// `0001` has already enabled it: this test is what makes that true.
 #[tokio::test]
 #[allow(clippy::expect_used)]
 async fn required_extensions_are_enabled() {
@@ -66,12 +66,12 @@ async fn required_extensions_are_enabled() {
     let extensions: Vec<String> = sqlx::query_scalar("SELECT extname FROM pg_extension")
         .fetch_all(test.db().pool())
         .await
-        .expect("elenco estensioni");
+        .expect("extension list");
 
     for expected in ["pg_trgm", "postgis"] {
         assert!(
             extensions.contains(&expected.to_owned()),
-            "l'estensione {expected} deve essere abilitata dalla migrazione 0001"
+            "extension {expected} must be enabled by migration 0001"
         );
     }
 }
@@ -86,7 +86,7 @@ async fn performance_indexes_exist() {
     )
     .fetch_all(test.db().pool())
     .await
-    .expect("elenco indici");
+    .expect("index list");
 
     for expected in [
         "album_assets_added_by_idx",
@@ -106,13 +106,13 @@ async fn performance_indexes_exist() {
     ] {
         assert!(
             indexes.contains(&expected.to_owned()),
-            "manca l'indice {expected}"
+            "missing index {expected}"
         );
     }
 
     assert!(
         !indexes.iter().any(|i| i.contains("hnsw")),
-        "HNSW non spedito: IVFFlat basta (Task 11), got {indexes:?}"
+        "HNSW not shipped: IVFFlat is enough, got {indexes:?}"
     );
 }
 
@@ -138,8 +138,8 @@ async fn assets_autovacuum_scale_factor_is_aggressive() {
     );
 }
 
-/// Task 5: le colonne dell'album «Aggiorna album» (rule + i quattro campi
-/// aggiuntivi di §5.2) devono esistere dopo la migrazione 0036.
+/// The "Refresh album" columns (rule plus four additional fields) must
+/// exist after migration 0036.
 #[tokio::test]
 #[allow(clippy::expect_used)]
 async fn album_refresh_columns_exist() {
@@ -152,7 +152,7 @@ async fn album_refresh_columns_exist() {
     )
     .fetch_all(test.db().pool())
     .await
-    .expect("colonne di albums");
+    .expect("albums columns");
 
     for expected in [
         "rule",
@@ -163,12 +163,12 @@ async fn album_refresh_columns_exist() {
     ] {
         assert!(
             columns.contains(&expected.to_owned()),
-            "manca la colonna albums.{expected}"
+            "missing column albums.{expected}"
         );
     }
 }
 
-/// Fase 7 Task 4: colonne di `asset_embeddings`, `tags`, `asset_tags`.
+/// Columns of `asset_embeddings`, `tags`, `asset_tags`.
 #[tokio::test]
 #[allow(clippy::expect_used)]
 async fn ai_schema_columns_exist() {
@@ -182,11 +182,11 @@ async fn ai_schema_columns_exist() {
     )
     .fetch_all(pool)
     .await
-    .expect("colonne asset_embeddings");
+    .expect("asset_embeddings columns");
     for expected in ["asset_id", "computed_at", "embedding", "model_version"] {
         assert!(
             embedding_cols.contains(&expected.to_owned()),
-            "manca asset_embeddings.{expected}"
+            "missing asset_embeddings.{expected}"
         );
     }
 
@@ -197,7 +197,7 @@ async fn ai_schema_columns_exist() {
     )
     .fetch_all(pool)
     .await
-    .expect("colonne tags");
+    .expect("tags columns");
     for expected in [
         "color",
         "created_at",
@@ -213,7 +213,7 @@ async fn ai_schema_columns_exist() {
     ] {
         assert!(
             tag_cols.contains(&expected.to_owned()),
-            "manca tags.{expected}"
+            "missing tags.{expected}"
         );
     }
 
@@ -224,7 +224,7 @@ async fn ai_schema_columns_exist() {
     )
     .fetch_all(pool)
     .await
-    .expect("colonne asset_tags");
+    .expect("asset_tags columns");
     for expected in [
         "asset_id",
         "decided_at",
@@ -236,7 +236,7 @@ async fn ai_schema_columns_exist() {
     ] {
         assert!(
             asset_tag_cols.contains(&expected.to_owned()),
-            "manca asset_tags.{expected}"
+            "missing asset_tags.{expected}"
         );
     }
 
@@ -247,14 +247,14 @@ async fn ai_schema_columns_exist() {
     )
     .fetch_all(pool)
     .await
-    .expect("colonne libraries");
+    .expect("libraries columns");
     assert!(
         library_cols.contains(&"culling_root_folder_id".to_owned()),
-        "manca libraries.culling_root_folder_id (Fase 7 Task 5, inerte fino a Fase 9)"
+        "missing libraries.culling_root_folder_id (dormant until culling ships)"
     );
 }
 
-/// Sull'immagine bundled la migrazione abilita `vector`; senza HNSW (Task 11).
+/// On the bundled image, the migration enables `vector`; without HNSW.
 #[tokio::test]
 #[allow(clippy::expect_used)]
 async fn vector_extension_is_enabled_on_bundled_image() {
@@ -267,7 +267,7 @@ async fn vector_extension_is_enabled_on_bundled_image() {
             .expect("pg_extension");
     assert!(
         enabled,
-        "CREATE EXTENSION vector deve essere applicato dalla migrazione AI"
+        "CREATE EXTENSION vector must be applied by the AI migration"
     );
 
     let embedding_udt: String = sqlx::query_scalar(
@@ -277,7 +277,7 @@ async fn vector_extension_is_enabled_on_bundled_image() {
     )
     .fetch_one(test.db().pool())
     .await
-    .expect("tipo embedding");
+    .expect("embedding type");
     assert_eq!(embedding_udt, "vector");
 }
 
@@ -295,7 +295,7 @@ async fn usernames_are_unique_case_insensitively() {
         .bind("giovanni")
         .execute(pool)
         .await
-        .expect("primo inserimento");
+        .expect("first insert");
 
     let second = sqlx::query(insert)
         .bind(uuid::Uuid::now_v7())
@@ -305,13 +305,13 @@ async fn usernames_are_unique_case_insensitively() {
 
     assert!(
         second.is_err(),
-        "l'indice unico deve rifiutare il duplicato"
+        "the unique index must reject the duplicate"
     );
 }
 
-/// Manual EXPLAIN capture for Task 1bis ledger (`--ignored --nocapture`).
+/// Manual EXPLAIN capture for query-planner tuning (`--ignored --nocapture`).
 #[tokio::test]
-#[ignore = "ledger evidence: cargo test -p keeppix-db explain_guc -- --ignored --nocapture"]
+#[ignore = "manual query-plan evidence: cargo test -p keeppix-db explain_guc -- --ignored --nocapture"]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn explain_guc_plans_for_ledger() {
     use keeppix_db::{FolderRepo, LibraryRepo};

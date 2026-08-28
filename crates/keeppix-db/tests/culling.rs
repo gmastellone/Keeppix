@@ -1,5 +1,5 @@
-//! Fase 9 Task 3: `CullingRepo::list_lots`.
-//! Fase 9 Task 4: `CullingRepo::set_pick` e `CullingRepo::empty_skipped`.
+//! `CullingRepo::list_lots`.
+//! `CullingRepo::set_pick` and `CullingRepo::empty_skipped`.
 
 mod harness;
 
@@ -30,13 +30,13 @@ async fn seed_library(test: &TestDb, owner: UserId) -> keeppix_domain::LibraryId
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
-/// Una radice di libreria vera sul filesystem, non `/mnt/culling-test`:
-/// `set_pick` chiama `AssetRepo::move_asset`, che fa `rename()` per davvero
-/// (stesso principio di `tests/assets.rs::move_asset`).
+/// A real library root on the filesystem, not `/mnt/culling-test`: `set_pick`
+/// calls `AssetRepo::move_asset`, which does a real `rename()` (same
+/// principle as `tests/assets.rs::move_asset`).
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_library_root(label: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
@@ -44,10 +44,10 @@ fn temp_library_root(label: &str) -> PathBuf {
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("orologio di sistema")
+            .expect("system clock")
             .as_nanos()
     ));
-    fs::create_dir_all(&root).expect("creazione della radice di test");
+    fs::create_dir_all(&root).expect("create test root");
     root
 }
 
@@ -68,7 +68,7 @@ async fn seed_library_at(
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -76,7 +76,7 @@ async fn seed_library_at(
 fn discovered(folder: keeppix_domain::FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 9,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: None,
@@ -99,7 +99,7 @@ async fn returns_empty_when_no_root_is_designated() {
 
     assert!(
         lots.is_empty(),
-        "senza radice designata il culling si comporta come oggi: nessun lotto"
+        "with no designated root, culling behaves as before: no lots"
     );
 }
 
@@ -132,7 +132,7 @@ async fn counts_pending_taken_and_skipped_exactly_per_lot() {
         .await
         .unwrap();
 
-    // Due in attesa, direttamente nella radice del lotto.
+    // Two pending, directly in the lot's root.
     for name in ["a.jpg", "b.jpg"] {
         let asset = assets
             .upsert_discovered(discovered(lot.id, name))
@@ -149,7 +149,7 @@ async fn counts_pending_taken_and_skipped_exactly_per_lot() {
             .await
             .unwrap();
     }
-    // Tre scelte.
+    // Three taken (picked).
     for name in ["c.jpg", "d.jpg", "e.jpg"] {
         let asset = assets
             .upsert_discovered(discovered(taken_folder.id, name))
@@ -166,7 +166,7 @@ async fn counts_pending_taken_and_skipped_exactly_per_lot() {
             .await
             .unwrap();
     }
-    // Una scartata.
+    // One skipped.
     let scartata = assets
         .upsert_discovered(discovered(skipped_folder.id, "f.jpg"))
         .await
@@ -215,8 +215,8 @@ async fn a_not_yet_indexed_asset_does_not_count() {
         .await
         .unwrap();
 
-    // Mai passato da `set_indexed`: resta `discovered`, non ancora una
-    // foto vera agli occhi dell'utente.
+    // Never passed through `set_indexed`: stays `discovered`, not yet a
+    // real photo from the user's point of view.
     assets
         .upsert_discovered(discovered(lot.id, "appena-vista.jpg"))
         .await
@@ -270,7 +270,7 @@ async fn only_the_owner_or_admin_can_list_lots() {
 
     assert!(
         matches!(result, Err(keeppix_db::DbError::Forbidden)),
-        "il culling è un ambito owner/admin, un editor condiviso non basta: {result:?}"
+        "culling is an owner/admin scope, a shared editor is not enough: {result:?}"
     );
 }
 
@@ -356,7 +356,7 @@ mod set_pick {
 
         assert_eq!(
             updated.folder_id, normal.id,
-            "nessuna radice di culling designata: il file resta dov'è"
+            "no culling root designated: the file stays where it is"
         );
         assert!(root.join("2024").join("a.jpg").is_file());
         let flags = FlagRepo::new(test.db()).get(&ctx, asset_id).await.unwrap();
@@ -394,13 +394,13 @@ mod set_pick {
             .await
             .unwrap();
 
-        assert_ne!(updated.folder_id, lot.id, "spostato fuori dal lotto");
+        assert_ne!(updated.folder_id, lot.id, "moved out of the lot");
         let new_path = root
             .join("Culling")
             .join("Vacanze")
             .join("_taken")
             .join("a.jpg");
-        assert!(new_path.is_file(), "il file è finito in _taken sul disco");
+        assert!(new_path.is_file(), "the file ended up in _taken on disk");
         assert!(!root.join("Culling").join("Vacanze").join("a.jpg").exists());
         let flags = FlagRepo::new(test.db()).get(&ctx, asset_id).await.unwrap();
         assert_eq!(flags.pick, Pick::Pick);
@@ -489,11 +489,8 @@ mod set_pick {
             .join("Vacanze")
             .join("_skipped")
             .join("a.jpg");
-        assert!(
-            taken_path.is_file(),
-            "spostato di nuovo, questa volta in _taken"
-        );
-        assert!(!skipped_path.exists(), "non resta anche in _skipped");
+        assert!(taken_path.is_file(), "moved again, this time into _taken");
+        assert!(!skipped_path.exists(), "must not also remain in _skipped");
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -561,9 +558,9 @@ mod set_pick {
         fs::write(root.join("Culling").join("Vacanze").join("a.jpg"), b"x").unwrap();
         let asset_id = indexed_asset(&assets, lot.id, "a.jpg").await;
 
-        // Un viewer condiviso solo sul lotto: vede l'asset (per
-        // FlagRepo::get/set) ma non è editor, quindi lo spostamento fisico
-        // dentro il lotto lo deve fermare prima che il flag cambi.
+        // A viewer shared only on the lot: sees the asset (for
+        // FlagRepo::get/set) but is not an editor, so the physical move
+        // inside the lot must stop it before the flag changes.
         let viewer = harness::seed_user(&test, admin, "viewer").await;
         PermissionRepo::new(test.db())
             .grant(
@@ -592,13 +589,13 @@ mod set_pick {
         assert!(matches!(result, Err(DbError::Forbidden)), "{result:?}");
         assert!(
             root.join("Culling").join("Vacanze").join("a.jpg").is_file(),
-            "il file non si è mosso"
+            "the file has not moved"
         );
         let after = FlagRepo::new(test.db())
             .get(&viewer_ctx, asset_id)
             .await
             .unwrap();
-        assert_eq!(before, after, "il flag resta quello di prima, non a metà");
+        assert_eq!(before, after, "the flag stays as it was, not half-updated");
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -638,7 +635,7 @@ mod empty_skipped {
                 .await
                 .unwrap();
         }
-        // Un terzo asset, scelto invece che scartato: non deve sparire.
+        // A third asset, picked instead of skipped: it must not disappear.
         fs::write(root.join("Culling").join("Vacanze").join("c.jpg"), b"x").unwrap();
         let kept_id = indexed_asset(&assets, lot.id, "c.jpg").await;
         culling.set_pick(&ctx, kept_id, Pick::Pick).await.unwrap();
@@ -653,7 +650,7 @@ mod empty_skipped {
         let skipped_dir = root.join("Culling").join("Vacanze").join("_skipped");
         assert!(
             skipped_dir.read_dir().unwrap().next().is_none(),
-            "_skipped è vuota sul disco"
+            "_skipped is empty on disk"
         );
         assert!(
             root.join("Culling")
@@ -661,7 +658,7 @@ mod empty_skipped {
                 .join("_taken")
                 .join("c.jpg")
                 .is_file(),
-            "l'asset scelto non è stato toccato"
+            "the picked asset was not touched"
         );
 
         let _ = fs::remove_dir_all(&root);
@@ -722,7 +719,7 @@ mod empty_skipped {
                 .join("_skipped")
                 .join("a.jpg")
                 .is_file(),
-            "un editor non owner non può distruggere file (spec §4.2), niente si muove"
+            "a non-owner editor cannot destroy files, nothing moves"
         );
 
         let _ = fs::remove_dir_all(&root);

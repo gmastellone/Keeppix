@@ -66,7 +66,7 @@ async fn authenticate_does_not_slide_expiry() {
             .unwrap();
     assert_eq!(
         before, after,
-        "le richieste autenticate non slittano expires_at: senza /auth/refresh la sessione è assoluta"
+        "authenticated requests don't push expires_at back: without /auth/refresh the session is absolute"
     );
 }
 
@@ -94,11 +94,11 @@ async fn rotation_issues_a_new_token_and_retires_the_old_one() {
     assert_ne!(first.as_str(), second.as_str());
     assert!(
         repo.authenticate(&second).await.is_ok(),
-        "il nuovo token vale"
+        "the new token is valid"
     );
     assert!(
         matches!(repo.authenticate(&first).await, Err(DbError::NotFound)),
-        "il vecchio token non vale più"
+        "the old token is no longer valid"
     );
 }
 
@@ -112,12 +112,12 @@ async fn reusing_a_consumed_token_kills_the_whole_family() {
     let first = repo.create(user_id, TTL, None).await.unwrap();
     let second = repo.rotate(&first, TTL).await.unwrap();
 
-    // Un attaccante ripresenta il token già consumato: è furto in corso.
+    // An attacker replays the already-consumed token: theft in progress.
     let replay = repo.rotate(&first, TTL).await;
     assert!(matches!(replay, Err(DbError::Forbidden)));
 
-    // Anche il token legittimo viene invalidato: il legittimo proprietario
-    // dovrà rifare il login, ma l'attaccante non ha accesso.
+    // Even the legitimate token gets invalidated: the legitimate owner
+    // will have to log in again, but the attacker gets no access.
     assert!(matches!(
         repo.authenticate(&second).await,
         Err(DbError::NotFound)
@@ -173,7 +173,7 @@ async fn revoking_logs_out_only_that_session() {
     let user_id = seed_admin(&test).await;
     let repo = SessionRepo::new(test.db());
 
-    // parent e child appartengono alla stessa famiglia: parent -> rotate -> child.
+    // parent and child belong to the same family: parent -> rotate -> child.
     let parent = repo.create(user_id, TTL, None).await.unwrap();
     let child = repo.rotate(&parent, TTL).await.unwrap();
 
@@ -192,7 +192,7 @@ async fn revoking_logs_out_only_that_session() {
             .unwrap();
     assert!(
         parent_revoked_at.is_none(),
-        "revocare il child non deve toccare il parent nella stessa famiglia"
+        "revoking the child must not touch the parent in the same family"
     );
 }
 
@@ -275,7 +275,7 @@ async fn create_stores_a_short_label_and_never_the_raw_user_agent() {
     assert_eq!(device_label, Some("Chrome on Windows".to_owned()));
     assert_eq!(
         stored_user_agent, None,
-        "il raw User-Agent non deve mai finire nella colonna legacy"
+        "the raw User-Agent must never end up in the legacy column"
     );
 }
 
@@ -314,14 +314,11 @@ async fn list_active_marks_only_the_calling_family_as_current() {
 
     assert_eq!(sessions.len(), 2);
     let current_count = sessions.iter().filter(|s| s.current).count();
-    assert_eq!(
-        current_count, 1,
-        "esattamente una sessione è quella corrente"
-    );
+    assert_eq!(current_count, 1, "exactly one session is the current one");
     let current_row = sessions.iter().find(|s| s.current).unwrap();
     assert_eq!(current_row.id, current);
 
-    // La sessione non corrente deve comunque comparire, non-corrente.
+    // The non-current session must still appear, marked as non-current.
     let other = repo.family_of(&device_b).await.unwrap().unwrap();
     assert!(sessions.iter().any(|s| s.id == other && !s.current));
 }
@@ -347,7 +344,7 @@ async fn list_active_excludes_revoked_and_expired_sessions() {
     let current = repo.family_of(&alive).await.unwrap().unwrap();
     let sessions = repo.list_active(&ctx, current).await.unwrap();
 
-    assert_eq!(sessions.len(), 1, "solo la sessione viva compare");
+    assert_eq!(sessions.len(), 1, "only the live session shows up");
     assert_eq!(sessions[0].id, current);
 }
 
@@ -367,11 +364,11 @@ async fn revoke_family_kills_that_device_but_not_others() {
 
     assert!(
         matches!(repo.authenticate(&device_b).await, Err(DbError::NotFound)),
-        "il token della famiglia revocata non deve più autenticare"
+        "the revoked family's token must no longer authenticate"
     );
     assert!(
         repo.authenticate(&device_a).await.is_ok(),
-        "le altre famiglie non devono essere toccate"
+        "other families must not be touched"
     );
 }
 
@@ -404,8 +401,8 @@ async fn revoke_family_of_another_user_is_forbidden_not_not_found() {
     let result = repo.revoke_family(&other_ctx, owners_family).await;
     assert!(matches!(result, Err(DbError::Forbidden)));
 
-    // Un id di famiglia mai esistito deve dare lo stesso esito: nessun modo
-    // di distinguere "non tuo" da "non esiste" sondando l'endpoint.
+    // A family id that never existed must give the same outcome: no way to
+    // distinguish "not yours" from "doesn't exist" by probing the endpoint.
     let unknown = keeppix_domain::SessionId::new();
     let result = repo.revoke_family(&other_ctx, unknown).await;
     assert!(matches!(result, Err(DbError::Forbidden)));

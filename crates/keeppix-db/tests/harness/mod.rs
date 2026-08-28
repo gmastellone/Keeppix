@@ -1,7 +1,7 @@
-//! Postgres reale per i test di integrazione.
-//! Ogni `TestDb` è isolato: database vergine, migrazioni applicate.
-//! Il container Postgres è uno per processo: il costo del boot si paga una
-//! volta, l'isolamento resta un `CREATE DATABASE` per test.
+//! A real Postgres for integration tests.
+//! Each `TestDb` is isolated: a fresh database with migrations applied.
+//! The Postgres container is one per process: the boot cost is paid once,
+//! isolation is just a `CREATE DATABASE` per test.
 
 #![allow(dead_code, clippy::expect_used)]
 use std::str::FromStr;
@@ -32,14 +32,14 @@ static SHARED: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_ne
 
 impl TestDb {
     /// # Panics
-    /// Se il database non è raggiungibile o le migrazioni falliscono: in un
-    /// test è il comportamento voluto.
+    /// If the database is unreachable or the migrations fail: in a test
+    /// that is the intended behavior.
     #[allow(clippy::expect_used)]
     pub async fn start() -> Self {
         let provisioned = provision().await;
 
-        let db = Db::connect(&provisioned.url, 5).await.expect("connessione");
-        db.migrate().await.expect("migrazioni");
+        let db = Db::connect(&provisioned.url, 5).await.expect("connection");
+        db.migrate().await.expect("migrations");
 
         Self {
             db,
@@ -53,11 +53,12 @@ impl TestDb {
         &self.db
     }
 
-    /// Database con `log_statements` attivo e un layer che cattura le query
-    /// emesse da sqlx — per i test che devono asserire l'assenza di aggregati.
+    /// A database with `log_statements` enabled and a layer that captures
+    /// the queries sqlx emits — for tests that need to assert the absence
+    /// of aggregates.
     ///
     /// # Panics
-    /// Come [`Self::start`].
+    /// Same as [`Self::start`].
     #[allow(clippy::expect_used)]
     pub async fn start_traced() -> (
         Self,
@@ -77,8 +78,8 @@ impl TestDb {
             .log_statements(tracing::log::LevelFilter::Debug);
         let db = Db::connect_with(options, 5)
             .await
-            .expect("connessione tracciata");
-        db.migrate().await.expect("migrazioni");
+            .expect("tracked connection");
+        db.migrate().await.expect("migrations");
 
         (
             Self {
@@ -91,12 +92,12 @@ impl TestDb {
         )
     }
 
-    /// Database su `postgis/postgis:17-3.5` **senza** pgvector — percorso
-    /// degradato (Postgres esterno senza il pacchetto). Non condivide il
-    /// container di [`Self::start`].
+    /// A database on `postgis/postgis:17-3.5` **without** pgvector — the
+    /// degraded path (an external Postgres without the extension). Does
+    /// not share the container from [`Self::start`].
     ///
     /// # Panics
-    /// Se il container non parte o le migrazioni falliscono.
+    /// If the container fails to start or the migrations fail.
     #[allow(clippy::expect_used)]
     pub async fn start_postgis_only() -> Self {
         static POSTGIS_ONLY: OnceCell<(ContainerAsync<Postgres>, String)> = OnceCell::const_new();
@@ -108,7 +109,7 @@ impl TestDb {
                     .with_name("postgis/postgis")
                     .start()
                     .await
-                    .expect("avvio del container PostGIS-only");
+                    .expect("start the PostGIS-only container");
                 let port = mapped_port(&container).await;
                 let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
                 (container, url)
@@ -118,10 +119,10 @@ impl TestDb {
         let provisioned = named_database(admin_url).await;
         let db = Db::connect(&provisioned.url, 5)
             .await
-            .expect("connessione PostGIS-only");
+            .expect("PostGIS-only connection");
         db.migrate()
             .await
-            .expect("migrazioni su PostGIS-only (devono riuscire senza vector)");
+            .expect("migrations on PostGIS-only (must succeed without vector)");
         Self {
             db,
             admin_url: provisioned.admin_url,
@@ -173,33 +174,33 @@ impl Drop for TestDb {
     }
 }
 
-/// Crea un amministratore e ne restituisce l'id. Ogni test di questa fase
-/// ha bisogno di un proprietario per le librerie.
+/// Creates an administrator and returns their id. Tests need an owner for
+/// libraries.
 ///
 /// # Panics
-/// Se la creazione fallisce: in un test è il comportamento voluto.
+/// If creation fails: in a test that is the intended behavior.
 #[allow(clippy::expect_used, dead_code)]
 pub async fn seed_admin(test: &TestDb) -> keeppix_domain::UserId {
     use keeppix_domain::{NewUser, Password, SystemRole, Username, hash_password};
 
-    let password = Password::parse("correct horse battery staple").expect("password valida");
+    let password = Password::parse("correct horse battery staple").expect("valid password");
     keeppix_db::UserRepo::new(test.db())
         .create_bootstrap_admin(NewUser {
-            username: Username::parse("giovanni").expect("username valido"),
+            username: Username::parse("giovanni").expect("valid username"),
             email: None,
             display_name: "Giovanni".to_owned(),
             password_hash: hash_password(&password).expect("hash").as_str().to_owned(),
             role: SystemRole::Admin,
         })
         .await
-        .expect("creazione admin")
+        .expect("create admin")
         .id
 }
 
-/// Crea un utente non-admin. Serve a ogni test che verifichi i permessi.
+/// Creates a non-admin user. Used by every test that checks permissions.
 ///
 /// # Panics
-/// Se la creazione fallisce.
+/// If creation fails.
 #[allow(clippy::expect_used, dead_code)]
 pub async fn seed_user(
     test: &TestDb,
@@ -208,13 +209,13 @@ pub async fn seed_user(
 ) -> keeppix_domain::UserId {
     use keeppix_domain::{AuthContext, NewUser, Password, SystemRole, Username, hash_password};
 
-    let password = Password::parse("correct horse battery staple").expect("password valida");
+    let password = Password::parse("correct horse battery staple").expect("valid password");
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     keeppix_db::UserRepo::new(test.db())
         .create(
             &ctx,
             NewUser {
-                username: Username::parse(username).expect("username valido"),
+                username: Username::parse(username).expect("valid username"),
                 email: None,
                 display_name: username.to_owned(),
                 password_hash: hash_password(&password).expect("hash").as_str().to_owned(),
@@ -222,24 +223,24 @@ pub async fn seed_user(
             },
         )
         .await
-        .expect("creazione utente")
+        .expect("create user")
         .id
 }
 
-/// Procura un database vergine.
+/// Provisions a fresh database.
 ///
-/// Percorso predefinito: **un** container `keeppix-db:dev` (`Dockerfile.db`:
-/// `PostGIS` + pgvector) per processo, e un `CREATE DATABASE` per test. Il boot
-/// del container è la parte lenta; condividerlo è il checkpoint prestazioni
-/// della 1a. Fase 7 Task 4: lo schema AI usa il tipo `vector`, quindi i test
-/// di questo crate girano sull'immagine bundled.
+/// Default path: **one** `keeppix-db:dev` container (`Dockerfile.db`:
+/// `PostGIS` + pgvector) per process, and a `CREATE DATABASE` per test. The
+/// container boot is the slow part; sharing it was the main performance
+/// win. The AI schema uses the `vector` type, so this crate's tests run on
+/// the bundled image.
 ///
-/// Se `KEEPPIX_TEST_DATABASE_URL` è impostata **e** quel server offre
-/// `vector` in `pg_available_extensions`, si usa quel server. Altrimenti si
-/// ricade su `keeppix-db:dev` (un URL senza pgvector farebbe no-op dello
-/// schema AI e i test di colonna mentirebbero).
+/// If `KEEPPIX_TEST_DATABASE_URL` is set **and** that server offers
+/// `vector` in `pg_available_extensions`, that server is used. Otherwise it
+/// falls back to `keeppix-db:dev` (a URL without pgvector would make the
+/// AI schema a no-op and its column tests would lie).
 ///
-/// Il percorso degradato (senza pacchetto pgvector) resta in
+/// The degraded path (without the pgvector extension) stays in
 /// [`TestDb::start_postgis_only`].
 #[allow(clippy::expect_used)]
 async fn provision() -> ProvisionedDb {
@@ -257,8 +258,8 @@ async fn provision() -> ProvisionedDb {
                 .start()
                 .await
                 .expect(
-                    "avvio del container Postgres (keeppix-db:dev); \
-                     costruiscilo con: docker build -f Dockerfile.db -t keeppix-db:dev .",
+                    "start the Postgres container (keeppix-db:dev); \
+                     build it with: docker build -f Dockerfile.db -t keeppix-db:dev .",
                 );
             let port = mapped_port(&container).await;
             let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
@@ -269,7 +270,7 @@ async fn provision() -> ProvisionedDb {
     named_database(admin_url).await
 }
 
-/// `true` se il server espone l'estensione `vector` (pacchetto installato).
+/// `true` if the server exposes the `vector` extension (package installed).
 #[allow(clippy::expect_used)]
 async fn server_offers_vector(server_url: &str) -> bool {
     let Ok(mut conn) = PgConnection::connect(server_url).await else {
@@ -285,8 +286,8 @@ async fn server_offers_vector(server_url: &str) -> bool {
     offered
 }
 
-/// Docker Desktop a volte espone la porta un attimo dopo `start()`. Senza
-/// retry, `PortNotExposed` fa fallire 1-3 test a caso in locale.
+/// Docker Desktop sometimes exposes the port a moment after `start()`.
+/// Without retries, `PortNotExposed` makes 1-3 random tests fail locally.
 #[allow(clippy::expect_used)]
 async fn mapped_port(container: &ContainerAsync<Postgres>) -> u16 {
     let mut delay = Duration::from_millis(50);
@@ -297,10 +298,10 @@ async fn mapped_port(container: &ContainerAsync<Postgres>) -> u16 {
                 tokio::time::sleep(delay).await;
                 delay = (delay * 2).min(Duration::from_secs(2));
             }
-            Err(err) => panic!("porta mappata dopo {attempt} tentativi: {err}"),
+            Err(err) => panic!("port mapping failed after {attempt} attempts: {err}"),
         }
     }
-    unreachable!("il ciclo sopra termina sempre")
+    unreachable!("the loop above always returns")
 }
 
 struct ProvisionedDb {
@@ -314,11 +315,11 @@ async fn named_database(server_url: &str) -> ProvisionedDb {
     let name = format!("keeppix_test_{}", uuid::Uuid::now_v7().simple());
     let mut admin = PgConnection::connect(server_url)
         .await
-        .expect("connessione al server Postgres");
+        .expect("connection to the Postgres server");
     sqlx::query(&format!("CREATE DATABASE \"{name}\""))
         .execute(&mut admin)
         .await
-        .expect("creazione del database di test");
+        .expect("create test database");
     admin.close().await.ok();
     ProvisionedDb {
         url: with_database(server_url, &name),
@@ -360,16 +361,16 @@ fn drop_test_database(admin_url: &str, name: &str) {
     .join();
 }
 
-/// Sostituisce il nome del database in un URL di connessione, conservando
-/// credenziali, host, porta e parametri di query.
+/// Replaces the database name in a connection URL, preserving credentials,
+/// host, port, and query parameters.
 fn with_database(server_url: &str, name: &str) -> String {
     let (base, query) = match server_url.split_once('?') {
         Some((base, query)) => (base, Some(query)),
         None => (server_url, None),
     };
 
-    // Il primo `/` dopo `scheme://` apre il nome del database; senza schema
-    // non c'è authority da saltare.
+    // The first `/` after `scheme://` opens the database name; with no
+    // scheme there is no authority to skip.
     let authority_start = base.find("://").map_or(0, |i| i + 3);
     let without_db = base[authority_start..]
         .find('/')
@@ -381,10 +382,10 @@ fn with_database(server_url: &str, name: &str) -> String {
     }
 }
 
-/// Questi test girano in ogni binario di integrazione di questo crate: il
-/// modulo `harness` è incluso da ciascuno. È chirurgia su stringhe, cioè
-/// esattamente il posto dove un refuso passa inosservato finché non fa
-/// puntare i test al database sbagliato.
+/// These tests run in every integration binary of this crate: the
+/// `harness` module is included by each of them. This is string surgery,
+/// which is exactly the kind of place where a typo goes unnoticed until it
+/// points the tests at the wrong database.
 #[cfg(test)]
 mod tests {
     use super::with_database;

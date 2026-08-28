@@ -1,8 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-//! Task 12 measurements: trigram index usage and `FolderRepo::ensure_path` cost.
-//! These are observational — they print EXPLAIN / timings and assert only the
-//! properties that would regress if the migration or path logic broke.
+//! Performance measurements: trigram index usage and `FolderRepo::ensure_path`
+//! cost. These are observational — they print EXPLAIN / timings and assert
+//! only the properties that would regress if the migration or path logic
+//! broke.
 
 mod harness;
 
@@ -176,10 +177,10 @@ async fn ensure_path_cost_stays_acceptable_for_ingest_depths() {
 
 #[tokio::test]
 async fn status_not_trashed_filter_explain_is_acceptable_without_rewriting() {
-    // Spec §6.3 / Task 12: `status <> 'trashed'` does not match the partial
-    // `assets_status_idx` (discovered|error only) or `assets_timeline_idx`
-    // (status = indexed). Measure whether a rewrite to `status IN (...)` is
-    // worth the risk on a folder listing shaped like AssetRepo.
+    // `status <> 'trashed'` does not match the partial `assets_status_idx`
+    // (discovered|error only) or `assets_timeline_idx` (status = indexed).
+    // Measure whether a rewrite to `status IN (...)` is worth the risk on a
+    // folder listing shaped like AssetRepo.
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);

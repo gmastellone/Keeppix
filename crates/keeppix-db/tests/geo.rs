@@ -133,10 +133,10 @@ async fn map_clusters_reuse_folder_visibility_and_viewer_rating_for_cover() {
     assert!((rows[0].lat - 41.044_921_875).abs() < 1e-9);
 }
 
-/// Il popover del cluster (spec fase-10 §27) chiede l'id di destinazione e
-/// l'etichetta del luogo *della stessa copertina*: `folder_id` e
-/// `place_label` sono aggregati con lo stesso `array_agg`/`ORDER BY` di
-/// `cover_asset_id`, non presi da un asset qualunque del gruppo.
+/// The cluster popover needs the destination id and the place label *of
+/// that same cover asset*: `folder_id` and `place_label` are aggregated
+/// with the same `array_agg`/`ORDER BY` as `cover_asset_id`, not taken from
+/// an arbitrary asset in the group.
 #[tokio::test]
 async fn grid_cluster_carries_the_cover_assets_folder_and_place_not_a_sibling() {
     let test = TestDb::start().await;
@@ -192,9 +192,9 @@ async fn grid_cluster_carries_the_cover_assets_folder_and_place_not_a_sibling() 
         .execute(test.db().pool())
         .await
         .unwrap();
-    // `cover` vince la copertina per rating più alto, non per ordine di
-    // inserimento: se `folder_id`/`place_label` leggessero un asset a caso
-    // del gruppo invece della stessa copertina, questo test lo rivelerebbe.
+    // `cover` wins the cover slot by higher rating, not insertion order: if
+    // `folder_id`/`place_label` read from a random asset in the group
+    // instead of from the same cover asset, this test would catch it.
     sqlx::query(
         "INSERT INTO asset_flags (asset_id, user_id, rating, pick) \
          VALUES ($1, $3, 1, 'none'), ($2, $3, 5, 'none')",

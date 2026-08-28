@@ -22,9 +22,8 @@ async fn creating_an_operation_makes_the_caller_the_owner() {
     assert!(op.succeeded.is_empty());
 }
 
-/// Invariante di sicurezza: chi sonda un id di un'altra persona riceve
-/// `Forbidden`, mai `NotFound` — altrimenti l'endpoint diventa un oracolo
-/// di esistenza.
+/// Security invariant: probing someone else's id gets `Forbidden`, never
+/// `NotFound` — otherwise the endpoint becomes an existence oracle.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn a_different_user_cannot_see_someone_elses_operation() {
@@ -88,8 +87,8 @@ async fn recording_success_appends_ids_and_advances_done() {
     assert_eq!(seen.succeeded, vec![a, b]);
 }
 
-/// Fase 10 Task 21: la controparte a lotti di `record_success` — un solo
-/// giro di rete per il lotto invece di uno per asset.
+/// The batched counterpart to `record_success` — a single network round
+/// trip for the whole batch instead of one per asset.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn recording_success_many_appends_all_ids_and_advances_done_once() {
@@ -109,7 +108,7 @@ async fn recording_success_many_appends_all_ids_and_advances_done_once() {
     assert_eq!(seen.succeeded, vec![a, b, c]);
 }
 
-/// Un lotto vuoto non deve toccare `done`/`succeeded_asset_ids`.
+/// An empty batch must not touch `done`/`succeeded_asset_ids`.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn recording_success_many_with_an_empty_batch_is_a_no_op() {
@@ -163,9 +162,9 @@ async fn request_cancel_by_the_owner_sets_the_flag() {
     assert!(repo.is_cancel_requested(op.id).await.unwrap());
 }
 
-/// Task 16, Ruling: annullare a metà produce una riuscita parziale, non un
-/// rollback. Chiudere l'operazione come `Cancelled` non deve svuotare ciò
-/// che era già stato registrato come riuscito.
+/// Cancelling midway produces a partial success, not a rollback. Closing
+/// the operation as `Cancelled` must not clear out what had already been
+/// recorded as successful.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn finishing_as_cancelled_keeps_the_partial_outcome() {
@@ -201,9 +200,9 @@ async fn finish_done_marks_the_operation_complete() {
     assert_eq!(seen.status, OperationStatus::Done);
 }
 
-/// Una volta terminata (fatta o annullata), l'operazione non deve più
-/// avanzare: il worker si è già fermato, ma un late-write vagante non deve
-/// riaprire uno stato concluso.
+/// Once terminal (done or cancelled), an operation must not advance any
+/// further: the worker has already stopped, but a stray late write must
+/// not reopen a concluded state.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn a_terminal_operation_does_not_advance_further() {
@@ -217,7 +216,10 @@ async fn a_terminal_operation_does_not_advance_further() {
     repo.record_success(op.id, AssetId::new()).await.unwrap();
 
     let seen = repo.find(&ctx, op.id).await.unwrap();
-    assert_eq!(seen.done, 0, "un'operazione conclusa non deve più avanzare");
+    assert_eq!(
+        seen.done, 0,
+        "a terminal operation must not advance any further"
+    );
 }
 
 #[tokio::test]

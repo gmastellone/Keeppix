@@ -110,8 +110,8 @@ async fn reading_someone_elses_library_is_forbidden_not_not_found() {
         .unwrap();
 
     let mario_ctx = AuthContext::user(mario, SystemRole::User);
-    // Deve essere Forbidden, non NotFound: altrimenti sondando gli id si
-    // scoprirebbe quali librerie esistono.
+    // Must be Forbidden, not NotFound: otherwise probing ids would reveal
+    // which libraries exist.
     assert!(matches!(
         repo.find_by_id(&mario_ctx, mine.id).await,
         Err(DbError::Forbidden)
@@ -132,7 +132,7 @@ async fn probing_an_unknown_library_id_is_also_forbidden() {
 
     assert!(
         matches!(probe, Err(DbError::Forbidden)),
-        "nessun oracolo di esistenza"
+        "not an existence oracle"
     );
 }
 

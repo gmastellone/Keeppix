@@ -150,7 +150,7 @@ async fn timeline_page_omits_unknown_assets() {
     assert!(ids.contains(&visible.id));
     assert!(
         !ids.contains(&hidden.id),
-        "un asset unknown non è una foto da mostrare (D3)"
+        "an unknown-kind asset is not a photo to display"
     );
 }
 
@@ -188,8 +188,8 @@ async fn geometry_orders_records_like_the_timeline_and_encodes_nulls_as_none() {
         .await
         .unwrap();
 
-    // Un asset indicizzato ma senza width/height nota (fase di sizing non
-    // ancora passata): deve comparire con None, non essere escluso.
+    // An indexed asset with no known width/height (sizing hasn't run yet):
+    // must show up as None, not be excluded.
     let unsized_asset = assets
         .upsert_discovered(photo(folder, "unsized.jpg"))
         .await
@@ -270,12 +270,11 @@ async fn geometry_matches_bucket_counts() {
     assert_eq!(stamp.last_modified, geometry.last_modified);
 }
 
-/// Task 4-bis (Fase 10 §5bis, la contingenza mai portata avanti in Fase 11):
-/// una vista a schermo freddo chiede solo i primi scatti, non l'intera
-/// geometria, per non far aspettare un client su rete lenta. Verifica sia
-/// che la paginazione funzioni sia che sia **equivalente** alla vista
-/// intera, non solo "non vuota": concatenando le pagine si deve ottenere
-/// esattamente lo stesso `Vec` di `geometry(..., None)`, stesso ordine.
+/// A cold-screen view requests only the first shots, not the entire
+/// geometry, so a client on a slow network doesn't have to wait. Verifies
+/// both that pagination works and that it's **equivalent** to the whole
+/// view, not just "non-empty": concatenating the pages must produce
+/// exactly the same `Vec` as `geometry(..., None)`, same order.
 #[tokio::test]
 async fn geometry_pages_match_the_whole_view_concatenated() {
     let test = TestDb::start().await;
@@ -283,8 +282,8 @@ async fn geometry_pages_match_the_whole_view_concatenated() {
     let assets = AssetRepo::new(test.db());
     let ctx = AuthContext::user(admin, SystemRole::Admin);
 
-    // 7 scatti, tutti in mesi diversi così l'ordine è inequivocabile anche
-    // solo sul timestamp (nessun pareggio da risolvere sull'id).
+    // 7 shots, all in different months so the order is unambiguous from
+    // the timestamp alone (no tie to break on the id).
     for month in 1_u32..=7 {
         let asset = assets
             .upsert_discovered(photo(folder, &format!("p{month}.jpg")))
@@ -307,7 +306,7 @@ async fn geometry_pages_match_the_whole_view_concatenated() {
     assert_eq!(whole.records.len(), 7);
     assert!(
         whole.next_cursor.is_none(),
-        "la vista intera non pagina, non porta un cursore"
+        "the whole view doesn't paginate, it carries no cursor"
     );
 
     let mut paged = Vec::new();
@@ -317,7 +316,7 @@ async fn geometry_pages_match_the_whole_view_concatenated() {
         page_count += 1;
         assert!(
             page_count <= 10,
-            "la paginazione non converge, possibile ciclo"
+            "pagination is not converging, possible loop"
         );
         let page = repo
             .geometry(
@@ -329,7 +328,7 @@ async fn geometry_pages_match_the_whole_view_concatenated() {
             .unwrap();
         assert!(
             page.records.len() <= 3,
-            "una pagina non deve mai superare il limit richiesto"
+            "a page must never exceed the requested limit"
         );
         paged.extend(page.records.iter().copied());
         match page.next_cursor {
@@ -340,7 +339,7 @@ async fn geometry_pages_match_the_whole_view_concatenated() {
     assert_eq!(page_count, 3, "7 record a limit=3 sono tre pagine: 3+3+1");
     assert_eq!(
         paged, whole.records,
-        "le pagine concatenate devono combaciare byte per byte con la vista intera, stesso ordine"
+        "the concatenated pages must match the whole view byte for byte, same order"
     );
 }
 
@@ -397,7 +396,7 @@ async fn geometry_omits_unknown_kind_assets_when_filtering_by_bbox() {
     assert_eq!(
         geometry.records.len(),
         1,
-        "l'asset unknown non è una foto da mostrare, come nella pagina (D3)"
+        "an unknown-kind asset is not a photo to display, same as in the page"
     );
 }
 
@@ -428,13 +427,13 @@ async fn geometry_omits_unknown_kind_assets_without_a_bbox_filter() {
     assert_eq!(
         geometry.records.len(),
         1,
-        "un asset unknown non è una foto da mostrare, come nella pagina (D3), \
-         anche nel percorso senza bbox"
+        "an unknown-kind asset is not a photo to display, same as in the page, \
+         even on the path without a bbox"
     );
 }
 
-/// Semina una pila RAW+JPEG (stesso basename) nella cartella data, la
-/// raggruppa e restituisce (id del RAW/primario, id del JPEG/secondario).
+/// Seeds a RAW+JPEG stack (same base name) in the given folder, groups it,
+/// and returns (RAW/primary id, JPEG/secondary id).
 async fn seed_stacked_pair(
     test: &TestDb,
     folder: keeppix_domain::FolderId,

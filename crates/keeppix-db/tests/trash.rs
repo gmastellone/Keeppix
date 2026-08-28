@@ -11,9 +11,8 @@ use keeppix_domain::{
     NewLibrary, SystemRole, UserId,
 };
 
-/// Una radice di libreria vera sul filesystem, non `/mnt/foto`: il cestino
-/// fa `rename()` per davvero, quindi serve un percorso su cui si possa
-/// scrivere.
+/// A real library root on the filesystem, not `/mnt/foto`: the trash does
+/// a real `rename()`, so it needs a path it can actually write to.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 fn temp_library_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!(
@@ -21,10 +20,10 @@ fn temp_library_root() -> PathBuf {
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("orologio di sistema")
+            .expect("system clock")
             .as_nanos()
     ));
-    fs::create_dir_all(&root).expect("creazione della radice di test");
+    fs::create_dir_all(&root).expect("create test root");
     root
 }
 
@@ -41,7 +40,7 @@ async fn seed_library(test: &TestDb, owner: UserId, root: &Path) -> LibraryId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -49,7 +48,7 @@ async fn seed_library(test: &TestDb, owner: UserId, root: &Path) -> LibraryId {
 fn discovered(folder: FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 9,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: None,
@@ -76,8 +75,8 @@ async fn moving_to_trash_is_a_rename_that_keeps_the_inode() {
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `ensure_path` crea solo le righe di dominio: la cartella vera sul
-    // disco, dove i test scrivono file reali, va creata a mano.
+    // `ensure_path` only creates the domain rows: the real folder on disk,
+    // where the tests write real files, has to be created by hand.
     fs::create_dir_all(root.join("2024")).unwrap();
     let original = root.join("2024").join("foto.jpg");
     fs::write(&original, b"contenuto").unwrap();
@@ -97,26 +96,26 @@ async fn moving_to_trash_is_a_rename_that_keeps_the_inode() {
 
     assert!(
         !original.exists(),
-        "il file non deve più stare al percorso originale"
+        "the file must no longer be at the original path"
     );
-    let trash_path = PathBuf::from(entry.trash_path.expect("trash_path per moved_to_trash"));
-    assert!(trash_path.is_file(), "il file deve esistere nel cestino");
+    let trash_path = PathBuf::from(entry.trash_path.expect("trash_path for moved_to_trash"));
+    assert!(trash_path.is_file(), "the file must exist in the trash");
     assert!(
         trash_path.starts_with(root.join(TRASH_DIR_NAME)),
-        "il cestino deve stare dentro .keeppix-trash della stessa libreria: {}",
+        "the trash must live inside .keeppix-trash of the same library: {}",
         trash_path.display()
     );
     assert_eq!(
         fs::read(&trash_path).unwrap(),
         b"contenuto",
-        "rename(), non copia: il contenuto è lo stesso file"
+        "rename(), not a copy: it's the same file's content"
     );
 
     #[cfg(unix)]
     assert_eq!(
         inode_before,
         inode_of(&trash_path),
-        "rename() sullo stesso filesystem non cambia l'inode"
+        "rename() on the same filesystem doesn't change the inode"
     );
 
     let after = AssetRepo::new(test.db())
@@ -140,8 +139,8 @@ async fn kept_removes_the_asset_from_the_index_but_leaves_the_file() {
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `ensure_path` crea solo le righe di dominio: la cartella vera sul
-    // disco, dove i test scrivono file reali, va creata a mano.
+    // `ensure_path` only creates the domain rows: the real folder on disk,
+    // where the tests write real files, has to be created by hand.
     fs::create_dir_all(root.join("2024")).unwrap();
     let original = root.join("2024").join("foto.jpg");
     fs::write(&original, b"contenuto").unwrap();
@@ -156,13 +155,13 @@ async fn kept_removes_the_asset_from_the_index_but_leaves_the_file() {
         .await
         .unwrap();
 
-    assert!(original.is_file(), "il file resta sul disco");
+    assert!(original.is_file(), "the file remains on disk");
     assert!(
         matches!(
             AssetRepo::new(test.db()).find_by_id(&ctx, asset.id).await,
             Err(DbError::NotFound)
         ),
-        "l'asset è sparito dall'indice"
+        "the asset is gone from the index"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -180,8 +179,8 @@ async fn purged_deletes_the_file_and_the_row() {
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `ensure_path` crea solo le righe di dominio: la cartella vera sul
-    // disco, dove i test scrivono file reali, va creata a mano.
+    // `ensure_path` only creates the domain rows: the real folder on disk,
+    // where the tests write real files, has to be created by hand.
     fs::create_dir_all(root.join("2024")).unwrap();
     let original = root.join("2024").join("foto.jpg");
     fs::write(&original, b"contenuto").unwrap();
@@ -196,7 +195,7 @@ async fn purged_deletes_the_file_and_the_row() {
         .await
         .unwrap();
 
-    assert!(!original.exists(), "il file è cancellato dal disco");
+    assert!(!original.exists(), "the file is deleted from disk");
     assert!(matches!(
         AssetRepo::new(test.db()).find_by_id(&ctx, asset.id).await,
         Err(DbError::NotFound)
@@ -212,18 +211,18 @@ async fn only_owner_and_admin_can_purge_an_editor_gets_forbidden() {
     let admin = harness::seed_admin(&test).await;
     let mario = harness::seed_user(&test, admin, "mario").await;
     let root = temp_library_root();
-    // La libreria è dell'admin: mario non ne è proprietario né admin — la
-    // controparte più vicina a un "editor" che questa fase conosca (spec §4.2:
-    // la condivisione arriva in Fase 3, ma il cancello su Purged deve valere
-    // già oggi per chi non possiede la libreria).
+    // The library belongs to admin: mario is neither its owner nor an
+    // admin — the closest available stand-in for an "editor" who doesn't
+    // own the library, so the gate on Purged can be exercised even without
+    // real sharing yet.
     let library = seed_library(&test, admin, &root).await;
     let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
     let folder = FolderRepo::new(test.db())
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `ensure_path` crea solo le righe di dominio: la cartella vera sul
-    // disco, dove i test scrivono file reali, va creata a mano.
+    // `ensure_path` only creates the domain rows: the real folder on disk,
+    // where the tests write real files, has to be created by hand.
     fs::create_dir_all(root.join("2024")).unwrap();
     let original = root.join("2024").join("foto.jpg");
     fs::write(&original, b"contenuto").unwrap();
@@ -233,12 +232,12 @@ async fn only_owner_and_admin_can_purge_an_editor_gets_forbidden() {
         .unwrap()
         .unwrap();
 
-    // Nota: mario non vede affatto questa libreria in questa fase (nessuna
-    // condivisione ancora), quindi anche `kept`/`moved_to_trash` gli sarebbero
-    // negati — coerente con "Forbidden sempre prima di ogni altro controllo".
-    // Qui si dà a mario l'unico modo di vederla oggi: renderlo admin sarebbe
-    // stato un aggiramento del test, quindi il caso di editor-senza-Purged
-    // si esercita direttamente sul cancello dedicato, non sulla visibilità.
+    // Note: mario cannot see this library at all (no sharing set up), so
+    // even `kept`/`moved_to_trash` would be denied to him too — consistent
+    // with "Forbidden always before any other check". Here mario is given
+    // the only way to see it available: making him admin would have been a
+    // way around the test, so the editor-without-Purged case is exercised
+    // directly against the dedicated gate, not against visibility.
     let mario_ctx = AuthContext::user(mario, SystemRole::User);
     assert!(matches!(
         TrashRepo::new(test.db())
@@ -247,7 +246,7 @@ async fn only_owner_and_admin_can_purge_an_editor_gets_forbidden() {
         Err(DbError::Forbidden)
     ));
 
-    // L'owner può.
+    // The owner can.
     TrashRepo::new(test.db())
         .choose(&admin_ctx, asset.id, DiskAction::Purged)
         .await
@@ -269,8 +268,8 @@ async fn restore_puts_the_file_back_and_marks_the_asset_indexed() {
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `ensure_path` crea solo le righe di dominio: la cartella vera sul
-    // disco, dove i test scrivono file reali, va creata a mano.
+    // `ensure_path` only creates the domain rows: the real folder on disk,
+    // where the tests write real files, has to be created by hand.
     fs::create_dir_all(root.join("2024")).unwrap();
     let original = root.join("2024").join("foto.jpg");
     fs::write(&original, b"contenuto").unwrap();
@@ -290,7 +289,7 @@ async fn restore_puts_the_file_back_and_marks_the_asset_indexed() {
         .await
         .unwrap();
 
-    assert!(original.is_file(), "il file torna al percorso originale");
+    assert!(original.is_file(), "the file returns to the original path");
     assert_eq!(fs::read(&original).unwrap(), b"contenuto");
     let after = AssetRepo::new(test.db())
         .find_by_id(&ctx, asset.id)
@@ -313,8 +312,8 @@ async fn restore_does_not_overwrite_a_file_that_now_occupies_the_original_path()
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `ensure_path` crea solo le righe di dominio: la cartella vera sul
-    // disco, dove i test scrivono file reali, va creata a mano.
+    // `ensure_path` only creates the domain rows: the real folder on disk,
+    // where the tests write real files, has to be created by hand.
     fs::create_dir_all(root.join("2024")).unwrap();
     let original = root.join("2024").join("foto.jpg");
     fs::write(&original, b"originale").unwrap();
@@ -329,8 +328,8 @@ async fn restore_does_not_overwrite_a_file_that_now_occupies_the_original_path()
         .unwrap();
     let trash_path = PathBuf::from(entry.trash_path.expect("trash_path"));
 
-    // Un altro file arriva a occupare il percorso originale — per esempio una
-    // nuova scansione, o un'altra applicazione.
+    // Another file comes to occupy the original path — for example a new
+    // scan, or another application.
     fs::write(&original, b"un file diverso, non toccare").unwrap();
 
     let result = TrashRepo::new(test.db()).restore(&ctx, asset.id).await;
@@ -339,11 +338,11 @@ async fn restore_does_not_overwrite_a_file_that_now_occupies_the_original_path()
     assert_eq!(
         fs::read(&original).unwrap(),
         b"un file diverso, non toccare",
-        "il ripristino non deve sovrascrivere il file che occupa il posto"
+        "restoring must not overwrite the file that occupies the spot"
     );
     assert!(
         trash_path.is_file(),
-        "il file cestinato resta nel cestino, non si perde"
+        "the trashed file remains in the trash, it isn't lost"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -361,8 +360,8 @@ async fn restoring_an_asset_that_is_not_in_the_trash_is_a_conflict() {
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `ensure_path` crea solo le righe di dominio: la cartella vera sul
-    // disco, dove i test scrivono file reali, va creata a mano.
+    // `ensure_path` only creates the domain rows: the real folder on disk,
+    // where the tests write real files, has to be created by hand.
     fs::create_dir_all(root.join("2024")).unwrap();
     let original = root.join("2024").join("foto.jpg");
     fs::write(&original, b"contenuto").unwrap();
@@ -390,11 +389,11 @@ async fn cleanup_expired_deletes_the_file_and_the_row_past_the_cutoff() {
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `ensure_path` crea solo le righe di dominio: la cartella vera sul
-    // disco, dove i test scrivono file reali, va creata a mano.
+    // `ensure_path` only creates the domain rows: the real folder on disk,
+    // where the tests write real files, has to be created by hand.
     fs::create_dir_all(root.join("2024")).unwrap();
 
-    // Un cestinamento vecchio di 40 giorni: deve essere pulito.
+    // A trash entry 40 days old: it must be cleaned up.
     let old_path = root.join("2024").join("old.jpg");
     fs::write(&old_path, b"vecchio").unwrap();
     let old_asset = AssetRepo::new(test.db())
@@ -412,7 +411,7 @@ async fn cleanup_expired_deletes_the_file_and_the_row_past_the_cutoff() {
         .await
         .unwrap();
 
-    // Un cestinamento recente: deve restare intatto.
+    // A recent trash entry: it must remain untouched.
     let recent_path = root.join("2024").join("recent.jpg");
     fs::write(&recent_path, b"recente").unwrap();
     let recent_asset = AssetRepo::new(test.db())
@@ -433,20 +432,20 @@ async fn cleanup_expired_deletes_the_file_and_the_row_past_the_cutoff() {
         .unwrap();
     assert_eq!(
         cleaned, 1,
-        "solo il cestinamento oltre i 30 giorni va pulito"
+        "only the entry past 30 days should be cleaned up"
     );
 
     let old_trash_path = PathBuf::from(old_entry.trash_path.unwrap());
     assert!(
         !old_trash_path.exists(),
-        "il file oltre i 30 giorni è cancellato dal cestino"
+        "the file past 30 days is deleted from the trash"
     );
     let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM trash_entries WHERE id = $1")
         .bind(old_entry.id.as_uuid())
         .fetch_one(test.db().pool())
         .await
         .unwrap();
-    assert_eq!(remaining, 0, "la riga di audit è rimossa dopo la pulizia");
+    assert_eq!(remaining, 0, "the audit row is removed after cleanup");
     let old_asset_row: i64 = sqlx::query_scalar("SELECT count(*) FROM assets WHERE id = $1")
         .bind(old_asset.id.as_uuid())
         .fetch_one(test.db().pool())
@@ -454,12 +453,12 @@ async fn cleanup_expired_deletes_the_file_and_the_row_past_the_cutoff() {
         .unwrap();
     assert_eq!(
         old_asset_row, 0,
-        "l'asset cestinato è rimosso dopo la pulizia"
+        "the trashed asset is removed after cleanup"
     );
 
     assert!(
         recent_trash_path.is_file(),
-        "il cestinamento recente non va toccato"
+        "the recent trash entry must not be touched"
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -477,8 +476,8 @@ async fn probing_someone_elses_asset_for_trash_is_forbidden() {
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `ensure_path` crea solo le righe di dominio: la cartella vera sul
-    // disco, dove i test scrivono file reali, va creata a mano.
+    // `ensure_path` only creates the domain rows: the real folder on disk,
+    // where the tests write real files, has to be created by hand.
     fs::create_dir_all(root.join("2024")).unwrap();
     fs::write(root.join("2024").join("foto.jpg"), b"contenuto").unwrap();
     let asset = AssetRepo::new(test.db())

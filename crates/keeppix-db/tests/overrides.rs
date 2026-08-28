@@ -23,7 +23,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
             },
         )
         .await
-        .expect("libreria")
+        .expect("library")
         .id
 }
 
@@ -31,7 +31,7 @@ async fn seed_library(test: &TestDb, owner: UserId) -> LibraryId {
 fn discovered(folder: keeppix_domain::FolderId, filename: &str) -> NewAsset {
     NewAsset {
         folder_id: folder,
-        filename: AssetName::parse(filename).expect("nome"),
+        filename: AssetName::parse(filename).expect("name"),
         size_bytes: 1000,
         mtime: Utc.with_ymd_and_hms(2024, 6, 1, 12, 0, 0).unwrap(),
         inode: Some(1),
@@ -39,8 +39,8 @@ fn discovered(folder: keeppix_domain::FolderId, filename: &str) -> NewAsset {
     }
 }
 
-/// Un asset indicizzato, con `taken_at_utc` noto: è l'"exif" con cui
-/// `effective()` fa `COALESCE`.
+/// An indexed asset with a known `taken_at_utc`: this is the "exif" that
+/// `effective()` `COALESCE`s against.
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 async fn seed_indexed_asset(
     test: &TestDb,
@@ -52,7 +52,7 @@ async fn seed_indexed_asset(
     let folder = FolderRepo::new(test.db())
         .ensure_path(library, &["2024"])
         .await
-        .expect("cartella");
+        .expect("folder");
     let repo = AssetRepo::new(test.db());
     let asset = repo
         .upsert_discovered(discovered(folder.id, filename))
@@ -61,7 +61,7 @@ async fn seed_indexed_asset(
         .unwrap();
     repo.set_indexed(asset.id, taken_at, 100, 100)
         .await
-        .expect("indicizzazione");
+        .expect("indexing");
     asset.id
 }
 
@@ -78,12 +78,12 @@ async fn effective_coalesces_override_and_exif_field_by_field() {
     let asset = seed_indexed_asset(&test, admin, "DSC_0001.ARW", exif_taken_at()).await;
     let repo = OverrideRepo::new(test.db());
 
-    // Nessun override ancora: effective == exif.
+    // No override yet: effective == exif.
     let before = repo.effective(&ctx, asset).await.unwrap();
     assert_eq!(before.title, None);
     assert_eq!(before.taken_at, Some(exif_taken_at()));
 
-    // Un override parziale tocca solo il titolo.
+    // A partial override touches only the title.
     repo.apply(
         &ctx,
         asset,
@@ -97,11 +97,11 @@ async fn effective_coalesces_override_and_exif_field_by_field() {
 
     let after = repo.effective(&ctx, asset).await.unwrap();
     assert_eq!(after.title, Some("Alba sul mare".to_owned()));
-    // Il campo non toccato dall'override resta quello dell'exif.
+    // The field the override didn't touch stays the exif's.
     assert_eq!(
         after.taken_at,
         Some(exif_taken_at()),
-        "un override parziale non deve azzerare i campi non toccati"
+        "a partial override must not clear fields it didn't touch"
     );
     assert_eq!(after.description, None);
 }
@@ -163,12 +163,12 @@ async fn effective_coalesces_location_and_place_id_from_the_asset() {
 
     let repo = OverrideRepo::new(test.db());
     let effective = repo.effective(&ctx, asset).await.unwrap();
-    let location = effective.location.expect("posizione dall'asset");
+    let location = effective.location.expect("position from the asset");
     assert!((location.lon - 12.5).abs() < 1e-9);
     assert!((location.lat - 41.9).abs() < 1e-9);
     assert_eq!(effective.place_id, Some(555));
 
-    // L'override sostituisce, senza toccare place_id.
+    // The override replaces the location without touching place_id.
     repo.apply(
         &ctx,
         asset,
@@ -183,33 +183,35 @@ async fn effective_coalesces_location_and_place_id_from_the_asset() {
     .await
     .unwrap();
     let after = repo.effective(&ctx, asset).await.unwrap();
-    let location = after.location.expect("posizione dall'override");
+    let location = after.location.expect("position from the override");
     assert!((location.lon - 9.0).abs() < 1e-9);
     assert!((location.lat - 45.0).abs() < 1e-9);
-    assert_eq!(after.place_id, Some(555), "place_id non era nell'override");
+    assert_eq!(
+        after.place_id,
+        Some(555),
+        "place_id was not in the override"
+    );
 }
 
-/// Task 4 (Fase 10), verifica richiesta dal piano: «nessuna posizione» è un
-/// **valore** che l'utente può scegliere esplicitamente («questa foto non ha
-/// un luogo, anche se l'exif ne indicherebbe uno»), non la semplice assenza
-/// di un override. `MetadataPatchRequest.location` porta già il tri-stato
-/// (`double_option`: assente / `Some(None)` azzera / `Some(Some(_))` imposta)
-/// fino a [`OverridePatch`]. Questo test verifica se quella scelta
-/// **sopravvive** alla lettura.
+/// "No location" is a **value** the user can explicitly choose ("this photo
+/// has no place, even though the exif would suggest one"), not simply the
+/// absence of an override. `MetadataPatchRequest.location` already carries
+/// the tri-state (`double_option`: absent / `Some(None)` clears /
+/// `Some(Some(_))` sets) all the way through to [`OverridePatch`]. This
+/// test checks whether that choice **survives** being read back.
 ///
-/// **Difetto confermato, deferito** (ledger Fase 10, Task 4): non
-/// sopravvive. `effective()` fa `COALESCE(o.location, a.location)`, e
-/// un override azzerato esplicitamente (`asset_overrides.location = NULL`,
-/// riga presente) produce lo stesso `NULL` di "nessuna riga di override
-/// ancora scritta" — `COALESCE` non li distingue, quindi la posizione exif
-/// dell'asset "vince" quando invece l'utente ha negato esplicitamente il
-/// luogo. Marcato `#[ignore]` (non `#[allow]` su un'asserzione sbagliata):
-/// il corpo del test resta il comportamento *corretto* che si vuole, così
-/// chi risolve il difetto lo riattiva togliendo l'attributo invece di
-/// scriverne un altro da zero.
+/// **Known, deferred defect**: it does not survive. `effective()` does
+/// `COALESCE(o.location, a.location)`, and an explicitly cleared override
+/// (`asset_overrides.location = NULL`, row present) produces the same
+/// `NULL` as "no override row written yet" — `COALESCE` can't tell them
+/// apart, so the asset's exif location "wins" even though the user
+/// explicitly denied the location. Marked `#[ignore]` (rather than
+/// `#[allow]` on a wrong assertion): the test body keeps the *correct*
+/// behavior we actually want, so whoever fixes the defect reactivates it
+/// by removing the attribute instead of writing another one from scratch.
 #[tokio::test]
-#[ignore = "difetto noto e deferito (ledger Fase 10 Task 4): l'azzeramento \
-            esplicito della posizione non vince ancora su COALESCE(override, exif)"]
+#[ignore = "known, deferred defect: explicitly clearing the location does not yet \
+            win over COALESCE(override, exif)"]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 async fn effective_location_after_an_explicit_clear_does_not_fall_back_to_the_exif_value() {
     let test = TestDb::start().await;
@@ -217,7 +219,7 @@ async fn effective_location_after_an_explicit_clear_does_not_fall_back_to_the_ex
     let ctx = AuthContext::user(admin, SystemRole::Admin);
     let asset = seed_indexed_asset(&test, admin, "DSC_0004.ARW", exif_taken_at()).await;
 
-    // L'asset ha una posizione dall'exif (GPS della fotocamera/telefono).
+    // The asset has a location from exif (GPS from the camera/phone).
     sqlx::query(
         "UPDATE assets SET location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography \
           WHERE id = $1",
@@ -231,9 +233,9 @@ async fn effective_location_after_an_explicit_clear_does_not_fall_back_to_the_ex
 
     let repo = OverrideRepo::new(test.db());
 
-    // L'utente imposta prima una posizione diversa, poi la nega
-    // esplicitamente: "questa foto non ha un luogo", non "non ho ancora
-    // detto nulla sul luogo di questa foto".
+    // The user first sets a different location, then explicitly denies it:
+    // "this photo has no place", not "I haven't said anything about this
+    // photo's place yet".
     repo.apply(
         &ctx,
         asset,
@@ -261,8 +263,8 @@ async fn effective_location_after_an_explicit_clear_does_not_fall_back_to_the_ex
     let effective = repo.effective(&ctx, asset).await.unwrap();
     assert_eq!(
         effective.location, None,
-        "l'azzeramento esplicito deve vincere sulla posizione exif dell'asset, \
-         non confondersi con \"nessun override mai scritto\""
+        "an explicit clear must win over the asset's exif location, \
+         not get confused with \"no override ever written\""
     );
 }
 
@@ -305,20 +307,20 @@ async fn apply_batch_on_many_assets_is_one_operation() {
     let elapsed = started.elapsed();
     assert!(
         elapsed.as_secs() < 5,
-        "500 asset in una transazione deve essere rapido, impiegati {elapsed:?}"
+        "500 assets in one transaction must be fast, took {elapsed:?}"
     );
 
-    // Non basta contare le righe con questo id: un'implementazione ingenua
-    // che registrasse un batch per asset userebbe comunque un id diverso da
-    // quello restituito. Il conteggio totale è ciò che smaschera 500 righe
-    // invece di una.
+    // Counting rows with this id is not enough: a naive implementation that
+    // recorded a batch per asset would still use a different id from the
+    // one returned. The total count is what exposes 500 rows instead of
+    // one.
     let total_batches: i64 = sqlx::query_scalar("SELECT count(*) FROM metadata_batches")
         .fetch_one(test.db().pool())
         .await
         .unwrap();
     assert_eq!(
         total_batches, 1,
-        "una sola riga di batch per l'intera operazione su 500 asset, non una per asset"
+        "a single batch row for the entire 500-asset operation, not one per asset"
     );
     let batch_exists: bool =
         sqlx::query_scalar("SELECT exists(SELECT 1 FROM metadata_batches WHERE id = $1)")
@@ -328,7 +330,7 @@ async fn apply_batch_on_many_assets_is_one_operation() {
             .unwrap();
     assert!(
         batch_exists,
-        "l'id restituito deve corrispondere alla riga scritta"
+        "the returned id must match the row that was written"
     );
 
     let touched: i64 = sqlx::query_scalar(
@@ -337,10 +339,7 @@ async fn apply_batch_on_many_assets_is_one_operation() {
     .fetch_one(test.db().pool())
     .await
     .unwrap();
-    assert_eq!(
-        touched, 500,
-        "tutti e 500 gli asset devono avere l'override"
-    );
+    assert_eq!(touched, 500, "all 500 assets must have the override");
 }
 
 #[tokio::test]
@@ -352,8 +351,8 @@ async fn undo_batch_restores_a_previous_value_that_was_null() {
     let asset = seed_indexed_asset(&test, admin, "DSC_0004.ARW", exif_taken_at()).await;
     let repo = OverrideRepo::new(test.db());
 
-    // Nessun override preesistente: il valore precedente del titolo è NULL,
-    // non una stringa vuota.
+    // No pre-existing override: the previous value of the title is NULL,
+    // not an empty string.
     let batch_id = repo
         .apply_batch(
             &ctx,
@@ -470,18 +469,19 @@ async fn undo_batch_restores_the_exact_previous_row() {
     assert_eq!(
         restored.description,
         Some("Descrizione originale".to_owned()),
-        "un campo non toccato dal secondo batch deve sopravvivere intatto"
+        "a field the second batch didn't touch must survive intact"
     );
 }
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn undo_batch_restores_a_null_field_on_a_row_that_already_existed() {
-    // Diverso da `undo_batch_restores_a_previous_value_that_was_null`: lì
-    // l'asset non aveva alcuna riga di override (ramo DELETE). Qui la riga
-    // esiste già (creata dal primo batch) e il secondo batch tocca un
-    // campo diverso: l'annullamento del secondo batch deve riportare quel
-    // campo a NULL passando per l'UPDATE, non per la DELETE.
+    // Different from `undo_batch_restores_a_previous_value_that_was_null`:
+    // there, the asset had no override row at all (the DELETE branch).
+    // Here the row already exists (created by the first batch) and the
+    // second batch touches a different field: undoing the second batch
+    // must bring that field back to NULL through the UPDATE branch, not
+    // the DELETE one.
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
@@ -517,7 +517,7 @@ async fn undo_batch_restores_a_null_field_on_a_row_that_already_existed() {
     assert_eq!(restored.title, Some("Titolo".to_owned()));
     assert_eq!(
         restored.description, None,
-        "la description non esisteva prima del secondo batch: l'annullamento su una riga già esistente deve tornare a NULL, non restare al valore appena scritto"
+        "the description didn't exist before the second batch: undoing on an already-existing row must go back to NULL, not stay at the just-written value"
     );
 }
 
@@ -545,7 +545,7 @@ async fn undoing_an_already_undone_batch_is_idempotent() {
     repo.undo_batch(&ctx, batch_id).await.unwrap();
     assert_eq!(repo.effective(&ctx, asset).await.unwrap().title, None);
 
-    // Un secondo override, indipendente dal batch annullato.
+    // A second override, independent of the undone batch.
     repo.apply(
         &ctx,
         asset,
@@ -557,12 +557,12 @@ async fn undoing_an_already_undone_batch_is_idempotent() {
     .await
     .unwrap();
 
-    // Riannullare lo stesso batch non deve toccare lo stato attuale.
+    // Undoing the same batch again must not touch the current state.
     repo.undo_batch(&ctx, batch_id).await.unwrap();
     assert_eq!(
         repo.effective(&ctx, asset).await.unwrap().title,
         Some("Seconda".to_owned()),
-        "un batch già annullato non deve rieseguire l'annullamento"
+        "an already-undone batch must not re-run the undo"
     );
 }
 
@@ -672,7 +672,7 @@ async fn pending_sidecars_only_lists_updates_not_yet_written() {
     let pending = repo.pending_sidecars(1000).await.unwrap();
     assert!(
         pending.contains(&asset),
-        "un override mai scritto è pendente"
+        "an override that was never written is pending"
     );
 
     sqlx::query("UPDATE asset_overrides SET xmp_written_at = updated_at WHERE asset_id = $1")
@@ -684,10 +684,10 @@ async fn pending_sidecars_only_lists_updates_not_yet_written() {
     let pending = repo.pending_sidecars(1000).await.unwrap();
     assert!(
         !pending.contains(&asset),
-        "xmp_written_at = updated_at significa già sincronizzato"
+        "xmp_written_at = updated_at means it's already synced"
     );
 
-    // Un nuovo tocco lo rimette in coda.
+    // A new change puts it back in the queue.
     repo.apply(
         &ctx,
         asset,
@@ -701,15 +701,14 @@ async fn pending_sidecars_only_lists_updates_not_yet_written() {
     let pending = repo.pending_sidecars(1000).await.unwrap();
     assert!(
         pending.contains(&asset),
-        "updated_at è tornato più recente di xmp_written_at"
+        "updated_at is now more recent than xmp_written_at"
     );
 }
 
-/// Il numero che il piano di Fase 2 chiede di misurare, non assumere
-/// (`docs/superpowers/plans/2026-08-15-keeppix-fase-2.md`, Task 8): 5.000
-/// asset, un solo `apply_batch`, sotto un secondo. Il seed usa un
-/// `INSERT` di massa diretto — non 5.000 round-trip di `upsert_discovered`
-/// — perché qui si misura `apply_batch`, non la preparazione dei dati.
+/// A number that must be measured, not assumed: 5,000 assets, a single
+/// `apply_batch`, under a second. The seed uses a direct bulk `INSERT` —
+/// not 5,000 round trips through `upsert_discovered` — because this
+/// measures `apply_batch`, not data preparation.
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn apply_batch_on_five_thousand_assets_stays_under_a_second() {
@@ -760,15 +759,14 @@ async fn apply_batch_on_five_thousand_assets_stays_under_a_second() {
         .unwrap();
     let elapsed = started.elapsed();
 
-    // MISURATO (vedi task-8-report.md per il numero effettivo, registrato
-    // dall'esecuzione con `--nocapture`): il piano chiede "sotto un
-    // secondo". Il limite qui è più permissivo per non rendere il test
-    // instabile su una macchina condivisa/lenta — la cifra vera è quella
-    // stampata, non questo limite.
-    eprintln!("apply_batch su {N} asset: {elapsed:?}");
+    // MEASURED (run with `--nocapture` to see the actual number): the
+    // target is "under a second". The assertion here is more lenient so
+    // the test doesn't become flaky on a shared/slow machine — the real
+    // figure is the one printed, not this limit.
+    eprintln!("apply_batch on {N} assets: {elapsed:?}");
     assert!(
         elapsed.as_secs() < 3,
-        "apply_batch su {N} asset deve restare vicino al secondo, impiegati {elapsed:?}"
+        "apply_batch on {N} assets must stay close to a second, took {elapsed:?}"
     );
 
     let touched: i64 = sqlx::query_scalar(
@@ -779,13 +777,12 @@ async fn apply_batch_on_five_thousand_assets_stays_under_a_second() {
     .unwrap();
     assert_eq!(touched, i64::try_from(N).unwrap());
 
-    // L'annullamento su 5.000 righe è la stessa transazione al contrario:
-    // deve restare rapido allo stesso modo, non degradare a un giro per
-    // asset.
+    // Undoing 5,000 rows is the same transaction in reverse: it must stay
+    // just as fast, not degrade into a round trip per asset.
     let undo_started = Instant::now();
     repo.undo_batch(&ctx, batch_id).await.unwrap();
     let undo_elapsed = undo_started.elapsed();
-    eprintln!("undo_batch su {N} asset: {undo_elapsed:?}");
+    eprintln!("undo_batch on {N} assets: {undo_elapsed:?}");
     assert!(undo_elapsed.as_secs() < 3);
 }
 
@@ -823,8 +820,8 @@ async fn shifting_taken_at_moves_every_asset_by_the_same_number_of_hours() {
         .unwrap();
     let repo = OverrideRepo::new(test.db());
 
-    // Un override preesistente su `a`: lo scostamento deve partire dal
-    // valore effettivo (`COALESCE(override, exif)`), non dall'exif grezzo.
+    // A pre-existing override on `a`: the shift must start from the
+    // effective value (`COALESCE(override, exif)`), not the raw exif.
     repo.apply(
         &ctx,
         a,
@@ -842,7 +839,7 @@ async fn shifting_taken_at_moves_every_asset_by_the_same_number_of_hours() {
     assert_eq!(
         after_a.taken_at,
         Some(exif_taken_at() + chrono::Duration::hours(4)),
-        "parte dal valore effettivo (exif+1h), non dall'exif grezzo"
+        "starts from the effective value (exif+1h), not the raw exif"
     );
     let after_b = repo.effective(&ctx, b).await.unwrap();
     assert_eq!(
@@ -870,7 +867,7 @@ async fn shifting_taken_at_accepts_a_negative_offset_and_is_undoable() {
     assert_eq!(
         repo.effective(&ctx, asset).await.unwrap().taken_at,
         Some(exif_taken_at()),
-        "l'annullamento di uno scostamento torna al valore di partenza"
+        "undoing a shift returns to the starting value"
     );
 }
 
@@ -885,7 +882,7 @@ async fn shifting_taken_at_on_an_asset_without_any_known_date_stays_unset() {
         .ensure_path(library, &["2024"])
         .await
         .unwrap();
-    // `discovered`, mai indicizzato: nessun `taken_at_utc`, nessun override.
+    // `discovered`, never indexed: no `taken_at_utc`, no override.
     let asset = AssetRepo::new(test.db())
         .upsert_discovered(discovered(folder.id, "DSC_0013.ARW"))
         .await
@@ -899,7 +896,7 @@ async fn shifting_taken_at_on_an_asset_without_any_known_date_stays_unset() {
     assert_eq!(
         repo.effective(&ctx, asset).await.unwrap().taken_at,
         None,
-        "uno scostamento non può inventare una data di partenza"
+        "a shift cannot invent a starting date"
     );
 }
 
@@ -924,18 +921,18 @@ async fn undo_is_refused_once_the_sidecar_reflects_this_batchs_values() {
         .await
         .unwrap();
 
-    // Il job `WriteSidecar` ha già portato questo valore sul file.
+    // The `WriteSidecar` job has already written this value to the file.
     repo.mark_sidecar_written(asset).await.unwrap();
 
     let result = repo.undo_batch(&ctx, batch_id).await;
     assert!(
         matches!(result, Err(DbError::Conflict(_))),
-        "una volta scritto il sidecar, l'annullamento non è più disponibile: {result:?}"
+        "once the sidecar has been written, undo is no longer available: {result:?}"
     );
     assert_eq!(
         repo.effective(&ctx, asset).await.unwrap().title,
         Some("Prima del viaggio".to_owned()),
-        "il rifiuto dell'annullamento non deve comunque toccare il valore corrente"
+        "refusing the undo must still not touch the current value"
     );
 }
 
@@ -958,8 +955,8 @@ async fn undo_still_works_when_the_sidecar_was_written_before_this_batch_was_app
     )
     .await
     .unwrap();
-    // Sincronizzato *prima* del secondo batch: il sidecar sul disco non
-    // riflette ancora il cambiamento che stiamo per annullare.
+    // Synced *before* the second batch: the sidecar on disk does not yet
+    // reflect the change we're about to undo.
     repo.mark_sidecar_written(asset).await.unwrap();
 
     let second_batch = repo
@@ -978,7 +975,7 @@ async fn undo_still_works_when_the_sidecar_was_written_before_this_batch_was_app
     assert_eq!(
         repo.effective(&ctx, asset).await.unwrap().title,
         Some("Titolo sincronizzato".to_owned()),
-        "il sidecar non ha mai visto il secondo batch: l'annullamento resta disponibile"
+        "the sidecar never saw the second batch: undo remains available"
     );
 }
 
