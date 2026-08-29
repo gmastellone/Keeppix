@@ -15,9 +15,9 @@ function installMatchMedia(initialMatches: boolean) {
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({
-      // Un vero `MediaQueryList` legge sempre lo stato corrente: il
-      // gestore di `sync()` in AppShell.vue non guarda l'evento, guarda
-      // `query.matches` — questo getter deve quindi restare "vivo".
+      // A real `MediaQueryList` always reads the current state: the
+      // `sync()` handler in AppShell.vue doesn't look at the event, it
+      // looks at `query.matches` — so this getter must stay "live".
       get matches() {
         return matches
       },

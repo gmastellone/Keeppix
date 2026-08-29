@@ -10,9 +10,9 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 let wrapper: VueWrapper | undefined
 
-// Stesso motivo di ConfirmDialog.spec.ts: `open` è una prop v-model
-// obbligatoria, serve un genitore reattivo vero che la riscriva in risposta
-// all'evento emesso, non solo una prop statica passata al montaggio.
+// Same reason as ConfirmDialog.spec.ts: `open` is a required v-model
+// prop, we need a real reactive parent that rewrites it in response to
+// the emitted event, not just a static prop passed at mount time.
 function mountHost() {
   const Host = defineComponent({
     components: { TheDeleteDialog: DeleteDialog },
@@ -28,10 +28,10 @@ function mountHost() {
 }
 
 describe('DeleteDialog', () => {
-  // Il `DialogPortal` di reka-ui teletrasporta sempre nel vero
-  // `document.body` — senza smontare esplicitamente, il markup di un test
-  // resta lì per il successivo, che rischia di trovare (e cliccare) il
-  // bottone del test sbagliato.
+  // reka-ui's `DialogPortal` always teleports into the real
+  // `document.body` — without explicitly unmounting, one test's markup
+  // stays there for the next one, which risks finding (and clicking) the
+  // wrong test's button.
   afterEach(() => {
     wrapper?.unmount()
     wrapper = undefined

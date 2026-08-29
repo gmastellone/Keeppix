@@ -1,36 +1,33 @@
 <script setup lang="ts">
-// SP-2 (documento funzionale §12, definizione canonica): la barra di
-// selezione multipla. Due pool paralleli e indipendenti alimentano
-// questo stesso componente (libreria e lotto di culling, vedi
-// stores/selection.ts) — qui non importa quale dei due: il componente
-// riceve solo un conteggio e un'etichetta, la separazione vera vive nello
-// store, non nella resa.
+// The multi-select bar. Two parallel, independent pools feed this same
+// component (library and culling batch, see stores/selection.ts) — it
+// doesn't matter here which of the two: the component just receives a
+// count and a label, the real separation lives in the store, not in the
+// rendering.
 //
-// Ambito volutamente limitato alla parte di sola presentazione che il
-// documento vincola: conteggio singolare/plurale corretto, "Seleziona
-// tutte" che **non cambia mai etichetta** anche quando in quel momento
-// deseleziona (§12.7 — nessuna logica di testo condizionale qui), e
-// l'annuncio per screen reader (`aria-live="polite" aria-atomic="true"`,
-// §12.2) — quest'ultimo garantito dal componente stesso, non lasciato al
-// chiamante da ricordare ogni volta.
+// Scope is deliberately limited to the presentation-only part the spec
+// constrains: correct singular/plural count, "Select all" that **never
+// changes label** even when it's currently deselecting (no conditional
+// text logic here), and the screen-reader announcement
+// (`aria-live="polite" aria-atomic="true"`) — the latter guaranteed by
+// the component itself, not left for every caller to remember.
 //
-// La barra vera e propria sparisce del tutto a zero selezionate ("a zero
-// la modalità si spegne da sola", §12.7) — ma il documento descrive la
-// regione d'annuncio come un nodo **a sé**, fuori schermo, non dentro
-// `.selection-bar`. Se la regione vivesse solo dentro il markup che
-// sparisce, l'annuncio "Selezione annullata" non potrebbe mai
-// scattare: la regione sparirebbe nello stesso istante in cui dovrebbe
-// annunciare. Per questo la radice del componente resta sempre montata
-// (il chiamante non deve mai `v-if`rla) e solo il contenuto visibile
-// della barra si nasconde internamente sotto `count`.
+// The visible bar disappears entirely at zero selected ("at zero the
+// mode turns itself off") — but the spec describes the announcement
+// region as its **own** node, off-screen, not nested inside
+// `.selection-bar`. If the region only lived inside the markup that
+// disappears, the "Selection cleared" announcement could never fire: the
+// region would vanish at the exact instant it should be announcing.
+// That's why the component root always stays mounted (the caller should
+// never `v-if` it) and only the bar's visible content hides itself
+// internally based on `count`.
 //
-// I pulsanti di azione restano fuori dal componente: la libreria ne ha
-// cinque (Preferiti/Album/Condividi/Modifica/Elimina, righe 2176-2182 del
-// mockup), il culling tre (Scelta/Scarta/Rinomina…, righe 5002-5004) —
-// icone ed etichette completamente diverse, e alcuni aprono dialog che
-// non esistono ancora come componenti condivisi (selettore album,
-// condivisione). Il chiamante li compone nello slot di default con
-// Tooltip+BusyButton, già costruiti in questo stesso Task.
+// Action buttons stay outside the component: the library needs five
+// (Favorite/Album/Share/Edit/Delete, per the mockup), culling needs
+// three (Pick/Reject/Rename…) — completely different icons and labels,
+// and some open dialogs that don't exist yet as shared components (album
+// picker, sharing). The caller composes them in the default slot with
+// Tooltip+BusyButton.
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()

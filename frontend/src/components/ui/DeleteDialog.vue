@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// SP-18: la scelta a tre vie per l'eliminazione (`openDeleteDialogGeneric`
-// nel prototipo, righe 4135-4164 di keeppix-mockup.html) — rimuovi
-// dall'indice, sposta nel cestino, elimina dal disco. Il fuoco iniziale va
-// sulla **prima** opzione, la meno distruttiva (rimuovi dall'indice): chi
-// preme Invio d'istinto fa la cosa innocua, non l'eliminazione definitiva
-// — l'altra delle due eccezioni deliberate che il piano chiede di
-// preservare, insieme a `ConfirmDialog`.
+// The three-way deletion choice (`openDeleteDialogGeneric` in the
+// prototype, lines 4135-4164 of keeppix-mockup.html) — remove from
+// index, move to trash, delete from disk. Initial focus goes to the
+// **first** option, the least destructive one (remove from index):
+// someone hitting Enter on instinct does the harmless thing, not the
+// permanent deletion — the other of the two deliberate exceptions we
+// want to preserve, alongside `ConfirmDialog`.
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

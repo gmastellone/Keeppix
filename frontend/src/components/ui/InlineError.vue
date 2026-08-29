@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// SP-28, forma "in riga": quando manca solo un pezzo e il resto della
-// pagina è arrivato (§68.3) — un riquadro orizzontale, non l'intera
-// vista, ma non silenzioso. Verificato contro `errorInlineHTML` del
-// prototipo (keeppix-mockup.html righe 3164-3173): icona "alert" 17px,
-// messaggio che cresce a riempire lo spazio, "Riprova" compatto fantasma
-// — nessuna icona di ricarica qui, solo testo, a differenza della forma
-// a piena vista.
+// The "inline" form of the error pattern: used when only one piece is
+// missing and the rest of the page loaded fine — a horizontal box, not
+// the whole view, but not silent either. Verified against the
+// prototype's `errorInlineHTML` (keeppix-mockup.html lines 3164-3173):
+// 17px "alert" icon, message that grows to fill the space, compact ghost
+// "Retry" button — no reload icon here, text only, unlike the full-view
+// form.
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 

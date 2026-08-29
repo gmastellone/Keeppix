@@ -1,18 +1,18 @@
 <script setup lang="ts">
-// SP-28 (documento funzionale, Parte X "Errore" — definizione canonica
-// §68), forma "a piena vista": quando è mancato il contenuto principale
-// della schermata. Verificato contro `errorStateHTML` del prototipo
-// (keeppix-mockup.html righe 3150-3163, icona "alert" 34px + titolo +
-// spiegazione + azione + dettaglio facoltativo) — le altre due forme di
-// SP-28 (in riga, messaggio temporaneo) sono componenti a sé
-// (`InlineError.vue`; il messaggio temporaneo è già `ToastHost`, Task 2).
+// The "full view" form of the error pattern: used when the screen's main
+// content is entirely missing. Verified against the prototype's
+// `errorStateHTML` (keeppix-mockup.html lines 3150-3163, 34px "alert"
+// icon + title + explanation + action + optional detail) — the other
+// two forms of the pattern (inline, transient message) are their own
+// components (`InlineError.vue`; the transient message is already
+// `ToastHost`).
 //
-// "Riprova" **non ha stato disabilitato** (§68.7, testuale: "riprovare è
-// sempre permesso") — a differenza di `BusyButton`, pensato apposta per
-// impedire il doppio invio su un'azione di massa. Qui è l'opposto:
-// un pulsante bloccato durante un ritentativo che si impalla
-// trasformerebbe l'errore in un vicolo cieco, la cosa che questo pattern
-// esiste per evitare. Per questo è un `<button>` semplice, non `BusyButton`.
+// "Retry" **has no disabled state** (spec: "retrying is always
+// permitted") — unlike `BusyButton`, which is specifically meant to
+// prevent double-submitting a bulk action. Here it's the opposite: a
+// button locked during a retry that hangs would turn the error into a
+// dead end, the exact thing this pattern exists to avoid. That's why
+// it's a plain `<button>`, not `BusyButton`.
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -20,8 +20,8 @@ import { canRetry, type ErrorNature } from '@/errors/classify'
 
 const props = defineProps<{
   nature: ErrorNature
-  /** Riga tecnica monospaziata facoltativa, per chi amministra il
-   * server (§68.3) — tipicamente `ApiProblem.detail`. */
+  /** Optional monospace technical line, for whoever administers the
+   * server — typically `ApiProblem.detail`. */
   technicalDetail?: string
 }>()
 

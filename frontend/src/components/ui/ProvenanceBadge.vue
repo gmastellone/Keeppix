@@ -1,18 +1,15 @@
 <script setup lang="ts">
-// SP-12: la provenienza automatica vs umana (documento funzionale,
-// definizione canonica §59 — "un'etichetta proposta dal riconoscimento e
-// una messa da una persona non sono mai indistinguibili nell'interfaccia,
-// in nessun punto"). Il marcatore reale (`.lb-tag-chip` attenuata, righe
-// 8729-8734 del documento funzionale): un piccolo "IA" (9px, peso 700,
-// opacità .8) con un titolo che spiega cosa significa. Visibile per
-// qualunque assegnazione ancora di origine `ai` — `confirmed`+`ai` o
-// `suggested`+`ai`, il documento tratta entrambe come "non ancora una
-// firma umana". L'unico stato che non lo mostra è `confirmed`+`human`:
-// qui la decisione è dentro il componente, non lasciata al chiamante da
-// ricordare ogni volta — è il modo in cui "mai indistinguibili, in nessun
-// punto" resta vero anche quando questo badge finisce dentro componenti
-// che non esistono ancora (chip dei tag, riquadro del volto, miniatura
-// di Revisione).
+// Automatic vs. human provenance ("a label proposed by recognition and
+// one placed by a person must never be indistinguishable in the
+// interface, anywhere"). The actual marker (a muted `.lb-tag-chip`): a
+// small "AI" badge (9px, weight 700, .8 opacity) with a title explaining
+// what it means. Shown for any assignment still of `ai` origin —
+// `confirmed`+`ai` or `suggested`+`ai` are both treated as "not yet a
+// human signature". The only state that doesn't show it is
+// `confirmed`+`human`: the decision lives inside the component rather
+// than being left for every caller to remember — that's how "never
+// indistinguishable, anywhere" stays true even inside components that
+// don't exist yet (tag chips, the face tile, the Review thumbnail).
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()

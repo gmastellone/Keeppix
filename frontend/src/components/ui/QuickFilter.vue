@@ -1,19 +1,18 @@
 <script setup lang="ts">
-// SP-3 (documento funzionale §11, definizione canonica): il filtro
-// rapido a chip. Sopra `Popover.vue`, non una reimplementazione — apri/
-// chiudi per clic, click fuori chiude, Esc chiude, lo stesso contratto
-// già garantito da reka-ui per SP-14. Il pulsante a imbuto **non** ha
-// tooltip (§11.4: "a differenza di 'Seleziona tutto', il pulsante del
-// filtro non ha data-tip, ha solo aria-label") — nessun `Tooltip` qui,
-// a differenza di `SelectAllVisible`.
+// The quick chip filter. Built on top of `Popover.vue`, not a
+// reimplementation — open/close on click, click-outside closes, Esc
+// closes, the same contract reka-ui already guarantees for the popover.
+// The funnel button **has no** tooltip ("unlike 'Select all', the
+// filter button has no data-tip, only aria-label") — no `Tooltip` here,
+// unlike `SelectAllVisible`.
 //
-// Ambito dichiarato: il componente è **generico rispetto alle
-// dimensioni**. Le sei dimensioni reali del documento (Tipo/Persone/Tag/
-// Categorie/Fotocamera/Luogo, righe 1983-1992) dipendono da store che
-// non esistono ancora in questa sessione (persone, tag, fotocamere,
-// cartelle) — la schermata che le userà davvero le costruirà dalle
-// proprie fonti dati. La logica di combinazione OR-dentro/AND-fra
-// dimensioni vive già, pura e testata, in `design/quickFilter.ts`.
+// Declared scope: the component is **generic with respect to
+// dimensions**. The real dimensions used by the app (Type/People/Tags/
+// Categories/Camera/Location) depend on stores that don't exist yet in
+// this codebase (people, tags, cameras, folders) — the screen that
+// actually uses them will build them from its own data sources. The
+// OR-within/AND-across-dimensions combination logic already lives, pure
+// and tested, in `design/quickFilter.ts`.
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -44,8 +43,8 @@ const { t } = useI18n()
 const open = ref(false)
 const searchTerms = ref<Record<string, string>>({})
 
-// Somma dei valori scelti su tutte le dimensioni (§11.2), non il numero
-// di dimensioni attive: due tag e una fotocamera mostrano 3.
+// Sum of chosen values across all dimensions, not the number of active
+// dimensions: two tags and one camera show 3.
 const activeCount = computed(() =>
   Object.values(selection.value).reduce((sum, set) => sum + set.size, 0)
 )
@@ -67,18 +66,18 @@ function clearAll() {
   selection.value = cleared
 }
 
-// Solo Tag e Persone possono davvero crescere tanto da servirne uno
-// (§11.2, BROWSE_FILTER_SEARCH_THRESHOLD = 8) — non una soglia per
-// dimensione, la stessa per tutte.
+// Only Tags and People can realistically grow large enough to need one
+// (BROWSE_FILTER_SEARCH_THRESHOLD = 8) — not a per-dimension threshold,
+// the same one applies to all.
 const SEARCH_THRESHOLD = 8
 
 function needsSearch(dimension: QuickFilterDimension): boolean {
   return dimension.options.length > SEARCH_THRESHOLD
 }
 
-// "Le opzioni già selezionate restano sempre in cima e non vengono mai
-// filtrate via" (§11.3) — vale per il comportamento della ricerca:
-// senza un termine digitato l'ordine resta quello originale.
+// "Already-selected options always stay on top and are never filtered
+// away" — this applies to search behavior: with no term typed, the
+// original order is preserved.
 function visibleOptions(dimension: QuickFilterDimension): QuickFilterOption[] {
   const term = (searchTerms.value[dimension.id] ?? '').trim().toLowerCase()
   if (!term) return dimension.options

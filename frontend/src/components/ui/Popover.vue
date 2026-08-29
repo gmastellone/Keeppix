@@ -1,30 +1,29 @@
 <script setup lang="ts">
-// SP-14 (Fase 11 Task 2): popover condiviso su reka-ui — la seconda delle
-// due fondamenta su cui il piano chiede di costruire i ventiquattro dialog/
-// menu/popover del documento (l'altra è `Dialog.vue`). Copre i sei menu a
-// comparsa (account, "altre azioni" del lightbox, selettore rapido di
-// lotto, menu sul riquadro del volto, popover della mappa, picklist di
-// creazione album) più il selettore di persona/tag quando non serve un
-// dialog modale a schermo intero.
+// Shared popover built on reka-ui — one of the two building blocks the
+// rest of the app's dialogs/menus/popovers are built on (the other is
+// `Dialog.vue`). Covers the various popup menus (account menu, lightbox
+// "more actions", batch quick-selector, face-tile menu, map popover,
+// album-creation picklist) plus the person/tag picker when a full-screen
+// modal dialog isn't needed.
 //
-// Il prototipo qui chiude solo a metà (documento funzionale, SP-14: "click
-// fuori chiude, Esc chiude solo a metà"). `PopoverContent` di reka-ui
-// (sopra `DismissableLayer`) chiude su entrambi per conto proprio — nessun
-// gestore scritto qui — **e** quando due popover sono annidati solo quello
-// più in alto nello stack reagisce a Esc, perché ogni `DismissableLayer` si
-// registra nel proprio stack di livelli: "Esc a livelli" è comportamento
-// della libreria, non qualcosa da orchestrare a mano.
+// The prototype here only closed halfway ("click outside closes, Esc
+// only closes halfway"). reka-ui's `PopoverContent` (on top of
+// `DismissableLayer`) closes on both on its own — no handler written
+// here — **and** when two popovers are nested, only the one highest in
+// the stack reacts to Esc, because each `DismissableLayer` registers
+// itself in its own layer stack: "layered Esc" is library behavior, not
+// something to orchestrate by hand.
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 
 const open = defineModel<boolean>('open')
 
-// `escDismisses` (Fase 11 Task 17 4/N): il selettore rapido di lotto è
-// l'unico dei sei consumatori di questo componente che devia dalla regola
-// generale SP-14 sopra ("click fuori chiude, Esc chiude solo a metà") —
-// documento funzionale §16.5, "Esc non chiude questo pannello": nessuna
-// gestione dedicata nel gestore tastiera globale del culling. Non un
-// nuovo componente: un solo prop opzionale, di default `true` per non
-// toccare i cinque consumatori già esistenti.
+// `escDismisses`: the batch quick-selector is the one consumer of this
+// component that deviates from the general rule above ("click outside
+// closes, Esc only closes halfway") — its spec says "Esc does not close
+// this panel", since there's no dedicated handling in the culling flow's
+// global keyboard handler. Rather than a new component, this is a single
+// optional prop, defaulting to `true` so the other existing consumers
+// are unaffected.
 const props = withDefaults(
   defineProps<{
     side?: 'top' | 'right' | 'bottom' | 'left'

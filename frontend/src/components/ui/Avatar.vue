@@ -1,29 +1,28 @@
 <script setup lang="ts">
-// SP-16: l'avatar a iniziali (prototipo, `.avatar`, righe 220-229 di
-// keeppix-mockup.html). Il commento del prototipo — approvato da
-// "Giovanni", non un'omissione di contrasto — spiega la scelta: il testo
-// resta **sempre bianco**, mai `--color-accent-text` (scuro in tema
-// chiaro), perché le iniziali devono restare leggibili sopra qualunque
-// sfondo: il default arancione, un colore hash-based assegnato a un'altra
-// persona in condivisione, o un colore scelto dall'utente in Profilo.
-// Iniziali calcolate con lo stesso algoritmo del prototipo (riga 4373):
-// un carattere per parola del nome, non più di due, maiuscolo.
+// The initials avatar (prototype: `.avatar`, lines 220-229 of
+// keeppix-mockup.html). A deliberate choice, not a contrast oversight:
+// the text stays **always white**, never `--color-accent-text` (dark in
+// light theme), because the initials need to stay legible on top of any
+// background: the default orange, a hash-based color assigned to another
+// person in a share, or a color the user picked in Profile. Initials are
+// computed with the same algorithm as the prototype (line 4373): one
+// character per word of the name, at most two, uppercase.
 //
-// Il colore non è deciso qui: è una prop. Il componente garantisce che
-// la stessa coppia (nome, colore) renda sempre identica — "sincronizzato
-// ovunque" (nota vincolante del piano) è la responsabilità di chi legge
-// il colore da un'unica fonte (le preferenze dell'utente corrente, o
-// l'hash della persona) e lo passa qui, non qualcosa che un componente di
-// sola resa possa garantire da solo.
+// The color isn't decided here: it's a prop. The component guarantees
+// that the same (name, color) pair always renders identically —
+// "synchronized everywhere" is the responsibility of whoever reads the
+// color from a single source (the current user's preferences, or the
+// person's hash) and passes it in here, not something a pure-rendering
+// component can guarantee on its own.
 withDefaults(defineProps<{ name: string; color?: string | null; size?: 'sm' | 'lg' }>(), {
   color: null,
   size: 'sm'
 })
 
-// Le due sole dimensioni realmente usate nel prototipo: 28px/12px del
-// footer utente e della sidebar (`.avatar` CSS di base) e 56px/20px del
-// grande avatar in Profilo (riga 7187) — non un rapporto inventato fra
-// le due, che nel prototipo non è lineare.
+// The only two sizes actually used in the prototype: 28px/12px from the
+// user footer and sidebar (base `.avatar` CSS) and 56px/20px from the
+// large avatar in Profile (line 7187) — not an invented ratio between
+// the two, which isn't linear in the prototype.
 const DIMENSIONS = { sm: { box: 28, font: 12 }, lg: { box: 56, font: 20 } } as const
 
 function initials(name: string): string {

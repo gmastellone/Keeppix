@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// SP-25: il gruppo di navigazione a scomparsa della barra laterale
-// (prototipo, "Manutenzione" — keeppix-mockup.html righe 134-146,
-// 2485-2536). Si apre da solo quando la vista corrente è una delle sue
-// sotto-voci (`active`) e **non si chiude cliccando l'interruttore mentre
-// è così**: il prototipo lo calcola con `maintOpen = state.navMaintOpen ||
-// maintActive` — l'OR non è annullabile dal clic, che alterna solo il
-// proprio stato manuale (`navMaintOpen`), mai `maintActive`.
+// The sidebar's collapsible navigation group (prototype: "Maintenance"
+// — keeppix-mockup.html lines 134-146, 2485-2536). It opens on its own
+// when the current view is one of its sub-items (`active`) and **cannot
+// be closed by clicking the toggle while that's true**: the prototype
+// computes this as `maintOpen = state.navMaintOpen || maintActive` — the
+// OR can't be canceled by a click, which only toggles its own manual
+// state (`navMaintOpen`), never `maintActive`.
 import { computed, ref } from 'vue'
 
 const props = defineProps<{ label: string; active: boolean }>()

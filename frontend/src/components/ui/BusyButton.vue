@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// SP-30: il pulsante occupato (prototipo, `.btn.is-busy`/`setBtnBusy`,
-// righe 864-867 e 2638-2657 di keeppix-mockup.html). Serve a due cose
-// insieme — dire "sto lavorando" e impedire il doppio invio, che su
-// un'azione di massa è il modo più facile per duplicare un'operazione.
-// Distinto da `Button.vue` (la CTA primaria a piena larghezza dei flussi
-// di impostazione): questo è il `.btn` generico — variante, spesso
-// icon-only — usato dalla barra di selezione e dalle azioni di massa.
+// The busy button (prototype: `.btn.is-busy`/`setBtnBusy`, lines 864-867
+// and 2638-2657 of keeppix-mockup.html). Does two things at once — says
+// "I'm working" and prevents double-submission, which on a bulk action
+// is the easiest way to accidentally duplicate an operation. Distinct
+// from `Button.vue` (the full-width primary CTA used in setup flows):
+// this is the generic `.btn` — variant, often icon-only — used by the
+// selection bar and bulk actions.
 withDefaults(
   defineProps<{
     variant?: 'default' | 'primary' | 'danger' | 'ghost'
@@ -39,9 +39,10 @@ withDefaults(
       class="spinner"
       :class="[iconOnly ? '' : 'spinner-sm', variant === 'primary' && 'spinner-current']"
     />
-    <!-- Icon-only e occupato: lo spinner sostituisce l'icona (il prototipo
-         non affianca due indicatori nello spazio di un solo glifo).
-         Altrimenti l'etichetta resta, lo spinner le si affianca. -->
+    <!-- Icon-only and busy: the spinner replaces the icon (the prototype
+         never puts two indicators side by side in the space of one
+         glyph). Otherwise the label stays, and the spinner sits next to
+         it. -->
     <slot v-if="!(busy && iconOnly)" />
   </button>
 </template>

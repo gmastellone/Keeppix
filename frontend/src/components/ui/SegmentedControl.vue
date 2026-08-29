@@ -1,14 +1,13 @@
 <script setup lang="ts">
-// SP-24: il controllo a segmenti (prototipo, `.seg-control`/`.seg-option`
-// — es. righe 4441-4455 di keeppix-mockup.html — e `wireSegGroup`, riga
-// 4519). Un radiogroup di opzioni mutuamente esclusive. Il prototipo
-// gestisce solo clic/Invio/Spazio via `bindActivatable`: le frecce **non
-// ci sono**, nota vincolante esplicita del piano ("roving tabindex e
-// frecce, il prototipo non le ha") — qui sono un'aggiunta reale, non
-// solo trascritta. "Nei filtri della modifica in blocco include sempre
-// 'Non modificare'" è una regola per chi *chiama* questo componente
-// (l'opzione va nell'array `options` passato), non qualcosa che un
-// controllo generico può imporre da solo.
+// The segmented control (prototype: `.seg-control`/`.seg-option` — e.g.
+// lines 4441-4455 of keeppix-mockup.html — and `wireSegGroup`, line
+// 4519). A radiogroup of mutually exclusive options. The prototype only
+// handles click/Enter/Space via `bindActivatable`: arrow keys **are not
+// present there** — here they're a real addition, not just transcribed.
+// "Bulk-edit filters should always include 'Don't change'" is a rule for
+// whoever *calls* this component (that option goes into the `options`
+// array passed in), not something a generic control can enforce on its
+// own.
 import { ref } from 'vue'
 
 export interface SegmentedOption {

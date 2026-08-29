@@ -1,12 +1,11 @@
 <script setup lang="ts">
-// SP-5 ("stessa filosofia" del piano): conferma generica sì/no
-// (`openConfirmDialog` nel prototipo, righe 6361-6385 di
-// keeppix-mockup.html) — usata per un'azione distruttiva singola con una
-// sola alternativa netta (es. eliminare un gruppo). Sopra `Dialog.vue`, non
-// una reimplementazione: il fuoco iniziale va su "Annulla" tramite la sua
-// prop `initialFocus`, la stessa eccezione deliberata che il piano chiede
-// di preservare — chi preme Invio d'istinto non deve innescare l'azione
-// distruttiva.
+// Generic yes/no confirmation (`openConfirmDialog` in the prototype,
+// lines 6361-6385 of keeppix-mockup.html) — used for a single
+// destructive action with one clear-cut alternative (e.g. deleting a
+// group). Built on top of `Dialog.vue`, not a reimplementation: initial
+// focus goes to "Cancel" via its `initialFocus` prop, the same
+// deliberate exception this project wants preserved — someone hitting
+// Enter on instinct should not trigger the destructive action.
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

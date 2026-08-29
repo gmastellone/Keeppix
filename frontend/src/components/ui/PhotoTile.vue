@@ -1,15 +1,14 @@
 <script setup lang="ts">
-// SP-1 (documento funzionale §10, definizione canonica) + SP-15 (badge
-// del formato): il mattone di ogni vista a griglia (Foto, Preferiti,
-// Album, dettaglio Persona, risultati di Cerca). Tre stop di
-// tabulazione, in quest'ordine: apri → cerchietto di selezione →
-// cuoricino — l'ordine del DOM qui sotto è lo stesso ordine, non serve
-// alcun `tabindex` esplicito diverso da 0.
+// The building block of every grid view (Photos, Favorites, Albums,
+// Person detail, Search results), plus the format badge. Three tab
+// stops, in this order: open → selection circle → heart — the DOM order
+// below is that same order, so no explicit `tabindex` other than 0 is
+// needed.
 //
-// "Nient'altro" (§10.2): niente nome file, data, stelle, pick/scarta,
-// "in album" sulla tessera — quell'informazione vive solo nell'etichetta
-// accessibile e nel lightbox. Il componente non inventa markup visivo
-// in più di quello che il documento elenca.
+// "Nothing else": no filename, date, star rating, pick/reject, "in
+// album" on the tile itself — that information only lives in the
+// accessible label and in the lightbox. The component doesn't invent
+// visual markup beyond what the spec lists.
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -20,30 +19,28 @@ export type StackType = 'raw_jpeg' | 'raw_only' | 'jpeg'
 const props = withDefaults(
   defineProps<{
     thumbnailUrl: string
-    /** Fase 11 Task 4 (§66.9): l'anteprima sfocata da `thumbhash`, un data
-     * URL già in memoria — nessuna richiesta di rete. Dipinta subito,
-     * sotto la miniatura vera: non serve nasconderla esplicitamente al
-     * caricamento, un `<img>` opaco la copre da sola una volta arrivata. */
+    /** The blurred `thumbhash` preview, a data URL already in memory —
+     * no network request. Painted immediately, underneath the real
+     * thumbnail: no need to explicitly hide it on load, an opaque
+     * `<img>` covers it on its own once it arrives. */
     placeholderUrl?: string
     filename: string
-    /** Già formattata dal chiamante (es. "12 luglio 2026") — non
-     * l'anno fisso "2026" del prototipo, che è una costante di demo, non
-     * un formato da riprodurre su dati reali. */
+    /** Already formatted by the caller (e.g. "July 12, 2026") — not the
+     * fixed "2026" year from the prototype, which was a demo constant,
+     * not a format to reproduce on real data. */
     dateLabel: string
     isFavorite: boolean
     stackType: StackType
     selected: boolean
     selectionMode: boolean
-    /** Il tocco prolungato (§10.4, 500ms + vibrazione) è gestito qui,
-     * ma solo se il chiamante lo attiva: sapere se siamo su mobile è
-     * compito di `AppShell` (già costruito), non di questo componente
-     * che non deve reimplementare `matchMedia`. */
+    /** Long-press (500ms + vibration) is handled here, but only if the
+     * caller enables it: knowing whether we're on mobile is `AppShell`'s
+     * job, not this component's — it shouldn't reimplement `matchMedia`. */
     enableLongPress?: boolean
-    /** Fase 11 Task 5bis (tabella §5bis, "solo le tessere della prima
-     * schermata"): dice al browser cosa scaricare subito invece di
-     * lasciarglielo dedurre. Il chiamante decide quali tessere sono la
-     * prima schermata — questo componente non ha modo di saperlo da
-     * solo. */
+    /** Tells the browser what to download immediately instead of letting
+     * it guess ("only the tiles of the first screenful"). The caller
+     * decides which tiles make up the first screenful — this component
+     * has no way of knowing that on its own. */
     priority?: 'high' | 'auto'
   }>(),
   { enableLongPress: false, placeholderUrl: undefined, priority: 'auto' }
@@ -53,9 +50,10 @@ const emit = defineEmits<{ open: []; 'toggle-select': []; 'toggle-favorite': [] 
 
 const { t } = useI18n()
 
-// SP-15: "RAW" solo negativo, "RAW+JPEG" negativo e JPEG affiancati
-// come un unico scatto, nessun badge per il solo JPEG — stessa logica
-// di `rawBadgeLabel` nel prototipo (riga 4095), non un'invenzione.
+// "RAW" for RAW-only, "RAW+JPEG" when the negative and a JPEG are
+// paired as a single shot, no badge for JPEG-only — same logic as
+// `rawBadgeLabel` in the prototype (line 4095), not something invented
+// here.
 const rawBadgeLabel = computed(() => {
   if (props.stackType === 'raw_jpeg') return 'RAW+JPEG'
   if (props.stackType === 'raw_only') return 'RAW'

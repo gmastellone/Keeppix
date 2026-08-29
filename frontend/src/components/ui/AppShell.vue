@@ -1,22 +1,21 @@
 <script setup lang="ts">
-// SP-17 — ambito qui: **solo** il meccanismo di commutazione fra
-// impalcatura desktop e mobile. La barra a schede che instrada su
-// `state.view`, i titoli per vista, il badge culling e il menu account
-// (documento funzionale, sezione "Shell mobile") restano fuori: dipendono
-// dal router, che è il Task 3 — non ancora scritto. Cablarli ora vorrebbe
-// dire inventare convenzioni di instradamento che il router potrebbe poi
-// smentire. Questo componente espone solo gli slot che la shell reale
-// popolerà quando il router esisterà.
+// Scope here: **only** the switching mechanism between the desktop and
+// mobile scaffolding. The tab bar that routes on `state.view`, per-view
+// titles, the culling badge, and the account menu (see the "Mobile
+// shell" spec) stay out of scope: they depend on the router, which does
+// not exist yet. Wiring them up now would mean inventing routing
+// conventions that the router could later contradict. This component
+// only exposes the slots that the real shell will populate once the
+// router exists.
 //
-// Nota vincolante del piano: **"commuta per larghezza, non per
-// interruttore"**. Il prototipo usa `state.device`, un interruttore
-// manuale per la demo — `#app.device-mobile` è una classe statica, mai
-// legata a una larghezza reale del viewport. Qui invece un vero media
-// query. **Nessuna soglia numerica esiste** nel documento funzionale né
-// nel mockup (verificato: "sotto una certa larghezza", mai una cifra) —
-// 768px è il breakpoint `md` di Tailwind, già lo standard del progetto,
-// non un valore misurato sul prototipo. Debito dichiarato, non assunto
-// in silenzio.
+// Binding design note: **"switch by width, not by toggle."** The
+// prototype used `state.device`, a manual toggle for demos —
+// `#app.device-mobile` was a static class, never tied to actual viewport
+// width. Here we use a real media query instead. **No numeric threshold
+// is specified** anywhere in the spec or mockup (verified: "below a
+// certain width", never a figure) — 768px is Tailwind's `md` breakpoint,
+// already the project's standard, not a value measured from the
+// prototype. This is a declared assumption, not a silent one.
 import { useIsMobile } from '@/composables/useIsMobile'
 
 const { isMobile } = useIsMobile()
@@ -28,11 +27,11 @@ defineExpose({ isMobile })
   <div class="flex h-full">
     <template v-if="!isMobile">
       <slot name="sidebar" />
-      <!-- `relative`: ancora di posizionamento per il velo di rilascio del
-           sottosistema di caricamento (`UploadDropVeil.vue`, `position:
-           absolute; inset:0`) — copre topbar+contenuto, non la sidebar,
-           stessa area di `#dropOverlayHost` nel mockup (`.main`, righe
-           1433-1446 di keeppix-mockup.html). -->
+      <!-- `relative`: positioning anchor for the upload subsystem's drop
+           veil (`UploadDropVeil.vue`, `position: absolute; inset:0`) —
+           covers topbar+content, not the sidebar, same area as
+           `#dropOverlayHost` in the mockup (`.main`, lines 1433-1446 of
+           keeppix-mockup.html). -->
       <div class="relative flex min-w-0 flex-1 flex-col">
         <slot name="topbar" />
         <slot />

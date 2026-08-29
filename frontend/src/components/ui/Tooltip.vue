@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// SP-7 (Fase 11 Task 2): il tooltip generico dei pulsanti icon-only
-// (`[data-tip]` nel prototipo, keeppix-mockup.html righe 382-395). Decorativo,
-// non la fonte dell'accessibilità — quella resta l'`aria-label` sul controllo
-// reale dentro lo slot (commento del prototipo stesso, riga 1128:
-// "il significato lo porta il tooltip (desktop) + aria-label (sempre)").
-// Per questo la bolla è `aria-hidden`: uno screen reader non deve leggerla
-// due volte.
+// Generic tooltip for icon-only buttons (`[data-tip]` in the prototype,
+// keeppix-mockup.html lines 382-395). Decorative, not the source of
+// accessibility — that remains the `aria-label` on the real control
+// inside the slot (per the prototype's own comment, line 1128: "meaning
+// is carried by the tooltip (desktop) + aria-label (always)"). That's
+// why the bubble is `aria-hidden`: a screen reader must not read it
+// twice.
 defineProps<{ label: string }>()
 </script>
 
@@ -28,10 +28,10 @@ defineProps<{ label: string }>()
 </template>
 
 <style scoped>
-/* Il prototipo lo disattiva su una classe `device-mobile` calcolata a mano;
-   qui usiamo l'equivalente standard — nessun dispositivo touch-only supporta
-   un hover reale, è esattamente il criterio che il commento del prototipo
-   descrive ("niente hover sul touch, l'icona deve bastare da sola"). */
+/* The prototype disabled this on a hand-computed `device-mobile` class;
+   here we use the standard equivalent — no touch-only device supports a
+   real hover, which is exactly the criterion the prototype's comment
+   described ("no hover on touch, the icon has to stand on its own"). */
 @media not all and (hover: hover) and (pointer: fine) {
   .tooltip-bubble {
     display: none;

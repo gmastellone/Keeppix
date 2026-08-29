@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// SP-6/SP-28/SP-29 (Fase 11 Task 2): il pannello che ospita i toast di
-// `useToastStore` — un solo `<ToastHost />` montato una volta in `App.vue`,
-// mai uno per schermata. La logica di tempo (ritardo di comparsa,
-// ciclo di vita per natura, pausa sull'azione) vive nello store, non qui:
-// questo componente traduce lo stato in markup e intercetta hover/click.
+// The panel that hosts toasts from `useToastStore` — a single
+// `<ToastHost />` mounted once in `App.vue`, never one per screen. The
+// timing logic (appearance delay, per-kind lifetime, pause on hover)
+// lives in the store, not here: this component just translates state
+// into markup and intercepts hover/click.
 import { useToastStore } from '@/stores/toast'
 
 const store = useToastStore()

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// SP-5 (Fase 11 Task 2): dialog condiviso su reka-ui. Il prototipo qui ha
-// due difetti dichiarati (documento funzionale §"Attriti minori", 3.6): il
-// focus non è confinato e il click sul velo non chiude. Entrambi risolti
-// gratis usando `DialogContent`/`DialogOverlay` reali — reka-ui intrappola
-// il focus (variante modale, sempre attiva su `DialogContent`) e chiude su
-// click esterno/Esc per conto proprio (`DismissableLayer`), non codice
-// scritto qui.
+// Shared dialog built on reka-ui. The prototype had two known
+// shortcomings here ("Minor friction points" spec section): focus was
+// not trapped and clicking the overlay did not close it. Both are fixed
+// for free by using real `DialogContent`/`DialogOverlay` — reka-ui traps
+// focus (modal variant, always active on `DialogContent`) and closes on
+// outside click/Esc on its own (`DismissableLayer`), no code written
+// here.
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
 import { useI18n } from 'vue-i18n'
 
@@ -17,11 +17,11 @@ const props = defineProps<{
   title: string
   description?: string
   /**
-   * L'elemento su cui portare il focus all'apertura, al posto del primo
-   * elemento tabbable predefinito. Le due eccezioni deliberate che il piano
-   * chiede di **preservare**, non uniformare: nel dialog di eliminazione va
-   * sull'opzione meno distruttiva, in quello di conferma su "Annulla" — chi
-   * preme Invio d'istinto compie l'azione innocua.
+   * The element to move focus to on open, instead of the default first
+   * tabbable element. Two deliberate exceptions we want to **preserve**,
+   * not standardize away: in the delete dialog it goes to the
+   * least-destructive option, in the confirm dialog to "Cancel" —
+   * someone hitting Enter on instinct performs the harmless action.
    */
   initialFocus?: HTMLElement | null
 }>()

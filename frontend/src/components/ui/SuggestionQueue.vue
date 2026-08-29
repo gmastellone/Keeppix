@@ -1,13 +1,12 @@
 <script setup lang="ts">
-// SP-10 (documento funzionale §56, definizione canonica): un gruppo di
-// proposte IA per **un** tag o una persona, in attesa di conferma o
-// rifiuto — non applicate da sole. "Tag e volti, stessa forma" (nota
-// vincolante del piano): lo stesso componente serve entrambe le code di
-// Revisione. L'unica differenza reale fra i due domini è che i volti
-// hanno un terzo pulsante per miniatura ("Non è un volto", §56.6 —
-// fondo `--danger` pieno, non uno dei due normali) che i tag non hanno:
-// esposto qui come slot con ambito (`extra-actions`), non una prop
-// specifica per un dominio che l'altro non condivide.
+// A group of AI suggestions for **one** tag or person, awaiting
+// confirmation or rejection — never applied on their own. "Tags and
+// faces, same shape": the same component serves both Review queues. The
+// only real difference between the two domains is that faces have a
+// third per-thumbnail button ("Not a face" — solid `--danger` fill,
+// unlike the two normal buttons) that tags don't have: exposed here as a
+// scoped slot (`extra-actions`) rather than a prop specific to a domain
+// the other doesn't share.
 import { useI18n } from 'vue-i18n'
 
 export interface SuggestionThumbnail {
@@ -18,7 +17,7 @@ export interface SuggestionThumbnail {
 defineProps<{
   label: string
   count: number
-  /** Solo i tag hanno un pallino colore (§56.2); i volti no. */
+  /** Only tags have a color dot; faces don't. */
   color?: string
   thumbnails: SuggestionThumbnail[]
 }>()

@@ -1,17 +1,15 @@
 <script setup lang="ts">
-// SP-4 ("Seleziona tutto quello che vedi", documento funzionale,
-// definizione canonica): un comando icona nella toolbar delle viste a
-// griglia. Seleziona esattamente ciò che è visibile in quel momento —
-// se un filtro rapido o una ricerca sono attivi, solo ciò che ci ricade
-// dentro — mai l'intera libreria sottostante. Questo componente non sa
-// nulla di filtri o dati: il chiamante gli passa quanti elementi sono
-// visibili e ascolta l'evento; l'insieme vero e proprio da selezionare
-// va allo stesso `store.selection.*.selectAllVisible(visibleIds)` già
-// costruito per SP-2, che implementa la vera semantica di toggle.
+// "Select everything you see": an icon command in the grid views'
+// toolbar. Selects exactly what's currently visible — if a quick filter
+// or search is active, only what falls within it — never the entire
+// underlying library. This component knows nothing about filters or
+// data: the caller passes it how many items are visible and listens for
+// the event; the actual set to select goes through the same
+// `store.selection.*.selectAllVisible(visibleIds)` used by the selection
+// bar, which implements the real toggle semantics.
 //
-// "Scompare quando non c'è nulla, non si disabilita" (nota vincolante
-// del piano): nessuna variante disabilitata da disegnare — a zero
-// elementi visibili il componente semplicemente non si monta.
+// "Disappears when there's nothing, never disables": no disabled variant
+// to design — at zero visible items the component simply doesn't mount.
 import { useI18n } from 'vue-i18n'
 
 import Tooltip from './Tooltip.vue'

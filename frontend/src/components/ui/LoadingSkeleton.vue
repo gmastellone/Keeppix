@@ -1,16 +1,15 @@
 <script setup lang="ts">
-// SP-27: lo scheletro di caricamento (documento funzionale, principio 1 —
-// "il caricamento non è mai uno spinner al centro del vuoto: è uno
-// scheletro che ha già la FORMA del contenuto che sta arrivando"). Due usi
-// reali del prototipo (keeppix-mockup.html righe 3180-3207), non un
-// rettangolo grigio generico:
-// - `grid`: una griglia fotografica giustificata (`skelGridHTML`) — stessa
-//   impaginazione delle tessere vere (larghezza dal rapporto d'aspetto,
-//   altezza di riga comune), così quando le foto arrivano prendono il
-//   posto dello scheletro senza che nulla si sposti.
-// - `stream`: la timeline in caricamento (`streamSkeletonPlaceholderHTML`)
-//   — due mesi scheletro, non uno: il ritmo "titolo, griglia, titolo,
-//   griglia" è parte di ciò che si sta annunciando.
+// The loading skeleton (core principle: "loading is never a spinner in
+// the middle of emptiness: it's a skeleton that already has the SHAPE of
+// the content that's arriving"). Two real uses from the prototype
+// (keeppix-mockup.html lines 3180-3207), not a generic gray rectangle:
+// - `grid`: a justified photo grid (`skelGridHTML`) — same layout as the
+//   real tiles (width from aspect ratio, common row height), so when
+//   photos arrive they take the skeleton's place without anything
+//   shifting.
+// - `stream`: the loading timeline (`streamSkeletonPlaceholderHTML`) —
+//   two skeleton months, not one: the "title, grid, title, grid" rhythm
+//   is part of what's being announced.
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -24,9 +23,9 @@ withDefaults(
   { variant: 'grid', count: 24, rowHeight: 150 }
 )
 
-// Rapporti d'aspetto misurati sul prototipo (riga 3184), non inventati:
-// ciclici, non un solo valore ripetuto, perché una griglia scheletro fatta
-// di quadrati identici non assomiglia a una griglia fotografica vera.
+// Aspect ratios measured from the prototype (line 3184), not invented:
+// cyclical, not a single repeated value, because a skeleton grid made of
+// identical squares doesn't resemble a real photo grid.
 const SKEL_ASPECTS = [
   1.5, 0.67, 1.5, 1.33, 1.5, 0.75, 1.78, 1.5, 0.67, 1.5, 1.33, 1.5,
   1.5, 0.75, 1.5, 1.78, 1.33, 0.67, 1.5, 1.5, 1.33, 1.5, 0.75, 1.5
@@ -41,8 +40,8 @@ function tileStyle(index: number, rowHeight: number) {
   return { height: `${rowHeight}px`, flex: `${ar} 1 ${Math.round(ar * rowHeight)}px` }
 }
 
-// Stessa formula del prototipo (riga 3198): fra 8 e 16 tessere per mese,
-// proporzionata al conteggio approssimativo passato dal chiamante.
+// Same formula as the prototype (line 3198): between 8 and 16 tiles per
+// month, scaled to the approximate count passed by the caller.
 function perMonthCount(approxCount: number): number {
   return Math.max(8, Math.min(16, Math.round(approxCount / 2) || 12))
 }

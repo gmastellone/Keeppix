@@ -53,9 +53,10 @@ describe('Popover', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(document.body.textContent).toContain('Contenuto')
 
-    // `cancelable: true`: senza, `preventDefault()` dentro l'handler è un
-    // no-op per specifica DOM — `defaultPrevented` resterebbe sempre
-    // `false` e il test non distinguerebbe mai le due condizioni.
+    // `cancelable: true`: without it, `preventDefault()` inside the
+    // handler is a no-op per the DOM spec — `defaultPrevented` would
+    // always stay `false` and the test could never tell the two
+    // conditions apart.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
     await new Promise((resolve) => setTimeout(resolve, 0))
 

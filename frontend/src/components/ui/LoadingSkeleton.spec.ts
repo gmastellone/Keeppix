@@ -30,8 +30,8 @@ describe('LoadingSkeleton', () => {
     const status = wrapper.find('[role="status"]')
     expect(status.exists()).toBe(true)
     expect(status.attributes('aria-hidden')).toBeUndefined()
-    // Le griglie interne restano nascoste: l'unico annuncio è quello dello
-    // stato nel suo insieme, non tessera per tessera.
+    // The inner grids stay hidden: the only announcement is the status
+    // as a whole, not tile by tile.
     expect(wrapper.findAll('[aria-hidden="true"]')).toHaveLength(2)
   })
 })

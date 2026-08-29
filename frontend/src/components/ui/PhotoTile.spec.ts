@@ -105,7 +105,7 @@ describe('PhotoTile', () => {
       props: { ...BASE_PROPS, selectionMode: true },
       global: { plugins: [i18n] }
     })
-    // Solo due bottoni restano (apri, cerchietto): il cuoricino non è nel DOM.
+    // Only two buttons remain (open, selection circle): the heart isn't in the DOM.
     expect(selecting.findAll('button')).toHaveLength(2)
   })
 
@@ -128,7 +128,7 @@ describe('PhotoTile', () => {
 
     await openBtn.trigger('pointerdown')
     vi.advanceTimersByTime(500)
-    await openBtn.trigger('click') // il click sintetico dopo il rilascio
+    await openBtn.trigger('click') // the synthetic click that fires after release
 
     expect(wrapper.emitted('toggle-select')).toHaveLength(1)
     expect(wrapper.emitted('open')).toBeUndefined()
