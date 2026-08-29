@@ -1,17 +1,16 @@
 <script setup lang="ts">
-// Fase 11 Task 16 (2/N), §31.3 controlli 1 e 5: due dialog di testo del
-// documento condividono lo stesso form ("Nuovo gruppo"/"Rinomina
-// gruppo") — un solo componente, come `CategoryEditorDialog.vue` per i
-// tag. **Nessun controllo di duplicati qui**, a differenza dei tag: il
-// documento lo dice esplicitamente ("due gruppi con lo stesso nome sono
-// ammessi"), ma il backend reale applica `UNIQUE(name)` per davvero
-// (`PersonGroupRepo`, 409 Conflict) — un 409 diventa quindi un vero
-// errore sotto il campo, non la sola omonimia "ammessa" del mockup.
+// Two text dialogs share the same form ("New group"/"Rename group") — a
+// single component, like `CategoryEditorDialog.vue` for tags. **No
+// duplicate check here**, unlike tags: the mockup explicitly allows "two
+// groups with the same name", but the real backend applies `UNIQUE(name)`
+// for real (`PersonGroupRepo`, 409 Conflict) — a 409 therefore becomes a
+// real error under the field, not just the "allowed" duplicate name from
+// the prototype.
 //
-// **"Se lasciato vuoto: il dialog si chiude e non succede nulla"** (§31.3
-// controllo 1) — qui invece un nome vuoto mostra l'errore del campo
-// obbligatorio: chiudere senza feedback su un campo obbligatorio non è
-// un comportamento da riprodurre, stessa disciplina già applicata a
+// **"If left empty: the dialog closes and nothing happens"** in the
+// prototype — here instead an empty name shows the required-field error:
+// closing without feedback on a required field is not a behavior worth
+// reproducing, same discipline already applied to
 // `TagEditorDialog.vue`/`CategoryEditorDialog.vue`.
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

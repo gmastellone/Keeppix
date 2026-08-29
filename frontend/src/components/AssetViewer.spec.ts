@@ -23,15 +23,15 @@ vi.mock('@/api/culling', async (importOriginal) => ({
   deleteAsset: (...args: unknown[]) => deleteAssetMock(...args)
 }))
 
-// AlbumPickerDialog/RenameFormulaDialog restano montati (chiusi) sempre:
-// senza questi mock la loro `watch(open,...)` innocua a `open=false` non
-// scatterebbe, ma se un test li apre andrebbero al vero `apiFetch`
-// (mockato sopra a vuoto) — stesso correttivo già di BatchEditView.spec.ts.
-// `fetchAlbumsForAsset`/`addAssets`/`removeAsset` aggiunte nel Task 8
-// (7/N, sezione ALBUM): senza, `AssetViewer` (che ora chiama
-// `fetchAlbumsForAsset` in `loadPanelData`) e `AlbumPickerDialog` (che
-// chiama `addAssets`/`removeAsset` al tocco di un interruttore)
-// troverebbero funzioni `undefined`.
+// AlbumPickerDialog/RenameFormulaDialog stay mounted (closed) at all times:
+// without these mocks their harmless `watch(open,...)` at `open=false`
+// wouldn't fire, but if a test opens them they'd hit the real `apiFetch`
+// (mocked above to return nothing) — same fix already used in
+// BatchEditView.spec.ts. `fetchAlbumsForAsset`/`addAssets`/`removeAsset`
+// are needed because `AssetViewer` (which now calls `fetchAlbumsForAsset`
+// in `loadPanelData`) and `AlbumPickerDialog` (which calls
+// `addAssets`/`removeAsset` when a toggle is touched) would otherwise
+// find `undefined` functions.
 const {
   fetchAlbumsForAssetMock,
   fetchAlbumsMock,
@@ -59,10 +59,10 @@ vi.mock('@/api/rename', () => ({
 vi.mock('@/api/operations', () => ({
   cancelOperation: vi.fn(async () => ({ succeeded: [], failed: [], batch_id: null }))
 }))
-// RenameFormulaDialog (embedded qui per "Rinomina…" del lightbox, §18/§20)
-// apre una connessione WebSocket vera per seguire l'avanzamento reale del
-// rename (Task 16, dal 27 agosto) — nessuno di questi test la esercita, la
-// mock esiste solo per non far tentare una connessione reale in jsdom.
+// RenameFormulaDialog (embedded here for the lightbox's "Rename…") opens a
+// real WebSocket connection to follow the actual rename progress — none of
+// these tests exercise it, the mock only exists so it doesn't attempt a
+// real connection in jsdom.
 vi.mock('@/api/events', () => ({
   startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
 }))
@@ -98,12 +98,12 @@ function photo(id: string): TimelineAsset {
   }
 }
 
-/** `/map/regions` (`maps.loadRegions()`, chiamato ad ogni apertura del
- * pannello) e `/tags`/`/assets/{id}/tags` (elenco tag+categorie e tag
- * dell'asset) vogliono sempre un array — nessun test qui li esercita
- * davvero, ma senza una rotta esplicita finiscono nel ramo di fallback
- * di ciascun mock, che spesso restituisce un oggetto singolo e rompe
- * `.filter()`/`.length` a valle. */
+/** `/map/regions` (`maps.loadRegions()`, called every time the panel
+ * opens) and `/tags`/`/assets/{id}/tags` (tag+category list and the
+ * asset's own tags) always want an array — no test here actually
+ * exercises them, but without an explicit route they fall into each
+ * mock's fallback branch, which often returns a single object and breaks
+ * `.filter()`/`.length` downstream. */
 function isArrayEndpoint(path: string): boolean {
   return path.endsWith('/map/regions') || path.endsWith('/tags')
 }
@@ -128,11 +128,11 @@ beforeEach(() => {
   removeAssetMock.mockResolvedValue(null)
 })
 
-describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
+describe('AssetViewer — stage, arrows, filmstrip', () => {
   let wrapper: ReturnType<typeof mount> | undefined
   afterEach(() => wrapper?.unmount())
 
-  it('renders no arrows/filmstrip without neighbors, and never closes on background click (§18.4)', () => {
+  it('renders no arrows/filmstrip without neighbors, and never closes on background click', () => {
     wrapper = mount(AssetViewer, {
       props: { asset: photo('aaaa'), isFavorite: false },
       global: { plugins: [i18n] }
@@ -153,7 +153,7 @@ describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
       global: { plugins: [i18n] }
     })
 
-    // "b" è in mezzo: entrambe le frecce esistono.
+    // "b" is in the middle: both arrows exist.
     expect(wrapper.find('[aria-label="Foto precedente"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="Foto successiva"]').exists()).toBe(true)
 
@@ -206,7 +206,7 @@ describe('AssetViewer — stage, frecce, filmino (§18.2-18.3)', () => {
   })
 })
 
-describe('AssetViewer — barra superiore (§18.3)', () => {
+describe('AssetViewer — top bar', () => {
   let wrapper: ReturnType<typeof mount> | undefined
   afterEach(() => wrapper?.unmount())
 
@@ -224,7 +224,7 @@ describe('AssetViewer — barra superiore (§18.3)', () => {
     expect(wrapper.emitted('toggle-favorite')).toHaveLength(1)
   })
 
-  it('§19.8: the info panel starts open ("forzato aperto a ogni apertura"), and "i"/the icon close and reopen it', async () => {
+  it('the info panel starts open ("forced open on every opening"), and "i"/the icon close and reopen it', async () => {
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
@@ -241,7 +241,7 @@ describe('AssetViewer — barra superiore (§18.3)', () => {
     expect(wrapper.find('#lbTitleInput').exists()).toBe(true)
   })
 
-  it('§18.5: Esc closes the ⋯ menu on the first press, the lightbox only on the second', async () => {
+  it('Esc closes the ⋯ menu on the first press, the lightbox only on the second', async () => {
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] }
@@ -258,14 +258,14 @@ describe('AssetViewer — barra superiore (§18.3)', () => {
   })
 })
 
-describe('AssetViewer — menu ⋯ (§20)', () => {
+describe('AssetViewer — ⋯ menu', () => {
   function menuItemWithText(text: string) {
     return Array.from(document.body.querySelectorAll('a,button')).find((el) => el.textContent?.trim() === text)
   }
 
-  // I tre test montano con `attachTo: document.body` (serve al popover
-  // teletrasportato): senza smontare, il DOM del test precedente resta
-  // attaccato e `menuItemWithText` può trovare il bottone sbagliato.
+  // The three tests mount with `attachTo: document.body` (needed for the
+  // teleported popover): without unmounting, the previous test's DOM stays
+  // attached and `menuItemWithText` can find the wrong button.
   let wrapper: ReturnType<typeof mount> | undefined
   afterEach(() => wrapper?.unmount())
 
@@ -322,7 +322,7 @@ describe('AssetViewer — menu ⋯ (§20)', () => {
   })
 })
 
-describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
+describe('AssetViewer — info panel (mini-map)', () => {
   let wrapper: ReturnType<typeof mount> | undefined
   afterEach(() => wrapper?.unmount())
 
@@ -389,7 +389,7 @@ describe('AssetViewer — pannello informazioni (mini-mappa)', () => {
   })
 })
 
-describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
+describe('AssetViewer — title, rating, shot info', () => {
   let wrapper: ReturnType<typeof mount> | undefined
   afterEach(() => wrapper?.unmount())
 
@@ -417,12 +417,12 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
         return Promise.resolve({ rating: opts.rating ?? null, pick: 'none', color_label: null, favorite: false })
       }
       if (path.endsWith('/flags') && method === 'PUT') return Promise.resolve(null)
-      // GET /api/v1/assets/{id} (dettaglio, mai /metadata né /flags)
+      // GET /api/v1/assets/{id} (detail, never /metadata or /flags)
       return Promise.resolve({ ...photo('a'), full_exif: opts.exif })
     })
   }
 
-  it('carica il titolo esistente nel campo; lasciarlo vuoto lo azzera a null (non stringa vuota) e salva solo al change', async () => {
+  it('loads the existing title into the field; clearing it resets to null (not empty string) and saves only on change', async () => {
     mockPanelFetch({ title: 'Tramonto' })
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
@@ -443,7 +443,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
     )
   })
 
-  it('trims the title and sends it only on change, not on every keystroke (§19.3: onchange, not oninput)', async () => {
+  it('trims the title and sends it only on change, not on every keystroke (onchange, not oninput)', async () => {
     mockPanelFetch({ title: null })
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
@@ -452,10 +452,10 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
     await flushPromises()
     apiFetch.mockClear()
 
-    // Simula la digitazione (solo `input`, mai `change`) senza passare da
-    // `setValue()`: quel metodo di vue-test-utils spara *entrambi* gli
-    // eventi per gli `<input>`, quindi non potrebbe distinguere `onchange`
-    // da `oninput` — esattamente ciò che questo test verifica.
+    // Simulates typing (only `input`, never `change`) without going
+    // through `setValue()`: that vue-test-utils method fires *both*
+    // events for `<input>`s, so it couldn't distinguish `onchange` from
+    // `oninput` — exactly what this test verifies.
     const input = wrapper.get('#lbTitleInput')
     ;(input.element as HTMLInputElement).value = '  Tramonto  '
     await input.trigger('input')
@@ -469,7 +469,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
     )
   })
 
-  it('§19.3: click on a star sets the rating, a second click on the same star resets it to 0', async () => {
+  it('click on a star sets the rating, a second click on the same star resets it to 0', async () => {
     mockPanelFetch({ rating: 2 })
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
@@ -499,7 +499,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
     )
   })
 
-  it('§19.2 SCATTO: shows camera/lens/exposure/dimensions only when the exif carries them', async () => {
+  it('SHOT section: shows camera/lens/exposure/dimensions only when the exif carries them', async () => {
     mockPanelFetch({
       exif: {
         camera_make: 'Sony',
@@ -523,7 +523,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
     expect(wrapper.text()).toContain('100×100')
   })
 
-  it('§19.2 SCATTO: omits camera/lens/exposure rows the asset has no exif for, keeping dimensions (sourced from the asset itself, not exif)', async () => {
+  it('SHOT section: omits camera/lens/exposure rows the asset has no exif for, keeping dimensions (sourced from the asset itself, not exif)', async () => {
     mockPanelFetch({ exif: undefined })
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
@@ -538,7 +538,7 @@ describe('AssetViewer — titolo, valutazione, scatto (§19.2-19.3)', () => {
   })
 })
 
-describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
+describe('AssetViewer — LOCATION section', () => {
   let wrapper: ReturnType<typeof mount> | undefined
   afterEach(() => wrapper?.unmount())
 
@@ -626,7 +626,7 @@ describe('AssetViewer — sezione POSIZIONE (§19.2-19.3)', () => {
   })
 })
 
-describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)', () => {
+describe('AssetViewer — PEOPLE section and face boxes', () => {
   function face(id: string, personId: string): Face {
     return {
       id,
@@ -671,18 +671,18 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
       if (path.endsWith('/persons') && method === 'POST') {
         return Promise.resolve(opts.createdPerson ?? { id: 'new', name: null, hidden: false, face_count: null })
       }
-      // GET /api/v1/assets/{id} (dettaglio)
+      // GET /api/v1/assets/{id} (detail)
       return Promise.resolve({ ...photo('a') })
     })
   }
 
-  // Il listener `keydown` globale di `AssetViewer` (aperto/chiuso del
-  // pannello con `i`) resta registrato finché il componente non viene
-  // smontato: un wrapper mai smontato continua a rispondere ai
-  // `dispatchEvent` dei test *successivi*, richiamando la propria
-  // `loadPanelData()` contro l'`apiFetch` mockato per quel test (diverso
-  // dal proprio) — scoperto qui perché produceva `faces.value.filter is
-  // not a function` in tutt'altra sezione (TAG). Smontare sempre.
+  // `AssetViewer`'s global `keydown` listener (opening/closing the panel
+  // with `i`) stays registered until the component is unmounted: a
+  // wrapper that's never unmounted keeps responding to *later* tests'
+  // `dispatchEvent` calls, re-invoking its own `loadPanelData()` against
+  // the `apiFetch` mocked for that other test — discovered here because it
+  // produced `faces.value.filter is not a function` in a completely
+  // different section (TAG). Always unmount.
   let wrapper: ReturnType<typeof mount> | undefined
   afterEach(() => wrapper?.unmount())
 
@@ -704,7 +704,7 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
     expect(wrapper.text()).toContain('Persona senza nome')
   })
 
-  it('§19 animations: hovering a chip shows its face box; leaving hides it after 200ms unless re-entered', async () => {
+  it('hovering a chip shows its face box; leaving hides it after 200ms unless re-entered', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     mockPanelFetch({ faces: [face('f1', 'p1')] })
     wrapper = mount(AssetViewer, {
@@ -802,7 +802,7 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
     expect(toast.toasts.at(-1)?.message).toBe('Persona corretta.')
   })
 
-  it('§38.3 controllo 1 "Vai alla persona" closes the lightbox and navigates to the person detail route', async () => {
+  it('"Vai alla persona" closes the lightbox and navigates to the person detail route', async () => {
     const { createMemoryHistory, createRouter } = await import('vue-router')
     const router = createRouter({
       history: createMemoryHistory(),
@@ -836,7 +836,7 @@ describe('AssetViewer — sezione PERSONE e riquadri volto (§18.2, §19.2-19.3)
   })
 })
 
-describe('AssetViewer — sezione TAG (§19.2 righe 14-17)', () => {
+describe('AssetViewer — TAG section', () => {
   function tag(id: string, opts: Partial<AssetTagDetail> = {}): AssetTagDetail {
     return { id, name: id, color: '#3b82f6', category_id: null, state: 'confirmed', source: 'user', ...opts }
   }
@@ -867,13 +867,13 @@ describe('AssetViewer — sezione TAG (§19.2 righe 14-17)', () => {
       if (/\/tags\/.+\/assets\/.+\/(confirm|reject|remove)$/.test(path) && method === 'POST') {
         return Promise.resolve(null)
       }
-      // GET /api/v1/assets/{id} (dettaglio)
+      // GET /api/v1/assets/{id} (detail)
       return Promise.resolve({ ...photo('a') })
     })
   }
 
-  // Stesso motivo del blocco PERSONE qui sopra: il listener `keydown`
-  // resta vivo finché il wrapper non è smontato.
+  // Same reason as the PEOPLE block above: the `keydown` listener stays
+  // alive until the wrapper is unmounted.
   let wrapper: ReturnType<typeof mount> | undefined
   afterEach(() => wrapper?.unmount())
 
@@ -969,7 +969,7 @@ describe('AssetViewer — sezione TAG (§19.2 righe 14-17)', () => {
   })
 })
 
-describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () => {
+describe('AssetViewer — ALBUM and ACTIONS sections', () => {
   let wrapper: ReturnType<typeof mount> | undefined
   afterEach(() => wrapper?.unmount())
 
@@ -989,8 +989,8 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
     expect(wrapper.text()).toContain('Famiglia')
 
     const addButtons = wrapper.findAll('button').filter((b) => b.text() === '+ aggiungi')
-    // Il secondo "+ aggiungi" è quello della sezione ALBUM (il primo è
-    // TAG, stesso testo per costruzione — vedi la sezione TAG qui sopra).
+    // The second "+ aggiungi" is the ALBUM section's (the first is TAG,
+    // same text by construction — see the TAG section above).
     await addButtons[1]!.trigger('click')
     await flushPromises()
 
@@ -1011,19 +1011,19 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
     await flushPromises()
     expect(fetchAlbumsForAssetMock).not.toHaveBeenCalled()
 
-    // Bug reale trovato scrivendo questo test: `AssetViewer` gestisce Esc
-    // con un `window.addEventListener` scritto a mano, che non coordina
-    // in alcun modo con la gestione di Esc interna di reka-ui — senza il
-    // controllo esplicito sui sei dialog, questa stessa pressione
-    // avrebbe chiuso anche il lightbox sotto al dialog (`close` emesso),
-    // non solo il dialog.
+    // Real bug found while writing this test: `AssetViewer` handles Esc
+    // with a hand-written `window.addEventListener`, which doesn't
+    // coordinate at all with reka-ui's internal Esc handling — without
+    // the explicit check across the six dialogs, this same keypress would
+    // have also closed the lightbox underneath the dialog (`close`
+    // emitted), not just the dialog.
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(wrapper.emitted('close')).toBeUndefined()
     expect(fetchAlbumsForAssetMock).toHaveBeenCalledWith('a')
   })
 
-  it('§19.3 AZIONI: renders the same six actions as the ⋯ menu, as visible buttons', async () => {
+  it('ACTIONS section: renders the same six actions as the ⋯ menu, as visible buttons', async () => {
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
@@ -1042,7 +1042,7 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
     expect(document.body.textContent).toContain('1 foto — a.jpg')
   })
 
-  it('Task 11 (1/N), §18.3: "Condividi…" opens ShareSelectionDialog for this single asset', async () => {
+  it('"Condividi…" opens ShareSelectionDialog for this single asset', async () => {
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
@@ -1056,7 +1056,7 @@ describe('AssetViewer — sezioni ALBUM e AZIONI (§19.2 riga 18, §19.3)', () =
   })
 })
 
-describe('AssetViewer — commutatore RAW/JPEG (§19.2 riga 5)', () => {
+describe('AssetViewer — RAW/JPEG switcher', () => {
   function stackMember(id: string, rawKind: 'raw' | 'jpeg', sizeBytes: number) {
     return { ...photo(id), raw_kind: rawKind, size_bytes: sizeBytes, content_hash: `${id}${'b'.repeat(63)}`.slice(0, 64) }
   }
@@ -1081,7 +1081,7 @@ describe('AssetViewer — commutatore RAW/JPEG (§19.2 riga 5)', () => {
       if (path.endsWith('/stack') && method === 'GET') {
         return Promise.resolve({ stack_id: 's1', primary_asset_id: 'a', members: opts.members ?? [] })
       }
-      // GET /api/v1/assets/{id} (dettaglio)
+      // GET /api/v1/assets/{id} (detail)
       return Promise.resolve({ ...photo('a') })
     })
   }
@@ -1101,7 +1101,7 @@ describe('AssetViewer — commutatore RAW/JPEG (§19.2 riga 5)', () => {
 
     expect(wrapper.text()).toContain('RAW · 62 MB')
     expect(wrapper.text()).toContain('JPEG · 4,2 MB')
-    // Aperta come "a" (il membro JPEG): lo stage mostra già quel file.
+    // Opened as "a" (the JPEG member): the stage already shows that file.
     expect(wrapper.get('img[alt="a.jpg"]').attributes('src')).toBe(previewSrc(jpg.content_hash!))
 
     const rawButton = wrapper.findAll('button').find((b) => b.text() === 'RAW · 62 MB')!

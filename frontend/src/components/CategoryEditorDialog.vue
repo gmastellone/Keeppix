@@ -1,10 +1,8 @@
 <script setup lang="ts">
-// Fase 11 Task 15 (1/N), §54 "Dialog 'modifica categoria'" — documento
-// funzionale verificato riga per riga (righe 8061-8119). A differenza
-// dell'editor tag, non ha un pulsante "Elimina" al proprio interno: solo
-// il nome, coerente col modello dati reale (`kind:'category'` — `{id,
-// name}`, nient'altro). L'eliminazione resta solo dal cestino sulla
-// testata del blocco categoria in `TagsView.vue`.
+// "Edit category" dialog. Unlike the tag editor, it has no "Delete" button
+// of its own: just the name, consistent with the real data model
+// (`kind:'category'` — `{id, name}`, nothing else). Deletion stays only in
+// the trash icon on the category block header in `TagsView.vue`.
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -24,9 +22,9 @@ const name = ref('')
 const nameError = ref('')
 const saving = ref(false)
 
-// `immediate: true`: stesso bug reale già trovato in `TagEditorDialog.vue`
-// e in `ProblemFilesDialog.vue` (Task 13 3/N) — un dialog che nasce già
-// aperto va precompilato subito, non solo alla prossima transizione.
+// `immediate: true`: same real bug already found in `TagEditorDialog.vue`
+// and `ProblemFilesDialog.vue` — a dialog that's born already open must be
+// prefilled right away, not only on the next transition.
 watch(
   open,
   (isOpen) => {

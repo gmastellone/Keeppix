@@ -88,7 +88,7 @@ afterEach(() => {
   wrapper = undefined
 })
 
-describe('SplitPersonDialog — §36 (Task 16 4/N)', () => {
+describe('SplitPersonDialog', () => {
   it('opens with zero faces preselected — no AI sub-cluster signal exists on the real backend', async () => {
     fetchPersonFaceTilesMock.mockResolvedValue(tilesFor(3))
     mountHost(person(), [asset('a0'), asset('a1'), asset('a2')])

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// Fase 11 Task 15 (1/N), §52.3 punti 3-4: la riga intera apre l'editor,
-// il cestino (nidificato) apre la conferma di eliminazione senza aprirlo
-// — richiede `@click.stop`, quindi la riga non può essere un vero
-// `<button>` (annidare `<button>` dentro `<button>` è HTML non valido):
-// `role="button"` + `tabindex="0"` + gestore Invio/Spazio (SP-8), stesso
-// pattern già in uso per le righe non annidabili altrove nell'app.
+// The whole row opens the editor; the (nested) trash icon opens the delete
+// confirmation without opening the row — it needs `@click.stop`, so the
+// row cannot be a real `<button>` (nesting `<button>` inside `<button>` is
+// invalid HTML): `role="button"` + `tabindex="0"` + an Enter/Space
+// handler, the same pattern already used for non-nestable rows elsewhere
+// in the app.
 import type { Tag } from '@/api/tags'
 import { useI18n } from 'vue-i18n'
 

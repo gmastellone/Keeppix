@@ -65,7 +65,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('CategoryEditorDialog — §54 "Dialog modifica categoria"', () => {
+describe('CategoryEditorDialog', () => {
   it('rename mode pre-fills the current name, unlike the title which omits it', async () => {
     mountHost(category({ name: 'Natura' }))
     await tick()

@@ -30,10 +30,10 @@ const archivio = folder({ id: 'archivio', parent_id: 'culling', name: 'Archivio'
 
 let wrapper: VueWrapper | undefined
 
-// `open` è una prop v-model obbligatoria: serve un componente ospite con
-// stato proprio (`ConfirmDialog.spec.ts` usa lo stesso schema), non un mount
-// diretto con una prop statica — `defineModel` sincronizza solo se qualcuno
-// riscrive davvero `open` in risposta all'evento emesso.
+// `open` is a required v-model prop: it needs a host component with its
+// own state (`ConfirmDialog.spec.ts` uses the same pattern), not a direct
+// mount with a static prop — `defineModel` only stays in sync if something
+// actually writes `open` back in response to the emitted event.
 function mountHost(initialPath: FolderView[] = [root]) {
   const Host = defineComponent({
     components: { ThePicker: CullingRootPickerDialog },
@@ -43,7 +43,7 @@ function mountHost(initialPath: FolderView[] = [root]) {
       return { open, initialPath, onConfirm: (id: string) => emit('confirm', id) }
     },
     template: `
-      <button ref="trigger" type="button" @click="open = true">Cambia…</button>
+      <button ref="trigger" type="button" @click="open = true">Change…</button>
       <ThePicker v-model:open="open" :initial-path="initialPath" @confirm="onConfirm" />
     `
   })
@@ -59,15 +59,14 @@ async function openViaTrigger(w: VueWrapper) {
   return trigger
 }
 
-describe('CullingRootPickerDialog — documento funzionale §17', () => {
+describe('CullingRootPickerDialog', () => {
   beforeEach(() => {
     i18n.global.locale.value = 'it'
     fetchChildrenMock.mockResolvedValue({ folders: [culling], assets: [] })
   })
 
-  // Il `DialogPortal` di reka-ui teletrasporta sempre nel vero
-  // `document.body`: senza smontare esplicitamente, il markup di un test
-  // resta lì per il successivo.
+  // reka-ui's `DialogPortal` always teleports into the real `document.body`:
+  // without explicitly unmounting, one test's markup stays there for the next.
   afterEach(() => {
     wrapper?.unmount()
     wrapper = undefined

@@ -80,8 +80,8 @@ afterEach(() => {
   wrapper = undefined
 })
 
-describe('ChooseCoverDialog — §33 (Task 16 4/N)', () => {
-  it('shows one tile per confirmed face, not per photo (§33.2)', async () => {
+describe('ChooseCoverDialog', () => {
+  it('shows one tile per confirmed face, not per photo', async () => {
     fetchPersonFaceTilesMock.mockResolvedValue([
       { asset: asset('a1', 'hash1'), face: face('f1', 'a1') },
       { asset: asset('a1', 'hash1'), face: face('f2', 'a1') },

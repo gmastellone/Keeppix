@@ -1,18 +1,17 @@
 <script setup lang="ts">
-// Fase 11 Task 13 (3/N) — documento funzionale §48 'Dialog "file con
-// problemi"', verificato riga per riga (righe 7315-7386). Aperto
-// dall'azione `view-files` di un problema in `ProblemsView.vue` (§47).
+// "Problem files" dialog, opened from the `view-files` action of a problem
+// in `ProblemsView.vue`.
 //
-// **Fedele alla franchezza del commento del mockup**: "elenco reale dei
-// file coinvolti (prime N foto della cartella)... in pratica i file
-// elencati sono le prime tre foto della cartella coinvolta, non i tre
-// file che hanno davvero il problema" — qui `folderId` viene da
-// `ProblemView.folder_id` (reale, non sempre presente: solo quando il
-// problema riguarda esattamente una cartella, vedi il commento su
-// `sidecar_permission_problem_view` nel backend) e le foto da
-// `fetchChildren(folderId).assets`, fino a 3 — stesso comportamento
-// "primi N, non i file davvero coinvolti" del documento, non un
-// miglioramento silenzioso.
+// **Faithful to the mockup comment's honesty**: "real list of the files
+// involved (first N photos of the folder)... in practice the files listed
+// are the first three photos of the folder involved, not the three files
+// that actually have the problem" — here `folderId` comes from
+// `ProblemView.folder_id` (real, not always present: only when the
+// problem concerns exactly one folder, see the comment on
+// `sidecar_permission_problem_view` in the backend) and the photos from
+// `fetchChildren(folderId).assets`, up to 3 — the same "first N, not the
+// actually involved files" behavior as the mockup, not a silent
+// improvement.
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

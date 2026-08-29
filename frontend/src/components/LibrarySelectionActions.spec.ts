@@ -117,7 +117,7 @@ afterEach(() => {
   wrapper = undefined
 })
 
-describe('LibrarySelectionActions — the five documented buttons (§12.2-§12.3)', () => {
+describe('LibrarySelectionActions — the five documented buttons', () => {
   it('renders all five action buttons in order: Preferiti, Album, Condividi, Modifica, Elimina', async () => {
     const w = await mountActions([photo('a')])
     const labels = w.findAll('button').map((b) => b.attributes('aria-label'))
@@ -131,7 +131,7 @@ describe('LibrarySelectionActions — the five documented buttons (§12.2-§12.3
   })
 })
 
-describe('LibrarySelectionActions — Condividi (Task 11, §30: an auto-generated album stands in for the non-existent "selection" object type)', () => {
+describe('LibrarySelectionActions — Condividi (an auto-generated album stands in for the non-existent "selection" object type)', () => {
   it('creating a public link auto-creates a hidden album with the selection, then shares that album', async () => {
     const w = await mountActions([photo('a'), photo('b')])
     const toast = useToastStore()
@@ -163,7 +163,7 @@ describe('LibrarySelectionActions — Condividi (Task 11, §30: an auto-generate
   })
 })
 
-describe('LibrarySelectionActions — Preferiti (§12.3 group toggle)', () => {
+describe('LibrarySelectionActions — Preferiti (group toggle)', () => {
   it('adds every selected photo to favorites when not all of them are favorite yet', async () => {
     const w = await mountActions([photo('a', false), photo('b', true)])
     const favorites = useFavoritesStore()
@@ -189,7 +189,7 @@ describe('LibrarySelectionActions — Preferiti (§12.3 group toggle)', () => {
   })
 })
 
-describe('LibrarySelectionActions — Modifica (§12.3)', () => {
+describe('LibrarySelectionActions — Modifica', () => {
   it('navigates to /batch-edit with the selected ids in the query', async () => {
     const w = await mountActions([photo('a'), photo('b')])
 
@@ -201,7 +201,7 @@ describe('LibrarySelectionActions — Modifica (§12.3)', () => {
   })
 })
 
-describe('LibrarySelectionActions — Elimina (§12.3, three-way dialog + selection cleared)', () => {
+describe('LibrarySelectionActions — Elimina (three-way dialog + selection cleared)', () => {
   it('deletes the whole selection with one batch call, not a per-asset loop, and clears the selection', async () => {
     deleteAssetsBatchMock.mockResolvedValue({ succeeded: ['a', 'b'], failed: [], batch_id: null })
     const w = await mountActions([photo('a'), photo('b')])
@@ -223,7 +223,7 @@ describe('LibrarySelectionActions — Elimina (§12.3, three-way dialog + select
     expect(selection.library.selectedIds.size).toBe(0)
   })
 
-  it('shows the exact documented toast on full success — §12.3 "N foto eliminate."', async () => {
+  it('shows the exact documented toast on full success — "N foto eliminate."', async () => {
     deleteAssetsBatchMock.mockResolvedValue({ succeeded: ['a'], failed: [], batch_id: null })
     const w = await mountActions([photo('a')])
     const toast = useToastStore()
@@ -260,11 +260,11 @@ describe('LibrarySelectionActions — Elimina (§12.3, three-way dialog + select
     expect(toast.toasts.at(-1)?.message).toBe('1 su 2 completate — 1 non è riuscita.')
   })
 
-  it('§10 pre-merge: a rejected all-or-nothing purge (server 403 on the whole batch) touches no file and shows the error toast, not a partial one', async () => {
-    // `purged` è l'unica opzione con l'autorizzazione all-or-nothing sul
-    // server (`routes::trash::batch_delete`): un asset non purgabile
-    // rifiuta l'intero lotto PRIMA che qualunque file venga toccato — la
-    // promise va in reject, nessun `BulkOutcome` torna affatto.
+  it('a rejected all-or-nothing purge (server 403 on the whole batch) touches no file and shows the error toast, not a partial one', async () => {
+    // `purged` is the only option with all-or-nothing authorization on the
+    // server (`routes::trash::batch_delete`): a non-purgeable asset
+    // rejects the whole batch BEFORE any file is touched — the promise
+    // rejects, no `BulkOutcome` comes back at all.
     deleteAssetsBatchMock.mockRejectedValue(new Error('403 forbidden'))
     const w = await mountActions([photo('a'), photo('b')])
     const selection = useSelectionStore()

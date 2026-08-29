@@ -1,24 +1,24 @@
 <script setup lang="ts">
-// Fase 11, sottosistema di caricamento — documento §6.1 ("Dove vive, e
-// perché lì"), verificato riga per riga **e** contro `renderUploadDock`/
-// `uploadCounts` del prototipo (righe 2829-2937) per i dettagli che il
-// documento non specifica (l'etichetta esatta, l'ordine di priorità,
-// cosa conta come "finito").
+// Upload subsystem's queue strip ("Where it lives, and why there"),
+// verified line by line **and** against the prototype's
+// `renderUploadDock`/`uploadCounts` for details the mockup document
+// doesn't specify (the exact label, the priority order, what counts as
+// "finished").
 //
-// A riposo non esiste (§6.1: "a coda vuota la striscia non esiste, il
-// costo in pixel è zero") — solo `sessions`, mai i rifiuti: verificato
-// contro `renderUploadDock()` del prototipo (riga 2913,
-// `if(!u.items.length){ host.innerHTML=''; return; }`), che non guarda
-// mai `state.upload.rejected`. Un lotto di soli rifiuti non fa comparire
-// la striscia — ma il blocco di rifiuto resta comunque visibile,
-// perché aggiungere file apre sempre il pannello da solo
-// (`stores/upload.ts::addFilesFromPicker`, `panelOpen.value = true`),
-// non serve passare dalla striscia per vederlo.
+// At rest it doesn't exist ("with an empty queue the strip doesn't exist,
+// the pixel cost is zero") — only `sessions`, never the rejects: verified
+// against the prototype's `renderUploadDock()`
+// (`if(!u.items.length){ host.innerHTML=''; return; }`), which never
+// looks at `state.upload.rejected`. A batch of only rejects doesn't make
+// the strip appear — but the reject block stays visible regardless,
+// because adding files always opens the panel by itself
+// (`stores/upload.ts::addFilesFromPicker`, `panelOpen.value = true`), so
+// there's no need to go through the strip to see it.
 //
-// Un solo componente per le due ancore del documento (piede sidebar
-// desktop, fascia sopra la tab bar mobile — "solo una delle due esiste
-// per volta"): la differenza è dove il chiamante lo monta, non nel suo
-// markup — stesso principio già applicato a `useUploadPicker.ts`.
+// A single component for the mockup document's two anchors (desktop
+// sidebar footer, mobile tab-bar strip — "only one of the two exists at a
+// time"): the difference is where the caller mounts it, not its markup —
+// same principle already applied to `useUploadPicker.ts`.
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -39,11 +39,10 @@ const counts = computed(() => {
   return { total: upload.sessions.length, finished, pending }
 })
 
-/** Stessa priorità del prototipo (riga 2917-2920): manca la
- * destinazione prima di tutto, poi in pausa, poi in corso, poi finito.
- * "In pausa" qui significa "tutto ciò che è ancora in sospeso è in
- * pausa" — lo stesso effetto del `u.paused` globale del prototipo,
- * che ferma tutte le sessioni in sospeso insieme (`pauseAll`). */
+/** Same priority order as the prototype: missing destination first, then
+ * paused, then in progress, then finished. "Paused" here means "everything
+ * still pending is paused" — the same effect as the prototype's global
+ * `u.paused`, which stops all pending sessions together (`pauseAll`). */
 const labelKey = computed(() => {
   if (upload.needsDestination) return 'upload.dock.needsDestination'
   const pendingSessions = upload.sessions.filter(

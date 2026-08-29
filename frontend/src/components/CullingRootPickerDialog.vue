@@ -1,16 +1,15 @@
 <script setup lang="ts">
-// Fase 11 Task 17 (2/N) — dialog "Scegli la cartella radice di culling"
-// (documento funzionale §17). Non costruito sopra `Dialog.vue`: quel
-// componente risolve *a favore* di SP-5 (trappola del focus, scrim che
-// chiude) — qui la spec vuole l'esatto contrario, tre deviazioni
-// esplicite (§17.4-5): click sullo scrim non chiude, nessuna trappola
-// del focus, nessun elemento riceve il fuoco all'apertura (il fuoco
-// torna al trigger alla chiusura, quello sì). `DialogRoot :modal="false"`
-// è l'unica combinazione di reka-ui che porta `trap-focus` a `false` —
-// la variante modale lo forza sempre a `true` mentre il dialog è aperto
-// (`DialogContentModal`, non scavalcabile via prop). Lo scrim è un `div`
-// decorativo senza gestore, non `DialogOverlay`: quel componente non si
-// monta affatto quando `modal="false"`.
+// "Choose the culling root folder" dialog. Not built on top of `Dialog.vue`:
+// that component resolves *in favor of* a focus trap and a scrim that
+// closes on click — here the spec wants the exact opposite, three explicit
+// deviations: clicking the scrim does not close, no focus trap, no element
+// receives focus on open (focus does return to the trigger on close,
+// though). `DialogRoot :modal="false"` is the only reka-ui combination
+// that brings `trap-focus` to `false` — the modal variant always forces it
+// to `true` while the dialog is open (`DialogContentModal`, not
+// overridable via a prop). The scrim is a decorative `div` with no
+// handler, not `DialogOverlay`: that component doesn't mount at all when
+// `modal="false"`.
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { DialogContent, DialogDescription, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
@@ -20,10 +19,10 @@ import { fetchChildren, type FolderView } from '@/api/folders'
 const { t } = useI18n()
 
 const open = defineModel<boolean>('open', { required: true })
-/** Radice-a-foglia: il primo elemento è sempre la radice della libreria
- * (mai vuoto — il chiamante lo garantisce). Se la cartella oggi
- * configurata non esiste più nell'albero, il chiamante passa `[radice]`
- * — "riparte dalla radice" (§17.2). */
+/** Root-to-leaf: the first element is always the library root (never
+ * empty — the caller guarantees it). If the currently configured folder no
+ * longer exists in the tree, the caller passes `[root]` — "starts over
+ * from the root". */
 const props = defineProps<{ initialPath: FolderView[] }>()
 const emit = defineEmits<{ confirm: [folderId: string] }>()
 

@@ -52,7 +52,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('ChangePasswordDialog — §61.3 "Cambia password"', () => {
+describe('ChangePasswordDialog — "Cambia password"', () => {
   it('rejects a mismatched confirmation without calling the API', async () => {
     changePasswordMock.mockResolvedValue(null)
     mountHost()

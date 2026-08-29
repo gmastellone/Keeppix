@@ -33,12 +33,11 @@ vi.mock('@/api/folders', () => ({
 let mounted: VueWrapper | undefined
 let previousLocale: typeof i18n.global.locale.value
 
-// Task 9 (3/N, §25): l'area risultati di Cerca usa `FlatAssetGrid`, che
-// monta `useIsMobile` (`window.matchMedia`) e legge `clientWidth`/
-// `clientHeight` per il layout giustificato — nessuno dei due esiste in
-// jsdom di base. Stesso correttivo di `FavoritesView.spec.ts`/
-// `SearchView.spec.ts` stesso, necessario qui perché questo file monta
-// `SearchView` per davvero (click sulla scorciatoia di ricerca).
+// Search's results area uses `FlatAssetGrid`, which mounts `useIsMobile`
+// (`window.matchMedia`) and reads `clientWidth`/`clientHeight` for the
+// justified layout — neither exists in plain jsdom. Same fix as
+// `FavoritesView.spec.ts`/`SearchView.spec.ts` itself, needed here because
+// this file actually mounts `SearchView` (clicking the search shortcut).
 function stubLayout(width: number, height: number) {
   const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
   const heightDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
@@ -93,10 +92,9 @@ async function mountTopbar(path: string): Promise<{ router: Router; wrapper: Vue
       { path: '/culling', component: { template: '<div />' } },
       { path: '/albums', component: { template: '<div />' } },
       { path: '/folders', component: { template: '<div />' } },
-      // Rotta reale ma non collegata da AppSidebar (Task 6): deve
-      // restare a briciola vuota, non un errore — a differenza di
-      // /folders, che invece una voce reale in sidebar ce l'ha (Task 6
-      // 4/N) e quindi una briciola reale (Task 6 6/N).
+      // Real route but not linked from AppSidebar: it must stay at an
+      // empty breadcrumb, not an error — unlike /folders, which does have
+      // a real sidebar item and therefore a real breadcrumb.
       { path: '/settings/maps/offline', component: { template: '<div />' } }
     ]
   })
@@ -104,10 +102,10 @@ async function mountTopbar(path: string): Promise<{ router: Router; wrapper: Vue
 
   await router.push(path)
   await router.isReady()
-  // `openSearch` naviga E si aspetta di trovare il campo reale di
-  // SearchView già montato: serve un <RouterView> vero, non solo
-  // AppTopbar isolato, altrimenti la rotta cambia ma nessuna vista
-  // corrispondente compare nel DOM da mettere a fuoco.
+  // `openSearch` navigates AND expects to find SearchView's real field
+  // already mounted: it needs a real <RouterView>, not just an isolated
+  // AppTopbar, otherwise the route changes but no matching view appears
+  // in the DOM to focus.
   const wrapper = mount(
     { components: { AppTopbar, RouterView }, template: '<AppTopbar /><RouterView />' },
     { global: { plugins: [router, i18n] }, attachTo: document.body }
@@ -118,7 +116,7 @@ async function mountTopbar(path: string): Promise<{ router: Router; wrapper: Vue
 }
 
 describe('AppTopbar', () => {
-  it('shows the current-route breadcrumb in bold, per la mappa del documento funzionale', async () => {
+  it('shows the current-route breadcrumb in bold, per the route-title map', async () => {
     const { wrapper } = await mountTopbar('/')
     const bold = wrapper.find('b')
     expect(bold.exists()).toBe(true)
@@ -130,7 +128,7 @@ describe('AppTopbar', () => {
     expect(wrapper.find('b').text()).toBe('Culling')
   })
 
-  it('shows the real "Cartelle" breadcrumb for /folders — not blank, unlike Task 6 (2/N)\'s first pass', async () => {
+  it('shows the real "Cartelle" breadcrumb for /folders — not blank, unlike the first pass', async () => {
     const { wrapper } = await mountTopbar('/folders')
     expect(wrapper.find('b').text()).toBe('Cartelle')
   })
@@ -156,7 +154,7 @@ describe('AppTopbar', () => {
     expect(document.activeElement?.id).toBe('search-query-input')
   })
 
-  it('Invio activates the search shortcut too — corretto rispetto al prototipo (SP-8, §4.5)', async () => {
+  it('Invio activates the search shortcut too — fixed relative to the prototype', async () => {
     const { wrapper, router } = await mountTopbar('/')
     await wrapper.find('input').trigger('keydown', { key: 'Enter' })
     await flushPromises()

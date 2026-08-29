@@ -1,20 +1,18 @@
 <script setup lang="ts">
-// Fase 11 Task 16 (2/N), §34 "Dialog 'assegna a gruppo'" — documento
-// funzionale verificato riga per riga (righe 5594-5656).
+// "Assign to group" dialog.
 //
-// **"Una persona sta in al massimo un gruppo"** (§34, e §31.2): il
-// backend reale permette a una persona di stare in più gruppi
-// (`person_group_members` molti-a-molti, nessun vincolo di unicità) —
-// qui il vincolo del documento è applicato lato client: prima di
-// aggiungere l'appartenenza nuova, rimuove quella vecchia se diversa
-// (`currentGroupId` passato dal chiamante, che lo conosce già dai dati
-// caricati per la griglia). Non è un'invenzione: è la stessa identica
-// interpretazione che rende sensato il testo del documento ("Rimosso
-// dal gruppo."/"Gruppo assegnato.").
+// **"A person belongs to at most one group"**: the real backend allows a
+// person to belong to multiple groups (`person_group_members` is
+// many-to-many, no uniqueness constraint) — here the mockup's constraint
+// is enforced client-side: before adding the new membership, it removes
+// the old one if different (`currentGroupId` passed by the caller, which
+// already knows it from the data loaded for the grid). Not an invention:
+// it's the exact same interpretation that makes the mockup's copy
+// ("Removed from group."/"Group assigned.") make sense.
 //
-// **Nessuna creazione da qui** (§34.2: "non c'è un modo per creare un
-// gruppo da qui… bisogna uscire e usare 'Nuovo gruppo'"): comportamento
-// riprodotto, nessun collegamento a `GroupEditorDialog.vue` qui dentro.
+// **No creation from here**: "there's no way to create a group from
+// here… you have to leave and use 'New group'" — behavior reproduced, no
+// link to `GroupEditorDialog.vue` in here.
 import { useI18n } from 'vue-i18n'
 
 import { addGroupMember, removeGroupMember, type PersonGroup } from '@/api/persons'

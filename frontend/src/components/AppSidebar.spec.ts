@@ -90,9 +90,9 @@ describe('AppSidebar', () => {
   })
 
   it('every nav item is a real anchor — keyboard-reachable, unlike the prototype', async () => {
-    // Montata su /users (admin): "Amministrazione" si apre da sola perché
-    // contiene la vista corrente, quindi anche le sue sotto-voci sono nel
-    // DOM. "Manutenzione" resta chiusa (nessuna sua sotto-voce è corrente).
+    // Mounted on /users (admin): "Administration" opens by itself because
+    // it contains the current view, so its sub-items are also in the DOM.
+    // "Maintenance" stays closed (none of its sub-items is current).
     const { wrapper } = await mountSidebar('/users')
     const links = wrapper.findAll('a')
     // 5 NAV_TOP + Cartelle + Album + Utenti + Gruppi (Manutenzione chiusa)
@@ -108,7 +108,7 @@ describe('AppSidebar', () => {
     expect(foldersLink?.exists()).toBe(true)
   })
 
-  it('"Preferiti" (Task 7, 3/N) links to the real Favorites view, right before Album — §2.3.8', async () => {
+  it('"Preferiti" links to the real Favorites view, right before Album', async () => {
     const { wrapper } = await mountSidebar()
     const links = wrapper.findAll('a').map((a) => a.attributes('href'))
     const favIndex = links.indexOf('/favorites')
@@ -142,7 +142,7 @@ describe('AppSidebar', () => {
 
   it('the Manutenzione group opens by itself when the current route is one of its children', async () => {
     const { wrapper } = await mountSidebar('/trash')
-    // Il gruppo è aperto se la sua sotto-voce è visibile nel DOM.
+    // The group is open if its sub-item is visible in the DOM.
     const trashLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/trash')
     expect(trashLink?.exists()).toBe(true)
   })
@@ -157,13 +157,13 @@ describe('AppSidebar', () => {
     const { wrapper, router } = await mountSidebar()
     expect(wrapper.text()).toContain('Admin')
 
-    // wrapper.find('button') prenderebbe l'interruttore di "Manutenzione"
-    // (compare prima nel DOM): serve il bottone che contiene il nome utente.
+    // wrapper.find('button') would grab the "Maintenance" toggle (it
+    // appears earlier in the DOM): we need the button with the username.
     const accountTrigger = wrapper.findAll('button').find((b) => b.text().includes('Admin'))
     await accountTrigger?.trigger('click')
     await tick()
-    // Il menu account (Popover) è teleportato su document.body, fuori
-    // dall'albero DOM del wrapper — stesso schema già visto per Dialog.
+    // The account menu (Popover) is teleported onto document.body, outside
+    // the wrapper's DOM tree — same pattern already seen for Dialog.
     const signOutButton = Array.from(document.body.querySelectorAll('button')).find(
       (b) => b.textContent === 'Esci'
     )
@@ -174,7 +174,7 @@ describe('AppSidebar', () => {
     expect(router.currentRoute.value.path).toBe('/login')
   })
 
-  it('shows the real upload queue strip above "Spazio libero" once something is queued (§6.1)', async () => {
+  it('shows the real upload queue strip above "Spazio libero" once something is queued', async () => {
     const { wrapper } = await mountSidebar()
     const upload = useUploadStore()
     upload.sessions.push({

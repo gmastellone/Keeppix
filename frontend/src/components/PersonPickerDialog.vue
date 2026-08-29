@@ -1,23 +1,12 @@
 <script setup lang="ts">
-// Fase 11 Task 8 (5/N) — documento funzionale §19.3, "selettore di
-// persona": riusato da "Correggi persona…" (il solo consumatore reale
-// oggi — vedi il commento di testa di `AssetViewer.vue` per il perché di
-// "+ aggiungi" resta debito dichiarato, non qui). `GET /persons` non ha
-// un parametro di ricerca (`ListPersonsQuery` porta solo `include_hidden`,
-// crates/keeppix-api/src/routes/persons.rs) — filtro lato client sull'
-// intero elenco, stesso principio già di `TagPickerDialog`/
-// `AlbumPickerDialog` (elenchi tipicamente piccoli, non meritano una
-// rotta di ricerca dedicata).
-//
-// Task 16 (3/N): riverificato riga per riga contro §37 (righe 5874-5955)
-// con occhi freschi, non solo riportato dal Task 8 — quattro lacune
-// reali trovate e chiuse: titolo/placeholder non combaciavano col
-// documento ("Assegna persona"/"Cerca o crea una persona…", non "Scegli
-// una persona"/"Cerca o digita un nome…"); mancava il conteggio "N foto"
-// per riga (§37.2); mancava il fuoco automatico sul campo di ricerca
-// all'apertura (§37.5, "l'unico dialog di questo blocco a farlo");
-// mancava lo stato vuoto "Nessuna persona trovata." (§37.7); mancava il
-// pulsante "Annulla" (§37.2 punto 4).
+// "Person picker" dialog — reused by "Correct person…" (the only real
+// consumer today — see the header comment of `AssetViewer.vue` for why
+// "+ add" remains a declared gap, not here). `GET /persons` has no search
+// parameter (`ListPersonsQuery` only carries `include_hidden`,
+// crates/keeppix-api/src/routes/persons.rs) — hence client-side filtering
+// over the whole list, same principle already used by `TagPickerDialog`/
+// `AlbumPickerDialog` (typically small lists, not worth a dedicated search
+// route).
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -46,9 +35,9 @@ watch(
     if (isOpen) {
       query.value = ''
       void load()
-      // §37.5: "il campo di ricerca riceve il focus all'apertura" — il
-      // solo dialog di questo blocco a farlo, `nextTick` perché reka-ui
-      // porta già il proprio focus iniziale sul contenuto del dialog.
+      // The search field receives focus on open — the only dialog in this
+      // group that does so; `nextTick` because reka-ui already applies its
+      // own initial focus to the dialog content.
       void nextTick(() => inputEl.value?.focus())
     }
   },
@@ -61,8 +50,8 @@ const filtered = computed(() => {
   return persons.value.filter((person) => (person.name ?? '').toLowerCase().includes(q))
 })
 
-/** Nessun nome duplicato esatto già in elenco: evita di offrire "crea"
- * quando l'utente ha semplicemente digitato un nome che esiste già. */
+/** No exact duplicate name already in the list: avoids offering "create"
+ * when the user has simply typed a name that already exists. */
 const canCreate = computed(() => {
   const name = query.value.trim()
   if (!name) return false

@@ -60,7 +60,7 @@ async function mountVeil(path = '/') {
 }
 
 describe('UploadDropVeil', () => {
-  it('is invisible at rest — zero pixels until a real file drag starts (§7.4)', async () => {
+  it('is invisible at rest — zero pixels until a real file drag starts', async () => {
     const { wrapper } = await mountVeil()
     expect(wrapper.find('div').exists()).toBe(false)
   })

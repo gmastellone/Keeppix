@@ -1,37 +1,33 @@
 <script setup lang="ts">
-// Fase 11 Task 15 (1/N), §53 "Dialog 'modifica tag'" — documento
-// funzionale verificato riga per riga (righe 7925-8058).
+// "Edit tag" dialog.
 //
-// **Soglia — non una confidenza 0-100%, `threshold * 100` diretto**: il
-// documento originale immaginava uno slider 30-95 (%) letto come
-// confidenza, ma `Tag.threshold` è il cosine score grezzo di OpenCLIP
-// XLM-R IT/EN (Task B, piano modelli IA) — 0,10-0,20 anche per
-// abbinamenti corretti, mai vicino a 1,0 (ricalibrato in
-// `migrations/0051_tag_threshold_default_openclip.sql`, che porta anche
-// il default a 0.20). Range 5-40%, non 30-95: coprire lo score reale con
-// margine sopra e sotto, non la scala di confidenza che il documento
-// assumeva prima che si scoprisse quale fosse davvero la distribuzione
-// dei punteggi. Convertita qui, non sul backend: `threshold * 100` in
-// lettura, `/100` in scrittura.
+// **Threshold — not a 0-100% confidence, `threshold * 100` directly**: the
+// original mockup imagined a 30-95 (%) slider read as confidence, but
+// `Tag.threshold` is OpenCLIP XLM-R IT/EN's raw cosine score — 0.10-0.20
+// even for correct matches, never close to 1.0 (recalibrated in
+// `migrations/0051_tag_threshold_default_openclip.sql`, which also brings
+// the default to 0.20). Range 5-40%, not 30-95: covering the real score
+// with margin above and below, not the confidence scale the mockup
+// assumed before the real score distribution was discovered. Converted
+// here, not on the backend: `threshold * 100` on read, `/100` on write.
 //
-// **Duplicati NON permessi qui, a differenza del mockup**: `TagRepo`
-// applica `UNIQUE(name, kind)` per davvero (409 Conflict) — "i nomi
-// duplicati sono permessi" del documento vale solo nel prototipo, senza
-// un vero indice unico. Il 409 diventa un errore reale sotto il campo
-// nome, non solo il caso "campo vuoto" che il documento descrive.
+// **Duplicates NOT allowed here, unlike the mockup**: `TagRepo` applies
+// `UNIQUE(name, kind)` for real (409 Conflict) — the mockup's "duplicate
+// names are allowed" only holds in the prototype, without a real unique
+// index. The 409 becomes a real error under the name field, not just the
+// "empty field" case the mockup describes.
 //
-// **Colore — stringa CSS opaca, non una tinta HSL pura**: il backend
-// accetta qualunque testo (`color: Option<String>`, nessuna validazione),
-// consumato da `TagPickerDialog.vue` già come `background` diretto — le
-// pastiglie qui scrivono `hsl(H,60%,50%)` per intero, riprendendo la
-// stessa tavolozza di 10 tinte del documento (`TAG_SWATCH_HUES`) ma come
-// colore completo, coerente con l'uso reale già in produzione.
+// **Color — an opaque CSS string, not a pure HSL hue**: the backend
+// accepts any text (`color: Option<String>`, no validation), already
+// consumed by `TagPickerDialog.vue` directly as `background` — the
+// swatches here write out `hsl(H,60%,50%)` in full, reusing the mockup's
+// same 10-hue palette (`TAG_SWATCH_HUES`) but as a complete color,
+// consistent with the real usage already in production.
 //
-// **Pastiglie in un vero `radiogroup` con anello di focus visibile**: il
-// documento segnala esplicitamente l'assenza di entrambi come "un difetto
-// di accessibilità reale" nel prototipo — corretto qui, non riprodotto,
-// stesso principio già seguito per le frecce di `SegmentedControl.vue`
-// (Task 14 1/N).
+// **Swatches in a real `radiogroup` with a visible focus ring**: the
+// mockup explicitly flags the absence of both as "a real accessibility
+// defect" in the prototype — fixed here, not reproduced, same principle
+// already followed for `SegmentedControl.vue`'s arrows.
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -42,10 +38,10 @@ import TextField from '@/components/ui/TextField.vue'
 import { useToastStore } from '@/stores/toast'
 
 const TAG_SWATCH_HUES = [24, 150, 205, 340, 270, 34, 195, 0, 120, 290]
-// La soglia non è una "confidenza" 0-100%: è `threshold * 100` diretto,
-// stessa scala grezza del cosine score reale di OpenCLIP XLM-R IT/EN
-// (Task B, piano modelli IA) — punteggi 0,10-0,20 anche per abbinamenti
-// corretti, mai vicini a 1,0. 20 combacia col default di
+// The threshold isn't a 0-100% "confidence": it's `threshold * 100`
+// directly, the same raw scale as OpenCLIP XLM-R IT/EN's real cosine
+// score — scores of 0.10-0.20 even for correct matches, never close to
+// 1.0. 20 matches the default in
 // `migrations/0051_tag_threshold_default_openclip.sql`.
 const DEFAULT_THRESHOLD_PERCENT = 20
 const THRESHOLD_PERCENT_MIN = 5
@@ -90,10 +86,10 @@ function reset() {
   nameError.value = ''
 }
 
-// `immediate: true`: il dialog può nascere già aperto (stesso bug reale
-// già trovato in `ProblemFilesDialog.vue`, Task 13 3/N) — senza, un
-// editor aperto direttamente in modifica parte con i campi vuoti invece
-// che precompilati dal tag.
+// `immediate: true`: the dialog can be born already open (same real bug
+// already found in `ProblemFilesDialog.vue`) — without it, an editor
+// opened directly in edit mode starts with empty fields instead of being
+// prefilled from the tag.
 watch(
   open,
   (isOpen) => {
@@ -135,8 +131,8 @@ async function save() {
   }
 }
 
-// §53.3 punto 8: "Elimina tag" chiude *prima* questo dialog, poi apre lo
-// stesso dialog di conferma della pagina — mai i due sovrapposti.
+// "Delete tag" closes *this* dialog first, then opens the page's own
+// confirmation dialog — the two are never stacked.
 function askDelete() {
   open.value = false
   deleteConfirmOpen.value = true

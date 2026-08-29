@@ -1,12 +1,11 @@
 <script setup lang="ts">
-// Fase 11 Task 7 (6/N) — la griglia giustificata e virtualizzata "piatta"
-// (nessun raggruppamento per mese), estratta da `FavoritesView.vue`
-// (Task 7, 3/N) nel momento in cui diventa il secondo consumatore reale:
-// Preferiti la usa sempre, Timeline la usa quando un filtro rapido (SP-3)
-// è attivo — un elenco filtrato non ha più senso layoutato dal blob di
-// geometria server-side, che presume l'intero mese. Stesso principio già
-// seguito per `useDensity`/`useIsMobile` in questa stessa sessione:
-// estrarre al secondo uso reale, non prima.
+// The justified, virtualized "flat" grid (no grouping by month), extracted
+// from `FavoritesView.vue` once it became the second real consumer:
+// Favorites always uses it, Timeline uses it when a quick filter is active
+// — a filtered list no longer makes sense laid out from the server-side
+// geometry blob, which assumes the whole month. Same principle already
+// followed for `useDensity`/`useIsMobile`: extract on the second real use,
+// not before.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -152,9 +151,9 @@ onUnmounted(() => {
 })
 
 watch(rowHeights, () => {
-  // Il numero di righe cambia con densità/larghezza/insieme filtrato:
-  // senza un giro di misura la finestra montata resterebbe agganciata a
-  // un `mountedRange` calcolato sulla geometria vecchia per un istante.
+  // The row count changes with density/width/filtered set: without a
+  // re-measure pass, the mounted window would stay pinned to a
+  // `mountedRange` computed from stale geometry for a moment.
   void nextTick(measure)
 })
 </script>

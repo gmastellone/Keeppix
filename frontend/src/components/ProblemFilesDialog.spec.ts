@@ -14,8 +14,8 @@ vi.mock('@/api/folders', () => ({
 
 const ProblemFilesDialog = (await import('./ProblemFilesDialog.vue')).default
 
-// Stesso motivo di `AlbumPickerDialog.spec.ts`: il `DialogPortal` di
-// reka-ui teletrasporta sempre nel vero `document.body`.
+// Same reason as `AlbumPickerDialog.spec.ts`: reka-ui's `DialogPortal`
+// always teleports into the real `document.body`.
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 function asset(id: string, filename: string) {
@@ -77,7 +77,7 @@ async function mountDialog(folderId?: string) {
   return { wrapper, router }
 }
 
-describe('ProblemFilesDialog — §48', () => {
+describe('ProblemFilesDialog', () => {
   it('shows the problem title/description and up to 3 files from the folder — not the files actually at fault', async () => {
     fetchChildrenMock.mockResolvedValue({
       folders: [],

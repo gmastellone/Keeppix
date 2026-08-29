@@ -1,18 +1,16 @@
 <script setup lang="ts">
-// Fase 11 Task 8 (4/N) — documento funzionale §19.3, "Modifica posizione…"
-// / "Imposta posizione…" (`#lbEditPlaceBtn`): unico ingresso dal lightbox
-// alla sezione POSIZIONE del pannello informazioni. Il mockup descrive un
-// elenco statico di "luoghi noti alla libreria" con un caveat esplicito
-// ("Nessuna mappa reale in questo mockup") — non riprodotto: il backend
-// reale ha una ricerca GeoNames vera (`GET /places/suggest`), già dietro
-// `PlacePicker.vue` (fin qui mai collegato a nessuna vista — orfano,
-// confermato via grep prima di scrivere questo file), che è strettamente
-// migliore del finto elenco del prototipo. Questo componente è solo
-// l'involucro SP-5 (`Dialog.vue`) attorno a `PlacePicker` più l'unica cosa
-// che gli manca per coprire §19.3 alla lettera: "Nessuna posizione", per
-// azzerare esplicitamente `location`/`place_id` — un'azione che
-// `PlacePicker.apply()` non può esprimere (richiede sempre un luogo
-// scelto).
+// "Edit position…" / "Set position…" dialog: the only entry point from the
+// lightbox to the info panel's LOCATION section. The mockup describes a
+// static list of "places known to the library" with an explicit caveat
+// ("no real map in this mockup") — not reproduced here: the real backend
+// has a real GeoNames search (`GET /places/suggest`), already behind
+// `PlacePicker.vue` (until now never wired to any view — an orphan,
+// confirmed via grep before writing this file), which is strictly better
+// than the prototype's fake list. This component is just the `Dialog.vue`
+// wrapper around `PlacePicker` plus the one thing it's missing to cover
+// the spec to the letter: "No location", to explicitly clear
+// `location`/`place_id` — an action `PlacePicker.apply()` cannot express
+// (it always requires a chosen place).
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

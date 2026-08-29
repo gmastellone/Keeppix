@@ -1,35 +1,31 @@
 <script setup lang="ts">
-// Fase 11, sottosistema di caricamento (`docs/ui/caricamento-nuove-foto.md`
-// §6, "La coda"), verificato riga per riga **e** contro `renderUploadPanel`/
-// `uploadRowHTML`/`uploadCounts` del prototipo (righe 2939-3078) per i
-// dettagli che il documento non specifica per esteso (l'ordine esatto del
-// titolo, il testo di ogni riga, la lista di file troncata).
+// Upload subsystem's queue panel (`docs/ui/caricamento-nuove-foto.md`,
+// "The queue"), verified line by line **and** against the prototype's
+// `renderUploadPanel`/`uploadRowHTML`/`uploadCounts` for details the
+// document doesn't fully specify (the exact title priority, each row's
+// text, the truncated file list).
 //
-// Sostituisce interamente il pannello generico fluttuante in basso a
-// destra (upload 1/N-6/N lo dicevano già): quel pattern è esattamente il
-// pulsante flottante che il documento §2 dice scartato, non solo un altro
-// stile.
+// Entirely replaces the generic floating panel in the bottom-right corner:
+// that pattern is exactly the floating button the mockup document says was
+// dropped, not just a different style.
 //
-// Nome a una parola per il file (combacia col piano), ma il componente ha
-// comunque un nome di due parole: evita l'avviso `multi-word-component-names`
-// senza doverlo disabilitare per un componente fuori da `ui/`.
+// Single-word filename (matches the plan), but the component still has a
+// two-word name: avoids the `multi-word-component-names` lint warning
+// without having to disable it for a component outside `ui/`.
 //
-// §8 ("Esc a livelli"): la prima pressione chiude il menu della
-// destinazione, la seconda il pannello. Il menu (`Popover`, dentro
-// `DestinationChip`) chiude già da solo su Esc e ferma la
-// propagazione — comportamento della libreria (`reka-ui`,
-// `DismissableLayer`), non orchestrato a mano (stesso principio già
-// documentato in `Popover.vue`). Basta un `@keydown.escape` sulla
-// radice del pannello per il secondo livello: se il menu è aperto,
-// l'evento non arriva mai fin qui.
+// "Layered Esc": the first press closes the destination menu, the second
+// closes the panel. The menu (`Popover`, inside `DestinationChip`) already
+// closes itself on Esc and stops propagation — library behavior
+// (`reka-ui`, `DismissableLayer`), not hand-orchestrated (same principle
+// already documented in `Popover.vue`). A single `@keydown.escape` on the
+// panel's root is enough for the second level: if the menu is open, the
+// event never reaches this far.
 //
-// Debito dichiarato: il pannello non porta il focus su di sé
-// all'apertura (nessun elemento è "attivo" finché l'utente non preme
-// Tab per la prima volta) — `@keydown.escape` funziona solo dopo,
-// perché la pressione di un tasto deve raggiungere un elemento che
-// l'ha già. Una gestione del focus più completa (spostarlo qui
-// all'apertura, restituirlo alla striscia alla chiusura) resta fuori
-// da questo passo.
+// Declared gap: the panel doesn't move focus onto itself when it opens (no
+// element is "active" until the user first presses Tab) — `@keydown.escape`
+// only works after that, because a keypress needs to reach an element that
+// already has focus. More complete focus management (moving it here on
+// open, returning it to the strip on close) is out of scope for this step.
 defineOptions({ name: 'UploadPanel' })
 
 import { computed } from 'vue'
@@ -43,14 +39,14 @@ const { t } = useI18n()
 const router = useRouter()
 const upload = useUploadStore()
 
-// Deviazione dichiarata dal prototipo, non un suo rispecchiamento: la
-// riga 2979 del mockup (`if(!u.open || !u.items.length){...return}`)
-// nasconde il pannello anche per un lotto tutto scartato — un rilascio
-// di soli RAW non darebbe **nessun** riscontro visibile, in contraddizione
-// con il principio dichiarato dallo stesso documento (§4.1: "il rifiuto
-// dei RAW non è un errore, è una spiegazione" — un'spiegazione che va
-// vista). Corretto qui: il pannello resta raggiungibile anche a
-// `sessions` vuoto, finché c'è qualcosa da spiegare.
+// Declared deviation from the prototype, not a mirroring of it: the
+// mockup's logic (`if(!u.open || !u.items.length){...return}`) hides the
+// panel even for a batch that was entirely rejected — a drop of only RAW
+// files would give **no** visible feedback at all, contradicting the same
+// document's own principle ("rejecting RAW files isn't an error, it's an
+// explanation" — and an explanation needs to be seen). Fixed here: the
+// panel stays reachable even with empty `sessions`, as long as there's
+// something to explain.
 const visible = computed(
   () => upload.panelOpen && (upload.sessions.length > 0 || upload.rejectedRaw.length > 0 || upload.rejectedUnsupported.length > 0)
 )
@@ -69,14 +65,14 @@ const counts = computed(() => {
   }
 })
 
-/** Stesso effetto del `u.paused` globale del prototipo: tutto ciò che è
- * ancora in sospeso è in pausa insieme (`pauseAll`/`resumeAll`). */
+/** Same effect as the prototype's global `u.paused`: everything still
+ * pending is paused together (`pauseAll`/`resumeAll`). */
 const allPaused = computed(() => {
   const pending = upload.sessions.filter((s) => s.status === 'queued' || s.status === 'uploading' || s.status === 'paused')
   return pending.length > 0 && pending.every((s) => s.status === 'paused')
 })
 
-/** Priorità esatta della riga 3001 del mockup. */
+/** Exact title priority order, matching the mockup. */
 const panelTitle = computed(() => {
   if (counts.value.pending === 0) return t('upload.panel.titleDone')
   if (upload.needsDestination) return t('upload.panel.titleNeedsDestination')
@@ -99,11 +95,11 @@ function goCulling(): void {
 }
 
 /**
- * `useLightboxRoute` (TimelineView) risolve `?photo=<id>` anche per un
- * asset non ancora caricato in pagina — carica da remoto se non lo
- * trova in locale (righe 42-45 del composable: "*loadRemote*"). Non un
- * ripiego: lo stesso meccanismo pensato per "mando a un collega il
- * link a questa foto" (Task 3) apre per davvero la copia già presente.
+ * `useLightboxRoute` (TimelineView) resolves `?photo=<id>` even for an
+ * asset not yet loaded on the page — it loads it remotely if not found
+ * locally (the composable's `*loadRemote*` path). Not a workaround: the
+ * same mechanism meant for "send a colleague the link to this photo"
+ * genuinely opens the copy that already exists.
  */
 function seeExisting(session: UploadSessionState): void {
   if (!session.existingAssetId) return
@@ -128,10 +124,10 @@ function progressPercent(session: UploadSessionState): number {
   return Math.min(100, Math.round((session.receivedBytes / session.expectedSize) * 100))
 }
 
-/** Un "done" con `collision==='skipped_duplicate'` (il server, non il
- * pre-check, ha trovato il duplicato a fine caricamento) si presenta
- * come "saltato" a tutti gli effetti — stesso trattamento già nel
- * componente precedente. */
+/** A "done" with `collision==='skipped_duplicate'` (the server, not the
+ * pre-check, found the duplicate at the end of the upload) presents itself
+ * as "skipped" for all practical purposes — same treatment as the
+ * previous component. */
 function displayState(session: UploadSessionState): 'queued' | 'uploading' | 'paused' | 'done' | 'skipped' | 'error' {
   if (session.status === 'done' && session.collision === 'skipped_duplicate') return 'skipped'
   return session.status
@@ -166,9 +162,9 @@ function badgeClass(session: UploadSessionState): string {
   return BADGE_CLASSES[displayState(session)] ?? ''
 }
 
-/** Il testo di esempio del prototipo ("il server non ha risposto") è
- * solo la simulazione demo — qui la riga mostra la ragione reale che lo
- * store porta già (`session.error`, sempre una chiave i18n). */
+/** The prototype's example text ("the server didn't respond") is just the
+ * demo simulation — here the row shows the real reason the store already
+ * carries (`session.error`, always an i18n key). */
 function subLine(session: UploadSessionState): string | null {
   const state = displayState(session)
   if (state === 'skipped') return t('upload.collision.skipped_duplicate')
@@ -179,15 +175,15 @@ function subLine(session: UploadSessionState): string | null {
   return null
 }
 
-/** §4: fino a quattro nomi, poi "e un altro"/"e altri N" — verificato
- * contro `uploadAndOthers()` del prototipo (riga 2892). */
+/** Up to four names, then "and one more"/"and N more" — verified against
+ * the prototype's `uploadAndOthers()`. */
 function fileListText(names: string[]): string {
   const shown = names.slice(0, 4).join(', ')
   if (names.length <= 4) return shown
-  // Spazio esplicito nel codice, non nella chiave i18n (fragile da
-  // perdere in una traduzione): il prototipo lo tiene dentro
-  // `uploadAndOthers()` stessa (riga 2892, `' e un altro'`), qui è
-  // separato per lasciare la chiave senza spazi impliciti.
+  // Explicit space in the code, not in the i18n key (fragile to lose in a
+  // translation): the prototype keeps it inside `uploadAndOthers()` itself
+  // (`' and one more'`), here it's separated to keep the key free of
+  // implicit spaces.
   return `${shown} ${t('upload.rejectedRaw.andMore', { n: names.length - 4 }, { plural: names.length - 4 })}`
 }
 

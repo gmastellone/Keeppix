@@ -1,20 +1,15 @@
 <script setup lang="ts">
-// Fase 11 Task 6 (8/N) — documento funzionale §5.2.b, §5.3.8-11,
-// §5.7 (tab bar mobile), verificato riga per riga (righe 1004-1014,
-// 1048-1052, 1097-1105).
+// Mobile tab bar. Four real tabs, same order and exact labels as the
+// mockup. No icon (same gap already declared in MoreView.vue — this
+// frontend doesn't have one yet).
 //
-// Quattro schede reali, stesso ordine ed etichette esatte del
-// documento. Nessuna icona (stesso stato di fatto dichiarato in
-// MoreView.vue — questo frontend non ne ha ancora una).
-//
-// "Attiva" (§5.7): il documento assegna esplicitamente culling e
-// bulkEdit alla scheda "Foto" (non "Altro" — si entra in culling SOLO
-// dal pulsante imbuto della vista Foto, §4.2 del piano complessivo),
-// e un lungo elenco di viste alla scheda "Altro". Qui, con le sole
-// rotte reali di questa app: "Altro" per tutto ciò che MoreView.vue
-// elenca (`/folders`, `/map`, `/shares`, `/trash`, `/problems`,
-// `/users`, `/groups`, `/more` stessa); "Foto" anche per `/culling` e
-// `/batch-edit`.
+// "Active" state: the mockup explicitly assigns culling and bulkEdit to
+// the "Photos" tab (not "More" — culling is entered ONLY from the funnel
+// button on the Photos view), and a long list of views to the "More" tab.
+// Here, with only this app's real routes: "More" for everything
+// MoreView.vue lists (`/folders`, `/map`, `/shares`, `/trash`,
+// `/problems`, `/users`, `/groups`, `/more` itself); "Photos" also for
+// `/culling` and `/batch-edit`.
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
@@ -38,8 +33,8 @@ const FOTO_ROUTES = new Set(['/', '/culling', '/batch-edit'])
 type TabId = 'foto' | 'cerca' | 'album' | 'altro'
 
 const activeTab = computed<TabId | null>(() => {
-  // `/albums/:id` (Task 12 1/N): stesso principio di `AppSidebar.isActive`
-  // — il dettaglio di un album resta dentro la scheda "Album".
+  // `/albums/:id`: same principle as `AppSidebar.isActive` — an album's
+  // detail stays inside the "Album" tab.
   if (route.path === '/albums' || route.path.startsWith('/albums/')) return 'album'
   if (ALTRO_ROUTES.has(route.path)) return 'altro'
   if (FOTO_ROUTES.has(route.path)) return 'foto'

@@ -4,31 +4,26 @@ import { useI18n } from 'vue-i18n'
 import { thumbSrc as mediaThumbSrc } from '@/api/media'
 import type { TimelineAsset } from '@/api/timeline'
 
-// Nome multi-parola esplicito: il file si chiama `Filmstrip.vue` per
-// combaciare col piano, ma `vue/multi-word-component-names` vuole un nome
-// di componente di più parole per non confondersi con futuri elementi HTML.
+// Explicit multi-word name: the file is called `Filmstrip.vue`, but
+// `vue/multi-word-component-names` wants a multi-word component name so it
+// doesn't get confused with future HTML elements.
 defineOptions({ name: 'CullingFilmstrip' })
 
-// Corpo della miniatura e checkbox sono due `<button>` **fratelli**, non
-// annidati: il documento funzionale (§15.5) descrive solo la checkbox
-// come raggiungibile da Tab nel mockup, ma quella è una descrizione del
-// prototipo — e l'eccezione dichiarata all'inizio del documento stesso
-// ("l'accessibilità da tastiera del prototipo è rotta e non va
-// replicata") vince sul Ruling generale del piano ("ogni cosa cliccabile
-// è un pulsante vero"). Annidare la checkbox dentro il pulsante di
-// navigazione sarebbe comunque HTML non valido (controlli interattivi
-// annidati); da fratelli, un click sulla checkbox non deve nemmeno
-// fermare la propagazione — non ha un pulsante genitore da cui risalire.
+// The thumbnail body and the checkbox are two **sibling** `<button>`s, not
+// nested: nesting the checkbox inside the navigation button would be
+// invalid HTML (nested interactive controls) regardless. As siblings, a
+// click on the checkbox doesn't even need to stop propagation — it has no
+// parent button to bubble up to.
 const props = defineProps<{
   assets: TimelineAsset[]
   currentId?: string
   selectedIds?: Set<string>
 }>()
-// Quattro eventi distinti (§15.4, "Sul filmino"): il corpo della miniatura
-// naviga (con/senza shift), la checkbox seleziona (con/senza shift). La
-// decisione "se non c'è ancora un'ancora lo shift+click sulla checkbox
-// vale come click semplice" vive nello store (ha bisogno di `order`), non
-// qui: questo componente resta solo presentazione, come già `currentId`.
+// Four distinct events: the thumbnail body navigates (with/without shift),
+// the checkbox selects (with/without shift). The decision "if there's no
+// anchor yet, shift+click on the checkbox counts as a plain click" lives in
+// the store (it needs `order`), not here — this component stays purely
+// presentational, same as `currentId` already is.
 const emit = defineEmits<{
   select: [id: string]
   'shift-select': [id: string]

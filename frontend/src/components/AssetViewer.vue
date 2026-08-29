@@ -1,111 +1,99 @@
 <script setup lang="ts">
-// Fase 11 Task 8 (2/N…8/N) — documento funzionale §18 ("Lightbox —
-// struttura e barra superiore"), §19 ("Pannello informazioni") e §20
-// ("Menu 'altre azioni' ⋯"). La 2/N ha riscritto il segnaposto precedente
-// (151 righe) con barra superiore, stage con frecce, filmino e menu ⋯. La
-// 3/N ha aggiunto titolo modificabile, valutazione a stelle, sezione
-// SCATTO. La 4/N ha completato la sezione POSIZIONE. La 5/N ha aggiunto
-// la sezione PERSONE e i riquadri volto. La 6/N ha aggiunto la sezione
-// TAG. La 7/N ha chiuso §19 con ALBUM e AZIONI. La 8/N (questa) ha
-// costruito il commutatore RAW/JPEG (§19.2 riga 5) — **non** come nel
-// mockup (dove "l'unico effetto osservabile è quale chip è evidenziata",
-// l'immagine mostrata non cambia mai): qui la selezione cambia davvero
-// cosa viene mostrato sullo stage e cosa scarica "Scarica originale", il
-// punto che il documento stesso indica come "il backend dovrà fare
-// qualcosa di vero: scegliere quale dei due file della pila viene
-// decodificato, mostrato e scaricato" — decodifica e mostra funzionano
-// già gratis via `/media/preview/{hash}` (i RAW hanno già un'anteprima
-// derivata, stesso motivo per cui le miniature RAW funzionano ovunque
-// nell'app), serviva solo instradare la scelta dell'utente al membro
-// giusto dello stack (`GET /assets/{id}/stack`, Fase 10, primo consumo
-// frontend). Con la 8/N §19 è costruito per intero, salvo il debito
-// dichiarato sotto. La 9/N corregge un bug reale trovato rileggendo
-// §19.8: "il pannello esiste solo dentro il lightbox... **ed è forzato
-// aperto a ogni `openLightbox()`** (e all'apertura dal culling)" — dalla
-// 2/N in poi il pannello partiva **chiuso**, mai notato perché ogni test
-// di questo file lo apriva esplicitamente con `i` prima di verificare
-// qualunque contenuto (mascherando quindi il difetto invece di
-// scoprirlo). Corretto: `info` parte `true`, `loadPanelData()` scatta da
-// `onMounted`, non solo dal primo `i`/click sull'icona. La 10/N (questa)
-// aggiunge il prop `isCulling` (§21, "Differenze fra lightbox aperto da
-// libreria e lightbox aperto da un lotto di culling"): nasconde PERSONE/
-// TAG/ALBUM e le azioni "Aggiungi ad album"/"Elimina…" (pannello e menu
-// ⋯) quando la foto viene da un lotto ancora non organizzato — tutto il
-// resto (titolo, stelle, RAW/JPEG, SCATTO, POSIZIONE, filmino, frecce,
-// barra superiore, Scarica/Ruota/Rinomina) resta identico, come da
-// tabella del documento. `CullingView.vue` è il primo (e unico)
-// chiamante con `isCulling`; i quattro chiamanti libreria (Timeline,
-// Preferiti, Cerca, Mappa) restano `isCulling` di default (`false`).
+// The lightbox: top bar, stage with arrows, filmstrip, info panel and
+// ⋯ ("more actions") menu.
 //
-// **Deviazione deliberata dal mockup, non un debito**: il documento
-// descrive tre stati di chip per un tag confermato — "applicato dall'IA,
-// mai revisionato" (opacità ridotta, marcatore "IA", click-per-
-// confermare) contro "confermato da un umano" (pieno, nessun marcatore).
-// Nel backend reale questa distinzione **non esiste**: `AssetTagRepo::
-// decide` (`confirm`/`reject`) transita solo righe `state='proposed'` —
-// una riga `state='confirmed'` è per costruzione già stata decisa (da
-// `confirm()`, che richiede un utente autenticato, o da un'assegnazione
-// manuale), non importa se il suo `source` originario era `'ai'` o
-// `'user'`. Riprodurre il marcatore "IA, clicca per confermare" su un
-// tag già confermato sarebbe un pulsante che promette un'azione (una
-// seconda "conferma") che non ha alcun effetto reale — `decide()` è
-// idempotente e non fa nulla se lo stato è già quello richiesto. Ogni
-// tag confermato ha quindi **un solo aspetto**, indipendente da `source`;
-// la distinzione a tre vie del mockup collassa correttamente nelle due
-// sezioni reali del backend: confermato (fatto) e proposto (da
-// decidere).
+// The RAW/JPEG switcher works **unlike** the mockup (where "the only
+// observable effect is which chip is highlighted", the displayed image
+// never changes): here the selection genuinely changes what the stage
+// shows and what "Download original" downloads — the point the mockup
+// document itself flags as "the backend will need to do something real:
+// choose which of the two stack files gets decoded, shown and
+// downloaded". Decoding and display already work for free via
+// `/media/preview/{hash}` (RAW files already have a derived preview, the
+// same reason RAW thumbnails work everywhere in the app); it only needed
+// routing the user's choice to the right stack member (`GET
+// /assets/{id}/stack`).
 //
-// **Debito dichiarato, verificato e non taciuto**:
-// - "Condividi" (§18.3 riga 3, Task 11 1/N): apre `ShareSelectionDialog
-//   .vue` per questo singolo asset — stesso meccanismo (album
-//   auto-generato) già usato dalla barra di selezione, vedi lì per il
-//   perché.
-// - "Ruota" resta un toast (nessuna pipeline di rotazione reale esiste
-//   ancora — dichiarato nel Task 8 1/N: `orientation` è scrivibile ma
-//   mai consumato da `keeppix-media`).
-// - Il link verso la cartella/il lotto di provenienza nella riga
-//   data/ora (§19.2 riga 2) è omesso: non esiste una rotta per risolvere
-//   il nome di una cartella dal solo `folder_id` (`GET /folders/{id}`
-//   non esiste, solo `tree`/`{id}/children`) — costruirla per una sola
-//   riga di sottotitolo non è nello scopo di questa unità.
-// - "Vai alla persona" (§19.3/§38, prima voce del menu del chip): era
-//   omesso qui (debito dichiarato: "nessuna vista Persone esiste
-//   ancora"), costruito nel Task 16 (3/N) ora che `/persons/:id` esiste
-//   — chiude il menu, chiude il lightbox (`emit('close')`), naviga.
-// - **Il menu sul riquadro del volto resta un `Popover` ancorato, non un
-//   dialog modale** (Task 16 3/N, verificato contro §38/§40 SP-14: "il
-//   menu sul riquadro del volto **non** usa questo pattern: è un dialog
-//   modale, non un menu a comparsa ancorato" — deviazione reale, non
-//   corretta qui: riscrivere il contenitore da `Popover` a `Dialog`
-//   toccherebbe anche l'hover/focus dei riquadri sulla foto (§38.4-5,
-//   200 ms di tolleranza) per un guadagno di fedeltà strutturale, non di
-//   contenuto — le tre opzioni con titolo+descrizione (§38.2) sono ora
-//   comunque tutte presenti e reali).
-// - Il chip "+ aggiungi" delle persone (§19.2 riga 13, ultimo chip) non
-//   è costruito: aggiungere una persona a mano crea un volto **senza**
-//   rilevamento dietro (`box:null` nel mockup), ma `Face.bbox` nel
-//   dominio reale (`crates/keeppix-domain/src/face.rs`) non è opzionale
-//   — un vero buco di modello, non di frontend, già rimandato al Task A
-//   (Volti: YuNet+SFace) fin dal Task 8 (1/N): quella è la sede naturale
-//   per rivedere una volta sola il modello `Face`.
+// A real bug was fixed: per the mockup, "the panel only exists inside the
+// lightbox... **and is forced open on every `openLightbox()`**" (and when
+// opened from culling) — for a while the panel started **closed**, never
+// noticed because every test in this file opened it explicitly with `i`
+// before checking any content (masking the defect instead of catching
+// it). Fixed: `info` starts `true`, `loadPanelData()` fires from
+// `onMounted`, not only from the first `i`/icon click.
 //
-// **Corretto qui, non solo aggiunto**: il click sullo sfondo nero
-// *non* deve chiudere il lightbox (§18.4, esplicito — a differenza
-// dello scrim dei dialog modali, SP-5) — la versione precedente aveva
-// `@click.self="emit('close')"` sul contenitore radice, un
-// comportamento mai documentato per questa vista. Rimosso.
+// The `isCulling` prop ("Differences between the lightbox opened from the
+// library vs. from a culling lot") hides PEOPLE/TAG/ALBUM and the "Add to
+// album"/"Delete…" actions (panel and ⋯ menu) when the photo comes from a
+// lot that hasn't been organized yet — everything else (title, star
+// rating, RAW/JPEG, SHOT, LOCATION, filmstrip, arrows, top bar,
+// Download/Rotate/Rename) stays identical, per the mockup's table.
+// `CullingView.vue` is the only caller with `isCulling`; the four library
+// callers (Timeline, Favorites, Search, Map) default `isCulling` to
+// `false`.
 //
-// **Bug reale trovato e corretto in questa unità (7/N), presente fin dal
-// Task 8 (2/N)**: `Esc` chiudeva **anche il lightbox sotto**, non solo il
-// dialog aperto, ogni volta che uno dei sei dialog del pannello (elimina,
-// album, rinomina, posizione, persona, tag) era aperto — non solo il
-// menu ⋯, l'unico caso gestito finora. La gestione di Esc di reka-ui gira
-// su `DismissableLayer`, un meccanismo interno che non coordina in alcun
-// modo con l'`window.addEventListener('keydown', onKey)` scritto a mano
-// qui: nessuno dei sei dialog era mai stato insegnato a `onKey`. Scoperto
-// scrivendo i test della sezione ALBUM (§19.2 riga 18), mai prima
-// esercitato da nessun test di questo file. Corretto con `dialogRefs`,
-// controllato prima di ricadere sull'`emit('close')` del lightbox.
+// **Deliberate deviation from the mockup, not a gap**: the mockup
+// describes three chip states for a confirmed tag — "applied by AI, never
+// reviewed" (reduced opacity, "AI" marker, click-to-confirm) vs.
+// "confirmed by a human" (solid, no marker). In the real backend this
+// distinction **doesn't exist**: `AssetTagRepo::decide` (`confirm`/
+// `reject`) only transitions rows with `state='proposed'` — a
+// `state='confirmed'` row has, by construction, already been decided (by
+// `confirm()`, which requires an authenticated user, or by a manual
+// assignment), regardless of whether its original `source` was `'ai'` or
+// `'user'`. Reproducing the "AI, click to confirm" marker on an
+// already-confirmed tag would be a button promising an action (a second
+// "confirm") that has no real effect — `decide()` is idempotent and does
+// nothing if the state already matches. Every confirmed tag therefore has
+// **a single appearance**, independent of `source`; the mockup's
+// three-way distinction correctly collapses into the backend's two real
+// sections: confirmed (done) and proposed (to decide).
+//
+// **Declared, verified, not glossed-over gaps**:
+// - "Share" opens `ShareSelectionDialog.vue` for this single asset — the
+//   same mechanism (auto-generated album) already used by the selection
+//   bar, see there for why.
+// - "Rotate" stays a toast (no real rotation pipeline exists yet:
+//   `orientation` is writable but never consumed by `keeppix-media`).
+// - The link to the source folder/lot in the date/time row is omitted:
+//   there's no route to resolve a folder's name from just `folder_id`
+//   (`GET /folders/{id}` doesn't exist, only `tree`/`{id}/children`) —
+//   building one for a single subtitle line is out of scope here.
+// - "Go to person" (first item in the chip's menu): it used to be omitted
+//   ("no People view exists yet"), built once `/persons/:id` exists — it
+//   closes the menu, closes the lightbox (`emit('close')`), navigates.
+// - **The face-box menu stays an anchored `Popover`, not a modal
+//   dialog** (verified against the mockup: "the face-box menu **doesn't**
+//   use this pattern: it's a modal dialog, not an anchored popup menu" —
+//   a real deviation, not corrected here: rewriting the container from
+//   `Popover` to `Dialog` would also touch the hover/focus behavior of
+//   the boxes on the photo (200ms tolerance) for a gain in structural
+//   fidelity, not content — the three options with title+description are
+//   now all present and real regardless).
+// - The people section's "+ add" chip (last chip) isn't built: manually
+//   adding a person creates a face **without** an underlying detection
+//   (`box:null` in the mockup), but `Face.bbox` in the real domain
+//   (`crates/keeppix-domain/src/face.rs`) isn't optional — a real model
+//   gap, not a frontend one, already deferred to the faces model work
+//   (YuNet+SFace): that's the natural place to revisit the `Face` model
+//   once, in one pass.
+//
+// **Fixed here, not just added**: clicking the black background must
+// *not* close the lightbox (explicit — unlike the scrim on modal
+// dialogs) — the previous version had `@click.self="emit('close')"` on
+// the root container, a behavior never documented for this view. Removed.
+//
+// **Real bug found and fixed here, present since early on**: `Esc` used
+// to close **the lightbox underneath too**, not just the open dialog,
+// whenever one of the panel's six dialogs (delete, album, rename,
+// position, person, tag) was open — not just the ⋯ menu, the only case
+// handled until then. reka-ui's Esc handling runs on `DismissableLayer`,
+// an internal mechanism that doesn't coordinate at all with the
+// hand-written `window.addEventListener('keydown', onKey)` here: none of
+// the six dialogs had ever been taught to `onKey`. Discovered while
+// writing the ALBUM section's tests, never previously exercised by any
+// test in this file. Fixed with `dialogRefs`, checked before falling
+// back to the lightbox's `emit('close')`.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -143,35 +131,31 @@ import { useToastStore } from '@/stores/toast'
 const props = withDefaults(
   defineProps<{
     asset: TimelineAsset
-    /** L'insieme di navigazione (frecce + filmino), nell'ordine di
-     * visualizzazione — §18.2/§18.8: "tutte le foto della stessa
-     * cartella e dello stesso mese" per la libreria, già calcolato dal
-     * chiamante (ogni vista sa qual è il proprio "vicinato": `loadedAssets`
-     * per Timeline, `filteredAssets` per Preferiti/Cerca). Vuoto di
-     * default: nessuna freccia, nessun filmino — il popover della mappa
-     * non ha un concetto di vicinato e continua a funzionare senza
-     * modifiche. */
+    /** The navigation set (arrows + filmstrip), in display order — "all
+     * photos in the same folder and month" for the library, already
+     * computed by the caller (each view knows its own "neighborhood":
+     * `loadedAssets` for Timeline, `filteredAssets` for Favorites/Search).
+     * Empty by default: no arrows, no filmstrip — the map popover has no
+     * notion of neighborhood and keeps working unchanged. */
     neighbors?: TimelineAsset[]
     isFavorite: boolean
-    /** §21: la foto viene da un lotto di culling, non ancora organizzata
-     * nella libreria — niente cartella/mese/tag/album/volti. Nasconde le
-     * sezioni PERSONE/TAG/ALBUM e le azioni "Aggiungi ad album"/
-     * "Elimina…" (pannello e menu ⋯); tutto il resto (titolo, stelle,
-     * RAW/JPEG, SCATTO, POSIZIONE, filmino, frecce, barra superiore,
-     * Scarica/Ruota/Rinomina) resta identico. `false` di default: gli
-     * altri quattro chiamanti (Timeline/Preferiti/Cerca/Mappa) sono
-     * sempre contesto libreria. */
+    /** The photo comes from a culling lot, not yet organized into the
+     * library — no folder/month/tag/album/faces. Hides the PEOPLE/TAG/
+     * ALBUM sections and the "Add to album"/"Delete…" actions (panel and
+     * ⋯ menu); everything else (title, stars, RAW/JPEG, SHOT, LOCATION,
+     * filmstrip, arrows, top bar, Download/Rotate/Rename) stays
+     * identical. `false` by default: the other four callers
+     * (Timeline/Favorites/Search/Map) are always library context. */
     isCulling?: boolean
   }>(),
   { neighbors: () => [], isCulling: false }
 )
 const emit = defineEmits<{
   close: []
-  /** Sostituisce i due emit separati `prev`/`next` del segnaposto
-   * precedente: frecce, filmino e tastiera risolvono già l'asset di
-   * destinazione da `neighbors`, il chiamante non deve più rifare la
-   * stessa ricerca (`viewingNeighbour`) che il vecchio contratto gli
-   * imponeva. */
+  /** Replaces the previous placeholder's two separate `prev`/`next`
+   * emits: arrows, filmstrip and keyboard already resolve the target
+   * asset from `neighbors`, the caller no longer has to redo the same
+   * lookup (`viewingNeighbour`) the old contract forced on it. */
   step: [asset: TimelineAsset]
   'open-asset': [id: string]
   'toggle-favorite': []
@@ -181,10 +165,10 @@ const maps = useMapsStore()
 const toast = useToastStore()
 const router = useRouter()
 
-/** §19.8: "forzato aperto a ogni `openLightbox()` (e all'apertura dal
- * culling)" — non chiuso di default come nella versione precedente di
- * questo componente. `I`/l'icona restano il modo per chiuderlo (e
- * riaprirlo), invariati. */
+/** "Forced open on every `openLightbox()`" (and when opened from
+ * culling) — not closed by default as in this component's earlier
+ * version. `I`/the icon remain the way to close it (and reopen it),
+ * unchanged. */
 const info = ref(true)
 const moreOpen = ref(false)
 const albumDialogOpen = ref(false)
@@ -193,32 +177,32 @@ const renameDialogOpen = ref(false)
 const deleteDialogOpen = ref(false)
 const positionDialogOpen = ref(false)
 const metadata = ref<AssetMetadata>()
-/** §19.2 sezione "SCATTO": `full_exif` non arriva mai col prop `asset`
- * (le griglie che passano l'asset al lightbox usano `/timeline`/`/search`,
- * che non lo calcolano) — solo `GET /assets/{id}` lo porta. */
+/** SHOT section: `full_exif` never arrives with the `asset` prop (the
+ * grids that pass the asset to the lightbox use `/timeline`/`/search`,
+ * which don't compute it) — only `GET /assets/{id}` carries it. */
 const detail = ref<TimelineAsset>()
 const flags = ref<AssetFlags>()
 const placeName = ref<string | null>(null)
 const titleDraft = ref('')
-/** §18.2/§19.2: volti rilevati con riquadro (`bbox`), separati da
- * `asset.faces` (`AssetFaceBadge[]`, solo `person_id`/`person_name`, già
- * disponibile dal prop senza fetch) — serve a mappare ogni chip persona
- * al/i volto/i corrispondente/i sull'immagine. */
+/** Detected faces with their bounding box (`bbox`), separate from
+ * `asset.faces` (`AssetFaceBadge[]`, only `person_id`/`person_name`,
+ * already available from the prop without a fetch) — needed to map each
+ * person chip to its matching face(s) on the image. */
 const faces = ref<Face[]>([])
 const personDialogOpen = ref(false)
 const assetTags = ref<AssetTagDetail[]>([])
-/** Solo `kind === 'category'` da `GET /tags` (elenco unico tag+categorie,
- * §19.2 righe 14-17): serve per il nome di ogni gruppo — `AssetTagDetail.
- * category_id` porta solo l'id. */
+/** Only `kind === 'category'` from `GET /tags` (the combined tag+category
+ * list): needed for each group's name — `AssetTagDetail.category_id`
+ * only carries the id. */
 const categories = ref<Tag[]>([])
 const tagDialogOpen = ref(false)
-/** §19.2 riga 18: elenco di sola lettura degli album di cui la foto è
- * membro (manuali e dinamici indistinti, `AlbumRepo::for_asset`) — "+
- * aggiungi" riusa `albumDialogOpen`/`AlbumPickerDialog`, già cablato dal
- * Task 8 2/N per il menu ⋯: stesso dialog, due punti d'ingresso. */
+/** Read-only list of the albums the photo belongs to (manual and dynamic
+ * indistinct, `AlbumRepo::for_asset`) — "+ add" reuses
+ * `albumDialogOpen`/`AlbumPickerDialog`, already wired for the ⋯ menu:
+ * same dialog, two entry points. */
 const assetAlbums = ref<AlbumBadge[]>([])
-/** Il volto che "Correggi persona…" sta per riassegnare — impostato
- * all'apertura del selettore, letto quando l'utente sceglie una persona. */
+/** The face that "Correct person…" is about to reassign — set when the
+ * picker opens, read when the user chooses a person. */
 const correctingFaceId = ref<string | null>(null)
 const openFaceMenuPersonId = ref<string | null>(null)
 const hoveredPersonId = ref<string | null>(null)
@@ -231,14 +215,14 @@ function previewSrc(asset: TimelineAsset): string {
     : `/media/original/${asset.id}`
 }
 
-/** §19.2 riga 5, commutatore RAW/JPEG: a differenza del mockup ("l'unico
- * effetto osservabile è quale chip è evidenziata... non cambia l'immagine
- * mostrata"), qui la selezione **cambia davvero cosa viene mostrato e
- * scaricato** — il documento stesso lo indica come uno dei punti in cui
- * "il backend dovrà fare qualcosa di vero: scegliere quale dei due file
- * della pila viene decodificato, mostrato e scaricato". `stackMembers`
- * arriva solo per un asset `raw_kind` `'raw'`/`'raw+jpeg'` (mai per un
- * JPEG semplice, che non ha uno stack). */
+/** RAW/JPEG switcher: unlike the mockup ("the only observable effect is
+ * which chip is highlighted... the displayed image never changes"), here
+ * the selection **genuinely changes what's shown and downloaded** — the
+ * mockup document itself flags this as one of the points where "the
+ * backend will need to do something real: choose which of the two stack
+ * files gets decoded, shown and downloaded". `stackMembers` only arrives
+ * for an asset with `raw_kind` `'raw'`/`'raw+jpeg'` (never for a plain
+ * JPEG, which has no stack). */
 const stackMembers = ref<StackMember[]>([])
 const selectedStackMemberId = ref<string | null>(null)
 const rawMember = computed(() => stackMembers.value.find((m) => m.raw_kind === 'raw'))
@@ -266,22 +250,21 @@ function stepTo(target: TimelineAsset | undefined) {
   if (target) emit('step', target)
 }
 
-/** §18.5: `Esc` a due livelli — un menu ⋯ aperto ne assorbe la prima
- * pressione. Controllato qui, non lasciato al layering di reka-ui (il
- * lightbox stesso non è un `DialogRoot`/`PopoverRoot`, solo il menu ⋯
- * lo è): un singolo `keydown` globale deve sapere qual è il primo
- * livello da chiudere prima di arrivare al secondo. */
-/** I sei dialog aperti dal pannello/menu (elimina, album, rinomina,
- * posizione, persona, tag) sono tutti componenti reka-ui reali con la
- * propria gestione di Esc — ma quella gira su `DismissableLayer`, un
- * meccanismo interno alla libreria che non coordina in alcun modo con un
- * `window.addEventListener('keydown', ...)` scritto a mano come questo:
- * senza il controllo esplicito qui sotto, la stessa pressione di Esc
- * chiuderebbe **anche** il lightbox sotto al dialog, non solo il dialog
- * — bug reale, trovato scrivendo i test della sezione ALBUM (Task 8
- * 7/N), presente fin dal Task 8 2/N (quando `moreOpen` era l'unico caso
- * gestito) e mai notato prima perché nessun test precedente premeva Esc
- * con uno di questi sei dialog aperto. */
+/** Two-level `Esc`: an open ⋯ menu absorbs the first press. Checked here,
+ * not left to reka-ui's layering (the lightbox itself isn't a
+ * `DialogRoot`/`PopoverRoot`, only the ⋯ menu is): a single global
+ * `keydown` needs to know which level to close first before reaching the
+ * second. */
+/** The six dialogs opened from the panel/menu (delete, album, rename,
+ * position, person, tag) are all real reka-ui components with their own
+ * Esc handling — but that runs on `DismissableLayer`, a library-internal
+ * mechanism that doesn't coordinate at all with a hand-written
+ * `window.addEventListener('keydown', ...)` like this one: without the
+ * explicit check below, the same Esc press would **also** close the
+ * lightbox underneath the dialog, not just the dialog — a real bug, found
+ * while writing the ALBUM section's tests, present since `moreOpen` was
+ * the only case handled, and never noticed before because no earlier test
+ * pressed Esc with one of these six dialogs open. */
 const dialogRefs = [deleteDialogOpen, albumDialogOpen, shareDialogOpen, renameDialogOpen, positionDialogOpen, personDialogOpen, tagDialogOpen]
 
 function onKey(e: KeyboardEvent) {
@@ -316,24 +299,24 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
-/** Un solo giro per apertura pannello/cambio foto: metadati effettivi
- * (titolo, posizione), dettaglio con `full_exif` (§19.2 "SCATTO", assente
- * dal prop `asset`) e voti (per la valutazione a stelle) — tre chiamate in
- * parallelo, ciascuna con il proprio esito indipendente: se una fallisce
- * (es. pgvector assente per i voti) le altre due restano valide. */
+/** A single round per panel open/photo change: effective metadata (title,
+ * position), detail with `full_exif` (SHOT section, absent from the
+ * `asset` prop) and votes (for the star rating) — three calls in
+ * parallel, each with its own independent outcome: if one fails (e.g.
+ * pgvector missing for votes) the other two remain valid. */
 async function loadPanelData() {
   const sequence = ++panelRequestSequence
   const assetId = props.asset.id
-  // `maps.regions` non è caricato da nessun ingresso globale (solo
-  // MapView/MapsOfflineView lo fanno) — senza questo, `PlacePickerDialog`
-  // vedrebbe sempre `availableRegionIds` vuoto e mostrerebbe l'avviso
-  // "mappa non disponibile" anche per regioni già scaricate. A parte,
-  // senza `await`: non deve ritardare gli altri tre campi del pannello.
+  // `maps.regions` isn't loaded by any global entry point (only
+  // MapView/MapsOfflineView do) — without this, `PlacePickerDialog` would
+  // always see `availableRegionIds` empty and show the "map unavailable"
+  // warning even for regions already downloaded. Kept separate, without
+  // `await`: it must not delay the panel's other three fields.
   void maps.loadRegions()
-  // Niente giro a vuoto: `asset.faces` (già nel prop, senza fetch) dice se
-  // la foto ha volti confermati prima ancora di chiedere i riquadri. In
-  // culling (§21.9: "Non richiede... tag, album, volti") tag/album/volti
-  // non servono affatto — mai una foto "grezza" di un lotto li ha.
+  // No wasted round trip: `asset.faces` (already in the prop, no fetch)
+  // tells us whether the photo has confirmed faces before even asking for
+  // the boxes. In culling, tags/albums/faces aren't needed at all — a
+  // lot's "raw" photo never has them.
   const needsFaces = !props.isCulling && props.asset.faces.length > 0
   const needsStack = props.asset.raw_kind === 'raw' || props.asset.raw_kind === 'raw+jpeg'
   const [
@@ -392,12 +375,13 @@ async function saveTitle() {
   }
 }
 
-/** SP-9: click sulla stella *n* imposta la valutazione a *n*, riclick
- * sulla stessa stella l'azzera — `RatingStars` emette solo `rate(n)`, il
- * toggle è responsabilità del chiamante (stessa cosa già vera in
- * `CullingView.vue`, che però non lo implementa: qui sì, per rispettare
- * §19.3 alla lettera). `setFlags` sostituisce l'intero oggetto voti, quindi
- * si parte sempre da `flags.value` già caricato, mai da un valore vuoto. */
+/** Clicking star *n* sets the rating to *n*, clicking the same star again
+ * resets it to 0 — `RatingStars` only emits `rate(n)`, the toggle is the
+ * caller's responsibility (same is already true in `CullingView.vue`,
+ * which doesn't implement it though: here it does, to follow the spec to
+ * the letter). `setFlags` replaces the whole votes object, so it always
+ * starts from the already-loaded `flags.value`, never from an empty
+ * value. */
 async function rate(n: number) {
   const assetId = props.asset.id
   const current = flags.value ?? unvotedFlags
@@ -414,16 +398,17 @@ function personDisplayName(personName: string | null): string {
   return personName ?? t('personPicker.unnamed')
 }
 
-/** Un chip persona rappresenta un `person_id`; il volto (`bbox`, e l'id da
- * passare ad `assignFace`/`rejectFace`) va cercato nel dettaglio caricato a
- * parte — `asset.faces` non lo porta (solo nome/id persona, SP-3). */
+/** A person chip represents a `person_id`; the face (`bbox`, and the id to
+ * pass to `assignFace`/`rejectFace`) has to be looked up in the
+ * separately loaded detail — `asset.faces` doesn't carry it (only the
+ * person's name/id). */
 function faceIdFor(personId: string): string | undefined {
   return faces.value.find((face) => face.person_id === personId)?.id
 }
 
-/** §19, animazioni: 0ms all'entrata, 200ms di tolleranza all'uscita — si
- * annullano se nel frattempo si rientra nel chip **o** nel riquadro
- * stesso (da qui i due handler gemelli sui riquadri, non solo sui chip). */
+/** Animations: 0ms on enter, 200ms tolerance on leave — cancelled if the
+ * pointer re-enters the chip **or** the box itself in the meantime (hence
+ * the twin handlers on the boxes, not just on the chips). */
 function cancelHideBoxes() {
   if (hideBoxesTimer) {
     clearTimeout(hideBoxesTimer)
@@ -446,11 +431,10 @@ function scheduleHideBoxes() {
 
 const visibleFaces = computed(() => faces.value.filter((face) => face.person_id === hoveredPersonId.value))
 
-// §19.3/§38.3 controllo 1, "Vai alla persona": chiude il menu, chiude il
-// lightbox, passa alla vista Persone e apre il dettaglio — reale da
-// quando la rotta `/persons/:id` esiste (Task 16 1/N). Era omesso di
-// proposito nel Task 8 (commento di testa del file): "nessuna vista
-// Persone esiste ancora... ometterlo è più onesto di un finto toast".
+// "Go to person": closes the menu, closes the lightbox, switches to the
+// People view and opens the detail — real now that the `/persons/:id`
+// route exists. It used to be deliberately omitted ("no People view
+// exists yet... omitting it is more honest than a fake toast").
 function goToPerson(personId: string) {
   openFaceMenuPersonId.value = null
   emit('close')
@@ -494,9 +478,9 @@ async function markNotAFace(personId: string) {
 const confirmedTags = computed(() => assetTags.value.filter((tag) => tag.state === 'confirmed'))
 const proposedTags = computed(() => assetTags.value.filter((tag) => tag.state === 'proposed'))
 
-/** Raggruppa i tag confermati per categoria (§19.2 righe 14-15): nessun
- * `TAG_CATEGORIES` lato backend (era una costante del solo prototipo) —
- * ordine alfabetico per nome, "Senza categoria" sempre in fondo. */
+/** Groups confirmed tags by category: no `TAG_CATEGORIES` on the backend
+ * (it was a prototype-only constant) — alphabetical order by name, "No
+ * category" always last. */
 const groupedConfirmedTags = computed(() => {
   const groups = new Map<string | null, AssetTagDetail[]>()
   for (const tag of confirmedTags.value) {
@@ -550,23 +534,23 @@ async function removeTag(tag: AssetTagDetail) {
   }
 }
 
-/** `TagPickerDialog` applica ogni tocco subito, senza un evento di
- * completamento (§12.3: "l'effetto è immediato: non c'è 'Annulla'") — il
- * pannello si aggiorna alla chiusura, non ad ogni singolo tocco dentro il
- * dialog. Vale anche per `albumDialogOpen`: lo stesso dialog serve sia
- * "+ aggiungi" del pannello (sezione ALBUM) sia "Aggiungi ad album" del
- * menu ⋯ — un solo punto di ricarica per entrambi gli ingressi. */
+/** `TagPickerDialog` applies every touch immediately, with no completion
+ * event ("the effect is immediate: there's no 'Undo'") — the panel
+ * refreshes on close, not on every single touch inside the dialog. Same
+ * for `albumDialogOpen`: the same dialog serves both the panel's "+ add"
+ * (ALBUM section) and the ⋯ menu's "Add to album" — a single reload point
+ * for both entry points. */
 watch([tagDialogOpen, albumDialogOpen], ([tagOpen, albumOpen], [prevTagOpen, prevAlbumOpen]) => {
   if ((prevTagOpen && !tagOpen) || (prevAlbumOpen && !albumOpen)) void loadPanelData()
 })
 
-/** §18.2: i riquadri volto sono posizionati in percentuale rispetto
- * all'immagine **effettivamente disegnata**, non al contenitore — con
- * `object-contain` le due cose divergono ogni volta che il rapporto
- * d'aspetto della foto non è quello del contenitore (lettera-/pillar-
- * boxing). Misurato via `naturalWidth`/`naturalHeight` (dell'`<img>` dopo
- * il suo `load`) e la dimensione dell'elemento (che con `w-full h-full`
- * coincide col contenitore, osservata con `ResizeObserver`). */
+/** Face boxes are positioned as a percentage relative to the image
+ * **as actually rendered**, not the container — with `object-contain`
+ * the two diverge whenever the photo's aspect ratio doesn't match the
+ * container's (letter-/pillar-boxing). Measured via `naturalWidth`/
+ * `naturalHeight` (of the `<img>` after its `load`) and the element's
+ * size (which with `w-full h-full` matches the container, observed with
+ * `ResizeObserver`). */
 const stageImgEl = ref<HTMLImageElement>()
 const containerSize = ref({ w: 0, h: 0 })
 const naturalSize = ref({ w: 0, h: 0 })
@@ -620,8 +604,8 @@ function boxStyle(face: Face) {
 
 onMounted(() => {
   window.addEventListener('keydown', onKey)
-  // Il pannello parte già aperto (§19.8): il giro che prima scattava solo
-  // al primo `i`/click sull'icona deve partire subito al montaggio.
+  // The panel starts already open: the round trip that used to fire only
+  // on the first `i`/icon click must fire immediately on mount.
   void loadPanelData()
 })
 onUnmounted(() => window.removeEventListener('keydown', onKey))
@@ -644,9 +628,9 @@ watch(
   }
 )
 
-/** §20.3: `closeMoreAnd(fn)` — il menu chiude e ridisegna **prima**
- * dell'azione, così il dialog che si apre non trova il menu ancora
- * sopra di sé. */
+/** `closeMoreAnd(fn)` — the menu closes and repaints **before** the
+ * action, so the dialog that opens doesn't find the menu still on top of
+ * it. */
 function closeMoreThen(fn: () => void) {
   moreOpen.value = false
   void nextTick(fn)
@@ -674,11 +658,10 @@ async function confirmDelete(choice: DeleteChoice) {
 
 const renameSubtitle = computed(() => t('renameFormula.subtitleSingle', { filename: props.asset.filename }))
 
-/** §19.2 riga 2: "{giorno} {mese} {anno}, ore {H:MM}" — il link verso la
- * cartella/il lotto di provenienza che condivide questa riga nel documento
- * resta debito dichiarato (nessuna rotta per risolvere un nome di cartella
- * dal solo `folder_id` esiste ancora: `GET /folders/{id}` non c'è, solo
- * `tree`/`{id}/children`). */
+/** "{day} {month} {year}, at {H:MM}" — the link to the source
+ * folder/lot that shares this row in the mockup remains a declared gap
+ * (no route to resolve a folder's name from just `folder_id` exists yet:
+ * `GET /folders/{id}` doesn't exist, only `tree`/`{id}/children`). */
 const dateTimeLabel = computed(() => {
   const iso = props.asset.taken_at_utc
   if (!iso) return ''
@@ -688,9 +671,9 @@ const dateTimeLabel = computed(() => {
   return t('viewer.panel.dateTime', { date, time })
 })
 
-/** §19.2 riga 8: "{diaframma} · {tempo}s · ISO {iso}" — solo le parti
- * effettivamente presenti nell'exif, unite da " · " (un file senza
- * diaframma noto non deve mostrare "f/undefined"). */
+/** "{aperture} · {time}s · ISO {iso}" — only the parts actually present
+ * in the exif, joined by " · " (a file with no known aperture must not
+ * show "f/undefined"). */
 const exposureLine = computed(() => {
   const exif = detail.value?.full_exif
   if (!exif) return ''
@@ -724,8 +707,8 @@ const dimensionsLine = computed(() => {
   return `${props.asset.width}×${props.asset.height}`
 })
 
-/** §19.2 riga 11: "lat, lng" a 4 decimali — non le coordinate grezze del
- * `GeoPointView` (che ne porta molti di più, dal backend). */
+/** "lat, lng" to 4 decimal places — not the raw coordinates from
+ * `GeoPointView` (which carries many more, from the backend). */
 const coordsLabel = computed(() => {
   const location = metadata.value?.location
   if (!location) return ''

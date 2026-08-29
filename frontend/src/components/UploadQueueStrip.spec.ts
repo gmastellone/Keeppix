@@ -42,7 +42,7 @@ function mountStrip() {
 }
 
 describe('UploadQueueStrip', () => {
-  it('does not exist at all with an empty queue — zero pixels at rest (§6.1)', () => {
+  it('does not exist at all with an empty queue — zero pixels at rest', () => {
     const { wrapper } = mountStrip()
     expect(wrapper.find('button').exists()).toBe(false)
   })

@@ -1,35 +1,30 @@
 <script setup lang="ts">
-// Fase 11 Task 6 (8/N) — documento funzionale §5.2-§5.3 (header
-// mobile), verificato riga per riga (righe 962-1052).
+// Mobile header.
 //
-// Titolo per rotta: `ROUTE_TITLE_KEYS` (`src/nav/routeTitles.ts`),
-// condivisa con AppTopbar (Task 6 2/N, 6/N) — stesso identico testo
-// per ogni rotta oggi coperta, non una seconda copia divergente.
-// `/more` **non** è in quella mappa: il documento (§5.8) dice
-// esplicitamente che le viste `libreria`/`cartelle` "esistono solo
-// nella shell mobile" e restano a briciola vuota tornando a desktop —
-// qui, mobile-only, il titolo "Altro" è aggiunto a parte.
+// Title per route: `ROUTE_TITLE_KEYS` (`src/nav/routeTitles.ts`), shared
+// with AppTopbar — the exact same text for every route currently covered,
+// not a second diverging copy. `/more` is **not** in that map: the mockup
+// explicitly says the `library`/`folders` views "only exist in the mobile
+// shell" and stay at an empty breadcrumb when going back to desktop —
+// here, mobile-only, the "More" title is added separately.
 //
-// Freccia indietro (§5.3.1): il mockup ha tre rami di priorità
-// (dettaglio album aperto → griglia Album; culling/bulkEdit → Foto;
-// altrimenti → Altro). Il primo ramo, da Task 12 (1/N), è raggiungibile:
-// `/albums/:id` è la prima rotta dinamica con un "aperto" osservabile
-// dall'esterno della vista (stesso debito dichiarato per AppSidebar,
-// Task 3/13/15/16, resta per cartelle/culling — nessuna delle due espone
-// ancora quello stato).
+// Back arrow: the mockup has three priority branches (open album detail →
+// Albums grid; culling/bulkEdit → Photos; otherwise → More). The first
+// branch is reachable: `/albums/:id` is the first dynamic route with an
+// "open" state observable from outside the view (the same gap already
+// declared for AppSidebar, still true for folders/culling — neither
+// exposes that state yet).
 //
-// Pulsante imbuto culling: badge dal dato reale già usato da
-// AppSidebar (`shell.badges.culling`), non un segnaposto.
+// Culling funnel button: badge from the real data already used by
+// AppSidebar (`shell.badges.culling`), not a placeholder.
 //
-// Menu account: il documento (§5.2.c) elenca Profilo/Impostazioni/
-// Esci — tutti e tre presenti da Task 14 (1/N-2/N), stesso ordine e
-// stesso collegamento del menu account desktop di AppSidebar.
+// Account menu: the mockup lists Profile/Settings/Sign out — all three
+// present, same order and same link as AppSidebar's desktop account menu.
 //
-// `+` di caricamento (§3.3, `caricamento-nuove-foto.md`): il mockup lo
-// mostra su `['foto','preferiti','album','libreria']`
-// (`MOBILE_UPLOAD_VIEWS`, riga 3286) — qui solo `/`/`/albums`/`/more`,
-// le sole tre di quella lista con una vista reale (Preferiti non
-// esiste, stesso debito di AppSidebar/MoreView).
+// Upload `+`: the mockup shows it on
+// `['foto','preferiti','album','libreria']` (`MOBILE_UPLOAD_VIEWS`) — here
+// only `/`/`/albums`/`/more`, the only three of that list with a real view
+// (Favorites doesn't exist, same gap as AppSidebar/MoreView).
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -63,10 +58,10 @@ const showBack = computed(() => !ROOT_ROUTES.has(route.path))
 
 const title = computed(() => {
   if (route.path.startsWith('/albums/') && activeAlbumName.value) return activeAlbumName.value
-  // §32.8: "su mobile il titolo è 'Persone' o il nome della persona" —
-  // senza nome resta il titolo piatto della mappa sotto (`persons.title`).
+  // "On mobile the title is 'People' or the person's name" — without a
+  // name, the flat title from the map below (`persons.title`) is used.
   if (route.path.startsWith('/persons/') && activePersonName.value) return activePersonName.value
-  // §15.8: "Header mobile: il titolo è il nome del lotto".
+  // "Mobile header: the title is the lot's name".
   if (route.path.startsWith('/culling/') && activeCullingLotName.value) return activeCullingLotName.value
   const key = ROUTE_TITLE_KEYS[route.path] ?? (route.path.startsWith('/persons/') ? 'persons.title' : undefined)
   if (key) return t(key)
@@ -83,8 +78,8 @@ function goBack() {
     void router.push('/persons')
     return
   }
-  // §15.8: "la freccia indietro porta direttamente a state.view='foto' —
-  // non alla griglia dei lotti", anche dal lotto aperto.
+  // "The back arrow goes directly to state.view='foto' — not to the lots
+  // grid", even from an open lot.
   if (route.path.startsWith('/culling/')) {
     void router.push('/')
     return

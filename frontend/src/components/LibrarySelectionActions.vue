@@ -1,16 +1,15 @@
 <script setup lang="ts">
-// SP-2 (documento funzionale §12.2-§12.3): i cinque pulsanti d'azione della
-// barra di selezione — condiviso da Foto/Timeline e Preferiti (§9.3: "SP-2
-// completa, tutti e cinque i pulsanti"), quindi estratto come componente
-// proprio invece di duplicato, con Preferiti come secondo consumatore già
-// noto al momento di scriverlo (stesso principio già seguito per
-// `nav/routeTitles.ts` e `composables/useIsMobile.ts`).
+// The selection bar's five action buttons — shared by Photos/Timeline and
+// Favorites, therefore extracted as its own component instead of
+// duplicated, with Favorites already known as the second consumer at the
+// time of writing (same principle already followed for
+// `nav/routeTitles.ts` and `composables/useIsMobile.ts`).
 //
-// "Condividi" (Task 11, §30) apre `ShareSelectionDialog.vue` — vedi lì per
-// il perché non serve un `object_type` "selezione" nel backend (non è mai
-// esistito, verificato in `crates/keeppix-db/src/share_links.rs`/
-// `permissions.rs`: un album auto-generato lo sostituisce, con permessi e
-// link pubblici già completi).
+// "Share" opens `ShareSelectionDialog.vue` — see there for why no
+// "selection" `object_type` is needed in the backend (it never existed,
+// verified in `crates/keeppix-db/src/share_links.rs`/`permissions.rs`: an
+// auto-generated album stands in for it, with permissions and public
+// links already fully built).
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -38,9 +37,9 @@ const albumOpen = ref(false)
 const shareOpen = ref(false)
 const deleteOpen = ref(false)
 
-// §12.3: "se tutte le selezionate sono già preferite, le toglie tutte;
-// altrimenti le mette tutte" — il verso del gruppo dipende dallo stato
-// dell'intera selezione, non da una singola foto.
+// "If all the selected photos are already favorites, unfavorite all of
+// them; otherwise favorite all of them" — the group's direction depends on
+// the state of the whole selection, not a single photo.
 const allFavorite = computed(
   () => props.assets.length > 0 && props.assets.every((asset) => favorites.isFavorite(asset))
 )
@@ -61,21 +60,18 @@ const DISK_ACTION: Record<DeleteChoice, DiskAction> = {
 }
 
 /**
- * §12.3: "ogni foto selezionata riceve pick='reject' e la scelta di
- * smaltimento". Il voto `pick='reject'` prima della cancellazione è solo
- * contabilità del prototipo (uno stato client-side che sopravvive nella
- * demo dopo la rimozione dalla lista visibile) — qui l'asset smette di
- * esistere nell'indice (o va in cestino/su disco), quindi non c'è alcun
- * voto da preservare.
+ * The prototype's `pick='reject'` vote before deletion is just prototype
+ * bookkeeping (a client-side state that survives in the demo after
+ * removal from the visible list) — here the asset stops existing in the
+ * index (or goes to trash/disk), so there's no vote to preserve.
  *
- * Una sola chiamata a `deleteAssetsBatch`, non un ciclo su `deleteAsset`
- * (pre-merge Fase 11, trovato riaudendo §10 del piano): per `purged` il
- * server verifica l'autorizzazione **su tutto il lotto prima di toccare
- * un solo file** (`routes::trash::batch_delete`) — un ciclo per-asset
- * perderebbe quella garanzia, potendo eliminare per davvero alcuni file
- * prima di incontrare il 403 su uno non autorizzato. `purged` è l'unica
- * azione distruttiva e irreversibile dell'app: non è il posto per
- * un'ottimizzazione rimandabile.
+ * A single call to `deleteAssetsBatch`, not a loop over `deleteAsset`: for
+ * `purged` the server checks authorization **for the whole batch before
+ * touching a single file** (`routes::trash::batch_delete`) — a per-asset
+ * loop would lose that guarantee, potentially deleting some files for
+ * real before hitting a 403 on an unauthorized one. `purged` is the app's
+ * only destructive, irreversible action: not the place for an
+ * optimization that can wait.
  */
 async function confirmDelete(choice: DeleteChoice) {
   const diskAction = DISK_ACTION[choice]
@@ -93,8 +89,8 @@ async function confirmDelete(choice: DeleteChoice) {
       toast.showError(t('librarySelectionActions.deleteError'))
     }
   } catch {
-    // `purged` respinto sull'intero lotto (autorizzazione all-or-nothing):
-    // nessun file è stato toccato, stesso messaggio del fallimento totale.
+    // `purged` rejected for the whole batch (all-or-nothing authorization):
+    // no file was touched, same message as a total failure.
     selection.library.clear()
     toast.showError(t('librarySelectionActions.deleteError'))
   }

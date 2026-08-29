@@ -79,7 +79,7 @@ function fillField(label: string, value: string) {
   input.dispatchEvent(new Event('input'))
 }
 
-describe('TagEditorDialog — §53 "Dialog modifica tag"', () => {
+describe('TagEditorDialog', () => {
   it('creation mode: empty name shows the reactive error without closing', async () => {
     mountHost({ tag: null })
     await tick()

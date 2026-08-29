@@ -1,23 +1,18 @@
 <script setup lang="ts">
-// Fase 11 Task 16 (4/N), §36 "Dialog 'separa persona'" — documento
-// funzionale verificato riga per riga (righe 5753-5871).
+// "Split person" dialog.
 //
-// **Nessun suggerimento IA da preselezionare**: `subCluster` è un
-// campo del mockup senza alcuna colonna corrispondente sul backend
-// reale (`Face`/`FaceRow`, `crates/keeppix-domain/src/face.rs`,
-// `crates/keeppix-db/src/faces.rs` — verificato in questa unità,
-// nessun sotto-cluster/secondo candidato esiste). La banda di
-// suggerimento (§36.2) e la preselezione automatica non sono quindi
-// costruibili: si apre sempre a zero volti selezionati, come il
-// documento stesso descrive per "tutte le persone tranne Chiara" (il
-// solo caso demo con `subCluster`).
+// **No AI suggestion to preselect**: `subCluster` has no corresponding
+// column on the real backend (`Face`/`FaceRow`,
+// `crates/keeppix-domain/src/face.rs`, `crates/keeppix-db/src/faces.rs` —
+// verified here, no sub-cluster/second candidate exists). The suggestion
+// band and automatic preselection are therefore not buildable: the dialog
+// always opens with zero faces selected.
 //
-// **Una miniatura per volto confermato, non per foto** (§36.2): stesso
-// `fetchPersonFaceTiles` di `ChooseCoverDialog.vue`.
+// **One thumbnail per confirmed face, not per photo**: same
+// `fetchPersonFaceTiles` as `ChooseCoverDialog.vue`.
 //
-// **Il controllo "meno di due volti" resta a monte** (§32.3 controllo
-// 5, nel chiamante `PersonDetailView.vue`): questo dialog stesso non
-// duplica quel toast.
+// **The "fewer than two faces" check stays upstream** (in the caller
+// `PersonDetailView.vue`): this dialog does not duplicate that toast.
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 

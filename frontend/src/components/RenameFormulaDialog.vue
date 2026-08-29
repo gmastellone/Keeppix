@@ -1,24 +1,20 @@
 <script setup lang="ts">
-// SP-62 (documento funzionale §62, "Dialog 'Rinomina con formula'"). Quattro
-// dei cinque punti d'ingresso del documento sono coperti: "selection"
-// (§13.3 campo 7, "Modifica in blocco", Task 7 — e §15.3 controllo 25, la
-// barra di selezione del lotto di culling, Task 17 4/N), "single" (§18/§20,
-// il pulsante "Rinomina…" del lightbox, Task 8 — sottotitolo distinto, "1
-// foto — {nome file}", non "1 foto selezionata": per questo `subtitle` è
-// sovrascrivibile dal chiamante invece di dedurlo dal solo conteggio,
-// §62.8 lega il testo al **punto d'ingresso**, non al numero di foto) e
-// "lotto intero" (§15.3 controllo 19, "Rinomina lotto…", Task 17 4/N —
-// l'unico ambito con `hasSubfolders`, §62.3e: `restrictedAssets` è il
-// sottoinsieme `cullState==='pending'`, l'ambito di partenza con
-// l'interruttore spento; `assets` resta l'intero lotto, usato quando
-// l'interruttore è acceso). Resta debito dichiarato solo il quinto
-// (cartella aperta in Timeline).
+// "Rename with formula" dialog. Four of the five entry points are covered:
+// "selection" (bulk edit, and the culling lot selection bar), "single"
+// (the lightbox's "Rename…" button — distinct subtitle, "1 photo —
+// {filename}", not "1 photo selected": that's why `subtitle` is
+// overridable by the caller instead of being derived from the count
+// alone — the text is tied to the **entry point**, not the photo count)
+// and "whole lot" ("Rename lot…" — the only scope with `hasSubfolders`:
+// `restrictedAssets` is the `cullState==='pending'` subset, the starting
+// scope with the toggle off; `assets` stays the whole lot, used when the
+// toggle is on). The fifth entry point (a folder open in Timeline) remains
+// a declared gap.
 //
-// Nessuna logica di token/slug/sanificazione duplicata qui: il motore è
-// server-side (`keeppix-domain::rename::render_base`, Fase 9), verificato
-// leggendo il codice reale prima di scrivere questo dialog — l'anteprima
-// chiama `previewRename` a ogni cambio di schema, non ricalcola nulla in
-// locale.
+// No token/slug/sanitization logic is duplicated here: the engine is
+// server-side (`keeppix-domain::rename::render_base`), verified by reading
+// the real code before writing this dialog — the preview calls
+// `previewRename` on every schema change, nothing is recomputed locally.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -41,24 +37,23 @@ const props = defineProps<{
 const { t } = useI18n()
 const toast = useToastStore()
 
-// §62.3e: spento di partenza, tocca solo `restrictedAssets` (le foto
-// "da vedere"); acceso, tocca l'intero `assets` (presi e scartati inclusi).
-// Mai ricordato fra un'apertura e l'altra, stessa regola dello schema.
+// Off by default, touches only `restrictedAssets` (the "to review"
+// photos); on, touches the whole `assets` (picks and rejects included).
+// Never remembered between openings, same rule as the schema.
 const includeSubfolders = ref(false)
 const scopedAssets = computed(() =>
   props.hasSubfolders && !includeSubfolders.value ? (props.restrictedAssets ?? []) : props.assets
 )
 
-// Valore iniziale sempre lo stesso a ogni apertura (§62.2 punto 4): non è
-// ricordato fra un'apertura e l'altra.
+// Initial value is always the same on every opening: it is not remembered
+// between openings.
 const DEFAULT_SCHEMA = '{data}_{luogo}_{n:3}'
 const PLACEHOLDERS = ['data', 'fotocamera', 'obiettivo', 'luogo', 'titolo'] as const
 
-// `applied` (Task 17 4/N): la barra di selezione del lotto vuole svuotare
-// la selezione a rinomina riuscita (§15.3 controllo 25) — un evento
-// generico invece di far indovinare al chiamante quando l'apply è andato
-// a buon fine dal solo v-model:open che torna a `false` (si chiude anche
-// su "Annulla", che non deve svuotare nulla).
+// `applied`: the lot selection bar wants to clear the selection on a
+// successful rename — a dedicated event instead of making the caller
+// guess whether the apply succeeded from just `v-model:open` going back
+// to `false` (it also closes on "Cancel", which must not clear anything).
 const emit = defineEmits<{ applied: [] }>()
 
 const schema = ref(DEFAULT_SCHEMA)
@@ -83,16 +78,16 @@ function scheduleRunPreview() {
 watch(schema, scheduleRunPreview)
 watch(includeSubfolders, scheduleRunPreview)
 
-// Debito chiuso il 27 agosto: `POST /assets/batch/rename` non rinomina più
-// dentro la richiesta — accoda un job (`keeppix-jobs::rename_batch`,
-// `keeppix_db::rename` per il perché) e torna subito `operation_id`. Questo
-// dialog ne segue l'avanzamento reale sul WebSocket (`operation.progress`),
-// stesso pattern di `ProblemsView.vue` per la ri-scansione di libreria —
-// annulla vero, non solo uno spinner indeterminato. Dichiarato **prima**
-// del `watch(open, ..., { immediate: true })` sotto: quel watcher chiama
-// `resetApplyState` fin dalla prima esecuzione, in `<script setup>` un
-// `const` non è sollevato come una funzione — un ordine diverso lancia
-// `ReferenceError` all'apertura del componente (visto per davvero).
+// `POST /assets/batch/rename` no longer renames inside the request itself
+// — it queues a job (`keeppix-jobs::rename_batch`, see `keeppix_db::rename`
+// for why) and immediately returns `operation_id`. This dialog follows its
+// real progress over the WebSocket (`operation.progress`), same pattern as
+// `ProblemsView.vue` for the library rescan — a real cancel, not just an
+// indeterminate spinner. Declared **before** the `watch(open, ..., {
+// immediate: true })` below: that watcher calls `resetApplyState` starting
+// from its very first run, and in `<script setup>` a `const` isn't hoisted
+// like a function — a different order throws a `ReferenceError` when the
+// component opens (seen for real).
 const activeOperationId = ref<string | null>(null)
 const progressDone = ref(0)
 const progressTotal = ref<number | null>(null)
@@ -123,9 +118,9 @@ function handleOperationProgress(payload: OperationProgressPayload) {
     progressTotal.value = payload.total
     return
   }
-  // `cancelRename` sta già aspettando la sua stessa risposta HTTP e mostrerà
-  // il proprio toast quando arriva: se questo evento "cancelled" è una
-  // corsa con quella richiesta, lascia fare a lei, non duplicare qui.
+  // `cancelRename` is already waiting on its own HTTP response and will
+  // show its own toast when it arrives: if this "cancelled" event is a
+  // race with that request, let it handle it — don't duplicate here.
   if (cancelling.value) return
   if (payload.phase === 'done') {
     const n = payload.done
@@ -133,8 +128,8 @@ function handleOperationProgress(payload: OperationProgressPayload) {
   } else if (payload.phase === 'failed') {
     toast.showError(t('renameFormula.failedToast'))
   }
-  // "cancelled" arriva qui senza toast proprio se annullato da un'altra
-  // scheda/sessione (non da questo dialog, coperto dalla guardia sopra).
+  // "cancelled" arrives here without a toast precisely when cancelled from
+  // another tab/session (not from this dialog, covered by the guard above).
   resetApplyState()
   open.value = false
   emit('applied')
@@ -156,18 +151,18 @@ watch(
   open,
   (isOpen) => {
     if (!isOpen) return
-    // Difensivo: se il dialog viene chiuso a mano (velo/Esc/`X`, reka-ui)
-    // mentre una rinomina è in corso, il job in background continua per
-    // conto suo — solo il *tracciamento* di questo dialog si perde (nessun
-    // "riprendi da dove eri" qui, debito minore non affrontato). Una
-    // riapertura successiva non deve però ripartire da uno stato a metà.
+    // Defensive: if the dialog is closed manually (scrim/Esc/`X`, reka-ui)
+    // while a rename is in progress, the background job keeps going on its
+    // own — only this dialog's *tracking* of it is lost (no "resume where
+    // you left off" here, a minor gap left unaddressed). A subsequent
+    // reopening must not start from a half-finished state, though.
     resetApplyState()
     schema.value = DEFAULT_SCHEMA
     includeSubfolders.value = false
     void runPreview()
     void nextTick(() => {
-      // Fuoco sul campo schema con il cursore in fondo, non sul testo
-      // selezionato (§62.5, "Focus all'apertura").
+      // Focus the schema field with the cursor at the end, not with the
+      // text selected.
       const len = schema.value.length
       schemaInput.value?.focus()
       schemaInput.value?.setSelectionRange(len, len)
@@ -176,9 +171,9 @@ watch(
   { immediate: true }
 )
 
-/** Inserisce un segnaposto alla posizione del cursore, sostituendo
- * l'eventuale testo selezionato — poi riposiziona il cursore subito dopo
- * e riporta il focus nel campo (§62.3b). */
+/** Inserts a placeholder at the cursor position, replacing any selected
+ * text — then repositions the cursor right after it and returns focus to
+ * the field. */
 function insertToken(token: string) {
   const el = schemaInput.value
   const start = el?.selectionStart ?? schema.value.length
@@ -193,9 +188,9 @@ function insertToken(token: string) {
 }
 
 async function apply() {
-  // §62.3f: ricalcola implicito (la preview è già corrente, debounced),
-  // poi esce senza fare nulla su collisioni o ambito vuoto — lo stesso
-  // guard silenzioso del prototipo, non un errore visibile.
+  // Implicit recalculation (the preview is already current, debounced),
+  // then bails out silently on collisions or an empty scope — same
+  // silent guard as the prototype, not a visible error.
   if (collisionCount.value > 0 || preview.value.length === 0 || applying.value) return
   applying.value = true
   try {

@@ -1,16 +1,15 @@
 <script setup lang="ts">
-// SP-2 (documento funzionale §12.3, "Dialog 'Aggiungi ad album'"):
-// interruttore di gruppo per album — se *tutte* le foto selezionate sono
-// già nell'album lo toglie da tutte, altrimenti le aggiunge tutte.
-// "L'effetto è immediato: non c'è 'Annulla', ogni click è già applicato."
+// "Add to album" dialog: per-album group toggle — if *all* selected
+// photos are already in the album it removes it from all of them,
+// otherwise it adds it to all of them. "The effect is immediate: there's
+// no 'Undo', every click is already applied."
 //
-// Gli album dinamici del prototipo ("N album dinamici non mostrati qui")
-// non esistono in questo backend — verificato leggendo
-// crates/keeppix-api/src/routes/albums.rs per intero: nessun campo
-// `kind`/`is_dynamic` da nessuna parte, e il piano stesso lo conferma
-// ("Gli album dinamici non esistono", decisione del 20 agosto, Task 12).
-// Ogni album da `fetchAlbums()` è quindi "manuale" per costruzione: niente
-// da filtrare, niente nota da mostrare.
+// The prototype's dynamic albums ("N dynamic albums not shown here") don't
+// exist in this backend — verified by reading
+// crates/keeppix-api/src/routes/albums.rs in full: no `kind`/`is_dynamic`
+// field anywhere, and the plan itself confirms it ("Dynamic albums don't
+// exist"). Every album from `fetchAlbums()` is therefore "manual" by
+// construction: nothing to filter, no note to show.
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -27,17 +26,16 @@ const { t } = useI18n()
 const toast = useToastStore()
 
 const albums = ref<Album[]>([])
-/** Id album → insieme degli id foto già membri, per decidere il verso del
- * toggle di gruppo. Niente endpoint di "appartenenza per più album"
- * dedicato: si deduce da `GET /albums/{id}/assets`
- * (`fetchAlbumAssets`), una chiamata per album al momento dell'apertura
- * — il numero di album è tipicamente piccolo, non merita un endpoint
- * apposito solo per questo dialog. Bug reale corretto in questa unità
- * (Task 12 1/N): prima chiamava `fetchAlbum(id).assets`, un campo che
- * `GET /albums/{id}` non ha mai restituito — l'appartenenza mostrata
- * qui era sempre vuota in produzione, mai chiaramente sbagliata solo
- * perché i test mockavano `fetchAlbum` con una forma sintetica che
- * includeva `assets`. */
+/** Album id → set of photo ids already members, to decide the direction of
+ * the group toggle. No dedicated "membership across multiple albums"
+ * endpoint: it's derived from `GET /albums/{id}/assets`
+ * (`fetchAlbumAssets`), one call per album when the dialog opens — the
+ * number of albums is typically small, not worth a dedicated endpoint
+ * just for this dialog. Real bug fixed here: it used to call
+ * `fetchAlbum(id).assets`, a field `GET /albums/{id}` never actually
+ * returned — the membership shown here was always empty in production,
+ * never clearly wrong only because the tests mocked `fetchAlbum` with a
+ * synthetic shape that included `assets`. */
 const membership = ref<Record<string, Set<string>>>({})
 const pending = ref<Set<string>>(new Set())
 

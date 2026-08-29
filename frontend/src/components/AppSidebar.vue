@@ -1,55 +1,46 @@
 <script setup lang="ts">
-// Fase 11 Task 6 (documento funzionale §2, "Sidebar di navigazione").
-// Verificato riga per riga contro il mockup (righe 1393-1401 per il
-// marchio, §2.2 per l'elenco completo) — non solo il riassunto del
-// piano.
+// Navigation sidebar. Verified line by line against the mockup (brand mark
+// markup, full item list) — not just the plan's summary.
 //
-// Ambito dichiarato: **non** tutte le voci canoniche. Costruite solo
-// quelle con una destinazione reale in questa sessione — Foto, Cerca,
-// Culling, Mappa, Condivisioni, Persone (Task 16 1/N — griglia +
-// dettaglio, senza ancora gruppi/unione/copertina), Preferiti (Task 7,
-// 3/N), Album, Cartelle, Cestino, Problemi (più Utenti/Gruppi per un
-// amministratore).
+// Declared scope: **not** every canonical item. Only items with a real
+// destination in this app are built — Photos, Search, Culling, Map,
+// Shares, People (grid + detail, without groups/merge/cover yet),
+// Favorites, Albums, Folders, Trash, Problems (plus Users/Groups for an
+// administrator).
 //
-// Il gruppo "IA" (Task 15, Tranche C) ha **due** voci reali, non tre:
-// "Tag e categorie" (1/N) e "Revisione" (2/N, badge `shell.badges.
-// revision`, tag+volti combinato — reale dalla Fase 8, non nuovo qui).
-// "Analisi libreria" resta fuori: `AnalysisLevel::ms_per_photo()`
-// (`crates/keeppix-jobs/src/profile.rs`) è reale ma nessuna rotta la
-// legge — stessa identica lacuna già dichiarata per "Intelligenza
-// artificiale" in Impostazioni (Task 14 1/N), verificata di nuovo qui
-// prima di costruire questa unità: costruire una pagina senza alcun dato
-// vero da mostrare sarebbe l'esatto contrario della disciplina seguita
-// in ogni altra deviazione di questa fase.
-// "Duplicati" dentro "Manutenzione" (Task 13 2/N) è arrivata dopo
-// Cestino/Problemi, non contemporaneamente — nessun debito residuo qui.
-// Ogni voce qui presente è un vero <RouterLink>, quindi raggiungibile
-// da tastiera per costruzione — il prototipo non lo è (§2.5, "nessuna
-// voce della sidebar è raggiungibile da tastiera").
+// The "AI" group has **two** real items, not three: "Tags and categories"
+// and "Review" (badge `shell.badges.revision`, tags+faces combined —
+// real, not new here). "Library analysis" stays out:
+// `AnalysisLevel::ms_per_photo()`
+// (`crates/keeppix-jobs/src/profile.rs`) is real but no route reads it —
+// the same gap already declared for "Artificial intelligence" in
+// Settings, re-verified here before building this unit: building a page
+// with no real data to show would be the exact opposite of the discipline
+// followed in every other deviation.
+// "Duplicates" inside "Maintenance" arrived after Trash/Problems, not at
+// the same time — no residual gap here.
+// Every item here is a real <RouterLink>, therefore keyboard-reachable by
+// construction — the prototype is not ("no sidebar item is
+// keyboard-reachable").
 //
-// Task 6 (4/N): "Cartelle" qui **non** è il gruppo del mockup (§2,
-// lettera d — una riga `.folder-item` per ogni cartella, con salto
-// diretto a una timeline filtrata): quella timeline filtrata non
-// esiste ancora, stesso debito dichiarato per le rotte di dettaglio
-// nel Task 3. È invece un unico collegamento a `/folders`
-// (`FoldersView`), l'albero cartelle reale dell'app — una funzione
-// di organizzazione (spostare foto fra cartelle) diversa da quella
-// del mockup, non modellata lì. Aggiunta qui perché rimuovere
-// l'intestazione improvvisata di `TimelineView` (Task 6, prossimo
-// sotto-passo) senza prima darle una destinazione reale in
-// `AppSidebar` la renderebbe irraggiungibile — vicolo cieco trovato
-// scrivendo quel passo, non un'aggiunta pianificata.
+// "Folders" here is **not** the mockup's group (a `.folder-item` row per
+// folder, jumping straight to a filtered timeline): that filtered timeline
+// doesn't exist yet, the same gap already declared for detail routes.
+// Instead it's a single link to `/folders` (`FoldersView`), the app's real
+// folder tree — an organization feature (moving photos between folders)
+// different from the mockup's, not modeled there. Added here because
+// removing `TimelineView`'s improvised header without first giving it a
+// real destination in `AppSidebar` would make it unreachable — a dead end
+// found while writing that step, not a planned addition.
 //
-// "Amministrazione" (Utenti/Gruppi, solo per `role==='admin'`) non è
-// nel documento funzionale: il mockup è a singolo utente, non
-// modella l'amministrazione multiutente che il backend reale invece
-// ha. Stesso motivo di "Cartelle": erano raggiungibili solo
-// dall'intestazione improvvisata di `TimelineView`, altrimenti un
-// vicolo cieco dopo averla tolta.
+// "Administration" (Users/Groups, only for `role==='admin'`) is not in the
+// mockup: the mockup is single-user, it doesn't model the multi-user
+// administration the real backend has instead. Same reason as "Folders":
+// they were only reachable from `TimelineView`'s improvised header,
+// otherwise a dead end after removing it.
 //
-// `UploadQueueStrip` (sottosistema di caricamento, §6.1): "nel piede
-// della sidebar, sopra 'Spazio libero'" — posizione esatta, non solo
-// "da qualche parte nel piede".
+// `UploadQueueStrip` (upload subsystem): "in the sidebar footer, above
+// 'Free space'" — an exact position, not just "somewhere in the footer".
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -73,12 +64,12 @@ onMounted(() => {
   if (!shell.loaded) void shell.load()
 })
 
-// Task 16 (1/N): "Persone" qui, non nel gruppo "Libreria" sotto — il
-// documento la mette esplicitamente in `NAV_TOP` (§31.8: "voce 'Persone'
-// della barra laterale (NAV_TOP, icona user)"), a differenza di
-// Cartelle/Preferiti/Album che il mockup non elenca affatto in
-// `NAV_TOP`. Su mobile invece vive sotto "Libreria" (`MoreView.vue`) —
-// posizionamento diverso per piattaforma, dichiarato dallo stesso §31.8.
+// "People" here, not in the "Library" group below — the mockup explicitly
+// puts it in `NAV_TOP` ("'People' sidebar item (NAV_TOP, user icon)"),
+// unlike Folders/Favorites/Albums which the mockup doesn't list in
+// `NAV_TOP` at all. On mobile it instead lives under "Library"
+// (`MoreView.vue`) — a different placement per platform, declared by the
+// same mockup note.
 const NAV_TOP = [
   { to: '/', labelKey: 'nav.foto', badge: false },
   { to: '/search', labelKey: 'nav.cerca', badge: false },
@@ -99,19 +90,18 @@ const ADMIN_ITEMS = [
   { to: '/groups', labelKey: 'groups.entry' }
 ] as const
 
-// Task 15 (2/N): "Revisione" con badge `shell.badges.revision` — reale
-// dalla Fase 8/Task 7 (tag+volti combinato, non solo tag: il commento
-// esteso è in `App.vue`/`bootstrap.rs`), non un conteggio nuovo qui.
+// "Review" with badge `shell.badges.revision` — real, combining tags and
+// faces, not just tags (the extended comment is in
+// `App.vue`/`bootstrap.rs`), not a new count here.
 const IA_ITEMS = [
   { to: '/tags', labelKey: 'tags.entry', badge: false },
   { to: '/review', labelKey: 'review.entry', badge: true }
 ] as const
 
-// `/albums` resta evidenziata anche dentro il dettaglio di un album
-// (Task 12 1/N, prima rotta con figli reali: `/albums/:id`) — stessa
-// idea del mockup ("il click su Album azzera anche `state.openAlbum`",
-// §41.8), qui capovolta: si è ancora dentro la sezione Album anche col
-// dettaglio aperto.
+// `/albums` stays highlighted even inside an album's detail view (the
+// first route with real children: `/albums/:id`) — the same idea as the
+// mockup ("clicking Albums also clears `state.openAlbum`"), flipped here:
+// you're still inside the Albums section even with a detail open.
 function isActive(to: string): boolean {
   if (to === '/albums') return route.path === to || route.path.startsWith('/albums/')
   if (to === '/persons') return route.path === to || route.path.startsWith('/persons/')
@@ -129,10 +119,10 @@ async function signOut() {
   await router.push('/login')
 }
 
-/** Terza copia locale della stessa formattazione già duplicata (e
- * divergente: 1024 in `UploadPanel.vue`, 1000 in
- * `MapsOfflineView.vue`) — debito noto, non risolto qui: unificarle
- * tocca due viste che questo task non sta toccando. */
+/** Third local copy of the same formatting logic already duplicated (and
+ * diverging: 1024 in `UploadPanel.vue`, 1000 in `MapsOfflineView.vue`) — a
+ * known gap, not resolved here: unifying them touches two views this
+ * change isn't touching. */
 function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let size = Math.max(0, bytes)

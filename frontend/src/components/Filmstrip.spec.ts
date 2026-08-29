@@ -27,7 +27,7 @@ function asset(id: string): TimelineAsset {
   }
 }
 
-describe('Filmstrip — §15.C filmino e checkbox di selezione', () => {
+describe('Filmstrip — filmstrip and selection checkbox', () => {
   it('clicking the thumbnail body navigates (no shift)', async () => {
     const wrapper = mount(Filmstrip, {
       props: { assets: [asset('a'), asset('b')], currentId: 'a' },
@@ -85,7 +85,7 @@ describe('Filmstrip — §15.C filmino e checkbox di selezione', () => {
     expect(checkbox.attributes('aria-checked')).toBe('true')
   })
 
-  it('Ruling del piano ("ogni cosa cliccabile è un pulsante vero"): il corpo della miniatura è un <button> reale, raggiungibile da Tab — non un <div> solo cliccabile col mouse', () => {
+  it('plan ruling ("everything clickable is a real button"): the thumbnail body is a real <button>, reachable by Tab — not a mouse-only clickable <div>', () => {
     const wrapper = mount(Filmstrip, {
       props: { assets: [asset('a')], currentId: 'a' },
       global: { plugins: [i18n] }

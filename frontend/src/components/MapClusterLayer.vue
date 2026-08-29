@@ -33,10 +33,9 @@ const props = withDefaults(
 const emit = defineEmits<{
   'asset-click': [id: string]
   'area-selected': [bounds: MapBounds]
-  /** §27, "Apri cartella" — nessuna vista "Foto scoperta su una
-   * cartella" esiste ancora nell'app reale (stessa lacuna già
-   * dichiarata in `SearchView.vue`, Task 9 3/N): il chiamante decide
-   * dove andare, oggi sempre `/folders`. */
+  /** "Open folder" — no "photos uncovered from a folder" view exists yet
+   * in the real app (the same gap already declared in `SearchView.vue`):
+   * the caller decides where to go, today always `/folders`. */
   'open-folder': [id: string]
 }>()
 
@@ -46,15 +45,14 @@ const container = ref<HTMLElement>()
 const drawing = ref(false)
 const errorKey = ref('')
 
-// --- popover di un marker aggregato (§27) — solo fuori da `compact`
-// (la mini-mappa del lightbox è alta 176px con `overflow-hidden`: una
-// card popover da 76px di sola copertina ci starebbe a stento e
-// verrebbe tagliata; lì il click su un marker aggregato resta il solo
-// zoom, comportamento preesistente invariato). Un marker **non**
-// aggregato apre ancora la foto direttamente (`asset-click`,
-// comportamento preesistente): il popover di §27 rappresenta una
-// cartella/luogo con più foto, non una singola foto — un punto già
-// alla granularità minima non ha nulla in più da mostrare che aprirlo.
+// --- clustered marker popover — only outside `compact` (the lightbox's
+// mini-map is 176px tall with `overflow-hidden`: a 76px cover-only popover
+// card would barely fit and would get clipped; there, clicking a
+// clustered marker stays a plain zoom, unchanged preexisting behavior). A
+// **non**-clustered marker still opens the photo directly (`asset-click`,
+// preexisting behavior): the popover represents a folder/place with
+// multiple photos, not a single photo — a point already at minimum
+// granularity has nothing more to show than just opening it.
 const popoverCluster = ref<MapCluster | null>(null)
 const popoverPos = ref<{ x: number; y: number } | null>(null)
 const popoverFolderName = ref('')
@@ -220,9 +218,9 @@ async function folderName(folderId: string): Promise<string> {
     try {
       for (const folder of await fetchAllFolders()) folderNames.set(folder.id, folder.name)
     } catch {
-      // Riprovato al prossimo popover — `folderNamesLoaded` resta true
-      // solo se la richiesta è andata a buon fine, per non insistere a
-      // vuoto a ogni marker cliccato in caso di errore di rete.
+      // Retried on the next popover — `folderNamesLoaded` stays true only
+      // if the request succeeded, so it doesn't keep retrying fruitlessly
+      // on every marker click after a network error.
       folderNamesLoaded = false
     }
   }
@@ -419,12 +417,12 @@ onMounted(async () => {
   map.on('load', refreshClusters)
   map.on('error', mapFailure)
   if (!props.compact) {
-    // §26/§27: "clic altrove chiude" — un clic sulla base della mappa
-    // (non su un marker, che chiude e riapre per conto proprio) chiude
-    // il popover; l'inizio di un trascinamento fa lo stesso, altrimenti
-    // il popover resterebbe fermo sullo schermo mentre la mappa scorre
-    // sotto — non è previsto un riposizionamento continuo durante il
-    // pan, solo alla fine (`moveend` → `refreshClusters`).
+    // "Click elsewhere closes it" — a click on the map's base layer (not
+    // on a marker, which closes and reopens on its own) closes the
+    // popover; the start of a drag does the same, otherwise the popover
+    // would stay fixed on screen while the map scrolls underneath — there
+    // is no continuous repositioning during the pan, only at the end
+    // (`moveend` → `refreshClusters`).
     map.on('click', () => closePopover(false))
     map.on('movestart', () => closePopover(false))
   }
@@ -479,9 +477,9 @@ watch(
       {{ t(errorKey) }}
     </p>
 
-    <!-- §27, popover di un marker aggregato: cartella/luogo, non una
-         singola foto — vedi il commento sopra `popoverCluster` per il
-         perché non appare in modalità `compact`. -->
+    <!-- Clustered marker popover: a folder/place, not a single photo —
+         see the comment above `popoverCluster` for why it doesn't appear
+         in `compact` mode. -->
     <div
       v-if="popoverCluster && popoverPos"
       role="dialog"

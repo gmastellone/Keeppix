@@ -1,17 +1,14 @@
 <script setup lang="ts">
-// Fase 11 Task 16 (2/N), §31.2-§31.3 — la scheda persona, estratta da
-// `PeopleView.vue` nel momento in cui deve ospitare anche la casella di
-// spunta di selezione (comparsa in questa stessa unità), non annidabile
-// dentro un vero `<button>` (HTML non valido) — stesso motivo per cui
-// `TagRow.vue` (Task 15 1/N) è un `<div role="button">` con un
-// `<button>` nidificato, non un vero `<button>`.
+// The person card, extracted from `PeopleView.vue` once it also had to
+// host a selection checkbox, which cannot be nested inside a real
+// `<button>` (invalid HTML) — same reason `TagRow.vue` is a `<div
+// role="button">` with a nested `<button>`, not a real `<button>`.
 //
-// **Corretto rispetto al documento, non riprodotto**: §31.5 segnala
-// esplicitamente "la scheda persona non è raggiungibile da tastiera…
-// è una lacuna di accessibilità, non una scelta documentata" — qui ha
-// `role="button" tabindex="0"` + Invio/Spazio (SP-8), stesso principio
-// già seguito per i difetti dichiarati altrove in questa fase (pastiglie
-// colore di `TagEditorDialog.vue`, dialog `ProblemFilesDialog.vue`).
+// **Fixed relative to the prototype, not reproduced**: keyboard
+// unreachability there is a documented accessibility gap, not a deliberate
+// choice — here it has `role="button" tabindex="0"` plus Enter/Space, the
+// same principle already followed for gaps declared elsewhere (the color
+// swatches in `TagEditorDialog.vue`, the `ProblemFilesDialog.vue` dialog).
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 

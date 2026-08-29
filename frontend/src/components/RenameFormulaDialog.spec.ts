@@ -96,8 +96,9 @@ interface OperationProgressPayload {
   phase: string
 }
 
-/** L'ultimo `onEvent` registrato con `startLiveEvents` — il dialog ne apre
- * uno per componente montato, sempre l'ultimo di interesse in questi test. */
+/** The last `onEvent` registered with `startLiveEvents` — the dialog opens
+ * one per mounted component, always the last one of interest in these
+ * tests. */
 function emitOperationProgress(payload: OperationProgressPayload) {
   const onEvent = startLiveEventsMock.mock.calls.at(-1)?.[0] as ((msg: LiveMessage) => void) | undefined
   onEvent?.({ v: 1, type: 'operation.progress', payload })
@@ -163,9 +164,9 @@ describe('RenameFormulaDialog', () => {
     await vi.runAllTimersAsync()
     previewRenameMock.mockClear()
 
-    // Cursore all'inizio del campo (valore di default intatto, mai
-    // riscritto a mano: cambiarlo via DOM non passerebbe da v-model) —
-    // il pulsante-segnaposto deve inserire lì, non in coda.
+    // Cursor at the start of the field (default value untouched, never
+    // rewritten by hand: changing it via the DOM wouldn't go through
+    // v-model) — the placeholder button must insert there, not at the end.
     const input = schemaInput()
     input.setSelectionRange(0, 0)
     const titleBtn = buttonWithText('Titolo')
@@ -201,9 +202,9 @@ describe('RenameFormulaDialog', () => {
     await vi.runAllTimersAsync()
 
     expect(applyRenameBatchMock).toHaveBeenCalledWith(['a'], '{data}_{luogo}_{n:3}')
-    // Dal 27 agosto: 202 subito, il lavoro gira in background — il dialog
-    // resta aperto e mostra l'avanzamento reale, non si chiude finché non
-    // arriva l'evento terminale sul WebSocket.
+    // A 202 comes back immediately, the work runs in the background — the
+    // dialog stays open and shows real progress, it doesn't close until
+    // the terminal WebSocket event arrives.
     expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
     expect(document.body.textContent).toContain('Rinomina in corso')
     expect(schemaInputOrNull()).toBeNull()
@@ -233,9 +234,9 @@ describe('RenameFormulaDialog', () => {
     buttonWithText('Applica')?.click()
     await vi.runAllTimersAsync()
 
-    // `advanceTimersByTimeAsync(0)`, non `runAllTimersAsync`: quest'ultimo
-    // esaurirebbe anche il timer di auto-dismissione del toast
-    // (`stores/toast.ts::arm`), facendolo sparire prima di poterlo leggere.
+    // `advanceTimersByTimeAsync(0)`, not `runAllTimersAsync`: the latter
+    // would also exhaust the toast's auto-dismiss timer
+    // (`stores/toast.ts::arm`), making it disappear before it can be read.
     emitOperationProgress({ operation_id: 'op1', done: 1, total: 1, phase: 'done' })
     await vi.advanceTimersByTimeAsync(0)
 
@@ -254,7 +255,7 @@ describe('RenameFormulaDialog', () => {
     buttonWithText('Applica')?.click()
     await vi.runAllTimersAsync()
 
-    // Un'operazione di qualcun altro non deve toccare questo dialog.
+    // Someone else's operation must not touch this dialog.
     emitOperationProgress({ operation_id: 'op-someone-else', done: 5, total: 5, phase: 'done' })
     await vi.runAllTimersAsync()
     expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
@@ -276,8 +277,8 @@ describe('RenameFormulaDialog', () => {
     await vi.runAllTimersAsync()
 
     buttonWithText('Annulla')?.click()
-    // `advanceTimersByTimeAsync(0)`, non `runAllTimersAsync`: vedi il
-    // commento nel test del "done" qui sopra.
+    // `advanceTimersByTimeAsync(0)`, not `runAllTimersAsync`: see the
+    // comment in the "done" test above.
     await vi.advanceTimersByTimeAsync(0)
 
     expect(cancelOperationMock).toHaveBeenCalledWith('op1')
@@ -297,14 +298,14 @@ describe('RenameFormulaDialog', () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('§62.3e: with hasSubfolders, the toggle is off by default and previews only the restricted scope', async () => {
+  it('with hasSubfolders, the toggle is off by default and previews only the restricted scope', async () => {
     mountHostWithSubfolders([photo('a'), photo('b'), photo('c')], [photo('a')])
     await vi.runAllTimersAsync()
 
     expect(previewRenameMock).toHaveBeenCalledWith(['a'], '{data}_{luogo}_{n:3}')
   })
 
-  it('§62.3e: switching the toggle on widens the preview and apply scope to the whole lot', async () => {
+  it('switching the toggle on widens the preview and apply scope to the whole lot', async () => {
     mountHostWithSubfolders([photo('a'), photo('b'), photo('c')], [photo('a')])
     await vi.runAllTimersAsync()
     previewRenameMock.mockClear()

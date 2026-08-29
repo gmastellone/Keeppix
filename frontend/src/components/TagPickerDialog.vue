@@ -1,11 +1,10 @@
 <script setup lang="ts">
-// SP-2/§13.3 campo 5 (dialog di scelta tag) — verificato sul prototipo
-// reale, `openTagPickerDialog` in `docs/ui/keeppix-mockup.html`: "attiva/
-// disattiva un tag per aggiungerlo o toglierlo da tutti", stesso
-// interruttore di gruppo di `AlbumPickerDialog.vue`. A differenza
-// dell'album, l'appartenenza non richiede un fetch per tag: i tag
-// confermati sono già dentro ogni `TimelineAsset.tags` (Task 7 4/N,
-// `AssetView` esteso) — nessun endpoint di "appartenenza" da inventare.
+// Tag picker dialog — verified against the real prototype,
+// `openTagPickerDialog` in `docs/ui/keeppix-mockup.html`: "toggles a tag on
+// or off to add or remove it from all", same group toggle as
+// `AlbumPickerDialog.vue`. Unlike the album, membership doesn't need a
+// per-tag fetch: confirmed tags already live inside every
+// `TimelineAsset.tags` — no "membership" endpoint to invent.
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -22,10 +21,10 @@ const { t } = useI18n()
 const toast = useToastStore()
 
 const tags = ref<Tag[]>([])
-/** Sovrascritture ottimistiche per id-tag: assente = deduci da
- * `props.assets[*].tags`, presente = l'esito dell'ultimo toggle in questa
- * apertura (evita di dover ri-fetchare gli asset per riflettere un
- * cambiamento appena scritto). */
+/** Optimistic overrides keyed by tag id: absent = derive from
+ * `props.assets[*].tags`, present = the outcome of the last toggle during
+ * this opening (avoids having to re-fetch the assets to reflect a change
+ * just written). */
 const overlay = ref<Record<string, boolean>>({})
 const pending = ref<Set<string>>(new Set())
 

@@ -62,7 +62,7 @@ async function mountPanel(): Promise<{ wrapper: VueWrapper; upload: ReturnType<t
   return { wrapper, upload, router }
 }
 
-describe('UploadPanel — visibilità (§6.2, §7.4)', () => {
+describe('UploadPanel — visibility', () => {
   it('is entirely absent when panelOpen is false', async () => {
     const { wrapper } = await mountPanel()
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
@@ -102,7 +102,7 @@ describe('UploadPanel — visibilità (§6.2, §7.4)', () => {
   })
 })
 
-describe('UploadPanel — titolo (§6.2, priorità della riga 3001 del mockup)', () => {
+describe('UploadPanel — title priority', () => {
   it('needs a destination first, even over "paused"', async () => {
     const { wrapper, upload } = await mountPanel()
     upload.panelOpen = true
@@ -136,7 +136,7 @@ describe('UploadPanel — titolo (§6.2, priorità della riga 3001 del mockup)',
   })
 })
 
-describe('UploadPanel — testata (§6.4)', () => {
+describe('UploadPanel — header', () => {
   it('the pause/resume button is hidden while a destination is needed', async () => {
     const { wrapper, upload } = await mountPanel()
     upload.panelOpen = true
@@ -172,7 +172,7 @@ describe('UploadPanel — testata (§6.4)', () => {
     expect(upload.sessions).toHaveLength(1)
   })
 
-  it('Escape on the panel closes it too — §8, "Esc a livelli", secondo livello', async () => {
+  it('Escape on the panel closes it too — the second level of layered Esc handling', async () => {
     const { wrapper, upload } = await mountPanel()
     upload.panelOpen = true
     upload.sessions.push(session({}))
@@ -183,7 +183,7 @@ describe('UploadPanel — testata (§6.4)', () => {
   })
 })
 
-describe('UploadPanel — righe (§6.3, i sei stati)', () => {
+describe('UploadPanel — rows (the six states)', () => {
   it('a queued row shows size + "in coda"', async () => {
     const { wrapper, upload } = await mountPanel()
     upload.panelOpen = true
@@ -266,7 +266,7 @@ describe('UploadPanel — righe (§6.3, i sei stati)', () => {
   })
 })
 
-describe('UploadPanel — blocco di rifiuto (§4.1)', () => {
+describe('UploadPanel — rejection block', () => {
   it('shows the exact RAW rejection block, truncated to four names, with the real count', async () => {
     const { wrapper, upload } = await mountPanel()
     upload.panelOpen = true
@@ -308,7 +308,7 @@ describe('UploadPanel — blocco di rifiuto (§4.1)', () => {
   })
 })
 
-describe('UploadPanel — piede (§6.4)', () => {
+describe('UploadPanel — footer', () => {
   it('the summary always shows the done count, and only appends skipped/error segments when they are non-zero', async () => {
     const { wrapper, upload } = await mountPanel()
     upload.panelOpen = true

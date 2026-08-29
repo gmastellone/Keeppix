@@ -1,20 +1,17 @@
 <script setup lang="ts">
-// Fase 11, sottosistema di caricamento — documento §5 ("La
-// destinazione"), verificato riga per riga contro il markup e i colori
-// esatti del prototipo (righe 128-154, §7.1 per i token).
+// Upload subsystem's destination chip ("The destination"), verified line
+// by line against the prototype's markup and exact colors.
 //
-// "Nuova cartella…" (§5, riga 139) è deliberatamente assente: il
-// backend non ha una rotta per creare una cartella (verificato in
-// `crates/keeppix-api/src/routes/folders.rs` — solo `tree`/`children`/
-// `relocate`), a differenza del "in preparazione" dei video (blocco
-// analogo già dichiarato nel diario per questo stesso sottosistema).
-// Il menu elenca solo le cartelle reali già esistenti.
+// "New folder…" is deliberately absent: the backend has no route to
+// create a folder (verified in `crates/keeppix-api/src/routes/folders.rs`
+// — only `tree`/`children`/`relocate`), unlike the "coming soon" state for
+// videos (a similar gap already declared elsewhere in this same
+// subsystem). The menu only lists folders that already really exist.
 //
-// Stato "manca la destinazione" (§5, "Lo stato che blocca, reso
-// visibile"): tre cose cambiano insieme nel documento (chip arancione
-// tenue, riga di rassicurazione, striscia sidebar) — questo componente
-// copre solo il chip e la riga; la striscia arriva con la coda
-// (sotto-passo successivo).
+// The "missing destination" state ("The state that blocks, made visible"):
+// three things change together in the mockup (dim orange chip,
+// reassurance line, sidebar strip) — this component covers only the chip
+// and the line; the strip arrives with the queue (a later step).
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

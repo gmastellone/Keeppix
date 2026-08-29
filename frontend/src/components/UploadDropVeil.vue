@@ -1,23 +1,20 @@
 <script setup lang="ts">
-// Fase 11, sottosistema di caricamento — documento §3.1 ("Trascinare"),
-// verificato riga per riga contro il markup **e** gli handler reali del
-// prototipo (righe 3085-3103, 7592-7627): il testo del documento
-// ("messaggio dedicato" per il Culling) descrive un dettaglio che nel
-// mockup **non** è nel velo — è un toast al rilascio. Il velo mostra
-// sempre lo stesso messaggio, il rifiuto avviene al `drop`. Verificato
-// leggendo il codice del prototipo, non assunto dalla sola prosa del
-// documento.
+// Upload subsystem's drop veil ("Dragging"), verified line by line against
+// the markup **and** the prototype's real handlers: the mockup document's
+// text ("dedicated message" for Culling) describes a detail that in the
+// mockup **isn't** in the veil — it's a toast on drop. The veil always
+// shows the same message, the rejection happens on `drop`. Verified by
+// reading the prototype's code, not assumed from the document's prose
+// alone.
 //
-// Variante "dentro una cartella" (`Rilascia per caricare in <nome>`,
-// riga 3097) omessa: nessuna vista porta oggi un `currentFolder`
-// osservabile (stesso debito già dichiarato più volte in questa
-// sessione) — costruire quel ramo ora significherebbe codice morto per
-// una condizione mai vera.
+// The "inside a folder" variant (`Drop to upload into <name>`) is omitted:
+// no view currently exposes an observable `currentFolder` (the same gap
+// already declared multiple times elsewhere) — building that branch now
+// would mean dead code for a condition that's never true.
 //
-// `dragenter`/`dragover` chiamano entrambi `preventDefault()` nel
-// prototipo (riga 7600, 7606): senza il primo alcuni browser aprono
-// comunque il file al rilascio prima che `dragover` abbia la
-// possibilità di intervenire.
+// `dragenter`/`dragover` both call `preventDefault()` in the prototype:
+// without the first one, some browsers open the file on drop anyway
+// before `dragover` gets a chance to intervene.
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
@@ -62,9 +59,8 @@ async function onDrop(event: DragEvent): Promise<void> {
   depth = 0
   dragging.value = false
 
-  // "Il Culling non accetta rilasci — è un'area separata con un suo
-  // flusso" (commento del prototipo, riga 7621). Testo esatto del
-  // toast, riga 7623.
+  // "Culling doesn't accept drops — it's a separate area with its own
+  // flow" (prototype comment). Exact toast text from the prototype.
   if (route.path === '/culling') {
     toast.showError(t('upload.dropRejectedInCulling'))
     return

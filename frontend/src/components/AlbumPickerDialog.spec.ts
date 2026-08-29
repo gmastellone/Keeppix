@@ -20,15 +20,14 @@ vi.mock('@/api/albums', () => ({
 
 const AlbumPickerDialog = (await import('./AlbumPickerDialog.vue')).default
 
-// Stesso motivo di DeleteDialog.spec.ts: il `DialogPortal` di reka-ui
-// teletrasporta sempre nel vero `document.body`, fuori dal sottoalbero DOM
-// del wrapper — `wrapper.find`/`findAll` non lo vedrebbero mai. Si
-// interroga `document.body` direttamente, con `tick()` invece di
-// `flushPromises()` da solo: lo `watch(open, …, {immediate:true})` che
-// avvia il caricamento degli album passa da più giri di microtask
-// (fetchAlbums → Promise.all di fetchAlbumAssets → assegnazione
-// reattiva), e un singolo `setTimeout(0)` copre comunque tutta la
-// catena una volta sola.
+// Same reason as DeleteDialog.spec.ts: reka-ui's `DialogPortal` always
+// teleports into the real `document.body`, outside the wrapper's DOM
+// subtree — `wrapper.find`/`findAll` would never see it. We query
+// `document.body` directly, with `tick()` instead of `flushPromises()`
+// alone: the `watch(open, …, {immediate:true})` that kicks off loading the
+// albums goes through several microtask rounds (fetchAlbums →
+// Promise.all of fetchAlbumAssets → reactive assignment), and a single
+// `setTimeout(0)` still covers the whole chain in one go.
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 function album(id: string, name: string) {
@@ -122,7 +121,7 @@ describe('AlbumPickerDialog', () => {
     mountHost([photo('a'), photo('b')])
     await tick()
 
-    // "a" è dentro album-1, "b" no: non è un membership pieno → resta spento.
+    // "a" is inside album-1, "b" is not: not full membership → stays off.
     expect(switches()[0]?.getAttribute('aria-checked')).toBe('false')
   })
 
@@ -137,7 +136,7 @@ describe('AlbumPickerDialog', () => {
     expect(switches()[0]?.getAttribute('aria-checked')).toBe('true')
   })
 
-  it('clicking an on row (all members) removes every selected asset one by one, then flips off — §12.3 group toggle', async () => {
+  it('clicking an on row (all members) removes every selected asset one by one, then flips off — group toggle', async () => {
     fetchAlbumAssetsMock.mockImplementation(async (id: string) =>
       id === 'album-1' ? [albumAsset('a'), albumAsset('b')] : []
     )

@@ -1,42 +1,33 @@
 <script setup lang="ts">
-// Fase 11 Task 6 (2/N) — documento funzionale §4 ("Barra superiore /
-// breadcrumb"), verificato riga per riga (righe 830-929) e contro il
-// markup reale del mockup (righe 1434-1439, 3212-3247).
+// Declared scope:
+// - Breadcrumbs: only the "current" segment, for the routes that have a
+//   real destination today (same list as AppSidebar). The "parent" segment
+//   (`Folders / <name>`, `Albums / <name>`, `Culling / <lot name>`) is
+//   never reachable: none of these routes currently exposes an "open"
+//   state observable from outside the view (same gap already declared in
+//   AppSidebar for the "Folders" group).
 //
-// Ambito dichiarato:
-// - Briciole di pane: solo il segmento "corrente", per le sole rotte
-//   con una destinazione reale oggi (stesso elenco di AppSidebar). Il
-//   segmento "genitore" del mockup (`Cartelle / <nome>`, `Album /
-//   <nome>`, `Culling / <nome lotto>`) non è mai raggiungibile: nessuna
-//   di queste rotte porta oggi uno stato "aperto" osservabile
-//   dall'esterno della vista (stesso debito già dichiarato in
-//   AppSidebar per il gruppo "Cartelle" — Task 13/15/16).
+// `/folders`, `/users`, `/groups` are entries in this map — they used to
+// fall back to an empty breadcrumb ("literal prototype behavior for
+// unmapped views"). That assumption relied on each view's own `<h1>`
+// still acting as a title — but stripping those headings also removes
+// that `<h1>`: without an entry here, those three pages would be left
+// **with no title at all**, unlike the prototype which simply ignores
+// them because they don't exist there. These are real destinations of
+// this app (added to `AppSidebar`): they deserve a real breadcrumb,
+// reusing `folders.title`/`users.title`/`groups.title` rather than
+// inventing new copy.
+// - The "Upload" command (`#uploadTopBtn`) — always "Upload", never
+//   "Upload here": no view currently exposes an observable
+//   `currentFolder`, the same gap already declared elsewhere in this
+//   subsystem (`UploadDropVeil.vue`, `stores/upload.ts`).
+// - The theme switch, already removed in the mockup itself, does not
+//   exist here for the same reason: it lives in Settings.
 //
-// Task 6 (6/N): `/folders`, `/users`, `/groups` sono entrate in questa
-// mappa — inizialmente (Task 6 2/N) restavano a briciola vuota,
-// "comportamento letterale del prototipo per le viste non mappate".
-// Quella scelta presumeva che il proprio `<h1>` di ciascuna vista
-// facesse comunque da titolo — ma spogliare quelle intestazioni
-// (Task 6, questo stesso sotto-passo) toglie anche quell'`<h1>`: senza
-// una voce qui, quelle tre pagine resterebbero **senza alcun titolo**,
-// non fedeli al comportamento del prototipo che le ignora perché non
-// esistono lì. Sono destinazioni reali di questa app (aggiunte a
-// `AppSidebar` nel Task 6 4/N): meritano una briciola reale, riusando
-// `folders.title`/`users.title`/`groups.title`, non un'invenzione.
-// - Il comando "Carica" (`#uploadTopBtn`, righe 1438 e 3236-3247 del
-//   mockup; documento `caricamento-nuove-foto.md` §3.2) — sempre
-//   "Carica", mai "Carica qui": nessuna vista porta oggi un
-//   `currentFolder` osservabile, stesso debito già dichiarato più
-//   volte in questo sottosistema (`UploadDropVeil.vue`, `stores/
-//   upload.ts`).
-// - L'interruttore di tema, già rimosso nel mockup stesso (commento del
-//   codice sorgente, §4.2), non esiste qui per lo stesso motivo: vive
-//   in Impostazioni (Task 14).
-//
-// Correzione di accessibilità rispetto al prototipo (stessa politica
-// già applicata in AppSidebar): il campo di ricerca è `readonly` e nel
-// mockup risponde solo al click del mouse ("Deviazione da SP-8", §4.5).
-// Qui Invio e Spazio attivano lo stesso comportamento del click.
+// Accessibility fix relative to the prototype (same policy already
+// applied in AppSidebar): the search field is `readonly` and in the
+// mockup only responds to a mouse click. Here, Enter and Space trigger
+// the same behavior as the click.
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -51,24 +42,23 @@ const router = useRouter()
 const inputEl = ref<HTMLInputElement | null>(null)
 const { open: openPicker, onChange } = useUploadPicker(inputEl)
 
-// §42.8: la sola briciola con un vero segmento genitore ("Album /
-// <nome>") — le altre rotte restano a un unico segmento (vedi il
-// commento in testa al file). `/albums/new` (Task 12 2/N) non è un
-// album aperto: resta sulla mappa piatta sotto, non su questo ramo.
+// The only breadcrumb with a real parent segment ("Albums / <name>") —
+// other routes stay at a single segment (see the file header comment).
+// `/albums/new` is not an open album: it stays on the flat map below,
+// not on this branch.
 const albumBreadcrumbName = computed(() =>
   route.path.startsWith('/albums/') && route.path !== '/albums/new' ? activeAlbumName.value : null
 )
 
-// §32.8: "Persone / <b>Nome</b> quando è aperto un dettaglio" — ma solo
-// se la persona **ha** un nome: senza nome resta la sola briciola piatta
-// "Persone" (nessun secondo segmento "Persona senza nome" inventato).
+// "People / <b>Name</b> when a detail is open" — but only if the person
+// **has** a name: without one, only the flat "People" breadcrumb remains
+// (no invented second segment like "Unnamed person").
 const personBreadcrumbName = computed(() =>
   route.path.startsWith('/persons/') ? activePersonName.value : null
 )
 
-// §15.8: "Topbar desktop: Culling / <b>Nome lotto</b>" — chiude il debito
-// dichiarato sopra (Task 6), ora che `/culling/:lotId` espone davvero uno
-// stato "aperto".
+// "Desktop topbar: Culling / <b>Lot name</b>" — closes the gap declared
+// above, now that `/culling/:lotId` actually exposes an "open" state.
 const cullingLotBreadcrumbName = computed(() =>
   route.path.startsWith('/culling/') ? activeCullingLotName.value : null
 )

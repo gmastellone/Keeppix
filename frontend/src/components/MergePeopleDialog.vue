@@ -1,17 +1,14 @@
 <script setup lang="ts">
-// Fase 11 Task 16 (2/N), §35 "Dialog 'unisci persone'" — documento
-// funzionale verificato riga per riga (righe 5659-5749).
+// "Merge people" dialog.
 //
-// **Chi sopravvive di default**: "la prima persona selezionata che ha
-// un nome vero; se nessuna ha un nome, la prima in assoluto" — qui
-// `people` arriva già nell'ordine di selezione (lo garantisce il
-// chiamante, `PeopleView.vue`, che aggiunge in coda a un array via
-// `personSelectedIds`), non l'ordine della griglia.
+// **Who survives by default**: "the first selected person with a real
+// name; if none has a name, the very first one" — here `people` already
+// arrives in selection order (guaranteed by the caller, `PeopleView.vue`,
+// which appends to an array via `personSelectedIds`), not grid order.
 //
-// **M = conteggio delle foto distinte dell'unione** (§35.2): calcolato
-// dal chiamante (via `runSearch({op:'or',...})` sull'insieme delle
-// persone) e passato come prop — questo componente non fa ricerche
-// proprie.
+// **M = distinct photo count of the union**: computed by the caller (via
+// `runSearch({op:'or',...})` over the set of people) and passed as a
+// prop — this component does not run its own searches.
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 

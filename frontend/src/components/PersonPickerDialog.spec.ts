@@ -50,7 +50,7 @@ afterEach(() => {
   wrapper = undefined
 })
 
-describe('PersonPickerDialog — §37 selettore di persona (verificato Task 16 3/N)', () => {
+describe('PersonPickerDialog — person picker', () => {
   it('shows the exact documented title and focuses the search field on open', async () => {
     mountHost()
     await tick()
@@ -86,7 +86,7 @@ describe('PersonPickerDialog — §37 selettore di persona (verificato Task 16 3
     expect(document.body.textContent).not.toContain('Crea persona')
   })
 
-  it('shows "Nessuna persona trovata." when no person exists at all (§37.7)', async () => {
+  it('shows "Nessuna persona trovata." when no person exists at all', async () => {
     fetchPersonsMock.mockResolvedValue([])
     mountHost()
     await tick()

@@ -1,20 +1,15 @@
 <script setup lang="ts">
-// Fase 11 Task 16 (4/N), §33 "Dialog 'scegli copertina'" — documento
-// funzionale verificato riga per riga (righe 5527-5591).
+// "Choose cover" dialog.
 //
-// **Una miniatura per volto confermato, non per foto** (§33.2): se una
-// persona ha due volti confermati nella stessa foto compaiono due
-// miniature identiche — `fetchPersonFaceTiles` (`api/faces.ts`) le
-// costruisce così di proposito.
+// **One thumbnail per confirmed face, not per photo**: if a person has two
+// confirmed faces in the same photo, two identical thumbnails appear —
+// `fetchPersonFaceTiles` (`api/faces.ts`) builds them that way on purpose.
 //
-// **La miniatura mostra la foto intera, non il ritaglio del volto**
-// (§33.2: "il mockup non ritaglia: usa `tileStyle(photo)`") — stesso
-// principio già seguito per la copertina della griglia Persone (Task
-// 16 1/N): nessuna rotta ritaglia un volto dalla sua foto.
+// **The thumbnail shows the whole photo, not a crop of the face** — same
+// principle already followed for the People grid cover: no route crops a
+// face out of its photo.
 //
-// **Niente "torna alla copertina automatica"** (§33.2, esplicito: "non
-// c'è un'opzione per rimettere `coverFaceId` a `null`") — non
-// aggiunto qui.
+// **No "revert to automatic cover"** option is provided here.
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 

@@ -18,8 +18,8 @@ vi.mock('@/api/tags', () => ({
 
 const TagPickerDialog = (await import('./TagPickerDialog.vue')).default
 
-// Stesso motivo di AlbumPickerDialog.spec.ts: il `DialogPortal` di reka-ui
-// teletrasporta sempre nel vero `document.body`.
+// Same reason as AlbumPickerDialog.spec.ts: reka-ui's `DialogPortal`
+// always teleports into the real `document.body`.
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 function photo(id: string, tags: TimelineAsset['tags'] = []): TimelineAsset {

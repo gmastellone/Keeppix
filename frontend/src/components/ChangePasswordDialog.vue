@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// Fase 11 Task 14 (2/N), §61.3 "Sicurezza" riga 1 — a differenza del mockup
-// ("Cambia password" non è collegato a nulla), qui il modulo esiste per
-// davvero: `POST /users/me/password` (`api/users.ts::changePassword`, già
-// scritta ma mai chiamata dal frontend prima d'ora). Sopra `Dialog.vue`, non
-// `ConfirmDialog`: serve un modulo con tre campi, non una conferma sì/no.
+// Unlike the mockup (where "Change password" isn't wired to anything),
+// here the form does something real: `POST /users/me/password`
+// (`api/users.ts::changePassword`, already written but never called from
+// the frontend before now). Built on `Dialog.vue`, not `ConfirmDialog`: it
+// needs a three-field form, not a yes/no confirmation.
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 

@@ -190,7 +190,7 @@ describe('MapClusterLayer', () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
-  it('§27: a clustered marker opens a popover (cover, folder name, count + place, "Apri cartella") instead of zooming', async () => {
+  it('a clustered marker opens a popover (cover, folder name, count + place, "Apri cartella") instead of zooming', async () => {
     installMatchMedia()
     apiFetch.mockImplementation(clusterFixtures)
 

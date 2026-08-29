@@ -1,33 +1,31 @@
 <script setup lang="ts">
-// Task 11 (1/N), §30 "Dialog 'Condividi selezione'": condivide una
-// selezione di foto senza condividere l'intera cartella/album di
-// provenienza — con persone già note, o via un nuovo link pubblico
-// scoped alla selezione.
+// "Share selection" dialog: shares a selection of photos without sharing
+// the entire folder/album they come from — with people already known, or
+// via a new public link scoped to the selection.
 //
-// Il backend non ha (e non ha mai avuto) un `object_type` per "una
-// selezione arbitraria di foto": verificato leggendo per intero
-// `crates/keeppix-db/src/share_links.rs` e `permissions.rs` — solo
-// `folder`/`album`/`asset` esistono ovunque (riga SQL, validazione della
-// rotta, `item_counts`). Lo stesso vincolo era già stato dichiarato
-// esplicitamente al Task 7 (2/N) come motivo per cui "Condividi" non
-// compariva ancora nella barra di selezione (vedi `LibrarySelectionActions
-// .vue`) né nel lightbox (`AssetViewer.vue`).
+// The backend has no (and never had an) `object_type` for "an arbitrary
+// set of photos": verified by reading `crates/keeppix-db/src/share_links.rs`
+// and `permissions.rs` in full — only `folder`/`album`/`asset` exist
+// anywhere (SQL row, route validation, `item_counts`). The same constraint
+// had already been explicitly declared as the reason "Share" didn't yet
+// appear in the selection bar (see `LibrarySelectionActions.vue`) nor in
+// the lightbox (`AssetViewer.vue`).
 //
-// Non serve estendere il backend: un "insieme arbitrario di foto" è
-// esattamente ciò che un **album** già rappresenta, con permessi e link
-// pubblici già completi. Qui si crea (al primo uso reale, non
-// all'apertura del dialog) un album nascosto che contiene solo la
-// selezione, e si condivide *quello* — "Selezione manuale" del mockup
-// diventa, nel sistema reale, un album auto-generato: stessa promessa
-// ("non condividi l'intera cartella/album di provenienza"), meccanismo
-// reale invece di un `object_type` che non esiste.
+// No need to extend the backend: an "arbitrary set of photos" is exactly
+// what an **album** already represents, with permissions and public links
+// already fully built. This creates (on first real use, not when the
+// dialog opens) a hidden album containing only the selection, and shares
+// *that* — the prototype's "Manual selection" becomes, in the real system,
+// an auto-generated album: the same promise ("you're not sharing the
+// entire folder/album they come from"), a real mechanism instead of a
+// nonexistent `object_type`.
 //
-// La sezione "Persone" (elenco di chi si può invitare) richiede
-// `GET /users`, che il backend riserva agli admin
-// (`crates/keeppix-api/src/routes/users.rs`, `AdminAuth` su ogni rotta)
-// — nessuna rotta alternativa esiste per un utente normale per elencare
-// gli altri account dell'istanza. Per chi non è admin resta comunque
-// interamente utilizzabile il link pubblico, che non richiede quell'elenco.
+// The "People" section (list of who can be invited) requires `GET
+// /users`, which the backend reserves for admins
+// (`crates/keeppix-api/src/routes/users.rs`, `AdminAuth` on every route)
+// — no alternative route exists for a regular user to list the instance's
+// other accounts. For a non-admin, the public link remains entirely
+// usable regardless, since it doesn't require that list.
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -85,8 +83,8 @@ watch(
 
 const initialFocus = computed(() => firstRowEl.value ?? createLinkEl.value ?? null)
 
-/** Crea l'album nascosto per questa selezione, se non esiste ancora —
- * pigro: aprire il dialog senza toccare nulla non crea nulla. */
+/** Creates the hidden album for this selection, if it doesn't exist yet —
+ * lazily: opening the dialog without touching anything creates nothing. */
 async function ensureAlbum(): Promise<string> {
   if (albumId.value) return albumId.value
   const now = new Date()
@@ -142,9 +140,9 @@ async function createLink() {
     try {
       await navigator.clipboard.writeText(url)
     } catch {
-      // Niente clipboard (permesso negato, contesto non sicuro): il link
-      // resta comunque creato e visibile in Condivisioni — solo la copia
-      // automatica salta, non l'intera operazione.
+      // No clipboard access (permission denied, insecure context): the
+      // link is still created and visible in Shares — only the automatic
+      // copy is skipped, not the whole operation.
     }
     toast.show(t('shares.dialog.linkCreated'))
     emit('created')
