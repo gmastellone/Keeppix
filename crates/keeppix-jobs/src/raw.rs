@@ -33,8 +33,8 @@ const MIN_PREVIEW_LONG_SIDE: u32 = 1440;
 /// found on distro ffmpeg — a too-low `RLIMIT_AS` fails to map the shared
 /// libraries before ever touching the Bayer data — and `dcraw_emu` (libraw
 /// + lcms/jpeg) has the same binary profile. The floor hasn't been
-/// remeasured byte-for-byte on every host; 1 GiB aligns with the
-/// `video::MEM` ceiling.
+///   remeasured byte-for-byte on every host; 1 GiB aligns with the
+///   `video::MEM` ceiling.
 const DEMOSAIC_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 const DEMOSAIC_CPU_SECS: u64 = 30;
 
