@@ -226,7 +226,7 @@ describe('CullingLotView — open lot', () => {
     expect(pickAssetMock).toHaveBeenCalledWith('a1', 'pick')
   })
 
-  it('keyboard shortcuts are inert while typing in a text field (Ruling)', async () => {
+  it('keyboard shortcuts are inert while typing in a text field', async () => {
     document.body.innerHTML = '<input id="stray" type="text" />'
     const input = document.getElementById('stray') as HTMLInputElement
     input.focus()
@@ -312,7 +312,7 @@ describe('CullingLotView — multi-selection, rename, quick switcher', () => {
     expect(wrapper.text()).toContain('2 selezionate')
   })
 
-  it('a plain ArrowRight after a range selection clears it (Ruling: no Esc in this screen)', async () => {
+  it('a plain ArrowRight after a range selection clears it', async () => {
     const { wrapper } = await mountView()
     await flushPromises()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true }))
