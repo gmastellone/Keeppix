@@ -1,30 +1,25 @@
 <script setup lang="ts">
-// Fase 11 Task 14 (2/N) — documento funzionale §61 "Profilo", verificato
-// riga per riga (righe 9129-9297). Quattro sezioni, tutte con una capacità
-// reale diversa (spesso migliore) di quella del mockup:
+// Four sections, each with real behavior:
 //
-// - **"Dati account"**: solo `"Nome visualizzato"` scrive per davvero
-//   (`session.updateDisplayName`, `PATCH /users/{id}`). `"Email"` resta in
-//   sola lettura: `UserView` la espone ma nessuna rotta la scrive — a
-//   differenza del mockup, dove il campo è editabile ma "Salva modifiche"
-//   non fa nulla, qui il campo dichiara onestamente il proprio limite
-//   invece di accettare una modifica che sparirebbe in silenzio.
-// - **"Colore avatar"**: reale, ma `localStorage` per `user.id`
-//   (`stores/avatarColor.ts`) — nessuna preferenza server per questo campo,
-//   vedi il commento in quel file.
-// - **"Sicurezza"**: "Cambia password" apre un modulo reale
-//   (`ChangePasswordDialog.vue`, `POST /users/me/password`). L'autenticazione
-//   a due fattori non è "un mini-switch che inverte solo un flag": è il
-//   flusso completo già costruito in `TotpSetupView.vue`
-//   (`/settings/security/totp`, Fase 6 Task 5) — qui solo stato reale
-//   (`GET /auth/totp`) e collegamento, niente di reinventato.
-// - **"Sessioni attive"**: reale ed elenco di lunghezza reale, non i due
-//   elementi fissi del mockup (`GET /users/me/sessions`,
-//   `crates/keeppix-api/src/routes/sessions.rs`, Fase 10). "Esci" e "Esci
-//   da tutti gli altri dispositivi" funzionano per davvero — a differenza
-//   del mockup, dove "non sono collegati a un gestore". `device_label`
-//   viene dallo user-agent al login, sempre in inglese ("Chrome on macOS"),
-//   mai la stringa italiana del documento.
+// - **"Account data"**: only display name actually writes
+//   (`session.updateDisplayName`, `PATCH /users/{id}`). "Email" stays
+//   read-only: `UserView` exposes it but no route writes it — the field
+//   honestly declares that limit instead of accepting an edit that would
+//   silently disappear.
+// - **"Avatar color"**: real, but stored in `localStorage` per `user.id`
+//   (`stores/avatarColor.ts`) — there is no server-side preference for
+//   this field, see the comment in that file.
+// - **"Security"**: "Change password" opens a real form
+//   (`ChangePasswordDialog.vue`, `POST /users/me/password`). Two-factor
+//   authentication is not a mini-switch that just flips a flag: it's the
+//   full flow already built in `TotpSetupView.vue`
+//   (`/settings/security/totp`) — here it's just real status
+//   (`GET /auth/totp`) plus a link, nothing reinvented.
+// - **"Active sessions"**: real, and a list of real length
+//   (`GET /users/me/sessions`,
+//   `crates/keeppix-api/src/routes/sessions.rs`). "Log out" and "Log out
+//   from all other devices" work for real. `device_label` comes from the
+//   user agent at login, always in English (e.g. "Chrome on macOS").
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -85,8 +80,8 @@ async function loadSessions() {
   try {
     sessions.value = await fetchSessions()
   } catch {
-    // Nessuna sessione elencata (rete, sessione appena scaduta): il resto
-    // della pagina resta comunque utilizzabile.
+    // No sessions listed (network issue, session just expired): the rest
+    // of the page still remains usable.
   }
 }
 

@@ -1,25 +1,21 @@
 <script setup lang="ts">
-// Fase 11 Task 12 (1/N) — documento funzionale §42 "Album — dettaglio",
-// verificato riga per riga (righe 6356-6480). Ricalca `FavoritesView.vue`
-// (SP-1/2/3/4, `FlatAssetGrid`, `useBrowseFilters`, `useLightboxRoute`):
-// "mostra le foto contenute in un album, con gli stessi strumenti di
-// griglia del resto dell'app" (§42.1) è esattamente la stessa forma di
-// "è la timeline con una sola sezione" di Preferiti (§9.2), qui scoped
-// ai membri dell'album invece che ai preferiti.
+// This view follows the same pattern as `FavoritesView.vue`
+// (`FlatAssetGrid`, `useBrowseFilters`, `useLightboxRoute`): showing the
+// photos contained in an album with the same grid tools as the rest of
+// the app is the same shape as Favorites being "the timeline with a
+// single section", just scoped to the album's members instead of
+// favorites.
 //
-// I tre stati vuoti distinti (§42.2) restano distinti: filtro troppo
-// stretto, dinamico senza corrispondenze, manuale davvero vuoto — sono
-// tre situazioni diverse anche se il rendering finale si somiglia,
-// scelta deliberata del documento (§42.7) da non appiattire in una sola
-// dicitura generica.
+// The three distinct empty states stay distinct: filter too narrow,
+// dynamic with no matches, manual and genuinely empty — three different
+// situations even though the final rendering looks similar, a deliberate
+// choice to avoid flattening them into one generic message.
 //
-// "Aggiorna album" non è nel mockup (che non prevede nessuna modifica
-// post-creazione): è la contropartita reale, dichiarata al Task 12
-// (vedi `api/albums.ts`), dell'"Automatico" del documento — un album con
-// `rule` sul backend reale non si ricalcola da solo, si aggiorna solo
-// su richiesta (`POST /albums/{id}/refresh`). Senza questo pulsante un
-// album dinamico non avrebbe mai modo di aggiornare la propria
-// appartenenza dopo la creazione.
+// "Update album": a `rule`-based album on the real backend does not
+// recompute itself automatically, it only updates on request
+// (`POST /albums/{id}/refresh`, see `api/albums.ts`). Without this button
+// a dynamic album would have no way to refresh its membership after
+// creation.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -101,7 +97,7 @@ const subtitle = computed(() => {
   return text
 })
 
-// §42.2, i tre stati vuoti — mutuamente esclusivi, in quest'ordine.
+// The three empty states — mutually exclusive, in this order.
 const emptyState = computed<'filtered' | 'dynamic' | 'manual' | null>(() => {
   if (!loaded.value) return null
   if (totalCount.value === 0) return album.value?.rule ? 'dynamic' : 'manual'

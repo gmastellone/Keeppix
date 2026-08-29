@@ -43,9 +43,9 @@ vi.mock('@/api/rename', () => ({
 vi.mock('@/api/operations', () => ({
   cancelOperation: vi.fn(async () => ({ succeeded: [], failed: [], batch_id: null }))
 }))
-// RenameFormulaDialog segue l'avanzamento reale sul WebSocket dal 27
-// agosto (Task 16) — nessuno di questi test lo esercita direttamente, la
-// mock esiste solo per non tentare una connessione reale in jsdom.
+// RenameFormulaDialog follows real progress over the WebSocket — none of
+// these tests exercise that directly, the mock exists only to avoid
+// attempting a real connection in jsdom.
 vi.mock('@/api/events', () => ({
   startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
 }))
@@ -123,7 +123,7 @@ async function mountView(lotId = 'lot-1', name = 'Dolomiti', library = 'lib-1') 
   return { wrapper, router }
 }
 
-describe('CullingLotView — §15 lotto aperto', () => {
+describe('CullingLotView — open lot', () => {
   it('composes the lot from fetchChildren and shows the real counters and stage', async () => {
     const { wrapper } = await mountView()
 
@@ -260,7 +260,7 @@ describe('CullingLotView — §15 lotto aperto', () => {
   })
 })
 
-describe('CullingLotView — Task 17 (4/N) selezione multipla, rinomina, selettore rapido', () => {
+describe('CullingLotView — multi-selection, rename, quick switcher', () => {
   it('clicking a thumbnail checkbox enters selection mode and shows the selection bar', async () => {
     const { wrapper } = await mountView()
 
@@ -269,7 +269,7 @@ describe('CullingLotView — Task 17 (4/N) selezione multipla, rinomina, seletto
 
     expect(wrapper.text()).toContain('1 selezionata')
     expect(wrapper.find('[role="toolbar"]').exists()).toBe(true)
-    // Coi chip nascosti dalla barra di selezione, i filtri non compaiono più.
+    // With the chips hidden by the selection bar, the filters no longer appear.
     expect(wrapper.findAll('button').find((b) => b.text() === 'Tutte')).toBeUndefined()
   })
 
@@ -365,9 +365,9 @@ describe('CullingLotView — Task 17 (4/N) selezione multipla, rinomina, seletto
     await flushPromises()
 
     expect(applyRenameBatchMock).toHaveBeenCalledWith(['a1'], '{data}_{luogo}_{n:3}')
-    // Dal 27 agosto il rename gira in background (Task 16): il dialog
-    // resta aperto finché non arriva l'evento terminale sul WebSocket, non
-    // si chiude subito dopo la risposta 202 di apply.
+    // Rename runs in the background: the dialog stays open until the
+    // terminal event arrives over the WebSocket, it doesn't close right
+    // after apply's 202 response.
     onEvent?.({ v: 1, type: 'operation.progress', payload: { operation_id: 'op1', done: 1, total: 1, phase: 'done' } })
     await flushPromises()
 

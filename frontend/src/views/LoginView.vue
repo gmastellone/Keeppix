@@ -26,8 +26,8 @@ function onLanguageChange(event: Event) {
   setLocale(next)
 }
 
-// Un logout azzerato solo localmente (revoca server-side non confermata)
-// atterra qui: lo si segnala una volta, poi si consuma il segnale.
+// A logout that was only cleared locally (server-side revocation unconfirmed)
+// lands here: we report it once, then consume the flag.
 onMounted(() => {
   if (session.logoutError) {
     error.value = t('login.notices.signedOutOffline')

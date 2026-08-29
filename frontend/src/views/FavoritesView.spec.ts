@@ -36,8 +36,8 @@ vi.mock('@/api/albums', () => ({
   fetchAlbum: vi.fn(async () => ({ id: 'x', name: '', assets: [] })),
   addAssets: vi.fn(async () => null),
   removeAsset: vi.fn(async () => null),
-  // `AssetViewer.vue` (Task 8 7/N) chiama `fetchAlbumsForAsset` per la
-  // sezione ALBUM del pannello, aperto di default (§19.8, Task 8 9/N).
+  // `AssetViewer.vue` calls `fetchAlbumsForAsset` for the ALBUMS section
+  // of the panel, open by default.
   fetchAlbumsForAsset: vi.fn(async () => [])
 }))
 
@@ -75,11 +75,11 @@ function stubMatchMedia() {
 
 let unstubLayout: () => void
 
-// Task 7 (6/N) — `useBrowseFilters` (SP-3) chiama `GET /tags`/`GET
-// /persons` via `apiFetch` a ogni montaggio: senza un esito di base,
-// `apiFetch` (resettato da `resetAllMocks()` a ogni test) tornerebbe un
-// `vi.fn()` spoglio e romperebbe `.catch()` nel composable — stesso
-// correttivo di `TimelineView.spec.ts`.
+// `useBrowseFilters` calls `GET /tags`/`GET /persons` via `apiFetch` on
+// every mount: without a baseline result, `apiFetch` (reset by
+// `resetAllMocks()` on every test) would return a bare `vi.fn()` and
+// break `.catch()` inside the composable — same fix as in
+// `TimelineView.spec.ts`.
 beforeEach(() => {
   i18n.global.locale.value = 'it'
   vi.mocked(apiFetch).mockResolvedValue([])
@@ -141,7 +141,7 @@ function photo(id: string, favorite = true): TimelineAsset {
   }
 }
 
-describe('FavoritesView loading (§9.9 — SearchNode::Favorite, no separate geometry endpoint)', () => {
+describe('FavoritesView loading (SearchNode::Favorite, no separate geometry endpoint)', () => {
   it('fetches via runSearch({op:"favorite"}), following next_cursor to exhaustion', async () => {
     vi.mocked(runSearch)
       .mockResolvedValueOnce({ assets: [photo('a'), photo('b')], next_cursor: 'c1' })
@@ -154,7 +154,7 @@ describe('FavoritesView loading (§9.9 — SearchNode::Favorite, no separate geo
     expect(wrapper.findAllComponents(PhotoTile)).toHaveLength(3)
   })
 
-  it('shows the exact documented subtitle with the total count — §9.2', async () => {
+  it('shows the exact documented subtitle with the total count', async () => {
     vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a'), photo('b'), photo('c')] })
     const { wrapper } = await mountFavorites()
 
@@ -162,7 +162,7 @@ describe('FavoritesView loading (§9.9 — SearchNode::Favorite, no separate geo
   })
 })
 
-describe('FavoritesView empty states (§9.2, two distinct states)', () => {
+describe('FavoritesView empty states (two distinct states)', () => {
   it('the "no favorites at all" empty state has no toolbar at all', async () => {
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
     const { wrapper } = await mountFavorites()
@@ -173,7 +173,7 @@ describe('FavoritesView empty states (§9.2, two distinct states)', () => {
     expect(wrapper.find('button').exists()).toBe(false)
   })
 
-  it('unfavoriting the only visible photo shows the filtered-empty state, not the "no favorites at all" one — same wording SP-3 will reuse', async () => {
+  it('unfavoriting the only visible photo shows the filtered-empty state, not the "no favorites at all" one', async () => {
     vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a')] })
     const { wrapper } = await mountFavorites()
     expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
@@ -187,7 +187,7 @@ describe('FavoritesView empty states (§9.2, two distinct states)', () => {
   })
 })
 
-describe('FavoritesView heart button (§9.3 — "toglie la foto dalla vista", not just the flag)', () => {
+describe('FavoritesView heart button ("toglie la foto dalla vista", not just the flag)', () => {
   it('clicking the heart on a tile removes it from the grid immediately, no confirmation, no toast', async () => {
     vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a'), photo('b')] })
     const { wrapper } = await mountFavorites()
@@ -202,7 +202,7 @@ describe('FavoritesView heart button (§9.3 — "toglie la foto dalla vista", no
   })
 })
 
-describe('FavoritesView selection (SP-2/SP-4, same shared pools as Timeline)', () => {
+describe('FavoritesView selection (same shared pools as Timeline)', () => {
   it('"Seleziona tutto quello che vedi" selects every currently visible (favorite) photo', async () => {
     vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a'), photo('b')] })
     const { wrapper } = await mountFavorites()
@@ -264,14 +264,13 @@ describe('FavoritesView lightbox and errors', () => {
   })
 })
 
-// Task 7 (6/N) — SP-3: le sei dimensioni e la loro combinazione sono già
-// testate a fondo altrove (`useBrowseFilters.spec.ts`, `design/
-// quickFilter.spec.ts`, `QuickFilter.spec.ts`) — qui solo il cablaggio
-// proprio di questa vista: il subtotale resta quello dei preferiti
-// (§9.2, "prima dei filtri"), la griglia e "Seleziona tutto" si
-// restringono a ciò che il filtro lascia passare.
-describe('FavoritesView quick filter (SP-3)', () => {
-  it('narrows the grid to the matches, without touching the subtitle count (§9.2: "prima dei filtri")', async () => {
+// The six dimensions and their combination are already thoroughly tested
+// elsewhere (`useBrowseFilters.spec.ts`, `design/quickFilter.spec.ts`,
+// `QuickFilter.spec.ts`) — here only this view's own wiring: the subtotal
+// stays the favorites count ("before filters"), the grid and "Select
+// all" narrow down to what the filter lets through.
+describe('FavoritesView quick filter', () => {
+  it('narrows the grid to the matches, without touching the subtitle count ("prima dei filtri")', async () => {
     vi.mocked(runSearch).mockResolvedValue({
       assets: [{ ...photo('a'), raw_kind: 'jpeg' }, { ...photo('b'), raw_kind: 'raw' }]
     })
@@ -297,7 +296,7 @@ describe('FavoritesView quick filter (SP-3)', () => {
     expect(wrapper.text()).toContain(String(i18n.global.t('ui.filteredEmpty.title')))
   })
 
-  it('"Seleziona tutto" while a filter is active selects only what the filter lets through (SP-4)', async () => {
+  it('"Seleziona tutto" while a filter is active selects only what the filter lets through', async () => {
     vi.mocked(runSearch).mockResolvedValue({
       assets: [{ ...photo('a'), raw_kind: 'jpeg' }, { ...photo('b'), raw_kind: 'raw' }]
     })

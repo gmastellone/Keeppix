@@ -1,34 +1,29 @@
 <script setup lang="ts">
-// Fase 11 Task 7 (3/N) — documento funzionale §9 ("Preferiti"),
-// verificato riga per riga (righe 1755-1833). "È la timeline con una
-// sola sezione e senza titolo" (§9.2): stessa tessera (SP-1), stessa
-// barra di selezione (SP-2), stessa griglia giustificata e la stessa
-// virtualizzazione (SP-22) — ma senza raggruppamento per mese, senza
-// intestazioni di mese e **senza scrubber**.
+// This is the timeline with a single section and no title: the same
+// tile, the same selection bar, the same justified grid and the same
+// virtualization — but with no month grouping, no month headers, and
+// **no scrubber**.
 //
-// Niente endpoint "sola geometria" per una lista piatta come esiste per
-// la timeline (`fetchGeometry`, Task 4): non serve. `runSearch({op:
-// 'favorite'})` (verificato in crates/keeppix-db/src/search.rs,
-// `SearchNode::Favorite`, già pronto dal Task 6/10 del backend — mai
-// consumato dal frontend finora) restituisce gli stessi `TimelineAsset`
-// con `width`/`height` già inclusi: `justify()` (già scritta nel Task 4,
-// pura, indipendente dal blob di geometria) basta da sola per il
-// layout, senza bisogno di un secondo endpoint.
+// No "geometry only" endpoint for a flat list like the one that exists
+// for the timeline (`fetchGeometry`): not needed. `runSearch({op:
+// 'favorite'})` (`SearchNode::Favorite` in
+// crates/keeppix-db/src/search.rs) returns the same `TimelineAsset`
+// objects with `width`/`height` already included: `justify()` (pure,
+// independent of the geometry blob) is enough on its own for layout,
+// with no need for a second endpoint.
 //
-// La griglia visibile è `assets` filtrati per `favorites.isFavorite` —
-// non solo lo snapshot caricato: un cuoricino tolto (singolo o di
-// gruppo dalla barra di selezione, stesso store condiviso con Timeline)
-// fa sparire la tessera da qui **subito**, per costruzione, senza
-// bisogno di un handler dedicato "rimuovi dalla vista" (§9.3: "il
-// cuoricino qui toglie la foto dalla vista... senza conferma, senza
-// toast, senza annulla" — è esattamente il comportamento che questa
-// derivazione dà gratis).
+// The visible grid is `assets` filtered by `favorites.isFavorite` — not
+// just the loaded snapshot: removing a heart (single, or as a group from
+// the selection bar, same store shared with Timeline) makes the tile
+// disappear from here **immediately**, by construction, with no need
+// for a dedicated "remove from view" handler — the heart here removes
+// the photo from view, with no confirmation, no toast, no undo, which is
+// exactly the behavior this derivation gives for free.
 //
-// Task 7 (6/N): il filtro rapido SP-3 (`useBrowseFilters`) si compone
-// sopra questo stesso filtro — `favoriteAssets` prima, `filteredAssets`
-// dopo — e la griglia stessa (giustificata, virtualizzata) è ora
-// `FlatAssetGrid.vue`, estratta qui e riusata da Timeline quando un
-// filtro è attivo (Task 7, 7/N).
+// The quick filter (`useBrowseFilters`) composes on top of this same
+// filter — `favoriteAssets` first, `filteredAssets` after — and the grid
+// itself (justified, virtualized) is now `FlatAssetGrid.vue`, extracted
+// here and reused by Timeline when a filter is active.
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -68,14 +63,14 @@ const errorDetail = computed(() =>
   loadError.value instanceof ApiProblem ? `${loadError.value.type} · ${loadError.value.status}` : undefined
 )
 
-// §9.2: il sottotitolo conta i preferiti **prima** dei filtri.
+// The subtitle counts favorites **before** filters.
 const totalCount = computed(() => assets.value.length)
 const favoriteAssets = computed(() => assets.value.filter((asset) => favorites.isFavorite(asset)))
 
-// Task 7 (6/N) — SP-3 sui Preferiti: le stesse sei dimensioni della
-// timeline (§9.3), scoped ai soli preferiti (`favoriteAssets`, non
-// all'intera libreria) — coerente con "N è calcolato sulla lista di
-// questa vista" (§11, piede del pannello).
+// The quick filter on Favorites: the same six dimensions as the
+// timeline, scoped to favorites only (`favoriteAssets`, not the whole
+// library) — consistent with the result count being computed on this
+// view's own list.
 const { selection: filterSelection, dimensions: filterDimensions, filteredAssets } = useBrowseFilters(favoriteAssets)
 
 const lightbox = useLightboxRoute<TimelineAsset>(
@@ -94,8 +89,8 @@ function openViewerAsset(id: string) {
 const selectionMode = computed(() => selection.library.selectedIds.size > 0)
 const selectedAssets = computed(() => favoriteAssets.value.filter((asset) => selection.library.selectedIds.has(asset.id)))
 
-// SP-4: "solo ciò che ricade nel filtro" quando un filtro rapido è
-// attivo — mai l'intero insieme dei preferiti sottostante.
+// "Only what falls within the filter" when a quick filter is active —
+// never the whole underlying set of favorites.
 function selectAllVisible() {
   selection.library.selectAllVisible(filteredAssets.value.map((asset) => asset.id))
 }
@@ -141,8 +136,8 @@ onUnmounted(() => {
       @retry="loadFavorites"
     />
 
-    <!-- §9.2, primo stato vuoto: nessun preferito in assoluto — "in
-         questo caso non viene disegnata nemmeno la barra strumenti". -->
+    <!-- First empty state: no favorites at all — in this case not even
+         the toolbar is drawn. -->
     <div
       v-else-if="loaded && totalCount === 0"
       class="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center"
@@ -207,12 +202,11 @@ onUnmounted(() => {
         </SelectionBar>
       </div>
 
-      <!-- §9.2, secondo stato vuoto: ci sono preferiti ma nessuno è
-           attualmente visibile — sia perché l'ultimo cuoricino visibile è
-           stato tolto, sia perché il filtro rapido (SP-3) non trova
-           corrispondenze: stessa dicitura per entrambe, la situazione
-           visiva è identica ("avevi delle foto, ora non ne vedi
-           nessuna"). -->
+      <!-- Second empty state: there are favorites but none is currently
+           visible — either because the last visible heart was removed,
+           or because the quick filter finds no matches: same wording for
+           both, the visual situation is identical ("you had photos, now
+           you see none"). -->
       <div
         v-if="filteredAssets.length === 0"
         class="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center"

@@ -150,9 +150,9 @@ function isSelf(id: string): boolean {
 
 <template>
   <main class="mx-auto max-w-3xl p-6">
-    <!-- Fase 11 Task 6 (6/N): link "indietro" e titolo tolti — copre
-         AppSidebar (voce "Utenti", gruppo Amministrazione) e AppTopbar
-         (briciola "Utenti"). -->
+    <!-- No back link or title here: AppSidebar (the "Users" entry, under
+         Administration) and AppTopbar (the "Users" breadcrumb) already
+         cover that. -->
     <p
       v-if="loadError"
       class="mt-6 text-content-muted"

@@ -135,7 +135,7 @@ async function mountReview() {
   return { wrapper }
 }
 
-describe('ReviewView — §56 Revisione (coda tag)', () => {
+describe('ReviewView — Review (tag queue)', () => {
   it('groups proposals by tag and shows the total count', async () => {
     fetchTagProposalsMock.mockResolvedValue([
       proposal({ asset_id: 'a1', tag_id: 't1', tag_name: 'Tramonti' }),
@@ -260,7 +260,7 @@ async function switchToVolti(wrapper: VueWrapper) {
   await flushPromises()
 }
 
-describe('ReviewView — §39 Revisione (coda volti)', () => {
+describe('ReviewView — Review (faces queue)', () => {
   it('the tab shows the real pending count, and switching reveals the faces queue', async () => {
     fetchFaceProposalsMock.mockResolvedValue([face({ id: 'f1' }), face({ id: 'f2' })])
     fetchPersonsMock.mockResolvedValue([person()])

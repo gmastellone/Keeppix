@@ -1,41 +1,31 @@
 <script setup lang="ts">
-// Fase 11 Task 13 (3/N) — documento funzionale §47 "Problemi", verificato
-// riga per riga (righe 7157-7311). Riscrittura completa: la vista
-// precedente ignorava `problems.problems` (l'elenco già composto in
-// linguaggio naturale dal backend, `crates/keeppix-api/src/routes/
-// problems.rs::ProblemView` — severità/titolo/descrizione/azioni pronti),
-// mostrando invece tre elenchi grezzi di nomi file/librerie senza alcuna
-// azione collegata. Il commento del mockup a `attachProblemHandlers`
-// dice esplicitamente l'intento: "prima erano pulsanti senza alcun
-// comportamento collegato... ognuna ora fa qualcosa di reale" — la
-// vecchia vista aveva silenziosamente perso quella promessa.
+// This view renders `problems.problems` (the list already composed in
+// natural language by the backend, `crates/keeppix-api/src/routes/
+// problems.rs::ProblemView` — severity/title/description/actions ready),
+// each with its own linked action, rather than raw lists of file/library
+// names with nothing attached to them.
 //
-// La sezione "Duplicati" della vecchia vista è rimossa (non commentata):
-// da questa stessa tranche esiste `/duplicates` (Task 13 2/N), una vista
-// reale e completa — ripeterne un riassunto qui dentro sarebbe
-// ridondante e disallineato dal documento, che tratta Duplicati come
-// pagina a sé (§46), mai annidata in Problemi.
+// The "Duplicates" section that used to live here is gone: `/duplicates`
+// is a real, complete view of its own — repeating a summary of it inside
+// Problems would be redundant, and duplicates are treated as their own
+// page, never nested inside Problems.
 //
-// **Deviazione reale dal documento**: "Riprova connessione" nel mockup
-// "riesce sempre" (nessun ramo "ancora offline"). Sul backend reale
-// `POST /libraries/{id}/probe` (`api/libraries.ts::probeLibrary`)
-// verifica per davvero se il percorso torna raggiungibile e può
-// rispondere `status:'offline'` invariato — qui c'è quindi un vero
-// ramo di fallimento con un toast dedicato, assente nel mockup solo
-// perché la sua base dati non può fallire.
+// **"Retry connection"** performs a real check: `POST /libraries/{id}/probe`
+// (`api/libraries.ts::probeLibrary`) actually verifies whether the path is
+// reachable again and can come back with `status:'offline'` unchanged —
+// so there is a real failure branch here with its own dedicated toast,
+// not just an always-succeeds path.
 //
-// **Seconda deviazione**: il dialog "Dettagli" del mockup racconta un
-// percorso di rete NAS/SMB immaginario con un contatore finto. Qui
-// mostra dati reali della libreria (`root_path`, `last_scan_at` come
-// "ultimo contatto riuscito") — niente affermazioni su NAS/SMB che il
-// backend non può verificare (`root_path` può essere qualunque percorso
-// locale, montato in rete o no, il backend non lo distingue).
+// **"Details"** shows real library data (`root_path`, `last_scan_at` as
+// "last successful contact") — no claims about NAS/SMB or any other
+// storage medium that the backend can't actually verify (`root_path` can
+// be any local path, network-mounted or not; the backend doesn't
+// distinguish between them).
 //
-// La sezione "Ricalcolo fusi orari" (`tzPreview`/`tzApply`) resta
-// invariata in fondo alla pagina: uno strumento reale, funzionante, che
-// non ha alcuna controparte nel documento (§47 non lo menziona) — non
-// è oggetto di questa riscrittura, solo riposizionato sotto ai problemi
-// veri e propri invece di essere frammisto ai vecchi elenchi grezzi.
+// The "Recalculate timezones" section (`tzPreview`/`tzApply`) stays at
+// the bottom of the page: a real, working tool that is independent of
+// the problems list above it, just positioned below the real problems
+// instead of mixed in with them.
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -90,17 +80,16 @@ async function load() {
   }
 }
 
-// Debito chiuso il 26 agosto (`scripts/wired-exceptions.txt`,
-// `POST /operations/{id}/cancel` mai consumato): quando una libreria
-// riconnessa (`retryConnection`) riparte con una scansione vera, questa
-// vista ne segue l'avanzamento reale sul WebSocket (`operation.progress`,
-// Task 16 Fase 10) invece di limitarsi al toast "riconnessa". Solo per
-// LibraryScan — l'unico dei quattro tipi di operazione il cui
-// `operation_id` è disponibile subito (`202 Accepted`): `BulkRename` è
-// sincrona dentro la richiesta HTTP (`operation_id` noto solo a batch già
-// finito, annullamento non realizzabile lato client) e `AiAnalysis`/
-// `FaceDetection` non hanno alcun innesco utente (finestre automatiche in
-// background), due casi diversi non affrontati qui.
+// When a reconnected library (`retryConnection`) restarts with a real
+// scan, this view follows its real progress over the WebSocket
+// (`operation.progress`) instead of just showing a "reconnected" toast.
+// This applies only to LibraryScan — the only one of the four operation
+// types whose `operation_id` is available immediately (`202 Accepted`):
+// `BulkRename` is synchronous within the HTTP request (`operation_id` is
+// only known once the batch has already finished, so client-side
+// cancellation isn't possible) and `AiAnalysis`/`FaceDetection` have no
+// user-initiated trigger (they run in automatic background windows) —
+// two different cases not addressed here.
 interface ActiveScan {
   operationId: string
   libraryId: string
@@ -116,9 +105,9 @@ let live: LiveSocket | undefined
 async function startRescan(library: Library) {
   try {
     const accepted = await startLibraryScan(library.id)
-    // `operation_id` è `null` se una scansione per questa libreria era già
-    // in corso (dedup su un'altra richiesta o sul watcher): niente da
-    // seguire qui, non un errore.
+    // `operation_id` is `null` if a scan for this library was already
+    // running (deduplicated against another request or the watcher):
+    // nothing to follow here, not an error.
     if (!accepted.operation_id) return
     activeScans.value = new Map(activeScans.value).set(accepted.operation_id, {
       operationId: accepted.operation_id,
@@ -129,8 +118,8 @@ async function startRescan(library: Library) {
       cancelling: false
     })
   } catch {
-    // Best-effort: la libreria è comunque tornata online, un errore qui
-    // nell'avvio della scansione non deve interrompere nient'altro.
+    // Best-effort: the library is back online either way, an error here
+    // while starting the scan shouldn't interrupt anything else.
   }
 }
 
@@ -168,9 +157,9 @@ function handleOperationProgress(payload: OperationProgressPayload) {
     const next = new Map(activeScans.value)
     next.delete(payload.operation_id)
     activeScans.value = next
-    // "cancelled" arriva anche dopo un annullamento riuscito da qui
-    // stesso: quel percorso mostra già il suo toast in `cancelScan`, un
-    // secondo qui duplicherebbe il messaggio.
+    // "cancelled" also arrives after a cancellation initiated from here:
+    // that path already shows its own toast in `cancelScan`, a second one
+    // here would duplicate the message.
     if (payload.phase === 'done') {
       toast.show(
         t('problems.scanDone', { name: scan.libraryName, n: payload.done }, { plural: payload.done })

@@ -22,8 +22,8 @@ vi.mock('@/api/albums', () => ({
   addAssets: vi.fn(async () => null),
   removeAsset: vi.fn(async () => null),
   fetchAlbums: vi.fn(async () => []),
-  // `AssetViewer.vue` chiama `fetchAlbumsForAsset` per la sezione ALBUM
-  // del pannello (§19.8, aperto di default) — stesso mock di
+  // `AssetViewer.vue` calls `fetchAlbumsForAsset` for the ALBUMS section
+  // of the panel (open by default) — same mock as in
   // FavoritesView.spec.ts.
   fetchAlbumsForAsset: vi.fn(async () => [])
 }))
@@ -157,7 +157,7 @@ async function mountDetail(id = 'album-1') {
   return { router, wrapper }
 }
 
-describe('AlbumDetailView — §42 dettaglio', () => {
+describe('AlbumDetailView — detail', () => {
   it('loads the album and its members from the route id, rendering a tile per member', async () => {
     fetchAlbumAssetsMock.mockResolvedValue([albumAsset('a'), albumAsset('b')])
 
@@ -168,7 +168,7 @@ describe('AlbumDetailView — §42 dettaglio', () => {
     expect(wrapper.findAllComponents(PhotoTile)).toHaveLength(2)
   })
 
-  it('composes the subtitle from real member dates, plus shared/dynamic suffixes — §42.2', async () => {
+  it('composes the subtitle from real member dates, plus shared/dynamic suffixes', async () => {
     fetchAlbumMock.mockResolvedValue(album({ is_shared: true, rule: { op: 'favorite' } }))
     fetchAlbumAssetsMock.mockResolvedValue([
       albumAsset('a', '2026-01-05T00:00:00Z'),

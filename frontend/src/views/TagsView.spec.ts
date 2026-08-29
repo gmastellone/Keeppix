@@ -68,7 +68,7 @@ async function mountTags() {
   return { wrapper }
 }
 
-describe('TagsView — §52 Tag e categorie', () => {
+describe('TagsView — Tags and categories', () => {
   it('groups tags by category and lists orphans under "Senza categoria"', async () => {
     fetchTagsMock.mockResolvedValue([
       category({ id: 'cat-1', name: 'Natura' }),

@@ -1,19 +1,12 @@
 <script setup lang="ts">
-// Fase 11 Task 17 (3/N) — documento funzionale §14 "Culling — scelta del
-// lotto (la griglia dei lotti)". Sostituisce interamente la vecchia
-// sessione a voto per-utente su "quanto già caricato in timeline"
-// (`stores/culling.ts`, rimosso in questa stessa unità): il Ruling del 24
-// agosto (ledger) dichiara che il culling non ha più nulla a che fare con
-// le foto normali — è un'area separata, per cartella, con spostamento
-// fisico reale.
+// Culling is a separate, per-folder area with real physical file moves,
+// unrelated to regular photos.
 //
-// **Multi-libreria, il mockup no**: il documento assume una sola radice di
-// culling globale ("Cartella di culling: <percorso>", riga unica). Qui
-// ogni libreria ha la propria (`Library.culling_root_folder_id`), quindi
-// una sezione per libreria — stesso adattamento già scelto per
-// "Riconoscimento volti" (Task 14) e "Cartella di culling" in
-// Impostazioni (Task 17 2/N). Con una sola libreria configurata l'aspetto
-// coincide col mockup.
+// **Multi-library support**: each library has its own culling root
+// (`Library.culling_root_folder_id`), so there is one section per
+// library — the same approach already used for face recognition and the
+// culling root folder setting. With only one library configured, the
+// layout collapses to a single section.
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

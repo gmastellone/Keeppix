@@ -1,38 +1,32 @@
 <script setup lang="ts">
-// Fase 11 Task 16 (1/N-2/N) — documento funzionale §31 "Persone — la
-// griglia" (righe 5192-5417), verificato riga per riga.
+// **Still out of scope here**: the review-queue banner (no real "Faces"
+// tab in `ReviewView.vue` yet — a link today would be a dead end).
 //
-// **Ancora fuori da questa unità**: il banner della coda di revisione
-// (§31.2 — nessuna linguetta "Volti" reale in `ReviewView.vue` ancora,
-// prossima sotto-unità: un collegamento oggi sarebbe un vicolo cieco).
+// **`visiblePeople()`**: people that are not hidden (`fetchPersons()`
+// without `include_hidden`, already the route's behavior) *and* have
+// at least one confirmed face (`face_count > 0` — a client-side filter,
+// the route does not apply it, per the original comment in `persons.ts`).
 //
-// **`visiblePeople()`** (§31.2): persone non nascoste (`fetchPersons()`
-// senza `include_hidden`, già il comportamento della rotta) *e* con
-// almeno un volto confermato (`face_count > 0` — filtro lato client,
-// la rotta non lo applica, commento originale di `persons.ts`).
+// **Group blocks, but no `groupId` on the person**: `PersonView` does
+// not carry membership — only `GET /person-groups/{id}/members` (a list
+// of person ids per group) exposes it. The "No group" block is therefore
+// the complement: every person not present in any members list.
 //
-// **Blocchi di gruppo, ma senza un `groupId` sulla persona** (§31.2):
-// `PersonView` non porta l'appartenenza — solo `GET /person-groups/{id}/
-// members` (elenco di id persona per gruppo) la espone. Il blocco
-// "Senza gruppo" è quindi il complemento: ogni persona non presente in
-// nessun elenco membri. Task 16 (2/N).
+// **A real cover photo, but not necessarily the chosen one**: `PersonView`
+// carries `cover_face_id` (a face id), not an asset id — no route resolves
+// a face id to its asset/tile (`GET /faces/{id}` does not exist, only
+// `GET /assets/{id}/faces`). Building one would be a new route added
+// purely for UI convenience, out of scope. The cover shown here is
+// therefore always **a real, recent photo of the person**
+// (`runSearch({op:'person',id}, undefined, 1)`, one round trip per card —
+// the same accepted cost of N requests for N items already used by
+// `ReviewView.vue`), not necessarily the one set via "Choose cover".
 //
-// **Foto di copertina reale, ma non quella scelta**: `PersonView` porta
-// `cover_face_id` (l'id di un volto), non l'id di un asset — nessuna
-// rotta risolve un id di volto al suo asset/riquadro (`GET /faces/{id}`
-// non esiste, solo `GET /assets/{id}/faces`). Costruirla sarebbe una
-// rotta nuova per comodità di interfaccia, fuori scope. La copertina
-// mostrata qui è quindi sempre **una foto reale e recente della
-// persona** (`runSearch({op:'person',id}, undefined, 1)`, un giro per
-// scheda — stesso costo accettato di N richieste per N elementi già di
-// `ReviewView.vue`), non necessariamente quella impostata con "Scegli
-// copertina" (§33, prossima sotto-unità).
-//
-// **Nessun `autoNum` per le persone senza nome**: `_personAutoSeq` è un
-// contatore in memoria del mockup, senza alcuna colonna corrispondente
-// sul backend reale (`Person.name: Option<String>`, nient'altro). Al
-// posto di "Persona 12" inventato, l'etichetta è `persons.unnamed`
-// ("Persona senza nome") — onesto, non un numero fabbricato.
+// **No `autoNum` for nameless people**: `_personAutoSeq` would be an
+// in-memory mockup counter, with no corresponding column on the real
+// backend (`Person.name: Option<String>`, nothing else). Instead of a
+// made-up "Person 12", the label is `persons.unnamed`
+// ("Unnamed person") — honest, not a fabricated number.
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -113,9 +107,8 @@ function open(person: Person) {
   void router.push(`/persons/${person.id}`)
 }
 
-// §31.3 controlli 7-10: la selezione è nell'ordine di click (serve al
-// dialog di unione, §35, per il sopravvissuto di default), non un `Set`
-// che perderebbe l'ordine.
+// Selection is kept in click order (needed by the merge dialog for
+// the default survivor), not a `Set`, which would lose the order.
 const selectedIds = ref<string[]>([])
 
 function toggleSelect(personId: string) {

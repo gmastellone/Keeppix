@@ -1,24 +1,20 @@
 <script setup lang="ts">
-// Fase 11 Task 15 (1/N) — documento funzionale §52 "Tag e categorie — la
-// pagina" (righe 7775-7921), verificato riga per riga.
+// **"N photos" shows `assignment_count`, not just confirmations**: the
+// ideal number would only count `state==='confirmed'` rows, never pending
+// proposals or rejections. The real backend does not expose that isolated
+// number: `TagView.assignment_count` (`crates/keeppix-api/src/
+// routes/tags.rs:41`) counts every `asset_tags` row for that tag, in any
+// state — which is exactly the right number for the delete dialog ("will
+// be removed from N photos", true for every row, decided or not), but
+// slightly overstates the row label if pending proposals still exist. No
+// route computes the confirmed-only subset on its own: building one would
+// be a new route added purely for UI convenience, out of scope for a
+// UI-only task. The number shown stays honest (real, not invented), just
+// not filtered by state.
 //
-// **"N foto" mostra `assignment_count`, non solo le conferme**: il
-// documento vuole `tagConfirmedCount(t)` — solo `state==='confirmed'`,
-// mai proposte in attesa o rifiuti. Il backend reale non espone quel
-// numero isolato: `TagView.assignment_count` (`crates/keeppix-api/src/
-// routes/tags.rs:41`) conta ogni riga `asset_tags` per quel tag, in
-// qualunque stato — è esattamente il numero giusto per il dialog di
-// eliminazione ("verrà rimosso da N foto", vero per ogni riga, decisa o
-// no), ma sovrastima leggermente l'etichetta della riga se esistono
-// proposte ancora in attesa. Nessuna rotta calcola il sottoinsieme
-// confermato da solo: costruirla sarebbe una rotta nuova, fuori scope per
-// un task di sola interfaccia — la stessa disciplina di ogni altra
-// deviazione di questa fase. Il numero mostrato resta onesto (reale, non
-// inventato), solo non filtrato per stato.
-//
-// **I duplicati NON sono permessi**, a differenza del documento
-// (`UNIQUE(name, kind)` reale sul backend, Task 7) — l'errore 409 emerge
-// nell'editor (`TagEditorDialog.vue`/`CategoryEditorDialog.vue`), non qui.
+// **Duplicates are NOT allowed** (`UNIQUE(name, kind)` on the real
+// backend) — the 409 error surfaces in the editor
+// (`TagEditorDialog.vue`/`CategoryEditorDialog.vue`), not here.
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

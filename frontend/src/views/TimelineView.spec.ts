@@ -25,10 +25,10 @@ vi.mock('@/api/timeline', () => ({
   fetchPage: vi.fn(async () => ({ assets: [] })),
   fetchGeometry: vi.fn(async () => ({ buffer: null, etag: null, nextCursor: null })),
   promoteViewport: vi.fn(async () => null),
-  // `AssetViewer.vue` (Task 8 3/N) chiama `fetchAsset` per `full_exif` —
-  // instrada sullo stesso `apiFetch` già mockato in questo file, così i
-  // test che già rispondono a `GET /assets/{id}` via `apiFetch` (per
-  // `useLightboxRoute`) coprono anche questa.
+  // `AssetViewer.vue` calls `fetchAsset` for `full_exif` — routes through
+  // the same `apiFetch` already mocked in this file, so the tests that
+  // already respond to `GET /assets/{id}` via `apiFetch` (for
+  // `useLightboxRoute`) cover this too.
   fetchAsset: vi.fn(async (id: string) => apiFetch(`/api/v1/assets/${id}`))
 }))
 
@@ -68,10 +68,9 @@ function monthIndex(month: string): number {
   return year * 12 + mm
 }
 
-/** Un record di geometria per ogni bucket passato, larghezza/altezza
- * fisse (100x100, aspect ratio 1) salvo diversa indicazione — comodo
- * quando il test non ha bisogno di un layout particolare, solo che
- * `plan.value` non sia vuoto. */
+/** One geometry record per passed bucket, fixed width/height (100x100,
+ * aspect ratio 1) unless stated otherwise — convenient when the test
+ * doesn't need a particular layout, just a non-empty `plan.value`. */
 function geometryFor(buckets: { month: string; count: number }[], size = { w: 100, h: 100 }): ArrayBuffer {
   const records: { w: number; h: number; month: number }[] = []
   for (const bucket of buckets) {
@@ -82,11 +81,11 @@ function geometryFor(buckets: { month: string; count: number }[], size = { w: 10
   return encodeGeometry(records)
 }
 
-// jsdom non calcola un vero layout: `clientWidth`/`clientHeight` restano
-// sempre 0. Senza uno stub, `plan.value` è sempre vuoto (planStream
-// rifiuta una larghezza <=0) e `mountedRange` è sempre {0,0} (un
-// viewport di altezza 0 non "vede" mai nulla) — quasi ogni test qui
-// sotto ha bisogno di entrambi, non solo quelli che cliccano una tessera.
+// jsdom doesn't compute a real layout: `clientWidth`/`clientHeight`
+// always stay 0. Without a stub, `plan.value` is always empty
+// (planStream rejects a width <=0) and `mountedRange` is always {0,0}
+// (a viewport with height 0 never "sees" anything) — almost every test
+// below needs both, not just the ones that click a tile.
 function stubLayout(width: number, height: number) {
   const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
   const heightDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
@@ -100,10 +99,10 @@ function stubLayout(width: number, height: number) {
 
 let unstubLayout: () => void
 
-// jsdom non implementa `matchMedia` (a differenza di AppShell.spec.ts, che
-// lo stub esplicitamente per testare la commutazione stessa): qui basta un
-// esito fisso "non è mobile", visto che questa vista non testa quel
-// comportamento — solo evitare che `useIsMobile()` lanci al mount.
+// jsdom doesn't implement `matchMedia` (unlike AppShell.spec.ts, which
+// stubs it explicitly to test the switch itself): here a fixed "not
+// mobile" result is enough, since this view doesn't test that behavior —
+// just avoiding `useIsMobile()` throwing on mount.
 function stubMatchMedia() {
   vi.stubGlobal(
     'matchMedia',
@@ -118,13 +117,13 @@ function stubMatchMedia() {
   )
 }
 
-// Task 7 (7/N) — `useBrowseFilters` (SP-3) chiama `GET /tags`/`GET
-// /persons` via `apiFetch` a ogni montaggio, non solo nei test che
-// testano il filtro: senza un esito di base, `apiFetch` resettato da
-// `resetAllMocks()` tornerebbe un `vi.fn()` spoglio (`undefined`, non una
-// Promise) e romperebbe `.catch()` nel composable per ogni test di questo
-// file. I singoli test che hanno bisogno di un'altra risposta da
-// `apiFetch` (es. `GET /assets/{id}`) la sovrascrivono comunque dopo.
+// `useBrowseFilters` calls `GET /tags`/`GET /persons` via `apiFetch` on
+// every mount, not just in tests that exercise the filter: without a
+// baseline result, `apiFetch` reset by `resetAllMocks()` would return a
+// bare `vi.fn()` (`undefined`, not a Promise) and break `.catch()` in the
+// composable for every test in this file. Individual tests that need a
+// different `apiFetch` response (e.g. `GET /assets/{id}`) override it
+// afterward anyway.
 beforeEach(() => {
   vi.mocked(apiFetch).mockResolvedValue([])
 })
@@ -188,11 +187,11 @@ function photo(id: string): TimelineAsset {
   }
 }
 
-// Il pulsante "Esci" non è più in questa vista (Task 6, 5/N: vive
-// nel menu account di AppSidebar, con il proprio test —
-// AppSidebar.spec.ts, "'Esci' logs out and redirects to /login").
-// `session.logout()` stesso resta testato lì, non qui: duplicarlo
-// avrebbe testato la funzione, non il componente.
+// The "Log out" button is no longer in this view: it lives in
+// AppSidebar's account menu, with its own test —
+// AppSidebar.spec.ts, "'Esci' logs out and redirects to /login".
+// `session.logout()` itself stays tested there, not here: duplicating it
+// would test the function, not the component.
 
 describe('TimelineView buckets + geometry', () => {
   it('follows next_cursor until the month is complete, once its row enters the mounted range', async () => {
@@ -221,15 +220,14 @@ describe('TimelineView buckets + geometry', () => {
 
     const { wrapper } = await mountTimeline()
 
-    // Task 14 (1/N): il predefinito onesto di `useDensity` è 4 (desktop,
-    // §60.2) — prima era 6 solo per un valore di ripiego mai verificato
-    // contro il documento, non una scelta deliberata.
+    // `useDensity`'s real default is 4 (desktop) — it used to be 6, just
+    // an unverified fallback value, not a deliberate choice.
     const expected = planStream(new TimelineGeometry(buffer), buckets, 1200, 4).totalHeight
     const styledDiv = wrapper.findAll('div').find((d) => d.attributes('style')?.includes('height:'))
     expect(styledDiv?.attributes('style')).toContain(`${expected}px`)
   })
 
-  it('groups by month only — no per-day sub-heading (documento funzionale §8: "nessun raggruppamento per giorno")', async () => {
+  it('groups by month only — no per-day sub-heading', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
     vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
@@ -243,11 +241,10 @@ describe('TimelineView buckets + geometry', () => {
   })
 })
 
-// Task 4-bis (Fase 10 §5bis, mai portata avanti nel piano di Fase 11 finché
-// non l'ha trovato il ripasso del 25 agosto): il primo caricamento del mount
-// pagina la geometria invece di aspettare la vista intera — 3,4s misurati
-// su rete lenta a 214.000 scatti, oltre il budget di 2s dichiarato.
-describe('TimelineView cold-start geometry pagination (Task 4-bis)', () => {
+// The first load of a mount paginates the geometry instead of waiting
+// for the whole view — load time measured on a slow network with a
+// large library was well over the target budget.
+describe('TimelineView cold-start geometry pagination', () => {
   it('requests only the first page on mount, and paints from it without waiting for more', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
@@ -282,8 +279,8 @@ describe('TimelineView cold-start geometry pagination (Task 4-bis)', () => {
     })
 
     const { wrapper } = await mountTimeline()
-    // Il primo scatto è già disegnato prima che la seconda pagina risponda:
-    // è esattamente il punto di questa paginazione, non solo un dettaglio.
+    // The first shot is already rendered before the second page responds:
+    // that's exactly the point of this pagination, not just an incidental detail.
     expect(fetchGeometry).toHaveBeenCalledTimes(2)
     expect(fetchGeometry).toHaveBeenNthCalledWith(2, undefined, undefined, {
       limit: 4000,
@@ -333,14 +330,14 @@ describe('TimelineView cold-start geometry pagination (Task 4-bis)', () => {
     onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['a'], count: 1 } })
     await flushPromises()
 
-    // Il secondo refresh non pagina più: due argomenti (bbox, etag), non tre
-    // — è la vecchia firma a vista intera, non {limit: ...}. Nessun etag da
-    // mandare ancora: il primo caricamento (paginato) non ne cattura uno —
-    // è esattamente il compromesso deliberato descritto in refreshTimeline.
+    // The second refresh no longer paginates: two arguments (bbox, etag),
+    // not three — the old whole-view signature, not {limit: ...}. No etag
+    // to send yet: the first (paginated) load doesn't capture one — this
+    // is exactly the deliberate tradeoff described in refreshTimeline.
     expect(fetchGeometry).toHaveBeenNthCalledWith(2, undefined, undefined)
 
-    // Il terzo refresh, invece, ha l'etag catturato dal secondo — quello sì
-    // può tornare a beneficiare di un 304.
+    // The third refresh, however, has the etag captured by the second one
+    // — that one can benefit from a 304 again.
     onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['a'], count: 1 } })
     await flushPromises()
     expect(fetchGeometry).toHaveBeenNthCalledWith(3, undefined, '"v1"')
@@ -357,8 +354,8 @@ describe('TimelineView bbox filter', () => {
     await mountTimeline('/?bbox=10,40,13,43')
 
     expect(fetchBuckets).toHaveBeenCalledWith('10,40,13,43')
-    // Il primissimo caricamento di un mount è sempre paginato (Task 4-bis):
-    // 4000 è FIRST_GEOMETRY_PAGE_LIMIT in TimelineView.vue.
+    // A mount's very first load is always paginated: 4000 is
+    // FIRST_GEOMETRY_PAGE_LIMIT in TimelineView.vue.
     expect(fetchGeometry).toHaveBeenCalledWith('10,40,13,43', undefined, { limit: 4000 })
     expect(fetchPage).toHaveBeenCalledWith('2024-07', undefined, '10,40,13,43')
   })
@@ -380,10 +377,10 @@ describe('TimelineView lightbox in the URL', () => {
   })
 
   it('reloading on a ?photo= URL restores the viewer by loading the asset directly', async () => {
-    // Il watcher immediato del composable scatta prima che `onMounted`
-    // carichi i bucket: `loadedAssets` è sempre vuota in quel preciso
-    // istante, quindi un ricaricamento passa sempre da `maps.loadAsset`
-    // — non un difetto, la pagina non ha ancora nulla in memoria.
+    // The composable's immediate watcher fires before `onMounted` loads
+    // the buckets: `loadedAssets` is always empty at that exact instant,
+    // so a reload always goes through `maps.loadAsset` — not a bug, the
+    // page simply has nothing in memory yet.
     vi.mocked(fetchBuckets).mockResolvedValue([])
     vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null, nextCursor: null })
     vi.mocked(apiFetch).mockImplementation(async (url: string) => (url === '/api/v1/assets/a' ? photo('a') : []))
@@ -466,7 +463,7 @@ describe('TimelineView virtualization', () => {
     expect(mountedTiles).toBeLessThan(totalShots)
   })
 
-  it('only first-screen tiles get priority="high" — the rest stay lazy (Task 5bis)', async () => {
+  it('only first-screen tiles get priority="high" — the rest stay lazy', async () => {
     const buckets = Array.from({ length: 20 }, (_, i) => ({
       month: `${2024 - Math.floor(i / 12)}-${String(12 - (i % 12)).padStart(2, '0')}`,
       count: 50
@@ -483,8 +480,8 @@ describe('TimelineView virtualization', () => {
     const tiles = wrapper.findAllComponents(PhotoTile)
     const highPriority = tiles.filter((t) => t.props('priority') === 'high')
     const autoPriority = tiles.filter((t) => t.props('priority') !== 'high')
-    // Con un viewport di 900px stubbato, la prima schermata non contiene
-    // l'intera libreria caricata: entrambi i gruppi devono esistere.
+    // With a stubbed 900px viewport, the first screen doesn't contain the
+    // entire loaded library: both groups must exist.
     expect(highPriority.length).toBeGreaterThan(0)
     expect(autoPriority.length).toBeGreaterThan(0)
   })
@@ -557,10 +554,10 @@ describe('TimelineView error state', () => {
   })
 })
 
-// Task 7 (1/N): il cuoricino (SP-1) e la selezione multipla (SP-2/SP-4)
-// cablati per davvero — prima di questa unità PhotoTile riceveva sempre
-// `:selected="false"` e `:selection-mode="false"` a prescindere.
-describe('TimelineView favorites (SP-1)', () => {
+// The favorite heart and multi-selection are really wired up — before
+// this, PhotoTile always received `:selected="false"` and
+// `:selection-mode="false"` regardless.
+describe('TimelineView favorites', () => {
   it('the heart button on a tile toggles the favorite flag, merging it into the current server flags', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
@@ -577,7 +574,7 @@ describe('TimelineView favorites (SP-1)', () => {
   })
 })
 
-describe('TimelineView selection (SP-2/SP-4)', () => {
+describe('TimelineView selection', () => {
   it('checking a tile enters selection mode: the toolbar row is replaced by the "N selezionate" bar', async () => {
     const buckets = [{ month: '2024-07', count: 1 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
@@ -593,8 +590,8 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
     expect(wrapper.findComponent(PhotoTile).props('selected')).toBe(true)
     expect(wrapper.findComponent(PhotoTile).props('selectionMode')).toBe(true)
     expect(wrapper.findComponent(SelectionBar).props('count')).toBe(1)
-    // §12.2: "in selezione multipla l'intera riga è sostituita" — la
-    // barra strumenti normale (filtro rapido incluso) sparisce insieme.
+    // In multi-selection the whole row is replaced — the normal toolbar
+    // (quick filter included) disappears along with it.
     expect(wrapper.findComponent(QuickFilter).exists()).toBe(false)
   })
 
@@ -616,7 +613,7 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
     expect(wrapper.findComponent(SelectionBar).props('count')).toBe(2)
   })
 
-  it('"Seleziona tutto quello che vedi" (SP-4) selects every currently loaded photo', async () => {
+  it('"Seleziona tutto quello che vedi" selects every currently loaded photo', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
     vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
@@ -664,14 +661,13 @@ describe('TimelineView selection (SP-2/SP-4)', () => {
   })
 })
 
-// Task 7 (7/N) — SP-3: la logica delle sei dimensioni e della loro
-// combinazione è già testata a fondo altrove (`useBrowseFilters.spec.ts`,
-// `design/quickFilter.spec.ts`, `QuickFilter.spec.ts`) — qui solo il
-// cablaggio proprio di questa vista, quello che quei test non possono
-// vedere: passare da griglia a blob di geometria a `FlatAssetGrid`
-// quando un filtro è attivo, e restringere "Seleziona tutto" allo stesso
-// insieme.
-describe('TimelineView quick filter (SP-3)', () => {
+// The logic of the six dimensions and their combination is already
+// thoroughly tested elsewhere (`useBrowseFilters.spec.ts`,
+// `design/quickFilter.spec.ts`, `QuickFilter.spec.ts`) — here only this
+// view's own wiring, what those tests can't see: switching from the
+// geometry-blob grid to `FlatAssetGrid` when a filter is active, and
+// narrowing "Select all" to the same set.
+describe('TimelineView quick filter', () => {
   it('activating a filter leaves the month/geometry grid for FlatAssetGrid, narrowed to the matches', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
@@ -706,7 +702,7 @@ describe('TimelineView quick filter (SP-3)', () => {
     expect(wrapper.text()).toContain(String(i18n.global.t('ui.filteredEmpty.title')))
   })
 
-  it('"Seleziona tutto quello che vedi" while a filter is active selects only what the filter lets through (SP-4)', async () => {
+  it('"Seleziona tutto quello che vedi" while a filter is active selects only what the filter lets through', async () => {
     const buckets = [{ month: '2024-07', count: 2 }]
     vi.mocked(fetchBuckets).mockResolvedValue(buckets)
     vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })

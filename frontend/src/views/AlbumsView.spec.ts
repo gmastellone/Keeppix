@@ -73,11 +73,11 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  // `attachTo: document.body` (necessario per raggiungere il `DialogPortal`
-  // teletrasportato — stesso motivo di `AlbumPickerDialog.spec.ts`) lascia
-  // il DOM del test precedente nel body se non smontato: un
-  // `document.body.querySelector` del test successivo potrebbe altrimenti
-  // colpire un dialog rimasto aperto da un test già finito.
+  // `attachTo: document.body` (needed to reach the teleported
+  // `DialogPortal` — same reason as in `AlbumPickerDialog.spec.ts`) leaves
+  // the previous test's DOM in the body if not unmounted: a
+  // `document.body.querySelector` in the next test could otherwise hit a
+  // dialog left open by an already-finished test.
   wrapper?.unmount()
   wrapper = undefined
   vi.clearAllMocks()
@@ -105,7 +105,7 @@ async function mountAlbums() {
   return { router, wrapper }
 }
 
-describe('AlbumsView — §41 la griglia', () => {
+describe('AlbumsView — the grid', () => {
   it('shows the empty state when there are no albums yet (deviation: mockup has no such state, ALBUMS is pre-populated there)', async () => {
     const { wrapper } = await mountAlbums()
 
@@ -155,7 +155,7 @@ describe('AlbumsView — §41 la griglia', () => {
     expect(router.currentRoute.value.path).toBe('/albums/album-42')
   })
 
-  it('"Crea album" navigates to the full creation page (§43, Task 12 2/N) — not a dialog', async () => {
+  it('"Crea album" navigates to the full creation page — not a dialog', async () => {
     const { wrapper, router } = await mountAlbums()
 
     await wrapper.get('button[type="button"]').trigger('click')

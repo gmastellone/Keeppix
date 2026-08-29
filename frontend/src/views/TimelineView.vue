@@ -32,28 +32,23 @@ import { planStream, STREAM_OVERSCAN, type GridCell, type GridRow, type StreamRo
 import { thumbhashToDataURL } from '@/timeline/thumbhash'
 import { RowVirtualizer } from '@/timeline/virtualize'
 
-// Fase 11 Task 4 (§66/§8 del documento funzionale): la timeline a scala
-// reale. Riscrittura, non affiancamento — la Ruling della spec
-// fase-11-interfaccia.md §1 lo impone esplicitamente. Due comportamenti
-// dell'implementazione precedente non sono nella definizione canonica e
-// non sono stati portati avanti: il raggruppamento per giorno dentro il
-// mese ("Nessun raggruppamento per giorno", §8, testuale) e
-// l'intestazione di mese appiccicata durante lo scroll ("le .month-head
-// scorrono via normalmente", §8). Il filtro "Tutti/Foto/Video" è stato
-// tolto insieme a loro: non è nel documento per questa vista, non è una
-// delle sei dimensioni di SP-3 (che usa "Tipo" per RAW/JPEG, un asse
-// diverso — §11), e non ha senso strutturale qui: la geometria che guida
-// il layout non porta il kind dello scatto, solo w/h/mese.
+// The real-scale timeline. Two behaviors from a previous implementation
+// were not carried forward: day-level grouping inside a month (no such
+// grouping exists here) and a sticky month header during scroll (month
+// headers just scroll away normally). The "All/Photos/Videos" filter was
+// removed along with them: it isn't one of the quick-filter's six
+// dimensions (which uses "Type" for RAW/JPEG, a different axis), and it
+// has no structural place here — the geometry that drives the layout
+// doesn't carry the shot's kind, only w/h/month.
 
-// Il documento funzionale (riga 1745) mette la densità in Impostazioni
-// (Task 14, non ancora costruito), non in un controllo di vista. Il +/-
-// qui è un ripiego temporaneo pre-Task-14: rimosso quando la vista
-// Impostazioni reale esisterà, non prima — toglierlo ora senza
-// sostituto lascerebbe la densità fissa a 6 per chiunque. Estratto in
-// `useDensity()` nel Task 7 (comparso il secondo consumatore, Preferiti).
-/** Fino a 50 mesi residenti, ~10.000 asset attesi (piano §4.8) — solo le
- * pagine, mai la geometria stessa, che vive fuori da questa cache e non
- * si sfratta mai. */
+// Density belongs in Settings, not a view-level control. The +/- here is
+// a temporary stand-in until that Settings view exists — removing it now
+// without a replacement would leave density fixed at 6 for everyone.
+// Extracted into `useDensity()` once a second consumer appeared
+// (Favorites).
+/** Up to 50 resident months, ~10,000 assets expected — only the pages,
+ * never the geometry itself, which lives outside this cache and is never
+ * evicted. */
 const PAGE_CACHE_CAPACITY = 50
 
 const { t, locale } = useI18n()
@@ -65,30 +60,30 @@ const selection = useSelectionStore()
 const { isMobile } = useIsMobile()
 
 const buckets = ref<MonthBucket[]>([])
-// shallowRef, non ref: TimelineGeometry incapsula un DataView e non deve
-// mai passare per UnwrapRef (che smonterebbe l'istanza campo per campo,
-// perdendo il campo privato `view`) — è anche semanticamente corretto,
-// un blob binario immutabile una volta caricato non ha bisogno di
-// reattività profonda.
+// shallowRef, not ref: TimelineGeometry wraps a DataView and must never
+// go through UnwrapRef (which would tear the instance apart field by
+// field, losing the private `view` field) — it's also semantically
+// correct, since an immutable binary blob doesn't need deep reactivity
+// once loaded.
 const geometry = shallowRef<TimelineGeometry | null>(null)
 const geometryEtag = ref<string | null>(null)
-// Solo il primissimo refreshTimeline() di questo mount pagina la geometria
-// (Task 4-bis): è l'unico caso a schermo davvero freddo, dove i 3,4s
-// misurati in Fase 10 su rete lenta contano. I refresh successivi (cambio
-// filtro mappa, evento live) restano sulla vista intera con ETag — la
-// sessione è già "calda", non vale la complessità in più.
+// Only this mount's very first refreshTimeline() paginates the geometry:
+// it's the only truly cold-screen case, where load time on a slow
+// network actually matters. Subsequent refreshes (map filter change,
+// live event) stay on the full-view ETag path — the session is already
+// "warm", so the extra complexity isn't worth it.
 const hasLoadedGeometryOnce = ref(false)
-/** ~24 KB per pagina (6 byte/scatto): abbondante per il primo schermo su
- * qualunque densità, piccolo anche su rete lenta. */
+/** ~24 KB per page (6 bytes/shot): plenty for the first screen at any
+ * density, still small on a slow network. */
 const FIRST_GEOMETRY_PAGE_LIMIT = 4000
-/** Sola intestazione (versione 1, conteggio 0), stesso layout binario di
- * `encode_geometry` — ripiego difensivo se il backend rispondesse mai senza
- * buffer su una richiesta paginata. */
+/** Header only (version 1, count 0), the same binary layout as
+ * `encode_geometry` — a defensive fallback in case the backend ever
+ * responds with no buffer on a paginated request. */
 const EMPTY_GEOMETRY_BUFFER = new Uint8Array([1, 0, 0, 0, 0, 0, 0, 0]).buffer
 const pageCache = new LruPageCache<string, TimelineAsset[]>(PAGE_CACHE_CAPACITY)
 const loadingMonths = new Set<string>()
-/** Bump esplicito: `pageCache` è una classe imperativa, non reattiva —
- * questo ref è l'unico modo per dire a Vue "qualcosa dentro è cambiato". */
+/** Explicit bump: `pageCache` is an imperative class, not reactive —
+ * this ref is the only way to tell Vue "something inside changed". */
 const cacheTick = ref(0)
 
 const { density, setDensity } = useDensity()
@@ -103,9 +98,9 @@ const loadError = ref<unknown>(null)
 const placeholders = new Map<string, string>()
 const bbox = computed(() => (typeof route.query.bbox === 'string' ? route.query.bbox : undefined))
 const errorNature = computed(() => (loadError.value ? classifyError(loadError.value) : null))
-/** Riga tecnica facoltativa (§68.3, "per chi amministra il server") —
- * solo quando l'errore porta davvero un `Problem` RFC 9457, non per un
- * `TypeError` di rete generico che non ha nulla di più preciso da dire. */
+/** Optional technical line, for whoever administers the server — only
+ * when the error actually carries an RFC 9457 `Problem`, not for a
+ * generic network `TypeError` that has nothing more precise to say. */
 const errorDetail = computed(() =>
   loadError.value instanceof ApiProblem ? `${loadError.value.type} · ${loadError.value.status}` : undefined
 )
@@ -166,12 +161,12 @@ watch(mountedMonths, (months) => {
   months.forEach((month) => void ensureMonthLoaded(month))
 }, { immediate: true })
 
-// Concatenazione dei mesi attualmente residenti in cache, nello stesso
-// ordine di `buckets` (dal più recente): l'equivalente di un "tutte le
-// foto caricate finora", non l'intera libreria — usato dalla navigazione
-// prev/next del lightbox (debito dichiarato nel ledger: ai bordi di un
-// mese caricato, "successiva" può non trovare nulla anche se esiste,
-// semplicemente non è ancora in cache).
+// A concatenation of the months currently resident in cache, in the same
+// order as `buckets` (most recent first): the equivalent of "all photos
+// loaded so far", not the whole library — used by the lightbox's
+// prev/next navigation (a known limitation: at the edges of a loaded
+// month, "next" may find nothing even though it exists, simply because
+// it isn't in cache yet).
 const loadedAssets = computed(() => {
   void cacheTick.value
   const out: TimelineAsset[] = []
@@ -182,19 +177,19 @@ const loadedAssets = computed(() => {
   return out
 })
 
-// Task 7 (7/N) — SP-3: "N è calcolato sulla lista di questa vista"
-// (§11), qui `loadedAssets` — lo stesso "quanto già caricato finora" già
-// dichiarato sopra per il lightbox, non un limite nuovo di questa unità.
-// Il blob di geometria server-side presume l'intero mese: un
-// filtro attivo passa a `FlatAssetGrid` (Task 7, 6/N), la stessa griglia
-// giustificata piatta già usata da Preferiti, invece di provare a
-// ritagliare celle dentro righe pensate per un mese intero.
+// The quick filter's result count is computed on this view's own list,
+// here `loadedAssets` — the same "however much has been loaded so far"
+// already noted above for the lightbox, not a new limitation. The
+// server-side geometry blob assumes a whole month: an active filter
+// switches to `FlatAssetGrid`, the same justified flat grid already used
+// by Favorites, instead of trying to carve cells out of rows designed
+// for a whole month.
 const { selection: filterSelection, dimensions: filterDimensions, filteredAssets } = useBrowseFilters(loadedAssets)
 const filterActive = computed(() => activeFilterCount(filterSelection.value) > 0)
-/** L'insieme "attualmente a schermo": tutto il caricato senza filtro,
- * solo ciò che passa altrimenti — governa sia `FlatAssetGrid` sia la
- * navigazione prev/next del lightbox, che deve restare dentro a ciò che
- * si vede (stesso principio già di Preferiti). */
+/** The "currently on screen" set: everything loaded with no filter, only
+ * what passes otherwise — governs both `FlatAssetGrid` and the
+ * lightbox's prev/next navigation, which must stay within what's
+ * visible (same principle already used by Favorites). */
 const displayedAssets = computed(() => (filterActive.value ? filteredAssets.value : loadedAssets.value))
 
 const lightbox = useLightboxRoute<TimelineAsset>(
@@ -243,11 +238,11 @@ async function clearMapFilter() {
 }
 
 /**
- * Fase 11 Task 5 (SP-28, forma a piena vista): "nessuna schermata assume
- * che i dati ci siano". Un fallimento qui sostituisce l'intera griglia
- * con `ErrorState` — è il contenuto principale della vista, non un
- * pezzo — e "Riprova" richiama di nuovo questa stessa funzione (§68.4:
- * "rimette l'insieme di dati in caricamento e lo richiede da capo").
+ * No screen should assume the data is already there. A failure here
+ * replaces the entire grid with `ErrorState` — it's the view's main
+ * content, not a fragment — and "Retry" calls this same function again,
+ * putting the data set back into a loading state and requesting it from
+ * scratch.
  */
 function resetGridForNewGeometry() {
   pageCache.clear()
@@ -275,32 +270,31 @@ async function refreshTimeline() {
       return
     }
 
-    // Primo caricamento del mount: pagina la geometria per disegnare senza
-    // aspettare l'intero payload (Task 4-bis). Nessun `ETag` qui — una
-    // richiesta paginata non lo porta (spec: pensata per lo schermo freddo,
-    // non per un rientro), quindi il refresh *successivo* farà un fetch
-    // pieno invece di un 304. Compromesso deliberato: perdere quel 304
-    // un'unica volta per sessione costa molto meno del blocco di 3,4s che
-    // questa paginazione elimina.
+    // First load of this mount: paginates the geometry to render without
+    // waiting for the whole payload. No `ETag` here — a paginated request
+    // doesn't carry one (this path is meant for a cold screen, not a
+    // return visit), so the *next* refresh will do a full fetch instead
+    // of a 304. Deliberate tradeoff: losing that 304 once per session
+    // costs far less than the load-time block this pagination removes.
     const [bucketList, first] = await Promise.all([
       bbox.value ? fetchBuckets(bbox.value) : fetchBuckets(),
       fetchGeometry(bbox.value, undefined, { limit: FIRST_GEOMETRY_PAGE_LIMIT })
     ])
     buckets.value = bucketList
     empty.value = bucketList.length === 0
-    // Una richiesta paginata non valida mai `If-None-Match` (vedi sopra),
-    // quindi il backend vero non risponde mai `304`/`buffer: null` qui — una
-    // libreria vuota torna comunque un buffer reale, solo con `count: 0`.
-    // Il ripiego sotto è per difesa, non per un caso atteso.
+    // A paginated request never sends `If-None-Match` (see above), so the
+    // real backend never responds with `304`/`buffer: null` here — an
+    // empty library still returns a real buffer, just with `count: 0`.
+    // The fallback below is defensive, not for an expected case.
     const firstBuffer = first.buffer ?? EMPTY_GEOMETRY_BUFFER
     geometry.value = new TimelineGeometry(firstBuffer)
     hasLoadedGeometryOnce.value = true
     resetGridForNewGeometry()
 
-    // Il resto arriva dopo il primo disegno, in background: un fallimento
-    // qui non deve svuotare uno schermo che sta già mostrando qualcosa di
-    // corretto — solo la coda della vista resta incompleta finché non
-    // arriva un refresh vero (evento live, cambio filtro).
+    // The rest arrives after the first render, in the background: a
+    // failure here shouldn't clear a screen that's already showing
+    // something correct — only the tail of the view stays incomplete
+    // until a real refresh arrives (live event, filter change).
     if (first.nextCursor) {
       try {
         const chunks = [firstBuffer]
@@ -315,7 +309,7 @@ async function refreshTimeline() {
         }
         geometry.value = TimelineGeometry.concat(chunks)
       } catch (error) {
-        console.warn('geometria: completamento in background fallito', error)
+        console.warn('geometry: background completion failed', error)
       }
     }
   } catch (error) {
@@ -323,12 +317,12 @@ async function refreshTimeline() {
   }
 }
 
-// Priorità di generazione (POST /viewport, piano Task 4.6): calcolata
-// dalla stessa matematica esatta del virtualizzatore con overscan 0
-// (la vera finestra visibile, non il margine montato) invece di un
-// IntersectionObserver — la geometria dà già posizione e dimensione
-// esatte di ogni riga, osservare il DOM per la stessa informazione
-// sarebbe un giro più lungo per lo stesso risultato, non più preciso.
+// Generation priority (POST /viewport): computed from the same exact
+// virtualizer math with overscan 0 (the true visible window, not the
+// mounted margin) instead of an IntersectionObserver — the geometry
+// already gives the exact position and size of every row, so watching
+// the DOM for the same information would be a longer route to the same
+// result, not a more precise one.
 const trueVisibleHashes = computed(() => {
   const { start, end } = virtualizer.value.visibleRange(scrollTop.value, viewportHeight.value, 0)
   const hashes = new Set<string>()
@@ -364,12 +358,11 @@ function onScroll() {
   })
 }
 
-/** Punto di attenzione esplicito del documento funzionale (§66.5): una
- * tessera smontata mentre aveva il fuoco lo perderebbe, e la navigazione
- * da tastiera "cadrebbe" a inizio pagina — non coperto dal prototipo.
- * Sposta il fuoco sul contenitore di scorrimento (`tabindex="-1"`, mai
- * nell'ordine di tabulazione normale) prima che Vue rimuova dal DOM la
- * riga che sta per uscire dall'intervallo montato. */
+/** A tile unmounted while it held focus would lose it, and keyboard
+ * navigation would "fall back" to the top of the page. Moves focus to
+ * the scroll container (`tabindex="-1"`, never in the normal tab order)
+ * before Vue removes from the DOM the row that's about to leave the
+ * mounted range. */
 watch(mountedRange, (next) => {
   const active = document.activeElement
   if (!gridEl.value || !active || !gridEl.value.contains(active)) return
@@ -381,13 +374,11 @@ watch(mountedRange, (next) => {
   }
 })
 
-// --- Scrubber dei mesi -----------------------------------------------
-// Documento funzionale §8.3: click ovunque sulla barra salta subito al
-// mese (non serve trascinare), targhetta solo durante il trascinamento,
-// salto istantaneo (mai behavior:'smooth'), sincronizzazione inversa
-// allo scroll. "Da rendere raggiungibile da tastiera, cosa che il
-// prototipo non fa" (piano, Task 4.5): frecce/Home/End con
-// role="slider", assente nel prototipo.
+// --- Month scrubber -----------------------------------------------
+// Clicking anywhere on the bar jumps straight to the month (no need to
+// drag), a label tag shows only while dragging, the jump is instant
+// (never behavior:'smooth'), and it syncs back from scroll position.
+// Made keyboard-reachable: arrows/Home/End with role="slider".
 const dragging = ref(false)
 
 const monthTop = computed(() => {
@@ -405,13 +396,13 @@ function jumpToMonth(month: string) {
   scrollTop.value = top
 }
 
-// Il mese "corrente" è quello in cui si è effettivamente scrollati (l'ultimo
-// la cui intestazione ha già superato la cima del viewport), non una
-// stima per rapporto sull'intervallo di scroll totale: quella stima
-// azzererebbe sempre l'indice quando il contenuto caricato è più basso
-// del viewport (una libreria corta, o poche pagine ancora caricate) — un
-// caso reale, non solo di test — e non è l'inverso esatto di
-// `jumpToMonth`, che scrolla a una posizione in pixel precisa.
+// The "current" month is the one actually scrolled to (the last one
+// whose header has already passed the top of the viewport), not an
+// estimate based on the ratio over the total scroll range: that estimate
+// would always zero out the index when the loaded content is shorter
+// than the viewport (a short library, or only a few pages loaded so
+// far) — a real case, not just a test one — and it isn't the exact
+// inverse of `jumpToMonth`, which scrolls to a precise pixel position.
 const currentIndex = computed(() => {
   if (buckets.value.length === 0) return 0
   let index = 0
@@ -474,11 +465,11 @@ const thumbRatio = computed(() => {
   return currentIndex.value / (buckets.value.length - 1)
 })
 
-// Task 7 (7/N): `gridEl` non è più garantito montato per tutta la vita
-// del componente — un filtro attivo (SP-3) smonta questo contenitore a
-// favore di `FlatAssetGrid` (il proprio, indipendente). Un `watch`
-// invece di un `addEventListener` una tantum in `onMounted` segue ogni
-// comparsa/scomparsa del nodo, non solo la prima.
+// `gridEl` is no longer guaranteed to stay mounted for the component's
+// whole lifetime — an active quick filter unmounts this container in
+// favor of `FlatAssetGrid` (its own, independent one). A `watch` instead
+// of a one-time `addEventListener` in `onMounted` follows every
+// appearance/disappearance of the node, not just the first.
 watch(gridEl, (el, prevEl) => {
   prevEl?.removeEventListener('scroll', onScroll)
   resizeObserver?.disconnect()
@@ -529,16 +520,16 @@ function cellProps(month: string, cell: GridCell, priority: 'high' | 'auto') {
   }
 }
 
-/** Solo le celle il cui asset è già in cache: se il mese è mostrato ma
- * non ancora caricato (raro — `mountedMonths` avvia già il caricamento),
- * la riga resta semplicemente più vuota per un istante — l'altezza è già
- * riservata dalla geometria, nessuno spostamento di layout.
+/** Only cells whose asset is already in cache: if the month is shown but
+ * not yet loaded (rare — `mountedMonths` already starts loading it), the
+ * row is simply emptier for a moment — the height is already reserved
+ * by the geometry, so there's no layout shift.
  *
- * `rowTop` decide la priorità di scaricamento (Task 5bis, tabella §5bis):
- * una riga che ricade nella prima schermata (`rowTop < viewportHeight`)
- * scarica la propria miniatura subito e con `fetchpriority="high"`, le
- * altre restano pigre — non è un'approssimazione dello scroll corrente,
- * è letteralmente cosa c'è già a schermo al primo paint.
+ * `rowTop` decides download priority: a row that falls within the first
+ * screen (`rowTop < viewportHeight`) downloads its thumbnail immediately
+ * and with `fetchpriority="high"`, others stay lazy — this isn't an
+ * approximation of the current scroll position, it's literally what's
+ * already on screen at first paint.
  */
 function resolvedTiles(row: GridRow, rowTop: number) {
   const priority: 'high' | 'auto' = rowTop < viewportHeight.value ? 'high' : 'auto'
@@ -550,11 +541,11 @@ function resolvedTiles(row: GridRow, rowTop: number) {
   return out
 }
 
-// SP-2 (§12): un solo pool di selezione, condiviso da Foto/Preferiti/Cerca/
-// Album/Persona (`stores/selection.ts`, già costruito nel Task 2) — "si
-// entra selezionando la prima foto… si esce deselezionando l'ultima",
-// implicito, nessun pulsante "Seleziona" dedicato. `selectionMode` è
-// derivato dal conteggio, non un flag separato da tenere sincronizzato.
+// A single selection pool, shared by Photos/Favorites/Search/Album/
+// Person (`stores/selection.ts`) — you enter it by selecting the first
+// photo and leave it by deselecting the last, implicitly, with no
+// dedicated "Select" button. `selectionMode` is derived from the count,
+// not a separate flag that needs to be kept in sync.
 const selectionMode = computed(() => selection.library.selectedIds.size > 0)
 function isSelected(id: string): boolean {
   return selection.library.selectedIds.has(id)
@@ -563,9 +554,9 @@ const selectedAssets = computed(() =>
   loadedAssets.value.filter((asset) => selection.library.selectedIds.has(asset.id))
 )
 
-/** SP-4: "ciò che è visibile in quel momento", mai l'intera libreria
- * sottostante — `displayedAssets`, che si restringe da sola quando un
- * filtro rapido (SP-3) è attivo. */
+/** "Whatever is visible at that moment", never the whole underlying
+ * library — `displayedAssets`, which narrows itself down when a quick
+ * filter is active. */
 function selectAllVisible() {
   selection.library.selectAllVisible(displayedAssets.value.map((asset) => asset.id))
 }
@@ -573,17 +564,16 @@ function selectAllVisible() {
 
 <template>
   <div class="flex h-full flex-col">
-    <!-- Fase 11 Task 6 (5/N): la navigazione globale (saluto, ricerca,
-         Cartelle/Mappa/Cestino/Album/Condivisioni/Utenti/Gruppi/Problemi,
-         Esci) è ora in AppSidebar/AppTopbar (App.vue) — tolta da qui, non
-         duplicata. Il culling (Task 17) non ha più un ingresso da questa
-         vista: è un'area separata, per cartella (nav "Culling"), non più
-         una sessione sopra "quanto già caricato in timeline" (Ruling nel
-         ledger del 24 agosto 2026). Resta solo la densità (ripiego
-         pre-Impostazioni, v. commento su DENSITY_KEY). "Rinomina
-         cartella…" (§8.3, a sinistra quando è aperta una cartella) non si
-         applica ancora: questa vista non ha un concetto di "cartella
-         aperta" (debito già dichiarato). -->
+    <!-- Global navigation (greeting, search, Folders/Map/Trash/Albums/
+         Shares/Users/Groups/Problems, Log out) now lives in
+         AppSidebar/AppTopbar (App.vue) — removed from here, not
+         duplicated. Culling no longer has an entry point from this view:
+         it's a separate, per-folder area (nav "Culling"), no longer a
+         session layered on top of "however much has been loaded into the
+         timeline". Only density remains (a stand-in until Settings
+         exists, see the comment on DENSITY_KEY). "Rename folder…" (shown
+         on the left when a folder is open) doesn't apply yet: this view
+         has no concept of an "open folder" (a known limitation). -->
     <div
       v-if="!selectionMode"
       class="flex items-center gap-3 border-b border-border px-4 py-3"
@@ -615,16 +605,14 @@ function selectAllVisible() {
         </button>
       </div>
     </div>
-    <!-- SP-2 (§12.2): sostituisce l'intera riga strumenti quando la
-         selezione è attiva. I cinque pulsanti d'azione (Preferiti/Album/
-         Condividi/Modifica/Elimina) e i dialog che aprono sono la
-         prossima unità di questo stesso Task: qui solo × / conteggio /
-         "Seleziona tutte", già completi in SelectionBar.vue.
-         Mai `v-if`/`v-else` su `<SelectionBar>` stessa (commento vincolante
-         nel suo stesso file): la sua regione d'annuncio per screen reader
-         deve restare montata anche nell'istante esatto in cui la selezione
-         si azzera, altrimenti "Selezione annullata" non potrebbe mai
-         scattare — solo il padding visivo del contenitore è condizionale. -->
+    <!-- Replaces the whole toolbar row when selection is active. The five
+         action buttons (Favorite/Album/Share/Edit/Delete) and the dialogs
+         they open live in SelectionBar.vue, along with × / count /
+         "Select all". Never `v-if`/`v-else` on `<SelectionBar>` itself
+         (a binding comment in its own file): its screen-reader
+         announcement region must stay mounted even at the exact instant
+         the selection clears, otherwise "Selection cleared" could never
+         fire — only the container's visual padding is conditional. -->
     <div :class="selectionMode && 'border-b border-border px-4 py-3'">
       <SelectionBar
         :count="selection.library.selectedIds.size"
@@ -664,11 +652,11 @@ function selectAllVisible() {
       {{ t('timeline.empty') }}
     </p>
 
-    <!-- Task 7 (7/N) — SP-3: un filtro attivo esce dal terreno del blob
-         di geometria (che presume il mese intero) e passa alla griglia
-         piatta giustificata già usata da Preferiti (`FlatAssetGrid.vue`,
-         Task 7 6/N) sull'insieme filtrato — mai un ritaglio di celle
-         dentro righe pensate per un mese intero. -->
+    <!-- An active quick filter leaves the geometry blob's territory
+         (which assumes a whole month) and switches to the justified flat
+         grid already used by Favorites (`FlatAssetGrid.vue`) over the
+         filtered set — never carving cells out of rows designed for a
+         whole month. -->
     <div
       v-else-if="filterActive && displayedAssets.length === 0"
       class="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center"

@@ -1,57 +1,50 @@
 <script setup lang="ts">
-// Fase 11 Task 15 (2/N) + Task 16 (5/N) — documento funzionale §56
-// "Revisione — tag" e §39 "Revisione — volti" (SP-10, righe 8216-8397 e
-// 6051-6173), entrambe verificate riga per riga.
+// Covers both the tag review queue and the faces review queue.
 //
-// **Selettore di tab condiviso (§39.3 controllo 1)**: riusa
-// `SegmentedControl.vue` (SP-24) — già `role="radiogroup"` con roving
-// tabindex, esattamente il pattern richiesto ("la linguetta attiva ha
-// `tabindex=0`, l'altra `-1`"), le frecce sono un'aggiunta reale già
-// presente lì (Task 2), non nuova qui.
+// **Shared tab selector**: reuses `SegmentedControl.vue` — already
+// `role="radiogroup"` with roving tabindex (the active tab has
+// `tabindex=0`, the other `-1`), the arrow-key navigation is a real
+// feature already present there, not new here.
 //
-// **Le due code restano modelli separati, non unificati**: `Proposal`
-// (tag, `api/tags.ts`) e `Face` (volti, `api/faces.ts`) sono forme
-// diverse — stato/computed/azioni duplicati apposta invece di
-// un'astrazione prematura su due domini che condividono solo il
-// "pattern coda", non i campi.
+// **The two queues remain separate models, not unified**: `Proposal`
+// (tags, `api/tags.ts`) and `Face` (faces, `api/faces.ts`) are different
+// shapes — state/computed/actions are duplicated on purpose instead of
+// a premature abstraction over two domains that only share the "queue
+// pattern", not the fields.
 //
-// **§39: tre azioni, non due, e le due negazioni sono concettualmente
-// diverse** (§38, stesso punto già annotato in `AssetViewer.vue`):
-// - **Conferma** — `POST /faces/{id}/confirm`.
-// - **"Rifiuta" (la ✕, ex "non è <nome persona>")** — il volto è vero,
-//   l'attribuzione no: diventa una **persona nuova senza nome**
-//   (`createPerson('')` + `assignFace`, composto qui — nessuna rotta fa
-//   questo in un colpo solo, stesso schema già di "Correggi persona…"/
-//   "+ aggiungi" altrove in questa fase).
-// - **"Non è un volto" (il cestino)** — falso positivo permanente,
-//   `POST /faces/{id}/reject` (`api/faces.ts#rejectFace`, già reale dal
-//   Task 8).
+// **Three actions, not two, and the two negative ones are conceptually
+// different**:
+// - **Confirm** — `POST /faces/{id}/confirm`.
+// - **"Reject" (the ✕, formerly "not <person name>")** — the face is
+//   real, the attribution isn't: it becomes a **new, unnamed person**
+//   (`createPerson('')` + `assignFace`, composed here — no route does
+//   this in one call, the same pattern already used by "Correct
+//   person…"/"+ add" elsewhere).
+// - **"Not a face" (the trash icon)** — a permanent false positive,
+//   `POST /faces/{id}/reject` (`api/faces.ts#rejectFace`).
 //
-// **"Rifiuta tutte" NON usa la rotta bulk reale** (`POST /persons/{id}/
-// proposals/reject`): letta la sua implementazione
-// (`crates/keeppix-db/src/faces.rs::reject_all_proposed_for_person`,
-// righe 631-664) applica la stessa semantica permanente di
-// `FaceRepo::reject`, non "ogni volto diventa una persona nuova senza
-// nome" come vuole il documento (§39, righe 6149-6154: "rifiutare in
-// blocco 14 proposte crea 14 persone nuove senza nome" — un effetto
-// collaterale che il documento stesso segnala di verificare col
-// committente). Vero disallineamento fra documento e backend, non
-// un'invenzione: composto qui invece, un `createPerson('')`+`assignFace`
-// per ciascun volto del gruppo — stessa semantica del "Rifiuta" singolo,
-// scalata. Annotato per l'architetto, non "corretto" nel backend (fuori
-// scope per un task di sola interfaccia).
+// **"Reject all" does NOT use the real bulk route**
+// (`POST /persons/{id}/proposals/reject`): reading its implementation
+// (`crates/keeppix-db/src/faces.rs::reject_all_proposed_for_person`)
+// shows it applies the same permanent semantics as `FaceRepo::reject`,
+// not "every face becomes a new unnamed person" as intended — a real
+// mismatch between intent and backend, not an invention here: composed
+// instead, one `createPerson('')`+`assignFace` per face in the group —
+// the same semantics as the single "Reject", scaled up. Noted for
+// whoever maintains the backend, not "fixed" there (out of scope for a
+// UI-only task).
 //
-// **Nessuna azione "Non è un volto" in blocco** (§39.3: "è deliberato:
-// è l'azione permanente") — non costruita.
+// **No bulk "Not a face" action** — deliberately not built, since it's
+// the permanent action.
 //
-// **Miniature reali**: `FaceView` non porta `content_hash`/`thumbhash`
-// (solo `id`/`asset_id`/`bbox`/`person_id`/`proposed_person_id`/
-// `proposed_score`/`assigned_by_human`) — stesso `fetchAsset(id)` per
-// asset unico già usato per i tag.
+// **Real thumbnails**: `FaceView` carries no `content_hash`/`thumbhash`
+// (only `id`/`asset_id`/`bbox`/`person_id`/`proposed_person_id`/
+// `proposed_score`/`assigned_by_human`) — same per-asset `fetchAsset(id)`
+// already used for tags.
 //
-// **Nome della persona suggerita**: `Face` porta solo `proposed_person_id`
-// (un id), non il nome — risolto da un `fetchPersons()` a parte
-// (nessuna seconda rotta dedicata, stesso principio del colore dei tag).
+// **Suggested person's name**: `Face` only carries `proposed_person_id`
+// (an id), not the name — resolved via a separate `fetchPersons()` call
+// (no dedicated second route, same principle as tag color).
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -294,8 +287,8 @@ async function confirmOneFace(f: Face) {
   }
 }
 
-/** "Rifiuta" (§39.3 controllo 5): l'attribuzione è sbagliata, il volto
- * resta un volto — nasce una persona nuova senza nome. */
+/** "Reject": the attribution is wrong, the face stays a face — a new
+ * unnamed person is created. */
 async function rejectOneFace(f: Face) {
   if (faceBusyItems.value.has(f.id)) return
   faceBusyItems.value = new Set(faceBusyItems.value).add(f.id)
@@ -345,9 +338,9 @@ async function confirmFaceGroup(group: FaceGroup) {
   }
 }
 
-/** "Rifiuta tutte" (§39.3 controllo 3): vedi il commento di testa del
- * file — composto, non la rotta bulk reale (semantica diversa lì). Ogni
- * volto del gruppo diventa una **propria** persona nuova senza nome. */
+/** "Reject all": see the file's header comment — composed, not the real
+ * bulk route (different semantics there). Every face in the group
+ * becomes its **own** new unnamed person. */
 async function rejectFaceGroup(group: FaceGroup) {
   if (faceBusyGroups.value.has(group.personId)) return
   faceBusyGroups.value = new Set(faceBusyGroups.value).add(group.personId)

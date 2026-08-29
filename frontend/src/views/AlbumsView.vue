@@ -1,28 +1,20 @@
 <script setup lang="ts">
-// Fase 11 Task 12 (1/N) — documento funzionale §41 "Album — la griglia",
-// verificato riga per riga (righe 6226-6353). Sostituisce interamente la
-// vecchia vista CRUD (lista + form inline + "Elimina" per riga): il
-// mockup non prevede né rinomina, né eliminazione, né alcun controllo
-// oltre "Crea album" e il click sulla scheda (§3, "sono solo due i tipi
-// di controllo") — la vecchia `remove()`/`deleteAlbum` sparisce di
-// conseguenza, non viene commentata.
+// This is a pure browse/navigate grid: no rename, no delete, no control
+// beyond "Create album" and clicking a card.
 //
-// Copertina a gradiente (`albumCoverGradient`, Task 12 dati) invece di
-// `a.mono`/`a.hue` scritti a mano nel mockup: nessuna rotta scrive mai
-// `cover_tint`/`monochrome` (vedi commento in `api/albums.ts`), quindi
-// l'unica differenza dal mockup è che qui non esiste un vero album
-// "Bianco e nero" — ogni copertina è comunque deterministica sull'id.
+// Gradient cover (`albumCoverGradient`) instead of any hand-picked
+// tint/hue: no route ever writes `cover_tint`/`monochrome` (see the
+// comment in `api/albums.ts`), so the cover is always deterministic on
+// the album id rather than a stored value.
 //
-// `<N> foto · <intervallo>` (§2) non può leggere `a.range` (mai esistito
-// sul backend): N e intervallo vengono da `fetchAlbumAssets(id)` per
-// ciascun album (pattern N+1 già usato per cartelle/condivisioni ai
-// Task 9/11 — pochi album per istanza, accettabile) più `albumMonthRange`
-// (Task 12, `@/albums/range`).
+// `<N> photos · <range>` can't read a stored range field (never existed
+// on the backend): N and the range come from `fetchAlbumAssets(id)` for
+// each album (the same N+1 pattern already used for folders/shares
+// elsewhere — few albums per instance, acceptable) plus `albumMonthRange`
+// (`@/albums/range`).
 //
-// "Crea album" (§3.1) porta alla pagina di creazione a sé (§43,
-// `AlbumCreateView.vue`, Task 12 2/N) — sostituisce il dialog minimo
-// solo-nome della 1/N, rimosso qui (non commentato: era uno stopgap
-// dichiarato esplicitamente temporaneo).
+// "Create album" leads to the dedicated creation page (`AlbumCreateView.vue`)
+// rather than a name-only dialog.
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

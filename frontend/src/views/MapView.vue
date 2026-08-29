@@ -47,10 +47,10 @@ async function openAsset(id: string) {
   }
 }
 
-// §27, "Apri cartella": nessuna vista "Foto scoperta su una cartella"
-// esiste ancora nell'app reale (stessa lacuna già dichiarata in
-// SearchView.vue, Task 9 3/N) — `/folders` è la destinazione reale più
-// vicina, non un salto diretto ma non un link morto.
+// "Open folder": no "photos scoped to a folder" view exists yet in the
+// real app (the same gap already noted in SearchView.vue) — `/folders`
+// is the closest real destination: not a direct jump, but not a dead
+// link either.
 function openFolder() {
   void router.push('/folders')
 }
@@ -69,10 +69,10 @@ onMounted(load)
 
 <template>
   <main class="flex h-full min-h-0 flex-col">
-    <!-- Fase 11 Task 6 (6/N): il link "indietro" e il titolo di vista
-         improvvisati sono tolti — AppSidebar copre già "Foto" e
-         AppTopbar mostra già "Mappa" nel breadcrumb (App.vue). Resta
-         solo il controllo reale di questa vista senz'altra sede. -->
+    <!-- No back link or view title here: AppSidebar already covers
+         "Photos" and AppTopbar already shows "Map" in the breadcrumb
+         (App.vue). Only this view's own real control, with no other
+         home, remains. -->
     <div
       v-if="availableRegions.length > 0"
       class="flex items-center border-b border-border px-4 py-3"

@@ -1,31 +1,23 @@
 <script setup lang="ts">
-// Fase 11 Task 9 (§23-25 del documento funzionale): la barra di ricerca a
-// pillole. Sostituisce interamente la vecchia UI (campo + pulsante
-// "Cerca" + sintassi digitata `type:.../camera:...`, mai prevista dal
-// documento): §23.5 è esplicito — "non esiste alcun altro modo di creare
-// un filtro strutturato — né digitando e premendo Invio". Il vecchio
-// parser (`frontend/src/search/parse.ts`) è stato ritirato: l'AST
-// (`frontend/src/search/ast.ts`, stesso tipo, senza il tokenizer) ora
-// nasce solo da pillole + un nodo `text` per la descrizione libera.
+// The pill-based search bar. `frontend/src/search/parse.ts` (the old text
+// parser) has been retired: the AST (`frontend/src/search/ast.ts`, same
+// type, without the tokenizer) is now built only from pills plus a
+// `text` node for free-text description.
 //
-// Le sette categorie di suggerimento (§23.2) vengono da due fonti reali,
-// non da un'unica lista come nel mockup:
-//  - "Tag" è costruito qui, non da `GET /search/suggest`: quell'endpoint
-//    (`crates/keeppix-db/src/search.rs:396-460`) non produce mai righe di
-//    genere `tag` — il commento a codice lì lo dice esplicitamente
-//    ("la tabella dei tag non esiste ancora", scritto in Fase 10, prima
-//    che la Fase 7 la creasse) — quindi filtriamo `fetchTags()` lato
-//    client, come farebbe il mockup con la sua lista precaricata.
-//  - "Fotocamera"/"Cartella"/"ISO"/"Anno"/"Paese" vengono dal vero
-//    `GET /search/suggest?q=`, che a differenza del mockup calcola su
-//    dati reali di libreria (non costanti cablate) — usato così com'è.
-//  - "Posizione" (GPS) non ha alcuna fonte reale (nessun `SuggestionKind`
-//    per questo): riprodotta pari al mockup, un'unica riga pseudo-
-//    generata quando il testo è sottostringa di "gps".
-//  - "Paese" mostra il codice ISO grezzo (`p.country_code`, es. "IT"): il
-//    backend non ha una tabella codice→nome e nessun'altra vista
-//    dell'app ne ha una — deviazione dichiarata dal mockup, che mostrava
-//    "Italia" cablato.
+// The suggestion categories come from two real sources, not a single
+// list:
+//  - "Tag" is built here, not from `GET /search/suggest`: that endpoint
+//    (`crates/keeppix-db/src/search.rs:396-460`) never produces rows of
+//    kind `tag` — the code comment there says so explicitly — so we
+//    filter `fetchTags()` client-side instead.
+//  - "Camera"/"Folder"/"ISO"/"Year"/"Country" come from the real
+//    `GET /search/suggest?q=`, which computes over real library data.
+//  - "Location" (GPS) has no real source (no `SuggestionKind` for this):
+//    a single pseudo-generated row shown when the text is a substring of
+//    "gps".
+//  - "Country" shows the raw ISO code (`p.country_code`, e.g. "IT"): the
+//    backend has no code→name table and no other view in the app has one
+//    either.
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -60,34 +52,34 @@ const q = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const assets = ref<TimelineAsset[]>([])
 const error = ref('')
 
-// --- pillole (§24) ---
+// --- pills ---
 type PillType = 'tag' | 'camera' | 'folder' | 'iso' | 'year' | 'gps' | 'country'
 
 interface SearchPill {
   type: PillType
-  /** valore grezzo usato per costruire il nodo `SearchNode` (id tag, id
-   * cartella, testo fotocamera, numero ISO/anno come stringa, "gps",
-   * codice paese). */
+  /** Raw value used to build the `SearchNode` (tag id, folder id, camera
+   * text, ISO/year number as a string, "gps", country code). */
   value: string
-  /** "nome nudo" da mostrare — `pillText()` aggiunge il prefisso dove
-   * previsto (§24.2: Tag/ISO/Anno/GPS). */
+  /** "Bare name" to display — `pillText()` adds the prefix where
+   * expected (Tag/ISO/Year/GPS). */
   label: string
   color?: string | null
 }
 
 const pills = ref<SearchPill[]>([])
 
-// Il chip da solo non conta come ricerca (§25.2). Dichiarato qui, prima di
-// `lightbox`/`visibleAssets`: il watcher immediato di `useLightboxRoute`
-// (sotto) legge `visibleAssets.value` in modo sincrono durante il setup,
-// e `visibleAssets` dipende da `hasSearch` — deve quindi esistere già a
-// quel punto, non più in basso nel file (temporal dead zone altrimenti).
+// A type chip alone doesn't count as a search. Declared here, before
+// `lightbox`/`visibleAssets`: `useLightboxRoute`'s immediate watcher
+// (below) reads `visibleAssets.value` synchronously during setup, and
+// `visibleAssets` depends on `hasSearch` — so it must already exist at
+// that point, not further down in the file (temporal dead zone
+// otherwise).
 const hasSearch = computed(() => pills.value.length > 0 || q.value.trim().length > 0)
 
-// --- risultati vs scoperta (§25.2): due fonti diverse alimentano la
-// stessa griglia, mai insieme — `assets` (ricerca vera, tutte le pagine)
-// quando `hasSearch`, `recentAssets` (una sola pagina, §25.2 punto 3)
-// quando non c'è alcuna ricerca. Vedi `refresh()`/`loadRecent()`.
+// --- results vs discovery: two different sources feed the same grid,
+// never together — `assets` (a real search, every page) when `hasSearch`,
+// `recentAssets` (a single page) when there is no search. See
+// `refresh()`/`loadRecent()`.
 const recentAssets = ref<TimelineAsset[]>([])
 const visibleAssets = computed(() => (hasSearch.value ? assets.value : recentAssets.value))
 
@@ -156,7 +148,7 @@ async function loadRemoteSuggestions() {
   }
 }
 
-// --- pannello suggerimenti (§23.2-23.5) ---
+// --- suggestion panel ---
 const suggestOpen = ref(false)
 const focused = ref(false)
 const inputEl = ref<HTMLInputElement | null>(null)
@@ -174,8 +166,8 @@ const suggestGroups = computed<SuggestGroup[]>(() => {
   const groups: SuggestGroup[] = []
 
   if (!text) {
-    // Campo vuoto ma con focus (§23.2): "incoraggia la scoperta con
-    // qualche cartella oltre ai tag" — solo Tag (primi 5) e Cartella.
+    // Empty field but focused: encourage discovery with a few folders
+    // alongside tags — only Tag (first 5) and Folder.
     const tagRows: SearchPill[] = allTags.value
       .filter((tag) => tag.kind === 'tag' && !hasPill('tag', tag.id))
       .slice(0, 5)
@@ -294,15 +286,14 @@ function focusPrevRow(e: KeyboardEvent) {
   rows[i - 1]?.focus()
 }
 
-// --- chip del tipo file (§23.3 controlli 5-9) ---
-// Mutuamente esclusivi, "Tutti i tipi" è il default e nel mockup non si
-// può tornare a "nessuno" — si passa solo da un chip all'altro. "RAW" e
-// "JPEG" filtrano sul `kind` della riga primaria dello stack (`SearchNode
-// ::Type`, `crates/keeppix-db/src/search.rs:911-914` — "raw" è un alias
-// di "raw_image"): a differenza del mockup, che aveva un solo booleano
-// `isRaw`/non-`isRaw` binario, il sistema reale ha anche `video`/
-// `unknown` — "JPEG" qui filtra esattamente `kind==='image'`, non
-// genericamente "non RAW", altrimenti includerebbe anche i video.
+// --- file type chips ---
+// Mutually exclusive, "All types" is the default and there's no way back
+// to "none" — you only move from one chip to another. "RAW" and "JPEG"
+// filter on the `kind` of the stack's primary row (`SearchNode::Type`,
+// `crates/keeppix-db/src/search.rs:911-914` — "raw" is an alias for
+// "raw_image"): the real system also has `video`/`unknown`, so "JPEG"
+// here filters exactly `kind==='image'`, not generically "not RAW",
+// otherwise it would also include videos.
 type TypeFilter = 'all' | 'raw' | 'jpeg' | 'favorite'
 const typeFilter = ref<TypeFilter>('all')
 
@@ -324,18 +315,16 @@ function typeFilterNode(): SearchNode | null {
   }
 }
 
-// --- risultati (§25) ---
-// Il chip del tipo file da solo **non** conta come ricerca (§25.2, nota:
-// "i chip del tipo file non contano come 'ricerca'") — resta lo stato di
-// scoperta anche con "RAW" attivo, ma la griglia "Aggiunti di recente"
-// che quello stato mostra è comunque filtrata (stesso `buildAst()`,
-// stessa ambiguità silenziosa del documento: "le 32 foto mostrate sono
-// comunque filtrate solo RAW, senza che nulla lo dica"). `hasSearch`
-// stesso è dichiarato molto più in alto nel file — vedi il commento lì.
+// --- results ---
+// A file type chip alone does **not** count as a search — the discovery
+// state stays active even with "RAW" selected, but the "Recently added"
+// grid that state shows is still filtered (same `buildAst()`) — the 32
+// photos shown are still RAW-only filtered, silently, with nothing
+// saying so. `hasSearch` itself is declared much higher up in the file —
+// see the comment there.
 
-// §25.2 punto 3: "Ricerca: <b>Tag: Tramonti</b> + descrizione libera
-// <b>«tramonto»</b> — 12 risultati" — ogni pezzo (pillola o testo) è in
-// grassetto per conto proprio, uniti da " + " non in grassetto.
+// Each piece (pill or text) is bolded on its own, joined by a
+// non-bold " + ".
 const recapParts = computed<string[]>(() => {
   const parts = pills.value.map((p) => pillText(p))
   const text = q.value.trim()
@@ -383,17 +372,11 @@ async function runFullSearch() {
   }
 }
 
-// §25.2 punto 3: "al massimo 32 foto" — il backend ordina già per
-// `taken_at_utc DESC` (`crates/keeppix-db/src/search.rs:246`), quindi
-// una sola pagina (200 righe di default, mai serve un cursore) basta.
-// Deviazione deliberata dal mockup: lì l'ordine era `monthDistance`
-// crescente dal "mese corrente della demo" (luglio, cablato) — un
-// surrogato che nella demo coincide con la vera recenza solo perché il
-// catalogo dimostrativo copre un solo anno. Con dati reali su più anni
-// "il mese più vicino a ora" e "le foto più recenti" divergono, e il
-// titolo della sezione ("Aggiunti di recente") promette la seconda: usata
-// quella, più corretta **e** più economica (niente paginazione esaustiva
-// dell'intera libreria solo per un widget di scoperta).
+// At most 32 photos — the backend already orders by `taken_at_utc DESC`
+// (`crates/keeppix-db/src/search.rs:246`), so a single page (200 rows by
+// default, no cursor ever needed) is enough. This uses real recency
+// rather than an approximation, and it's cheaper too (no exhaustive
+// pagination of the whole library just for a discovery widget).
 async function loadRecent() {
   try {
     const ast = buildAst() ?? { op: 'and', args: [] }
@@ -415,7 +398,7 @@ async function refresh() {
   }
 }
 
-// --- cartelle (§25.2 punto 2) ---
+// --- folders ---
 interface FolderCard {
   folder: FolderView
   count: number
@@ -443,19 +426,17 @@ async function loadFolderCards() {
   }
 }
 
-// Non c'è, nell'app reale, una "vista Foto scoperta su una cartella" da
-// raggiungere (nessuna rotta/parametro per aprire la timeline già
-// filtrata su una cartella — verificato: `TimelineView.vue` non ha alcun
-// concetto di cartella corrente, `FoldersView.vue` non legge parametri
-// di rotta). La destinazione reale più vicina è la vista Cartelle stessa,
-// da cui l'utente entra nella cartella scelta — non un salto diretto
-// come richiede il documento, ma non un link morto.
+// There is no "photos scoped to a folder" view to reach in the real app
+// (no route/parameter to open the timeline already filtered to a folder
+// — verified: `TimelineView.vue` has no concept of a current folder,
+// `FoldersView.vue` doesn't read route parameters). The closest real
+// destination is the Folders view itself, from which the user enters the
+// chosen folder — not a direct jump, but not a dead link either.
 function openFolders() {
   void router.push('/folders')
 }
 
-// --- ricerche salvate (§25.2 punto 1, §25.3 riga 3 "Salva questa
-// ricerca") ---
+// --- saved searches ---
 const savedSearches = ref<SavedSearch[]>([])
 const savedJustNow = ref(false)
 
@@ -463,16 +444,16 @@ function quoteIfNeeded(value: string): string {
   return /\s/.test(value) ? `"${value.replace(/"/g, '')}"` : value
 }
 
-// La grammatica testuale che il backend sa ancora interpretare
-// (`crates/keeppix-db/src/search.rs:696-798`, `parse_query_text`/
-// `value_node`) precede la Fase 7/9: capisce solo `type:`/`camera:`/
-// `lens:`/`iso:`/`folder:`/`has:gps`/un anno nudo a 4 cifre/testo libero
-// (fra virgolette se contiene spazi) — non ha **mai** imparato `tag:`,
-// `country:` né una parola chiave per "preferiti". Una pillola tag/paese
-// o il chip "Preferiti" non sono quindi serializzabili in `query_text`:
-// `null` qui disabilita "Salva questa ricerca" invece di scrivere una
-// ricerca salvata che, ricaricata, si comporterebbe in modo diverso da
-// quella corrente — silenziosamente sbagliata sarebbe peggio che assente.
+// The text grammar the backend can still parse (`crates/keeppix-db/src/
+// search.rs:696-798`, `parse_query_text`/`value_node`) predates this
+// pill UI: it only understands `type:`/`camera:`/`lens:`/`iso:`/
+// `folder:`/`has:gps`/a bare 4-digit year/free text (quoted if it
+// contains spaces) — it has **never** learned `tag:`, `country:`, or a
+// keyword for "favorites". A tag/country pill or the "Favorites" chip
+// therefore can't be serialized into `query_text`: `null` here disables
+// "Save this search" instead of writing a saved search that, reloaded,
+// would behave differently from the current one — silently wrong would
+// be worse than unavailable.
 const serializedQuery = computed<string | null>(() => {
   if (pills.value.some((p) => p.type === 'tag' || p.type === 'country')) return null
   if (typeFilter.value === 'favorite') return null
@@ -694,8 +675,8 @@ onUnmounted(() => {
       {{ error }}
     </p>
 
-    <!-- §25.2, stato "ho cercato": titolo "Risultati", riepilogo, "Salva
-         questa ricerca". Le sezioni di scoperta spariscono. -->
+    <!-- "Searched" state: "Results" title, recap, "Save this search".
+         The discovery sections disappear. -->
     <template v-if="hasSearch">
       <div class="mt-4 flex items-center justify-between">
         <p class="text-[15px] font-bold">
@@ -722,8 +703,8 @@ onUnmounted(() => {
       </p>
     </template>
 
-    <!-- §25.2, stato iniziale: ricerche salvate + cartelle, solo quando
-         non c'è alcuna ricerca in corso. -->
+    <!-- Initial state: saved searches + folders, only when no search is
+         active. -->
     <template v-else>
       <div
         v-if="savedSearches.length"
@@ -823,7 +804,7 @@ onUnmounted(() => {
       <LibrarySelectionActions :assets="selectedAssets" />
     </SelectionBar>
 
-    <!-- §25.2, "Nessun risultato" — solo nello stato "ho cercato". -->
+    <!-- "No results" — only in the "searched" state. -->
     <div
       v-if="hasSearch && assets.length === 0"
       class="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center"

@@ -48,9 +48,9 @@ async function remove(id: string) {
 
 <template>
   <main class="mx-auto max-w-3xl p-6">
-    <!-- Fase 11 Task 6 (6/N): link "indietro" e titolo tolti — copre
-         AppSidebar (voce "Gruppi", gruppo Amministrazione) e AppTopbar
-         (briciola "Gruppi"). -->
+    <!-- No back link or title here: AppSidebar (the "Groups" entry, under
+         Administration) and AppTopbar (the "Groups" breadcrumb) already
+         cover that. -->
     <p
       v-if="loadError"
       class="mt-6 text-content-muted"

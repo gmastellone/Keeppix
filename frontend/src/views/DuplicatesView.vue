@@ -1,39 +1,25 @@
 <script setup lang="ts">
-// Fase 11 Task 13 (2/N) — documento funzionale §46 "Duplicati",
-// verificato riga per riga (righe 6984-7155). Vista costruita da zero:
-// non esisteva (`AppSidebar.vue`/`MoreView.vue` la dichiaravano
-// esplicitamente non ancora fatta).
+// **"Probable reason" text is not shown**: the backend has no way to
+// guess *why* two files coincide (`DuplicateGroupView`,
+// `crates/keeppix-api/src/routes/duplicates.rs`, exposes no such field).
+// The group subtitle here is therefore only the real part
+// (`reclaimable_bytes`), without prepending an invented reason.
 //
-// **Deviazione reale dal documento**: ogni blocco gruppo del mockup
-// porta un "motivo probabile" in linguaggio naturale (`"Stesso file
-// importato due volte — import manuale e poi sync automatico..."`),
-// ma è testo scritto a mano nei due gruppi di prova del mockup
-// (`DUPLICATE_GROUPS`), non un campo che `DuplicateGroupView`
-// (`crates/keeppix-api/src/routes/duplicates.rs`) restituisce — il
-// backend non ha modo di indovinare *perché* due file coincidono.
-// Il sottotitolo del gruppo qui è quindi solo la parte reale
-// (`reclaimable_bytes`), senza premettere un motivo inventato.
+// **The proposed "keep" copy is a starting point, not a detection**: the
+// backend's `DuplicateRepo::members` orders by `a.filename` (pure
+// alphabetical order, `crates/keeppix-db/src/assets.rs:562`): a space
+// before a "(1)" suffix sorts **before** a period before the extension,
+// so alphabetical order does not guarantee "the file without a suffix
+// comes first". The first returned element (`members[0]`) is proposed
+// as the default anyway — a reasonable starting point, not a real
+// detection of the "original file", which no query supports. The user
+// can still pick any copy with a click.
 //
-// **Seconda deviazione, più sottile**: nel mockup la copia proposta
-// come "da tenere" è sempre quella senza suffisso di copia — garantito
-// dalla costruzione dei dati di prova, mai un algoritmo reale. Sul
-// backend `DuplicateRepo::members` ordina per `a.filename` (ordine
-// alfabetico puro, `crates/keeppix-db/src/assets.rs:562`): uno spazio
-// prima di un suffisso "(1)" ordina **prima** di un punto prima
-// dell'estensione, quindi l'alfabetico non garantisce affatto "il file
-// senza suffisso per primo". Qui si propone comunque il primo elemento
-// restituito (`members[0]`) come default — un punto di partenza
-// ragionevole, non una detection reale del "file originale" che
-// nessuna query supporta. L'utente può comunque scegliere qualunque
-// copia con un click, come da documento.
-//
-// Il resto è fedele: "Risolvi gruppo"/"Ignora" restano senza conferma
-// propria (il dialog di eliminazione a 3 opzioni, §9, resta l'unica
-// conferma) — ma qui, a differenza del mockup (nota per l'architetto,
-// §46.9: "risolvere un gruppo non applica davvero" la modalità
-// scelta), la scelta è propagata per davvero via
-// `resolveDuplicateGroup`, che applica `disk_action` a ogni membro del
-// gruppo tranne quello tenuto in un'unica chiamata reale.
+// "Resolve group"/"Ignore" have no confirmation of their own (the
+// 3-option delete dialog remains the only confirmation) — the choice is
+// propagated for real via `resolveDuplicateGroup`, which applies
+// `disk_action` to every member of the group except the one kept, in a
+// single real call.
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

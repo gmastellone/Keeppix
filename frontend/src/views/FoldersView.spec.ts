@@ -59,7 +59,7 @@ afterEach(() => {
 })
 
 describe('FoldersView', () => {
-  it('carica solo la radice, e i figli solo quando si espande', async () => {
+  it('loads only the root, and children only when expanded', async () => {
     const wrapper = await mountFolders()
     expect(fetchTree).toHaveBeenCalledTimes(1)
     expect(fetchChildren).not.toHaveBeenCalled()
@@ -74,7 +74,7 @@ describe('FoldersView', () => {
     expect(wrapper.text()).toContain('2024')
   })
 
-  it('spostare una cartella chiama moveFolder verso un fratello visibile', async () => {
+  it('moving a folder calls moveFolder onto a visible sibling', async () => {
     const archive = {
       id: 'archive',
       library_id: 'lib',

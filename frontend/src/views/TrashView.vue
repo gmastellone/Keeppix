@@ -1,46 +1,26 @@
 <script setup lang="ts">
-// Fase 11 Task 13 (1/N) — documento funzionale §45 "Cestino", verificato
-// riga per riga (righe 6841-6981). Riscrittura completa: la vista
-// precedente aveva un bug reale, non solo un buco di funzionalità — vedi
-// il commento in `api/trash.ts` (`TrashedItem`) per il dettaglio.
+// **Real thumbnail, not a gradient placeholder**: items in the trash ARE
+// real catalog photos (`status='trashed'`, not removed from the `assets`
+// table until "Delete permanently" is chosen): `GET /assets/{id}` still
+// finds them, with valid `content_hash`/`thumbhash`. Showing a gradient
+// instead of the real photo would make it impossible to recognize what
+// is about to be restored or permanently deleted (no filename is ever
+// shown here). Same N+1 pattern used elsewhere: one `fetchAsset` per
+// item, few items expected in a trash can.
 //
-// **Due deviazioni reali dal documento**, entrambe per capacità reale
-// del backend diversa dal mockup, non per scelta stilistica:
+// **"<N> days remaining" is a real countdown**: the backend computes
+// `days_remaining` from the real `deleted_at` plus 30 days (see
+// `api/trash.ts`).
 //
-// 1. **Miniatura vera, non un gradiente finto**: il mockup mostra "il
-//    gradiente della foto come miniatura" (stesso trucco delle
-//    copertine album, §41) perché la sua base dati (`STATE.trash`) non
-//    porta un'immagine reale. Qui gli elementi in cestino SONO foto
-//    vere del catalogo (`status='trashed'`, non cancellate dalla
-//    tabella `assets` finché non si sceglie "Elimina definitivamente"):
-//    `GET /assets/{id}` le trova ancora, con `content_hash`/`thumbhash`
-//    validi. Mostrare un gradiente al posto della vera foto sarebbe un
-//    passo indietro reale — senza nome file (mai mostrato, per
-//    documento) sarebbe impossibile riconoscere cosa si sta per
-//    ripristinare o eliminare per sempre. Pattern N+1 già usato altrove
-//    in questa fase (Task 9/11/12): un `fetchAsset` per elemento, pochi
-//    elementi attesi in un cestino.
-// 2. **"<N> giorni rimanenti" è il vero conto alla rovescia**, non
-//    `20 + hash(id)%10` — il backend calcola `days_remaining` da
-//    `deleted_at` reale + 30 giorni (vedi `api/trash.ts`), la scadenza
-//    "annunciata ma non implementata" del mockup è implementata per
-//    davvero qui.
+// **"Empty trash" and "Delete permanently" are real, permanent actions
+// with no confirmation dialog, no success toast, and no way to undo** —
+// this is the intended behavior. A network error is still reported
+// (toast), because on the real backend these calls can genuinely fail
+// (403/409/500).
 //
-// **Fedele al documento nonostante siano azioni reali e permanenti**:
-// "Svuota cestino" e "Elimina definitivamente" restano senza dialog di
-// conferma, senza toast di successo, senza possibilità di annullare —
-// è il comportamento esplicitamente voluto dal documento (§45.3, righe
-// 6880/6882: "senza chiedere conferma... senza toast... senza
-// annullamento"), non un debito di questa unità. Un errore di rete
-// resta comunque segnalato (toast), perché sul backend reale queste
-// chiamate possono davvero fallire (403/409/500) — il mockup non lo
-// prevede solo perché la sua base dati non può fallire.
-//
-// Accessibilità da tastiera corretta rispetto al mockup (§45.5, "la
-// vista meno accessibile del blocco" — un difetto dichiarato, non una
-// scelta): i due pulsantini per riquadro sono `&lt;button&gt;` reali,
-// rivelati anche da `:focus-within` oltre che da `:hover`, coerente con
-// il resto dell'app (SP-1).
+// Keyboard accessibility: the two per-tile buttons are real
+// `<button>` elements, revealed by `:focus-within` as well as `:hover`,
+// consistent with the rest of the app.
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

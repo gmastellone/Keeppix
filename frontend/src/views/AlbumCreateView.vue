@@ -1,45 +1,36 @@
 <script setup lang="ts">
-// Fase 11 Task 12 (2/N) — documento funzionale §43 "Creazione di un
-// album", verificato riga per riga (righe 6483-6729). Sostituisce il
-// dialog minimo, solo-nome, della 1/N (`AlbumsView.vue` ora naviga qui
-// invece di aprirlo — codice del dialog rimosso, non commentato).
+// Three real constraints from the backend, verified by reading the code:
 //
-// Tre deviazioni reali dal documento, tutte per vincoli del backend
-// verificati leggendo il codice, non per scelta stilistica:
+// 1. **No "Automatic" mode**: on the real backend `PatchAlbumBody`
+//    (`crates/keeppix-api/src/routes/albums.rs`) has no `rule` field:
+//    once an album is created with a `rule`, that field can never be
+//    cleared again — becoming fully manual later is therefore not
+//    reachable. The only real mode is "apply now" (creation +
+//    an immediate `POST .../refresh`) — the "when to apply" segmented
+//    control disappears because there is no real second option to offer;
+//    the album can still be refreshed later from `AlbumDetailView`
+//    (an honest bonus, a natural consequence of how `rule` actually
+//    works).
 //
-// 1. **Nessun "Automatico"**: il documento offre due modalità di
-//    applicazione del filtro ("Una tantum"/"Automatico"). Sul backend
-//    reale `PatchAlbumBody` (`crates/keeppix-api/src/routes/albums.rs`)
-//    NON ha un campo `rule`: una volta creato un album con `rule`, quel
-//    campo non si può più azzerare — "diventa manuale a tutti gli
-//    effetti" del documento non è quindi raggiungibile. L'unica
-//    modalità reale è "applica subito" (creazione + `POST .../refresh`
-//    immediato) — il controllo segmentato "Quando applicare" sparisce
-//    perché non c'è una seconda opzione reale da offrire; l'album resta
-//    comunque riaggiornabile in seguito da `AlbumDetailView` (bonus
-//    onesto, non nel mockup, conseguenza naturale di come funziona
-//    davvero `rule`).
+// 2. **No "Shared" switch**: `is_shared` is a real column but no route
+//    ever writes it (verified: `CreateAlbumBody` and `PatchAlbumBody`
+//    have no such field) — it stays `false`, the same story as
+//    `cover_tint`/`monochrome`. Real sharing is the permissions/link
+//    flow already built elsewhere, applied after creation.
 //
-// 2. **Niente switch "Condiviso"**: `is_shared` è una colonna reale ma
-//    nessuna rotta la scrive mai (verificato: `CreateAlbumBody` e
-//    `PatchAlbumBody` non hanno il campo) — resta sempre `false`,
-//    stessa storia di `cover_tint`/`monochrome` (Task 12 1/N). La
-//    condivisione reale resta quella già costruita al Task 11
-//    (permessi/link), da dopo la creazione.
-//
-// 3. **"Tipo file" offre solo RAW/JPEG, non RAW+JPEG**: `SearchNode::
-//    Type` (search.rs) filtra su `assets.kind` (image/raw_image/video/
-//    unknown) — un concetto per singolo file. "RAW+JPEG" del mockup è
-//    l'accoppiamento client-side `raw_kind` (`useBrowseFilters.ts`,
-//    letto da `TimelineAsset.raw_kind`, mai da una query SQL): non
-//    esiste un `SearchNode` che lo rappresenti, quindi non è
-//    rappresentabile in una `rule` persistita. "Fotocamera"/"Paese" non
-//    sono tendine con l'elenco valori distinti (nessuna rotta
-//    "elenca tutti i valori", solo `GET /search/suggest?q=` con prefisso
-//    non vuoto): input di testo con un `<datalist>` alimentato dallo
-//    stesso endpoint della barra di ricerca, non una vera tendina.
-//    "Obiettivo" non ha nemmeno un `SuggestionKind::Lens` sul backend:
-//    resta un campo di testo libero, senza suggerimenti.
+// 3. **"File type" only offers RAW/JPEG, not RAW+JPEG**: `SearchNode::
+//    Type` (search.rs) filters on `assets.kind` (image/raw_image/video/
+//    unknown) — a per-file concept. "RAW+JPEG" is the client-side
+//    `raw_kind` pairing (`useBrowseFilters.ts`, read from
+//    `TimelineAsset.raw_kind`, never from a SQL query): there is no
+//    `SearchNode` that represents it, so it cannot be represented in a
+//    persisted `rule`. "Camera"/"Country" are not dropdowns with a
+//    distinct-values list (no "list all values" route exists, only
+//    `GET /search/suggest?q=` with a non-empty prefix): they're text
+//    inputs with a `<datalist>` fed by the same endpoint as the search
+//    bar, not a real dropdown. "Lens" doesn't even have a
+//    `SuggestionKind::Lens` on the backend: it stays a free-text field,
+//    with no suggestions.
 import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -158,9 +149,9 @@ function toggleFolder(row: ConditionRow, id: string) {
   row.value = next
 }
 
-// Datalist per Fotocamera/Paese (§43.2): stesso `fetchSuggestions` della
-// barra di ricerca (Task 9), non un elenco esaustivo — vedi il commento
-// in testa al file, deviazione 3.
+// Datalist for Camera/Country: the same `fetchSuggestions` used by the
+// search bar, not an exhaustive list — see the file's header comment,
+// deviation 3.
 const suggestionsByRow = ref<Record<number, string[]>>({})
 let suggestTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -241,12 +232,12 @@ function buildRule(): SearchNode | null {
   return { op: operator.value, args: nodes }
 }
 
-// §43.2 "anteprima live": conta le corrispondenze reali via `runSearch`
-// esaustivo (stesso giro a pagine di `FavoritesView.loadFavorites`) —
-// qui il conteggio è del tutto reale, a differenza di N/intervallo della
-// griglia album (Task 12 1/N): l'AST è valutato live dal backend, non
-// letto da una membership materializzata. Debounced: cambiare un valore
-// non deve rilanciare una ricerca a ogni carattere.
+// "Live preview": counts real matches via an exhaustive `runSearch` (the
+// same paging loop as `FavoritesView.loadFavorites`) — this count is
+// entirely real, unlike the N/range shown on the albums grid: the AST is
+// evaluated live by the backend, not read from a materialized
+// membership. Debounced: changing a value shouldn't relaunch a search on
+// every keystroke.
 const previewCount = ref(0)
 const previewLoading = ref(false)
 let previewTimer: ReturnType<typeof setTimeout> | undefined
@@ -314,9 +305,9 @@ async function submit() {
   try {
     const album = await createAlbum(trimmed, rule)
     if (rule) {
-      // "Una tantum": applica il filtro ORA, una volta sola — vedi la
-      // deviazione 1 in testa al file per perché non c'è una seconda
-      // modalità "Automatico" da offrire qui.
+      // "One-time": applies the filter NOW, once — see deviation 1 in the
+      // file's header comment for why there's no second "Automatic" mode
+      // to offer here.
       await refreshAlbum(album.id).catch(() => {})
     }
     toast.show(t('albums.create.success', { name: trimmed }))

@@ -117,16 +117,16 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 
-/** Le sezioni "Persone"/"Invita" (§29) sono riservate agli admin — `GET
- * /users`/`GET /groups` sono `AdminAuth` sul backend reale, verificato
- * in `crates/keeppix-api/src/routes/users.rs`/`groups.rs` (Task 11
- * 1/N). I test sul form di invito impersonano un admin. */
+/** The "People"/"Invite" sections are reserved to admins — `GET
+ * /users`/`GET /groups` are `AdminAuth` on the real backend, verified in
+ * `crates/keeppix-api/src/routes/users.rs`/`groups.rs`. The tests on the
+ * invite form impersonate an admin. */
 async function mountSharesAsAdmin() {
   return mountShares(true)
 }
 
-describe('SharesView — "Invita" (form di concessione, admin-only)', () => {
-  it('condivide una cartella con una persona dal form, senza chiamare l’API dal test', async () => {
+describe('SharesView — "Invita" (grant form, admin-only)', () => {
+  it('shares a folder with a person from the form, without calling the API directly in the test', async () => {
     const { wrapper } = await mountSharesAsAdmin()
     await wrapper.findAll('button').find((b) => b.text() === 'Invita')!.trigger('click')
     await flushPromises()
@@ -151,7 +151,7 @@ describe('SharesView — "Invita" (form di concessione, admin-only)', () => {
     })
   })
 
-  it('dopo il grant, Bob compare nella sezione Persone', async () => {
+  it('after the grant, Bob appears in the People section', async () => {
     vi.mocked(fetchPermissions).mockResolvedValue([])
     const { wrapper } = await mountSharesAsAdmin()
     await wrapper.findAll('button').find((b) => b.text() === 'Invita')!.trigger('click')
@@ -170,7 +170,7 @@ describe('SharesView — "Invita" (form di concessione, admin-only)', () => {
     expect(wrapper.text()).toContain('Bob')
   })
 
-  it('mostra la catena di explain dopo un click, non dopo una chiamata diretta nel test', async () => {
+  it('shows the explain chain after a click, not after a direct call in the test', async () => {
     const { wrapper } = await mountSharesAsAdmin()
     await wrapper.findAll('button').find((b) => b.text() === 'Invita')!.trigger('click')
     await flushPromises()
@@ -189,7 +189,7 @@ describe('SharesView — "Invita" (form di concessione, admin-only)', () => {
     expect(wrapper.text()).toContain('Vacanze')
   })
 
-  it('condivide una cartella con un gruppo scegliendo gruppo nel form', async () => {
+  it('shares a folder with a group by picking group in the form', async () => {
     const { wrapper } = await mountSharesAsAdmin()
     await wrapper.findAll('button').find((b) => b.text() === 'Invita')!.trigger('click')
     await flushPromises()
@@ -207,8 +207,8 @@ describe('SharesView — "Invita" (form di concessione, admin-only)', () => {
   })
 })
 
-describe('SharesView — §29, la pagina reale', () => {
-  it('non-admin: la sezione Persone e "Invita" sono nascoste, il resto della pagina funziona', async () => {
+describe('SharesView — the real page', () => {
+  it('non-admin: the People section and "Invita" are hidden, the rest of the page works', async () => {
     const { wrapper } = await mountShares()
 
     expect(fetchUsers).not.toHaveBeenCalled()
@@ -216,7 +216,7 @@ describe('SharesView — §29, la pagina reale', () => {
     expect(wrapper.text()).toContain('Le mie condivisioni')
   })
 
-  it('le due schede: "Condivisi con me" mostra lo stato vuoto quando non c\'è nulla', async () => {
+  it('the two tabs: "Condivisi con me" shows the empty state when there is nothing', async () => {
     const { wrapper } = await mountShares()
 
     await wrapper.findAll('button').find((b) => b.text() === 'Condivisi con me')!.trigger('click')
@@ -225,7 +225,7 @@ describe('SharesView — §29, la pagina reale', () => {
     expect(wrapper.text()).toContain('Niente condiviso con te')
   })
 
-  it('"Condivisi con me" mostra gli elementi reali da fetchSharedWithMe, non uno stub', async () => {
+  it('"Condivisi con me" shows the real items from fetchSharedWithMe, not a stub', async () => {
     vi.mocked(fetchSharedWithMe).mockResolvedValue([
       { object_type: 'album', object_id: 'al1', name: 'Weekend in montagna', owner_name: 'Mich', role: 'editor', item_count: 63 }
     ])
@@ -239,7 +239,7 @@ describe('SharesView — §29, la pagina reale', () => {
     expect(wrapper.text()).toContain('63 elementi')
   })
 
-  it('un link pubblico mostra il nome risolto dell\'oggetto e la riga riassuntiva reale', async () => {
+  it('a public link shows the resolved object name and the real summary line', async () => {
     vi.mocked(fetchAlbums).mockResolvedValue([
       {
         id: 'al1',
@@ -279,7 +279,7 @@ describe('SharesView — §29, la pagina reale', () => {
     expect(wrapper.text()).toContain('nessuna scadenza')
   })
 
-  it('"Copia" non compare per un link caricato dalla lista — il token non è mai ri-esposto da GET /share/links', async () => {
+  it('"Copia" does not appear for a link loaded from the list — the token is never re-exposed by GET /share/links', async () => {
     vi.mocked(fetchShareLinks).mockResolvedValue([
       {
         id: 'link-1',
@@ -305,7 +305,7 @@ describe('SharesView — §29, la pagina reale', () => {
     expect(wrapper.findAll('button').some((b) => b.text() === 'Revoca')).toBe(true)
   })
 
-  it('revocare un link lo rimuove dalla lista', async () => {
+  it('revoking a link removes it from the list', async () => {
     vi.mocked(fetchShareLinks).mockResolvedValue([
       {
         id: 'link-1',
@@ -336,7 +336,7 @@ describe('SharesView — §29, la pagina reale', () => {
     expect(wrapper.text()).not.toContain('password attiva')
   })
 
-  it('una cartella condivisa via link compare come card cliccabile in "Cartelle e album condivisi", verso /folders', async () => {
+  it('a folder shared via link appears as a clickable card in "Cartelle e album condivisi", pointing to /folders', async () => {
     vi.mocked(fetchShareLinks).mockResolvedValue([
       {
         id: 'link-1',

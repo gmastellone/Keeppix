@@ -1,14 +1,13 @@
 <script setup lang="ts">
-// Fase 11 Task 17 (3/N-4/N) — documento funzionale §15 "Culling — lotto
-// aperto" e §16 "Il selettore rapido di lotto". Nucleo (3/N): filtri,
-// palco, filmino, Scelta/Scarta con spostamento fisico vero, valutazione,
-// tastiera con la guardia sui campi di testo (Ruling del piano). Aggiunto
-// in 4/N, che chiude il Task: selezione multipla (shift+click/shift+
-// freccia sul filmino e da tastiera, barra di selezione SP-2 con le
-// quattro deviazioni dichiarate — §15.3), "Rinomina lotto…"/"Rinomina…"
-// (estendono RenameFormulaDialog con `hasSubfolders`), selettore rapido
-// di lotto (§16, su Popover con `escDismisses=false` — l'unica deviazione
-// da SP-14 fra i sei consumatori del componente).
+// Culling — open lot, and the quick lot switcher. Core: filters, stage,
+// filmstrip, Pick/Reject with real physical file moves, rating, keyboard
+// shortcuts guarded against text fields. Also: multi-selection
+// (shift+click/shift+arrow on the filmstrip and from the keyboard, a
+// selection bar with its own declared deviations), "Rename lot…"/
+// "Rename…" (both extend RenameFormulaDialog with `hasSubfolders`), and
+// the quick lot switcher (on a Popover with `escDismisses=false` — the
+// one deviation from the standard Popover behavior among this
+// component's consumers).
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -40,9 +39,9 @@ const lotId = computed(() => route.params.lotId as string)
 const lotNameFromQuery = computed(() => (typeof route.query.name === 'string' ? route.query.name : ''))
 const libraryId = computed(() => (typeof route.query.library === 'string' ? route.query.library : null))
 
-// §16 — selettore rapido di lotto: elenco caricato pigramente all'apertura
-// del pannello, non a ogni apertura del lotto (il documento legge "id,
-// nome, N da vedere per ogni lotto" solo mentre il pannello è aperto).
+// Quick lot switcher: the list is lazily loaded when the panel opens,
+// not every time a lot opens (id, name, and pending count per lot are
+// only needed while the panel is open).
 const switcherOpen = ref(false)
 const switcherLots = ref<CullingLot[]>([])
 
@@ -104,9 +103,8 @@ async function confirmEmptySkipped() {
   }
 }
 
-// §15.6 Ambiguità del prototipo, corretta dal Ruling del piano: le
-// scorciatoie non si attivano scrivendo in un campo di testo o con un
-// dialog aperto.
+// Keyboard shortcuts don't fire while typing in a text field or with a
+// dialog open.
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
@@ -120,8 +118,8 @@ function onKeydown(event: KeyboardEvent) {
       if (event.shiftKey) {
         store.selectRangeByArrow(-1)
       } else {
-        // §15.5: la freccia semplice azzera una selezione multipla in
-        // corso — l'unica via d'uscita rapida da tastiera (niente Esc qui).
+        // A plain arrow key clears an in-progress multi-selection — the
+        // only quick keyboard exit (no Esc here).
         if (store.selectedCount > 0) store.clearSelection()
         store.goTo(-1)
       }
@@ -159,8 +157,8 @@ function onKeydown(event: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
-// §15.2/§15.3.11: il pulsante info apre il lightbox sulla foto corrente,
-// con la coda di culling corrente (filtro compreso) come vicinato.
+// The info button opens the lightbox on the current photo, with the
+// current culling queue (filter included) as its neighbors.
 const viewingId = ref<string | null>(null)
 const orderedAssets = computed(() => store.order.map((id) => store.assets.find((a) => a.id === id)).filter((a): a is NonNullable<typeof a> => !!a))
 const viewingAsset = computed(() => (viewingId.value ? store.assets.find((a) => a.id === viewingId.value) : undefined))
@@ -190,8 +188,8 @@ const selectedAssets = computed(() =>
   orderedAssets.value.filter((a) => store.selectedIds.has(a.id))
 )
 
-/** Barra di selezione, "Scelta"/"Scarta" di massa (§15.3 controlli 23-24):
- * toast e svuota la selezione, riuscita parziale come "Svuota scartati". */
+/** Selection bar, bulk "Pick"/"Reject": shows a toast and clears the
+ * selection, partial success handled the same way as "Empty skipped". */
 async function decideSelection(target: 'taken' | 'skipped') {
   const ids = Array.from(store.selectedIds)
   const { succeeded, failed } = await store.decideMany(ids, target)
@@ -203,9 +201,8 @@ async function decideSelection(target: 'taken' | 'skipped') {
   }
 }
 
-// "Rinomina lotto…" (§15.3 controllo 19) e "Rinomina…" della barra di
-// selezione (controllo 25) condividono lo stesso dialog: cambia solo
-// l'ambito con cui viene aperto — nessuna logica duplicata.
+// "Rename lot…" and the selection bar's "Rename…" share the same dialog:
+// only the scope it opens with changes — no duplicated logic.
 const renameOpen = ref(false)
 const renameScope = ref<'lot' | 'selection'>('lot')
 const pendingLotAssets = computed(() => store.assets.filter((a) => a.cullState === 'pending'))

@@ -6,11 +6,11 @@ import { useRouter } from 'vue-router'
 import { readAndClearSharedFiles } from '@/pwa/shareTarget'
 import { useUploadStore } from '@/stores/upload'
 
-// Vista di passaggio: il service worker (`public/sw.js`) ha già intercettato
-// il POST di condivisione dell'OS e ridiretto qui via GET. Non c'è UI reale
-// da mostrare: si legge la coda, si passa allo store di upload (Task 3) e
-// si torna alla home, dove il pannello di upload globale (montato in
-// `App.vue`) mostra i file appena accodati.
+// A pass-through view: the service worker (`public/sw.js`) has already
+// intercepted the OS's share POST and redirected here via GET. There's no
+// real UI to show: it reads the queue, hands it off to the upload store,
+// and returns to the home page, where the global upload panel (mounted in
+// `App.vue`) shows the files that were just queued.
 defineOptions({ name: 'ShareTargetView' })
 
 const { t } = useI18n()

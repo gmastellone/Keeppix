@@ -98,7 +98,7 @@ async function mountTrash() {
   return wrapper
 }
 
-describe('TrashView — §45 Cestino', () => {
+describe('TrashView — Trash', () => {
   it('shows the documented empty state when there is nothing in trash', async () => {
     const wrapper = await mountTrash()
 

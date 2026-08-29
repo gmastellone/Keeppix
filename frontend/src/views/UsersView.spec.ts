@@ -91,7 +91,7 @@ afterEach(() => {
 })
 
 describe('UsersView', () => {
-  it('crea un utente dal form, senza chiamare l’API dal test', async () => {
+  it('creates a user from the form, without calling the API directly in the test', async () => {
     const { wrapper } = await mountUsers()
 
     await wrapper.get('[data-testid="users-username"]').setValue('bob')
@@ -110,7 +110,7 @@ describe('UsersView', () => {
     })
   })
 
-  it('dopo la creazione Bob compare nell’elenco', async () => {
+  it('shows Bob in the list after creation', async () => {
     vi.mocked(createUser).mockImplementation(async () => {
       vi.mocked(fetchUsers).mockResolvedValue([admin, bob])
       return bob
@@ -126,7 +126,7 @@ describe('UsersView', () => {
     expect(wrapper.get('[data-testid="users-list"]').text()).toContain('Bob')
   })
 
-  it('disabilita un utente con un click, non con una chiamata diretta nel test', async () => {
+  it('disables a user with a click, not a direct call in the test', async () => {
     vi.mocked(fetchUsers).mockResolvedValue([admin, bob])
     const { wrapper } = await mountUsers()
 
@@ -137,7 +137,7 @@ describe('UsersView', () => {
     expect(disableUser).toHaveBeenCalledWith(bob.id)
   })
 
-  it('riabilita un utente disabilitato dal pulsante della riga', async () => {
+  it('re-enables a disabled user from the row button', async () => {
     vi.mocked(fetchUsers).mockResolvedValue([
       admin,
       { ...bob, disabled_at: '2026-08-18T12:00:00Z' }
@@ -150,7 +150,7 @@ describe('UsersView', () => {
     expect(enableUser).toHaveBeenCalledWith(bob.id)
   })
 
-  it('cambia il ruolo di una riga dal select', async () => {
+  it('changes a row role from the select', async () => {
     vi.mocked(fetchUsers).mockResolvedValue([admin, bob])
     const { wrapper } = await mountUsers()
 
@@ -160,7 +160,7 @@ describe('UsersView', () => {
     expect(updateUser).toHaveBeenCalledWith(bob.id, { role: 'admin' })
   })
 
-  it('cambia la password dell’utente corrente dal form', async () => {
+  it('changes the current user password from the form', async () => {
     const { wrapper } = await mountUsers()
 
     await wrapper.get('[data-testid="users-current-password"]').setValue('correct horse battery staple')
@@ -174,7 +174,7 @@ describe('UsersView', () => {
     )
   })
 
-  it('su sessione scaduta (401) rimanda al login invece di mostrare un errore generico', async () => {
+  it('redirects to login instead of showing a generic error on expired session (401)', async () => {
     vi.mocked(fetchUsers).mockRejectedValue(
       new ApiProblem('keeppix/unauthenticated', 'Authentication required', 401)
     )

@@ -62,7 +62,7 @@ describe('MapView', () => {
     ])
   })
 
-  it('§27 "Apri cartella": open-folder from the cluster layer navigates to /folders (no folder-scoped timeline route exists)', async () => {
+  it('"Apri cartella": open-folder from the cluster layer navigates to /folders (no folder-scoped timeline route exists)', async () => {
     apiFetch.mockImplementation((path: string) => {
       if (path === '/api/v1/map/regions') {
         return Promise.resolve([

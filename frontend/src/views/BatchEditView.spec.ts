@@ -33,13 +33,14 @@ vi.mock('@/api/culling', async (importOriginal) => {
     setFlags: (...args: unknown[]) => setFlagsMock(...args)
   }
 })
-// AlbumPickerDialog/TagPickerDialog/RenameFormulaDialog sono montati sempre
-// (chiusi finché non si clicca il pulsante che li apre) — le loro proprie
-// chiamate hanno già uno `.catch(() => [])`, ma solo se le funzioni vere
-// esistono: senza questi mock andrebbero al vero `apiFetch` (mockato sopra
-// a vuoto) e riceverebbero `null` invece di una `Promise` rifiutata, che
-// `.catch` non intercetta. Il comportamento di questi tre dialog è già
-// verificato a fondo nei propri spec — qui bastano risposte innocue.
+// AlbumPickerDialog/TagPickerDialog/RenameFormulaDialog are always mounted
+// (closed until the button that opens them is clicked) — their own calls
+// already have a `.catch(() => [])`, but only if the real functions
+// exist: without these mocks they would hit the real `apiFetch` (mocked
+// above to return nothing) and receive `null` instead of a rejected
+// `Promise`, which `.catch` would not intercept. The behavior of these
+// three dialogs is already thoroughly verified in their own specs — mere
+// harmless responses are enough here.
 vi.mock('@/api/albums', () => ({
   fetchAlbums: vi.fn(async () => []),
   fetchAlbum: vi.fn(async () => ({ id: 'x', name: '', assets: [] }))
@@ -56,9 +57,9 @@ vi.mock('@/api/rename', () => ({
 vi.mock('@/api/operations', () => ({
   cancelOperation: vi.fn(async () => ({ succeeded: [], failed: [], batch_id: null }))
 }))
-// RenameFormulaDialog segue l'avanzamento reale sul WebSocket dal 27
-// agosto (Task 16) — nessuno di questi test lo esercita, la mock esiste
-// solo per non tentare una connessione reale in jsdom.
+// RenameFormulaDialog follows real progress over the WebSocket — none of
+// these tests exercise that, the mock exists only to avoid attempting a
+// real connection in jsdom.
 vi.mock('@/api/events', () => ({
   startLiveEvents: vi.fn(() => ({ close: vi.fn() }))
 }))
@@ -120,16 +121,16 @@ function buttonWithText(root: ReturnType<typeof mount>, text: string) {
   return root.findAll('button').find((b) => b.text().trim() === text)
 }
 
-/** I cinque radio delle stelle non hanno un testo visibile che li
- * distingua (solo `aria-label`) — sono sempre i primi cinque `[role=radio]`
- * nell'ordine sorgente (§13.3, l'ordine di tabulazione stesso). */
+/** The five star radios have no visible text distinguishing them (only
+ * `aria-label`) — they are always the first five `[role=radio]` elements
+ * in source order (the same tab order). */
 function starRadios(root: ReturnType<typeof mount>) {
   return root.findAll('[role="radio"]').slice(0, 5)
 }
 
-/** Pick/Scarta e Preferiti (`SegmentedControl`) hanno invece un'etichetta
- * testuale per opzione — più robusto di un indice fisso, che dipenderebbe
- * dall'ordine esatto delle sezioni nel template. */
+/** Pick/Reject and Favorites (`SegmentedControl`) instead have a text
+ * label per option — more robust than a fixed index, which would depend
+ * on the exact order of sections in the template. */
 function radioByText(root: ReturnType<typeof mount>, text: string) {
   return root.findAll('[role="radio"]').find((r) => r.text().trim() === text)
 }
@@ -151,7 +152,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('BatchEditView — empty state (§13.2)', () => {
+describe('BatchEditView — empty state', () => {
   it('shows the empty state and nothing else when arriving with no selection', async () => {
     const { wrapper } = await mountBatchEdit([])
 
@@ -161,7 +162,7 @@ describe('BatchEditView — empty state (§13.2)', () => {
   })
 })
 
-describe('BatchEditView — loaded (§13.2/§13.3)', () => {
+describe('BatchEditView — loaded', () => {
   it('loads each asset by id and shows the count in the subtitle and preview strip', async () => {
     const { wrapper } = await mountBatchEdit(['a', 'b'])
 
@@ -212,7 +213,7 @@ describe('BatchEditView — loaded (§13.2/§13.3)', () => {
   })
 })
 
-describe('BatchEditView — "Applica" (§13.3 punto 9)', () => {
+describe('BatchEditView — "Applica"', () => {
   it('touches nothing when every field is left "Non modificare": no flags/metadata/move calls, but still clears the selection and navigates back', async () => {
     const { wrapper, router, selection } = await mountBatchEdit(['a'])
     selection.library.toggle('a')
@@ -274,7 +275,7 @@ describe('BatchEditView — "Applica" (§13.3 punto 9)', () => {
   })
 })
 
-describe('BatchEditView — "Annulla" (§13.3 punto 10)', () => {
+describe('BatchEditView — "Annulla"', () => {
   it('navigates back without touching flags/metadata/move and without clearing the selection', async () => {
     const { wrapper, router, selection } = await mountBatchEdit(['a'])
     selection.library.toggle('a')

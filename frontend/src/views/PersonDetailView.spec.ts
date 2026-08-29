@@ -91,14 +91,14 @@ function stubMatchMedia() {
 }
 
 let unstubLayout: () => void
-// Task 16 (4/N): a differenza di `FavoritesView.spec.ts` (da cui questo
-// file discende), qui i dialog di copertina/divisione teletrasportano
-// (reka-ui `DialogPortal`) nel vero `document.body` anche a `wrapper`
-// mai smontato — senza smontare esplicitamente, un test che apre un
-// dialog lo lascia lì per il test *successivo*, che lo trova ancora nel
-// DOM globale. Trovato scrivendo l'asserzione "nessun dialog aperto"
-// del test §32.3 controllo 5 (sotto), mai un problema prima perché
-// nessun test precedente controllava l'assenza di un dialog.
+// Unlike `FavoritesView.spec.ts` (which this file is based on), the
+// cover/split dialogs here teleport (reka-ui `DialogPortal`) into the
+// real `document.body` even when `wrapper` is never unmounted — without
+// explicitly unmounting, a test that opens a dialog leaves it there for
+// the *next* test, which finds it still in the global DOM. Found while
+// writing the "no dialog open" assertion in the "fewer than two faces"
+// test below, never an issue before because no earlier test checked for
+// the absence of a dialog.
 let wrapper: ReturnType<typeof mount> | undefined
 
 beforeEach(() => {
@@ -175,7 +175,7 @@ function photo(id: string): TimelineAsset {
   }
 }
 
-describe('PersonDetailView — §32 dettaglio persona', () => {
+describe('PersonDetailView — person detail', () => {
   it('loads via runSearch({op:"person", id}) and shows the name and photo count', async () => {
     vi.mocked(fetchPerson).mockResolvedValue(person({ name: 'Marta' }))
     vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a'), photo('b')] })
@@ -188,7 +188,7 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     expect(wrapper.findAllComponents(PhotoTile)).toHaveLength(2)
   })
 
-  it('§32.2 shows the current group in the summary line, and §32.3 control 4 the matching action', async () => {
+  it('shows the current group in the summary line, and the matching action', async () => {
     vi.mocked(fetchPerson).mockResolvedValue(person())
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
     const { fetchPersonGroups, fetchGroupMembers } = await import('@/api/persons')
@@ -201,7 +201,7 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     expect(wrapper.findAll('button').find((b) => b.text() === 'Cambia gruppo')).toBeTruthy()
   })
 
-  it('§32.2 shows "senza gruppo" when the person has none', async () => {
+  it('shows "senza gruppo" when the person has none', async () => {
     vi.mocked(fetchPerson).mockResolvedValue(person())
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
 
@@ -221,7 +221,7 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     expect(wrapper.text()).toContain('nascosta')
   })
 
-  it('§32.2 empty state: no photos at all vs filtered-empty are worded differently', async () => {
+  it('empty state: no photos at all vs filtered-empty are worded differently', async () => {
     vi.mocked(fetchPerson).mockResolvedValue(person())
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
 
@@ -231,7 +231,7 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     expect(wrapper.text()).not.toContain('Nessuna foto corrisponde ai filtri')
   })
 
-  it('falls back to the grid when the person cannot be loaded (§32.8)', async () => {
+  it('falls back to the grid when the person cannot be loaded', async () => {
     vi.mocked(fetchPerson).mockRejectedValue(new Error('forbidden'))
 
     const { router } = await mountDetail('gone')
@@ -261,7 +261,7 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     expect(wrapper.text()).toContain('Marta Rossi')
   })
 
-  it('"Nascondi" patches hidden:true and navigates back to the grid (§32.3 control 6)', async () => {
+  it('"Nascondi" patches hidden:true and navigates back to the grid', async () => {
     vi.mocked(fetchPerson).mockResolvedValue(person({ hidden: false }))
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
     vi.mocked(patchPerson).mockResolvedValue(person({ hidden: true }))
@@ -295,7 +295,7 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
   })
 
-  it('§32.3 control 3 "Scegli copertina" opens the cover dialog', async () => {
+  it('"Scegli copertina" opens the cover dialog', async () => {
     vi.mocked(fetchPerson).mockResolvedValue(person())
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
     const { wrapper } = await mountDetail('p1')
@@ -307,7 +307,7 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     expect(document.body.textContent).toContain('Scegli copertina')
   })
 
-  it('§32.3 control 5 "Dividi…" with fewer than two photos shows the toast instead of opening', async () => {
+  it('"Dividi…" with fewer than two photos shows the toast instead of opening', async () => {
     vi.mocked(fetchPerson).mockResolvedValue(person())
     vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a')] })
     const { wrapper } = await mountDetail('p1')
@@ -321,7 +321,7 @@ describe('PersonDetailView — §32 dettaglio persona', () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeFalsy()
   })
 
-  it('§32.3 control 5 "Dividi…" with two or more photos opens the split dialog', async () => {
+  it('"Dividi…" with two or more photos opens the split dialog', async () => {
     vi.mocked(fetchPerson).mockResolvedValue(person())
     vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a'), photo('b')] })
     const { wrapper } = await mountDetail('p1')

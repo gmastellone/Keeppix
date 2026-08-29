@@ -87,7 +87,7 @@ describe('MoreView', () => {
     expect(hrefs).not.toContain('/groups')
   })
 
-  describe('attività in background — AiAnalysis/FaceDetection (debito wired-exceptions chiuso il 27 agosto)', () => {
+  describe('background activity — AiAnalysis/FaceDetection', () => {
     it('shows nothing when no background operation is running', async () => {
       const wrapper = await mountMore()
       expect(wrapper.text()).not.toContain('Attività in background')

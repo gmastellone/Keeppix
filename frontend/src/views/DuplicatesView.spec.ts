@@ -84,7 +84,7 @@ async function mountDuplicates() {
   return wrapper
 }
 
-describe('DuplicatesView — §46 Duplicati', () => {
+describe('DuplicatesView — Duplicates', () => {
   it('shows the documented empty state, with the content-hash explanation', async () => {
     const wrapper = await mountDuplicates()
 

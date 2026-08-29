@@ -1,46 +1,33 @@
 <script setup lang="ts">
-// Task 11 (2/N), §29 "Condivisioni": riscrive la vista da zero. La
-// precedente (Fase 11 Task 6, 6/N) era uno strumento CRUD di permessi
-// funzionante ma senza alcuna delle due schede/tre sezioni del
-// documento — qui ricostruita fedele alla struttura reale (schede "Le
-// mie condivisioni"/"Condivisi con me", sezioni Persone/Link pubblici/
-// Cartelle e album condivisi), non solo restilizzata.
+// A full "Shares" page, with two tabs ("My shares"/"Shared with me") and
+// three sections (People/Public links/Shared folders and albums).
 //
-// **Sezione "Persone" — riservata agli admin**: elencare "con chi ho
-// condiviso" richiede risolvere nome/e-mail dei soggetti (`GET /users`/
-// `GET /groups`), entrambe riservate ad `AdminAuth`
-// (`crates/keeppix-api/src/routes/users.rs`/`groups.rs`) — nessuna rotta
-// alternativa esiste per un utente normale. Stessa scelta già presa per
-// `ShareSelectionDialog.vue` (Task 11 1/N): la sezione resta nascosta
-// per chi non è admin, il resto della pagina (Link pubblici, Cartelle e
-// album condivisi, Condivisi con me) funziona comunque per chiunque.
+// **"People" section — admin only**: listing "who I've shared with"
+// requires resolving subject name/email (`GET /users`/`GET /groups`),
+// both reserved to `AdminAuth`
+// (`crates/keeppix-api/src/routes/users.rs`/`groups.rs`) — no alternative
+// route exists for a regular user. Same choice already made for
+// `ShareSelectionDialog.vue`: the section stays hidden for non-admins,
+// the rest of the page (Public links, Shared folders and albums, Shared
+// with me) still works for anyone.
 //
-// **"Copia" esiste solo per un link appena creato in questa sessione**:
-// `GET /share/links` (`LinkView`) non include mai il `token` — solo la
-// risposta di creazione lo restituisce, una volta sola
-// (`crates/keeppix-api/src/routes/share.rs`). Un link caricato dalla
-// lista non ha modo di ricostruire l'URL condivisibile: mostrare
-// "Copia" per quei link significherebbe promettere un'azione che non
-// può funzionare. La mappa `justCreatedTokens` copre solo i link creati
-// da questa pagina, in questo caricamento.
+// **"Copy" only exists for a link just created in this session**:
+// `GET /share/links` (`LinkView`) never includes the `token` — only the
+// creation response returns it, once
+// (`crates/keeppix-api/src/routes/share.rs`). A link loaded from the
+// list has no way to reconstruct the shareable URL: showing "Copy" for
+// those links would promise an action that can't work. The
+// `justCreatedTokens` map only covers links created by this page, in
+// this load.
 //
-// **Le card di "Cartelle e album condivisi" sono cliccabili**, a
-// differenza del mockup — che le disegna con `cursor:pointer` ma nessun
-// gestore, un difetto che il documento stesso segnala esplicitamente
-// come "falsa affordance da correggere nell'implementazione Vue"
-// (§29.4). Nessuna vista "Foto scoperta su una cartella"/"dettaglio
-// album" esiste ancora (stessa lacuna già dichiarata al Task 9 3/N e al
-// Task 10): portano rispettivamente a `/folders` e `/albums`, le
-// destinazioni reali più vicine.
+// **The "Shared folders and albums" cards are clickable**. No "photos
+// scoped to a folder"/"album detail" view exists yet: they lead to
+// `/folders` and `/albums` respectively, the closest real destinations.
 //
-// **`"Crea link di condivisione"` in fondo alla sezione Link pubblici
-// (§29.3 riga 8) non è costruito qui**: nel mockup non ha comunque
-// alcun gestore ("no handler" — a differenza dell'omonimo pulsante
-// dentro `ShareSelectionDialog.vue`, che funziona per davvero), e non
-// specifica su quale cartella/album creare il link — questa pagina crea
-// e gestisce link esistenti, non ne genera di nuovi da zero; la strada
-// reale per crearne uno è `ShareSelectionDialog.vue`, da una griglia con
-// una selezione (Task 11 1/N).
+// **"Create share link" at the bottom of the Public links section is not
+// built here**: this page creates and manages existing links, it doesn't
+// generate new ones from scratch with no target; the real way to create
+// one is `ShareSelectionDialog.vue`, from a grid with a selection.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -190,7 +177,7 @@ async function revokeGrant(row: PersonRow) {
   personRows.value = personRows.value.filter((r) => r.grantId !== row.grantId)
 }
 
-// --- Link pubblici ---
+// --- Public links ---
 function objectName(type: string, id: string): string {
   if (type === 'folder') return allFolders.value.find((f) => f.id === id)?.name ?? t('shares.mine.unknownObject')
   if (type === 'album') return albums.value.find((a) => a.id === id)?.name ?? t('shares.mine.unknownObject')
@@ -230,7 +217,7 @@ async function revokeLink(id: string) {
   links.value = links.value.filter((link) => link.id !== id)
 }
 
-// --- Cartelle e album condivisi ---
+// --- Shared folders and albums ---
 interface SharedObjectCard {
   type: 'folder' | 'album'
   id: string
@@ -275,7 +262,7 @@ function openSharedObject(card: SharedObjectCard) {
   void router.push(card.type === 'folder' ? '/folders' : '/albums')
 }
 
-// --- "Invita" (admin, mirino di permessi su una cartella) ---
+// --- "Invite" (admin, permission grant targeting a folder) ---
 const inviteOpen = ref(false)
 const folders = ref<FolderView[]>([])
 const inviteFolderId = ref('')

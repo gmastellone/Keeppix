@@ -99,7 +99,7 @@ async function mountCreate() {
   return { router, wrapper }
 }
 
-describe('AlbumCreateView — §43 creazione album', () => {
+describe('AlbumCreateView — album creation', () => {
   it('an empty name shows a toast and creates nothing', async () => {
     const { wrapper } = await mountCreate()
 
@@ -146,8 +146,8 @@ describe('AlbumCreateView — §43 creazione album', () => {
     await filterOption!.trigger('click')
     await flushPromises()
 
-    // Il trigger della picklist "Cartella" è già il campo di default della
-    // prima condizione (§43: freshAlbumDraft parte su "Cartella").
+    // The "Cartella" picklist trigger is already the default field of the
+    // first condition (freshAlbumDraft starts on "Cartella").
     await wrapper.get('[aria-haspopup="listbox"]').trigger('click')
     await flushPromises()
     const option = document.body.querySelectorAll('[role="option"]')[0] as HTMLElement

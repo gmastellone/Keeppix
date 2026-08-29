@@ -99,7 +99,7 @@ async function mountView() {
   return { wrapper, router }
 }
 
-describe('CullingLotsView — §14 griglia dei lotti', () => {
+describe('CullingLotsView — lots grid', () => {
   it('shows the culling root line and the real lots grid', async () => {
     const { wrapper } = await mountView()
 

@@ -1,19 +1,15 @@
 <script setup lang="ts">
-// Fase 11 Task 7 (§13, "Modifica in blocco" — definizione canonica) —
-// riscrittura, non affiancamento (PROSEGUI.md, stessa Ruling già applicata
-// a TimelineView nel Task 4): la vista precedente (selettore di posizione,
-// copia posizione, importazione GPX) non corrisponde a nessuna schermata
-// documentata in questa pagina — verificato con una ricerca sull'intero
-// documento, nessun risultato. `PlacePicker.vue`/`copyLocation`/`importGpx`
-// restano intatti: appartengono al dialog "Imposta posizione" (§28,
-// Lightbox, Task 8), solo scollegati da qui, non eliminati.
+// The previous version of this view (a location picker, copy location,
+// GPX import) did not match batch editing's real purpose:
+// `PlacePicker.vue`/`copyLocation`/`importGpx` remain intact — they
+// belong to the "Set location" dialog (Lightbox), just unlinked from
+// here, not deleted.
 //
-// Otto sezioni nell'ordine esatto del documento (§13.2): Valutazione,
-// Pick/Scarta, Preferiti, Album, Tag, Titolo, Rinomina file, Sposta in
-// cartella. "Applica" scrive in un colpo solo i campi 1/2/3/6/8 (§13.3
-// punto 9); Album/Tag/Rinomina agiscono subito, fuori da "Applica" — i
-// loro dialog sono già costruiti (AlbumPickerDialog Task 7 2/N,
-// TagPickerDialog/RenameFormulaDialog qui).
+// Eight sections in a fixed order: Rating, Pick/Reject, Favorites, Album,
+// Tag, Title, Rename file, Move to folder. "Apply" writes fields
+// 1/2/3/6/8 in one shot; Album/Tag/Rename act immediately, outside of
+// "Apply" — their dialogs are already built (AlbumPickerDialog,
+// TagPickerDialog/RenameFormulaDialog here).
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -48,10 +44,9 @@ const assets = ref<TimelineAsset[]>([])
 const loaded = ref(false)
 const applying = ref(false)
 
-// "Non modificare" è sempre l'opzione iniziale a ogni ingresso (§13.3,
-// "Stati per ogni controllo") — nessuna lettura dei flag attuali delle
-// foto selezionate, a differenza del cuoricino singolo: qui la bozza
-// parte sempre azzerata.
+// "Unchanged" is always the initial option on every entry — no reading
+// of the selected photos' current flags, unlike the single-photo
+// favorite toggle: here the draft always starts blank.
 const rating = ref(0)
 const pickChoice = ref<'unchanged' | PickValue>('unchanged')
 const favoriteChoice = ref<'unchanged' | 'add' | 'remove'>('unchanged')
@@ -86,15 +81,16 @@ onMounted(async () => {
   if (!shell.loaded) void shell.load()
 })
 
-/** Rating/Pick/Preferiti condividono lo stesso endpoint di rimpiazzo
- * completo (`AssetFlagsBody`, non una patch) — a differenza di un singolo
- * asset (`stores/favorites.ts`), qui ogni foto della selezione può avere
- * un valore corrente diverso: non esiste un corpo condiviso valido per
- * tutte, quindi si legge e riscrive **una alla volta**, come `setMany`
- * già fa per il solo cuoricino. Nessun endpoint batch "parziale" esiste
- * per questi tre campi insieme (verificato: `POST /flags/batch` è anch'esso
- * un rimpiazzo completo, scriverebbe pick/preferiti non toccati a
- * "nessuno"/falso su ogni foto — sbagliato per "lasciane uno invariato").
+/** Rating/Pick/Favorite share the same full-replacement endpoint
+ * (`AssetFlagsBody`, not a patch) — unlike a single asset
+ * (`stores/favorites.ts`), here each photo in the selection can have a
+ * different current value: there is no shared body valid for all of
+ * them, so each one is read and rewritten **one at a time**, the same
+ * way `setMany` already does for the favorite toggle alone. No "partial"
+ * batch endpoint exists for these three fields together (verified:
+ * `POST /flags/batch` is also a full replacement, it would write
+ * untouched pick/favorite fields to "none"/false on every photo — wrong
+ * for "leave this one unchanged").
  */
 async function applyFlags() {
   for (const asset of assets.value) {
@@ -108,9 +104,9 @@ async function applyFlags() {
   }
 }
 
-/** §13.3 punto 9: mai disabilitato, nemmeno a bozza intatta — in quel caso
- * azzera comunque la selezione, mostra il toast e torna indietro senza
- * aver cambiato nulla. */
+/** Never disabled, even with an untouched draft — in that case it still
+ * clears the selection, shows the toast, and navigates back without
+ * having changed anything. */
 async function apply() {
   if (applying.value) return
   applying.value = true
@@ -131,9 +127,9 @@ async function apply() {
   }
 }
 
-/** §13.3 punto 10: torna alla timeline senza applicare i campi 1-2-3-6-8 e
- * senza azzerare la selezione — ciò che Album/Tag/Rinomina hanno già
- * fatto resta comunque fatto. */
+/** Returns to the timeline without applying fields 1-2-3-6-8 and without
+ * clearing the selection — whatever Album/Tag/Rename already did stays
+ * done. */
 function cancel() {
   void router.push('/')
 }

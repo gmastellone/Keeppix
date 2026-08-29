@@ -1,39 +1,31 @@
 <script setup lang="ts">
-// Fase 11 Task 16 (1/N) — documento funzionale §32 "Persone — dettaglio
-// di una persona" (righe 5420-5524), verificato riga per riga.
+// **All five action buttons are real**: "Assign/Change group" reuses
+// `AssignGroupDialog.vue`; "Choose cover" (`ChooseCoverDialog.vue`) and
+// "Split…" (`SplitPersonDialog.vue`) both build their own thumbnails from
+// `fetchPersonFaceTiles` on the photos already loaded here (`assets`),
+// one confirmed face per thumbnail.
 //
-// **Tutti e cinque i pulsanti d'azione sono ora reali** (§32.3):
-// "Assegna/Cambia gruppo" (Task 16 2/N, riusa `AssignGroupDialog.vue`
-// §34); "Scegli copertina" (§33, Task 16 4/N, `ChooseCoverDialog.vue`)
-// e "Dividi…" (§36, Task 16 4/N, `SplitPersonDialog.vue`) — entrambi
-// costruiscono le proprie miniature da `fetchPersonFaceTiles` sulle
-// foto già caricate qui (`assets`), un volto confermato per miniatura.
+// **"Fewer than two faces" is approximated with `assets.length`**: the
+// exact count of *faces* (not distinct photos) would require loading all
+// the split dialog's thumbnails just for a preliminary check —
+// disproportionate cost for the rare case where they differ (two
+// confirmed faces in the same photo). `assets.length` is the same number
+// already shown in this view's summary line, honest even if not
+// identical to "N faces" in that rare case.
 //
-// **"Meno di due volti" (§32.3 controllo 5) approssimato con
-// `assets.length`**: il conteggio esatto dei *volti* (non delle foto
-// distinte) richiederebbe caricare tutte le miniature del dialog di
-// separazione solo per un controllo preliminare — costo sproporzionato
-// per il caso raro in cui differiscono (due volti confermati nella
-// stessa foto). `assets.length` è lo stesso numero già mostrato nella
-// riga di riepilogo di questa vista, onesto anche se non identico a
-// "N volti" in quel raro caso.
+// **Photo grid = `photosForPerson()`**: `runSearch({op: 'person', id})`,
+// paginated like Favorites (same `do…while(cursor)` scheme — no person's
+// photo set is ever large enough to justify incremental loading, same
+// reasoning already applied there). `useBrowseFilters` operates over the
+// person's own photo set, not the whole library — the "Persons" quick
+// filter dimension is still present and can further narrow down to
+// co-appearances, a behavior this scoping gives for free since the
+// Persons quick-filter dimension already exists.
 //
-// **Griglia foto = `photosForPerson()`** (§32.2): `runSearch({op:
-// 'person', id})`, paginata come Preferiti (Task 7 3/N, stesso schema
-// `do…while(cursor)` — nessuna foto di una persona è mai così numerosa
-// da giustificare un caricamento incrementale, stesso ragionamento già
-// fatto lì). SP-3 (`useBrowseFilters`) sopra l'insieme delle foto della
-// persona, non sopra l'intera libreria — §32.3 controllo 8: "qui è
-// particolare che la dimensione 'Persone' sia ancora presente e possa
-// restringere ulteriormente alle co-presenze", comportamento che questa
-// riduzione dà gratis (la dimensione Persone del filtro rapido esiste
-// già, Fase 11 Task 7).
-//
-// **"Mostra di nuovo" resta di fatto irraggiungibile** (§32.7, nota
-// importante): nascondendo si torna alla griglia, e le persone nascoste
-// sono escluse da `visiblePeople()` — nessun percorso reale per
-// riaprire questo dettaglio su una persona nascosta. Non "risolto" qui,
-// stesso comportamento del documento.
+// **"Show again" stays effectively unreachable**: hiding returns to the
+// grid, and hidden people are excluded from `visiblePeople()` — there is
+// no real path to reopen this detail view on a hidden person. Not
+// "solved" here, same behavior as intended.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -110,9 +102,9 @@ async function load() {
     await Promise.all([loadPhotos(), loadGroup()])
     loaded.value = true
   } catch {
-    // §32.8: "se la persona sparisce… si ricade automaticamente sulla
-    // griglia" — stesso comportamento per un id inesistente o non più
-    // visibile (403, mai un 404 — vedi il commento del backend).
+    // If the person disappears, we automatically fall back to the grid —
+    // same behavior for a nonexistent or no-longer-visible id (403, never
+    // a 404 — see the backend's comment).
     notFound.value = true
     await router.replace('/persons')
   }
@@ -195,9 +187,8 @@ function onCoverUpdated(updated: Person) {
 const splitOpen = ref(false)
 
 function askSplit() {
-  // §32.3 controllo 5: "se la persona ha meno di due volti, il dialog
-  // non si apre" — approssimato con `assets.length` (vedi commento di
-  // testa del file).
+  // If the person has fewer than two faces, the dialog does not open —
+  // approximated with `assets.length` (see the file's header comment).
   if (assets.value.length < 2) {
     toast.showError(t('splitPerson.tooFewFaces'))
     return

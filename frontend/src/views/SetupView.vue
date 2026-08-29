@@ -26,7 +26,7 @@ const password = ref('')
 const error = ref('')
 const loading = ref(false)
 
-/** Il backend restituisce codici stabili: la traduzione avviene qui. */
+/** The backend returns stable error codes; the translation happens here. */
 function messageFor(e: unknown): string {
   if (!(e instanceof ApiProblem)) return t('common.unexpectedError')
   const known: Record<string, string> = {

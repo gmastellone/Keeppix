@@ -43,10 +43,10 @@ vi.mock('@/api/client', async (importOriginal) => {
 
 const { apiFetch } = await import('@/api/client')
 
-// `FlatAssetGrid`/`SelectionBar` (Task 9 3/N, §25) montano `useDensity`/
-// il layout giustificato, che leggono `clientWidth`/`clientHeight` e
-// `window.matchMedia` — nessuno dei due esiste in jsdom di base. Stesso
-// correttivo di `FavoritesView.spec.ts`.
+// `FlatAssetGrid`/`SelectionBar` mount `useDensity`/the justified layout,
+// which read `clientWidth`/`clientHeight` and `window.matchMedia` —
+// neither exists in jsdom by default. Same fix as in
+// `FavoritesView.spec.ts`.
 function stubLayout(width: number, height: number) {
   const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
   const heightDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
@@ -115,12 +115,12 @@ function suggestion(kind: Suggestion['kind'], value: string, label = value): Sug
 }
 
 /**
- * `apiFetchImpl` di proposito parametrizzabile: `AssetViewer.vue` apre il
- * pannello informazioni già aperto (§19.8) e carica il proprio giro di
- * dati (`loadPanelData`) subito al montaggio — un default a `[]` copre
- * gli endpoint che vogliono un array (tag/album/volti/stack); il test su
- * "?photo=" passa la propria implementazione perché deve rispondere
- * anche a `GET /assets/{id}`.
+ * `apiFetchImpl` is deliberately parameterizable: `AssetViewer.vue` opens
+ * the info panel already open and loads its own round of data
+ * (`loadPanelData`) right on mount — a default of `[]` covers the
+ * endpoints that expect an array (tags/albums/faces/stack); the "?photo="
+ * test passes its own implementation because it must also respond to
+ * `GET /assets/{id}`.
  */
 async function mountSearch(
   initialPath = '/search',
@@ -203,7 +203,7 @@ describe('SearchView lightbox in the URL', () => {
   })
 })
 
-describe('SearchView — §23, il composer e i suggerimenti', () => {
+describe('SearchView — the composer and suggestions', () => {
   it('typing free text runs the search on every keystroke, no submit button involved', async () => {
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
     const { wrapper } = await mountSearch()
@@ -216,7 +216,7 @@ describe('SearchView — §23, il composer e i suggerimenti', () => {
     expect(runSearch).toHaveBeenLastCalledWith({ op: 'text', value: 'tramonto' }, undefined)
   })
 
-  it('focusing an empty field shows only the Tag and Cartella groups (§23.2, "incoraggia la scoperta")', async () => {
+  it('focusing an empty field shows only the Tag and Cartella groups (encourages discovery)', async () => {
     const { wrapper } = await mountSearch('/search', {
       tags: [tag('t1', 'Paesaggi'), tag('t2', 'Tramonti')],
       folders: [folder('f1', 'Urbino')]
@@ -294,10 +294,10 @@ describe('SearchView — §23, il composer e i suggerimenti', () => {
     await flushPromises()
 
     expect(wrapper.find('.search-pill').exists()).toBe(false)
-    // Senza più alcuna pillola/testo, `hasSearch` torna falso: non "nessuna
-    // ricerca" ma lo stato di scoperta (§25.2), che ricalcola la griglia
-    // "Aggiunti di recente" con l'AST "tutto" — una sola pagina, non il
-    // giro esaustivo di una vera ricerca.
+    // With no pill/text left, `hasSearch` goes back to false: not "no
+    // search" but the discovery state, which recomputes the "Recently
+    // added" grid with the "everything" AST — a single page, not the
+    // exhaustive round trip of a real search.
     expect(runSearch).toHaveBeenCalledTimes(1)
     expect(runSearch).toHaveBeenCalledWith({ op: 'and', args: [] })
   })
@@ -329,9 +329,9 @@ describe('SearchView — §23, il composer e i suggerimenti', () => {
     await wrapper.findAll('.search-suggest-row')[0].trigger('click')
     await flushPromises()
 
-    // Con la pillola già presente, lo stesso tag non deve più comparire
-    // tra i suggerimenti (`has(type,value)`, §23.2) — riscrivere lo
-    // stesso testo non produce un secondo gruppo "Tag".
+    // With the pill already present, the same tag must no longer appear
+    // among the suggestions (`has(type,value)`) — retyping the same text
+    // doesn't produce a second "Tag" group.
     await wrapper.find('#search-query-input').setValue('tram')
     await flushPromises()
 
@@ -368,7 +368,7 @@ describe('SearchView — §23, il composer e i suggerimenti', () => {
     expect((wrapper.find('#search-query-input').element as HTMLInputElement).value).toBe('tramonto')
   })
 
-  it('clicking outside the composer closes the suggestion panel (§23.4, listener a livello di document)', async () => {
+  it('clicking outside the composer closes the suggestion panel (document-level listener)', async () => {
     const { wrapper } = await mountSearch()
 
     await wrapper.find('#search-query-input').trigger('focus')
@@ -381,7 +381,7 @@ describe('SearchView — §23, il composer e i suggerimenti', () => {
     expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
   })
 
-  it('ArrowDown from the input moves focus onto the first suggestion row (accessibility gap the doc calls out, §23.5)', async () => {
+  it('ArrowDown from the input moves focus onto the first suggestion row', async () => {
     const { wrapper } = await mountSearch('/search', { tags: [tag('t1', 'Tramonti')], attachToBody: true })
 
     await wrapper.find('#search-query-input').trigger('focus')
@@ -396,7 +396,7 @@ describe('SearchView — §23, il composer e i suggerimenti', () => {
   })
 })
 
-describe('SearchView — §23.3, i chip del tipo file', () => {
+describe('SearchView — file type chips', () => {
   function chip(wrapper: ReturnType<typeof mount>, label: string) {
     return wrapper.findAll('button').find((el) => el.text() === label)
   }
@@ -420,9 +420,9 @@ describe('SearchView — §23.3, i chip del tipo file', () => {
     vi.mocked(runSearch).mockResolvedValue({ assets: [] })
     const { wrapper } = await mountSearch()
 
-    // Il chip da solo non conta come "ricerca" (§25.2): resta lo stato di
-    // scoperta, quindi la chiamata passa per `loadRecent()` — una sola
-    // pagina, senza cursore — non per il giro esaustivo di una ricerca vera.
+    // A chip alone doesn't count as a "search": the discovery state stays
+    // active, so the call goes through `loadRecent()` — a single page,
+    // no cursor — not the exhaustive round trip of a real search.
     await chip(wrapper, 'RAW')?.trigger('click')
     await flushPromises()
     expect(runSearch).toHaveBeenLastCalledWith({ op: 'type', value: 'raw_image' })
@@ -464,7 +464,7 @@ describe('SearchView — §23.3, i chip del tipo file', () => {
     expect(runSearch).not.toHaveBeenCalled()
   })
 
-  it('clear-all does not reset the type chip (§23.3, "non azzera il chip del tipo file")', async () => {
+  it('clear-all does not reset the type chip', async () => {
     const { wrapper } = await mountSearch()
 
     await chip(wrapper, 'RAW')?.trigger('click')
@@ -476,7 +476,7 @@ describe('SearchView — §23.3, i chip del tipo file', () => {
   })
 })
 
-describe('SearchView — §25, area risultati e scoperta', () => {
+describe('SearchView — results and discovery area', () => {
   it('the discovery state (no search) shows saved searches, folder cards with a real recursive count, and "Recently added"', async () => {
     const { wrapper } = await mountSearch('/search', {
       roots: [folder('f1', 'Urbino')],

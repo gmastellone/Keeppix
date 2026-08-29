@@ -154,7 +154,7 @@ async function mountProblems() {
   return { wrapper, router, session }
 }
 
-describe('ProblemsView — §47 Problemi', () => {
+describe('ProblemsView — Problems', () => {
   it('shows an error and retry when loading fails, then loads the real empty state', async () => {
     fetchProblemsMock.mockRejectedValue(new Error('offline'))
     const { wrapper } = await mountProblems()
@@ -168,7 +168,7 @@ describe('ProblemsView — §47 Problemi', () => {
     expect(wrapper.text()).toContain('Nessun problema rilevato')
   })
 
-  it('su sessione scaduta (401) rimanda al login invece di mostrare un errore generico', async () => {
+  it('redirects to login instead of showing a generic error on expired session (401)', async () => {
     fetchProblemsMock.mockRejectedValue(new ApiProblem('keeppix/unauthenticated', 'Authentication required', 401))
     const { wrapper, router, session } = await mountProblems()
 
@@ -264,7 +264,7 @@ describe('ProblemsView — §47 Problemi', () => {
     expect(document.body.textContent).toContain('/data/lago-di-braies')
   })
 
-  it('keeps the real timezone tool at the bottom of the page, unrelated to §47', async () => {
+  it('keeps the real timezone tool at the bottom of the page, unrelated to the problems list', async () => {
     fetchLibrariesMock.mockResolvedValue([library({ id: 'lib-9', name: 'Urbino' })])
     const { wrapper } = await mountProblems()
 
@@ -272,7 +272,7 @@ describe('ProblemsView — §47 Problemi', () => {
     expect(wrapper.text()).toContain('Urbino')
   })
 
-  describe('avanzamento reale della scansione dopo una riconnessione (debito wired-exceptions chiuso il 26 agosto)', () => {
+  describe('real scan progress after a reconnection', () => {
     it('a successful reconnect starts a real scan and shows its progress card', async () => {
       fetchProblemsMock.mockResolvedValue(problemsResult([offlineProblem()]))
       probeLibraryMock.mockResolvedValue(library({ status: 'active' }))

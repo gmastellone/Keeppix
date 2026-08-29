@@ -73,7 +73,7 @@ async function mountPeople() {
   return { wrapper, router }
 }
 
-describe('PeopleView — §31 Persone (griglia ridotta senza gruppi, 1/N)', () => {
+describe('PeopleView — People (reduced grid, no groups)', () => {
   it('lists only visible people with at least one confirmed face', async () => {
     vi.mocked(fetchPersons).mockImplementation(async (includeHidden) =>
       includeHidden
@@ -132,7 +132,7 @@ describe('PeopleView — §31 Persone (griglia ridotta senza gruppi, 1/N)', () =
   })
 })
 
-describe('PeopleView — §31 gruppi (2/N)', () => {
+describe('PeopleView — groups', () => {
   it('partitions people into group blocks and a trailing "Senza gruppo" block', async () => {
     vi.mocked(fetchPersons).mockResolvedValue([person({ id: 'p1', name: 'Marta' }), person({ id: 'p2', name: 'Davide' })])
     vi.mocked(fetchPersonGroups).mockResolvedValue([group({ id: 'g1', name: 'Famiglia' })])

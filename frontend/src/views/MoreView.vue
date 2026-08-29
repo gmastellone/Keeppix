@@ -1,48 +1,37 @@
 <script setup lang="ts">
-// Fase 11 Task 6 (7/N) — documento funzionale §6 ("Pagina 'Altro' /
-// Libreria su mobile"), verificato riga per riga (righe 1135-1281).
+// A flat list with NO accordion, unlike the desktop sidebar, which uses
+// `NavGroup` — not reused here on purpose: all rows appear already open,
+// no group to expand.
 //
-// Elenco piatto SENZA accordion — il documento lo dice esplicitamente
-// (§6.6: "nessuna animazione... le righe compaiono già tutte aperte";
-// §6.1: "niente più accordion da aprire"), a differenza della sidebar
-// desktop che usa `NavGroup`. Non riusato qui apposta.
+// Scope: the same real destinations as AppSidebar (Favorites and Persons
+// included), not a fixed set of generic groups.
 //
-// Ambito dichiarato: stesse destinazioni reali di AppSidebar (Task 6
-// 1/N e 4/N; Preferiti aggiunta nel Task 7 3/N; Persone nel Task 16
-// 1/N), non i dodici gruppi canonici del mockup.
+// "Persons" lives here under "Library" ("from mobile 'More' → 'Library'
+// group → 'Persons'"), **not** in `NAV_TOP` like on desktop
+// (`AppSidebar.vue`) — a per-platform placement difference, not a
+// divergence introduced here.
 //
-// "Persone" vive qui sotto "Libreria" (§31.8: "da mobile 'Altro' →
-// gruppo 'Libreria' → 'Persone'"), **non** in `NAV_TOP` come su
-// desktop (`AppSidebar.vue`) — posizionamento diverso per piattaforma,
-// dichiarato dallo stesso paragrafo del documento, non una divergenza
-// introdotta qui.
-//
-// Il gruppo "IA" (Task 15) ha due voci reali: "Tag e categorie" e
-// "Revisione" (badge `shell.badges.revision`, stesso dato di
-// `AppSidebar.vue`). "Analisi libreria" resta fuori per sempre, non solo
-// per ora: nessuna rotta la legge (stesso commento esteso in
+// The "AI" group has two real entries: "Tags and categories" and
+// "Review" (badge `shell.badges.revision`, same data as
+// `AppSidebar.vue`). "Library analysis" stays out permanently, not just
+// for now: no route reads it (same extended comment in
 // `AppSidebar.vue`).
-// - "Condivisi con me" / "Le mie condivisioni" come due righe
-//   distinte: `SharesView` non ha le due schede `state.shareTab` del
-//   mockup, è un'unica vista — collassate in una sola riga
-//   "Condivisioni" verso `/shares`.
-// - Il valore secondario "N cartelle" della riga "Cartelle": nessun
-//   conteggio è disponibile senza una chiamata dedicata solo per
-//   questo badge (stesso motivo per cui `FolderView` non porta un
-//   conteggio foto, Task 6 1/N).
-// - La sotto-pagina "Cartelle" con le card a gradiente (copertina
-//   dalla prima foto, conteggio foto): non è `/folders` (l'albero
-//   cartelle reale, Task 6 4/N) — quella sotto-pagina non esiste,
-//   "Cartelle" porta direttamente a `/folders`.
-// Aggiunta, non nel mockup: "Amministrazione" (Utenti/Gruppi, solo
-// `role==='admin'`), stesso motivo di AppSidebar — funzione reale del
-// backend multiutente che il mockup a singolo utente non modella.
+// - "Shared with me" / "My shares" as two distinct rows: `SharesView`
+//   has no separate tabs for that — it's a single view, collapsed into
+//   one "Shares" row pointing to `/shares`.
+// - No secondary "N folders" value on the "Folders" row: no count is
+//   available without a dedicated call just for that badge (the same
+//   reason `FolderView` carries no photo count).
+// - No "Folders" sub-page with gradient cards (cover from the first
+//   photo, photo count): that sub-page doesn't exist here, "Folders"
+//   goes directly to `/folders` (the real folder tree).
+// Added, not part of any mockup: "Administration" (Users/Groups, only
+// for `role==='admin'`) — same reason as AppSidebar, a real feature of
+// the multi-user backend.
 //
-// Nessuna icona: questo frontend non ha ancora un sistema di icone
-// (stesso stato di fatto di AppSidebar, mai dichiarato esplicitamente
-// lì — lo è qui). Ogni riga è un vero <RouterLink>, raggiungibile da
-// tastiera per costruzione — il prototipo non lo è (§6.5: le righe
-// sono `<div>` senza `tabindex` né `bindActivatable`).
+// No icons: this frontend doesn't have an icon system yet (same state of
+// affairs as AppSidebar). Every row is a real `<RouterLink>`, keyboard
+// reachable by construction.
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -54,19 +43,17 @@ const { t } = useI18n()
 const session = useSessionStore()
 const shell = useShellStore()
 
-// Aggiunto, non nel documento funzionale (§6 non lo prevede): indicatore
-// di sola visualizzazione per le due operazioni automatiche senza alcun
-// innesco utente — `AiAnalysis`/`FaceDetection` (finestre in background,
-// mai una rotta HTTP a differenza di `LibraryScan`/`BulkRename`, vedi
-// `scripts/wired-exceptions.txt`, Task 16 Fase 10). Nessun pulsante
-// pausa/annulla di proposito: solo visibilità di cosa sta succedendo in
-// background, non un controllo. `operation.progress` non porta `kind`
-// (Task 16, spec originale) — il tipo si legge dalla stringa `phase`,
-// l'unica che i due job impostano davvero (`embed.rs`: "embedding",
-// `detect_faces.rs`: "detecting"); `LibraryScan` resta a `''` per tutta
-// la corsa e `BulkRename` usa "renaming"/"undoing" — entrambi ignorati
-// qui, hanno già una superficie propria altrove (`ProblemsView.vue`,
-// `RenameFormulaDialog.vue`).
+// Added: a view-only indicator for the two automatic operations with no
+// user-initiated trigger — `AiAnalysis`/`FaceDetection` (background
+// windows, never an HTTP route, unlike `LibraryScan`/`BulkRename`). No
+// pause/cancel button on purpose: this is just visibility into what's
+// happening in the background, not a control. `operation.progress`
+// carries no `kind` field — the type is read from the `phase` string,
+// the only field the two jobs actually set (`embed.rs`: "embedding",
+// `detect_faces.rs`: "detecting"); `LibraryScan` stays at `''` for its
+// entire run and `BulkRename` uses "renaming"/"undoing" — both ignored
+// here, since they already have their own surface elsewhere
+// (`ProblemsView.vue`, `RenameFormulaDialog.vue`).
 type BackgroundKind = 'ai_analysis' | 'face_detection'
 const PHASE_TO_KIND: Record<string, BackgroundKind> = {
   embedding: 'ai_analysis',
@@ -103,8 +90,8 @@ onMounted(() => {
       })
       return
     }
-    // Fase terminale ("done"/"cancelled"/"failed") o di un altro tipo di
-    // operazione: se la conoscevamo, esce dal riquadro.
+    // Terminal phase ("done"/"cancelled"/"failed") or a different
+    // operation type: if we knew about it, it leaves the panel.
     if (backgroundOps.value.has(payload.operation_id)) {
       const next = new Map(backgroundOps.value)
       next.delete(payload.operation_id)

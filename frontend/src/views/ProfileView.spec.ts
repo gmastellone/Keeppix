@@ -96,7 +96,7 @@ async function mountProfile() {
   return { wrapper, sessionStore }
 }
 
-describe('ProfileView — §61 Profilo', () => {
+describe('ProfileView — Profile', () => {
   it('shows the header with role and loads real sessions + TOTP status', async () => {
     const { wrapper } = await mountProfile()
 
