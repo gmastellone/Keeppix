@@ -95,7 +95,7 @@ describe('AppSidebar', () => {
     // "Maintenance" stays closed (none of its sub-items is current).
     const { wrapper } = await mountSidebar('/users')
     const links = wrapper.findAll('a')
-    // 5 NAV_TOP + Cartelle + Album + Utenti + Gruppi (Manutenzione chiusa)
+    // 5 NAV_TOP + Folders + Albums + Users + Groups (Maintenance closed)
     expect(links.length).toBeGreaterThanOrEqual(9)
     for (const link of links) {
       expect(link.element.tagName).toBe('A')

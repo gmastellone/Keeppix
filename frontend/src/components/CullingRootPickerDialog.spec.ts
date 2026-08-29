@@ -43,7 +43,7 @@ function mountHost(initialPath: FolderView[] = [root]) {
       return { open, initialPath, onConfirm: (id: string) => emit('confirm', id) }
     },
     template: `
-      <button ref="trigger" type="button" @click="open = true">Change…</button>
+      <button ref="trigger" type="button" @click="open = true">Cambia…</button>
       <ThePicker v-model:open="open" :initial-path="initialPath" @confirm="onConfirm" />
     `
   })
@@ -143,7 +143,7 @@ describe('CullingRootPickerDialog', () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('deviates from SP-5: clicking the scrim does not close the dialog', async () => {
+  it('deviates from the shared Dialog.vue pattern: clicking the scrim does not close the dialog', async () => {
     const w = mountHost([root])
     await openViaTrigger(w)
 
@@ -165,7 +165,7 @@ describe('CullingRootPickerDialog', () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('nothing receives focus automatically on open (no auto-focus, deviates from SP-5)', async () => {
+  it('nothing receives focus automatically on open (no auto-focus, deviates from the shared Dialog.vue pattern)', async () => {
     const w = mountHost([root])
     const trigger = await openViaTrigger(w)
 
