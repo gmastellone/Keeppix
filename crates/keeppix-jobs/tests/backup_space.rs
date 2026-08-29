@@ -1,5 +1,5 @@
-//! Destination free-space must be checked *before* staging work (spec §2.2 /
-//! adversarial review). A failure mid-backup after `pg_dump` + pack wastes I/O.
+//! Destination free-space must be checked *before* staging work. A failure
+//! mid-backup after `pg_dump` + pack wastes I/O.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 

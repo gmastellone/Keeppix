@@ -51,11 +51,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cp target/release/keeppix /usr/local/bin/keeppix
 
 # ── libraw ────────────────────────────────────────────────────────────────
-# `dcraw_emu` serve al demosaic dei RAW: `keeppix-media` lo invoca come
-# processo separato con `rlimit` (mai in-process, vedi AGENTS.md). Senza di
-# esso `derive_raw` non può ripiegare sul demosaic quando l'anteprima
-# incorporata è troppo piccola, e `GET /media/full` risponde 503
-# `keeppix/full-unavailable`: lo zoom del culling sui RAW non funziona.
+# `dcraw_emu` handles RAW demosaicing: `keeppix-media` invokes it as a
+# separate process with `rlimit` (never in-process — it's C code decoding
+# untrusted files). Without it, `derive_raw` can't fall back to demosaicing
+# when the embedded preview is too small, and `GET /media/full` responds 503
+# `keeppix/full-unavailable`: RAW zoom in culling stops working.
 #
 # distroless non ha package manager, quindi il binario e le sue librerie si
 # raccolgono qui e si copiano nel runtime. Stessa base Debian 13 del runtime
