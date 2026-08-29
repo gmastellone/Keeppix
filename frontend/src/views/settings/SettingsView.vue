@@ -1,47 +1,41 @@
 <script setup lang="ts">
-// Fase 11 Task 14 (1/N) — documento funzionale §60 "Impostazioni",
-// verificato riga per riga (righe 8813-9127). Sette delle otto sezioni
-// hanno una capacità reale da rispecchiare fedelmente; una no, e resta
-// fuori da questa pagina, dichiarata esplicitamente qui invece che
-// finta con dati a caso:
+// This settings page mirrors real backend capability for each section.
+// Seven of the eight sections have a real capability to reflect
+// faithfully; one does not and is explicitly left out of this page
+// rather than faked with placeholder data:
 //
-// - **"Intelligenza artificiale"**: i numeri reali esistono
-//   (`AnalysisLevel::ms_per_photo()`, `crates/keeppix-jobs/src/
-//   profile.rs:50-74`, 45ms Piena/270ms Ridotta, misurati sul vero
-//   modello MobileCLIP2-S2) ma **nessuna rotta li legge**: stesso
-//   motivo, stessa scelta.
+// - **"AI"**: real numbers exist (`AnalysisLevel::ms_per_photo()`,
+//   `crates/keeppix-jobs/src/profile.rs:50-74`, 45ms Full/270ms Reduced,
+//   measured on the real MobileCLIP2-S2 model) but **no route reads
+//   them**: same reason, same choice to leave it out.
 //
-// Le altre sette sezioni sono reali:
-// - **Cartella di culling** (Task 17, 2/N): `PATCH .../culling-root` e
-//   `GET .../culling/lots` non esistevano quando questa pagina fu
-//   scritta la prima volta (Task 14) — la sezione restava dichiarata
-//   fuori scope. Le rotte sono arrivate col Task 17 (Ruling nel ledger
-//   del 24 agosto): una riga per libreria, stesso adattamento già
-//   scelto per "Riconoscimento volti" qui sotto (per libreria, non per
-//   istanza come lo descrive il documento). Il percorso mostrato è una
-//   briciola di **nomi** di cartella (`folders.name`, risalendo
-//   `parent_id` con `fetchAllFolders()`), non un percorso su disco: il
-//   backend non espone un percorso assoluto per una cartella qualunque
-//   (solo `Library.root_path`, la radice della libreria intera).
-// - **Aspetto**: `stores/theme.ts` (Task 14, questa unità), preferenze
-//   server (`GET/PATCH /users/me/preferences`, Fase 10 Task 9, mai
-//   consumate dal frontend prima d'ora).
-// - **Densità griglia**: `useDensity` (riscritto in questa unità),
-//   stessa fonte, due valori distinti desktop/mobile per davvero.
-// - **Mappe offline**: `MapsOfflineView.vue` esiste già, completa —
-//   qui solo il collegamento reale.
-// - **Notifiche**: tre preferenze reali, mai un effetto visibile altrove
-//   nell'app (nessun sottosistema di notifiche esiste ancora) — la
-//   stessa scrittura del documento, che le tratta come sole preferenze.
-// - **Lingua**: a differenza del mockup ("il select non ha id né alcun
-//   gestore: cambiarlo non fa nulla"), qui `session.changeLocale` è già
-//   reale e funzionante dalla Fase 10 — un miglioramento reale, non un
-//   controllo inerte.
-// - **Riconoscimento volti**: reale ma **per libreria**, non per
-//   istanza come lo descrive il documento (`LibraryView.faces_enabled`)
-//   — una riga per libreria, non un solo interruttore. "Elimina tutti i
-//   dati dei volti" è invece davvero globale e admin-only
-//   (`DELETE /faces/data`).
+// The other seven sections are real:
+// - **Culling root folder**: `PATCH .../culling-root` and
+//   `GET .../culling/lots` didn't exist when this page was first
+//   written, so the section stayed declared out of scope. The routes
+//   have since landed: one row per library, the same per-library
+//   approach already used for "Face recognition" below (per library,
+//   not a single global toggle). The path shown is a breadcrumb of
+//   folder **names** (`folders.name`, walking up `parent_id` via
+//   `fetchAllFolders()`), not a filesystem path: the backend doesn't
+//   expose an absolute path for an arbitrary folder (only
+//   `Library.root_path`, the library's own root).
+// - **Appearance**: `stores/theme.ts`, plus server-side preferences
+//   (`GET/PATCH /users/me/preferences`) that the frontend now consumes
+//   for the first time.
+// - **Grid density**: `useDensity`, same source, two genuinely distinct
+//   desktop/mobile values.
+// - **Offline maps**: `MapsOfflineView.vue` already exists and is
+//   complete — this section only adds the real link to it.
+// - **Notifications**: three real preferences with no visible effect
+//   elsewhere in the app yet (no notification subsystem exists), so
+//   they're treated here purely as preferences.
+// - **Language**: `session.changeLocale` is already real and functional
+//   here.
+// - **Face recognition**: real, but **per library**
+//   (`LibraryView.faces_enabled`) rather than a single global switch —
+//   one row per library. "Delete all face data" is genuinely global and
+//   admin-only (`DELETE /faces/data`).
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -158,10 +152,10 @@ function cullingPathName(library: Library): string | null {
     : null
 }
 
-/** Radice-a-foglia per il dialog (§17.2: "si posiziona sul percorso
- * attualmente configurato... se quel percorso esiste nell'albero;
- * altrimenti riparte dalla radice"). `[]` solo se la libreria non ha
- * ancora una cartella radice propria (scansione non ancora avvenuta). */
+/** Root-to-leaf path for the dialog: starts at the currently configured
+ * path if it still exists in the tree, otherwise falls back to the
+ * root. `[]` only when the library doesn't have its own root folder yet
+ * (not scanned yet). */
 function pickerInitialPath(library: Library): FolderView[] {
   const root = libraryRoot(library)
   if (!root) return []
@@ -190,8 +184,8 @@ async function loadLotCount(libraryId: string) {
     const lots = await fetchCullingLots(libraryId)
     lotCounts.value = { ...lotCounts.value, [libraryId]: lots.length }
   } catch {
-    // Conteggio informativo: un fallimento qui non deve bloccare la sezione,
-    // resta semplicemente assente (il template ricade su 0).
+    // Informational count only: a failure here must not block the section,
+    // it's simply left absent (the template falls back to 0).
   }
 }
 

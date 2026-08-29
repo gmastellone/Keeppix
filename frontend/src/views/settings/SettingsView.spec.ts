@@ -174,7 +174,7 @@ async function mountSettings(user: User = adminUser) {
   return { wrapper }
 }
 
-describe('SettingsView — §60 Impostazioni', () => {
+describe('SettingsView — Settings', () => {
   it('loads real preferences and libraries on mount', async () => {
     const { wrapper } = await mountSettings()
 
@@ -204,11 +204,11 @@ describe('SettingsView — §60 Impostazioni', () => {
   })
 
   it('toggling a notification applies immediately, before the PATCH resolves', async () => {
-    // Una promise mai risolta durante il test: verifica lo stato ottimistico
-    // "subito", senza correre contro il microtask del rollback (che con un
-    // mock rifiutato all'istante può eseguire prima ancora che l'unico
-    // `nextTick()` di `trigger()` sia risolto — mai il caso di una vera
-    // chiamata di rete, che ha sempre una latenza reale).
+    // A promise that never resolves during the test: verifies the optimistic
+    // state "immediately", without racing the rollback microtask (which,
+    // with a mock rejected instantly, can run before the single
+    // `nextTick()` inside `trigger()` even resolves — never the case with a
+    // real network call, which always has real latency).
     patchPreferencesMock.mockReturnValueOnce(new Promise(() => {}))
     const { wrapper } = await mountSettings()
 
@@ -285,7 +285,7 @@ describe('SettingsView — §60 Impostazioni', () => {
   })
 })
 
-describe('SettingsView — §17/§64 "Cartella di culling"', () => {
+describe('SettingsView — culling root folder', () => {
   it('shows "Non impostata" when the library has no culling root yet', async () => {
     const { wrapper } = await mountSettings()
 

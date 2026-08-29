@@ -14,7 +14,7 @@ import { useSessionStore } from '@/stores/session'
 const { t, locale } = useI18n()
 const session = useSessionStore()
 
-/** Spec §3: polling leggero su `last_used_at`, non un nuovo protocollo. */
+/** Lightweight polling on `last_used_at`, not a new protocol. */
 const POLL_INTERVAL_MS = 3000
 const POLL_TIMEOUT_MS = 5 * 60 * 1000
 
@@ -80,7 +80,7 @@ async function pollStatus(): Promise<void> {
       return
     }
   } catch {
-    // Rete transitoria: si continua a pollare fino al timeout.
+    // Transient network error: keep polling until the timeout.
   }
   if (Date.now() >= pollDeadline) {
     stopPolling()
