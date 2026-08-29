@@ -1,7 +1,7 @@
-# Nota: `.superpowers/` NON è ignorato di proposito. Contiene il ledger di
-# esecuzione, i brief e i report di ogni task, e le review complete. È il
-# contesto che serve a riprendere il lavoro da un'altra macchina o sessione.
-# Sono ~600 KB di testo: il costo è trascurabile, la perdita no.
+# .superpowers/ is scratch space for AI-agent working sessions (plans,
+# execution ledgers) — no longer tracked in git; CONTRIBUTING.md is the
+# durable record of how to work on this project.
+.superpowers/
 
 /target
 /data
