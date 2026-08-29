@@ -7,12 +7,13 @@ export interface AssetFlags {
   rating: number | null
   pick: Pick
   color_label: string | null
-  /** «Preferito» (`AssetFlagsBody::favorite`, crates/keeppix-api/src/routes/flags.rs):
-   * asse indipendente da `pick`, non un suo alias — stessa distinzione già
-   * nel backend. Aggiunto qui in Task 7 perché la timeline/Preferiti/SP-2
-   * lo scrivono tramite lo stesso endpoint di rimpiazzo completo, non una
-   * patch: chi scrive `favorite` deve prima leggere gli altri tre campi,
-   * altrimenti li azzera in silenzio (`stores/favorites.ts`). */
+  /** "Favorite" (`AssetFlagsBody::favorite`,
+   * crates/keeppix-api/src/routes/flags.rs): an axis independent from
+   * `pick`, not an alias for it — the same distinction already exists on
+   * the backend. Written through the same full-replace endpoint as the
+   * other flags, not a patch: whoever writes `favorite` must first read
+   * the other three fields, or they get silently zeroed out
+   * (`stores/favorites.ts`). */
   favorite: boolean
 }
 
@@ -34,7 +35,7 @@ export function setFlags(assetId: string, flags: AssetFlags): Promise<null> {
   })
 }
 
-/** Le tre opzioni della cancellazione (spec §6): nessun default, il chiamante sceglie sempre. */
+/** The three deletion options: no default, the caller always chooses. */
 export type DiskAction = 'kept' | 'moved_to_trash' | 'purged'
 
 export function deleteAsset(assetId: string, diskAction: DiskAction): Promise<null> {
@@ -44,13 +45,14 @@ export function deleteAsset(assetId: string, diskAction: DiskAction): Promise<nu
   })
 }
 
-/** Cancellazione a tre opzioni sull'intero lotto (`routes::trash::batch_delete`).
- * Per `purged` l'autorizzazione è **all-or-nothing**, verificata dal
- * server prima di toccare qualunque file — un solo asset non purgabile
- * rifiuta l'intero lotto (il `Promise` va in reject, `BulkOutcome` non
- * torna affatto). Va chiamata una volta sola sull'intera selezione, mai
- * in un ciclo per-asset su `deleteAsset`: un ciclo perderebbe esattamente
- * quella garanzia atomica sull'unica azione distruttiva dell'app. */
+/** Three-option deletion across the whole batch (`routes::trash::
+ * batch_delete`). For `purged` the authorization is **all-or-nothing**,
+ * checked by the server before touching any file — a single
+ * non-purgeable asset rejects the entire batch (the `Promise` rejects,
+ * `BulkOutcome` is never returned). Must be called once for the whole
+ * selection, never in a per-asset loop over `deleteAsset`: a loop would
+ * lose exactly that atomic guarantee on the app's only destructive
+ * action. */
 export function deleteAssetsBatch(assetIds: string[], diskAction: DiskAction): Promise<BulkOutcome> {
   return apiFetch('/api/v1/assets/batch/delete', {
     method: 'POST',
@@ -58,11 +60,9 @@ export function deleteAssetsBatch(assetIds: string[], diskAction: DiskAction): P
   })
 }
 
-/** §14 griglia dei lotti, §64 "<N> lotti attivi": un lotto è una cartella
- * di primo livello sotto la radice di culling della libreria
- * (`CullingRepo::list_lots`, Fase 9 Task 3, esposta via HTTP in Fase 11
- * Task 17). Vuoto — non un errore — se la libreria non ha ancora una
- * radice designata. */
+/** A lot is a top-level folder under the library's culling root
+ * (`CullingRepo::list_lots`). Empty — not an error — if the library
+ * doesn't have a designated root yet. */
 export interface CullingLot {
   folder_id: string
   name: string
@@ -76,12 +76,12 @@ export function fetchCullingLots(libraryId: string): Promise<CullingLot[]> {
   return apiFetch(`/api/v1/libraries/${libraryId}/culling/lots`)
 }
 
-/** §15 "Scelta"/"Scarta": fuori da un lotto resta solo un voto, come
- * `setFlags`; dentro un lotto sposta anche fisicamente il file in
- * `_taken`/`_skipped` (`CullingRepo::set_pick`, Fase 9 Task 4, esposta via
- * HTTP in Fase 11 Task 17). Restituisce l'asset aggiornato — `folder_id`
- * cambia se si è spostato — non solo `204`, perché il chiamante deve saperlo
- * per aggiornarsi senza un secondo giro. */
+/** "Pick"/"Reject": outside a lot this only records a vote, same as
+ * `setFlags`; inside a lot it also physically moves the file into
+ * `_taken`/`_skipped` (`CullingRepo::set_pick`). Returns the updated
+ * asset — `folder_id` changes if it moved — not just `204`, since the
+ * caller needs to know that to update itself without a second
+ * round-trip. */
 export function pickAsset(assetId: string, pick: Pick): Promise<TimelineAsset> {
   return apiFetch(`/api/v1/assets/${assetId}/pick`, {
     method: 'POST',
@@ -89,8 +89,7 @@ export function pickAsset(assetId: string, pick: Pick): Promise<TimelineAsset> {
   })
 }
 
-/** Riuscita parziale (spec Fase 10 §3): un asset il cui purge fallisce non
- * blocca gli altri. */
+/** Partial success: an asset whose purge fails doesn't block the others. */
 export interface BulkFailure {
   id: string
   reason: string
@@ -103,10 +102,10 @@ export interface BulkOutcome {
   batch_id: string | null
 }
 
-/** "Svuota scartati" (§15): elimina definitivamente ogni asset oggi in
- * `_skipped` per questo lotto (`CullingRepo::empty_skipped`, Fase 9 Task 4,
- * esposta via HTTP in Fase 11 Task 17). `lotFolderId` è l'id del lotto
- * stesso, non di `_skipped`: la rotta risolve la sottocartella da sé. */
+/** "Empty rejected": permanently deletes every asset currently in
+ * `_skipped` for this lot (`CullingRepo::empty_skipped`). `lotFolderId`
+ * is the id of the lot itself, not of `_skipped`: the route resolves the
+ * subfolder on its own. */
 export function emptySkipped(lotFolderId: string): Promise<BulkOutcome> {
   return apiFetch(`/api/v1/culling/lots/${lotFolderId}/empty-skipped`, {
     method: 'POST'

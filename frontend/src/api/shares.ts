@@ -16,11 +16,10 @@ export interface ShareLink {
   revoked_at: string | null
   last_accessed_at: string | null
   created_at: string
-  /** Numero di elementi dell'oggetto condiviso — calcolato lato server
+  /** Number of items in the shared object — computed server-side
    * (`ShareLinkRepo::item_counts`, `crates/keeppix-api/src/routes/
-   * share.rs:184-189`, commento che cita esplicitamente §29: "il pannello
-   * 'Le mie condivisioni' lo chiede per i link pubblici"). Campo reale,
-   * mancava dal tipo TS anche se il backend lo restituiva già. */
+   * share.rs:184-189`). A real field that was missing from the TS type
+   * even though the backend already returned it. */
   item_count: number
 }
 

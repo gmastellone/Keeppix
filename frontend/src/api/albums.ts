@@ -2,18 +2,17 @@ import { apiFetch } from './client'
 import type { SearchNode } from '@/search/ast'
 import type { TimelineAsset } from './timeline'
 
-/** Rispecchia `AlbumView` (`crates/keeppix-api/src/routes/albums.rs:20
- * -44`). Bug reale trovato e corretto qui (Task 12 1/N): il tipo
- * precedente dichiarava `cover_hash` (mai esistito sul backend, sempre
- * `undefined` a runtime) invece di `cover_asset_id`, e `fetchAlbum()`
- * era tipizzato come se `GET /albums/{id}` restituisse anche `assets` —
- * non li restituisce mai (verificato leggendo per intero il gestore
- * `routes::albums::get`): l'elenco membri vive solo su
- * `GET /albums/{id}/assets`, una rotta separata mai chiamata dal
- * frontend fino a questa unità. `AlbumPickerDialog.vue` copriva il
- * buco con `detail?.assets ?? []`, che quindi restituiva sempre `[]`
- * in produzione — l'appartenenza mostrata dal picker non rispecchiava
- * mai la realtà del server. */
+/** Mirrors `AlbumView` (`crates/keeppix-api/src/routes/albums.rs:20
+ * -44`). A real bug was found and fixed here: the previous type declared
+ * `cover_hash` (never existed on the backend, always `undefined` at
+ * runtime) instead of `cover_asset_id`, and `fetchAlbum()` was typed as
+ * if `GET /albums/{id}` also returned `assets` — it never does (verified
+ * by reading the full `routes::albums::get` handler): the member list
+ * only lives on `GET /albums/{id}/assets`, a separate route the frontend
+ * never called before. `AlbumPickerDialog.vue` papered over the gap with
+ * `detail?.assets ?? []`, which therefore always returned `[]` in
+ * production — the membership shown by the picker never reflected the
+ * server's actual state. */
 export interface Album {
   id: string
   name: string
@@ -22,25 +21,25 @@ export interface Album {
   cover_asset_id?: string
   created_at: string
   updated_at: string
-  /** Presente solo se l'album può essere aggiornato con `POST .../
-   * refresh` (nessun album "dinamico" che si aggiorna da solo — un
-   * filtro che si rilancia quando lo chiede l'utente, Fase 10 Task 5). */
+  /** Present only if the album can be refreshed via `POST .../refresh`
+   * (there is no "dynamic" album that updates itself — just a filter
+   * that re-runs when the user asks for it). */
   rule?: SearchNode
   rule_run_at?: string
   is_shared: boolean
-  /** Sempre assente in pratica: nessuna rotta permette di impostarlo
-   * (`PatchAlbumBody` non ha un campo `cover_tint`/`monochrome`) — la
-   * copertina a gradiente di §41/§42 è quindi calcolata lato client,
-   * deterministica sull'id, non letta da qui. Il campo resta tipizzato
-   * per completezza e per il giorno in cui il backend lo popolasse. */
+  /** Always absent in practice: no route allows setting it
+   * (`PatchAlbumBody` has no `cover_tint`/`monochrome` field) — the
+   * gradient cover is therefore computed client-side, deterministic on
+   * the id, never read from here. The field stays typed for
+   * completeness, in case the backend populates it one day. */
   cover_tint?: string
   monochrome: boolean
 }
 
-/** Un membro di album come lo restituisce `GET /albums/{id}/assets`
- * (`AlbumAssetView`, `#[serde(flatten)]` di `AssetView` + tre campi
- * propri) — un sovrainsieme di `TimelineAsset`, i campi extra vengono
- * ignorati da chi si aspetta solo quello. */
+/** An album member as returned by `GET /albums/{id}/assets`
+ * (`AlbumAssetView`, `#[serde(flatten)]` of `AssetView` plus three of its
+ * own fields) — a superset of `TimelineAsset`; the extra fields are
+ * ignored by callers that only expect that shape. */
 export interface AlbumAsset extends TimelineAsset {
   position: number
   added_by: string
@@ -55,8 +54,8 @@ export function fetchAlbum(id: string): Promise<Album> {
   return apiFetch(`/api/v1/albums/${id}`)
 }
 
-/** §42, il contenuto reale di un album — mai chiamata prima di questa
- * unità (vedi il commento su `Album` sopra per il bug che copriva). */
+/** The actual contents of an album (see the comment on `Album` above for
+ * the bug this route exposed). */
 export function fetchAlbumAssets(id: string): Promise<AlbumAsset[]> {
   return apiFetch(`/api/v1/albums/${id}/assets`)
 }
@@ -72,28 +71,26 @@ export function deleteAlbum(id: string): Promise<null> {
   return apiFetch(`/api/v1/albums/${id}`, { method: 'DELETE' })
 }
 
-/** §43, "Aggiorna album": rilancia la `rule` con cui l'album è nato —
- * la controparte reale, manuale, dell'"Automatico" del mockup (che
- * vorrebbe una ricomputazione continua mai esistita in questo backend,
- * solo un filtro che si rilancia su richiesta — Fase 10 Task 5).
- * Risponde con lo stesso `BulkOutcome` di tutte le altre operazioni di
- * massa (`crates/keeppix-api/src/bulk.rs`) riusato qui in un modo
- * insolito: `succeeded` è la concatenazione degli id entrati **e**
- * usciti dall'album, senza distinguere quali — il gestore
- * (`routes::albums::refresh`) li unisce prima di rispondere. Nessun
- * conteggio separato "aggiunte"/"rimosse" è quindi possibile da qui. */
+/** "Refresh album": re-runs the `rule` the album was created with —
+ * there is no continuous auto-recomputation, only a filter that re-runs
+ * on request. Responds with the same `BulkOutcome` used by every other
+ * bulk operation (`crates/keeppix-api/src/bulk.rs`), reused here in an
+ * unusual way: `succeeded` is the concatenation of ids that entered
+ * **and** left the album, without distinguishing which — the handler
+ * (`routes::albums::refresh`) merges them before responding. A separate
+ * "added"/"removed" count is therefore not possible from here. */
 export function refreshAlbum(id: string): Promise<{ succeeded: string[] }> {
   return apiFetch(`/api/v1/albums/${id}/refresh`, { method: 'POST' })
 }
 
-/** Aggiunge più asset a un album — `POST /albums/{id}/assets/{asset_id}`
- * (`routes/albums.rs::add_asset`) prende **un** id alla volta, verificato
- * sul backend reale: nessun endpoint batch esiste su questo percorso
- * (`GET /albums/{id}/assets` è tutt'altro, l'elenco dei membri). Bug reale
- * trovato qui — la versione precedente postava un corpo `{asset_ids}` a
- * un URL che accetta solo GET — corretto in un ciclo sequenziale sullo
- * stesso endpoint singolo, stesso principio di `stores/favorites.ts`'s
- * `setMany`. */
+/** Adds multiple assets to an album — `POST /albums/{id}/assets/{asset_id}`
+ * (`routes/albums.rs::add_asset`) takes **one** id at a time, verified
+ * against the real backend: no batch endpoint exists on this path
+ * (`GET /albums/{id}/assets` is something else entirely, the member
+ * list). A real bug was found here — the previous version POSTed an
+ * `{asset_ids}` body to a URL that only accepts one id — fixed with a
+ * sequential loop over the same single-item endpoint, the same approach
+ * as `stores/favorites.ts`'s `setMany`. */
 export async function addAssets(albumId: string, assetIds: string[]): Promise<null> {
   for (const assetId of assetIds) {
     await apiFetch(`/api/v1/albums/${albumId}/assets/${assetId}`, { method: 'POST' })
@@ -107,16 +104,16 @@ export function removeAsset(albumId: string, assetId: string): Promise<null> {
   })
 }
 
-/** Un album di cui un asset è già membro (Fase 11 Task 8, §19.2 campo
- * 18) — solo id e nome, i chip non sono cliccabili. */
+/** An album an asset already belongs to — id and name only, the chips
+ * are not clickable. */
 export interface AlbumBadge {
   id: string
   name: string
 }
 
-/** §19.2 sezione ALBUM del lightbox: la freccia opposta di `fetchAlbum` —
- * dato un asset, a quali album appartiene già (manuali e dinamici
- * insieme, materializzati sullo stesso `album_assets`). */
+/** The reverse of `fetchAlbum` — given an asset, which albums it already
+ * belongs to (manual and dynamic albums alike, both materialized in the
+ * same `album_assets` table). */
 export function fetchAlbumsForAsset(assetId: string): Promise<AlbumBadge[]> {
   return apiFetch(`/api/v1/assets/${assetId}/albums`)
 }

@@ -4,7 +4,7 @@ export interface CheckResponse {
   unknown_hashes: string[]
 }
 
-/** `POST /api/v1/upload/check` — corpo JSON, passa da `apiFetch` normale. */
+/** `POST /api/v1/upload/check` — JSON body, goes through the regular `apiFetch`. */
 export async function checkHashes(hashes: string[]): Promise<CheckResponse> {
   return apiFetch<CheckResponse>('/api/v1/upload/check', {
     method: 'POST',
@@ -24,7 +24,7 @@ export interface CreateSessionResponse {
   id: string
 }
 
-/** `POST /api/v1/upload` — corpo JSON, passa da `apiFetch` normale. */
+/** `POST /api/v1/upload` — JSON body, goes through the regular `apiFetch`. */
 export async function createSession(
   req: CreateSessionRequest
 ): Promise<CreateSessionResponse> {
@@ -37,10 +37,10 @@ export async function createSession(
 export type HeadResult = { kind: 'ok'; receivedBytes: number } | { kind: 'gone' }
 
 /**
- * `HEAD /api/v1/upload/{id}` — metodo sicuro, non passa dal CSRF layer, ma
- * non è JSON: legge l'header `Upload-Offset`, non un corpo. Non può passare
- * da `apiFetch`, che pretende sempre `content-type: application/json` e
- * chiama `response.json()`.
+ * `HEAD /api/v1/upload/{id}` — a safe method, doesn't go through the CSRF
+ * layer, but isn't JSON: it reads the `Upload-Offset` header, not a
+ * body. Can't go through `apiFetch`, which always forces
+ * `content-type: application/json` and calls `response.json()`.
  */
 export async function headSession(id: string): Promise<HeadResult> {
   const response = await fetch(`/api/v1/upload/${id}`, {
@@ -71,11 +71,11 @@ export type PatchChunkResult =
     }
 
 /**
- * `PATCH /api/v1/upload/{id}` — corpo `application/offset+octet-stream`,
- * bytes grezzi: non può passare da `apiFetch`, che forza
- * `content-type: application/json` e serializzerebbe il body. Il layer CSRF
- * copre comunque questa rotta (è sotto `/api/v1`), quindi l'header
- * `x-keeppix-client` va impostato a mano qui.
+ * `PATCH /api/v1/upload/{id}` — `application/offset+octet-stream` body,
+ * raw bytes: can't go through `apiFetch`, which forces
+ * `content-type: application/json` and would serialize the body. The
+ * CSRF layer still covers this route (it's under `/api/v1`), so the
+ * `x-keeppix-client` header has to be set manually here.
  */
 export async function patchChunk(
   id: string,
@@ -117,11 +117,12 @@ export async function patchChunk(
 }
 
 /**
- * blake3 esadecimale calcolato lato client — via WebAssembly (`hash-wasm`),
- * l'unica libreria che lo offre in browser: `crypto.subtle` non implementa
- * blake3. Import dinamico perché il pannello di upload è un overlay globale
- * montato in `App.vue`: senza `import()` il binario wasm finirebbe nel
- * bundle iniziale anche per chi non carica mai un file.
+ * Client-side hex blake3 — via WebAssembly (`hash-wasm`), the only
+ * library that offers it in the browser: `crypto.subtle` doesn't
+ * implement blake3. Dynamic import because the upload panel is a global
+ * overlay mounted in `App.vue`: without `import()` the wasm binary would
+ * end up in the initial bundle even for someone who never uploads a
+ * file.
  */
 export async function hashBytes(data: ArrayBuffer | Uint8Array): Promise<string> {
   const { blake3 } = await import('hash-wasm')

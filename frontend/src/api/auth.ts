@@ -1,8 +1,8 @@
 import { apiFetch } from './client'
 
 /**
- * Vista pubblica dell'utente restituita dall'API. Non contiene l'hash della
- * password né il segreto TOTP: quei campi non lasciano mai il backend.
+ * Public user view returned by the API. Contains neither the password
+ * hash nor the TOTP secret: those fields never leave the backend.
  */
 export interface User {
   id: string

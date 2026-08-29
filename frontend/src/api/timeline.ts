@@ -5,9 +5,8 @@ export interface MonthBucket {
   count: number
 }
 
-/** Un tag confermato (Fase 11 Task 7, SP-3 §11 — dimensioni "Tag"/
- * "Categorie"). `category_id` è il `parent_id` del tag: le "categorie" del
- * documento sono tag con `kind='category'`, non un secondo concetto. */
+/** A confirmed tag. `category_id` is the tag's `parent_id`: "categories"
+ * are just tags with `kind='category'`, not a second concept. */
 export interface AssetTagBadge {
   id: string
   name: string
@@ -15,17 +14,16 @@ export interface AssetTagBadge {
   category_id: string | null
 }
 
-/** Un volto confermato (Fase 11 Task 7, SP-3 §11 — dimensione "Persone"). */
+/** A confirmed face. */
 export interface AssetFaceBadge {
   person_id: string
   person_name: string | null
 }
 
-/** EXIF completo (Fase 11 Task 8, §19.2 campi 6-9, sezione "SCATTO" del
- * lightbox) — a differenza di `camera_model` (una stringa sola, SP-3),
- * presente **solo** sulla risposta di `GET /assets/{id}` (dettaglio
- * singolo): il backend non lo calcola su `/timeline`/`/search`, un giro di
- * query in più per riga che nessuna griglia legge. */
+/** Full EXIF (the lightbox's "SHOT" section) — unlike `camera_model` (a
+ * single string), present **only** in the `GET /assets/{id}` response
+ * (single-asset detail): the backend doesn't compute it on
+ * `/timeline`/`/search`, an extra per-row query that no grid reads. */
 export interface AssetExifDetail {
   camera_make: string | null
   camera_model: string | null
@@ -48,32 +46,30 @@ export interface TimelineAsset {
   width: number | null
   height: number | null
   thumbhash: string | null
-  /** SP-15 (`AssetView.raw_kind`): `"raw"` / `"jpeg"` / `"raw+jpeg"`, `null`
-   * per un kind che non è né l'uno né l'altro (video, unknown). */
+  /** (`AssetView.raw_kind`): `"raw"` / `"jpeg"` / `"raw+jpeg"`, `null`
+   * for a kind that's neither (video, unknown). */
   raw_kind: string | null
   favorite: boolean
-  /** SP-3 §11, dimensione "Fotocamera" — `null` se l'exif non porta il
-   * modello o non esiste affatto. Campo additivo, Fase 11 Task 7. */
+  /** `null` if the exif doesn't carry the model or doesn't exist at all. */
   camera_model: string | null
-  /** SP-3 §11 — solo tag confermati, mai proposte in attesa. Sempre un
-   * array, mai assente (`[]` se non ne ha). Campo additivo, Fase 11 Task 7. */
+  /** Confirmed tags only, never pending proposals. Always an array,
+   * never absent (`[]` if it has none). */
   tags: AssetTagBadge[]
-  /** SP-3 §11 — solo volti confermati. Sempre un array, mai assente. Campo
-   * additivo, Fase 11 Task 7. */
+  /** Confirmed faces only. Always an array, never absent. */
   faces: AssetFaceBadge[]
-  /** Fase 11 Task 8, §19.2 sezione "SCATTO" — presente **solo** quando
-   * l'oggetto viene da `GET /assets/{id}` (il lightbox), assente (non
-   * `null`) su ogni asset di `/timeline`/`/search`. Campo opzionale di
-   * proposito: `photo()` nei test esistenti non deve cambiare. */
+  /** Present **only** when the object comes from `GET /assets/{id}`
+   * (the lightbox), absent (not `null`) on every asset from
+   * `/timeline`/`/search`. Deliberately optional: `photo()` in existing
+   * tests must not change. */
   full_exif?: AssetExifDetail
-  /** Posizione effettiva (`COALESCE(override, exif)`), stessa fonte di
-   * `metadata.ts#AssetMetadata.location` — presente solo quando l'oggetto
-   * viene da `GET /assets/{id}` (mai da `/timeline`/`/search`, stesso
-   * motivo di `full_exif`). Fase 11 Task 8, §19.2 sezione "POSIZIONE". */
+  /** Effective location (`COALESCE(override, exif)`), same source as
+   * `metadata.ts#AssetMetadata.location` — present only when the object
+   * comes from `GET /assets/{id}` (never from `/timeline`/`/search`,
+   * same reason as `full_exif`). */
   location?: { lat: number; lon: number } | null
   place_id?: number | null
-  /** 1 se non impilato, altrimenti il numero di file della pila (RAW+JPEG
-   * incluso). Fase 11 Task 8, §19.2 sezione "SCATTO"/commutatore RAW-JPEG. */
+  /** 1 if not stacked, otherwise the number of files in the stack
+   * (RAW+JPEG included). */
   stack_size?: number
 }
 
@@ -82,9 +78,10 @@ export interface TimelinePage {
   next_cursor?: string
 }
 
-/** `GET /assets/{id}` — l'unico posto che popola `full_exif`/`location`/
- * `place_id`/`stack_size` (assenti su ogni asset di `/timeline`/`/search`).
- * Usato dal pannello informazioni del lightbox (§19), mai dalle griglie. */
+/** `GET /assets/{id}` — the only place that populates
+ * `full_exif`/`location`/`place_id`/`stack_size` (absent on every asset
+ * from `/timeline`/`/search`). Used by the lightbox's info panel, never
+ * by the grids. */
 export function fetchAsset(id: string): Promise<TimelineAsset> {
   return apiFetch(`/api/v1/assets/${id}`)
 }
@@ -109,29 +106,29 @@ export function promoteViewport(hashes: string[]): Promise<null> {
 }
 
 export interface GeometryResponse {
-  /** `null` su 304: il chiamante tiene la geometria già decodificata. */
+  /** `null` on 304: the caller keeps the already-decoded geometry. */
   buffer: ArrayBuffer | null
   etag: string | null
-  /** Presente solo su una risposta paginata (vedi `limit` sotto) con altro
-   * dopo: passalo come `cursor` alla richiesta successiva, senza
-   * interpretarlo. Assente → questa risposta era già tutto quello che c'è. */
+  /** Present only on a paginated response (see `limit` below) when
+   * there's more after it: pass it as `cursor` on the next request,
+   * without interpreting it. Absent → this response was already
+   * everything there is. */
   nextCursor: string | null
 }
 
 /**
- * `GET /timeline/geometry` (Fase 11 Task 4, paginazione Task 4-bis) risponde
- * `application/octet-stream`, non JSON — non può passare da `apiFetch`.
- * `etag`, se passato, va in `If-None-Match`: un `304` restituisce
- * `buffer: null` invece di ri-scaricare ~4,7 MB per una vista invariata —
- * solo sulla richiesta a vista intera (`limit` assente): una richiesta
- * paginata non valida mai contro l'`ETag`.
+ * `GET /timeline/geometry` responds with `application/octet-stream`, not
+ * JSON — it can't go through `apiFetch`. `etag`, if passed, goes into
+ * `If-None-Match`: a `304` returns `buffer: null` instead of
+ * re-downloading ~4.7 MB for an unchanged view — only on the whole-view
+ * request (`limit` absent): a paginated request never validates against
+ * the `ETag`.
  *
- * `limit`/`cursor` esistono per il primo caricamento a schermo freddo (spec
- * fase-10 §5bis, mai portata avanti nel piano di Fase 11: 3,4s misurati su
- * rete lenta a 214.000 scatti, oltre il budget di 2s) — il ciclo "prima
- * pagina per disegnare, poi il resto in background" vive in
- * `TimelineView.vue::refreshTimeline`, non qui: è comportamento della vista,
- * non del client HTTP.
+ * `limit`/`cursor` exist for the initial cold-screen load (3.4s measured
+ * on a slow network with 214,000 shots, over the 2s budget) — the "first
+ * page to draw, then the rest in the background" loop lives in
+ * `TimelineView.vue::refreshTimeline`, not here: that's view behavior,
+ * not HTTP-client behavior.
  */
 export async function fetchGeometry(
   bbox?: string,

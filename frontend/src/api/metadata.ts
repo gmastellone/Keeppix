@@ -1,10 +1,10 @@
 import { apiFetch } from './client'
 
-/** `GET /assets/{id}/metadata` — valore effettivo `COALESCE(override, exif)`
- * campo per campo (`EffectiveMetadataView`, crates/keeppix-api/src/routes/
- * metadata.rs). Il tipo precedente (`{exif, overrides}`) non corrispondeva
- * a nessuna risposta reale del backend e non era mai usato da nessun
- * chiamante — sostituito, non affiancato. */
+/** `GET /assets/{id}/metadata` — the effective value, field-by-field
+ * `COALESCE(override, exif)` (`EffectiveMetadataView`,
+ * crates/keeppix-api/src/routes/metadata.rs). The previous type
+ * (`{exif, overrides}`) didn't match any real backend response and was
+ * never used by any caller — replaced, not kept alongside. */
 export interface AssetMetadata {
   title: string | null
   description: string | null
@@ -18,9 +18,10 @@ export function fetchMetadata(assetId: string): Promise<AssetMetadata> {
   return apiFetch(`/api/v1/assets/${assetId}/metadata`)
 }
 
-/** `PATCH /assets/{id}/metadata` — stessa semantica "doppio opzionale" del
- * backend (`MetadataPatchRequest`): un campo assente da questo oggetto non
- * tocca il valore esistente, `null` lo azzera esplicitamente. */
+/** `PATCH /assets/{id}/metadata` — the same "double optional" semantics
+ * as the backend (`MetadataPatchRequest`): a field absent from this
+ * object leaves the existing value untouched, `null` explicitly clears
+ * it. */
 export interface MetadataPatch {
   title?: string | null
   description?: string | null

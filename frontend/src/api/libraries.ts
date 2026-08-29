@@ -6,20 +6,18 @@ export interface Library {
   owner_id: string
   root_path: string
   scan_enabled: boolean
-  /** §60.8 "Riconoscimento volti" (Task 14, 1/N): reale, ma **per
-   * libreria** — `LibraryView.faces_enabled` (`crates/keeppix-api/src/
-   * routes/libraries.rs:27`), non l'interruttore unico "per istanza" che
-   * il documento descrive. Con più di una libreria l'unica scelta
-   * onesta è mostrarne una riga per libreria, non fingere un solo
-   * interruttore globale che il backend non ha. */
+  /** "Face recognition": real, but **per library** —
+   * `LibraryView.faces_enabled` (`crates/keeppix-api/src/routes/
+   * libraries.rs:27`), not a single instance-wide toggle. With more than
+   * one library the only honest choice is to show one row per library,
+   * not fake a single global switch the backend doesn't have. */
   faces_enabled: boolean
   exclude_patterns: string[]
   status: string
   last_scan_at: string | null
   created_at: string
-  /** §17/§64 "Cartella di culling" (Fase 9 Task 2, esposta via HTTP in
-   * Fase 11 Task 17): id della cartella radice dei lotti, o `null` se il
-   * proprietario non ne ha ancora designata una. */
+  /** "Culling root folder": id of the lots' root folder, or `null` if
+   * the owner hasn't designated one yet. */
   culling_root_folder_id: string | null
 }
 
@@ -64,9 +62,9 @@ export function createLibrary(payload: CreateLibraryPayload): Promise<Library> {
 export interface ScanAccepted {
   library_id: string
   status: string
-  /** Presente solo se questa richiesta è quella che segue davvero il job
-   * accodato (Fase 10 Task 16) — `null` se una scansione per la stessa
-   * libreria era già in corso (vince quella per `dedup_key` condivisa). */
+  /** Present only if this request is the one that actually queued the
+   * job — `null` if a scan for the same library was already in progress
+   * (the one sharing the `dedup_key` wins). */
   operation_id: string | null
 }
 
@@ -78,15 +76,13 @@ export function fetchLibraryScanStatus(libraryId: string): Promise<ScanStatus> {
   return apiFetch(`/api/v1/libraries/${libraryId}/scan`)
 }
 
-/** §47, azione `"retry-connection"`: verifica se il percorso di rete della
- * libreria è di nuovo raggiungibile (`LibraryRepo::probe`, `crates/
- * keeppix-db/src/libraries.rs:180-193`) e aggiorna `status` di
- * conseguenza. A differenza del mockup — dove "il tentativo riesce
- * sempre", nessun ramo "riprovato e ancora offline" — questa chiamata
- * **non fallisce mai** se la libreria è ancora irraggiungibile: risponde
- * comunque `200` con `status:'offline'` invariato. Il chiamante deve
- * quindi leggere il campo `status` della risposta, non solo l'esito
- * della promise, per sapere se la riconnessione è riuscita davvero. */
+/** The `"retry-connection"` action: checks whether the library's network
+ * path is reachable again (`LibraryRepo::probe`, `crates/keeppix-db/src/
+ * libraries.rs:180-193`) and updates `status` accordingly. This call
+ * **never fails** if the library is still unreachable: it still responds
+ * `200` with `status:'offline'` unchanged. The caller must therefore
+ * read the response's `status` field, not just whether the promise
+ * resolved, to know whether the reconnection actually succeeded. */
 export function probeLibrary(libraryId: string): Promise<Library> {
   return apiFetch(`/api/v1/libraries/${libraryId}/probe`, { method: 'POST' })
 }
@@ -98,8 +94,8 @@ export interface LibraryPatch {
   exclude_patterns?: string[]
 }
 
-/** §60.8 "Riconoscimento facciale attivo": `PatchLibraryRequest`
- * (`routes/libraries.rs:63-68`) accetta anche `faces_enabled`. */
+/** "Face recognition enabled": `PatchLibraryRequest`
+ * (`routes/libraries.rs:63-68`) also accepts `faces_enabled`. */
 export function patchLibrary(libraryId: string, patch: LibraryPatch): Promise<Library> {
   return apiFetch(`/api/v1/libraries/${libraryId}`, {
     method: 'PATCH',
@@ -107,11 +103,11 @@ export function patchLibrary(libraryId: string, patch: LibraryPatch): Promise<Li
   })
 }
 
-/** §17/§64 "Cartella di culling": rotta dedicata invece di un campo su
- * `patchLibrary` — `LibraryRepo::set_culling_root` pretende owner/admin
- * esplicito, più stretto del permesso generale di `update` (vedi il
- * commento sull'handler, `routes/libraries.rs`). `folderId: null` rimuove
- * la radice designata. */
+/** "Culling root folder": a dedicated route instead of a field on
+ * `patchLibrary` — `LibraryRepo::set_culling_root` requires explicit
+ * owner/admin, stricter than the general `update` permission (see the
+ * comment on the handler, `routes/libraries.rs`). `folderId: null`
+ * clears the designated root. */
 export function patchCullingRoot(libraryId: string, folderId: string | null): Promise<Library> {
   return apiFetch(`/api/v1/libraries/${libraryId}/culling-root`, {
     method: 'PATCH',

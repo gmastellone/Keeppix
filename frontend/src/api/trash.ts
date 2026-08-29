@@ -1,13 +1,13 @@
 import { apiFetch } from './client'
 
-/** Rispecchia `TrashItemView` (`crates/keeppix-api/src/routes/trash.rs:
- * 176-185`). Bug reale trovato e corretto qui (Task 13 1/N): il tipo
- * precedente dichiarava `filename`/`expires_at`, mai esistiti sul
- * backend — la vista renderizzava `undefined` per entrambi a runtime.
- * `id` qui è l'id della **riga di cestino** (`TrashEntry`), non
- * dell'asset: chi vuole ripristinare o eliminare definitivamente deve
- * usare `asset_id`, il solo id che `POST /assets/{id}/restore` e
- * `DELETE /assets/{id}` accettano. */
+/** Mirrors `TrashItemView` (`crates/keeppix-api/src/routes/trash.rs:
+ * 176-185`). A real bug was found and fixed here: the previous type
+ * declared `filename`/`expires_at`, which never existed on the
+ * backend — the view rendered `undefined` for both at runtime.
+ * `id` here is the id of the **trash row** (`TrashEntry`), not
+ * the asset: restoring or permanently deleting requires
+ * `asset_id`, the only id that `POST /assets/{id}/restore` and
+ * `DELETE /assets/{id}` accept. */
 export interface TrashedItem {
   id: string
   asset_id: string
@@ -15,10 +15,8 @@ export interface TrashedItem {
   original_path: string
   trash_path?: string
   disk_action: string
-  /** Reale, calcolato lato server da `deleted_at` + 30 giorni
-   * (`crates/keeppix-api/src/routes/trash.rs:199-202`) — a differenza
-   * del mockup, dove il conto alla rovescia è un hash finto dell'id
-   * (§45.2, "annunciata ma non implementata"): qui lo è per davvero. */
+  /** Real, computed server-side from `deleted_at` + 30 days
+   * (`crates/keeppix-api/src/routes/trash.rs:199-202`). */
   days_remaining: number
 }
 
@@ -31,8 +29,8 @@ export function fetchTrash(cursor?: string): Promise<TrashListPage> {
   return apiFetch(`/api/v1/trash${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
 }
 
-/** Riporta la foto a `pick = "non ancora deciso"` (§45.3) — non tramite
- * questo id di cestino ma tramite l'asset, come vuole la rotta reale. */
+/** Restores the photo to `pick = "not yet decided"` — via the asset id,
+ * not this trash-row id, as the real route requires. */
 export function restoreAsset(assetId: string): Promise<null> {
   return apiFetch(`/api/v1/assets/${assetId}/restore`, { method: 'POST' })
 }

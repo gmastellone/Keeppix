@@ -1,62 +1,61 @@
 /**
- * Costruzione delle URL dei derivati.
+ * Construction of derivative URLs.
  *
- * Le rotte `/media/...` rispondono con `Cache-Control: … immutable`: il
- * browser non rivalida per un anno. Ma l'hash nell'URL indirizza il file
- * **sorgente**, non i byte serviti, e quelli dipendono da come li produciamo.
- * Cambiando la ricetta — formato, qualità, dimensioni, incorporata contro
- * demosaic — lo stesso URL restituisce un'immagine diversa, e chi ha già in
- * cache la vecchia se la tiene per sempre.
+ * The `/media/...` routes respond with `Cache-Control: … immutable`: the
+ * browser won't revalidate for a year. But the hash in the URL addresses
+ * the **source** file, not the bytes actually served, and those depend on
+ * how we produce them. Changing the recipe — format, quality, dimensions,
+ * embedded vs. demosaiced — makes the same URL return a different image,
+ * and whoever already has the old one cached keeps it forever.
  *
- * Appendere la versione della ricetta rende l'URL una vera chiave di
- * contenuto: una ricetta nuova produce URL nuove, e la cache si invalida da
- * sola senza rinunciare a `immutable` (che sulla timeline vale centinaia di
- * richieste di rivalidazione risparmiate).
+ * Appending the recipe version makes the URL a true content key: a new
+ * recipe produces new URLs, and the cache invalidates itself without
+ * giving up `immutable` (which, on the timeline, saves hundreds of
+ * revalidation requests).
  *
- * Il valore deve restare uguale a `DERIVATIVE_VERSION` in
- * `crates/keeppix-media/src/derive.rs`: un test in `keeppix-api` lo verifica,
- * quindi cambiarne uno solo fa fallire la build.
+ * The value must stay in sync with `DERIVATIVE_VERSION` in
+ * `crates/keeppix-media/src/derive.rs`: a test in `keeppix-api` checks
+ * this, so changing just one of them breaks the build.
  */
 export const DERIVATIVE_VERSION = 2
 
-/** Suffisso di invalidazione, uguale per tutti i derivati. */
+/** Invalidation suffix, the same for every derivative. */
 function v(): string {
   return `?v=${DERIVATIVE_VERSION}`
 }
 
-// I percorsi sono scritti **per esteso** in ognuna delle tre funzioni invece
-// di essere composti da un parametro (`/media/${kind}/…`). Non è ripetizione
-// distratta: `scripts/check-wired.py` verifica che ogni rotta montata abbia un
-// consumatore nel frontend cercando la stringa letterale. Componendole
-// dinamicamente le rotte diventano invisibili alla guardia, che le segnala
-// come mai usate — ed è successo davvero, alla prima stesura di questo file.
+// The paths are written **out in full** in each of the three functions
+// instead of being composed from a parameter (`/media/${kind}/…`). This
+// isn't careless duplication: `scripts/check-wired.py` verifies that
+// every mounted route has a frontend consumer by searching for the
+// literal string. Composing them dynamically would make the routes
+// invisible to that check, which would then flag them as unused — and
+// that actually happened once, the first time this file was written.
 
-/** Miniatura 240 px: griglia della timeline, ricerca, filmstrip. */
+/** 240px thumbnail: timeline grid, search, filmstrip. */
 export function thumbSrc(hash: string): string {
   return `/media/thumb/${hash}${v()}`
 }
 
-/** Anteprima 2048 px: apertura della foto, culling, confronto. */
+/** 2048px preview: opening a photo, culling, comparison. */
 export function previewSrc(hash: string): string {
   return `/media/preview/${hash}${v()}`
 }
 
 /**
- * Rendition ad alta risoluzione per lo zoom del culling. Generata **pigramente**
- * alla prima richiesta: sui RAW può richiedere un demosaic, quindi secondi e
- * non millisecondi.
+ * High-resolution rendition for culling zoom. Generated **lazily** on
+ * first request: for RAW files this can require a demosaic, so seconds
+ * rather than milliseconds.
  */
 export function fullSrc(hash: string): string {
   return `/media/full/${hash}${v()}`
 }
 
 /**
- * Fase 11 Task 8 (§19.3, "Scarica originale" — il documento lo segnala
- * esplicitamente come un punto dove "il backend dovrà fare qualcosa di
- * vero", non più un toast): i byte reali del file sorgente,
- * `GET /media/original/{id}` (`routes/media.rs`, già esistente, mai
- * consumato dal frontend finora). Per **id asset**, non per hash come i
- * derivati sopra: l'originale non ha una ricetta da invalidare, nessun `?v=`.
+ * "Download original": the real bytes of the source file,
+ * `GET /media/original/{id}` (`routes/media.rs`). Keyed by **asset id**,
+ * not by hash like the derivatives above: the original has no recipe to
+ * invalidate, no `?v=`.
  */
 export function originalSrc(assetId: string): string {
   return `/media/original/${assetId}`

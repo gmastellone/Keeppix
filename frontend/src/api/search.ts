@@ -1,13 +1,12 @@
 import { apiFetch } from './client'
 
-/** Sette generi possibili (`SuggestionKind` in `crates/keeppix-db/src/
- * search.rs`, insieme chiuso): `tag` non ha mai una riga reale — la
- * tabella dei tag non esisteva quando questo endpoint fu scritto (Fase
- * 10) e nessuna query `UNION` la produce ancora — quindi `SearchView.vue`
- * costruisce il gruppo "Tag" per conto proprio da `fetchTags()`, non da
- * qui. `filename` non ha una pillola corrispondente (nessun `SearchNode`
- * di corrispondenza esatta sul nome file, solo `text` libero): ignorato
- * dal pannello dei suggerimenti. */
+/** Seven possible kinds (`SuggestionKind` in `crates/keeppix-db/src/
+ * search.rs`, a closed set): `tag` never has a real row — the tags table
+ * didn't exist when this endpoint was written and no `UNION` query
+ * produces it yet — so `SearchView.vue` builds the "Tag" group itself
+ * from `fetchTags()`, not from here. `filename` has no matching pill (no
+ * `SearchNode` for an exact filename match, only free-text `text`): it is
+ * ignored by the suggestions panel. */
 export type SuggestionKind = 'tag' | 'camera' | 'folder' | 'iso' | 'year' | 'country' | 'filename'
 
 export interface Suggestion {

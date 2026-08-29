@@ -1,6 +1,6 @@
 /**
- * Client WebSocket keeppix.v1. Il wizard di setup resta in polling:
- * è una pagina che l'utente sta guardando, una tantum.
+ * keeppix.v1 WebSocket client. The setup wizard stays on polling: it's a
+ * page the user is actively watching, a one-time thing.
  */
 
 export type LiveMessage = {
@@ -41,8 +41,8 @@ function jittered(ms: number): number {
 }
 
 /**
- * Si riconnette da solo. Backoff esponenziale con jitter, tetto 30 s.
- * `onEvent` riceve ogni busta, incluso `resync`.
+ * Reconnects on its own. Exponential backoff with jitter, capped at 30s.
+ * `onEvent` receives every envelope, including `resync`.
  */
 export function startLiveEvents(onEvent: (msg: LiveMessage) => void): LiveSocket {
   let closed = false
@@ -62,7 +62,7 @@ export function startLiveEvents(onEvent: (msg: LiveMessage) => void): LiveSocket
             const msg = JSON.parse(String(ev.data)) as LiveMessage
             if (msg && typeof msg.type === 'string') onEvent(msg)
           } catch {
-            /* busta non JSON: si ignora */
+            /* non-JSON envelope: ignored */
           }
         }
         ws.onopen = () => {

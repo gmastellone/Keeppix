@@ -3,10 +3,10 @@ import type { DiskAction } from './culling'
 import type { SearchNode } from '@/search/ast'
 import type { TimelineAsset, TimelinePage } from './timeline'
 
-/** `limit` (Task 16 1/N): campo reale di `SearchRequest` (`crates/
- * keeppix-api/src/routes/search.rs`), mai passato dal frontend finora —
- * la griglia Persone lo usa per prendere una sola foto per persona come
- * copertina, senza scaricare un'intera pagina da scartare. */
+/** `limit`: a real field of `SearchRequest` (`crates/keeppix-api/src/
+ * routes/search.rs`) — the People grid uses it to fetch a single photo
+ * per person as a cover, without downloading an entire page just to
+ * discard most of it. */
 export function runSearch(ast: SearchNode, cursor?: string, limit?: number): Promise<TimelinePage> {
   return apiFetch('/api/v1/search', {
     method: 'POST',
@@ -14,20 +14,20 @@ export function runSearch(ast: SearchNode, cursor?: string, limit?: number): Pro
   })
 }
 
-/** Un'azione proposta da un problema (§47.3) — l'etichetta è già pronta
- * per un bottone, la chiave (`view-files`/`ignore`/`retry-connection`/
- * `details`) sceglie il gestore. */
+/** An action proposed by a problem — the label is ready for a button,
+ * the key (`view-files`/`ignore`/`retry-connection`/`details`) picks the
+ * handler. */
 export interface ProblemAction {
   action: string
   label: string
 }
 
-/** Una riga dell'elenco composto (Task 13, `crates/keeppix-api/src/
- * routes/problems.rs::ProblemView`) — già in linguaggio naturale nella
- * lingua richiesta (`?lang=`), con titolo/descrizione/azioni pronti:
- * quello che manca al terzetto grezzo sotto (`offline_libraries`/
- * `failed_jobs`/`error_assets`) per essere `.problem-row` del documento
- * senza logica di composizione nel frontend. */
+/** A row of the composed list (`crates/keeppix-api/src/routes/
+ * problems.rs::ProblemView`) — already natural-language text in the
+ * requested language (`?lang=`), with title/description/actions ready to
+ * go: what the raw trio below (`offline_libraries`/`failed_jobs`/
+ * `error_assets`) is missing to become a rendered problem row without
+ * any composition logic in the frontend. */
 export interface ProblemView {
   id: string
   severity: 'warning' | 'error'
@@ -44,11 +44,11 @@ export interface Problems {
   offline_libraries: { id: string; name: string }[]
   failed_jobs: { id: number; kind: string; last_error: string | null }[]
   error_assets: { id: string; filename: string }[]
-  /** Bug reale corretto qui (Task 13 3/N): questo campo esiste sul
-   * backend da quando `ProblemView` è stato scritto, ma il tipo qui non
-   * lo dichiarava — `ProblemsView.vue` leggeva solo i tre secchi grezzi
-   * sopra, ricostruendo a mano un'interfaccia molto più povera di
-   * quella già pronta. */
+  /** A real bug fixed here: this field has existed on the backend since
+   * `ProblemView` was written, but the type here didn't declare it —
+   * `ProblemsView.vue` only read the three raw buckets above, manually
+   * rebuilding an interface much poorer than the one already
+   * available. */
   problems: ProblemView[]
 }
 
@@ -59,10 +59,10 @@ export interface DuplicateGroup {
   reclaimable_bytes: number
 }
 
-/** `lang` sceglie la lingua delle descrizioni composte lato server
- * (`?lang=it|en`, default dall'`Accept-Language` del browser, poi
- * italiano) — passare la lingua dell'interfaccia evita un disallineamento
- * fra un titolo in inglese e un'interfaccia in italiano. */
+/** `lang` picks the language of the server-composed descriptions
+ * (`?lang=it|en`, defaults to the browser's `Accept-Language`, then
+ * Italian) — passing the UI's language avoids a mismatch between an
+ * English title and an Italian interface. */
 export function fetchProblems(lang?: string): Promise<Problems> {
   return apiFetch(`/api/v1/problems${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`)
 }
@@ -71,21 +71,19 @@ export function fetchDuplicates(): Promise<DuplicateGroup[]> {
   return apiFetch('/api/v1/duplicates')
 }
 
-/** §46, i membri reali di un gruppo — `AssetView` (`routes/duplicates.rs
- * ::members`), stessa forma di `TimelineAsset`: a differenza del
- * mockup, dove "i file di un gruppo sono record leggeri indipendenti
- * dal catalogo" (nota per l'architetto, §46.9), qui sono vere foto del
- * catalogo, con vera miniatura. Mai i membri cestinati (già esclusi dal
- * backend). */
+/** The actual members of a group — `AssetView`
+ * (`routes/duplicates.rs::members`), the same shape as `TimelineAsset`:
+ * these are real catalog photos with real thumbnails, not lightweight
+ * records independent of the catalog. Trashed members are never
+ * included (already excluded by the backend). */
 export function fetchDuplicateMembers(contentHash: string): Promise<TimelineAsset[]> {
   return apiFetch(`/api/v1/duplicates/${contentHash}`)
 }
 
-/** "Risolvi gruppo": applica `diskAction` a ogni membro del gruppo
- * **tranne** `keep`, in una sola chiamata — a differenza del mockup, che
- * secondo la nota per l'architetto (§46.9) raccoglie la modalità scelta
- * ma "non applica davvero" nulla: qui la propaga per davvero, come
- * promesso dal dialog di eliminazione a 3 opzioni (§9) che la produce. */
+/** "Resolve group": applies `diskAction` to every member of the group
+ * **except** `keep`, in a single call — the choice actually gets applied
+ * server-side, as promised by the three-option deletion dialog that
+ * produces it. */
 export function resolveDuplicateGroup(
   contentHash: string,
   keep: string,

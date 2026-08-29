@@ -1,9 +1,8 @@
 import { apiFetch } from './client'
 
-// "Rinomina con formula…" di Modifica in blocco (§13.3 campo 7) — su
-// `RenameRepo` (Fase 9 Task 10), esposta da `/assets/batch/rename*` da
-// allora: primo consumatore frontend, nessun cambiamento di backend
-// necessario qui.
+// "Rename with formula…" from the bulk-edit menu — backed by
+// `RenameRepo`, exposed via `/assets/batch/rename*`; no backend changes
+// needed here.
 
 export interface RenamePreviewItem {
   asset_id: string
@@ -13,7 +12,7 @@ export interface RenamePreviewItem {
   collides: boolean
 }
 
-/** Nessuna scrittura: solo i nomi calcolati, per l'anteprima del dialog. */
+/** No writes: just the computed names, for the dialog preview. */
 export function previewRename(assetIds: string[], schema: string): Promise<RenamePreviewItem[]> {
   return apiFetch('/api/v1/assets/batch/rename/preview', {
     method: 'POST',
@@ -26,12 +25,12 @@ export interface RenameOperationOutcome {
   outcome: { succeeded: string[]; failed: { id: string; reason: string; detail?: string }[]; batch_id: string | null }
 }
 
-/** Dal 27 agosto: `202` subito con solo `operation_id` — il lavoro gira in
- * background (`JobKind::BulkRename`), lo stesso motivo per cui la ri-scansione
- * di libreria (`startLibraryScan`) non torna mai l'esito sincrono. Il
- * chiamante segue l'avanzamento reale su `operation.progress`
- * (`api/events.ts`) e annulla con `cancelOperation` (`api/operations.ts`) —
- * stesso pattern di `ProblemsView.vue`. */
+/** Returns `202` immediately with only `operation_id` — the work runs in
+ * the background (`JobKind::BulkRename`), the same reason library
+ * rescans (`startLibraryScan`) never return a synchronous outcome. The
+ * caller tracks real progress via `operation.progress` (`api/events.ts`)
+ * and cancels with `cancelOperation` (`api/operations.ts`) — same
+ * pattern as `ProblemsView.vue`. */
 export interface RenameAccepted {
   operation_id: string
 }

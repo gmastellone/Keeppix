@@ -3,9 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiProblem } from './client'
 import { fetchGeometry } from './timeline'
 
-/** 8 byte di intestazione (versione=1, conteggio) + `count` record da 6
- * byte a zero — basta a decodificare, il contenuto dei record non conta
- * per questi test. */
+/** 8-byte header (version=1, count) + `count` zeroed 6-byte records —
+ * enough to decode; the record contents don't matter for these tests. */
 function geometryBody(count: number): ArrayBuffer {
   const out = new Uint8Array(8 + count * 6)
   new DataView(out.buffer).setUint32(0, 1, true)

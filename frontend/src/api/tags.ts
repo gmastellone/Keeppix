@@ -1,23 +1,21 @@
 import { apiFetch } from './client'
 
-// Fase 11 Task 7 (SP-3 §11, dimensioni "Tag"/"Categorie"): primo consumatore
-// frontend di queste rotte — costruite in Fase 7, mai chiamate da questa
-// app finora. `GET /tags` restituisce tag **e** categorie insieme
-// (`kind: 'tag' | 'category'`), non due elenchi separati: la distinzione è
-// sul campo, filtrata qui dal chiamante — stesso comportamento della rotta,
-// non un'invenzione del frontend.
+// `GET /tags` returns tags **and** categories together
+// (`kind: 'tag' | 'category'`), not two separate lists: the distinction
+// is on the field, filtered here by the caller — that's the route's
+// actual behavior, not something invented by the frontend.
 export interface Tag {
   id: string
   name: string
   kind: 'tag' | 'category'
   parent_id: string | null
-  /** Opaco: qualunque stringa CSS `color` valida (hex nei test reali,
-   * `crates/keeppix-db/tests/tags.rs:77`) — non la tinta HSL 0-360 pura
-   * che il documento descrive. `TagPickerDialog.vue` la usa già così, come
-   * `background` diretto: le 10 pastiglie dell'editor (Task 15 1/N)
-   * scrivono `hsl(H,60%,50%)` per intero, non solo `H`. */
+  /** Opaque: any valid CSS `color` string (hex in the real tests,
+   * `crates/keeppix-db/tests/tags.rs:77`), not a bare 0-360 HSL hue.
+   * `TagPickerDialog.vue` already uses it this way, as a direct
+   * `background` value: the editor's 10 swatches write the full
+   * `hsl(H,60%,50%)`, not just `H`. */
   color: string | null
-  /** Assente su una categoria (il backend la restituisce solo per
+  /** Absent on a category (the backend only returns it for
    * `kind==='tag'`, `#[serde(skip_serializing_if)]`). */
   prompt?: string
   threshold?: number
@@ -37,12 +35,12 @@ export interface TagPayload {
   threshold?: number
 }
 
-/** §52.3 "Nuovo tag"/"Nuova categoria", §53-54: crea un tag o una
- * categoria — stesso endpoint, distinto da `kind`. Un tag con `name`/
- * `prompt` non vuoti fa calcolare subito l'embedding testuale sul server
- * (se il modello è presente) e propone l'abbinamento sulle foto già
- * indicizzate — non tocca nulla se il modello manca (`has_embedding:
- * false` nella risposta, mai un errore). */
+/** Creates a tag or a category — same endpoint, distinguished by `kind`.
+ * A tag with non-empty `name`/`prompt` immediately triggers a
+ * server-side text embedding computation (if the model is present) and
+ * proposes matches on already-indexed photos — it doesn't touch
+ * anything if the model is missing (`has_embedding: false` in the
+ * response, never an error). */
 export function createTag(payload: TagPayload): Promise<Tag> {
   return apiFetch('/api/v1/tags', {
     method: 'POST',
@@ -58,10 +56,10 @@ export interface TagPatchPayload {
   threshold?: number
 }
 
-/** §53.3 "Salva": `parent_id`/`prompt`/`color` sono "assente = invariato,
- * `null` = azzera" sul backend (`PatchTagRequest`, `Option<Option<T>>`) —
- * per azzerare la categoria di un tag va passato `parent_id: null` per
- * davvero, non omesso. */
+/** `parent_id`/`prompt`/`color` are "absent = unchanged, `null` = clear"
+ * on the backend (`PatchTagRequest`, `Option<Option<T>>`) — clearing a
+ * tag's category requires actually passing `parent_id: null`, not
+ * omitting it. */
 export function patchTag(id: string, payload: TagPatchPayload): Promise<Tag> {
   return apiFetch(`/api/v1/tags/${id}`, {
     method: 'PATCH',
@@ -69,19 +67,19 @@ export function patchTag(id: string, payload: TagPatchPayload): Promise<Tag> {
   })
 }
 
-/** §52.3 punto 4/§54: cancella un tag o una categoria. Su un tag, elimina
- * a cascata ogni riga `asset_tags` (FK `ON DELETE CASCADE`) — il numero
- * mostrato nel dialog di conferma è `Tag.assignment_count`, già nella
- * risposta di `fetchTags()`, non una chiamata a parte. Su una categoria,
- * i tag al suo interno restano: solo `parent_id` si azzera (FK `ON DELETE
- * SET NULL`), mai una cancellazione a catena. */
+/** Deletes a tag or a category. For a tag, cascades deletion to every
+ * `asset_tags` row (FK `ON DELETE CASCADE`) — the count shown in the
+ * confirmation dialog is `Tag.assignment_count`, already in
+ * `fetchTags()`'s response, not a separate call. For a category, the
+ * tags inside it remain: only `parent_id` gets cleared (FK `ON DELETE
+ * SET NULL`), never a cascading delete. */
 export function deleteTag(id: string): Promise<null> {
   return apiFetch(`/api/v1/tags/${id}`, { method: 'DELETE' })
 }
 
-/** "Aggiungi tag…" di Modifica in blocco (§13.3 campo 5): assegna il tag a
- * ogni asset della selezione, `source='user'` — un'aggiunta manuale è già
- * una conferma, non passa dalla coda di revisione (SP-12). */
+/** "Add tag…" from the bulk-edit menu: assigns the tag to every asset in
+ * the selection, `source='user'` — a manual addition is already a
+ * confirmation, it doesn't go through the review queue. */
 export function assignTagBatch(tagId: string, assetIds: string[]): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/assets/batch`, {
     method: 'POST',
@@ -89,11 +87,8 @@ export function assignTagBatch(tagId: string, assetIds: string[]): Promise<null>
   })
 }
 
-/** La freccia opposta: "attiva/disattiva un tag per aggiungerlo o
- * toglierlo da tutti" (dialog di scelta tag, §13.3 campo 5, verificato sul
- * prototipo reale — `openTagPickerDialog` in `docs/ui/keeppix-mockup.html`
- * chiama sia `addManualTag` sia `removeTagFromPhoto` dallo stesso
- * controllo). */
+/** The reverse: toggling a tag on the picker adds or removes it from
+ * every selected asset from the same control. */
 export function unassignTagBatch(tagId: string, assetIds: string[]): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/assets/batch/remove`, {
     method: 'POST',
@@ -101,9 +96,9 @@ export function unassignTagBatch(tagId: string, assetIds: string[]): Promise<nul
   })
 }
 
-/** Un tag come lo mostra il pannello informazioni del lightbox (Fase 11
- * Task 8, §19.2 campi 14-17): `state`/`source` grezzi — confermato/in
- * attesa (mai rifiutato, già filtrato dal backend), IA/umano. */
+/** A tag as shown by the lightbox's info panel: raw `state`/`source` —
+ * confirmed/pending (never rejected, already filtered by the backend),
+ * AI/human. */
 export interface AssetTagDetail {
   id: string
   name: string
@@ -113,41 +108,40 @@ export interface AssetTagDetail {
   source: 'ai' | 'user'
 }
 
-/** §19.2 sezione TAG: tag confermati e in attesa di **un solo** asset —
- * primo consumatore di questa rotta, costruita per il lightbox. */
+/** Confirmed and pending tags for **one** asset — built for the
+ * lightbox. */
 export function fetchTagsForAsset(assetId: string): Promise<AssetTagDetail[]> {
   return apiFetch(`/api/v1/assets/${assetId}/tags`)
 }
 
-/** §19.3, la `×` sui chip confermati: rimuove permanentemente un tag già
- * confermato (transizione a `'rejected'`, mai una `DELETE` — vedi
- * `AssetTagRepo::remove_confirmed` sul backend per il perché). */
+/** The `×` on confirmed chips: permanently removes an already-confirmed
+ * tag (transitions to `'rejected'`, never a `DELETE` — see
+ * `AssetTagRepo::remove_confirmed` on the backend for why). */
 export function removeConfirmedTag(tagId: string, assetId: string): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/assets/${assetId}/remove`, { method: 'POST' })
 }
 
-/** §19.2 sezione "In attesa di conferma": il `✓` su una proposta —
- * transita `state: 'proposed' → 'confirmed'` (`AssetTagRepo::confirm`, la
- * stessa macchina a stati a senso unico di `remove_confirmed`). Consumata
- * dal lightbox e, da Task 15 (2/N), dalla coda di Revisione globale
- * (spunta su una singola miniatura). */
+/** The `✓` on a proposal — transitions `state: 'proposed' → 'confirmed'`
+ * (`AssetTagRepo::confirm`, the same one-way state machine as
+ * `remove_confirmed`). Used by the lightbox and by the global Review
+ * queue (checkmark on a single thumbnail). */
 export function confirmTagProposal(tagId: string, assetId: string): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/assets/${assetId}/confirm`, { method: 'POST' })
 }
 
-/** Il `×` su una proposta (SP-10): `state: 'proposed' → 'rejected'`,
- * permanente — a differenza di `removeConfirmedTag`, qui la proposta non
- * era mai stata confermata: non c'è nulla da "rimuovere", solo da
- * rifiutare prima che diventi un tag vero. */
+/** The `×` on a proposal: `state: 'proposed' → 'rejected'`, permanent —
+ * unlike `removeConfirmedTag`, this proposal was never confirmed: there
+ * is nothing to "remove", only to reject before it becomes a real
+ * tag. */
 export function rejectTagProposal(tagId: string, assetId: string): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/assets/${assetId}/reject`, { method: 'POST' })
 }
 
-/** §56.2: una proposta IA in attesa, arricchita lato server con nome tag e
- * nome file — la coda non deve fare un secondo giro per riga. **Non**
- * raggruppata per tag dal backend (`GET /tags/proposals`, senza `tag_id`,
- * torna un elenco piatto ordinato per punteggio decrescente): il
- * raggruppamento per tag della pagina è client-side, in `ReviewView.vue`. */
+/** A pending AI proposal, enriched server-side with the tag name and
+ * filename — the queue doesn't need a second round-trip per row. **Not**
+ * grouped by tag by the backend (`GET /tags/proposals` returns a flat
+ * list ordered by descending score, no `tag_id` grouping): grouping by
+ * tag on the page is client-side, in `ReviewView.vue`. */
 export interface Proposal {
   asset_id: string
   tag_id: string
@@ -161,14 +155,14 @@ export function fetchTagProposals(): Promise<Proposal[]> {
   return apiFetch('/api/v1/tags/proposals')
 }
 
-/** §56.3 "Conferma tutte" (per gruppo): conferma ogni proposta in attesa
- * di quel tag in una sola richiesta, non un giro di `confirmTagProposal`
- * per riga. */
+/** "Confirm all" (per group): confirms every pending proposal for that
+ * tag in a single request, rather than one `confirmTagProposal` call per
+ * row. */
 export function confirmAllTagProposals(tagId: string): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/proposals/confirm`, { method: 'POST' })
 }
 
-/** §56.3 "Rifiuta tutte" — mirror di `confirmAllTagProposals`. */
+/** "Reject all" — mirror of `confirmAllTagProposals`. */
 export function rejectAllTagProposals(tagId: string): Promise<null> {
   return apiFetch(`/api/v1/tags/${tagId}/proposals/reject`, { method: 'POST' })
 }

@@ -17,14 +17,14 @@ function mockResponse(status: number, body: unknown, contentType: string) {
 }
 
 describe('apiFetch', () => {
-  it('restituisce il corpo su risposta positiva', async () => {
+  it('returns the body on a successful response', async () => {
     mockResponse(200, { user: { username: 'giovanni' } }, 'application/json')
     await expect(apiFetch('/api/v1/auth/me')).resolves.toEqual({
       user: { username: 'giovanni' }
     })
   })
 
-  it('lancia ApiProblem con il codice stabile', async () => {
+  it('throws ApiProblem with the stable code', async () => {
     mockResponse(
       401,
       { type: 'keeppix/invalid-credentials', title: 'Invalid credentials', status: 401 },
@@ -37,7 +37,7 @@ describe('apiFetch', () => {
     })
   })
 
-  it('lancia ApiProblem generico se il corpo non è problem+json', async () => {
+  it('throws a generic ApiProblem if the body is not problem+json', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 502 })))
 
     const error = await apiFetch('/api/v1/auth/me').catch((e: unknown) => e)
@@ -46,12 +46,13 @@ describe('apiFetch', () => {
   })
 
   /**
-   * Il backend pretende `x-keeppix-client` sulle mutazioni e risponde `403
-   * keeppix/csrf-check-failed` se manca (spec §9.5). Se qualcuno togliesse
-   * l'header da `apiFetch`, ogni login, setup e logout smetterebbe di
-   * funzionare: questo test lo intercetta senza dover avviare il backend.
+   * The backend requires `x-keeppix-client` on mutations and responds
+   * `403 keeppix/csrf-check-failed` if it's missing. If someone removed
+   * the header from `apiFetch`, every login, setup, and logout would
+   * stop working: this test catches that without having to spin up the
+   * backend.
    */
-  it('invia il content-type JSON e l’header custom richiesto sulle mutazioni', async () => {
+  it('sends the JSON content-type and the required custom header on mutations', async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -65,7 +66,7 @@ describe('apiFetch', () => {
     expect(init.credentials).toBe('same-origin')
   })
 
-  it('restituisce null su 204', async () => {
+  it('returns null on 204', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })))
     await expect(apiFetch('/api/v1/auth/refresh')).resolves.toBeNull()
   })

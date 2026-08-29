@@ -1,10 +1,9 @@
 import { apiFetch } from './client'
 import type { TimelineAsset } from './timeline'
 
-/** Fase 11 Task 8 (5/N), §19.2 sezione "PERSONE" e §18.2 (riquadri volto
- * sull'immagine): primo consumatore frontend di queste rotte — costruite
- * in Fase 8, mai chiamate da questa app finora (`AssetFaceBadge`, già in
- * uso da SP-3, porta solo `person_id`/`person_name`: mai il riquadro). */
+/** Face bounding boxes for the "PEOPLE" section and the face rectangles
+ * drawn on the image (`AssetFaceBadge`, already used elsewhere, only
+ * carries `person_id`/`person_name` — never the bounding box). */
 export interface FaceBBox {
   x: number
   y: number
@@ -26,10 +25,10 @@ export function fetchFacesForAsset(assetId: string): Promise<Face[]> {
   return apiFetch(`/api/v1/assets/${assetId}/faces`)
 }
 
-/** Assegnazione manuale — sia "Correggi persona…" (un volto già confermato
- * su un'altra persona) sia, in futuro, "+ aggiungi" (volto appena creato):
- * `personId` deve già esistere (creata con `persons.ts#createPerson` se è
- * una persona nuova). */
+/** Manual assignment — either "Correct person…" (a face already
+ * confirmed on another person) or, in the future, "+ add" (a freshly
+ * created face): `personId` must already exist (created with
+ * `persons.ts#createPerson` if it's a new person). */
 export function assignFace(faceId: string, personId: string): Promise<null> {
   return apiFetch(`/api/v1/faces/${faceId}/assign`, {
     method: 'POST',
@@ -37,42 +36,39 @@ export function assignFace(faceId: string, personId: string): Promise<null> {
   })
 }
 
-/** "Non è un volto" — falso positivo permanente (§19.3): non torna mai più
- * proposto, a differenza di un `assign` che si può sempre correggere di
- * nuovo. */
+/** "Not a face" — a permanent false positive: it's never proposed again,
+ * unlike an `assign` which can always be corrected later. */
 export function rejectFace(faceId: string): Promise<null> {
   return apiFetch(`/api/v1/faces/${faceId}/reject`, { method: 'POST' })
 }
 
-/** Fase 11 Task 16 (5/N), §39 "Revisione — volti": coda dei volti
- * proposti (assegnazione dubbia), stesso pattern piatto-ordinato-per-
- * punteggio di `tags.ts#fetchTagProposals` — nessuna rotta raggruppa per
- * persona suggerita, raggruppato in `ReviewView.vue` da
- * `Face.proposed_person_id`. */
+/** "Review — faces" queue: proposed faces (uncertain assignment), the
+ * same flat-ordered-by-score pattern as `tags.ts#fetchTagProposals` — no
+ * route groups by suggested person, grouping happens client-side in
+ * `ReviewView.vue` via `Face.proposed_person_id`. */
 export function fetchFaceProposals(): Promise<Face[]> {
   return apiFetch('/api/v1/faces/proposals')
 }
 
-/** §39.3 controllo 4, singolo "Conferma" — `personId = proposed_person_id`
- * (già la persona proposta, non serve passarlo: la rotta lo legge dal
- * volto stesso, a differenza di `assignFace`). */
+/** Single "Confirm" — `personId = proposed_person_id` (already the
+ * proposed person, no need to pass it: the route reads it from the face
+ * itself, unlike `assignFace`). */
 export function confirmFaceProposal(faceId: string): Promise<null> {
   return apiFetch(`/api/v1/faces/${faceId}/confirm`, { method: 'POST' })
 }
 
-/** §39.3 controllo 2 "Conferma tutte", per persona suggerita. */
+/** "Confirm all", per suggested person. */
 export function confirmAllFaceProposals(personId: string): Promise<null> {
   return apiFetch(`/api/v1/persons/${personId}/proposals/confirm`, { method: 'POST' })
 }
 
-/** Fase 11 Task 16 (4/N), §33/§36: "una miniatura per ogni volto
- * confermato della persona" (§33.2), non per ogni foto — se una persona
- * ha due volti confermati nella stessa foto compaiono due miniature
- * (§36.2, esplicito). Nessuna rotta lista i volti di una persona
- * direttamente (`GET /assets/{id}/faces` richiede già un asset noto):
- * un giro per ciascuna delle foto già caricate dal chiamante
- * (`PersonDetailView.vue`, via `runSearch({op:'person'})`), filtrato su
- * `person_id`. Costo N accettato, stesso principio di `ReviewView.vue`. */
+/** One thumbnail per confirmed face of the person, not per photo — if a
+ * person has two confirmed faces in the same photo, two thumbnails show
+ * up. No route lists a person's faces directly (`GET /assets/{id}/faces`
+ * already requires a known asset): one round-trip per photo already
+ * loaded by the caller (`PersonDetailView.vue`, via
+ * `runSearch({op:'person'})`), filtered on `person_id`. The O(N) cost is
+ * accepted, same approach as `ReviewView.vue`. */
 export interface PersonFaceTile {
   asset: TimelineAsset
   face: Face
@@ -88,9 +84,9 @@ export async function fetchPersonFaceTiles(personId: string, assets: TimelineAss
   return perAsset.flat()
 }
 
-/** §60.8 "Elimina tutti i dati dei volti" — reale e irreversibile, solo
- * admin (`routes/faces.rs::delete_all_data`): svuota volti, persone e
- * gruppi di persone in tutta l'istanza. Non tocca le foto. */
+/** "Delete all face data" — real and irreversible, admin only
+ * (`routes/faces.rs::delete_all_data`): clears faces, people, and person
+ * groups instance-wide. Does not touch the photos. */
 export function deleteAllFaceData(): Promise<null> {
   return apiFetch('/api/v1/faces/data', { method: 'DELETE' })
 }

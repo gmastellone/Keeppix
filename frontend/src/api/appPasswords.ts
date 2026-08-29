@@ -8,7 +8,7 @@ export interface AppPassword {
 }
 
 export interface AppPasswordCreated extends AppPassword {
-  /** Presente solo nella risposta di creazione: il server non lo conserva in chiaro. */
+  /** Present only in the creation response: the server does not store it in plaintext. */
   secret: string
 }
 

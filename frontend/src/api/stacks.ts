@@ -1,11 +1,10 @@
 import { apiFetch } from './client'
 import type { TimelineAsset } from './timeline'
 
-/** Fase 11 Task 8 (8/N), §19.2 riga 5 (commutatore RAW/JPEG): primo
- * consumatore frontend di `GET /assets/{id}/stack` (Fase 10) — costruita
- * per lo stack RAW+JPEG, mai chiamata da questa app finora. Ogni membro è
- * un `TimelineAsset` completo (stesso `raw_kind` per-file usato altrove
- * per distinguere RAW da JPEG), più `is_primary`. */
+/** Frontend client for `GET /assets/{id}/stack`, used by the RAW/JPEG
+ * switcher. Each member is a full `TimelineAsset` (same per-file
+ * `raw_kind` used elsewhere to distinguish RAW from JPEG) plus
+ * `is_primary`. */
 export interface StackMember extends TimelineAsset {
   is_primary: boolean
 }

@@ -1,36 +1,33 @@
 import { apiFetch } from './client'
 
-// Fase 11 Task 7 (SP-3 §11, dimensione "Persone"): primo consumatore
-// frontend di questa rotta — costruita in Fase 8, mai chiamata da questa
-// app finora.
 export interface Person {
   id: string
   name: string | null
   hidden: boolean
   face_count: number | null
-  /** Fase 11 Task 16 (4/N), §33: l'id del volto scelto come copertina —
-   * assente (non `null`) se mai impostato, come `PersonView.cover_face_id`
-   * lato backend (`Option`, `skip_serializing_if`). Mai risolvibile a
-   * un'immagine da solo (vedi `ChooseCoverDialog.vue`/`PeopleView.vue`
-   * per il perché), solo confrontato per bordo "corrente" nel dialog. */
+  /** Id of the face chosen as the cover — absent (not `null`) if never
+   * set, matching `PersonView.cover_face_id` on the backend (`Option`,
+   * `skip_serializing_if`). Never resolvable to an image on its own (see
+   * `ChooseCoverDialog.vue`/`PeopleView.vue` for why) — only compared to
+   * highlight the "current" one in the dialog. */
   cover_face_id?: string
 }
 
-/** `include_hidden` di proposito assente per il chiamante SP-3 §11 (mai
- * passato lì: vuole solo "persone non nascoste con almeno una foto", il
- * filtro sul conteggio resta comunque a carico del chiamante). Task 16
- * (1/N): la griglia Persone lo passa `true` una sola volta, solo per
- * contare quante sono nascoste (riga finale §31.2) — mai per mostrarle. */
+/** `include_hidden` is deliberately left out for the default caller
+ * (never passed there: it only wants "non-hidden people with at least
+ * one photo", the count filter still being the caller's job). The
+ * People grid passes `true` exactly once, only to count how many are
+ * hidden — never to show them. */
 export function fetchPersons(includeHidden = false): Promise<Person[]> {
   return apiFetch(`/api/v1/persons${includeHidden ? '?include_hidden=true' : ''}`)
 }
 
-/** `POST /persons` — usata dal selettore di persona del lightbox (§19.3,
- * "Correggi persona…") per creare una persona digitando un nome: il volto
- * va assegnato **dopo**, con una seconda chiamata a `faces.ts#assignFace`
- * (commento del backend su `faces::assign`: "il client crea prima la
- * persona, poi assegna il volto a quella"). Nome vuoto → persona senza
- * nome. */
+/** `POST /persons` — used by the lightbox's person picker ("Correct
+ * person…") to create a person by typing a name: the face must be
+ * assigned **afterward**, with a separate call to `faces.ts#assignFace`
+ * (backend comment on `faces::assign`: "the client creates the person
+ * first, then assigns the face to it"). Empty name → a nameless
+ * person. */
 export function createPerson(name: string): Promise<Person> {
   return apiFetch('/api/v1/persons', {
     method: 'POST',
@@ -38,26 +35,26 @@ export function createPerson(name: string): Promise<Person> {
   })
 }
 
-/** Fase 11 Task 16 (1/N), §32 — dettaglio di una persona: `GET /persons/
- * {id}` **non** porta `face_count` (`PersonView.face_count` è `Option`,
- * valorizzato solo dall'elenco — commento del backend su `PersonView`,
- * `crates/keeppix-api/src/routes/persons.rs:24-29`, "non pagare un
- * secondo giro di query per il conteggio"). Il dettaglio calcola invece
- * il proprio conteggio dalle foto restituite da `runSearch({op:'person'})`
- * — un numero diverso solo se una persona ha più di un volto confermato
- * nella stessa foto, caso raro, mai il contrario. */
+/** Person detail: `GET /persons/{id}` **does not** carry `face_count`
+ * (`PersonView.face_count` is an `Option`, populated only by the list
+ * endpoint — backend comment on `PersonView`,
+ * `crates/keeppix-api/src/routes/persons.rs:24-29`, "avoid paying for a
+ * second query round-trip just for the count"). The detail view instead
+ * computes its own count from the photos returned by
+ * `runSearch({op:'person'})` — a different number only if a person has
+ * more than one confirmed face in the same photo, a rare case, never the
+ * reverse. */
 export function fetchPerson(id: string): Promise<Person> {
   return apiFetch(`/api/v1/persons/${id}`)
 }
 
-/** `PATCH /persons/{id}` — un'unica rotta per tre azioni del documento
- * (§32.3, controlli 2/6, e §33): rinomina, nascondi/mostra, copertina.
- * Ogni campo è indipendente: `patchPerson(id, {hidden:true})` non tocca
- * nome o copertina. Stringa vuota su `name` cancella il nome (torna
- * "senza nome"), coerente con `PatchPersonRequest` (§32.3 nota: "il nome
- * vuoto viene comunque assegnato, senza il controllo `if(!name) return`
- * che protegge invece i gruppi" — qui riprodotto: nessun controllo lato
- * frontend sul vuoto per la persona, a differenza del gruppo). */
+/** `PATCH /persons/{id}` — a single route for three actions: rename,
+ * hide/show, cover. Each field is independent:
+ * `patchPerson(id, {hidden:true})` does not touch the name or cover. An
+ * empty string for `name` clears the name (reverts to "unnamed"),
+ * consistent with `PatchPersonRequest` — no frontend guard against
+ * empty values for a person, unlike the equivalent guard for groups
+ * (which bail out on an empty name via `if(!name) return`). */
 export interface PersonPatchPayload {
   name?: string
   hidden?: boolean
@@ -71,12 +68,11 @@ export function patchPerson(id: string, payload: PersonPatchPayload): Promise<Pe
   })
 }
 
-/** Fase 11 Task 16 (4/N), §36 "Separa persona": `POST /persons/{id}/
- * separate` sposta i `faceIds` indicati su una persona nuova (nome
- * facoltativo, `''` se non specificato — `PersonRepo::separate`,
- * `crates/keeppix-db/src/persons.rs:326-392`). **Non reversibile
- * dall'interfaccia** oltre a una nuova unione manuale (commento del
- * backend: "l'utente non deve aspettarsi un annullamento"). */
+/** "Separate person": `POST /persons/{id}/separate` moves the given
+ * `faceIds` to a new person (name optional, `''` if unspecified —
+ * `PersonRepo::separate`, `crates/keeppix-db/src/persons.rs:326-392`).
+ * **Not reversible from the UI** beyond a fresh manual merge (backend
+ * comment: "the user should not expect an undo"). */
 export function separatePerson(id: string, faceIds: string[], name: string): Promise<Person> {
   return apiFetch(`/api/v1/persons/${id}/separate`, {
     method: 'POST',
@@ -84,11 +80,10 @@ export function separatePerson(id: string, faceIds: string[], name: string): Pro
   })
 }
 
-/** Fase 11 Task 16 (2/N), §35 "Unisci persone": `POST /persons/{id}/
- * merge` sposta **tutti** i volti di `absorbed` sul sopravvissuto `id` e
- * cancella le persone assorbite (`PersonRepo::merge`,
- * `crates/keeppix-db/src/persons.rs:278-324`) — non reversibile, stesso
- * comportamento del documento. */
+/** "Merge people": `POST /persons/{id}/merge` moves **all** faces of
+ * `absorbed` onto the surviving `id` and deletes the absorbed people
+ * (`PersonRepo::merge`, `crates/keeppix-db/src/persons.rs:278-324`) —
+ * not reversible. */
 export function mergePersons(id: string, absorbed: string[]): Promise<Person> {
   return apiFetch(`/api/v1/persons/${id}/merge`, {
     method: 'POST',
@@ -96,15 +91,13 @@ export function mergePersons(id: string, absorbed: string[]): Promise<Person> {
   })
 }
 
-/** Gruppi di persone (§31.2-§31.3, §34) — `crates/keeppix-api/src/
- * routes/persons.rs:333-550`. **Il backend permette a una persona di
- * stare in più gruppi** (`person_group_members` è una tabella
- * molti-a-molti, nessun vincolo di unicità) — il documento invece
- * modella "una persona sta in al massimo un gruppo" (`groupId` singolo).
- * Non è un'invenzione da riprodurre alla cieca: `PeopleView.vue`
- * applica quel vincolo lato client (rimuove la vecchia appartenenza
- * prima di aggiungere la nuova), mai esposta qui una vera UI
- * multi-gruppo — il backend lo permetterebbe, il documento no. */
+/** Person groups — `crates/keeppix-api/src/routes/persons.rs:333-550`.
+ * **The backend allows a person to belong to multiple groups**
+ * (`person_group_members` is a many-to-many table, no uniqueness
+ * constraint). `PeopleView.vue` enforces "at most one group per person"
+ * client-side instead (removes the old membership before adding the new
+ * one) — there is no real multi-group UI exposed here, even though the
+ * backend would allow it. */
 export interface PersonGroup {
   id: string
   name: string
@@ -134,9 +127,9 @@ export function deletePersonGroup(id: string): Promise<null> {
   return apiFetch(`/api/v1/person-groups/${id}`, { method: 'DELETE' })
 }
 
-/** Id delle persone nel gruppo — non un `PersonView` completo: la
- * griglia incrocia questi id con l'elenco già caricato da
- * `fetchPersons()`, un giro di rete in meno per gruppo. */
+/** Ids of the people in the group — not a full `PersonView`: the grid
+ * cross-references these ids with the list already loaded from
+ * `fetchPersons()`, saving one network round-trip per group. */
 export function fetchGroupMembers(groupId: string): Promise<string[]> {
   return apiFetch(`/api/v1/person-groups/${groupId}/members`)
 }
