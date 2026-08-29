@@ -178,7 +178,7 @@ describe('BatchEditView — loaded', () => {
     starRadios(wrapper).forEach((star) => expect(star.attributes('aria-checked')).toBe('false'))
     expect(radioByText(wrapper, 'Pick')?.attributes('aria-checked')).toBe('false')
     expect(radioByText(wrapper, 'Aggiungi')?.attributes('aria-checked')).toBe('false')
-    // "Non modificare" compare due volte (Pick/Scarta e Preferiti): entrambe partono attive.
+    // "Non modificare" appears twice (Pick/Discard and Favorites): both start active.
     wrapper
       .findAll('[role="radio"]')
       .filter((r) => r.text().trim() === 'Non modificare')
