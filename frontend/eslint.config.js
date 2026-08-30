@@ -1,6 +1,5 @@
-// Config flat di ESLint 10. Non prescritta dal piano ma necessaria perché
-// `npm run lint` (richiesto dalla verifica finale) abbia un config da usare:
-// il template `vue-ts` di create-vite non ne genera uno.
+// ESLint 10 flat config. Needed so `npm run lint` has a config to use:
+// the `vue-ts` create-vite template doesn't generate one.
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
 import pluginVue from 'eslint-plugin-vue'
 
@@ -9,9 +8,8 @@ export default defineConfigWithVueTs(
   pluginVue.configs['flat/recommended'],
   vueTsConfigs.recommended,
   {
-    // I componenti base in components/ui/ hanno nomi a una parola per
-    // convenzione (Button, Alert): sono primitivi, non pagine, e il piano
-    // li chiama così verbatim.
+    // Base components in components/ui/ have single-word names by
+    // convention (Button, Alert): they're primitives, not pages.
     files: ['src/components/ui/**/*.vue'],
     rules: { 'vue/multi-word-component-names': 'off' }
   }

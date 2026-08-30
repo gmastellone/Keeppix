@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.9
 
 # ── Offline geographic datasets ──────────────────────────────────────────
-# Il runtime distroless non ha shell né client HTTP. Il dataset viene
-# scaricato e normalizzato qui una volta sola; nell'immagine finale entra
-# soltanto il TSV pronto per l'import in Postgres.
+# The distroless runtime has no shell and no HTTP client. The dataset is
+# downloaded and normalized here once; only the TSV ready for import into
+# Postgres makes it into the final image.
 FROM debian:bookworm-slim AS geonames
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl gawk python3 unzip \
@@ -23,24 +23,24 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Backend ───────────────────────────────────────────────────────────────
-# trixie (glibc ≥ 2.38, libstdc++ GCC 14): i binari prebuilt di `ort`
-# (`download-binaries`) sono compilati su Ubuntu 24.04 e referenziano
-# `__isoc23_strtol` / `_M_replace_cold`. Su bookworm (glibc 2.36) il link
-# fallisce. Runtime sotto allineato a distroless/cc-debian13.
+# trixie (glibc ≥ 2.38, libstdc++ GCC 14): `ort`'s prebuilt binaries
+# (`download-binaries`) are built on Ubuntu 24.04 and reference
+# `__isoc23_strtol` / `_M_replace_cold`. On bookworm (glibc 2.36) the link
+# fails. Runtime below is aligned to distroless/cc-debian13.
 FROM rust:1.88-trixie AS backend
 WORKDIR /app
 
-# Le query sqlx sono verificate a runtime con le forme funzione
-# (`sqlx::query(...)`), non con le macro `query!`: non esiste alcuna cache
-# `.sqlx/` da copiare, e la build non ha bisogno di un database.
+# sqlx queries are verified at runtime using the function forms
+# (`sqlx::query(...)`), not the `query!` macros: there's no `.sqlx/` cache
+# to copy, and the build doesn't need a database.
 #
-# I manifest sono copiati per primi, ma `cargo build --bin keeppix` compila
-# comunque dipendenze e codice applicativo in un solo passaggio: modificare
-# `crates/` invalida anche questo layer, quindi la separazione qui sotto non
-# regala una cache "dipendenze vs sorgenti". Il vero acceleratore delle build
-# ripetute sono le cache montate nel RUN successivo (`cargo/registry` e
-# `target`), che BuildKit conserva tra una build e l'altra indipendentemente
-# dai layer dell'immagine.
+# The manifests are copied first, but `cargo build --bin keeppix` still
+# compiles dependencies and application code in a single pass: modifying
+# `crates/` invalidates this layer too, so the separation below doesn't
+# buy a "dependencies vs. sources" cache. What actually speeds up repeated
+# builds are the caches mounted in the next RUN (`cargo/registry` and
+# `target`), which BuildKit keeps across builds independently of the image
+# layers.
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ crates/
 COPY --from=frontend /app/frontend/dist frontend/dist
@@ -57,19 +57,19 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # when the embedded preview is too small, and `GET /media/full` responds 503
 # `keeppix/full-unavailable`: RAW zoom in culling stops working.
 #
-# distroless non ha package manager, quindi il binario e le sue librerie si
-# raccolgono qui e si copiano nel runtime. Stessa base Debian 13 del runtime
-# (trixie), così le versioni combaciano con distroless/cc-debian13.
+# distroless has no package manager, so the binary and its libraries are
+# gathered here and copied into the runtime. Same Debian 13 base as the
+# runtime (trixie), so the versions line up with distroless/cc-debian13.
 FROM debian:trixie-slim AS libraw
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libraw-bin \
  && rm -rf /var/lib/apt/lists/*
 
-# Si copiano solo le librerie che distroless NON fornisce già: il set glibc di
-# base (libc, libm, libstdc++, libgcc_s, …) c'è, e sovrascriverlo via
-# LD_LIBRARY_PATH rischierebbe di disallineare le librerie dal loader.
-# Restano quelle specifiche di libraw — fra cui `libgomp`, che distroless non
-# ha e senza la quale il binario non parte.
+# Only the libraries distroless does NOT already provide are copied: the
+# base glibc set (libc, libm, libstdc++, libgcc_s, …) is already there, and
+# overriding it via LD_LIBRARY_PATH would risk desyncing the libraries from
+# the loader. What's left is libraw-specific — including `libgomp`, which
+# distroless lacks and without which the binary won't start.
 RUN set -eu; \
     mkdir -p /staging/bin /staging/lib; \
     cp /usr/bin/dcraw_emu /staging/bin/; \
@@ -81,16 +81,17 @@ RUN set -eu; \
     ls -1 /staging/lib
 
 # ── libheif ───────────────────────────────────────────────────────────────
-# `heif-convert` decodifica HEIF/HEIC (8 e 10 bit, Task 22) in sandbox, mai
-# libheif in processo — stesso schema di `dcraw_emu` sopra: `keeppix-media`
-# lo invoca via `sandbox::run` con `rlimit`, mai come binding in-process.
-# Senza di esso `derive_from_bytes`/`ensure_full_from_bytes` rispondono
-# `DeriveError::Decode` per ogni HEIC caricato in libreria (iPhone e molte
-# fotocamere recenti).
+# `heif-convert` decodes HEIF/HEIC (8- and 10-bit) in a sandbox, never
+# libheif in-process — same pattern as `dcraw_emu` above: `keeppix-media`
+# invokes it via `sandbox::run` with `rlimit`, never as an in-process
+# binding. Without it, `derive_from_bytes`/`ensure_full_from_bytes` respond
+# with `DeriveError::Decode` for every HEIC uploaded to the library (iPhone
+# and many recent cameras).
 #
-# Su trixie i codec HEIF restano raggiungibili via `ldd` sul binario
-# `heif-convert` (stessa raccolta di `dcraw_emu`); se un giorno passassero
-# a plugin `dlopen`, andrebbe aggiunta la directory dei plugin allo staging.
+# On trixie the HEIF codecs remain reachable via `ldd` on the
+# `heif-convert` binary (same collection approach as `dcraw_emu`); if they
+# ever move to `dlopen` plugins, the plugin directory would need to be
+# added to the staging step.
 FROM debian:trixie-slim AS heif
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libheif-examples \
@@ -107,8 +108,8 @@ RUN set -eu; \
     ls -1 /staging/lib
 
 # ── Runtime ───────────────────────────────────────────────────────────────
-# distroless: nessuna shell, nessun package manager, ~6 pacchetti da monitorare.
-# debian13 allineato al builder trixie (ort prebuilt richiede glibc ≥ 2.38).
+# distroless: no shell, no package manager, ~6 packages to keep an eye on.
+# debian13 aligned with the trixie builder (ort prebuilt needs glibc ≥ 2.38).
 FROM gcr.io/distroless/cc-debian13:nonroot AS runtime
 
 COPY --from=backend /usr/local/bin/keeppix /usr/local/bin/keeppix
@@ -128,10 +129,11 @@ ENV KEEPPIX_BIND=0.0.0.0:5673 \
     KEEPPIX_LOG_FORMAT=json \
     LD_LIBRARY_PATH=/usr/local/lib/keeppix
 
-# Nessun curl disponibile: si usa il sottocomando del binario stesso. Come il
-# resto del binario, `healthcheck` legge la configurazione con Config::load e
-# quindi richiede `DATABASE_URL`: senza quella variabile il container risulta
-# unhealthy per un errore di configurazione, non di rete (vedi docs/DEPLOY.md).
+# No curl available: the binary's own subcommand is used instead. Like the
+# rest of the binary, `healthcheck` loads configuration via Config::load and
+# so requires `DATABASE_URL`: without that variable the container reports
+# unhealthy due to a configuration error, not a network one (see
+# docs/DEPLOY.md).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["/usr/local/bin/keeppix", "healthcheck"]
 

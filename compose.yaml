@@ -6,18 +6,18 @@ services:
     image: keeppix:dev
     restart: unless-stopped
     environment:
-      # Con un Postgres esterno: impostare DATABASE_URL (in `.env` o nella
-      # shell) e lanciare senza `--profile bundled` — il valore esterno
-      # vince e il servizio `db` non verrà avviato. Senza DATABASE_URL,
-      # ricade sul servizio `db` bundled con la password di DB_PASSWORD.
+      # With an external Postgres: set DATABASE_URL (in `.env` or the
+      # shell) and launch without `--profile bundled` — the external value
+      # wins and the `db` service won't start. Without DATABASE_URL, it
+      # falls back to the bundled `db` service with DB_PASSWORD's password.
       DATABASE_URL: ${DATABASE_URL:-postgres://keeppix:${DB_PASSWORD:-changeme}@db/keeppix}
       KEEPPIX_ALLOWED_ORIGINS: '[]'
     ports:
       - "5673:5673"
     volumes:
       - ./data:/data
-      # Originali in sola lettura: nessun bug può cancellarli.
-      # Passare a `rw` solo quando servirà l'upload (Fase 1).
+      # Originals are read-only: no bug can delete them.
+      # Switch to `rw` only once upload needs it.
       - ${PHOTOS_PATH:-./photos}:/photos:ro
     read_only: true
     tmpfs:

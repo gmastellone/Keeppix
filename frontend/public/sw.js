@@ -1,25 +1,25 @@
-// Service worker della PWA: mantiene intatto lo Share Target della Fase 5 e
-// aggiunge caching offline per shell e miniature già viste.
+// PWA service worker: keeps the Share Target flow intact and adds offline
+// caching for the shell and thumbnails already seen.
 //
-// Intercetta il POST che il sistema operativo manda a `/share-target`
-// quando l'utente sceglie "Condividi -> Keeppix" dalla galleria del
-// telefono, salva i file ricevuti in Cache Storage (il canale più semplice
-// per far arrivare dei `File` dal service worker alla pagina: sopravvive al
-// redirect, a differenza di `postMessage` che richiederebbe un client già
-// aperto) e rimanda l'utente alla SPA su GET `/share-target`, dove
-// `ShareTargetView.vue` li rilegge e li passa al pannello di upload.
+// Intercepts the POST that the OS sends to `/share-target` when the user
+// picks "Share -> Keeppix" from their phone's gallery, saves the received
+// files in Cache Storage (the simplest channel for getting `File`s from the
+// service worker to the page: it survives the redirect, unlike
+// `postMessage`, which would require an already-open client), and sends the
+// user back to the SPA via GET `/share-target`, where `ShareTargetView.vue`
+// reads them back and hands them to the upload panel.
 //
-// Strategia:
-// - POST /share-target: invariato, intercettato e rediretto alla SPA.
-// - Navigazione HTML: network-first con fallback alla shell cache.
-// - Asset statici hashed di Vite + manifest/favicon: cache-first.
-// - /media/thumb/*: cache-first, così le miniature già viste restano
-//   navigabili offline.
+// Strategy:
+// - POST /share-target: unchanged, intercepted and redirected to the SPA.
+// - HTML navigation: network-first with fallback to the shell cache.
+// - Vite's hashed static assets + manifest/favicon: cache-first.
+// - /media/thumb/*: cache-first, so thumbnails already seen stay
+//   navigable offline.
 //
-// NOTA: il nome della cache e le chiavi qui sotto devono restare identici a
-// quelli in `frontend/src/pwa/shareTarget.ts` — non condivisibili a build
-// time perché questo file è servito com'è da `/public`, senza passare dal
-// bundler.
+// NOTE: the cache name and the keys below must stay identical to the ones
+// in `frontend/src/pwa/shareTarget.ts` — they can't be shared at build
+// time because this file is served as-is from `/public`, without going
+// through the bundler.
 const SHARE_CACHE_NAME = 'keeppix-share-target-v1'
 const SHARE_INDEX_KEY = '/__share-target-index__'
 const SHELL_CACHE_NAME = 'keeppix-shell-v2'
@@ -27,9 +27,9 @@ const THUMB_CACHE_NAME = 'keeppix-thumbs-v1'
 const APP_SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/icon-192.png', '/icon-512.png']
 
 self.addEventListener('install', (event) => {
-  // Non usiamo `skipWaiting()`: un service worker nuovo resta in attesa finché
-  // le tab vecchie non si chiudono, così non rimpiazza in silenzio una shell
-  // mentre l'utente ha operazioni attive.
+  // We don't use `skipWaiting()`: a new service worker stays waiting until
+  // the old tabs close, so it doesn't silently replace a shell while the
+  // user has active operations.
   event.waitUntil(precacheShell())
 })
 
@@ -91,8 +91,8 @@ async function handleShareTarget(event) {
       })
     )
   } catch {
-    // Un fallimento nella lettura del FormData non deve impedire il
-    // redirect: la SPA troverà semplicemente nessun file pendente.
+    // A failure reading the FormData shouldn't prevent the redirect: the
+    // SPA will simply find no pending files.
   }
   return Response.redirect('/share-target', 303)
 }

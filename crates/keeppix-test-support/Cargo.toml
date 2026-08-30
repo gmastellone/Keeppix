@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-# Non è codice di produzione: esiste solo come `[dev-dependencies]` degli altri
-# crate, che non possono condividere codice di test in altro modo.
+# Not production code: it exists only as a `[dev-dependencies]` entry for
+# other crates, which have no other way to share test code.
 publish = false
 
 [dependencies]

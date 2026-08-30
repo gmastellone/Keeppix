@@ -24,31 +24,31 @@ lto = true
 codegen-units = 1
 strip = true
 
-# I test di budget misurano prestazioni, e `cargo test` compila a
-# `opt-level = 0`: misurerebbero rustc senza ottimizzazioni, non ciò che
-# gira in produzione. Su `keeppix-media`, che macina byte, la differenza
-# non è marginale — misurata sulle stesse fixture:
+# Budget tests measure performance, and `cargo test` compiles at
+# `opt-level = 0`: they'd be measuring rustc without optimizations, not
+# what runs in production. On `keeppix-media`, which grinds through bytes,
+# the difference isn't marginal — measured on the same fixtures:
 #
-#     estrazione preview CR3    debug 116,90 ms    release 4,19 ms
+#     CR3 preview extraction    debug 116.90 ms    release 4.19 ms
 #
-# 28×, abbastanza da far fallire un budget che in release ha 12× di
-# margine. Il numero in debug non dice niente di utile: dipende dalla
-# macchina, e infatti passava su una e falliva su un'altra.
+# 28×, enough to fail a budget that has a 12× margin in release. The debug
+# number tells you nothing useful: it depends on the machine, and indeed
+# it passed on one and failed on another.
 #
-# Si ottimizzano solo le crate che macinano byte: il resto resta veloce da
-# compilare. `dev` e `test` sono entrambi necessari — le librerie usate dai
-# test di integrazione si compilano col profilo `dev`, i binari di test col
-# profilo `test`.
+# Only the crates that grind through bytes get optimized: everything else
+# stays fast to compile. `dev` and `test` are both needed — libraries used
+# by integration tests compile under the `dev` profile, test binaries
+# under the `test` profile.
 [profile.dev.package.keeppix-media]
 opt-level = 2
 
 [profile.test.package.keeppix-media]
 opt-level = 2
 
-# libwebp-sys è C: a opt-level=0 l'encoder lossy risultava più lento del
-# lossless Rust (1,06 s vs 0,48 s sulla stessa fixture). Stesso motivo
-# dell'ottimizzazione di keeppix-media: i budget devono parlare della
-# produzione, non di rustc -O0 sul C.
+# libwebp-sys is C: at opt-level=0 the lossy encoder was slower than the
+# lossless Rust one (1.06 s vs 0.48 s on the same fixture). Same reason as
+# the keeppix-media optimization: budgets need to speak to production, not
+# to rustc -O0 on the C code.
 [profile.dev.package.libwebp-sys]
 opt-level = 2
 
