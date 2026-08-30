@@ -2,9 +2,9 @@
 # Format: fn|route <name> <phase>
 #
 # Two sections, declared:
-#   Rinvii — the consumer lives in a phase that has not run yet.
+#   Deferrals — the consumer lives in a phase that has not run yet.
 #            <phase> is that future phase (or ops/ci).
-#   Debiti — shipped in a phase that already closed, with no consumer.
+#   Debts — shipped in a phase that already closed, with no consumer.
 #            <phase> is the phase that will pay the debt, NOT the origin.
 #            Origin is in the comment on the line.
 #
@@ -12,140 +12,142 @@
 # name to silence the guard without putting it in the right section.
 #
 # Do not list TrashRepo::cleanup_expired or /ws|/ws/ticket: those were
-# the Fase 2R3 defects this guard exists to catch (Tasks 4 and 6).
+# the Phase 2R3 defects this guard exists to catch (Tasks 4 and 6).
 
 # =============================================================================
-# Rinvii — consumatore in una fase non ancora eseguita
+# Deferrals — consumer lives in a phase not yet run
 # =============================================================================
 route /health ops
 route /api/openapi.json ci
 
-# move_asset, render_filename, resolve_place_label: erano qui in attesa dei
-# consumatori di Fase 9 (Task 4/8 e 7/8). Fase 9 è chiusa e mergiata —
-# verificato il 26 agosto 2026 rimuovendo temporaneamente queste tre righe e
-# rilanciando `check-wired.py`: passa lo stesso, e `grep` conferma call-site
-# reali fuori dai test (`move_asset` in `culling.rs`/`rename.rs`/`assets.rs`;
-# `render_filename`/`resolve_place_label` nel motore di rinomina di
-# `rename.rs`). Rimosse, non più eccezioni.
+# move_asset, render_filename, resolve_place_label: were here awaiting the
+# Phase 9 consumers (Tasks 4/8 and 7/8). Phase 9 is closed and merged —
+# verified on August 26, 2026 by temporarily removing these three lines and
+# rerunning `check-wired.py`: it still passes, and `grep` confirms real
+# call sites outside the tests (`move_asset` in `culling.rs`/`rename.rs`/
+# `assets.rs`; `render_filename`/`resolve_place_label` in the rename engine
+# in `rename.rs`). Removed, no longer exceptions.
 
 # =============================================================================
-# Debiti — spediti in una fase già chiusa senza consumatore
+# Debts — shipped in a phase already closed with no consumer
 # =============================================================================
-# origine fase-0 (sessioni). /auth/refresh: pagato in 12b (watchdog SPA).
-# ping (keeppix-db/src/lib.rs): pagato il 26 agosto — GET /health (router con
-# stato) ora chiama `Db::ping` per davvero e riporta `database: "ok"` o
-# `"unreachable"` nel corpo della risposta (routes/health.rs). La variante
-# senza stato (router_without_state, usata dai test che non vogliono
-# Postgres) resta senza database, onestamente `"not checked"`, non `"ok"`
-# finto.
+# origin Phase 0 (sessions). /auth/refresh: paid off in 12b (SPA watchdog).
+# ping (keeppix-db/src/lib.rs): paid off on August 26 — GET /health (the
+# stateful router) now actually calls `Db::ping` and reports `database:
+# "ok"` or `"unreachable"` in the response body (routes/health.rs). The
+# stateless variant (router_without_state, used by tests that don't want
+# Postgres) stays without a database, honestly reporting `"not checked"`,
+# not a fake `"ok"`.
 
-# origine fase-1a. get_json: pagato — `transcode.rs` rilegge `capabilities`
-# (Fase 6) e Fase 7 Task 1 estende quel JSON con `extra.ai`. Non è più un rinvio.
-# ensure_child (folders.rs): era qui in attesa che Fase 9 lo riusasse per le
-# sottocartelle _taken/_skipped del culling — non è successo, Fase 9 ha
-# scritto una funzione privata separata (`ensure_culling_child_on`, marca
-# anche `culling_role`) invece di riusare questa. Ma `ensure_child` ha un
-# consumatore reale indipendente e pre-esistente, mai notato quando questa
-# voce fu scritta: `crates/keeppix-api/src/dav/write.rs` (MKCOL via WebDAV,
-# da Fase 5, commit `4d2564e`, 19 agosto). Verificato il 26 agosto rimuovendo
-# la riga e rilanciando `check-wired.py`: passa. Rimossa, non più eccezione.
+# origin Phase 1a. get_json: paid off — `transcode.rs` reads back
+# `capabilities` (Phase 6) and Phase 7 Task 1 extends that JSON with
+# `extra.ai`. No longer a deferral.
+# ensure_child (folders.rs): was here awaiting Phase 9 reusing it for the
+# culling `_taken`/`_skipped` subfolders — that didn't happen, Phase 9
+# wrote a separate private function instead (`ensure_culling_child_on`,
+# which also marks `culling_role`) rather than reusing this one. But
+# `ensure_child` has a real, independent, pre-existing consumer that went
+# unnoticed when this entry was written: `crates/keeppix-api/src/dav/
+# write.rs` (MKCOL via WebDAV, from Phase 5, commit `4d2564e`, August 19).
+# Verified on August 26 by removing the line and rerunning
+# `check-wired.py`: it passes. Removed, no longer an exception.
 
-# origine fase-1b. count_by_status (keeppix-db/src/assets.rs): conta gli
-# asset per stato di scansione, scoped alla visibilità del chiamante. La
-# vecchia voce qui diceva che l'evento `scan.progress` (Fase 10) la
-# espone in WS — falso, verificato leggendo `drain_scan_progress`
-# (crates/keeppix-api/src/routes/ws.rs): quell'evento usa
-# `AssetRepo::count_in_library`, una funzione diversa, con un commento
-# che lo dichiara di proposito ("stessa fonte già usata da GET
-# /libraries/{id}/scan... non un secondo stato inventato"). `count_by_status`
-# è un secondo percorso rimasto scollegato fin dall'origine, non lo stesso
-# codice con un nome diverso — stessa forma di `get_for_user` più sotto.
+# origin Phase 1b. count_by_status (keeppix-db/src/assets.rs): counts assets
+# by scan status, scoped to the caller's visibility. The old entry here
+# claimed the `scan.progress` event (Phase 10) exposes it over WS — false,
+# verified by reading `drain_scan_progress` (crates/keeppix-api/src/
+# routes/ws.rs): that event uses `AssetRepo::count_in_library`, a
+# different function, with a comment that declares this deliberate ("same
+# source already used by GET /libraries/{id}/scan... not a second,
+# invented status"). `count_by_status` is a second path that has been
+# disconnected since its origin, not the same code under a different name
+# — same shape as `get_for_user` further below.
 #
-# Decisione presa il 26 agosto, non più rinviata: nessuna schermata del
-# documento funzionale chiede un conteggio per-stato ("N indexed, M
-# pending, K failed") — verificato di nuovo, sia su `ProblemsView.vue`
-# (riscritta riga-per-riga contro §47, non lo prevede) sia sull'intero
-# `docs/ui/documento-funzionale-ui.md` (nessuna occorrenza). Costruire una
-# UI apposta significherebbe inventare una schermata che il disegno non ha
-# mai chiesto. **Non è però codice morto**: `count_by_status` è la sonda
-# usata da sei asserzioni reali in `tests/albums.rs`, `tests/assets.rs` e
-# `tests/permissions.rs` per verificare `VisibilityScope` (chi vede cosa
-# multi-tenant) da più angolazioni — toglierla indebolirebbe quella
-# copertura senza un sostituto equivalente. Resta come API interna
-# testata, senza rotta HTTP: non un debito, un'eccezione permanente.
-fn count_by_status permanente
+# Decision made on August 26, no longer deferred: no screen in the
+# functional spec asks for a per-status count ("N indexed, M pending, K
+# failed") — verified again, both on `ProblemsView.vue` (rewritten
+# line-by-line against §47, which doesn't call for it) and across the
+# whole of `docs/ui/documento-funzionale-ui.md` (no occurrence). Building
+# a UI for it would mean inventing a screen the design never asked for.
+# **It is not dead code, though**: `count_by_status` is the probe used by
+# six real assertions in `tests/albums.rs`, `tests/assets.rs`, and
+# `tests/permissions.rs` to verify `VisibilityScope` (who sees what in a
+# multi-tenant setting) from multiple angles — removing it would weaken
+# that coverage with no equivalent replacement. It stays as tested
+# internal API with no HTTP route: not a debt, a permanent exception.
+fn count_by_status permanent
 
-# origine fase-10 Task 16. Chiuso per davvero il 27 agosto — erano tre
-# feature diverse dietro un'unica voce, pagate una alla volta perché la
-# loro forma tecnica non era la stessa.
+# origin Phase 10 Task 16. Actually closed on August 27 — this was three
+# different features behind a single entry, paid off one at a time
+# because their technical shape wasn't the same.
 #
-# LibraryScan (26 agosto): `POST /libraries/{id}/scan` risponde `202` con
-# `operation_id` subito (job reale in background) — in `ProblemsView.vue`,
-# un riavvio di connessione riuscito (`retryConnection`) avvia una
-# scansione vera e ne segue `operation.progress` sul WebSocket con una
-# barra reale e un `[Annulla]` che chiama davvero questa rotta
-# (`api/operations.ts::cancelOperation`).
+# LibraryScan (August 26): `POST /libraries/{id}/scan` responds `202`
+# with an `operation_id` immediately (a real background job) — in
+# `ProblemsView.vue`, a successful connection retry (`retryConnection`)
+# kicks off a real scan and follows its `operation.progress` over the
+# WebSocket with a real progress bar and a `[Cancel]` that genuinely
+# calls this route (`api/operations.ts::cancelOperation`).
 #
-# BulkRename (27 agosto): rovesciata la progettazione originale di Fase 9
-# — non più sincrona dentro la richiesta HTTP. `POST /assets/batch/rename`
-# fa solo i controlli fallibili a monte (permesso/visibilità), crea
-# l'`Operation` e accoda `JobKind::BulkRename` (`keeppix-jobs::
-# rename_batch`, nuovo), rispondendo `202` con `operation_id` subito come
-# `LibraryScan`. `RenameFormulaDialog.vue` mostra progresso reale + un
-# `[Annulla]` funzionante mentre il batch gira. Tradeoff accettato: il
-# motivo preciso di un fallimento per-asset (es. `"collision"`) non
-# sopravvive più fino al chiamante una volta in background — stesso
-# limite già presente per `LibraryScan` (solo `succeeded`/`done`/`total`
-# restano leggibili sull'`Operation`, mai il perché di un singolo
-# fallimento). Trovato e chiuso nello stesso lavoro un buco preesistente
-# scoperto qui: `OperationStatus::Failed` esisteva dalla Fase 10 ma nessun
-# percorso lo scriveva mai (`OperationsRepo::finish_failed`, nuovo) — un
-# job tracciato che falliva restava `running` per sempre. Lo stesso buco
-# resta aperto in `discover.rs`/`embed.rs`/`detect_faces.rs`
-# (`LibraryScan`/`AiAnalysis`/`FaceDetection`), non toccati qui.
-# `undo_batch` non è nello scopo di questo cambio — resta sincrona,
-# `track_operation: bool` non toccato: stesso limite di scala, un debito
-# separato non affrontato.
+# BulkRename (August 27): reversed Phase 9's original design — no longer
+# synchronous within the HTTP request. `POST /assets/batch/rename` only
+# does the fallible checks up front (permission/visibility), creates the
+# `Operation`, and enqueues `JobKind::BulkRename` (`keeppix-jobs::
+# rename_batch`, new), responding `202` with an `operation_id`
+# immediately just like `LibraryScan`. `RenameFormulaDialog.vue` shows
+# real progress plus a working `[Cancel]` while the batch runs. Accepted
+# tradeoff: the precise per-asset failure reason (e.g. `"collision"`) no
+# longer survives to the caller once it's in the background — the same
+# limitation `LibraryScan` already has (only `succeeded`/`done`/`total`
+# remain readable on the `Operation`, never the reason for an individual
+# failure). Found and closed in the same piece of work, a pre-existing
+# gap discovered here: `OperationStatus::Failed` had existed since Phase
+# 10 but no path ever wrote it (`OperationsRepo::finish_failed`, new) — a
+# tracked job that failed stayed `running` forever. The same gap remains
+# open in `discover.rs`/`embed.rs`/`detect_faces.rs`
+# (`LibraryScan`/`AiAnalysis`/`FaceDetection`), not touched here.
+# `undo_batch` is out of scope for this change — it stays synchronous,
+# `track_operation: bool` untouched: same scaling limitation, a separate
+# debt not addressed.
 #
-# AiAnalysis/FaceDetection (27 agosto, sola visualizzazione): nessuna
-# rotta HTTP le innesca (finestre automatiche in background) — costruito
-# `MoreView.vue`, sezione "Attività in background", sola vista (nessun
-# pausa/annulla, per scelta esplicita) che legge `phase` da
-# `operation.progress` ("embedding"/"detecting", le uniche che quei due
-# job impostano davvero) per distinguerle da `LibraryScan`/`BulkRename`,
-# che hanno già una superficie propria altrove.
+# AiAnalysis/FaceDetection (August 27, view-only): no HTTP route triggers
+# them (automatic background windows) — built `MoreView.vue`, a
+# "Background activity" section, view-only (no pause/cancel, by explicit
+# choice) that reads `phase` from `operation.progress`
+# ("embedding"/"detecting", the only values these two jobs actually set)
+# to tell them apart from `LibraryScan`/`BulkRename`, which already have
+# their own surface elsewhere.
 
-# origine fase-4 (mappe/geotag). Decisione presa il 26 agosto, non più
-# rinviata — le quattro erano raggruppate insieme ma non sono lo stesso
-# caso:
+# origin Phase 4 (maps/geotagging). Decision made on August 26, no longer
+# deferred — the four were grouped together but are not the same case:
 #
-# get_for_user (home.rs) e timezone_changes (geo.rs) erano duplicati morti
-# per davvero — zero chiamate ovunque, nemmeno nei test (verificato con
-# grep sull'intero albero `crates/`). `get_for_user` duplicava
-# `HomeRepo::get` (che legge la casa dell'utente *autenticato*; questa
-# prendeva un `UserId` arbitrario, mai usata da alcuna rotta admin).
-# `timezone_changes` duplicava `timezone_changes_on`, la stessa
-# `timezone_changes_sql()` dietro un wrapper pubblico mai chiamato — il
-# vero percorso di anteprima passa da `GeoRepo::timezone_change_preview`,
-# un terzo nome ancora. Rimosse entrambe, non più eccezioni.
+# get_for_user (home.rs) and timezone_changes (geo.rs) were genuinely
+# dead duplicates — zero calls anywhere, not even in tests (verified with
+# grep across the whole `crates/` tree). `get_for_user` duplicated
+# `HomeRepo::get` (which reads the *authenticated* user's home; this one
+# took an arbitrary `UserId`, never used by any admin route).
+# `timezone_changes` duplicated `timezone_changes_on`, the same
+# `timezone_changes_sql()` behind a public wrapper that was never called
+# — the real preview path goes through
+# `GeoRepo::timezone_change_preview`, yet a third name. Both removed, no
+# longer exceptions.
 #
-# timezone_for e apply_taken_at_batch invece NON sono morte: stesso caso
-# di `count_by_status` sopra. `timezone_for` e la vera
-# `timezone_candidates_sql()` (dietro `apply_timezone_changes`, wired)
-# chiamano entrambe `timezone_match_sql()` — lo stesso predicato spaziale
-# `ST_Covers`. I test di `timezone_for` in `tests/geo.rs` (Tokyo trovato,
-# oceano non trovato, punto su un confine condiviso senza doppio match né
-# errore) sono l'unica copertura reale di quel predicato — `tests/
-# timezones.rs` (il percorso vero) verifica solo permessi/autenticazione,
-# mai la geometria del confine. `apply_taken_at_batch` e la vera
-# `apply_timezone_changes` chiamano entrambe
-# `apply_taken_at_assignments_in_transaction`; il test di
-# `apply_taken_at_batch` in `tests/overrides.rs`
+# timezone_for and apply_taken_at_batch, on the other hand, are NOT dead:
+# same case as `count_by_status` above. `timezone_for` and the real
+# `timezone_candidates_sql()` (behind `apply_timezone_changes`, wired)
+# both call `timezone_match_sql()` — the same `ST_Covers` spatial
+# predicate. The `timezone_for` tests in `tests/geo.rs` (Tokyo found,
+# ocean not found, a point on a shared boundary with no double match and
+# no error) are the only real coverage of that predicate — `tests/
+# timezones.rs` (the real path) only verifies permissions/authentication,
+# never the boundary geometry. `apply_taken_at_batch` and the real
+# `apply_timezone_changes` both call
+# `apply_taken_at_assignments_in_transaction`; the `apply_taken_at_batch`
+# test in `tests/overrides.rs`
 # (`timezone_writer_preserves_a_taken_at_override_present_at_write_time`)
-# è l'unica copertura della regola «un override manuale precedente non
-# va sovrascritto dalla correzione fuso orario in blocco» — non replicata
-# altrove. Cancellarle perderebbe copertura reale su codice di produzione
-# senza un sostituto equivalente: restano API interne testate, senza
-# rotta HTTP propria, eccezioni permanenti.
-fn timezone_for permanente
-fn apply_taken_at_batch permanente
+# is the only coverage of the rule "a prior manual override must not be
+# overwritten by a bulk timezone correction" — not replicated elsewhere.
+# Deleting them would lose real coverage on production code with no
+# equivalent replacement: they stay as tested internal APIs, with no
+# HTTP route of their own, permanent exceptions.
+fn timezone_for permanent
+fn apply_taken_at_batch permanent
