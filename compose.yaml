@@ -10,7 +10,11 @@ services:
       # shell) and launch without `--profile bundled` — the external value
       # wins and the `db` service won't start. Without DATABASE_URL, it
       # falls back to the bundled `db` service with DB_PASSWORD's password.
-      DATABASE_URL: ${DATABASE_URL:-postgres://keeppix:${DB_PASSWORD:-changeme}@db/keeppix}
+      # No hardcoded fallback password: an unset DB_PASSWORD here means an
+      # empty password, which the bundled `db` service below refuses to
+      # start with — a loud failure instead of a silently-usable weak
+      # default. Generate a real one: `openssl rand -base64 24`.
+      DATABASE_URL: ${DATABASE_URL:-postgres://keeppix:${DB_PASSWORD:-}@db/keeppix}
       KEEPPIX_ALLOWED_ORIGINS: '[]'
     ports:
       - "5673:5673"
@@ -52,7 +56,10 @@ services:
       - max_connections=${POSTGRES_MAX_CONNECTIONS:-20}
     environment:
       POSTGRES_USER: keeppix
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      # No fallback default: postgres refuses to start with an empty
+      # password, so an unset DB_PASSWORD fails loudly instead of starting
+      # a database anyone can guess their way into.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
       POSTGRES_DB: keeppix
     volumes:
       - ./pgdata:/var/lib/postgresql/data

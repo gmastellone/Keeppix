@@ -16,7 +16,10 @@
 set -euo pipefail
 
 ARCHIVE="${PHOTOS_PATH:?PHOTOS_PATH is required}"
-DB_PASSWORD="${DB_PASSWORD:-fieldtest}"
+# Must match whatever DB_PASSWORD the running bundled `db` service was
+# started with — no hardcoded fallback, since a plausible-looking guess
+# would silently work against a database seeded with the same weak default.
+DB_PASSWORD="${DB_PASSWORD:?DB_PASSWORD is required — export the same value used to start the bundled db service}"
 BASE="http://127.0.0.1:5673"
 REPORT=".superpowers/field-test-$(date +%Y%m%d-%H%M).md"
 COOKIE_JAR="$(mktemp)"
