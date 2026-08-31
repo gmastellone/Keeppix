@@ -853,12 +853,12 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Per-asset outcome of the restore",
+          "202": {
+            "description": "Queued — follow operation_id over WebSocket (operation.progress)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RenameOperationOutcome"
+                  "$ref": "#/components/schemas/RenameAccepted"
                 }
               }
             }
@@ -875,6 +875,16 @@
           },
           "403": {
             "description": "Batch does not belong to the caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch does not exist (admin only — a non-admin sees 403 instead, to avoid an existence oracle)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14238,7 +14248,7 @@
       },
       "RenameAccepted": {
         "type": "object",
-        "description": "Response of `apply_batch` (`202`): the outcome is not yet known when\nresponding — the caller follows `operation_id` over the `WebSocket`\n(`operation.progress`), the same pattern as `ScanAccepted`\n(`routes/libraries.rs`).",
+        "description": "Response of `apply_batch`/`undo_batch` (`202`): the outcome is not yet\nknown when responding — the caller follows `operation_id` over the\n`WebSocket` (`operation.progress`), the same pattern as `ScanAccepted`\n(`routes/libraries.rs`).",
         "required": [
           "operation_id"
         ],
@@ -14264,22 +14274,6 @@
           "schema": {
             "type": "string",
             "description": "Formula with placeholders: `{date}`, `{camera}`, `{lens}`,\n`{place}`, `{title}`, `{n[:D]}`."
-          }
-        }
-      },
-      "RenameOperationOutcome": {
-        "type": "object",
-        "description": "Nested, not flattened onto `BulkOutcome` (`utoipa` limitation: a\n`#[serde(flatten)]` on a generated schema loses the field names in the\n`OpenAPI` document). Used only by `undo_batch`, which is still\nsynchronous — `apply_batch` responds with [`RenameAccepted`].",
-        "required": [
-          "operation_id",
-          "outcome"
-        ],
-        "properties": {
-          "operation_id": {
-            "type": "string"
-          },
-          "outcome": {
-            "$ref": "#/components/schemas/BulkOutcome"
           }
         }
       },

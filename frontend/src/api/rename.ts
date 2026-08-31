@@ -1,8 +1,7 @@
 import { apiFetch } from './client'
 
 // "Rename with formula…" from the bulk-edit menu — backed by
-// `RenameRepo`, exposed via `/assets/batch/rename*`; no backend changes
-// needed here.
+// `RenameRepo`, exposed via `/assets/batch/rename*`.
 
 export interface RenamePreviewItem {
   asset_id: string
@@ -20,13 +19,9 @@ export function previewRename(assetIds: string[], schema: string): Promise<Renam
   })
 }
 
-export interface RenameOperationOutcome {
-  operation_id: string
-  outcome: { succeeded: string[]; failed: { id: string; reason: string; detail?: string }[]; batch_id: string | null }
-}
-
-/** Returns `202` immediately with only `operation_id` — the work runs in
- * the background (`JobKind::BulkRename`), the same reason library
+/** Both `applyRenameBatch` and `undoRenameBatch` return `202` immediately
+ * with only `operation_id` — the work runs in the background
+ * (`JobKind::BulkRename` / `JobKind::RenameUndo`), the same reason library
  * rescans (`startLibraryScan`) never return a synchronous outcome. The
  * caller tracks real progress via `operation.progress` (`api/events.ts`)
  * and cancels with `cancelOperation` (`api/operations.ts`) — same
@@ -42,6 +37,6 @@ export function applyRenameBatch(assetIds: string[], schema: string): Promise<Re
   })
 }
 
-export function undoRenameBatch(batchId: string): Promise<RenameOperationOutcome> {
+export function undoRenameBatch(batchId: string): Promise<RenameAccepted> {
   return apiFetch(`/api/v1/assets/batch/rename/${batchId}/undo`, { method: 'POST' })
 }

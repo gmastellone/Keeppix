@@ -296,7 +296,6 @@ impl utoipa::Modify for SecurityAddon {
         metadata::TimezoneApplyView,
         rename::RenameBatchRequest,
         rename::RenamePreviewItemView,
-        rename::RenameOperationOutcome,
         asset_move::BatchMoveRequest,
         geotag::CopyLocationRequest,
         geotag::ImportGpxRequest,

@@ -220,10 +220,8 @@ async fn apply_batch_renames_on_disk_and_tracks_a_finished_operation() {
     assert_eq!(operation.phase, "renaming");
     assert_eq!(operation.succeeded.len(), 2);
 
-    // `undo` is out of scope for the background-job change (see the
-    // acknowledged debt noted in keeppix_db::rename) — it stays
-    // synchronous, with batch_id read from the database instead of from
-    // apply's old response, which no longer carries it.
+    // `undo` runs in the background too now (JobKind::RenameUndo) — batch_id
+    // read from the database since apply's 202 response doesn't carry it.
     let batch_id: uuid::Uuid =
         sqlx::query_scalar("SELECT id FROM rename_batches ORDER BY id LIMIT 1")
             .fetch_one(server.db.pool())
@@ -236,13 +234,26 @@ async fn apply_batch_renames_on_disk_and_tracks_a_finished_operation() {
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), 200);
+    assert_eq!(response.status(), 202);
     let body: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(body["outcome"]["succeeded"].as_array().unwrap().len(), 2);
+    let undo_operation_id: keeppix_domain::OperationId =
+        body["operation_id"].as_str().unwrap().parse().unwrap();
+
+    drain_workers(&server, &server.data_dir.join("rename-undo-data")).await;
 
     assert!(root.join("2024").join("a.jpg").is_file());
     assert!(root.join("2024").join("b.jpg").is_file());
     assert!(!root.join("2024").join("vacanza_01.JPG").exists());
+
+    let undo_operation = OperationsRepo::new(&server.db)
+        .find(&ctx, undo_operation_id)
+        .await
+        .unwrap();
+    assert_eq!(undo_operation.status, OperationStatus::Done);
+    assert_eq!(undo_operation.total, Some(2));
+    assert_eq!(undo_operation.done, 2);
+    assert_eq!(undo_operation.phase, "undoing");
+    assert_eq!(undo_operation.succeeded.len(), 2);
 
     let _ = fs::remove_dir_all(&root);
 }

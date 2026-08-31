@@ -682,7 +682,7 @@ mod undo {
         let batch_id = applied.batch_id.unwrap();
         assert!(root.join("2024").join("Tramonto.JPG").is_file());
 
-        let undone = repo.undo(&ctx, batch_id, false).await.unwrap();
+        let undone = repo.undo(&ctx, batch_id, None).await.unwrap();
 
         assert!(!undone.already_undone);
         assert_eq!(undone.restored.len(), 1);
@@ -727,7 +727,7 @@ mod undo {
         let applied = repo.apply(&ctx, &[raw], "{titolo}", None).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
-        let undone = repo.undo(&ctx, batch_id, false).await.unwrap();
+        let undone = repo.undo(&ctx, batch_id, None).await.unwrap();
 
         assert_eq!(undone.restored.len(), 2, "raw + paired jpeg");
         assert!(root.join("2024").join("DSC_0042.ARW").is_file());
@@ -764,9 +764,9 @@ mod undo {
         let applied = repo.apply(&ctx, &[asset_id], "b", None).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
-        let first = repo.undo(&ctx, batch_id, false).await.unwrap();
+        let first = repo.undo(&ctx, batch_id, None).await.unwrap();
         assert!(!first.already_undone);
-        let second = repo.undo(&ctx, batch_id, false).await.unwrap();
+        let second = repo.undo(&ctx, batch_id, None).await.unwrap();
         assert!(second.already_undone);
         assert!(second.restored.is_empty());
 
@@ -819,7 +819,7 @@ mod undo {
             .unwrap();
         let editor_ctx = AuthContext::user(editor, SystemRole::User);
 
-        let result = repo.undo(&editor_ctx, batch_id, false).await;
+        let result = repo.undo(&editor_ctx, batch_id, None).await;
 
         assert!(matches!(result, Err(DbError::Forbidden)), "{result:?}");
         assert!(root.join("2024").join("b.JPG").is_file(), "nothing moves");
@@ -853,7 +853,7 @@ mod undo {
         fs::write(root.join("2024").join("a.jpg"), b"intruso").unwrap();
         let _intruder = indexed_asset(&assets, folder.id, "a.jpg", taken_at).await;
 
-        let undone = repo.undo(&ctx, batch_id, false).await.unwrap();
+        let undone = repo.undo(&ctx, batch_id, None).await.unwrap();
 
         assert!(undone.restored.is_empty());
         assert_eq!(undone.failed.len(), 1);
@@ -874,7 +874,7 @@ mod undo {
         let ctx = AuthContext::user(admin, SystemRole::Admin);
 
         let result = RenameRepo::new(test.db())
-            .undo(&ctx, keeppix_domain::BatchId::new(), false)
+            .undo(&ctx, keeppix_domain::BatchId::new(), None)
             .await;
 
         assert!(matches!(result, Err(DbError::NotFound)), "{result:?}");
@@ -1036,10 +1036,15 @@ mod operation_tracking {
         let applied = repo.apply(&ctx, &[asset_id], "b", None).await.unwrap();
         let batch_id = applied.batch_id.unwrap();
 
-        let undone = repo.undo(&ctx, batch_id, true).await.unwrap();
+        let op = operations
+            .create(&ctx, OperationKind::BulkRename)
+            .await
+            .unwrap();
+        let undone = repo.undo(&ctx, batch_id, Some(op.id)).await.unwrap();
         assert_eq!(undone.restored.len(), 1);
 
         let op_id = undone.operation_id.unwrap();
+        assert_eq!(op_id, op.id);
         let finished = operations.find(&ctx, op_id).await.unwrap();
         assert_eq!(finished.status, OperationStatus::Done);
         assert_eq!(finished.total, Some(1));

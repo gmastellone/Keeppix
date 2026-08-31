@@ -38,6 +38,10 @@ pub enum JobKind {
     /// (`202 Accepted`), same as `LibraryScan`/`AiAnalysis`/`FaceDetection`
     /// — no longer a shape exception.
     BulkRename,
+    /// Undoing a bulk rename batch, same reasoning and shape as
+    /// `BulkRename`: a batch large enough to be worth undoing in bulk is
+    /// large enough to block the request for minutes on slow storage.
+    RenameUndo,
 }
 
 impl JobKind {
@@ -67,6 +71,7 @@ impl JobKind {
             Self::EmbedAssets => "embed_assets",
             Self::DetectFaces => "detect_faces",
             Self::BulkRename => "bulk_rename",
+            Self::RenameUndo => "rename_undo",
         }
     }
 
@@ -97,6 +102,7 @@ impl JobKind {
             "embed_assets" => Ok(Self::EmbedAssets),
             "detect_faces" => Ok(Self::DetectFaces),
             "bulk_rename" => Ok(Self::BulkRename),
+            "rename_undo" => Ok(Self::RenameUndo),
             other => Err(DomainError::InvalidJobKind(other.to_owned())),
         }
     }
@@ -209,6 +215,7 @@ mod tests {
             JobKind::EmbedAssets,
             JobKind::DetectFaces,
             JobKind::BulkRename,
+            JobKind::RenameUndo,
         ] {
             assert_eq!(JobKind::parse(kind.as_str()).expect("round-trip"), kind);
         }

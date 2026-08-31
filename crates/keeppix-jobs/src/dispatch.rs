@@ -128,6 +128,7 @@ impl crate::JobHandler for IngestHandler {
                 .map(|_| ())
             }
             JobKind::BulkRename => crate::rename_batch::run(&self.db, &job.payload).await,
+            JobKind::RenameUndo => crate::rename_undo::run(&self.db, &job.payload).await,
         }
     }
 }

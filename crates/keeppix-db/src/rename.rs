@@ -4,27 +4,26 @@
 //! (`OperationKind::BulkRename`). The actual engine
 //! (`render_base`/`apply_base_to_filename`) is pure, in `keeppix-domain`.
 //!
-//! **`apply`/`undo` act as the "worker" of their own operation**, but not
-//! always in the same way. Original design: unlike
+//! **`apply`/`undo` act as the "worker" of their own operation**, and both
+//! now run the same way. Original design: unlike
 //! `LibraryScan`/`AiAnalysis`/`FaceDetection` (driven by a `keeppix-jobs`
 //! job, because they are slow and tied to model inference), renaming was
 //! fast — each step just a `move_asset` — so it stayed synchronous inside
 //! the HTTP request; a batch of thousands of photos on slow storage still
 //! turned into a multi-minute block with no way to cancel it, discovered
-//! when someone asked for a real cancellation. **`apply` now runs inside
-//! `keeppix-jobs::rename_batch`** (the same shape as `LibraryScan`): the
-//! HTTP caller (`routes/rename.rs::apply_batch`) does the fallible checks
-//! upstream (permissions/visibility), creates the `Operation`, enqueues
-//! the job, and responds `202` with the id right away — no early `Err`
-//! can still leave an orphaned operation; the safety property is the
-//! same, just moved from inside `apply` to the caller. `undo` stays
-//! synchronous as before (out of scope for this change, same
-//! `track_operation: bool`, untouched) — declared debt, not forgotten: if
-//! an undoable batch can reach the same scale as `apply`, it deserves the
-//! same treatment. From there on, both poll `is_cancel_requested` between
-//! one asset and the next and close their own final state
-//! (`finish_done`/`finish_cancelled`). The id (`Option<OperationId>`)
-//! comes back to the caller inside `RenameBatchOutcome`/`RenameUndoOutcome`.
+//! when someone asked for a real cancellation. **`apply` runs inside
+//! `keeppix-jobs::rename_batch`, `undo` inside `keeppix-jobs::rename_undo`**
+//! (the same shape as `LibraryScan`): the HTTP caller
+//! (`routes/rename.rs::apply_batch`/`undo_batch`) does the fallible checks
+//! upstream (permissions/visibility for `apply`, batch ownership via
+//! `RenameRepo::assert_batch_owned` for `undo`), creates the `Operation`,
+//! enqueues the job, and responds `202` with the id right away — no early
+//! `Err` can still leave an orphaned operation; the safety property is the
+//! same, just moved from inside `apply`/`undo` to the caller. From there
+//! on, both poll `is_cancel_requested` between one asset and the next and
+//! close their own final state (`finish_done`/`finish_cancelled`). The id
+//! (`Option<OperationId>`) comes back to the caller inside
+//! `RenameBatchOutcome`/`RenameUndoOutcome`.
 //!
 //! **Collision-scope fix closed here**: the collision check runs against
 //! the entire database — both preview and apply, not just within the
@@ -52,8 +51,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use keeppix_domain::{
-    Asset, AssetId, AssetName, AuthContext, BatchId, FolderId, OperationId, OperationKind,
-    RenameValues, UserId, apply_base_to_filename, render_base,
+    Asset, AssetId, AssetName, AuthContext, BatchId, FolderId, OperationId, RenameValues, UserId,
+    apply_base_to_filename, render_base,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -326,6 +325,44 @@ impl<'a> RenameRepo<'a> {
         })
     }
 
+    /// Fast-fail check for `routes/rename.rs::undo_batch`, called *before*
+    /// creating the `Operation` for a background undo: does the batch
+    /// exist, and does it belong to the caller (or is the caller admin)?
+    /// A plain `SELECT`, no row lock — [`Self::undo`] re-checks ownership
+    /// itself, under the lock, when the job actually runs; this is only
+    /// about not creating an `Operation` (and enqueuing a job) for a
+    /// request that's going to fail anyway.
+    ///
+    /// # Errors
+    /// `NotFound` if the batch doesn't exist and the caller is admin,
+    /// `Forbidden` otherwise (doesn't exist and caller isn't admin, or
+    /// exists but belongs to someone else) — the same existence-oracle
+    /// avoidance as [`Self::undo`]'s own check.
+    pub async fn assert_batch_owned(
+        &self,
+        ctx: &AuthContext,
+        batch_id: BatchId,
+    ) -> Result<(), DbError> {
+        let owner: Option<Uuid> =
+            sqlx::query_scalar("SELECT actor_id FROM rename_batches WHERE id = $1")
+                .bind(batch_id.as_uuid())
+                .fetch_optional(self.db.pool())
+                .await?;
+
+        let Some(owner) = owner else {
+            return Err(if ctx.is_admin() {
+                DbError::NotFound
+            } else {
+                DbError::Forbidden
+            });
+        };
+
+        if !ctx.is_admin() && Some(UserId::from_uuid(owner)) != ctx.user_id() {
+            return Err(DbError::Forbidden);
+        }
+        Ok(())
+    }
+
     /// Undoes a rename batch: calls [`crate::AssetRepo::move_asset`]
     /// "backward" for every recorded asset — not a simple column restore
     /// like `OverrideRepo::undo_batch`, because `filename`/`folder_id`
@@ -351,21 +388,31 @@ impl<'a> RenameRepo<'a> {
     /// path (someone else already occupies that name) ends up in `failed`
     /// without blocking the other assets in the batch.
     ///
-    /// `track_operation`: same worker role as [`Self::apply`] — the
-    /// operation is created **here**, after the batch ownership check,
-    /// never before: even the "already undone" case creates one normally,
-    /// closed as `Done` right away (nothing to iterate), instead of
-    /// leaving a phantom one if the call had failed earlier.
+    /// `operation_id`: like [`Self::apply`], the caller creates the
+    /// `Operation` and passes its id in — `undo` no longer creates its own.
+    /// This runs in the background now (`keeppix-jobs::rename_undo`), the
+    /// same reason `apply` moved: a batch large enough to be worth undoing
+    /// in bulk is large enough to block the request for minutes on slow
+    /// storage. The HTTP caller (`routes/rename.rs::undo_batch`) does the
+    /// fallible ownership check upstream via [`Self::assert_batch_owned`]
+    /// *before* creating the operation — the same "never a phantom
+    /// operation" property `apply` has, just checked with a plain `SELECT`
+    /// instead of the row lock this function still takes for the real
+    /// mutation. `None` for test callers that do not track progress.
     ///
     /// # Errors
     /// `NotFound`/`Forbidden` if the batch does not exist or does not
-    /// belong to the caller (non-admin). Per-asset errors end up in
-    /// `failed`, not propagated.
+    /// belong to the caller (non-admin) — this function still verifies
+    /// ownership itself, under the row lock, rather than trusting the
+    /// HTTP caller's earlier `assert_batch_owned` check: that one is a
+    /// fast-fail convenience so a bad request never even creates an
+    /// `Operation`, not the authoritative check. Per-asset errors end up
+    /// in `failed`, not propagated.
     pub async fn undo(
         &self,
         ctx: &AuthContext,
         batch_id: BatchId,
-        track_operation: bool,
+        operation_id: Option<OperationId>,
     ) -> Result<RenameUndoOutcome, DbError> {
         #[derive(sqlx::FromRow)]
         struct BatchRow {
@@ -396,11 +443,6 @@ impl<'a> RenameRepo<'a> {
         }
 
         let operations = OperationsRepo::new(self.db);
-        let operation_id = if track_operation {
-            Some(operations.create(ctx, OperationKind::BulkRename).await?.id)
-        } else {
-            None
-        };
 
         if row.undone_at.is_some() {
             tx.commit().await?;

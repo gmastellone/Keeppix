@@ -105,9 +105,19 @@ fn count_by_status permanent
 # tracked job that failed stayed `running` forever. The same gap remains
 # open in `discover.rs`/`embed.rs`/`detect_faces.rs`
 # (`LibraryScan`/`AiAnalysis`/`FaceDetection`), not touched here.
-# `undo_batch` is out of scope for this change — it stays synchronous,
+# `undo_batch` was out of scope for this change — stayed synchronous,
 # `track_operation: bool` untouched: same scaling limitation, a separate
-# debt not addressed.
+# debt. Closed later — see the RenameUndo entry below.
+#
+# RenameUndo: closed the `undo_batch` debt above the same way `apply_batch`
+# was fixed. `POST /assets/batch/rename/{batch_id}/undo` only does the
+# fallible check up front (`RenameRepo::assert_batch_owned`, a plain
+# `SELECT`, not the row lock the real undo takes), creates the `Operation`,
+# and enqueues `JobKind::RenameUndo` (`keeppix-jobs::rename_undo`, new),
+# responding `202` with an `operation_id` immediately — same shape as
+# `BulkRename`. `RenameRepo::undo` no longer creates its own `Operation`:
+# it takes `operation_id: Option<OperationId>` instead of the old
+# `track_operation: bool`, exactly mirroring `apply`'s earlier change.
 #
 # AiAnalysis/FaceDetection (August 27, view-only): no HTTP route triggers
 # them (automatic background windows) — built `MoreView.vue`, a

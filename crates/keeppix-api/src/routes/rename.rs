@@ -1,16 +1,18 @@
 //! Bulk formula-based rename: preview, apply, and undo on
-//! [`keeppix_db::RenameRepo`]. `undo` stays synchronous within the request
-//! (like `metadata::apply_batch`, `track_operation = true` — a known
-//! limitation declared in `keeppix_db::rename`, not addressed here).
-//!
-//! **`apply_batch` is no longer synchronous**: it runs in the background
-//! via `JobKind::BulkRename` (`keeppix-jobs::rename_batch`), the same shape
-//! as `LibraryScan` — this route only does the fallible checks up front
-//! (batch/permission/visibility), creates the `Operation`, and queues the
-//! job, responding `202` with `operation_id` right away. The original
-//! design was synchronous because it was "fast, no inference" — but a
-//! batch of thousands of photos on slow storage was still a multi-minute
-//! block with no way to cancel it, which is why it changed.
+//! [`keeppix_db::RenameRepo`]. Neither `apply_batch` nor `undo_batch` is
+//! synchronous: both run in the background (`JobKind::BulkRename` /
+//! `JobKind::RenameUndo`, `keeppix-jobs::rename_batch` /
+//! `keeppix-jobs::rename_undo`), the same shape as `LibraryScan` — each
+//! route only does its fallible checks up front (permission/visibility for
+//! `apply_batch`, batch ownership for `undo_batch`), creates the
+//! `Operation`, and queues the job, responding `202` with `operation_id`
+//! right away. The original design was synchronous because it was "fast,
+//! no inference" — but a batch of thousands of photos on slow storage was
+//! still a multi-minute block with no way to cancel it, which is why it
+//! changed. `undo_batch` stayed synchronous for a while after `apply_batch`
+//! moved (same limitation, declared as debt in `keeppix_db::rename`) —
+//! addressed here, on the same reasoning: an undoable batch reaches the
+//! same scale as the batch that created it.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -20,7 +22,6 @@ use keeppix_domain::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::bulk::BulkOutcome;
 use crate::extract::Auth;
 use crate::json::Json;
 use crate::problem::Problem;
@@ -58,20 +59,9 @@ impl From<keeppix_db::RenamePreviewItem> for RenamePreviewItemView {
     }
 }
 
-/// Nested, not flattened onto `BulkOutcome` (`utoipa` limitation: a
-/// `#[serde(flatten)]` on a generated schema loses the field names in the
-/// `OpenAPI` document). Used only by `undo_batch`, which is still
-/// synchronous — `apply_batch` responds with [`RenameAccepted`].
-#[derive(Debug, Serialize, utoipa::ToSchema)]
-pub struct RenameOperationOutcome {
-    #[schema(value_type = String)]
-    pub operation_id: OperationId,
-    pub outcome: BulkOutcome,
-}
-
-/// Response of `apply_batch` (`202`): the outcome is not yet known when
-/// responding — the caller follows `operation_id` over the `WebSocket`
-/// (`operation.progress`), the same pattern as `ScanAccepted`
+/// Response of `apply_batch`/`undo_batch` (`202`): the outcome is not yet
+/// known when responding — the caller follows `operation_id` over the
+/// `WebSocket` (`operation.progress`), the same pattern as `ScanAccepted`
 /// (`routes/libraries.rs`).
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RenameAccepted {
@@ -172,10 +162,17 @@ pub async fn apply_batch(
     ))
 }
 
+// Same shape as apply_batch: the fallible check (batch ownership) stays
+// synchronous and up front — RenameRepo::assert_batch_owned, a plain
+// SELECT, not the row lock RenameRepo::undo takes for the real mutation —
+// so a bad request never creates an Operation or enqueues a job. The
+// actual restore (and the authoritative ownership re-check, under the
+// lock) runs inside keeppix-jobs::rename_undo.
 /// # Errors
 /// `401` if not authenticated; `403` if the batch does not belong to the
-/// caller (non-admin). A second undo on the same batch is a no-op, not an
-/// error — the response comes back with an empty `outcome.succeeded`.
+/// caller (non-admin); `404` if the batch does not exist and the caller is
+/// admin. A second undo on the same batch is a no-op, not an error — the
+/// operation still tracks it as `Done` with nothing restored.
 #[utoipa::path(
     post,
     path = "/api/v1/assets/batch/rename/{batch_id}/undo",
@@ -185,25 +182,43 @@ pub async fn apply_batch(
     security(("session_cookie" = [])),
     params(("batch_id" = String, Path, description = "Id of the batch returned by apply")),
     responses(
-        (status = 200, description = "Per-asset outcome of the restore", body = RenameOperationOutcome),
+        (status = 202, description = "Queued — follow operation_id over WebSocket (operation.progress)", body = RenameAccepted),
         (status = 401, description = "Not authenticated", body = Problem),
-        (status = 403, description = "Batch does not belong to the caller", body = Problem)
+        (status = 403, description = "Batch does not belong to the caller", body = Problem),
+        (status = 404, description = "Batch does not exist (admin only — a non-admin sees 403 instead, to avoid an existence oracle)", body = Problem)
     )
 )]
 pub async fn undo_batch(
     State(state): State<AppState>,
     Auth(ctx): Auth,
     Path(batch_id): Path<BatchId>,
-) -> Result<Json<RenameOperationOutcome>, Problem> {
-    let outcome = RenameRepo::new(&state.db)
-        .undo(&ctx, batch_id, true)
+) -> Result<(StatusCode, Json<RenameAccepted>), Problem> {
+    let actor_id = ctx.user_id().ok_or_else(Problem::unauthenticated)?;
+    RenameRepo::new(&state.db)
+        .assert_batch_owned(&ctx, batch_id)
         .await?;
-    let operation_id = outcome
-        .operation_id
-        .ok_or_else(|| Problem::internal().with_detail("rename undo did not track an operation"))?;
-    let succeeded = outcome.restored.iter().map(|asset| asset.id).collect();
-    Ok(Json(RenameOperationOutcome {
-        operation_id,
-        outcome: BulkOutcome::from_partition(succeeded, &outcome.failed, None),
-    }))
+
+    let operation = OperationsRepo::new(&state.db)
+        .create(&ctx, OperationKind::BulkRename)
+        .await?;
+
+    JobRepo::new(&state.db)
+        .enqueue(
+            JobKind::RenameUndo,
+            serde_json::json!({
+                "operation_id": operation.id.to_string(),
+                "actor_id": actor_id.to_string(),
+                "batch_id": batch_id.to_string(),
+            }),
+            JobPriority::Background,
+            None,
+        )
+        .await?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(RenameAccepted {
+            operation_id: operation.id,
+        }),
+    ))
 }
