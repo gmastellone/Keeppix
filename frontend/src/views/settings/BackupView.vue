@@ -15,7 +15,7 @@ import {
 } from '@/api/backup'
 import { ApiProblem } from '@/api/client'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 
 const prefs = ref<BackupPreferences | null>(null)
 const destinations = ref<BackupDestination[]>([])
@@ -215,14 +215,16 @@ onMounted(() => {
 
       <h2 class="pt-4 text-lg font-medium">{{ t('backup.destination') }}</h2>
       <ul class="space-y-1 text-sm">
-        <li v-for="d in destinations" :key="d.id">{{ d.label }} ({{ d.kind }})</li>
+        <li v-for="d in destinations" :key="d.id">
+          {{ d.label }} ({{ te(`backup.kind.${d.kind}`) ? t(`backup.kind.${d.kind}`) : d.kind }})
+        </li>
       </ul>
       <div class="flex flex-wrap gap-2 text-sm">
         <select v-model="newKind" class="border px-2 py-1">
-          <option value="local">local</option>
-          <option value="s3">s3</option>
-          <option value="webdav">webdav</option>
-          <option value="sftp">sftp</option>
+          <option value="local">{{ t('backup.kind.local') }}</option>
+          <option value="s3">{{ t('backup.kind.s3') }}</option>
+          <option value="webdav">{{ t('backup.kind.webdav') }}</option>
+          <option value="sftp">{{ t('backup.kind.sftp') }}</option>
         </select>
         <input v-model="newLabel" class="border px-2 py-1" :placeholder="t('backup.label')" />
         <template v-if="newKind === 'local'">

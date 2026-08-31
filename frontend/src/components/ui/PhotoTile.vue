@@ -55,8 +55,8 @@ const { t } = useI18n()
 // `rawBadgeLabel` in the prototype (line 4095), not something invented
 // here.
 const rawBadgeLabel = computed(() => {
-  if (props.stackType === 'raw_jpeg') return 'RAW+JPEG'
-  if (props.stackType === 'raw_only') return 'RAW'
+  if (props.stackType === 'raw_jpeg') return t('ui.rawBadge.jpegPair')
+  if (props.stackType === 'raw_only') return t('ui.rawBadge.rawOnly')
   return ''
 })
 

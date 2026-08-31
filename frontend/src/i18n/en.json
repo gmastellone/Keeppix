@@ -18,6 +18,10 @@
     "deleteError": "Could not complete the deletion. Try again."
   },
   "ui": {
+    "rawBadge": {
+      "jpegPair": "RAW+JPEG",
+      "rawOnly": "RAW"
+    },
     "dialog": {
       "close": "Close",
       "cancel": "Cancel"
@@ -223,7 +227,17 @@
     },
     "avatarColor": {
       "title": "Avatar color",
-      "subtitle": "Just for you — changes the background color of your initials, everywhere they appear in the app."
+      "subtitle": "Just for you — changes the background color of your initials, everywhere they appear in the app.",
+      "colors": {
+        "accent": "Orange (default)",
+        "blu": "Blue",
+        "verde": "Green",
+        "viola": "Purple",
+        "rosa": "Pink",
+        "teal": "Teal",
+        "grafite": "Graphite",
+        "rosso": "Red"
+      }
     },
     "security": {
       "title": "Security",
@@ -1098,6 +1112,12 @@
     "passphraseChange": "Change passphrase",
     "destination": "Destination",
     "destinationDefault": "Local backups",
+    "kind": {
+      "local": "Local",
+      "s3": "S3",
+      "webdav": "WebDAV",
+      "sftp": "SFTP"
+    },
     "label": "Label",
     "path": "Path / URL",
     "username": "Username",

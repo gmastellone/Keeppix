@@ -20,19 +20,21 @@ import { computed, ref } from 'vue'
 
 export interface AvatarColorOption {
   id: string
-  label: string
   hex: string | null
 }
 
+// Labels live in i18n (`profile.avatarColor.colors.<id>`), not here: this
+// array only carries the stable id/hex pair, resolved to display text at
+// the view layer via `t()` so it follows the active locale.
 export const AVATAR_COLOR_OPTIONS: AvatarColorOption[] = [
-  { id: 'accent', label: 'Arancione (predefinito)', hex: null },
-  { id: 'blu', label: 'Blu', hex: '#3B82C4' },
-  { id: 'verde', label: 'Verde', hex: '#2E9E5B' },
-  { id: 'viola', label: 'Viola', hex: '#8B5CF6' },
-  { id: 'rosa', label: 'Rosa', hex: '#E0578A' },
-  { id: 'teal', label: 'Verde acqua', hex: '#0E9488' },
-  { id: 'grafite', label: 'Grafite', hex: '#3A3A3A' },
-  { id: 'rosso', label: 'Rosso', hex: '#D9503F' }
+  { id: 'accent', hex: null },
+  { id: 'blu', hex: '#3B82C4' },
+  { id: 'verde', hex: '#2E9E5B' },
+  { id: 'viola', hex: '#8B5CF6' },
+  { id: 'rosa', hex: '#E0578A' },
+  { id: 'teal', hex: '#0E9488' },
+  { id: 'grafite', hex: '#3A3A3A' },
+  { id: 'rosso', hex: '#D9503F' }
 ]
 
 const DEFAULT_ID = 'accent'

@@ -137,6 +137,15 @@ describe('ProfileView — Profile', () => {
     expect(localStorage.getItem('keeppix.avatarColor.u1')).toBe('blu')
   })
 
+  it('avatar color swatch labels follow the active locale, not a hardcoded language', async () => {
+    i18n.global.locale.value = 'en'
+    const { wrapper } = await mountProfile()
+
+    const swatches = wrapper.findAll('button[aria-label]')
+    expect(swatches.some((b) => b.attributes('aria-label') === 'Blue')).toBe(true)
+    expect(swatches.some((b) => b.attributes('aria-label') === 'Blu')).toBe(false)
+  })
+
   it('shows "Attiva" when TOTP is off and links to the real setup flow', async () => {
     const { wrapper } = await mountProfile()
 

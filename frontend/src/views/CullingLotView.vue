@@ -398,7 +398,11 @@ function onRenameApplied() {
             <span
               v-if="store.currentAsset.raw_kind === 'raw' || store.currentAsset.raw_kind === 'raw+jpeg'"
               class="absolute top-2 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white"
-            >{{ store.currentAsset.raw_kind === 'raw+jpeg' ? 'RAW+JPEG' : 'RAW' }}</span>
+            >{{
+              store.currentAsset.raw_kind === 'raw+jpeg'
+                ? t('ui.rawBadge.jpegPair')
+                : t('ui.rawBadge.rawOnly')
+            }}</span>
             <button
               type="button"
               class="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/65"

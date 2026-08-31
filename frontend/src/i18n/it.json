@@ -18,6 +18,10 @@
     "deleteError": "Non è stato possibile completare l'eliminazione. Riprova."
   },
   "ui": {
+    "rawBadge": {
+      "jpegPair": "RAW+JPEG",
+      "rawOnly": "RAW"
+    },
     "dialog": {
       "close": "Chiudi",
       "cancel": "Annulla"
@@ -223,7 +227,17 @@
     },
     "avatarColor": {
       "title": "Colore avatar",
-      "subtitle": "Solo per te — cambia il colore di sfondo delle tue iniziali, ovunque compaiano nell'app."
+      "subtitle": "Solo per te — cambia il colore di sfondo delle tue iniziali, ovunque compaiano nell'app.",
+      "colors": {
+        "accent": "Arancione (predefinito)",
+        "blu": "Blu",
+        "verde": "Verde",
+        "viola": "Viola",
+        "rosa": "Rosa",
+        "teal": "Verde acqua",
+        "grafite": "Grafite",
+        "rosso": "Rosso"
+      }
     },
     "security": {
       "title": "Sicurezza",
@@ -1098,6 +1112,12 @@
     "passphraseChange": "Cambia passphrase",
     "destination": "Destinazione",
     "destinationDefault": "Backup locali",
+    "kind": {
+      "local": "Locale",
+      "s3": "S3",
+      "webdav": "WebDAV",
+      "sftp": "SFTP"
+    },
     "label": "Etichetta",
     "path": "Percorso / URL",
     "username": "Nome utente",

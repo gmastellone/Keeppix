@@ -184,7 +184,7 @@ onMounted(async () => {
           type="button"
           class="relative h-[30px] w-[30px] shrink-0 rounded-full"
           :style="{ background: opt.hex ?? 'var(--color-accent)' }"
-          :aria-label="opt.label"
+          :aria-label="t(`profile.avatarColor.colors.${opt.id}`)"
           :aria-pressed="avatarColor.colorId === opt.id"
           @click="selectAvatarColor(opt.id)"
         >
