@@ -465,6 +465,35 @@ describe('TimelineView live events', () => {
     expect(close).toHaveBeenCalled()
   })
 
+  it('does not yank scroll back to the top on a live-triggered refresh', async () => {
+    let onEvent: ((msg: LiveMessage) => void) | undefined
+    vi.mocked(startLiveEvents).mockImplementation((cb) => {
+      onEvent = cb
+      return { close: vi.fn() }
+    })
+    const buckets = [{ month: '2024-07', count: 1 }]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+
+    const { wrapper } = await mountTimeline()
+    const grid = wrapper.get('.overflow-auto').element
+    grid.scrollTop = 500
+
+    // A live event's background update reflows the same geometry (a new
+    // hash, updated dimensions on an already-loaded asset) — the person
+    // looking at this screen didn't ask for a fresh load, so scroll stays
+    // exactly where they left it. Contrast: the cold-start load this same
+    // `mountTimeline()` just did left scroll at 0, which is correct there
+    // — this test is about what happens *after*, to someone already
+    // scrolled in.
+    onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['a'], count: 1 } })
+    await vi.advanceTimersByTimeAsync(800)
+
+    expect(fetchGeometry).toHaveBeenCalledTimes(2)
+    expect(grid.scrollTop).toBe(500)
+  })
+
   it('a burst of upserts within the debounce window collapses into a single refresh', async () => {
     let onEvent: ((msg: LiveMessage) => void) | undefined
     vi.mocked(startLiveEvents).mockImplementation((cb) => {

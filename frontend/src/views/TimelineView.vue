@@ -112,13 +112,17 @@ let resizeObserver: ResizeObserver | undefined
 let scrollRaf = 0
 
 // During a large import, `assets.upserted` arrives once per finished
-// background job — tens per second. Reacting immediately to each one used
-// to trigger `refreshTimeline()`, which resets scroll to the top
-// (`resetGridForNewGeometry`): the grid became unscrollable, flashing back
-// to the top on every single file. Debounced: a whole burst collapses into
-// one refresh once things go quiet, instead of one refresh (and one scroll
-// reset) per event.
-const scheduleLiveRefresh = useDebouncedCallback(() => void refreshTimeline(), 800)
+// background job — tens per second, and the geometry (already-loaded
+// assets picking up a hash/dimensions) genuinely changes on most of them,
+// so debouncing alone doesn't stop `refreshTimeline` from firing
+// regularly. `preserveScroll: true` is the other half of the fix: a
+// background update to assets you're already looking at is not a reason
+// to yank you back to the top mid-scroll — only a deliberate fresh load
+// (mount, filter change, error retry) is.
+const scheduleLiveRefresh = useDebouncedCallback(
+  () => void refreshTimeline({ preserveScroll: true }),
+  800
+)
 
 const plan = computed(() => {
   if (!geometry.value) return { rows: [] as StreamRow[], rowHeights: [] as number[], totalHeight: 0 }
@@ -253,16 +257,23 @@ async function clearMapFilter() {
  * content, not a fragment — and "Retry" calls this same function again,
  * putting the data set back into a loading state and requesting it from
  * scratch.
+ *
+ * `preserveScroll`: a live-triggered background refresh still needs the
+ * page cache cleared (already-rendered cells must pick up whatever
+ * changed — a new hash, updated dimensions), but the person looking at
+ * this screen didn't ask for a fresh load. Only a deliberate one (mount,
+ * filter change, error retry) should jump back to the top.
  */
-function resetGridForNewGeometry() {
+function resetGridForNewGeometry(options?: { preserveScroll?: boolean }) {
   pageCache.clear()
   loadingMonths.clear()
   cacheTick.value++
+  if (options?.preserveScroll) return
   if (gridEl.value) gridEl.value.scrollTop = 0
   scrollTop.value = 0
 }
 
-async function refreshTimeline() {
+async function refreshTimeline(options?: { preserveScroll?: boolean }) {
   loadError.value = null
   try {
     if (hasLoadedGeometryOnce.value) {
@@ -276,7 +287,7 @@ async function refreshTimeline() {
         geometry.value = new TimelineGeometry(geo.buffer)
       }
       geometryEtag.value = geo.etag
-      resetGridForNewGeometry()
+      resetGridForNewGeometry(options)
       return
     }
 
