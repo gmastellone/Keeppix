@@ -90,6 +90,20 @@ pub fn worker_count(cpu: usize) -> usize {
     cpu.saturating_sub(1).clamp(1, 8)
 }
 
+/// Out of `total` workers, how many stay `always_background`
+/// (`WorkerPool::with_always_background`) — willing to claim `Background`
+/// jobs no matter how `Interactive` the session looks, so a large bulk
+/// import still makes *some* progress while someone is actively using the
+/// app instead of stopping dead. Roughly a third, floored at 1 — but not
+/// on a single-worker machine: there, reserving the only worker would
+/// remove the responsiveness protection `EnergyProfile::Interactive`
+/// exists for in the first place, exactly where it matters most (the
+/// smallest hardware, e.g. a Pi Zero-class box).
+#[must_use]
+pub fn background_reserved_workers(total: usize) -> usize {
+    if total <= 1 { 0 } else { (total / 3).max(1) }
+}
+
 /// Unix timestamp of the last authenticated request. Touched by the API on
 /// authenticated requests.
 ///

@@ -110,7 +110,12 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
             .unwrap_or(2),
     );
     let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    for _ in 0..workers {
+    // A fraction of the pool always claims Background work regardless of
+    // EnergyProfile, so a large bulk import degrades to slower — not
+    // stopped — while someone is actively using the app. See
+    // `background_reserved_workers`.
+    let always_background_workers = keeppix_jobs::background_reserved_workers(workers);
+    for i in 0..workers {
         // ponytail: each worker has its own 512 MiB RamGate. Share one Arc
         // if RSS climbs under parallel derives.
         let pool = keeppix_jobs::WorkerPool::new(
@@ -120,7 +125,8 @@ async fn serve(config: Config, db: Db, config_path: PathBuf) -> anyhow::Result<(
             512 * 1024 * 1024,
             night,
             paused.clone(),
-        );
+        )
+        .with_always_background(i < always_background_workers);
         tokio::spawn(async move {
             loop {
                 match pool.step().await {

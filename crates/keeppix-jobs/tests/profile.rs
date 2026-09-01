@@ -3,8 +3,8 @@
 use chrono::{NaiveTime, TimeZone, Utc};
 use keeppix_domain::JobPriority;
 use keeppix_jobs::{
-    ActivityTracker, AnalysisLevel, EnergyProfile, RamGate, default_night_window,
-    max_claimable_priority, worker_count,
+    ActivityTracker, AnalysisLevel, EnergyProfile, RamGate, background_reserved_workers,
+    default_night_window, max_claimable_priority, worker_count,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -16,6 +16,29 @@ fn worker_count_leaves_one_core_for_http() {
     assert_eq!(worker_count(2), 1);
     assert_eq!(worker_count(8), 7);
     assert_eq!(worker_count(16), 8);
+}
+
+#[test]
+fn background_reservation_protects_the_single_worker_case() {
+    // On the smallest hardware (worker_count(1) machines, e.g. a Pi
+    // Zero-class box under 3 cores), the only worker must still respect
+    // EnergyProfile::Interactive in full — reserving it would remove the
+    // responsiveness protection exactly where it matters most.
+    assert_eq!(background_reserved_workers(1), 0);
+}
+
+#[test]
+fn background_reservation_scales_with_the_pool_but_never_takes_it_all() {
+    assert_eq!(background_reserved_workers(2), 1);
+    assert_eq!(background_reserved_workers(3), 1);
+    assert_eq!(background_reserved_workers(7), 2);
+    assert_eq!(background_reserved_workers(8), 2);
+    for total in 1..=8 {
+        assert!(
+            background_reserved_workers(total) < total || total == 0,
+            "reserving all {total} workers leaves nothing respecting Interactive"
+        );
+    }
 }
 
 #[test]

@@ -48,6 +48,7 @@ pub struct WorkerPool<H> {
     worker_id: Uuid,
     night: (NaiveTime, NaiveTime),
     paused: Arc<AtomicBool>,
+    always_background: bool,
 }
 
 impl<H: JobHandler> WorkerPool<H> {
@@ -68,7 +69,20 @@ impl<H: JobHandler> WorkerPool<H> {
             worker_id: Uuid::now_v7(),
             night,
             paused,
+            always_background: false,
         }
+    }
+
+    /// This worker ignores `EnergyProfile` entirely and claims up to
+    /// `Background` regardless of recent activity (still subject to
+    /// `Paused`). Reserving a handful of workers this way, out of the
+    /// full pool, is how bulk background processing degrades to *slower*
+    /// instead of *stopped* while someone is actively using the app —
+    /// see `background_reserved_workers`.
+    #[must_use]
+    pub fn with_always_background(mut self, always_background: bool) -> Self {
+        self.always_background = always_background;
+        self
     }
 
     /// One round: claim, ram, handle, complete/fail. `false` if the queue
@@ -79,11 +93,15 @@ impl<H: JobHandler> WorkerPool<H> {
     pub async fn step(&self) -> Result<bool, JobError> {
         let now = Utc::now();
         let paused = self.paused.load(std::sync::atomic::Ordering::Relaxed);
-        let profile = self.tracker.current_profile(now, self.night, paused);
-        let analysis_ok = self
-            .tracker
-            .analysis_should_run(now, DEFAULT_ANALYSIS_IDLE_MS);
-        let max_priority = max_claimable_priority(profile, analysis_ok);
+        let max_priority = if self.always_background && !paused {
+            keeppix_domain::JobPriority::Background
+        } else {
+            let profile = self.tracker.current_profile(now, self.night, paused);
+            let analysis_ok = self
+                .tracker
+                .analysis_should_run(now, DEFAULT_ANALYSIS_IDLE_MS);
+            max_claimable_priority(profile, analysis_ok)
+        };
         let Some(job) = JobRepo::new(&self.db)
             .claim(self.worker_id, max_priority)
             .await?
