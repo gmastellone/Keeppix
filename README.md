@@ -107,7 +107,15 @@ Crates: `keeppix-domain`, `keeppix-db` (the *only* one allowed to touch SQL), `k
 Requires Docker 24+ with Compose v2.20+.
 
 ```bash
-echo "DB_PASSWORD=$(openssl rand -base64 24)" > .env
+./scripts/install.sh
+```
+
+Walks you through Docker vs. local development, bundled vs. your own Postgres, generates a real
+`DB_PASSWORD`, and verifies the database connection before starting anything. Prefer to do it by
+hand instead:
+
+```bash
+echo "DB_PASSWORD=$(openssl rand -hex 24)" > .env
 docker compose --profile bundled up -d
 ```
 

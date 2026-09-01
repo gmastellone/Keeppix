@@ -13,7 +13,10 @@ services:
       # No hardcoded fallback password: an unset DB_PASSWORD here means an
       # empty password, which the bundled `db` service below refuses to
       # start with — a loud failure instead of a silently-usable weak
-      # default. Generate a real one: `openssl rand -base64 24`.
+      # default. Generate a real one: `openssl rand -hex 24` — hex, not
+      # base64: this value gets embedded directly in a postgres:// URL
+      # (right below), and base64's alphabet includes '/', which a URL
+      # parser reads as a path separator.
       DATABASE_URL: ${DATABASE_URL:-postgres://keeppix:${DB_PASSWORD:-}@db/keeppix}
       KEEPPIX_ALLOWED_ORIGINS: '[]'
     ports:

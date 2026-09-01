@@ -1,11 +1,11 @@
 @import "tailwindcss";
 
-/* Colori di marca (Fase 11 Task 1): hex esatti letti da
-   docs/ui/keeppix-mockup.html (`--accent`/`--accent-text`/`--danger`, righe
-   64-88), non un'approssimazione oklch — sono i valori del marchio, non una
-   scelta estetica libera. Il tema scuro del prototipo li ridefinisce
-   entrambi (non solo superficie/testo): prima d'ora questo file non lo
-   faceva, quindi il tema scuro ereditava silenziosamente l'accento chiaro. */
+/* Brand colors: exact hex values read from docs/ui/keeppix-mockup.html
+   (`--accent`/`--accent-text`/`--danger`, lines 64-88), not an oklch
+   approximation — these are the brand's actual values, not a free
+   aesthetic choice. The prototype's dark theme redefines both of them
+   (not just surface/text): this file didn't used to do that, so the dark
+   theme silently inherited the light accent. */
 @theme {
   --color-surface: oklch(99% 0 0);
   --color-surface-elevated: oklch(100% 0 0);
@@ -15,40 +15,40 @@
   --color-accent-text: #1a1005;
   --color-danger: #cc4038;
   --color-border: oklch(90% 0 0);
-  /* Sottosistema di caricamento (`docs/ui/caricamento-nuove-foto.md` §7.1):
-     hex esatti dalla tabella colori del documento, stesso principio della
-     nota qui sopra — non un'approssimazione su un token già esistente.
-     `--color-warn` è il "futuro warn" già anticipato dal commento su
-     `--color-toast-warn`, qui finalmente introdotto: il "saltato per
-     duplicato" non è un errore (`--danger`) né un successo (nessun
-     colore) — una terza natura semantica, ambra. */
+  /* Upload subsystem (`docs/ui/caricamento-nuove-foto.md` §7.1): exact
+     hex values from the document's color table, same principle as the
+     note above — not an approximation on top of an already-existing
+     token. `--color-warn` is the "future warn" already anticipated by
+     the comment on `--color-toast-warn`, finally introduced here: "skipped
+     as duplicate" is neither an error (`--danger`) nor a success (no
+     color) — a third semantic nature, amber. */
   --color-accent-tint: #fde7d6;
   --color-warn: #a15c00;
   --color-warn-tint: #fdf0dc;
   --color-warn-border: #efd4a8;
-  /* `--danger-tint` mancava dal primo giro di questi token (upload 3/N):
-     serviva solo per il badge "Errore" del pannello, non ancora scritto
-     allora. Stesso hex esatto della tabella §7.1. */
+  /* `--danger-tint` was missing from the first pass of these tokens: it
+     only became needed for the panel's "Error" badge, not yet written at
+     the time. Same exact hex as the §7.1 table. */
   --color-danger-tint: #fbe4e2;
   --color-chip-bg: #f5f5f5;
   --color-card-bg: #ffffff;
   --color-border-strong: #dcdcdc;
-  /* Verde condiviso fra "Scelta" nel culling e "In linea" nel piede utente
-     (commento del prototipo, riga 242): riusato di proposito invece di
-     introdurre una terza tonalità semantica. 3,4:1 su bianco — non un AA
-     pieno per testo piccolo, solo per stati puntiformi/bordi. */
+  /* Green shared between "Picked" in culling and "In sync" in the user
+     footer (prototype comment, line 242): reused on purpose instead of
+     introducing a third semantic hue. 3.4:1 on white — not full AA for
+     small text, only for pointlike states/borders. */
   --color-status-positive: #2e9e5b;
-  /* Il toast ha uno sfondo invertito rispetto al tema (`--color-content` su
-     `--color-surface`, mai il contrario) — i suoi filetti colorati non
-     possono quindi usare `--danger`/un futuro `--warn`: si leggerebbero
-     male su quello sfondo scuro anche in tema chiaro. Commento del
-     prototipo stesso, righe 69-72. */
+  /* The toast has a background inverted relative to the theme
+     (`--color-content` on `--color-surface`, never the other way around)
+     — its colored accents can't use `--danger`/a future `--warn` because
+     of that: they'd read poorly on that dark background even in light
+     theme. Straight from the prototype's own comment, lines 69-72. */
   --color-toast-danger: #ff7a6e;
   --color-toast-warn: #ffb84d;
-  /* Il riflesso dello scheletro di caricamento (SP-27, prototipo riga 73):
-     bianco quasi pieno in tema chiaro, appena percettibile in tema scuro —
-     non un'approssimazione, il prototipo li dichiara come due valori
-     diversi, non un'opacità fissa su un colore condiviso. */
+  /* The loading skeleton's sheen (prototype line 73): almost solid white
+     in light theme, barely perceptible in dark theme — not an
+     approximation, the prototype declares them as two distinct values,
+     not a fixed opacity over a shared color. */
   --color-skel-sheen: rgba(255, 255, 255, 0.9);
 }
 
@@ -76,17 +76,16 @@
   }
 }
 
-/* §60.1 "Aspetto" (Task 14, 1/N): tre stati (chiaro/scuro/sistema)
-   scritti da `stores/theme.ts` come `data-theme="light"|"dark"` su
-   `<html>`. "Sistema" non scrive l'attributo su nessun valore fisso: lo
-   store lo risolve una volta con `matchMedia` e riscrive comunque
-   `data-theme`, quindi il blocco `prefers-color-scheme` qui sotto resta
-   solo per il breve istante prima che lo store carichi le preferenze (o
-   per chi non ha ancora effettuato l'accesso, dove le preferenze non
-   sono leggibili) — non un secondo meccanismo indipendente. Specificità
-   dell'attributo (`:root[data-theme]`) sempre più alta di un `@media`
-   che punta implicitamente allo stesso `:root`: vince sempre quando
-   presente, in entrambe le direzioni, indipendentemente dall'ordine nel
+/* "Appearance" setting: three states (light/dark/system) written by
+   `stores/theme.ts` as `data-theme="light"|"dark"` on `<html>`. "System"
+   never writes the attribute with a fixed value: the store resolves it
+   once via `matchMedia` and writes `data-theme` anyway, so the
+   `prefers-color-scheme` block below only matters for the brief instant
+   before the store loads preferences (or for someone not yet logged in,
+   where preferences aren't readable) — not a second, independent
+   mechanism. Attribute specificity (`:root[data-theme]`) is always higher
+   than an `@media` block implicitly targeting the same `:root`: it always
+   wins when present, in both directions, regardless of order in the
    file. */
 :root[data-theme="dark"] {
   --color-surface: oklch(17% 0 0);
@@ -136,29 +135,29 @@
 html, body, #app { height: 100%; }
 body { background: var(--color-surface); color: var(--color-content); }
 
-/* Palette dei tempi (Fase 11 Task 1): le sole sette durate che il prototipo
-   usa, misurate riga per riga su keeppix-mockup.html — mai un numero fuori
-   da questo insieme in un componente nuovo (verificato da
-   src/design/tokens.spec.ts). Non dentro @theme: sono proprietà custom di
-   uso generale (transizioni CSS, `setTimeout`), non colori/spaziature che
-   Tailwind debba trasformare in classi utility. */
+/* Duration palette: the only seven durations the prototype uses, measured
+   line by line against keeppix-mockup.html — never a number outside this
+   set in a new component (checked by src/design/tokens.spec.ts). Not
+   inside @theme: these are general-purpose custom properties (CSS
+   transitions, `setTimeout`), not colors/spacing that Tailwind needs to
+   turn into utility classes. */
 :root {
-  --duration-xs: 100ms;       /* .1s  — dissolvenza tooltip, nessun ritardo */
-  --duration-fast: 120ms;     /* .12s — comparsa comandi tessera, 54 casi */
-  --duration-arrow: 150ms;    /* .15s — rotazione freccia dei gruppi, 14 casi */
-  --duration-tile-in: 180ms;  /* .18s — comparsa tessera dopo il caricamento */
-  --duration-base: 200ms;     /* .2s  — toast, transizioni generiche, 53 casi */
-  --duration-theme: 250ms;    /* .25s — cambio di tema, 2 casi */
-  --duration-progress: 300ms; /* .3s  — avanzamento analisi/upload */
-  --easing-standard: ease;    /* 108 casi su 111 nel prototipo */
+  --duration-xs: 100ms;       /* .1s  — tooltip fade, no delay */
+  --duration-fast: 120ms;     /* .12s — tile-controls appearance, 54 cases */
+  --duration-arrow: 150ms;    /* .15s — group-arrow rotation, 14 cases */
+  --duration-tile-in: 180ms;  /* .18s — tile appearance after loading */
+  --duration-base: 200ms;     /* .2s  — toast, general transitions, 53 cases */
+  --duration-theme: 250ms;    /* .25s — theme switch, 2 cases */
+  --duration-progress: 300ms; /* .3s  — analysis/upload progress */
+  --easing-standard: ease;    /* 108 of 111 cases in the prototype */
 }
 
-/* Spinner del pulsante occupato (SP-30, prototipo righe 857-867/2638-2657):
-   geometria e rotazione continua, non uno stato che cambia una volta sola —
-   per questo la sua durata non fa parte della palette di transizioni sopra
-   (quella palette è per `transition`, non per un `animation` in loop) e vive
-   qui come classe globale, condivisa da qualunque pulsante occupato invece
-   che duplicata per componente. */
+/* Busy-button spinner (prototype lines 857-867/2638-2657): geometry and
+   continuous rotation, not a state that changes once — which is why its
+   duration isn't part of the transition palette above (that palette is
+   for `transition`, not a looping `animation`) and instead lives here as
+   a global class, shared by any busy button instead of duplicated per
+   component. */
 .spinner {
   width: 14px;
   height: 14px;
@@ -169,19 +168,19 @@ body { background: var(--color-surface); color: var(--color-content); }
   animation: kpx-spin 0.7s linear infinite;
 }
 .spinner-sm { width: 12px; height: 12px; border-width: 2px; }
-/* Sul pulsante primario lo spinner deve leggersi sul proprio sfondo pieno,
-   non sul grigio neutro di default (prototipo, riga 867). */
+/* On the primary button the spinner has to read against its own solid
+   background, not the neutral gray default (prototype, line 867). */
 .spinner-current { border-top-color: currentColor; }
 
 @keyframes kpx-spin {
   to { transform: rotate(360deg); }
 }
 
-/* Scheletro di caricamento (SP-27, prototipo righe 838-847): un blocco
-   neutro con un riflesso che scorre. Non usa --accent apposta — il
-   caricamento non deve sembrare un elemento attivo o selezionato.
-   Globale come .spinner: l'animazione è un loop, non una transizione di
-   stato, fuori dalla palette del Task 1 per lo stesso motivo. */
+/* Loading skeleton (prototype lines 838-847): a neutral block with a
+   sweeping sheen. Deliberately doesn't use --accent — loading shouldn't
+   look like an active or selected element. Global like .spinner: the
+   animation is a loop, not a state transition, outside the duration
+   palette for the same reason. */
 .skel {
   background: var(--color-border);
   background-image: linear-gradient(90deg, transparent 0%, var(--color-skel-sheen) 50%, transparent 100%);
@@ -196,13 +195,13 @@ body { background: var(--color-surface); color: var(--color-content); }
   100% { background-position: 260px 0; }
 }
 
-/* Riga della timeline a scala reale appena montata dal virtualizzatore
-   (Fase 11 Task 4, prototipo `.tile-in`/`kpxFadeIn`, riga 855): una
-   dissolvenza volutamente brevissima — serve a smussare l'ingresso, non
-   a farsi notare (documento funzionale §66.6). Sotto
-   prefers-reduced-motion sparisce da sola grazie alla regola `*` qui
-   sotto, senza bisogno di un'eccezione come `.spinner`: qui l'animazione
-   è puro ornamento, non l'unico segnale di uno stato in corso. */
+/* Real-scale timeline row just mounted by the virtualizer (prototype
+   `.tile-in`/`kpxFadeIn`, line 855): a deliberately very short fade — it's
+   there to smooth the entrance, not to draw attention to itself (see the
+   functional spec, §66.6). Disappears on its own under
+   prefers-reduced-motion thanks to the `*` rule below, no exception needed
+   like `.spinner`: here the animation is pure ornament, not the only
+   signal that something is in progress. */
 .stream-row {
   animation: kpx-fade-in var(--duration-tile-in) ease both;
 }
@@ -212,14 +211,15 @@ body { background: var(--color-surface); color: var(--color-content); }
   to { opacity: 1; }
 }
 
-/* Rispetta chi ha ridotto le animazioni a livello di sistema. */
+/* Respect a system-level reduced-motion preference. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
-  /* Lo spinner fa eccezione (prototipo, riga 1071): rallentato invece che
-     fermato, perché resta l'unico segnale che l'azione è ancora in corso. */
+  /* The spinner is the exception (prototype, line 1071): slowed down
+     instead of stopped, because it remains the only signal that the
+     action is still in progress. */
   .spinner {
     animation-duration: 2.4s !important;
   }

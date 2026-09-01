@@ -29,7 +29,7 @@ it, a subsequent `docker compose up` would fall back to the default value
 `./pgdata`).
 
 ```bash
-echo "DB_PASSWORD=$(openssl rand -base64 24)" > .env
+echo "DB_PASSWORD=$(openssl rand -hex 24)" > .env
 docker compose --profile bundled up -d
 ```
 
