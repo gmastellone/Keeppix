@@ -55,6 +55,39 @@ async fn a_completed_scan_marks_the_operation_done() {
     assert_eq!(seen.succeeded.len(), 5);
 }
 
+/// The setup wizard (and any "rescan" button) polls the operation's status
+/// every couple of seconds to show progress — an authenticated request,
+/// which keeps `EnergyProfile` at `Interactive` (`profile.rs`) for as long
+/// as someone is watching. `Interactive`'s claimable ceiling is `Visible`:
+/// a scan enqueued at `Background` would never be claimable while being
+/// watched, stalling at zero *because* it's being watched.
+#[tokio::test]
+async fn a_watched_scan_is_claimable_even_while_the_session_looks_interactive() {
+    let test = TestDb::start().await;
+    let root = std::env::temp_dir().join(format!("kpx-op-priority-{}", uuid::Uuid::now_v7()));
+    fs::create_dir_all(&root).unwrap();
+    let library = seed_library(&test, &root).await;
+    let admin = library.owner_id;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let ops = OperationsRepo::new(test.db());
+    let op = ops.create(&ctx, OperationKind::LibraryScan).await.unwrap();
+
+    keeppix_jobs::watch::enqueue_rescan_with_operation(test.db(), library.id, op.id)
+        .await
+        .unwrap();
+
+    let claimed = keeppix_db::JobRepo::new(test.db())
+        .claim(uuid::Uuid::now_v7(), keeppix_domain::JobPriority::Visible)
+        .await
+        .unwrap();
+    let _ = fs::remove_dir_all(&root);
+
+    let job = claimed.expect(
+        "an explicitly-watched scan must be claimable at Visible priority, not stuck at Background",
+    );
+    assert_eq!(job.kind, keeppix_domain::JobKind::DiscoverLibrary);
+}
+
 /// Ruling: cancelling midway produces a partial success, not a rollback.
 /// Files already written stay; the operation lists them.
 ///

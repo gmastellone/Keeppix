@@ -71,6 +71,14 @@ pub async fn enqueue_rescan(db: &Db, library_id: LibraryId) -> Result<(), JobErr
 /// the one that follows our operation — the caller must close the
 /// operation, not leave it `running` forever with no job advancing it.
 ///
+/// `Visible`, not `Background`: an `operation_id` means someone is actively
+/// watching this scan (the setup wizard, a "rescan" button) — the same
+/// polling that shows its progress counts as an authenticated request and
+/// keeps `EnergyProfile` at `Interactive`, whose ceiling is `Visible`
+/// (`profile.rs`). At `Background` the job would never be claimable for as
+/// long as the watching continued: the scan stalling at zero specifically
+/// *because* someone is watching it.
+///
 /// # Errors
 /// Database.
 pub async fn enqueue_rescan_with_operation(
@@ -85,7 +93,7 @@ pub async fn enqueue_rescan_with_operation(
                 "library_id": library_id.to_string(),
                 "operation_id": operation_id.to_string(),
             }),
-            JobPriority::Background,
+            JobPriority::Visible,
             Some(&format!("discover:{library_id}")),
         )
         .await?;
