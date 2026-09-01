@@ -1244,3 +1244,80 @@ async fn timeline_page_includes_confirmed_tags_and_faces_with_vector() {
     assert_eq!(faces[0]["person_id"], person.id.to_string());
     assert_eq!(faces[0]["person_name"], "Marta");
 }
+
+#[tokio::test]
+async fn timeline_by_ids_requires_auth() {
+    let server = TestServer::start().await;
+    let response = server
+        .client
+        .post(server.url("/api/v1/timeline/by-ids"))
+        .json(&json!({ "ids": [] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["type"], "keeppix/unauthenticated");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn timeline_by_ids_returns_the_requested_assets_and_omits_the_rest() {
+    let server = TestServer::start().await;
+    let (folder, _) = seed_library(&server).await;
+    let assets = AssetRepo::new(&server.db);
+    let taken = Utc.with_ymd_and_hms(2024, 7, 2, 12, 0, 0).unwrap();
+    let a = assets
+        .upsert_discovered(NewAsset {
+            folder_id: folder,
+            filename: AssetName::parse("a.jpg").unwrap(),
+            size_bytes: 10,
+            mtime: taken,
+            inode: Some(1),
+            kind: AssetKind::Image,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assets.set_indexed(a.id, taken, 100, 100).await.unwrap();
+    index_photo(&server, folder, "b.jpg", 2024, 7, 3).await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/timeline/by-ids"))
+        .json(&json!({ "ids": [a.id.to_string(), keeppix_domain::AssetId::new().to_string()] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let returned = body["assets"].as_array().unwrap();
+    assert_eq!(
+        returned.len(),
+        1,
+        "the nonexistent id must be silently omitted, not an error"
+    );
+    assert_eq!(returned[0]["id"], a.id.to_string());
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+async fn timeline_by_ids_rejects_a_batch_larger_than_the_hard_cap() {
+    let server = TestServer::start().await;
+    let _ = seed_library(&server).await;
+
+    let ids: Vec<String> = (0..=keeppix_api::batch::MAX_BATCH_ASSETS)
+        .map(|_| keeppix_domain::AssetId::new().to_string())
+        .collect();
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/timeline/by-ids"))
+        .json(&json!({ "ids": ids }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(body["type"].as_str().unwrap().contains("batch-too-large"));
+}

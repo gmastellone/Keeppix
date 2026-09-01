@@ -240,6 +240,47 @@ impl<'a> TimelineRepo<'a> {
         rows.into_iter().map(AssetStackRow::into_domain).collect()
     }
 
+    /// Specific assets by id, in timeline order — for patching an
+    /// already-rendered page after a live `assets.upserted` event instead
+    /// of refetching and redrawing the whole page it lives on. Same
+    /// visibility/status filtering as `page`; an id that's missing, not
+    /// visible, or no longer indexed is silently omitted rather than
+    /// erroring — the caller only wants back what it can still show.
+    ///
+    /// # Errors
+    /// `Connection` if the query fails.
+    pub async fn by_ids(
+        &self,
+        ctx: &AuthContext,
+        ids: &[AssetId],
+    ) -> Result<Vec<AssetWithStack>, DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let uuids: Vec<uuid::Uuid> = ids.iter().map(AssetId::as_uuid).collect();
+        let scope = VisibilityScope::resolve(self.db, ctx).await?;
+        let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
+        let sql = format!(
+            "SELECT {A_COLUMNS}, {STACK_BADGE_COLUMNS_SQL} FROM assets a \
+             JOIN folders f ON f.id = a.folder_id \
+             {STACK_BADGE_JOIN_SQL} \
+             WHERE a.id = ANY($1) AND {} \
+               AND a.status = 'indexed' \
+               AND a.kind <> 'unknown' \
+               AND {STACK_PRIMARY_ONLY_SQL} \
+             ORDER BY a.taken_at_utc DESC NULLS LAST, a.id DESC",
+            filter.sql()
+        );
+        let rows: Vec<AssetStackRow> = sqlx::query_as(&sql)
+            .bind(&uuids)
+            .bind(filter.bind())
+            .bind(filter.holes())
+            .bind(filter.assets())
+            .fetch_all(self.db.pool())
+            .await?;
+        rows.into_iter().map(AssetStackRow::into_domain).collect()
+    }
+
     /// Keyset page within a month and a geographic bounding box.
     ///
     /// # Errors

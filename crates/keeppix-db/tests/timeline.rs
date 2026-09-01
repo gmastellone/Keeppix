@@ -574,3 +574,96 @@ async fn probing_someone_elses_library_geometry_is_forbidden() {
         .unwrap_err();
     assert!(matches!(err, DbError::Forbidden));
 }
+
+#[tokio::test]
+async fn by_ids_returns_requested_assets_in_timeline_order() {
+    let test = TestDb::start().await;
+    let (admin, _library, folder) = seed(&test).await;
+    let assets = AssetRepo::new(test.db());
+    let mut ids = Vec::new();
+    for (i, name) in ["c.jpg", "d.jpg", "e.jpg"].iter().enumerate() {
+        let a = assets
+            .upsert_discovered(photo(folder, name))
+            .await
+            .unwrap()
+            .unwrap();
+        let t = Utc
+            .with_ymd_and_hms(2024, 7, 10 - u32::try_from(i).unwrap(), 12, 0, 0)
+            .unwrap();
+        assets.set_indexed(a.id, t, 1, 1).await.unwrap();
+        ids.push(a.id);
+    }
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    // Requested newest-first (ids[2]) then oldest (ids[0]) — the response
+    // still comes back in timeline order (taken_at_utc DESC), not request
+    // order: it's a page-shaped result, meant to replace entries in an
+    // existing page array positionally by id, not by response order.
+    let found = TimelineRepo::new(test.db())
+        .by_ids(&ctx, &[ids[2], ids[0]])
+        .await
+        .unwrap();
+    assert_eq!(
+        found.iter().map(|a| a.id).collect::<Vec<_>>(),
+        vec![ids[0], ids[2]]
+    );
+}
+
+#[tokio::test]
+async fn by_ids_silently_omits_ids_that_do_not_exist_or_are_not_indexed() {
+    let test = TestDb::start().await;
+    let (admin, _library, folder) = seed(&test).await;
+    let assets = AssetRepo::new(test.db());
+    // Discovered but never indexed: `status` stays 'discovered', which
+    // `page`/`by_ids` both exclude.
+    let unindexed = assets
+        .upsert_discovered(photo(folder, "f.jpg"))
+        .await
+        .unwrap()
+        .unwrap();
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let found = TimelineRepo::new(test.db())
+        .by_ids(&ctx, &[unindexed.id, keeppix_domain::AssetId::new()])
+        .await
+        .unwrap();
+    assert!(
+        found.is_empty(),
+        "an unindexed asset and a nonexistent id must both be silently omitted, not errors"
+    );
+}
+
+#[tokio::test]
+async fn by_ids_with_an_empty_list_returns_empty_without_a_forbidden_error() {
+    let test = TestDb::start().await;
+    let (admin, _library, _folder) = seed(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let found = TimelineRepo::new(test.db())
+        .by_ids(&ctx, &[])
+        .await
+        .unwrap();
+    assert!(found.is_empty());
+}
+
+#[tokio::test]
+async fn by_ids_omits_assets_from_a_library_the_caller_cannot_see() {
+    let test = TestDb::start().await;
+    let (admin, _library, folder) = seed(&test).await;
+    let assets = AssetRepo::new(test.db());
+    let a = assets
+        .upsert_discovered(photo(folder, "g.jpg"))
+        .await
+        .unwrap()
+        .unwrap();
+    let t = Utc.with_ymd_and_hms(2024, 7, 1, 12, 0, 0).unwrap();
+    assets.set_indexed(a.id, t, 1, 1).await.unwrap();
+
+    let user = harness::seed_user(&test, admin, "luca").await;
+    // Unlike `page`/`buckets`/`geometry` (which reject a library the
+    // caller can't see outright), `by_ids` has no library argument to
+    // reject — an id outside the caller's visibility is just missing from
+    // the result, the same as an id that doesn't exist at all.
+    let found = TimelineRepo::new(test.db())
+        .by_ids(&AuthContext::user(user, SystemRole::User), &[a.id])
+        .await
+        .unwrap();
+    assert!(found.is_empty());
+}

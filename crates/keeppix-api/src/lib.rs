@@ -158,6 +158,10 @@ fn api_routes(state: AppState) -> Router<AppState> {
         )
         .route("/timeline/buckets", get(routes::timeline::buckets))
         .route("/timeline/geometry", get(routes::timeline::geometry))
+        .route(
+            "/timeline/by-ids",
+            axum::routing::post(routes::timeline::by_ids),
+        )
         .route("/timeline", get(routes::timeline::page))
         .route("/folders/tree", get(routes::folders::tree))
         .route("/folders/{id}/children", get(routes::folders::children))

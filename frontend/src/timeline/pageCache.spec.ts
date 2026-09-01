@@ -71,6 +71,25 @@ describe('LruPageCache', () => {
     expect(cache.has('b')).toBe(false)
   })
 
+  it('entries() iterates every resident page without disturbing recency', () => {
+    const cache = new LruPageCache<string, number>(2)
+    cache.set('a', 1)
+    cache.set('b', 2)
+
+    expect(new Map(cache.entries())).toEqual(
+      new Map([
+        ['a', 1],
+        ['b', 2]
+      ])
+    )
+
+    // Reading via entries() must not count as a "use": 'a' is still the
+    // least-recently-used and still the one evicted next.
+    cache.set('c', 3)
+    expect(cache.has('a')).toBe(false)
+    expect(cache.has('b')).toBe(true)
+  })
+
   it('rejects a capacity below 1', () => {
     expect(() => new LruPageCache(0)).toThrow(RangeError)
   })

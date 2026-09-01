@@ -30,6 +30,14 @@ export class LruPageCache<K, V> {
     return this.map.has(key)
   }
 
+  /** Read-only iteration for point-patching a cached entry in place
+   * (finding which pages contain a specific id) — never mutate the cache
+   * while iterating this; collect what needs to change first, then call
+   * `set` after the loop ends. */
+  entries(): IterableIterator<[K, V]> {
+    return this.map.entries()
+  }
+
   get(key: K): V | undefined {
     if (!this.map.has(key)) return undefined
     const value = this.map.get(key) as V

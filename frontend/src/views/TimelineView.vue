@@ -3,9 +3,17 @@ import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } fr
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
-import { fetchBuckets, fetchGeometry, fetchPage, promoteViewport, type MonthBucket, type TimelineAsset } from '@/api/timeline'
+import {
+  fetchAssetsByIds,
+  fetchBuckets,
+  fetchGeometry,
+  fetchPage,
+  promoteViewport,
+  type MonthBucket,
+  type TimelineAsset
+} from '@/api/timeline'
 import { ApiProblem } from '@/api/client'
-import { startLiveEvents, type LiveSocket } from '@/api/events'
+import { startLiveEvents, type LiveMessage, type LiveSocket } from '@/api/events'
 import { thumbSrc as mediaThumbSrc } from '@/api/media'
 import FlatAssetGrid from '@/components/FlatAssetGrid.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
@@ -111,18 +119,61 @@ let live: LiveSocket | undefined
 let resizeObserver: ResizeObserver | undefined
 let scrollRaf = 0
 
-// During a large import, `assets.upserted` arrives once per finished
-// background job — tens per second, and the geometry (already-loaded
-// assets picking up a hash/dimensions) genuinely changes on most of them,
-// so debouncing alone doesn't stop `refreshTimeline` from firing
-// regularly. `preserveScroll: true` is the other half of the fix: a
-// background update to assets you're already looking at is not a reason
-// to yank you back to the top mid-scroll — only a deliberate fresh load
-// (mount, filter change, error retry) is.
-const scheduleLiveRefresh = useDebouncedCallback(
+// The server itself already batches `assets.upserted` into one message a
+// second (see `ws.rs`'s change-log poll) — the flashing this used to cause
+// wasn't message frequency, it was what each one did: `refreshTimeline`
+// re-fetches every mounted month's page and wipes the cache
+// (`resetGridForNewGeometry`), even though a background job landing only
+// ever touches a handful of already-loaded assets (a new hash, updated
+// dimensions), never the shape of the grid itself.
+//
+// `patchLiveUpdate` below fetches exactly those ids (already in the
+// event's payload) and replaces them in place in `pageCache` — no cache
+// wipe, no re-fetch of unrelated months, no flash. `scheduleFullRefresh`
+// stays as a much slower background safety net for what patching can't
+// cover: a brand new asset that isn't cached anywhere yet, or a deletion
+// changing the grid's actual shape.
+const scheduleFullRefresh = useDebouncedCallback(
   () => void refreshTimeline({ preserveScroll: true }),
-  800
+  8000
 )
+
+interface AssetsUpsertedPayload {
+  ids?: string[]
+}
+
+/** Replaces already-cached entries for `ids` with fresh data, leaving
+ * every other cached month untouched. Ids not found in any cached page
+ * (never loaded, or already evicted) are silently skipped — nothing to
+ * patch, and they'll simply be fetched fresh whenever that month is
+ * scrolled into view. */
+async function patchLiveUpdate(ids: string[]) {
+  if (ids.length === 0) return
+  let updated: TimelineAsset[]
+  try {
+    updated = await fetchAssetsByIds(ids)
+  } catch {
+    // Best-effort: scheduleFullRefresh (already queued alongside this)
+    // still catches it, just later.
+    return
+  }
+  if (updated.length === 0) return
+  const byId = new Map(updated.map((asset) => [asset.id, asset]))
+  const patches: [string, TimelineAsset[]][] = []
+  for (const [month, assets] of pageCache.entries()) {
+    let changed = false
+    const next = assets.map((asset) => {
+      const replacement = byId.get(asset.id)
+      if (!replacement) return asset
+      changed = true
+      return replacement
+    })
+    if (changed) patches.push([month, next])
+  }
+  if (patches.length === 0) return
+  for (const [month, next] of patches) pageCache.set(month, next)
+  cacheTick.value++
+}
 
 const plan = computed(() => {
   if (!geometry.value) return { rows: [] as StreamRow[], rowHeights: [] as number[], totalHeight: 0 }
@@ -509,9 +560,13 @@ onMounted(async () => {
   await refreshTimeline()
   await nextTick()
   measure()
-  live = startLiveEvents((msg) => {
+  live = startLiveEvents((msg: LiveMessage) => {
+    if (msg.type === 'assets.upserted') {
+      const ids = (msg.payload as AssetsUpsertedPayload | undefined)?.ids
+      if (ids?.length) void patchLiveUpdate(ids)
+    }
     if (msg.type === 'resync' || msg.type === 'assets.upserted' || msg.type === 'assets.deleted') {
-      scheduleLiveRefresh()
+      scheduleFullRefresh()
     }
   })
 })

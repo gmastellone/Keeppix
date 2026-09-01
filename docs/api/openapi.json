@@ -9165,6 +9165,73 @@
         ]
       }
     },
+    "/api/v1/timeline/by-ids": {
+      "post": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Fetch specific timeline assets by id",
+        "description": "# Errors\n`400` if the batch exceeds [`crate::batch::MAX_BATCH_ASSETS`]; `401` if\nnot authenticated.",
+        "operationId": "timeline_by_ids",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetsByIdsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The requested ids that are still visible and indexed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetsByIdsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Batch too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/timeline/geometry": {
       "get": {
         "tags": [
@@ -11623,6 +11690,34 @@
               "null"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "AssetsByIdsRequest": {
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AssetsByIdsResponse": {
+        "type": "object",
+        "required": [
+          "assets"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetView"
+            }
           }
         }
       },

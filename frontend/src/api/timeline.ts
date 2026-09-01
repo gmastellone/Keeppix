@@ -98,6 +98,19 @@ export function fetchPage(bucket: string, cursor?: string, bbox?: string): Promi
   return apiFetch(`/api/v1/timeline?${q}`)
 }
 
+/** Point lookup for a live-triggered refresh (`assets.upserted` over the
+ * WebSocket carries exactly this `ids` list): patches already-rendered
+ * tiles in place instead of refetching and redrawing the whole page they
+ * live on. An id that's missing, not visible, or no longer indexed is
+ * simply absent from the response, not an error — the caller only wants
+ * back what it can still show. */
+export function fetchAssetsByIds(ids: string[]): Promise<TimelineAsset[]> {
+  return apiFetch<{ assets: TimelineAsset[] }>('/api/v1/timeline/by-ids', {
+    method: 'POST',
+    body: JSON.stringify({ ids })
+  }).then((page) => page.assets)
+}
+
 export function promoteViewport(hashes: string[]): Promise<null> {
   return apiFetch('/api/v1/viewport', {
     method: 'POST',

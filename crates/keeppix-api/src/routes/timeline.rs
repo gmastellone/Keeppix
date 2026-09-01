@@ -731,6 +731,56 @@ pub async fn page(
     }))
 }
 
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct AssetsByIdsRequest {
+    #[schema(value_type = Vec<String>)]
+    pub ids: Vec<AssetId>,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct AssetsByIdsResponse {
+    pub assets: Vec<AssetView>,
+}
+
+/// Point lookup for a live-triggered refresh (`assets.upserted` over the
+/// WebSocket): patches an already-rendered page in place instead of
+/// refetching and redrawing the whole thing it lives on — the difference
+/// between a background job landing invisibly and the whole grid
+/// flashing back to a loading state every time one does. An id that's
+/// missing, not visible, or no longer indexed is silently omitted from
+/// the response rather than erroring: the caller only wants back what it
+/// can still show.
+///
+/// # Errors
+/// `400` if the batch exceeds [`crate::batch::MAX_BATCH_ASSETS`]; `401` if
+/// not authenticated.
+#[utoipa::path(
+    post,
+    path = "/api/v1/timeline/by-ids",
+    tag = "timeline",
+    operation_id = "timeline_by_ids",
+    summary = "Fetch specific timeline assets by id",
+    security(("session_cookie" = [])),
+    request_body = AssetsByIdsRequest,
+    responses(
+        (status = 200, description = "The requested ids that are still visible and indexed", body = AssetsByIdsResponse),
+        (status = 400, description = "Batch too large", body = Problem),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 500, description = "Database error", body = Problem)
+    )
+)]
+pub async fn by_ids(
+    State(state): State<AppState>,
+    SessionNotShare(ctx): SessionNotShare,
+    Json(body): Json<AssetsByIdsRequest>,
+) -> Result<Json<AssetsByIdsResponse>, Problem> {
+    crate::batch::reject_oversized_batch(&body.ids)?;
+    let assets = TimelineRepo::new(&state.db).by_ids(&ctx, &body.ids).await?;
+    Ok(Json(AssetsByIdsResponse {
+        assets: enrich_views(&state, &ctx, &assets).await?,
+    }))
+}
+
 fn parse_bucket(raw: &str) -> Result<NaiveDate, Problem> {
     let padded = if raw.len() == 7 {
         format!("{raw}-01")
