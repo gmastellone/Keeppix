@@ -119,6 +119,16 @@ COPY --from=heif /staging/bin/heif-convert /usr/bin/heif-convert
 COPY --from=heif /staging/lib/ /usr/local/lib/keeppix/
 COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/places.csv /usr/share/keeppix/places.csv
 COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/tz_boundaries.csv /usr/share/keeppix/tz_boundaries.csv
+# `models/README.md` already promises this: "get baked into the Docker
+# image at build time" — this line was the part that never actually did
+# it, so every image built here had AI features (faces, semantic search)
+# silently no-op forever with no error, regardless of whether
+# scripts/download-yunet-sface.sh had been run. `models/` is gitignored
+# except its README, so an untouched checkout still builds fine — this
+# just copies whatever's actually present. Lands at `models/` under
+# WORKDIR (`/data`, below), matching keeppix-media's own default relative
+# search path with no `KEEPPIX_MODELS_DIR` override needed.
+COPY --chown=nonroot:nonroot models/ /data/models/
 
 USER nonroot:nonroot
 WORKDIR /data

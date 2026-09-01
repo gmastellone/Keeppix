@@ -82,6 +82,24 @@ the connection would fail. In that case use a different `.env` file (for
 example with `docker compose --env-file .env.docker …`) or export
 `DATABASE_URL` only in the shell from which you launch `docker compose`.
 
+### Face recognition model weights
+
+pgvector fixes the *schema*; face recognition additionally needs the
+YuNet+SFace ONNX weights actually present at image build time — without
+them the "Face recognition" toggle in Settings turns on with no error, but
+never detects a single face. Not committed to git (binary, ~9.5 MB): fetch
+them once before building —
+
+```bash
+./scripts/download-yunet-sface.sh
+docker compose --profile bundled up -d --build
+```
+
+The published `ghcr.io` images already include them (the release workflow
+runs the same script before building). Semantic search / AI tag matching
+needs a second, larger model (OpenCLIP XLM-R IT/EN) that has no equivalent
+one-line download yet — see `models/README.md`.
+
 ## Environment variables
 
 | Variable | Default | Description |

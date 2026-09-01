@@ -18,6 +18,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      # Cheap (curl against two already-built ONNX files, ~9.5 MB total,
+      # sha256-verified by the script itself) — unlike OpenCLIP XLM-R
+      # (export-openclip-xlmr.yml), which stays workflow_dispatch-only on
+      # purpose (a real HuggingFace export, minutes of compute). Without
+      # this, a published image builds fine but face recognition silently
+      # no-ops forever for anyone who pulls it — the Dockerfile's own COPY
+      # of `models/` only bakes in what's actually present at build time.
+      - name: Download the face detection/recognition model
+        run: ./scripts/download-yunet-sface.sh
+
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
