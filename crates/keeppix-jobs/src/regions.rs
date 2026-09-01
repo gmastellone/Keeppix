@@ -128,6 +128,17 @@ pub async fn recover_interrupted_downloads(db: &Db) -> Result<RepairResult, keep
 
 /// Enqueues the periodic run that reaps genuinely stale leases.
 ///
+/// `High`, not `Background`: this is the watchdog that un-sticks jobs a
+/// `RamGate` permit (or anything else) has wedged for 10+ minutes —
+/// including, in practice, other `Background` jobs. At `Background` itself
+/// it inherits the exact problem it exists to fix: `EnergyProfile::
+/// Interactive`'s ceiling is `Visible`, so as long as someone keeps a page
+/// open that's polling anything authenticated (e.g. watching an import's
+/// progress), the reaper could never run either — the one thing capable of
+/// recovering a stuck queue would itself be the thing stuck. The work here
+/// is a single `UPDATE`, not per-photo processing, so there's no real cost
+/// to running it above `Background`.
+///
 /// # Errors
 /// Database.
 pub async fn schedule_reap_stale(db: &Db) -> Result<(), JobError> {
@@ -135,7 +146,7 @@ pub async fn schedule_reap_stale(db: &Db) -> Result<(), JobError> {
         .enqueue(
             JobKind::ReapStale,
             serde_json::json!({}),
-            JobPriority::Background,
+            JobPriority::High,
             Some("reap_stale"),
         )
         .await?;
@@ -1175,6 +1186,26 @@ mod tests {
         let db = keeppix_db::Db::connect(&url, 5).await.expect("db");
         db.migrate().await.expect("migrations");
         (db, container)
+    }
+
+    /// If a real stuck job (e.g. a `RamGate` permit held by an oversized
+    /// file) leaves the session looking `Interactive`, the reaper must
+    /// still be claimable — it's the one thing that can recover the queue.
+    /// `Background` would make it subject to the exact problem it exists
+    /// to fix.
+    #[tokio::test]
+    async fn the_reaper_is_claimable_even_while_the_session_looks_interactive() {
+        let (db, _container) = test_db().await;
+        super::schedule_reap_stale(&db).await.unwrap();
+
+        let claimed = keeppix_db::JobRepo::new(&db)
+            .claim(uuid::Uuid::now_v7(), keeppix_domain::JobPriority::Visible)
+            .await
+            .unwrap();
+
+        let job = claimed
+            .expect("the reaper must be claimable at Visible priority, not stuck at Background");
+        assert_eq!(job.kind, keeppix_domain::JobKind::ReapStale);
     }
 
     async fn seed_admin(db: &keeppix_db::Db) -> keeppix_domain::UserId {
