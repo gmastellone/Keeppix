@@ -16,7 +16,11 @@ const session = useSessionStore()
 
 type WizardStep = 'admin' | 'library' | 'scan'
 
-const step = ref<WizardStep>('admin')
+// Reached with an existing session (router.ts) when the admin account was
+// created but the wizard never got to add a library — resume there
+// instead of asking to create the account again (the backend would just
+// reject it as already-initialised).
+const step = ref<WizardStep>(session.user ? 'library' : 'admin')
 const libraryId = ref<string | null>(null)
 
 const displayName = ref('')
@@ -57,6 +61,7 @@ async function submitAdmin() {
 
 function onLibraryCreated(id: string) {
   libraryId.value = id
+  session.markLibraryCreated()
   step.value = 'scan'
 }
 </script>

@@ -17,7 +17,12 @@ vi.mock('@/api/users', () => ({
   updateUser: vi.fn()
 }))
 
+vi.mock('@/api/libraries', () => ({
+  fetchLibraries: vi.fn()
+}))
+
 const auth = await import('@/api/auth')
+const libraries = await import('@/api/libraries')
 
 const user = {
   id: 'u1',
@@ -75,11 +80,45 @@ describe('session bootstrap', () => {
     vi.mocked(auth.login).mockResolvedValue({
       user: { ...user, locale: 'it' }
     })
+    vi.mocked(libraries.fetchLibraries).mockResolvedValue([])
     const session = useSessionStore()
     await session.login('giovanni', 'correct horse battery staple')
     expect(session.user?.locale).toBe('it')
     const { i18n } = await import('@/i18n')
     expect(i18n.global.locale.value).toBe('it')
+  })
+
+  it('bootstrap picks up whether the session already has a library', async () => {
+    vi.mocked(auth.getSetupStatus).mockResolvedValue({ initialised: true })
+    vi.mocked(auth.me).mockResolvedValue({ user })
+    vi.mocked(libraries.fetchLibraries).mockResolvedValue([])
+
+    const session = useSessionStore()
+    await session.bootstrap()
+    expect(session.hasLibrary).toBe(false)
+  })
+
+  it('markLibraryCreated flips hasLibrary without another round trip', async () => {
+    vi.mocked(auth.login).mockResolvedValue({ user })
+    vi.mocked(libraries.fetchLibraries).mockResolvedValue([])
+
+    const session = useSessionStore()
+    await session.login('giovanni', 'correct horse battery staple')
+    expect(session.hasLibrary).toBe(false)
+
+    session.markLibraryCreated()
+    expect(session.hasLibrary).toBe(true)
+  })
+
+  it('a failed library check leaves hasLibrary as-is instead of failing bootstrap', async () => {
+    vi.mocked(auth.getSetupStatus).mockResolvedValue({ initialised: true })
+    vi.mocked(auth.me).mockResolvedValue({ user })
+    vi.mocked(libraries.fetchLibraries).mockRejectedValue(new Error('network error'))
+
+    const session = useSessionStore()
+    await expect(session.bootstrap()).resolves.toBeUndefined()
+    expect(session.hasLibrary).toBeNull()
+    expect(session.ready).toBe(true)
   })
 })
 

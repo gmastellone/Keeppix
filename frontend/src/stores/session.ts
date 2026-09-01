@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import * as authApi from '@/api/auth'
 import type { SetupPayload, User } from '@/api/auth'
 import { ApiProblem } from '@/api/client'
+import { fetchLibraries } from '@/api/libraries'
 import { updateUser } from '@/api/users'
 import { applyProfileLocale, setLocale, type Locale } from '@/i18n'
 
@@ -16,6 +17,12 @@ export const SESSION_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000
 export const useSessionStore = defineStore('session', () => {
   const user = ref<User | null>(null)
   const initialised = ref<boolean | null>(null)
+  /** `null` until known. Only meaningful once `user` is set — the router
+   * uses `false` here to send an already-admin'd-but-library-less session
+   * back into the setup wizard's library step instead of stranding it: the
+   * wizard's own step state lives only in that component and doesn't
+   * survive a reload. */
+  const hasLibrary = ref<boolean | null>(null)
   const ready = ref(false)
   const unavailable = ref(false)
   /** True if the last logout cleared the session locally without
@@ -26,6 +33,17 @@ export const useSessionStore = defineStore('session', () => {
 
   let timer: ReturnType<typeof setInterval> | undefined
   let listening = false
+
+  /** A failure here (network hiccup, whatever) shouldn't block login or
+   * bootstrap — worst case the router asks again on the next navigation
+   * since `hasLibrary` just stays at its previous value. */
+  async function refreshHasLibrary(): Promise<void> {
+    try {
+      hasLibrary.value = (await fetchLibraries()).length > 0
+    } catch {
+      // leave hasLibrary as-is
+    }
+  }
 
   /** Determines the instance's state and restores the session if present. */
   async function bootstrap(): Promise<void> {
@@ -40,6 +58,7 @@ export const useSessionStore = defineStore('session', () => {
           user.value = result.user
           applyProfileLocale(result.user.locale)
           startWatchdog()
+          await refreshHasLibrary()
         } catch (error) {
           // 401 is normal: no active session.
           if (!(error instanceof ApiProblem) || error.status !== 401) throw error
@@ -68,6 +87,13 @@ export const useSessionStore = defineStore('session', () => {
     user.value = result.user
     applyProfileLocale(result.user.locale)
     startWatchdog()
+    await refreshHasLibrary()
+  }
+
+  /** Called once `LibraryStep` creates the first library, so the router
+   * stops sending this session back into the setup wizard. */
+  function markLibraryCreated(): void {
+    hasLibrary.value = true
   }
 
   async function setup(payload: SetupPayload): Promise<void> {
@@ -126,6 +152,7 @@ export const useSessionStore = defineStore('session', () => {
       logoutError.value = true
     } finally {
       user.value = null
+      hasLibrary.value = null
       stopWatchdog()
     }
   }
@@ -182,6 +209,7 @@ export const useSessionStore = defineStore('session', () => {
   return {
     user,
     initialised,
+    hasLibrary,
     ready,
     unavailable,
     logoutError,
@@ -189,6 +217,7 @@ export const useSessionStore = defineStore('session', () => {
     retryBootstrap,
     login,
     setup,
+    markLibraryCreated,
     changeLocale,
     updateDisplayName,
     logout,

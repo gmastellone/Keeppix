@@ -131,6 +131,15 @@ router.beforeEach(async (to) => {
   if (session.initialised === false) {
     return to.path === '/setup' ? true : '/setup'
   }
+  // Admin account exists but the wizard never got to add a library — its
+  // step lives only in SetupView's local state, so a reload mid-wizard
+  // (e.g. while fixing a permission issue on the library path) otherwise
+  // strands the session with no way back in, since /setup is normally
+  // unreachable once initialised. SetupView itself resumes at the
+  // library step, not admin creation, when it sees an existing user.
+  if (session.user && session.hasLibrary === false) {
+    return to.path === '/setup' ? true : '/setup'
+  }
   if (to.path === '/setup') {
     return '/'
   }
