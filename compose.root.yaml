@@ -1,0 +1,16 @@
+# Optional override, merged in only when scripts/install.sh's permission
+# check finds the photo library unreadable by the app's own user and chmod
+# can't fix it either (exFAT/FAT32 external drives have no concept of Unix
+# permissions at all — macOS silently no-ops any chmod on them).
+#
+# Running as root lets the container read the library regardless of on-disk
+# ownership. The mount stays read-only (see compose.yaml) either way, so
+# this doesn't change what the app can do to the photos themselves — only
+# who's allowed to read them.
+#
+# Deliberately NOT named compose.override.yaml: Compose auto-loads that
+# filename, which would make this the default for everyone. It's applied
+# only via an explicit `-f` from install.sh, on the user's confirmation.
+services:
+  keeppix:
+    user: "0:0"

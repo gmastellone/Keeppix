@@ -208,7 +208,9 @@ if [ "$MODE" = "docker" ]; then
   # usual spots) is invisible to it. The scan then just finds zero photos,
   # with nothing in the logs to explain why. `-perm -005` (other: r-x)
   # works identically on BSD find (macOS) and GNU find (Linux).
-  if ! find "$PHOTOS_PATH" -maxdepth 0 -perm -005 2>/dev/null | grep -q .; then
+  readable() { find "$PHOTOS_PATH" -maxdepth 0 -perm -005 2>/dev/null | grep -q .; }
+  RUN_AS_ROOT=0
+  if ! readable; then
     warn "$PHOTOS_PATH isn't readable by other users on this machine."
     info "Keeppix's own user inside the container needs read+traverse access,"
     info "or your library will show up empty with no error anywhere."
@@ -217,7 +219,24 @@ if [ "$MODE" = "docker" ]; then
       chmod -R o+rX "$PHOTOS_PATH"
       ok "Permissions updated."
     else
-      warn "Skipped — fix later with: chmod -R o+rX \"$PHOTOS_PATH\""
+      warn "Skipped."
+    fi
+  fi
+  if ! readable; then
+    # Some filesystems (exFAT, FAT32 — common on external/USB drives) have
+    # no concept of Unix permissions at all: the chmod above just ran and
+    # silently changed nothing. The only way in short of reformatting the
+    # drive is to have the container read as root instead — the mount is
+    # still read-only (compose.yaml), so this only affects who can read the
+    # library, not what the app can do to it.
+    warn "Still not readable — this is likely a filesystem (exFAT/FAT32) that"
+    warn "doesn't support Unix permissions at all, so chmod can't fix it."
+    ask "Start the Keeppix container as root instead, so it can read this library? (y/N)" "n" ROOT_ANSWER
+    if [[ "$ROOT_ANSWER" =~ ^[yY] ]]; then
+      RUN_AS_ROOT=1
+      ok "Will start the container as root."
+    else
+      warn "Continuing as-is — the library will likely show up empty until this is resolved."
     fi
   fi
 fi
@@ -339,8 +358,12 @@ fi
 # Docker mode from here on.
 COMPOSE_PROFILE_FLAG=""
 [ "$DB_MODE" = "bundled" ] && COMPOSE_PROFILE_FLAG="--profile bundled "
+# Merges in compose.root.yaml only when the permission check above couldn't
+# make the library readable any other way (see the comment on that file).
+COMPOSE_FILE_FLAG=""
+[ "${RUN_AS_ROOT:-0}" = 1 ] && COMPOSE_FILE_FLAG="-f compose.yaml -f compose.root.yaml "
 BUILD_LOG="$(mktemp)"
-if ! run_quiet "Building the image..." "$BUILD_LOG" $DOCKER_COMPOSE_CMD $COMPOSE_PROFILE_FLAG up -d --build; then
+if ! run_quiet "Building the image..." "$BUILD_LOG" $DOCKER_COMPOSE_CMD $COMPOSE_FILE_FLAG$COMPOSE_PROFILE_FLAG up -d --build; then
   echo -e "\n$(tail -40 "$BUILD_LOG" | sed 's/^/  /')\n"
   rm -f "$BUILD_LOG"
   fail "The build failed (log above)."
@@ -351,7 +374,7 @@ SPIN="$SPIN_FRAMES"
 ATTEMPTS=60
 i=0
 READY=0
-KEEPPIX_CONTAINER="$($DOCKER_COMPOSE_CMD ps -q keeppix)"
+KEEPPIX_CONTAINER="$($DOCKER_COMPOSE_CMD $COMPOSE_FILE_FLAG ps -q keeppix)"
 while [ $i -lt $ATTEMPTS ]; do
   if curl -fsS "http://localhost:5673/health" >/dev/null 2>&1; then
     READY=1
@@ -369,17 +392,17 @@ if [ "$READY" = 1 ]; then
   echo -e "\n  ${GREEN}${BOLD}✓ Keeppix is ready${NC}\n"
   echo -e "  ${BOLD}→ http://localhost:5673${NC}\n"
   echo -e "  ${DIM}First run: create the admin account from the page that opens.${NC}"
-  echo -e "  ${DIM}Logs:  ${DOCKER_COMPOSE_CMD} ${COMPOSE_PROFILE_FLAG}logs -f keeppix${NC}"
-  echo -e "  ${DIM}Stop:  ${DOCKER_COMPOSE_CMD} ${COMPOSE_PROFILE_FLAG}down${NC}\n"
+  echo -e "  ${DIM}Logs:  ${DOCKER_COMPOSE_CMD} ${COMPOSE_FILE_FLAG}${COMPOSE_PROFILE_FLAG}logs -f keeppix${NC}"
+  echo -e "  ${DIM}Stop:  ${DOCKER_COMPOSE_CMD} ${COMPOSE_FILE_FLAG}${COMPOSE_PROFILE_FLAG}down${NC}\n"
   exit 0
 fi
 
 echo -e "\n  ${RED}${BOLD}✗ Keeppix isn't responding yet on :5673${NC}\n"
 echo -e "  Last lines of the container log:\n"
-$DOCKER_COMPOSE_CMD $COMPOSE_PROFILE_FLAG logs --tail=40 keeppix 2>&1 | sed 's/^/  /'
+$DOCKER_COMPOSE_CMD $COMPOSE_FILE_FLAG$COMPOSE_PROFILE_FLAG logs --tail=40 keeppix 2>&1 | sed 's/^/  /'
 echo
 
-if [ "$DB_MODE" = "bundled" ] && $DOCKER_COMPOSE_CMD $COMPOSE_PROFILE_FLAG logs keeppix 2>&1 | grep -qi "password authentication failed"; then
+if [ "$DB_MODE" = "bundled" ] && $DOCKER_COMPOSE_CMD $COMPOSE_FILE_FLAG$COMPOSE_PROFILE_FLAG logs keeppix 2>&1 | grep -qi "password authentication failed"; then
   # Keeppix applies its own migrations at startup — a failed connection
   # crashes the container immediately, so this log line is the whole
   # authentication test, not a guess. Postgres never re-applies
@@ -390,17 +413,17 @@ if [ "$DB_MODE" = "bundled" ] && $DOCKER_COMPOSE_CMD $COMPOSE_PROFILE_FLAG logs 
   warn "Most likely cause: ./pgdata already exists from a previous run, initialized with a different password."
   ask "Reset the bundled Postgres and recreate it with the current credentials? This DELETES any data already in ./pgdata. (y/N)" "n" RESET_DB
   if [[ "$RESET_DB" =~ ^[yY] ]]; then
-    $DOCKER_COMPOSE_CMD $COMPOSE_PROFILE_FLAG down >/dev/null 2>&1
+    $DOCKER_COMPOSE_CMD $COMPOSE_FILE_FLAG$COMPOSE_PROFILE_FLAG down >/dev/null 2>&1
     rm -rf ./pgdata
     RESET_LOG="$(mktemp)"
-    if ! run_quiet "Recreating Postgres and starting Keeppix..." "$RESET_LOG" $DOCKER_COMPOSE_CMD $COMPOSE_PROFILE_FLAG up -d; then
+    if ! run_quiet "Recreating Postgres and starting Keeppix..." "$RESET_LOG" $DOCKER_COMPOSE_CMD $COMPOSE_FILE_FLAG$COMPOSE_PROFILE_FLAG up -d; then
       echo -e "\n$(tail -40 "$RESET_LOG" | sed 's/^/  /')\n"
       rm -f "$RESET_LOG"
       fail "Couldn't recreate the bundled Postgres (log above)."
     fi
     rm -f "$RESET_LOG"
     i=0; READY=0
-    KEEPPIX_CONTAINER="$($DOCKER_COMPOSE_CMD ps -q keeppix)"
+    KEEPPIX_CONTAINER="$($DOCKER_COMPOSE_CMD $COMPOSE_FILE_FLAG ps -q keeppix)"
     while [ $i -lt $ATTEMPTS ]; do
       curl -fsS "http://localhost:5673/health" >/dev/null 2>&1 && { READY=1; break; }
       [ "$(docker inspect -f '{{.State.Status}}' "$KEEPPIX_CONTAINER" 2>/dev/null || echo unknown)" = "exited" ] && break
@@ -415,7 +438,7 @@ if [ "$DB_MODE" = "bundled" ] && $DOCKER_COMPOSE_CMD $COMPOSE_PROFILE_FLAG logs 
       exit 0
     fi
     echo -e "\n  ${RED}${BOLD}✗ Still not responding after the reset${NC}\n"
-    $DOCKER_COMPOSE_CMD $COMPOSE_PROFILE_FLAG logs --tail=40 keeppix 2>&1 | sed 's/^/  /'
+    $DOCKER_COMPOSE_CMD $COMPOSE_FILE_FLAG$COMPOSE_PROFILE_FLAG logs --tail=40 keeppix 2>&1 | sed 's/^/  /'
     fail "Something doesn't add up — please open an issue with the full output above."
   else
     fail "Update DB_PASSWORD in .env to match ./pgdata's original password, then re-run this script."
