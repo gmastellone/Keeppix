@@ -201,6 +201,25 @@ if [ "$MODE" = "docker" ]; then
   ask "Path to your photo library on this machine (mounted read-only)" "$PHOTOS_PATH" PHOTOS_PATH
   mkdir -p "$PHOTOS_PATH"
   ok "Photos: $PHOTOS_PATH"
+
+  # The app inside the container runs as its own fixed non-root user, not
+  # your host user — a library folder that's only readable by its owner
+  # (e.g. mode 700, the macOS default for anything outside your home dir's
+  # usual spots) is invisible to it. The scan then just finds zero photos,
+  # with nothing in the logs to explain why. `-perm -005` (other: r-x)
+  # works identically on BSD find (macOS) and GNU find (Linux).
+  if ! find "$PHOTOS_PATH" -maxdepth 0 -perm -005 2>/dev/null | grep -q .; then
+    warn "$PHOTOS_PATH isn't readable by other users on this machine."
+    info "Keeppix's own user inside the container needs read+traverse access,"
+    info "or your library will show up empty with no error anywhere."
+    ask "Grant read-only access for other users now (chmod -R o+rX)? (Y/n)" "y" FIX_PERMS
+    if [[ "$FIX_PERMS" =~ ^[yY] ]]; then
+      chmod -R o+rX "$PHOTOS_PATH"
+      ok "Permissions updated."
+    else
+      warn "Skipped — fix later with: chmod -R o+rX \"$PHOTOS_PATH\""
+    fi
+  fi
 fi
 
 BAK=""
