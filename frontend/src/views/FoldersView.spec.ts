@@ -11,9 +11,14 @@ vi.mock('@/api/folders', () => ({
   moveFolder: vi.fn()
 }))
 
+vi.mock('@/api/libraries', () => ({
+  fetchLibraries: vi.fn()
+}))
+
 import FoldersView from './FoldersView.vue'
 
 const { fetchTree, fetchChildren, moveFolder } = await import('@/api/folders')
+const { fetchLibraries } = await import('@/api/libraries')
 
 const root = {
   id: 'root',
@@ -52,6 +57,7 @@ beforeEach(() => {
   vi.mocked(fetchTree).mockResolvedValue([root])
   vi.mocked(fetchChildren).mockResolvedValue({ folders: [child], assets: [] })
   vi.mocked(moveFolder).mockResolvedValue(null)
+  vi.mocked(fetchLibraries).mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -72,6 +78,28 @@ describe('FoldersView', () => {
     expect(fetchChildren).toHaveBeenCalledTimes(1)
     expect(fetchChildren).toHaveBeenCalledWith('root')
     expect(wrapper.text()).toContain('2024')
+  })
+
+  it("labels the true filesystem root with the library's name instead of leaving it blank", async () => {
+    const unnamedRoot = { ...root, name: '' }
+    vi.mocked(fetchTree).mockResolvedValue([unnamedRoot])
+    vi.mocked(fetchLibraries).mockResolvedValue([
+      { id: 'lib', name: 'Vacanze 2024' }
+    ] as Awaited<ReturnType<typeof fetchLibraries>>)
+
+    const wrapper = await mountFolders()
+
+    expect(wrapper.text()).toContain('Vacanze 2024')
+  })
+
+  it('falls back to a generic label if no library matches the empty root', async () => {
+    const unnamedRoot = { ...root, name: '' }
+    vi.mocked(fetchTree).mockResolvedValue([unnamedRoot])
+    vi.mocked(fetchLibraries).mockResolvedValue([])
+
+    const wrapper = await mountFolders()
+
+    expect(wrapper.text()).toContain(i18n.global.t('folders.libraryRoot'))
   })
 
   it('moving a folder calls moveFolder onto a visible sibling', async () => {

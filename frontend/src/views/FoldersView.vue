@@ -11,6 +11,7 @@ import {
   type FolderView
 } from '@/api/folders'
 import { isUnauthenticated } from '@/api/client'
+import { fetchLibraries } from '@/api/libraries'
 import FolderBranch from '@/components/FolderBranch.vue'
 import { useSessionStore } from '@/stores/session'
 
@@ -30,7 +31,17 @@ onMounted(() => {
 async function loadRoots() {
   loadError.value = false
   try {
-    roots.value = await fetchTree()
+    const [tree, libraries] = await Promise.all([fetchTree(), fetchLibraries().catch(() => [])])
+    const nameByLibrary = new Map(libraries.map((l) => [l.id, l.name]))
+    // The true filesystem root (`root_path` itself) carries no name of its
+    // own on disk — a bare "+" with nothing next to it reads as an empty
+    // tree, not a folder to expand. Every real subfolder always has a name,
+    // so this only ever substitutes for that one row.
+    roots.value = tree.map((folder) =>
+      folder.name === ''
+        ? { ...folder, name: nameByLibrary.get(folder.library_id) ?? t('folders.libraryRoot') }
+        : folder
+    )
   } catch (error) {
     if (isUnauthenticated(error)) {
       session.user = null
