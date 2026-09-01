@@ -4,7 +4,17 @@
 # public `postgis/postgis:17-3.5` image doesn't include `vector`;
 # `pgvector/pgvector:pg17` doesn't include PostGIS. Both are needed in
 # the same process — no second Postgres instance on the Pi.
-FROM postgis/postgis:17-3.5
+#
+# `imresamu/postgis`, not `postgis/postgis`: the official image has never
+# published an arm64 manifest for this tag (verified — `docker manifest
+# inspect postgis/postgis:17-3.5` lists only amd64), so it fails outright
+# on any Apple Silicon Mac and on the Raspberry Pi target itself, the two
+# most likely arm64 hosts for this project. `imresamu/postgis` is the
+# community project that exists specifically to publish real multi-arch
+# builds of the same upstream PostGIS sources (same Debian bookworm base,
+# same apt.postgresql.org package set — `postgresql-17-pgvector` below is
+# unaffected) — see https://github.com/ImreSamu/docker-postgis.
+FROM imresamu/postgis:17-3.5
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends postgresql-17-pgvector \
