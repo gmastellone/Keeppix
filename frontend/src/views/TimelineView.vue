@@ -16,6 +16,7 @@ import SelectionBar from '@/components/ui/SelectionBar.vue'
 import AssetViewer from '@/components/AssetViewer.vue'
 import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
 import { useBrowseFilters } from '@/composables/useBrowseFilters'
+import { useDebouncedCallback } from '@/composables/useDebouncedCallback'
 import { useDensity } from '@/composables/useDensity'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
@@ -109,6 +110,15 @@ let promoteTimer: ReturnType<typeof setTimeout> | undefined
 let live: LiveSocket | undefined
 let resizeObserver: ResizeObserver | undefined
 let scrollRaf = 0
+
+// During a large import, `assets.upserted` arrives once per finished
+// background job — tens per second. Reacting immediately to each one used
+// to trigger `refreshTimeline()`, which resets scroll to the top
+// (`resetGridForNewGeometry`): the grid became unscrollable, flashing back
+// to the top on every single file. Debounced: a whole burst collapses into
+// one refresh once things go quiet, instead of one refresh (and one scroll
+// reset) per event.
+const scheduleLiveRefresh = useDebouncedCallback(() => void refreshTimeline(), 800)
 
 const plan = computed(() => {
   if (!geometry.value) return { rows: [] as StreamRow[], rowHeights: [] as number[], totalHeight: 0 }
@@ -490,7 +500,7 @@ onMounted(async () => {
   measure()
   live = startLiveEvents((msg) => {
     if (msg.type === 'resync' || msg.type === 'assets.upserted' || msg.type === 'assets.deleted') {
-      void refreshTimeline()
+      scheduleLiveRefresh()
     }
   })
 })

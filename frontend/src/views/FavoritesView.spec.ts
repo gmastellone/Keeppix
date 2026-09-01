@@ -245,22 +245,31 @@ describe('FavoritesView lightbox and errors', () => {
     expect(errorState.props('nature')).toBe('unreachable')
   })
 
-  it('refreshes on a live "assets.upserted" event', async () => {
-    let onEvent: ((msg: LiveMessage) => void) | undefined
-    vi.mocked(startLiveEvents).mockImplementation((cb) => {
-      onEvent = cb
-      return { close: vi.fn() }
-    })
-    vi.mocked(runSearch).mockResolvedValue({ assets: [] })
+  it('refreshes on a live "assets.upserted" event, after the debounce settles', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let onEvent: ((msg: LiveMessage) => void) | undefined
+      vi.mocked(startLiveEvents).mockImplementation((cb) => {
+        onEvent = cb
+        return { close: vi.fn() }
+      })
+      vi.mocked(runSearch).mockResolvedValue({ assets: [] })
 
-    const { wrapper } = await mountFavorites()
-    expect(wrapper.text()).toContain('Nessun preferito ancora')
+      const { wrapper } = await mountFavorites()
+      expect(wrapper.text()).toContain('Nessun preferito ancora')
 
-    vi.mocked(runSearch).mockResolvedValue({ assets: [photo('live')] })
-    onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['live'], count: 1 } })
-    await flushPromises()
+      vi.mocked(runSearch).mockResolvedValue({ assets: [photo('live')] })
+      onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['live'], count: 1 } })
+      // Debounced (see FavoritesView.vue): nothing yet.
+      expect(wrapper.findComponent(PhotoTile).exists()).toBe(false)
 
-    expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(800)
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

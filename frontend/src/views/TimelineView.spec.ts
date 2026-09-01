@@ -314,33 +314,42 @@ describe('TimelineView cold-start geometry pagination', () => {
   })
 
   it('does not re-page on a later refresh (e.g. a live event): that call uses the whole-view ETag path', async () => {
-    let onEvent: ((msg: LiveMessage) => void) | undefined
-    vi.mocked(startLiveEvents).mockImplementation((cb) => {
-      onEvent = cb
-      return { close: vi.fn() }
-    })
-    const buckets = [{ month: '2024-07', count: 1 }]
-    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
-    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: '"v1"', nextCursor: null })
-    vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let onEvent: ((msg: LiveMessage) => void) | undefined
+      vi.mocked(startLiveEvents).mockImplementation((cb) => {
+        onEvent = cb
+        return { close: vi.fn() }
+      })
+      const buckets = [{ month: '2024-07', count: 1 }]
+      vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+      vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: '"v1"', nextCursor: null })
+      vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('a')] })
 
-    await mountTimeline()
-    expect(fetchGeometry).toHaveBeenNthCalledWith(1, undefined, undefined, { limit: 4000 })
+      await mountTimeline()
+      expect(fetchGeometry).toHaveBeenNthCalledWith(1, undefined, undefined, { limit: 4000 })
 
-    onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['a'], count: 1 } })
-    await flushPromises()
+      // Each event well clear of the debounce window (800ms), so each gets
+      // its own refresh — this test is about ETag chaining across
+      // sequential refreshes, not the burst-collapsing behavior covered
+      // in "TimelineView live events" below.
+      onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['a'], count: 1 } })
+      await vi.advanceTimersByTimeAsync(800)
 
-    // The second refresh no longer paginates: two arguments (bbox, etag),
-    // not three — the old whole-view signature, not {limit: ...}. No etag
-    // to send yet: the first (paginated) load doesn't capture one — this
-    // is exactly the deliberate tradeoff described in refreshTimeline.
-    expect(fetchGeometry).toHaveBeenNthCalledWith(2, undefined, undefined)
+      // The second refresh no longer paginates: two arguments (bbox, etag),
+      // not three — the old whole-view signature, not {limit: ...}. No etag
+      // to send yet: the first (paginated) load doesn't capture one — this
+      // is exactly the deliberate tradeoff described in refreshTimeline.
+      expect(fetchGeometry).toHaveBeenNthCalledWith(2, undefined, undefined)
 
-    // The third refresh, however, has the etag captured by the second one
-    // — that one can benefit from a 304 again.
-    onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['a'], count: 1 } })
-    await flushPromises()
-    expect(fetchGeometry).toHaveBeenNthCalledWith(3, undefined, '"v1"')
+      // The third refresh, however, has the etag captured by the second one
+      // — that one can benefit from a 304 again.
+      onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['a'], count: 1 } })
+      await vi.advanceTimersByTimeAsync(800)
+      expect(fetchGeometry).toHaveBeenNthCalledWith(3, undefined, '"v1"')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -410,7 +419,19 @@ describe('TimelineView lightbox in the URL', () => {
 })
 
 describe('TimelineView live events', () => {
-  it('shows newly upserted photos without a page reload', async () => {
+  // `assets.upserted` is debounced (see TimelineView.vue): a burst of
+  // background-job completions collapses into one refresh instead of
+  // resetting scroll on every single one. Real timers to let mountTimeline
+  // resolve, fake ones to control the debounce window deterministically.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows newly upserted photos without a page reload, after the debounce settles', async () => {
     let onEvent: ((msg: LiveMessage) => void) | undefined
     const close = vi.fn()
     vi.mocked(startLiveEvents).mockImplementation((cb) => {
@@ -430,7 +451,10 @@ describe('TimelineView live events', () => {
     vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
     vi.mocked(fetchPage).mockResolvedValue({ assets: [photo('live')] })
     onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['live'], count: 1 } })
-    await flushPromises()
+    // Nothing yet: still inside the debounce window.
+    expect(fetchBuckets).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(800)
 
     expect(fetchBuckets).toHaveBeenCalledTimes(2)
     expect(fetchGeometry).toHaveBeenCalledTimes(2)
@@ -439,6 +463,28 @@ describe('TimelineView live events', () => {
 
     wrapper.unmount()
     expect(close).toHaveBeenCalled()
+  })
+
+  it('a burst of upserts within the debounce window collapses into a single refresh', async () => {
+    let onEvent: ((msg: LiveMessage) => void) | undefined
+    vi.mocked(startLiveEvents).mockImplementation((cb) => {
+      onEvent = cb
+      return { close: vi.fn() }
+    })
+    vi.mocked(fetchBuckets).mockResolvedValue([])
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: null, etag: null, nextCursor: null })
+
+    await mountTimeline()
+    expect(fetchBuckets).toHaveBeenCalledTimes(1)
+
+    for (let i = 0; i < 20; i++) {
+      onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: [`a${i}`], count: 1 } })
+      await vi.advanceTimersByTimeAsync(50)
+    }
+    expect(fetchBuckets).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(800)
+    expect(fetchBuckets).toHaveBeenCalledTimes(2)
   })
 })
 

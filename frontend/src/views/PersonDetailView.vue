@@ -47,6 +47,7 @@ import SelectAllVisible from '@/components/ui/SelectAllVisible.vue'
 import SelectionBar from '@/components/ui/SelectionBar.vue'
 import TextField from '@/components/ui/TextField.vue'
 import { useBrowseFilters } from '@/composables/useBrowseFilters'
+import { useDebouncedCallback } from '@/composables/useDebouncedCallback'
 import { useDensity } from '@/composables/useDensity'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
 import { activePersonName } from '@/nav/routeTitles'
@@ -217,11 +218,17 @@ async function toggleHidden() {
   }
 }
 
+// During a large import, `assets.upserted` arrives once per finished
+// background job — tens per second (see TimelineView.vue for the full
+// story). Debounced so a burst collapses into one reload instead of
+// re-rendering the grid on every single file.
+const scheduleReload = useDebouncedCallback(() => void loadPhotos(), 800)
+
 onMounted(async () => {
   await load()
   live = startLiveEvents((msg) => {
     if (msg.type === 'resync' || msg.type === 'assets.upserted' || msg.type === 'assets.deleted') {
-      void loadPhotos()
+      scheduleReload()
     }
   })
 })

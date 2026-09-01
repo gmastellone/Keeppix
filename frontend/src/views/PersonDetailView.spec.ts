@@ -276,23 +276,32 @@ describe('PersonDetailView — person detail', () => {
     expect(router.currentRoute.value.path).toBe('/persons')
   })
 
-  it('refreshes photos on a live "assets.upserted" event', async () => {
-    let onEvent: ((msg: LiveMessage) => void) | undefined
-    vi.mocked(startLiveEvents).mockImplementation((cb) => {
-      onEvent = cb
-      return { close: vi.fn() }
-    })
-    vi.mocked(fetchPerson).mockResolvedValue(person())
-    vi.mocked(runSearch).mockResolvedValue({ assets: [] })
+  it('refreshes photos on a live "assets.upserted" event, after the debounce settles', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      let onEvent: ((msg: LiveMessage) => void) | undefined
+      vi.mocked(startLiveEvents).mockImplementation((cb) => {
+        onEvent = cb
+        return { close: vi.fn() }
+      })
+      vi.mocked(fetchPerson).mockResolvedValue(person())
+      vi.mocked(runSearch).mockResolvedValue({ assets: [] })
 
-    const { wrapper } = await mountDetail('p1')
-    expect(wrapper.text()).toContain('Nessuna foto qui')
+      const { wrapper } = await mountDetail('p1')
+      expect(wrapper.text()).toContain('Nessuna foto qui')
 
-    vi.mocked(runSearch).mockResolvedValue({ assets: [photo('live')] })
-    onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['live'], count: 1 } })
-    await flushPromises()
+      vi.mocked(runSearch).mockResolvedValue({ assets: [photo('live')] })
+      onEvent?.({ v: 1, type: 'assets.upserted', payload: { ids: ['live'], count: 1 } })
+      // Debounced (see PersonDetailView.vue): nothing yet.
+      expect(wrapper.findComponent(PhotoTile).exists()).toBe(false)
 
-    expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(800)
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.findComponent(PhotoTile).exists()).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('"Scegli copertina" opens the cover dialog', async () => {

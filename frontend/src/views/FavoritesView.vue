@@ -38,6 +38,7 @@ import QuickFilter from '@/components/ui/QuickFilter.vue'
 import SelectAllVisible from '@/components/ui/SelectAllVisible.vue'
 import SelectionBar from '@/components/ui/SelectionBar.vue'
 import { useBrowseFilters } from '@/composables/useBrowseFilters'
+import { useDebouncedCallback } from '@/composables/useDebouncedCallback'
 import { useDensity } from '@/composables/useDensity'
 import { useLightboxRoute } from '@/composables/useLightboxRoute'
 import { classifyError } from '@/errors/classify'
@@ -113,11 +114,17 @@ async function loadFavorites() {
   }
 }
 
+// During a large import, `assets.upserted` arrives once per finished
+// background job — tens per second (see TimelineView.vue for the full
+// story). Debounced so a burst collapses into one reload instead of
+// re-rendering the grid on every single file.
+const scheduleReload = useDebouncedCallback(() => void loadFavorites(), 800)
+
 onMounted(async () => {
   await loadFavorites()
   live = startLiveEvents((msg) => {
     if (msg.type === 'resync' || msg.type === 'assets.upserted' || msg.type === 'assets.deleted') {
-      void loadFavorites()
+      scheduleReload()
     }
   })
 })
