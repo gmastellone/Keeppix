@@ -269,6 +269,22 @@ ok ".env written (permissions 600)."
 # ── 5. Database: start + REAL verification ──────────────────────────────
 title "5/5 — Start"
 
+# Face recognition's weights (~9.5 MB, sha256-verified by the script
+# itself — skips re-downloading if already present and correct). Optional,
+# same as pgvector below: on failure (offline install, GitHub
+# unreachable), Keeppix still starts fine — the "Face recognition" toggle
+# in Settings just stays a no-op instead of erroring, the same graceful
+# fallback as a missing pgvector extension.
+if [ -x "$SCRIPT_DIR/download-yunet-sface.sh" ]; then
+  MODEL_LOG="$(mktemp)"
+  if run_quiet "Fetching the face recognition model..." "$MODEL_LOG" "$SCRIPT_DIR/download-yunet-sface.sh"; then
+    ok "Face recognition model ready."
+  else
+    warn "Couldn't fetch the face recognition model (offline, or GitHub unreachable) — Keeppix still works, face recognition just stays off until you re-run this script."
+  fi
+  rm -f "$MODEL_LOG"
+fi
+
 PG_ATTEMPTS=30
 if [ "$DB_MODE" = "bundled" ]; then
   DB_UP_LOG="$(mktemp)"

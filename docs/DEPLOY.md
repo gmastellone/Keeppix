@@ -84,6 +84,10 @@ example with `docker compose --env-file .env.docker …`) or export
 
 ### Face recognition model weights
 
+`scripts/install.sh` fetches these automatically as part of its normal
+run — this section is for building the image directly, bypassing the
+installer.
+
 pgvector fixes the *schema*; face recognition additionally needs the
 YuNet+SFace ONNX weights actually present at image build time — without
 them the "Face recognition" toggle in Settings turns on with no error, but
