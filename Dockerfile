@@ -125,10 +125,17 @@ COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/tz_boundaries.cs
 # silently no-op forever with no error, regardless of whether
 # scripts/download-yunet-sface.sh had been run. `models/` is gitignored
 # except its README, so an untouched checkout still builds fine — this
-# just copies whatever's actually present. Lands at `models/` under
-# WORKDIR (`/data`, below), matching keeppix-media's own default relative
-# search path with no `KEEPPIX_MODELS_DIR` override needed.
-COPY --chown=nonroot:nonroot models/ /data/models/
+# just copies whatever's actually present.
+#
+# NOT under `/data`: that path is `compose.yaml`'s bind mount
+# (`./data:/data`, for derivatives/backups/config.toml) — anything the
+# image puts there is invisible at runtime, silently shadowed by whatever
+# the host's `./data` happens to contain (nothing, on a fresh install).
+# `/opt/keeppix/models` sits outside every volume this project mounts,
+# paired below with `KEEPPIX_MODELS_DIR` so keeppix-media's own search
+# logic (`models/README.md`'s `yunet-sface/`, `openclip-xlmr-it-en/`
+# layout) finds it without needing to know this is a container at all.
+COPY --chown=nonroot:nonroot models/ /opt/keeppix/models/
 
 USER nonroot:nonroot
 WORKDIR /data
@@ -136,6 +143,7 @@ EXPOSE 5673
 
 ENV KEEPPIX_BIND=0.0.0.0:5673 \
     KEEPPIX_DATA_DIR=/data \
+    KEEPPIX_MODELS_DIR=/opt/keeppix/models \
     KEEPPIX_LOG_FORMAT=json \
     LD_LIBRARY_PATH=/usr/local/lib/keeppix
 
