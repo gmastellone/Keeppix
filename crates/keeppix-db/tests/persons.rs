@@ -421,3 +421,130 @@ async fn merging_people_logs_a_change_only_for_the_absorbed_persons_assets() {
         "the survivor's own photo already showed the right name — nothing changed on it"
     );
 }
+
+#[tokio::test]
+async fn list_visible_returns_a_cover_hash_from_a_confirmed_face() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_asset_in_new_library(&test, admin, "cover").await;
+    keeppix_db::AssetRepo::new(test.db())
+        .set_hash(asset, [0xAB; 32])
+        .await
+        .unwrap();
+
+    let person = PersonRepo::new(test.db())
+        .create(Some(PersonName::parse("Cover").unwrap()))
+        .await
+        .unwrap();
+    confirmed_face(&test, &ctx, asset, person.id, unit_axis(0)).await;
+
+    let summaries = PersonRepo::new(test.db())
+        .list_visible(&ctx, false)
+        .await
+        .unwrap();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(
+        summaries[0].cover_hash.as_deref(),
+        Some([0xAB; 32].as_slice())
+    );
+}
+
+#[tokio::test]
+async fn list_visible_never_returns_a_cover_from_an_asset_the_caller_cannot_see() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let visible_asset = seed_asset_in_new_library(&test, admin, "cover-visible").await;
+    keeppix_db::AssetRepo::new(test.db())
+        .set_hash(visible_asset, [0x11; 32])
+        .await
+        .unwrap();
+
+    let person = PersonRepo::new(test.db())
+        .create(Some(PersonName::parse("Visible").unwrap()))
+        .await
+        .unwrap();
+    confirmed_face(&test, &ctx, visible_asset, person.id, unit_axis(0)).await;
+
+    let outsider = harness::seed_user(&test, admin, "outsider").await;
+    let outsider_ctx = AuthContext::user(outsider, SystemRole::User);
+    let summaries = PersonRepo::new(test.db())
+        .list_visible(&outsider_ctx, false)
+        .await
+        .unwrap();
+    assert!(
+        summaries.is_empty(),
+        "the outsider cannot see the only asset this person appears in — the person itself must not be listed"
+    );
+}
+
+#[tokio::test]
+async fn list_visible_picks_the_cover_only_from_faces_the_caller_can_actually_see() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let admin_ctx = AuthContext::user(admin, SystemRole::Admin);
+    let outsider = harness::seed_user(&test, admin, "outsider2").await;
+    let outsider_ctx = AuthContext::user(outsider, SystemRole::User);
+
+    // One library, two folders: the outsider is granted only one of them —
+    // the same person has a confirmed face in each.
+    let library = seed_library(&test, admin, "/mnt/shared-cover").await;
+    let visible_folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["shared"])
+        .await
+        .unwrap();
+    let hidden_folder = FolderRepo::new(test.db())
+        .ensure_path(library, &["private"])
+        .await
+        .unwrap();
+
+    keeppix_db::PermissionRepo::new(test.db())
+        .grant(
+            &admin_ctx,
+            keeppix_db::NewGrant {
+                subject: keeppix_db::SubjectType::User,
+                subject_id: outsider.as_uuid(),
+                object: keeppix_db::ObjectType::Folder,
+                object_id: visible_folder.id.as_uuid(),
+                role: keeppix_domain::ObjectRole::Viewer,
+                inherit: true,
+            },
+        )
+        .await
+        .unwrap();
+
+    let visible_asset = seed_asset(&test, visible_folder.id, "visible.jpg").await;
+    keeppix_db::AssetRepo::new(test.db())
+        .set_hash(visible_asset, [0x22; 32])
+        .await
+        .unwrap();
+
+    let private_asset = seed_asset(&test, hidden_folder.id, "private.jpg").await;
+    keeppix_db::AssetRepo::new(test.db())
+        .set_hash(private_asset, [0x33; 32])
+        .await
+        .unwrap();
+
+    let person = PersonRepo::new(test.db())
+        .create(Some(PersonName::parse("Both").unwrap()))
+        .await
+        .unwrap();
+    confirmed_face(&test, &admin_ctx, visible_asset, person.id, unit_axis(0)).await;
+    confirmed_face(&test, &admin_ctx, private_asset, person.id, unit_axis(0)).await;
+
+    let summaries = PersonRepo::new(test.db())
+        .list_visible(&outsider_ctx, false)
+        .await
+        .unwrap();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(
+        summaries[0].face_count, 1,
+        "only the shared-library face counts for this caller"
+    );
+    assert_eq!(
+        summaries[0].cover_hash.as_deref(),
+        Some([0x22; 32].as_slice()),
+        "the cover must come from the visible asset, never the private one"
+    );
+}

@@ -7,10 +7,20 @@ export interface Person {
   face_count: number | null
   /** Id of the face chosen as the cover — absent (not `null`) if never
    * set, matching `PersonView.cover_face_id` on the backend (`Option`,
-   * `skip_serializing_if`). Never resolvable to an image on its own (see
-   * `ChooseCoverDialog.vue`/`PeopleView.vue` for why) — only compared to
-   * highlight the "current" one in the dialog. */
+   * `skip_serializing_if`). Only compared to highlight the "current" one
+   * in `ChooseCoverDialog.vue` — the actual displayable cover photo is
+   * `cover_hash`/`cover_thumbhash` below, not resolvable from this id
+   * alone. */
   cover_face_id?: string
+  /** A representative photo for this person's card — `GET /persons`
+   * only (absent everywhere else `Person` is used), computed server-side
+   * in the same query as `face_count`. Both absent only if the person
+   * somehow has zero visible confirmed faces (shouldn't happen: a person
+   * with none isn't visible at all — see the backend's own visibility
+   * rule — but the type stays honest about it since nothing enforces
+   * that invariant at this layer). */
+  cover_hash?: string
+  cover_thumbhash?: string
 }
 
 /** `include_hidden` is deliberately left out for the default caller

@@ -39,12 +39,21 @@ impl PersonRow {
 
 const COLUMNS: &str = "id, name, cover_face_id, hidden_at, created_at";
 
-/// A person with the count of confirmed faces visible to the caller —
-/// what the People page needs without a second round of queries per row.
+/// A person with the count of confirmed faces visible to the caller, and
+/// a cover photo's `content_hash`/`thumbhash` — what the People page
+/// needs to render every card (name, count, thumbnail) from **one**
+/// query, not one query per row plus a whole `SearchRepo::run` per card
+/// just to find a representative photo (`PeopleView.vue`'s old
+/// `loadCover`, one search per visible person — tens to hundreds of
+/// requests on a real library, enough concurrent load against a
+/// 10-connection pool to make the whole app feel slow, not just this
+/// page).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PersonSummary {
     pub person: Person,
     pub face_count: i64,
+    pub cover_hash: Option<Vec<u8>>,
+    pub cover_thumbhash: Option<Vec<u8>>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -55,6 +64,8 @@ struct PersonSummaryRow {
     hidden_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     face_count: i64,
+    cover_hash: Option<Vec<u8>>,
+    cover_thumbhash: Option<Vec<u8>>,
 }
 
 impl PersonSummaryRow {
@@ -68,6 +79,8 @@ impl PersonSummaryRow {
                 created_at: self.created_at,
             },
             face_count: self.face_count,
+            cover_hash: self.cover_hash,
+            cover_thumbhash: self.cover_thumbhash,
         }
     }
 }
@@ -163,9 +176,25 @@ impl<'a> PersonRepo<'a> {
         }
         let scope = VisibilityScope::resolve(self.db, ctx).await?;
         let filter = scope.filter("f.path", "f.library_id", "a.id", 2);
+        // `array_agg(... ORDER BY ...)[1]` picks one cover photo per person
+        // straight out of the same visibility-filtered join `face_count`
+        // already aggregates over — no second join/subquery needed, and
+        // no risk of picking an asset the caller cannot see (unlike a
+        // LATERAL subquery re-deriving its own visibility, this can only
+        // ever aggregate rows already admitted by the WHERE below).
+        // Preference order: the explicitly chosen cover_face_id if it's
+        // among this person's confirmed faces, else the most recently
+        // taken photo, else just a stable pick (fa.id) so the result
+        // doesn't flap between requests.
         let rows: Vec<PersonSummaryRow> = sqlx::query_as(&format!(
             "SELECT p.id, p.name, p.cover_face_id, p.hidden_at, p.created_at, \
-                    count(fa.id) AS face_count \
+                    count(fa.id) AS face_count, \
+                    (array_agg(a.content_hash ORDER BY \
+                        (fa.id = p.cover_face_id) DESC, a.taken_at_utc DESC NULLS LAST, fa.id))[1] \
+                        AS cover_hash, \
+                    (array_agg(a.thumbhash ORDER BY \
+                        (fa.id = p.cover_face_id) DESC, a.taken_at_utc DESC NULLS LAST, fa.id))[1] \
+                        AS cover_thumbhash \
              FROM persons p \
              JOIN faces fa ON fa.person_id = p.id AND fa.rejected_at IS NULL \
              JOIN assets a ON a.id = fa.asset_id \

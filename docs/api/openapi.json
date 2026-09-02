@@ -13865,6 +13865,19 @@
               "null"
             ]
           },
+          "cover_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A representative photo's `content_hash`/`thumbhash` — present only\non the list response, same reasoning as `face_count`: computed in\nthe same query as everything else in `PersonSummary`, not a\nper-person search the client would otherwise have to run itself\n(`PeopleView.vue`'s old one-search-per-card `loadCover`)."
+          },
+          "cover_thumbhash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "type": "string"
           },

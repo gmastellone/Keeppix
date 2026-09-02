@@ -111,14 +111,17 @@ describe('PeopleView — People (reduced grid, no groups)', () => {
     expect(wrapper.text()).toContain('Nessuna persona riconosciuta ancora.')
   })
 
-  it('loads a real cover photo per card via runSearch({op:"person"}, undefined, 1)', async () => {
-    vi.mocked(fetchPersons).mockResolvedValue([person({ id: 'p1' })])
-    vi.mocked(runSearch).mockResolvedValue({
-      assets: [{ id: 'a1', content_hash: 'deadbeef', thumbhash: null } as never]
-    })
-    await mountPeople()
+  it('renders the cover photo GET /persons already returned — no per-card search round trip', async () => {
+    vi.mocked(fetchPersons).mockResolvedValue([person({ id: 'p1', cover_hash: 'deadbeef' })])
+    const { wrapper } = await mountPeople()
 
-    expect(runSearch).toHaveBeenCalledWith({ op: 'person', id: 'p1' }, undefined, 1)
+    const avatar = wrapper.get('span[aria-hidden="true"]')
+    expect(avatar.attributes('style')).toContain('deadbeef')
+    // The old N+1 (one runSearch({op:'person'}) per card) is what this
+    // replaces — the People page used to fire one of these per visible
+    // person just to find a cover, tens to hundreds of concurrent
+    // requests on a real library.
+    expect(runSearch).not.toHaveBeenCalled()
   })
 
   it('clicking a card navigates to the person detail route', async () => {

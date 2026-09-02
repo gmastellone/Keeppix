@@ -25,6 +25,15 @@ pub struct PersonView {
     /// responses, which don't pay for a second query round trip to count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub face_count: Option<i64>,
+    /// A representative photo's `content_hash`/`thumbhash` — present only
+    /// on the list response, same reasoning as `face_count`: computed in
+    /// the same query as everything else in `PersonSummary`, not a
+    /// per-person search the client would otherwise have to run itself
+    /// (`PeopleView.vue`'s old one-search-per-card `loadCover`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_thumbhash: Option<String>,
     pub created_at: String,
 }
 
@@ -36,6 +45,8 @@ impl PersonView {
             cover_face_id: p.cover_face_id.map(|id| id.to_string()),
             hidden: p.is_hidden(),
             face_count: None,
+            cover_hash: None,
+            cover_thumbhash: None,
             created_at: p.created_at.to_rfc3339(),
         }
     }
@@ -43,6 +54,8 @@ impl PersonView {
     fn from_summary(s: &PersonSummary) -> Self {
         Self {
             face_count: Some(s.face_count),
+            cover_hash: s.cover_hash.as_deref().map(super::timeline::hex_bytes),
+            cover_thumbhash: s.cover_thumbhash.as_deref().map(super::timeline::hex_bytes),
             ..Self::from_person(&s.person)
         }
     }

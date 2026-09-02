@@ -12,15 +12,16 @@
 // of person ids per group) exposes it. The "No group" block is therefore
 // the complement: every person not present in any members list.
 //
-// **A real cover photo, but not necessarily the chosen one**: `PersonView`
-// carries `cover_face_id` (a face id), not an asset id — no route resolves
-// a face id to its asset/tile (`GET /faces/{id}` does not exist, only
-// `GET /assets/{id}/faces`). Building one would be a new route added
-// purely for UI convenience, out of scope. The cover shown here is
-// therefore always **a real, recent photo of the person**
-// (`runSearch({op:'person',id}, undefined, 1)`, one round trip per card —
-// the same accepted cost of N requests for N items already used by
-// `ReviewView.vue`), not necessarily the one set via "Choose cover".
+// **A real cover photo, but not necessarily the chosen one**: `Person`
+// carries `cover_hash`/`cover_thumbhash` computed server-side, in the
+// same query as `face_count` — not necessarily the asset behind
+// `cover_face_id` (the one set via "Choose cover"), for the same reason
+// as before this moved server-side: no route resolves a bare face id to
+// its asset/tile. This used to be a `runSearch({op:'person',id})` call
+// per card instead (one round trip per person — tens to hundreds on a
+// real library, enough concurrent load against the connection pool to
+// make the whole app feel slow, not just this page) — fixed by computing
+// it alongside everything else `GET /persons` already returns.
 //
 // **No `autoNum` for nameless people**: `_personAutoSeq` would be an
 // in-memory mockup counter, with no corresponding column on the real
@@ -56,17 +57,6 @@ const people = ref<Person[]>([])
 const groups = ref<PersonGroup[]>([])
 const memberOf = ref<Record<string, string>>({})
 const hiddenCount = ref(0)
-const covers = ref<Record<string, { hash: string | null; thumbhash: string | null } | null>>({})
-
-async function loadCover(person: Person) {
-  try {
-    const page = await runSearch({ op: 'person', id: person.id }, undefined, 1)
-    const asset = page.assets[0]
-    covers.value[person.id] = asset ? { hash: asset.content_hash, thumbhash: asset.thumbhash } : null
-  } catch {
-    covers.value[person.id] = null
-  }
-}
 
 async function loadGroups() {
   groups.value = await fetchPersonGroups()
@@ -84,7 +74,7 @@ async function load() {
     const [visible, all] = await Promise.all([fetchPersons(), fetchPersons(true)])
     people.value = visible.filter((p) => (p.face_count ?? 0) > 0)
     hiddenCount.value = all.filter((p) => p.hidden).length
-    await Promise.all([loadGroups(), Promise.all(people.value.map(loadCover))])
+    await loadGroups()
   } catch {
     toast.showError(t('persons.loadError'))
   } finally {
@@ -301,7 +291,7 @@ async function onMerged() {
             v-for="person in block.people"
             :key="person.id"
             :person="person"
-            :cover="covers[person.id] ?? null"
+            :cover="{ hash: person.cover_hash ?? null, thumbhash: person.cover_thumbhash ?? null }"
             :selected="selectedIds.includes(person.id)"
             @open="open(person)"
             @toggle-select="toggleSelect(person.id)"
@@ -327,7 +317,7 @@ async function onMerged() {
             v-for="person in ungrouped"
             :key="person.id"
             :person="person"
-            :cover="covers[person.id] ?? null"
+            :cover="{ hash: person.cover_hash ?? null, thumbhash: person.cover_thumbhash ?? null }"
             :selected="selectedIds.includes(person.id)"
             @open="open(person)"
             @toggle-select="toggleSelect(person.id)"
