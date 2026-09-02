@@ -24,15 +24,15 @@ function person(overrides: Partial<Person> = {}): Person {
 
 let wrapper: VueWrapper | undefined
 
-function mountHost() {
+function mountHost(excludeId?: string) {
   const Host = defineComponent({
     components: { ThePersonPickerDialog: PersonPickerDialog },
     emits: ['picked'],
     setup(_, { emit }) {
       const open = ref(true)
-      return { open, onPicked: (id: string) => emit('picked', id) }
+      return { open, excludeId, onPicked: (id: string) => emit('picked', id) }
     },
-    template: `<ThePersonPickerDialog v-model:open="open" @picked="onPicked" />`
+    template: `<ThePersonPickerDialog v-model:open="open" :exclude-id="excludeId" @picked="onPicked" />`
   })
   wrapper = mount(Host, { global: { plugins: [i18n] }, attachTo: document.body })
   return wrapper
@@ -135,5 +135,14 @@ describe('PersonPickerDialog — person picker', () => {
 
     expect(createPersonMock).toHaveBeenCalledWith('Luca')
     expect(w.emitted('picked')).toEqual([['new-1']])
+  })
+
+  it('excludeId leaves that one person out of the list — picking yourself as a merge target would not mean anything', async () => {
+    fetchPersonsMock.mockResolvedValue([person({ id: 'p1', name: 'Marta' }), person({ id: 'p2', name: 'Luca' })])
+    mountHost('p1')
+    await tick()
+
+    expect(document.body.textContent).toContain('Luca')
+    expect(document.body.textContent).not.toContain('Marta')
   })
 })

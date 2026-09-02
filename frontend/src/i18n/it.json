@@ -426,7 +426,9 @@
     "deleteGroupConfirmDescription": "Le persone al suo interno restano, tornano solo in \"Senza gruppo\".",
     "deleteGroupConfirmButton": "Elimina gruppo",
     "chooseCover": "Scegli copertina",
-    "split": "Dividi…"
+    "split": "Dividi…",
+    "mergeWith": "Unisci con…",
+    "mergePickerTitle": "Unisci con chi?"
   },
   "chooseCover": {
     "title": "Scegli copertina",

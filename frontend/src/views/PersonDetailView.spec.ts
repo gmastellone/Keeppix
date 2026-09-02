@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { runSearch } from '@/api/library'
 import { startLiveEvents, type LiveMessage } from '@/api/events'
-import { fetchPerson, patchPerson, type Person, type PersonGroup } from '@/api/persons'
+import { fetchPerson, fetchPersons, mergePersons, patchPerson, type Person, type PersonGroup } from '@/api/persons'
 import type { TimelineAsset } from '@/api/timeline'
 import PhotoTile from '@/components/ui/PhotoTile.vue'
 import { i18n } from '@/i18n'
@@ -341,5 +341,103 @@ describe('PersonDetailView — person detail', () => {
 
     expect(document.body.querySelector('[role="dialog"]')).toBeTruthy()
     expect(document.body.textContent).toContain('Dividi Marta')
+  })
+
+  it('"Unisci con…" opens the person picker, excluding this person, then the merge dialog with both people', async () => {
+    vi.mocked(fetchPerson).mockImplementation(async (id: string) =>
+      id === 'p1' ? person({ id: 'p1', name: 'Marta', face_count: 2 }) : person({ id: 'p2', name: 'Luca', face_count: 3 })
+    )
+    vi.mocked(fetchPersons).mockResolvedValue([
+      person({ id: 'p1', name: 'Marta' }),
+      person({ id: 'p2', name: 'Luca' })
+    ])
+    vi.mocked(runSearch).mockImplementation(async (ast: unknown) => {
+      const node = ast as { op: string }
+      // The merge preview's union query, distinct from loadPhotos()'s
+      // plain per-person query used everywhere else in this file.
+      if (node.op === 'or') return { assets: [photo('a'), photo('b'), photo('c'), photo('d')] }
+      return { assets: [photo('a'), photo('b')] }
+    })
+    const { wrapper } = await mountDetail('p1')
+
+    const mergeBtn = wrapper.findAll('button').find((b) => b.text() === 'Unisci con…')
+    await mergeBtn!.trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('Unisci con chi?')
+    expect(document.body.textContent).not.toContain('Marta')
+
+    const targetBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('Luca'))
+    targetBtn!.click()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Unisci 2 persone')
+    expect(document.body.textContent).toContain('4 foto in tutto')
+    expect(document.body.textContent).toContain('Marta')
+    expect(document.body.textContent).toContain('Luca')
+  })
+
+  it('merging with this person as the survivor refreshes the page in place', async () => {
+    vi.mocked(fetchPerson).mockImplementation(async (id: string) =>
+      id === 'p1' ? person({ id: 'p1', name: 'Marta' }) : person({ id: 'p2', name: 'Luca' })
+    )
+    vi.mocked(fetchPersons).mockResolvedValue([
+      person({ id: 'p1', name: 'Marta' }),
+      person({ id: 'p2', name: 'Luca' })
+    ])
+    vi.mocked(runSearch).mockResolvedValue({ assets: [photo('a')] })
+    vi.mocked(mergePersons).mockResolvedValue(undefined as never)
+    const { wrapper, router } = await mountDetail('p1')
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Unisci con…')!.trigger('click')
+    await flushPromises()
+    Array.from(document.body.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Luca'))!
+      .click()
+    await flushPromises()
+    Array.from(document.body.querySelectorAll('button'))
+      .find((b) => b.textContent === 'Unisci')!
+      .click()
+    await flushPromises()
+
+    expect(mergePersons).toHaveBeenCalledWith('p1', ['p2'])
+    expect(router.currentRoute.value.path).toBe('/persons/p1')
+    expect(document.body.querySelector('[role="dialog"]')).toBeFalsy()
+  })
+
+  it('merging with this person as the absorbed side redirects to /persons — load() already handles "this person no longer exists"', async () => {
+    let p1Calls = 0
+    vi.mocked(fetchPerson).mockImplementation(async (id: string) => {
+      if (id === 'p2') return person({ id: 'p2', name: 'Luca' })
+      p1Calls += 1
+      // First call (initial page load) succeeds; the second (load()
+      // re-running after the merge, now that p1 was absorbed into p2)
+      // must fail — the same "person disappeared" path an outright
+      // deletion already takes, reused rather than special-cased here.
+      if (p1Calls === 1) return person({ id: 'p1', name: 'Marta' })
+      throw new Error('person no longer visible')
+    })
+    vi.mocked(fetchPersons).mockResolvedValue([
+      person({ id: 'p1', name: 'Marta' }),
+      person({ id: 'p2', name: 'Luca' })
+    ])
+    vi.mocked(mergePersons).mockResolvedValue(undefined as never)
+    const { wrapper, router } = await mountDetail('p1')
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Unisci con…')!.trigger('click')
+    await flushPromises()
+    Array.from(document.body.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Luca'))!
+      .click()
+    await flushPromises()
+    // Pick Luca as the survivor instead of the default (Marta, first
+    // named) — the merge dialog's own radiogroup, not the picker's list.
+    document.body.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="false"]')!.click()
+    Array.from(document.body.querySelectorAll('button'))
+      .find((b) => b.textContent === 'Unisci')!
+      .click()
+    await flushPromises()
+
+    expect(mergePersons).toHaveBeenCalledWith('p2', ['p1'])
+    expect(router.currentRoute.value.path).toBe('/persons')
   })
 })

@@ -16,6 +16,14 @@ import { useToastStore } from '@/stores/toast'
 import Dialog from './ui/Dialog.vue'
 
 const open = defineModel<boolean>('open', { required: true })
+const props = defineProps<{
+  /** Left out of the list — e.g. the person you're already on, when this
+   * picks a merge target: picking yourself wouldn't mean anything. */
+  excludeId?: string
+  /** Defaults to the "assign a face to this person" wording — a caller
+   * picking a person for something else (a merge target) overrides it. */
+  title?: string
+}>()
 const emit = defineEmits<{ picked: [personId: string] }>()
 
 const { t } = useI18n()
@@ -46,8 +54,11 @@ watch(
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
-  if (!q) return persons.value
-  return persons.value.filter((person) => (person.name ?? '').toLowerCase().includes(q))
+  const withoutExcluded = props.excludeId
+    ? persons.value.filter((person) => person.id !== props.excludeId)
+    : persons.value
+  if (!q) return withoutExcluded
+  return withoutExcluded.filter((person) => (person.name ?? '').toLowerCase().includes(q))
 })
 
 /** No exact duplicate name already in the list: avoids offering "create"
@@ -82,7 +93,7 @@ async function createAndPick() {
 <template>
   <Dialog
     v-model:open="open"
-    :title="t('personPicker.title')"
+    :title="title ?? t('personPicker.title')"
   >
     <label class="sr-only" for="person-picker-query">{{ t('personPicker.searchLabel') }}</label>
     <input

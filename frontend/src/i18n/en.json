@@ -426,7 +426,9 @@
     "deleteGroupConfirmDescription": "The people in it stay — they just move back to \"No group\".",
     "deleteGroupConfirmButton": "Delete group",
     "chooseCover": "Choose cover",
-    "split": "Split…"
+    "split": "Split…",
+    "mergeWith": "Merge with…",
+    "mergePickerTitle": "Merge with whom?"
   },
   "chooseCover": {
     "title": "Choose cover",

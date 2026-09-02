@@ -40,6 +40,8 @@ import AssignGroupDialog from '@/components/AssignGroupDialog.vue'
 import ChooseCoverDialog from '@/components/ChooseCoverDialog.vue'
 import FlatAssetGrid from '@/components/FlatAssetGrid.vue'
 import LibrarySelectionActions from '@/components/LibrarySelectionActions.vue'
+import MergePeopleDialog from '@/components/MergePeopleDialog.vue'
+import PersonPickerDialog from '@/components/PersonPickerDialog.vue'
 import SplitPersonDialog from '@/components/SplitPersonDialog.vue'
 import Dialog from '@/components/ui/Dialog.vue'
 import QuickFilter from '@/components/ui/QuickFilter.vue'
@@ -201,6 +203,50 @@ async function onSplit() {
   await load()
 }
 
+// "Merge with…" — the same MergePeopleDialog the overview grid's
+// multi-select already uses, reached differently: pick the *other*
+// person first (PersonPickerDialog, excluding this one), then open the
+// merge dialog with exactly the two of them. `mergeTarget` is the full
+// `Person`, not just the id PersonPickerDialog emits — MergePeopleDialog
+// needs face_count/name for both rows in its survivor picker.
+const personPickerOpen = ref(false)
+const mergeOpen = ref(false)
+const mergeTarget = ref<Person | null>(null)
+const mergeTotalPhotos = ref(0)
+
+async function onMergeTargetPicked(targetId: string) {
+  if (!person.value) return
+  try {
+    const [target, page] = await Promise.all([
+      fetchPerson(targetId),
+      runSearch({
+        op: 'or',
+        args: [
+          { op: 'person', id: person.value.id },
+          { op: 'person', id: targetId }
+        ]
+      })
+    ])
+    mergeTarget.value = target
+    mergeTotalPhotos.value = page.assets.length
+  } catch {
+    toast.showError(t('mergePeople.error'))
+    return
+  }
+  mergeOpen.value = true
+}
+
+// Whichever of the two survives, `load()` already does the right thing:
+// `fetchPerson(personId.value)` either returns the updated survivor (this
+// page just refreshes) or fails because this person no longer exists
+// (absorbed into the other one) — the existing catch in `load()` already
+// redirects to `/persons` for exactly that case, same as a person that
+// became invisible or was deleted outright.
+async function onMerged() {
+  mergeTarget.value = null
+  await load()
+}
+
 async function toggleHidden() {
   if (!person.value) return
   const next = !person.value.hidden
@@ -297,6 +343,13 @@ onUnmounted(() => {
             @click="askSplit"
           >
             {{ t('persons.split') }}
+          </button>
+          <button
+            type="button"
+            class="rounded-lg border border-border px-3 py-1.5 text-[13px] font-semibold hover:bg-border/20"
+            @click="personPickerOpen = true"
+          >
+            {{ t('persons.mergeWith') }}
           </button>
           <button
             type="button"
@@ -441,6 +494,20 @@ onUnmounted(() => {
       :person="person"
       :assets="assets"
       @split="onSplit"
+    />
+    <PersonPickerDialog
+      v-if="person"
+      v-model:open="personPickerOpen"
+      :exclude-id="person.id"
+      :title="t('persons.mergePickerTitle')"
+      @picked="onMergeTargetPicked"
+    />
+    <MergePeopleDialog
+      v-if="person && mergeTarget"
+      v-model:open="mergeOpen"
+      :people="[person, mergeTarget]"
+      :total-photo-count="mergeTotalPhotos"
+      @merged="onMerged"
     />
   </div>
 </template>
