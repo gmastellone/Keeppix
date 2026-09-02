@@ -595,6 +595,7 @@ impl<'a> AlbumRepo<'a> {
         // Same $1,$2,$3 reused in the Semantic subquery: we want the top K
         // among assets visible to this owner, not K globally and then filtered.
         let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
+        let ai_available = crate::pgvector::probe_pgvector(self.db).await?.available;
         let mut param = 4_usize;
         let (clause, binds) = compile_for_sql(
             &rule,
@@ -603,6 +604,7 @@ impl<'a> AlbumRepo<'a> {
             "a.location",
             Some(actor.as_uuid()),
             Some(semantic_vis.sql()),
+            ai_available,
         )?;
         let sql = format!(
             "SELECT a.id AS id FROM assets a \

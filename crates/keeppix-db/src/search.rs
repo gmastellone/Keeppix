@@ -216,6 +216,7 @@ impl<'a> SearchRepo<'a> {
         // Same $1,$2,$3 reused in the Semantic subquery: we want the top K
         // among visible assets, not K globally and then filtered.
         let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
+        let ai_available = crate::pgvector::probe_pgvector(self.db).await?.available;
         let mut param = 4_usize;
         let (clause, binds) = compile_for_sql(
             ast,
@@ -224,6 +225,7 @@ impl<'a> SearchRepo<'a> {
             "a.location",
             ctx.user_id().map(|u| u.as_uuid()),
             Some(semantic_vis.sql()),
+            ai_available,
         )?;
         let time_p = next(&mut param);
         let id_p = next(&mut param);
@@ -297,6 +299,10 @@ impl<'a> SearchRepo<'a> {
         };
         let filter = scope.filter("f.path", "f.library_id", "a.id", 1);
         let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
+        // Reached only with a `Semantic` node present, which already needs
+        // pgvector — but probed explicitly rather than assumed, since that
+        // implication isn't enforced anywhere it would break loudly if wrong.
+        let ai_available = crate::pgvector::probe_pgvector(self.db).await?.available;
         let mut param = 4_usize;
         let (mv_p, vec_p, k_p, cte_binds) =
             semantic_query_params(*k_limit, embedding.as_ref(), &mut param)?;
@@ -308,6 +314,7 @@ impl<'a> SearchRepo<'a> {
             "a.location",
             ctx.user_id().map(|u| u.as_uuid()),
             Some(semantic_vis.sql()),
+            ai_available,
         )?;
         let time_p = next(&mut param);
         let id_p = next(&mut param);
@@ -862,23 +869,47 @@ pub(crate) fn compile_for_sql(
     gps_sql: &str,
     user_id: Option<uuid::Uuid>,
     semantic_vis: Option<&str>,
+    ai_available: bool,
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     if depth > 16 {
         return Err(DbError::Conflict("search too nested".to_owned()));
     }
     match node {
         SearchNode::And { args } if args.is_empty() => Ok(("TRUE".to_owned(), Vec::new())),
-        SearchNode::And { args } => {
-            join(args, " AND ", param, depth, gps_sql, user_id, semantic_vis)
-        }
+        SearchNode::And { args } => join(
+            args,
+            " AND ",
+            param,
+            depth,
+            gps_sql,
+            user_id,
+            semantic_vis,
+            ai_available,
+        ),
         SearchNode::Or { args } if args.is_empty() => Ok(("FALSE".to_owned(), Vec::new())),
-        SearchNode::Or { args } => join(args, " OR ", param, depth, gps_sql, user_id, semantic_vis),
+        SearchNode::Or { args } => join(
+            args,
+            " OR ",
+            param,
+            depth,
+            gps_sql,
+            user_id,
+            semantic_vis,
+            ai_available,
+        ),
         SearchNode::Not { arg } => {
-            let (inner, binds) =
-                compile_for_sql(arg, param, depth + 1, gps_sql, user_id, semantic_vis)?;
+            let (inner, binds) = compile_for_sql(
+                arg,
+                param,
+                depth + 1,
+                gps_sql,
+                user_id,
+                semantic_vis,
+                ai_available,
+            )?;
             Ok((format!("NOT COALESCE(({inner}), FALSE)"), binds))
         }
-        leaf => compile_leaf(leaf, param, gps_sql, user_id, semantic_vis),
+        leaf => compile_leaf(leaf, param, gps_sql, user_id, semantic_vis, ai_available),
     }
 }
 
@@ -893,18 +924,13 @@ fn compile_leaf(
     gps_sql: &str,
     user_id: Option<uuid::Uuid>,
     semantic_vis: Option<&str>,
+    ai_available: bool,
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     match node {
         SearchNode::And { .. } | SearchNode::Or { .. } | SearchNode::Not { .. } => {
             unreachable!("combinators are handled by compile_for_sql")
         }
-        SearchNode::Text { value } => {
-            let p = next(param);
-            Ok((
-                format!("a.filename ILIKE ${p} ESCAPE E'\\\\'"),
-                vec![SearchBind::Text(like_contains(value))],
-            ))
-        }
+        SearchNode::Text { value } => Ok(compile_text(value, param, ai_available)),
         SearchNode::Type { value } => {
             let kind = match value.as_str() {
                 "image" | "raw_image" | "video" | "unknown" => value.clone(),
@@ -1332,6 +1358,11 @@ fn shutter_seconds_sql(exif_alias: &str) -> String {
     )
 }
 
+// `ai_available` pushed this one over clippy's default 7-argument
+// threshold — all eight are read-only context threaded down from `run`,
+// not independent knobs a caller picks freely, so a wrapper struct here
+// would just move the same count into its constructor.
+#[allow(clippy::too_many_arguments)]
 fn join(
     args: &[SearchNode],
     sep: &str,
@@ -1340,11 +1371,20 @@ fn join(
     gps_sql: &str,
     user_id: Option<uuid::Uuid>,
     semantic_vis: Option<&str>,
+    ai_available: bool,
 ) -> Result<(String, Vec<SearchBind>), DbError> {
     let mut parts = Vec::new();
     let mut binds = Vec::new();
     for arg in args {
-        let (sql, b) = compile_for_sql(arg, param, depth + 1, gps_sql, user_id, semantic_vis)?;
+        let (sql, b) = compile_for_sql(
+            arg,
+            param,
+            depth + 1,
+            gps_sql,
+            user_id,
+            semantic_vis,
+            ai_available,
+        )?;
         parts.push(format!("({sql})"));
         binds.extend(b);
     }
@@ -1355,6 +1395,56 @@ fn next(param: &mut usize) -> usize {
     let n = *param;
     *param += 1;
     n
+}
+
+/// Plain free-text search — the topbar's search box, placeholder "date,
+/// place, person…" (the "place" part is `SearchNode::Place`/GPS/reverse
+/// geocoding elsewhere, not this). Always matches the filename; when the
+/// AI schema exists (`faces`/`persons`/`tags` — absent entirely without
+/// pgvector, same gate as [`crate::faces::FaceRepo::confirmed_among`])
+/// also matches a confirmed face's person name, a confirmed tag's name,
+/// and the asset's title/description override. All correlated by
+/// `asset_id`/`tag_id`, each indexed (`faces_asset_idx`,
+/// `asset_tags_pkey`, `asset_overrides_pkey`) — cheap even against a
+/// large library, since `persons`/`tags` themselves are small.
+///
+/// Without `ai_available`, this must stay exactly the old filename-only
+/// clause: a deployment with no pgvector extension has no `faces` table
+/// at all, and referencing it would fail the query outright instead of
+/// gracefully degrading, the same non-blocking fallback documented in
+/// `docs/DEPLOY.md`'s pgvector section.
+fn compile_text(value: &str, param: &mut usize, ai_available: bool) -> (String, Vec<SearchBind>) {
+    let pattern = like_contains(value);
+    let filename_p = next(param);
+    if !ai_available {
+        return (
+            format!("a.filename ILIKE ${filename_p} ESCAPE E'\\\\'"),
+            vec![SearchBind::Text(pattern)],
+        );
+    }
+    let person_p = next(param);
+    let tag_p = next(param);
+    let title_p = next(param);
+    (
+        format!(
+            "(a.filename ILIKE ${filename_p} ESCAPE E'\\\\' \
+             OR EXISTS (SELECT 1 FROM faces fc JOIN persons pn ON pn.id = fc.person_id \
+                        WHERE fc.asset_id = a.id AND fc.rejected_at IS NULL \
+                          AND pn.name ILIKE ${person_p} ESCAPE E'\\\\') \
+             OR EXISTS (SELECT 1 FROM asset_tags atg JOIN tags tg ON tg.id = atg.tag_id \
+                        WHERE atg.asset_id = a.id AND atg.state = 'confirmed' \
+                          AND tg.name ILIKE ${tag_p} ESCAPE E'\\\\') \
+             OR EXISTS (SELECT 1 FROM asset_overrides ov WHERE ov.asset_id = a.id \
+                          AND (ov.title ILIKE ${title_p} ESCAPE E'\\\\' \
+                            OR ov.description ILIKE ${title_p} ESCAPE E'\\\\')))"
+        ),
+        vec![
+            SearchBind::Text(pattern.clone()),
+            SearchBind::Text(pattern.clone()),
+            SearchBind::Text(pattern.clone()),
+            SearchBind::Text(pattern),
+        ],
+    )
 }
 
 fn like_prefix(raw: &str) -> String {

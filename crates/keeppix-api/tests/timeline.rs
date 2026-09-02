@@ -1246,6 +1246,7 @@ async fn timeline_page_includes_confirmed_tags_and_faces_with_vector() {
 }
 
 #[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn timeline_by_ids_requires_auth() {
     let server = TestServer::start().await;
     let response = server

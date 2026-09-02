@@ -311,14 +311,18 @@ impl<'a> GeoRepo<'a> {
         let semantic_vis = visibility.filter("vf.path", "vf.library_id", "va.id", 8);
         let mut next_param = 11_usize;
         let (search_clause, search_binds) = match search {
-            Some(search) => compile_for_sql(
-                &search,
-                &mut next_param,
-                0,
-                "COALESCE(o.location, a.location)",
-                ctx.user_id().map(|id| id.as_uuid()),
-                Some(semantic_vis.sql()),
-            )?,
+            Some(search) => {
+                let ai_available = crate::pgvector::probe_pgvector(self.db).await?.available;
+                compile_for_sql(
+                    &search,
+                    &mut next_param,
+                    0,
+                    "COALESCE(o.location, a.location)",
+                    ctx.user_id().map(|id| id.as_uuid()),
+                    Some(semantic_vis.sql()),
+                    ai_available,
+                )?
+            }
             None => ("TRUE".to_owned(), Vec::new()),
         };
         let scope_clause = match map_scope {

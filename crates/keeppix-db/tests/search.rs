@@ -1483,3 +1483,211 @@ async fn suggest_never_offers_the_tag_kind_without_a_source() {
         "without a populated tag table, it must not invent tag suggestions"
     );
 }
+
+async fn confirm_tag(
+    test: &TestDb,
+    ctx: &AuthContext,
+    asset_id: keeppix_domain::AssetId,
+    name: &str,
+) {
+    use keeppix_db::{AssetTagRepo, NewTag, TagRepo};
+    use keeppix_domain::TagKind;
+
+    let tag = TagRepo::new(test.db())
+        .create(
+            ctx,
+            NewTag {
+                name: name.to_owned(),
+                kind: TagKind::Tag,
+                parent_id: None,
+                prompt: None,
+                color: None,
+                threshold: None,
+                embedding: None,
+                model_version: None,
+            },
+        )
+        .await
+        .unwrap();
+    AssetTagRepo::new(test.db())
+        .assign(ctx, tag.id, asset_id)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn text_search_matches_a_confirmed_persons_name() {
+    use keeppix_db::PersonRepo;
+    use keeppix_domain::PersonName;
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let with_person = index(&test, folder, "img_0001.jpg", AssetKind::Image, 1).await;
+    let _without = index(&test, folder, "img_0002.jpg", AssetKind::Image, 2).await;
+
+    let person = PersonRepo::new(test.db())
+        .create(Some(PersonName::parse("Rosanna").unwrap()))
+        .await
+        .unwrap();
+    assign_face(&test, &ctx, with_person, person.id).await;
+
+    let found = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Text {
+                value: "rosanna".to_owned(),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, with_person);
+}
+
+#[tokio::test]
+async fn text_search_ignores_a_rejected_face_when_matching_a_person_name() {
+    use keeppix_db::{FaceRepo, PersonRepo};
+    use keeppix_domain::PersonName;
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let asset = index(&test, folder, "img_0003.jpg", AssetKind::Image, 1).await;
+
+    let person = PersonRepo::new(test.db())
+        .create(Some(PersonName::parse("Tommaso").unwrap()))
+        .await
+        .unwrap();
+    assign_face(&test, &ctx, asset, person.id).await;
+    let faces = FaceRepo::new(test.db())
+        .confirmed_among(&[asset])
+        .await
+        .unwrap();
+    assert_eq!(
+        faces.get(&asset).map(Vec::len),
+        Some(1),
+        "sanity: the face is confirmed"
+    );
+    // Reject it straight in the DB — reject() itself is already covered
+    // elsewhere; this test is about the search side effect, not the
+    // rejection API.
+    sqlx::query("UPDATE faces SET rejected_at = now() WHERE asset_id = $1")
+        .bind(asset.as_uuid())
+        .execute(test.db().pool())
+        .await
+        .unwrap();
+
+    let found = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Text {
+                value: "tommaso".to_owned(),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert!(
+        found.is_empty(),
+        "a rejected face must not make its asset match a person search"
+    );
+}
+
+#[tokio::test]
+async fn text_search_matches_a_confirmed_tags_name() {
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let tagged = index(&test, folder, "img_0004.jpg", AssetKind::Image, 1).await;
+    let _untagged = index(&test, folder, "img_0005.jpg", AssetKind::Image, 2).await;
+
+    confirm_tag(&test, &ctx, tagged, "Tramonto").await;
+
+    let found = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Text {
+                value: "tramonto".to_owned(),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, tagged);
+}
+
+#[tokio::test]
+async fn text_search_matches_an_asset_title_and_description_override() {
+    use keeppix_db::OverrideRepo;
+    use keeppix_domain::OverridePatch;
+
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let titled = index(&test, folder, "img_0006.jpg", AssetKind::Image, 1).await;
+    let described = index(&test, folder, "img_0007.jpg", AssetKind::Image, 2).await;
+    let _neither = index(&test, folder, "img_0008.jpg", AssetKind::Image, 3).await;
+
+    OverrideRepo::new(test.db())
+        .apply(
+            &ctx,
+            titled,
+            &OverridePatch {
+                title: Some(Some("Compleanno di Marco".to_owned())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    OverrideRepo::new(test.db())
+        .apply(
+            &ctx,
+            described,
+            &OverridePatch {
+                description: Some(Some("Festa a sorpresa per Marco".to_owned())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let found = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Text {
+                value: "marco".to_owned(),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    let ids: Vec<_> = found.iter().map(|a| a.id).collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&titled));
+    assert!(ids.contains(&described));
+}
+
+#[tokio::test]
+async fn text_search_still_matches_the_filename_alongside_the_new_fields() {
+    let test = TestDb::start().await;
+    let (ctx, folder) = seed(&test).await;
+    let matched = index(&test, folder, "sunset-beach.jpg", AssetKind::Image, 1).await;
+    let _other = index(&test, folder, "morning-coffee.jpg", AssetKind::Image, 2).await;
+
+    let found = SearchRepo::new(test.db())
+        .run(
+            &ctx,
+            &SearchNode::Text {
+                value: "sunset".to_owned(),
+            },
+            None,
+            50,
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, matched);
+}
