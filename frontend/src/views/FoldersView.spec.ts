@@ -36,6 +36,8 @@ const child = {
   depth: 1
 }
 
+let mounted: Awaited<ReturnType<typeof mount>> | undefined
+
 async function mountFolders() {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -48,7 +50,11 @@ async function mountFolders() {
   })
   await router.push('/folders')
   await router.isReady()
-  const wrapper = mount(FoldersView, { global: { plugins: [router, i18n, pinia] } })
+  const wrapper = mount(FoldersView, {
+    global: { plugins: [router, i18n, pinia] },
+    attachTo: document.body
+  })
+  mounted = wrapper
   await flushPromises()
   return wrapper
 }
@@ -61,6 +67,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  mounted?.unmount()
+  mounted = undefined
   vi.resetAllMocks()
 })
 
@@ -100,6 +108,41 @@ describe('FoldersView', () => {
     const wrapper = await mountFolders()
 
     expect(wrapper.text()).toContain(i18n.global.t('folders.libraryRoot'))
+  })
+
+  it('offers "set location" for an expanded folder with photos, not an empty one', async () => {
+    const photo = {
+      id: 'a',
+      folder_id: 'y2024',
+      filename: 'a.jpg',
+      content_hash: null,
+      size_bytes: 1,
+      kind: 'image' as const,
+      status: 'indexed' as const,
+      taken_at_utc: null,
+      width: 100,
+      height: 100,
+      thumbhash: null,
+      raw_kind: null,
+      favorite: false,
+      camera_model: null,
+      tags: [],
+      faces: []
+    }
+    vi.mocked(fetchChildren).mockResolvedValue({ folders: [], assets: [photo] })
+    const wrapper = await mountFolders()
+
+    // Root itself has no assets in the default mock — no button yet.
+    expect(wrapper.find('[data-testid="location-root"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="expand-root"]').trigger('click')
+    await flushPromises()
+
+    const locationBtn = wrapper.get('[data-testid="location-root"]')
+    await locationBtn.trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelector('input[type="search"]')).toBeTruthy()
   })
 
   it('moving a folder calls moveFolder onto a visible sibling', async () => {

@@ -487,7 +487,8 @@
     "title": "Folders",
     "empty": "No folders to show.",
     "libraryRoot": "Library root",
-    "move": "Move"
+    "move": "Move",
+    "setLocation": "Set location"
   },
   "favorites": {
     "entry": "Favorites",

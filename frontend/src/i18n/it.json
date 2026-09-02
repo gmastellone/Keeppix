@@ -487,7 +487,8 @@
     "title": "Cartelle",
     "empty": "Nessuna cartella da mostrare.",
     "libraryRoot": "Cartella principale",
-    "move": "Sposta"
+    "move": "Sposta",
+    "setLocation": "Imposta posizione"
   },
   "favorites": {
     "entry": "Preferiti",
