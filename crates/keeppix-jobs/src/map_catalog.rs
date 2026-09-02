@@ -1,4 +1,4 @@
-//! The 35-country catalog behind the map region search box
+//! The 36-country catalog behind the map region search box
 //! (`docs/ui/documento-funzionale-ui.md`, "B — Ricerca di regione"): a
 //! deliberately wide, wired-in list — "at world scale a chip list becomes
 //! unmanageable, better a search field (like cities/countries in Immich
@@ -26,9 +26,12 @@ pub struct RegionCatalogEntry {
     /// — matching manual-download test fixtures already used that
     /// convention (`id: "IT"`, `id: "GR"`) before this catalog existed.
     pub id: &'static str,
-    /// English name; the frontend's search is a plain substring match
-    /// today (`ListPersonsQuery`-style, no i18n on the catalog itself —
-    /// same simplification already accepted for tag/album pickers).
+    /// Italian display name — used as the search's substring-match text
+    /// and as a fallback label. The frontend prefers a locale-aware name
+    /// from `maps.regions.<id>` (it.json/en.json) when one exists for
+    /// this id, falling back to this value otherwise (e.g. for a region
+    /// added through the advanced manual-URL form, which isn't
+    /// necessarily an ISO code at all).
     pub label: &'static str,
     pub bbox: BBox,
     /// Rough pre-download estimate shown in the search results list
@@ -38,15 +41,19 @@ pub struct RegionCatalogEntry {
 
 const MB: i64 = 1_000_000;
 
-/// The three regions `docs/ui/documento-funzionale-ui.md` calls out as
-/// pre-seeded/undeletable ("Italia, Europa (resto), Resto del mondo") are
-/// **not** modeled here: nothing in this codebase ever seeded them (no
-/// migration, no fixture), and inventing bounding boxes for "the rest of
-/// Europe" / "the rest of the world" as leftover-after-Italy polygons is
-/// a real cartographic problem, not a config value — out of scope for
-/// this catalog. Every entry here behaves like the document's own
-/// "non-default" regions: added by search, removable freely.
+/// `docs/ui/documento-funzionale-ui.md` calls out three regions as
+/// pre-seeded/undeletable ("Italia, Europa (resto), Resto del mondo").
+/// Only "Italia" is modeled here, as an ordinary catalog entry like every
+/// other country (searchable, removable) — nothing in this codebase ever
+/// actually seeded it as a protected default (no migration, no fixture),
+/// and leaving it out of the *searchable* list entirely made it
+/// permanently unreachable, which defeats the point. "Europa (resto)" /
+/// "Resto del mondo" stay out of scope: inventing bounding boxes for
+/// "the rest of Europe" / "the rest of the world" as leftover-after-
+/// everything-else polygons is a real cartographic problem, not a config
+/// value.
 pub const CATALOG: &[RegionCatalogEntry] = &[
+    RegionCatalogEntry { id: "IT", label: "Italia", bbox: (6.6, 35.3, 18.8, 47.1), approx_size_bytes: 430 * MB },
     RegionCatalogEntry { id: "FR", label: "Francia", bbox: (-5.5, 41.0, 9.7, 51.5), approx_size_bytes: 480 * MB },
     RegionCatalogEntry { id: "DE", label: "Germania", bbox: (5.5, 47.2, 15.5, 55.1), approx_size_bytes: 520 * MB },
     RegionCatalogEntry { id: "ES", label: "Spagna", bbox: (-9.5, 35.9, 4.5, 43.9), approx_size_bytes: 420 * MB },
@@ -94,8 +101,8 @@ mod tests {
     use super::CATALOG;
 
     #[test]
-    fn has_exactly_the_documented_thirty_five_countries() {
-        assert_eq!(CATALOG.len(), 35);
+    fn has_exactly_the_documented_countries_plus_italy() {
+        assert_eq!(CATALOG.len(), 36);
     }
 
     #[test]

@@ -338,7 +338,7 @@ async fn failed_cancel_cleanup_can_be_retried() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
-async fn catalog_requires_a_session_and_then_lists_thirty_five_countries() {
+async fn catalog_requires_a_session_and_then_lists_the_countries() {
     let server = TestServer::start().await;
 
     let anonymous = server
@@ -360,7 +360,7 @@ async fn catalog_requires_a_session_and_then_lists_thirty_five_countries() {
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json().await.unwrap();
     let entries = body.as_array().unwrap();
-    assert_eq!(entries.len(), 35);
+    assert_eq!(entries.len(), 36);
     assert!(
         entries
             .iter()

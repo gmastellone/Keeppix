@@ -3,6 +3,9 @@ import { defineStore } from 'pinia'
 
 import { ApiProblem, apiFetch } from '@/api/client'
 import type { TimelineAsset } from '@/api/timeline'
+// Not a component: `i18n.global` directly, same pattern as
+// `stores/toast.ts`.
+import { i18n } from '@/i18n'
 
 export type MapScope = 'library' | 'album' | 'folder' | 'search'
 
@@ -87,6 +90,17 @@ export function mapErrorKey(error: unknown, context?: 'tile'): string {
 
 function replaceRegion(regions: MapRegion[], region: MapRegion): MapRegion[] {
   return [...regions.filter((item) => item.id !== region.id), region]
+}
+
+/** A region/catalog entry's `label` is stored once, in Italian, at
+ * download time (`map_catalog::CATALOG`) — this resolves the viewer's
+ * own locale from `maps.regions.<id>` (it.json/en.json) when one exists,
+ * falling back to the stored label otherwise (e.g. a region added
+ * through the advanced manual-URL form, whose id isn't necessarily an
+ * ISO country code at all). */
+export function regionDisplayLabel(id: string, fallbackLabel: string): string {
+  const key = `maps.regions.${id}`
+  return i18n.global.te(key) ? i18n.global.t(key) : fallbackLabel
 }
 
 export const useMapsStore = defineStore('maps', () => {

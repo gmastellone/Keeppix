@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { mapErrorKey, type Place, useMapsStore } from '@/stores/maps'
+import { mapErrorKey, regionDisplayLabel, type Place, useMapsStore } from '@/stores/maps'
 import { useSessionStore } from '@/stores/session'
 
 const props = defineProps<{ assetIds: string[] }>()
@@ -200,7 +200,7 @@ async function downloadRegion() {
           :disabled="downloading"
           @click="downloadRegion"
         >
-          {{ t('maps.places.downloadRegion', { region: catalogEntry!.label }) }}
+          {{ t('maps.places.downloadRegion', { region: regionDisplayLabel(catalogEntry!.id, catalogEntry!.label) }) }}
         </button>
         <a
           v-else-if="isAdmin"

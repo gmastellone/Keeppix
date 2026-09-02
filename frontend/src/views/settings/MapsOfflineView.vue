@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import {
   mapErrorKey,
+  regionDisplayLabel,
   type RegionCatalogEntry,
   type RegionDownloadRequest,
   useMapsStore
@@ -47,7 +48,11 @@ const searchResults = computed<RegionCatalogEntry[]>(() => {
   if (!query) return []
   const known = new Set(maps.regions.map((region) => region.id))
   return maps.catalog
-    .filter((entry) => !known.has(entry.id) && entry.label.toLowerCase().includes(query))
+    .filter(
+      (entry) =>
+        !known.has(entry.id) &&
+        regionDisplayLabel(entry.id, entry.label).toLowerCase().includes(query)
+    )
     .slice(0, 8)
 })
 
@@ -97,7 +102,7 @@ async function addFromCatalog(entry: RegionCatalogEntry) {
   try {
     await maps.downloadFromCatalog(entry.id)
     closeSearch()
-    toast.show(t('maps.offline.search.added', { name: entry.label }))
+    toast.show(t('maps.offline.search.added', { name: regionDisplayLabel(entry.id, entry.label) }))
     ensurePolling()
   } catch (cause) {
     operationError.value = cause
@@ -203,7 +208,7 @@ onBeforeUnmount(() => {
           class="rounded-lg border border-border bg-surface-elevated p-3"
         >
           <div class="flex flex-wrap items-center gap-2">
-            <strong>{{ region.label }}</strong>
+            <strong>{{ regionDisplayLabel(region.id, region.label) }}</strong>
             <span class="text-sm text-content-muted">{{ formatBytes(region.size_bytes) }}</span>
             <span class="text-xs text-content-muted">{{ region.version }}</span>
             <span class="text-xs text-content-muted">
@@ -329,7 +334,7 @@ onBeforeUnmount(() => {
             @click="addFromCatalog(entry)"
             @keydown="onResultKeydown($event, entry)"
           >
-            <span>{{ entry.label }}</span>
+            <span>{{ regionDisplayLabel(entry.id, entry.label) }}</span>
             <span class="text-xs text-content-muted">{{ formatBytes(entry.approx_size_bytes) }}</span>
           </li>
         </ul>

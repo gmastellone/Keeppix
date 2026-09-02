@@ -118,10 +118,12 @@ pub async fn download(
     Ok((StatusCode::ACCEPTED, Json(RegionView::from(region))))
 }
 
-/// Lists the searchable catalog of 35 countries the region search box
-/// (`docs/ui/documento-funzionale-ui.md`, "B — Ricerca di regione") picks
-/// from — a fixed, small enough list that the frontend filters it
-/// client-side rather than this endpoint taking a query parameter.
+/// Lists the searchable region catalog (`crate::map_catalog` in
+/// `keeppix-jobs`; the spec's 35 countries — `docs/ui/documento-
+/// funzionale-ui.md`, "B — Ricerca di regione" — plus Italy) the region
+/// search box picks from — a fixed, small enough list that the frontend
+/// filters it client-side rather than this endpoint taking a query
+/// parameter.
 ///
 /// # Errors
 /// `401` without a session.
