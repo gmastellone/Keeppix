@@ -100,7 +100,9 @@ pub use problems::{
     ComposedProblem, ErrorAsset, FailedJob, OfflineLibrary, ProblemAction, ProblemLanguage,
     ProblemSet, ProblemSeverity, ProblemsRepo,
 };
-pub use regions::{MapRegion, NewMapRegion, RegionDownloadSource, RegionRepo, RegionStatus};
+pub use regions::{
+    MapRegion, NewMapRegion, RegionAcquisition, RegionDownloadSource, RegionRepo, RegionStatus,
+};
 pub use rename::{RenameBatchOutcome, RenamePreviewItem, RenameRepo, RenameUndoOutcome};
 pub use search::{IsoCmp, SavedSearch, SearchNode, SearchRepo, Suggestion, SuggestionKind};
 pub use sessions::{SessionRepo, SessionSummary};

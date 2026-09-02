@@ -338,6 +338,117 @@ async fn failed_cancel_cleanup_can_be_retried() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn catalog_requires_a_session_and_then_lists_thirty_five_countries() {
+    let server = TestServer::start().await;
+
+    let anonymous = server
+        .client
+        .get(server.url("/api/v1/map/regions/catalog"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anonymous.status(), 401);
+
+    setup(&server).await;
+    let response = server
+        .client
+        .get(server.url("/api/v1/map/regions/catalog"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let entries = body.as_array().unwrap();
+    assert_eq!(entries.len(), 35);
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry["id"] == "france" && entry["label"] == "Francia")
+    );
+    assert!(entries.iter().all(|entry| entry["approx_size_bytes"]
+        .as_i64()
+        .is_some_and(|size| size > 0)));
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn downloading_an_unknown_catalog_id_is_a_clean_404() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/map/regions/catalog/atlantis"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 404);
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap()["type"],
+        "keeppix/unknown-region-catalog-id"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn downloading_a_catalog_entry_queues_an_extraction() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/map/regions/catalog/france"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 202);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["id"], "france");
+    assert_eq!(body["status"], "downloading");
+
+    let kind: String = sqlx::query_scalar("SELECT kind FROM jobs WHERE payload->>'region_id' = 'france'")
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+    assert_eq!(kind, "extract_map_region");
+}
+
+/// Regression test for the acquisition-aware dedup key fix in
+/// `retire_region_job`: cancelling a catalog-triggered (extraction) region
+/// must retire the `map-region-extract:*` job, not silently miss it by
+/// guessing the manual-download flow's `map-region:*` key.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn cancelling_a_catalog_download_retires_the_extraction_job_not_a_download_job() {
+    let server = TestServer::start().await;
+    setup(&server).await;
+    server
+        .client
+        .post(server.url("/api/v1/map/regions/catalog/france"))
+        .send()
+        .await
+        .unwrap();
+
+    let response = server
+        .client
+        .post(server.url("/api/v1/map/regions/france/cancel"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+
+    let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE payload->>'region_id' = 'france'")
+        .fetch_one(server.db.pool())
+        .await
+        .unwrap();
+    assert_eq!(status, "failed");
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn malformed_region_paths_are_problem_json_400s() {
     let server = TestServer::start().await;
     setup(&server).await;

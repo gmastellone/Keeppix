@@ -180,6 +180,11 @@ fn api_routes(state: AppState) -> Router<AppState> {
             "/map/regions",
             get(routes::regions::list).post(routes::regions::download),
         )
+        .route("/map/regions/catalog", get(routes::regions::catalog))
+        .route(
+            "/map/regions/catalog/{id}",
+            axum::routing::post(routes::regions::download_from_catalog),
+        )
         .route(
             "/map/regions/{id}",
             axum::routing::delete(routes::regions::delete),

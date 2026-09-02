@@ -31,6 +31,36 @@ impl RegionStatus {
     }
 }
 
+/// How a region's file was, or is being, obtained — set once at
+/// [`RegionRepo::begin_download`]/[`RegionRepo::begin_extraction`] and
+/// read back by the API layer to route cancel/delete at the right job
+/// (`map-region:*` vs `map-region-extract:*` dedup keys), and by
+/// [`crate::JobRepo::enqueue_missing_region_downloads`] to resume an
+/// interrupted row with the matching job kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionAcquisition {
+    Download,
+    Extract,
+}
+
+impl RegionAcquisition {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Download => "download",
+            Self::Extract => "extract",
+        }
+    }
+
+    fn parse(raw: &str) -> Result<Self, DbError> {
+        match raw {
+            "download" => Ok(Self::Download),
+            "extract" => Ok(Self::Extract),
+            other => Err(crate::row::corrupted("map region acquisition", other)),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MapRegion {
     pub id: String,
@@ -45,6 +75,7 @@ pub struct MapRegion {
     pub downloaded_bytes: i64,
     pub last_error: Option<String>,
     pub download_generation: Uuid,
+    pub acquisition: RegionAcquisition,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +111,7 @@ struct RegionRow {
     downloaded_bytes: i64,
     last_error: Option<String>,
     download_generation: Uuid,
+    acquisition: String,
 }
 
 impl RegionRow {
@@ -97,13 +129,14 @@ impl RegionRow {
             downloaded_bytes: self.downloaded_bytes,
             last_error: self.last_error,
             download_generation: self.download_generation,
+            acquisition: RegionAcquisition::parse(&self.acquisition)?,
         })
     }
 }
 
 const COLUMNS: &str = "id, label, file_path, size_bytes, version, downloaded_at, status, \
                        source_url, checksum_sha256, downloaded_bytes, last_error, \
-                       download_generation";
+                       download_generation, acquisition";
 
 pub struct RegionRepo<'a> {
     db: &'a Db,

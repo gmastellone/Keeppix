@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
-use keeppix_db::{JobRepo, MapRegion, NewMapRegion, RegionRepo, RegionStatus};
+use keeppix_db::{JobRepo, MapRegion, NewMapRegion, RegionAcquisition, RegionRepo, RegionStatus};
 use serde::{Deserialize, Serialize};
 
 use crate::{AdminAuth, AppState, Auth, Json, Problem};
@@ -47,6 +47,13 @@ pub struct DownloadRegionRequest {
     pub version: String,
     pub source_url: String,
     pub checksum_sha256: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct CatalogEntryView {
+    pub id: String,
+    pub label: String,
+    pub approx_size_bytes: i64,
 }
 
 /// # Errors
@@ -111,6 +118,73 @@ pub async fn download(
     Ok((StatusCode::ACCEPTED, Json(RegionView::from(region))))
 }
 
+/// Lists the searchable catalog of 35 countries the region search box
+/// (`docs/ui/documento-funzionale-ui.md`, "B — Ricerca di regione") picks
+/// from — a fixed, small enough list that the frontend filters it
+/// client-side rather than this endpoint taking a query parameter.
+///
+/// # Errors
+/// `401` without a session.
+#[utoipa::path(
+    get,
+    path = "/api/v1/map/regions/catalog",
+    tag = "map",
+    operation_id = "map_regions_catalog",
+    summary = "List the searchable map region catalog",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "Downloadable region catalog", body = [CatalogEntryView]),
+        (status = 401, description = "Not authenticated", body = Problem)
+    )
+)]
+pub async fn catalog(Auth(_ctx): Auth) -> Json<Vec<CatalogEntryView>> {
+    Json(
+        keeppix_jobs::map_catalog::CATALOG
+            .iter()
+            .map(|entry| CatalogEntryView {
+                id: entry.id.to_owned(),
+                label: entry.label.to_owned(),
+                approx_size_bytes: entry.approx_size_bytes,
+            })
+            .collect(),
+    )
+}
+
+/// Downloads a catalog entry by id — the search-box counterpart to
+/// [`download`], which instead takes a hand-typed URL/checksum.
+///
+/// # Errors
+/// `403` for non-admin, `404` for an unknown catalog id, `409` if already
+/// downloading.
+#[utoipa::path(
+    post,
+    path = "/api/v1/map/regions/catalog/{id}",
+    tag = "map",
+    operation_id = "map_regions_download_from_catalog",
+    summary = "Download a map region from the catalog",
+    security(("session_cookie" = [])),
+    params(("id" = String, Path, description = "Catalog id")),
+    responses(
+        (status = 202, description = "Extraction queued", body = RegionView),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 403, description = "Admin only", body = Problem),
+        (status = 404, description = "Unknown catalog id", body = Problem),
+        (status = 409, description = "Download already active", body = Problem)
+    )
+)]
+pub async fn download_from_catalog(
+    State(state): State<AppState>,
+    AdminAuth(ctx): AdminAuth,
+    path: Result<AxumPath<String>, PathRejection>,
+) -> Result<(StatusCode, Json<RegionView>), Problem> {
+    let id = region_path(path)?;
+    keeppix_jobs::map_extract::enqueue_extraction(&state.db, &ctx, &id)
+        .await
+        .map_err(map_extract_error)?;
+    let region = RegionRepo::new(&state.db).find(&ctx, &id).await?;
+    Ok((StatusCode::ACCEPTED, Json(RegionView::from(region))))
+}
+
 /// # Errors
 /// `403` for non-admin, `404` if not found, `409` if not downloading.
 #[utoipa::path(
@@ -140,7 +214,7 @@ pub async fn cancel(
     let region = repo.find(&ctx, &id).await?;
     repo.request_cancel(&ctx, &id).await?;
     remove_region_files(&state.data_dir, &region.file_path).await?;
-    retire_region_job(&state, &id, region.download_generation).await?;
+    retire_region_job(&state, &id, region.download_generation, region.acquisition).await?;
     repo.finish_cancel(&id, region.download_generation).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -177,7 +251,7 @@ pub async fn delete(
     }
     remove_region_files(&state.data_dir, &region.file_path).await?;
     if region.status == RegionStatus::Downloading {
-        retire_region_job(&state, &id, region.download_generation).await?;
+        retire_region_job(&state, &id, region.download_generation, region.acquisition).await?;
     }
     repo.delete(&ctx, &id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -196,6 +270,16 @@ fn region_error(error: keeppix_jobs::regions::RegionError) -> Problem {
             "Invalid region metadata",
         ),
         keeppix_jobs::regions::RegionError::Db(error) => Problem::from(error),
+    }
+}
+
+fn map_extract_error(error: keeppix_jobs::map_extract::MapExtractError) -> Problem {
+    match error {
+        keeppix_jobs::map_extract::MapExtractError::UnknownCatalogId(id) => {
+            Problem::new(StatusCode::NOT_FOUND, "unknown-region-catalog-id", "Unknown region catalog id")
+                .with_detail(id)
+        }
+        keeppix_jobs::map_extract::MapExtractError::Db(error) => Problem::from(error),
     }
 }
 
@@ -227,8 +311,19 @@ async fn retire_region_job(
     state: &AppState,
     id: &str,
     generation: uuid::Uuid,
+    acquisition: RegionAcquisition,
 ) -> Result<(), Problem> {
-    let dedup_key = format!("map-region:{id}:{generation}");
+    // Must match whichever flow's own dedup-key prefix actually created
+    // the job: `keeppix_jobs::regions::enqueue_download` vs
+    // `keeppix_jobs::map_extract::enqueue_extraction`. Retiring the wrong
+    // key silently no-ops, leaving the real job to keep running to
+    // completion before its `mark_available`/`mark_available_with_actuals`
+    // finds the row already reassigned and discards its own result.
+    let prefix = match acquisition {
+        RegionAcquisition::Download => "map-region",
+        RegionAcquisition::Extract => "map-region-extract",
+    };
+    let dedup_key = format!("{prefix}:{id}:{generation}");
     JobRepo::new(&state.db)
         .retire_active(&dedup_key, "Download cancelled")
         .await?;
