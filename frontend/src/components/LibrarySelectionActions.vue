@@ -21,6 +21,7 @@ import { useSelectionStore } from '@/stores/selection'
 import { useToastStore } from '@/stores/toast'
 
 import AlbumPickerDialog from './AlbumPickerDialog.vue'
+import PlacePickerDialog from './PlacePickerDialog.vue'
 import ShareSelectionDialog from './ShareSelectionDialog.vue'
 import DeleteDialog, { type DeleteChoice } from './ui/DeleteDialog.vue'
 import Tooltip from './ui/Tooltip.vue'
@@ -36,6 +37,7 @@ const toast = useToastStore()
 const albumOpen = ref(false)
 const shareOpen = ref(false)
 const deleteOpen = ref(false)
+const placeOpen = ref(false)
 
 // "If all the selected photos are already favorites, unfavorite all of
 // them; otherwise favorite all of them" — the group's direction depends on
@@ -151,6 +153,33 @@ async function confirmDelete(choice: DeleteChoice) {
       </svg>
     </button>
   </Tooltip>
+  <Tooltip :label="t('librarySelectionActions.locationTip')">
+    <button
+      type="button"
+      :aria-label="t('librarySelectionActions.locationLabel')"
+      class="flex h-8 w-8 items-center justify-center rounded-lg text-content-muted hover:bg-border/40"
+      @click="placeOpen = true"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="15"
+        height="15"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 21s-6.5-5.8-6.5-11a6.5 6.5 0 0 1 13 0c0 5.2-6.5 11-6.5 11z" />
+        <circle
+          cx="12"
+          cy="10"
+          r="2.3"
+        />
+      </svg>
+    </button>
+  </Tooltip>
   <Tooltip :label="t('librarySelectionActions.shareTip')">
     <button
       type="button"
@@ -240,6 +269,10 @@ async function confirmDelete(choice: DeleteChoice) {
 
   <AlbumPickerDialog
     v-model:open="albumOpen"
+    :assets="assets"
+  />
+  <PlacePickerDialog
+    v-model:open="placeOpen"
     :assets="assets"
   />
   <ShareSelectionDialog

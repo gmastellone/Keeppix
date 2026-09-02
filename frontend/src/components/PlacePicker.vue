@@ -1,15 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { mapErrorKey, type MapRegion, type Place, useMapsStore } from '@/stores/maps'
+import { mapErrorKey, type Place, useMapsStore } from '@/stores/maps'
 import { useSessionStore } from '@/stores/session'
 
-const props = defineProps<{
-  assetIds: string[]
-  availableRegionIds: string[]
-  allRegions?: MapRegion[]
-}>()
+const props = defineProps<{ assetIds: string[] }>()
 
 const emit = defineEmits<{ applied: [place: Place] }>()
 const { t } = useI18n()
@@ -28,19 +24,45 @@ const isAdmin = computed(() => session.user?.role === 'admin')
 const mapUnavailable = computed(
   () =>
     selected.value?.country_code != null &&
-    !props.availableRegionIds.includes(selected.value.country_code)
+    !maps.availableRegionIds.includes(selected.value.country_code)
 )
 const errorMessage = computed(() => error.value ? t(mapErrorKey(error.value)) : '')
 
 const matchingRegion = computed(() => {
   const code = selected.value?.country_code
-  if (!code || !props.allRegions) return undefined
-  return props.allRegions.find((r) => r.id === code)
+  if (!code) return undefined
+  return maps.regions.find((r) => r.id === code)
 })
 
-const canRetryDownload = computed(
-  () => isAdmin.value && matchingRegion.value?.status === 'error'
+// The 35-country search catalog is what actually makes an inline download
+// possible — without a catalog entry there's no bbox to extract from, so
+// the only path left is the manual URL/checksum form in Settings.
+const catalogEntry = computed(() => {
+  const code = selected.value?.country_code
+  if (!code) return undefined
+  return maps.catalog.find((entry) => entry.id === code)
+})
+
+const canDownloadRegion = computed(
+  () =>
+    isAdmin.value &&
+    catalogEntry.value !== undefined &&
+    matchingRegion.value?.status !== 'downloading'
 )
+
+// `maps.regions`/`maps.catalog` aren't loaded by any global entry point —
+// without this, this component (reached from the lightbox, from bulk
+// selection actions, and from a folder's own location action) would
+// always see an empty catalog/region list and either show the "map
+// unavailable" warning for regions already downloaded, or be unable to
+// offer an inline download at all.
+onMounted(() => {
+  // Best-effort prefetch: a failure here just means `catalogEntry`/
+  // `matchingRegion` stay empty and the UI falls back to the "go to
+  // Settings" link — not worth surfacing as its own error banner.
+  void maps.loadRegions().catch(() => {})
+  void maps.loadCatalog().catch(() => {})
+})
 
 function placeContext(place: Place): string {
   return [place.admin1, place.country_code].filter(Boolean).join(', ')
@@ -80,20 +102,13 @@ async function apply() {
   }
 }
 
-async function retryDownload() {
-  const region = matchingRegion.value
-  if (!region) return
+async function downloadRegion() {
+  const entry = catalogEntry.value
+  if (!entry) return
   downloading.value = true
   error.value = undefined
   try {
-    await maps.downloadRegion({
-      id: region.id,
-      label: region.label,
-      size_bytes: region.size_bytes,
-      version: region.version,
-      source_url: region.source_url,
-      checksum_sha256: region.checksum_sha256
-    })
+    await maps.downloadFromCatalog(entry.id)
   } catch (cause) {
     error.value = cause
   } finally {
@@ -178,14 +193,14 @@ async function retryDownload() {
           {{ t('maps.places.apply') }}
         </button>
         <button
-          v-if="canRetryDownload"
+          v-if="canDownloadRegion"
           type="button"
           class="rounded-lg border border-current px-3 py-2"
           data-action="download-region"
           :disabled="downloading"
-          @click="retryDownload"
+          @click="downloadRegion"
         >
-          {{ t('maps.places.downloadRegion', { region: matchingRegion!.label }) }}
+          {{ t('maps.places.downloadRegion', { region: catalogEntry!.label }) }}
         </button>
         <a
           v-else-if="isAdmin"

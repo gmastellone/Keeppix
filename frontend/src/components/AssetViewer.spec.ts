@@ -105,7 +105,7 @@ function photo(id: string): TimelineAsset {
  * mock's fallback branch, which often returns a single object and breaks
  * `.filter()`/`.length` downstream. */
 function isArrayEndpoint(path: string): boolean {
-  return path.endsWith('/map/regions') || path.endsWith('/tags')
+  return path.endsWith('/map/regions') || path.endsWith('/map/regions/catalog') || path.endsWith('/tags')
 }
 
 function deferred<T>() {
@@ -588,6 +588,9 @@ describe('AssetViewer — LOCATION section', () => {
         })
       }
       if (path.endsWith('/metadata') && method === 'PATCH') return Promise.resolve(null)
+      if (path === '/api/v1/metadata/batch' && method === 'POST') {
+        return Promise.resolve({ batch_id: 'batch-1' })
+      }
       if (path.endsWith('/flags') && method === 'GET') {
         return Promise.resolve({ rating: null, pick: 'none', color_label: null, favorite: false })
       }
@@ -649,10 +652,10 @@ describe('AssetViewer — LOCATION section', () => {
     clearButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
 
-    expect(apiFetch).toHaveBeenCalledWith(
-      '/api/v1/assets/a/metadata',
-      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ location: null, place_id: null }) })
-    )
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/metadata/batch', {
+      method: 'POST',
+      body: JSON.stringify({ asset_ids: ['a'], patch: { location: null, place_id: null } })
+    })
     wrapper.unmount()
   })
 })

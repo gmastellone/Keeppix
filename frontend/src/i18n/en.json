@@ -7,6 +7,8 @@
     "favoritesTip": "Favorites",
     "albumLabel": "Add to album",
     "albumTip": "Album",
+    "locationLabel": "Set location for the selection",
+    "locationTip": "Location",
     "shareLabel": "Share selection",
     "shareTip": "Share",
     "editLabel": "Bulk edit",

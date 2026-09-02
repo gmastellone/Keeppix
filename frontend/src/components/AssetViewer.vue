@@ -1535,7 +1535,7 @@ const coordsLabel = computed(() => {
     />
     <PlacePickerDialog
       v-model:open="positionDialogOpen"
-      :asset="asset"
+      :assets="[asset]"
       @applied="loadPanelData"
     />
     <PersonPickerDialog

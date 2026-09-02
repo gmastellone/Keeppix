@@ -117,17 +117,30 @@ afterEach(() => {
   wrapper = undefined
 })
 
-describe('LibrarySelectionActions — the five documented buttons', () => {
-  it('renders all five action buttons in order: Preferiti, Album, Condividi, Modifica, Elimina', async () => {
+describe('LibrarySelectionActions — the six documented buttons', () => {
+  it('renders all six action buttons in order: Preferiti, Album, Posizione, Condividi, Modifica, Elimina', async () => {
     const w = await mountActions([photo('a')])
     const labels = w.findAll('button').map((b) => b.attributes('aria-label'))
     expect(labels).toEqual([
       'Aggiungi o rimuovi dai preferiti',
       'Aggiungi ad album',
+      'Imposta posizione per la selezione',
       'Condividi selezione',
       'Modifica in blocco',
       'Elimina selezione'
     ])
+  })
+})
+
+describe('LibrarySelectionActions — Posizione (bulk location)', () => {
+  it('opens the place picker with the whole selection, not just one asset', async () => {
+    const w = await mountActions([photo('a'), photo('b')])
+
+    await w.get('[aria-label="Imposta posizione per la selezione"]').trigger('click')
+    await tick()
+
+    expect(document.body.querySelector('input[type="search"]')).toBeTruthy()
+    expect(document.body.textContent).toContain('Imposta posizione')
   })
 })
 

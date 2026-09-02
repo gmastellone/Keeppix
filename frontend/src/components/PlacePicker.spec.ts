@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { i18n } from '@/i18n'
 import { ApiProblem } from '@/api/client'
 import { useSessionStore } from '@/stores/session'
-import type { MapRegion } from '@/stores/maps'
+import type { MapRegion, RegionCatalogEntry } from '@/stores/maps'
 
 import PlacePicker from './PlacePicker.vue'
 
@@ -29,11 +29,21 @@ const kyoto = {
   population: 1475000
 }
 
-function mockSuggestAndBatch() {
-  apiFetch.mockImplementation((path: string) => {
+const JAPAN_CATALOG_ENTRY: RegionCatalogEntry = { id: 'JP', label: 'Japan', approx_size_bytes: 100_000_000 }
+
+/** Routes the store's own two boot-time GETs (`loadRegions`/`loadCatalog`,
+ * fired from `PlacePicker`'s `onMounted`) plus places/suggest and the
+ * apply/download POSTs. `regions`/`catalog` default to empty so a test
+ * that doesn't care about the offline-map banner never has to seed them. */
+function mockPicker(opts: { regions?: MapRegion[]; catalog?: RegionCatalogEntry[] } = {}) {
+  apiFetch.mockImplementation((path: string, init?: RequestInit) => {
     if (path.startsWith('/api/v1/places/suggest')) return Promise.resolve([kyoto])
     if (path === '/api/v1/metadata/batch') return Promise.resolve({ batch_id: 'batch-1' })
-    if (path === '/api/v1/map/regions') return Promise.resolve({ id: 'JP', status: 'downloading' })
+    if (path === '/api/v1/map/regions' && !init) return Promise.resolve(opts.regions ?? [])
+    if (path === '/api/v1/map/regions/catalog') return Promise.resolve(opts.catalog ?? [])
+    if (path === '/api/v1/map/regions/catalog/JP' && init?.method === 'POST') {
+      return Promise.resolve({ ...errorRegion(), status: 'downloading' })
+    }
     throw new Error(`unexpected ${path}`)
   })
 }
@@ -57,6 +67,11 @@ function downloadingRegion(): MapRegion {
   return { ...errorRegion(), status: 'downloading', last_error: null, downloaded_bytes: 50_000_000 }
 }
 
+function adminSession() {
+  const session = useSessionStore()
+  session.user = { id: '1', username: 'a', display_name: 'A', email: null, role: 'admin', locale: null }
+}
+
 async function selectKyoto(wrapper: ReturnType<typeof mount>) {
   await wrapper.get('input[type="search"]').setValue('ky')
   await wrapper.get('form').trigger('submit')
@@ -66,22 +81,22 @@ async function selectKyoto(wrapper: ReturnType<typeof mount>) {
 
 describe('PlacePicker', () => {
   it('applies a place even when its offline map is unavailable', async () => {
-    mockSuggestAndBatch()
+    mockPicker()
     setActivePinia(createPinia())
-    const session = useSessionStore()
-    session.user = { id: '1', username: 'a', display_name: 'A', email: null, role: 'admin', locale: null }
+    adminSession()
 
     const wrapper = mount(PlacePicker, {
-      props: { assetIds: ['asset-1', 'asset-2'], availableRegionIds: [] },
+      props: { assetIds: ['asset-1', 'asset-2'] },
       global: { plugins: [i18n] }
     })
-
+    await flushPromises()
     await selectKyoto(wrapper)
 
     const banner = wrapper.get('[role="status"]')
     expect(banner.text()).toContain('Map unavailable for this area')
     expect(banner.get('[data-action="apply"]').text()).toBe('Apply')
-    expect(banner.get('[data-action="download-region"]').text()).toBe('Download Region')
+    // No catalog entry for JP in this test: falls back to the Settings
+    // link, same as a country entirely outside the 35-country catalog.
     expect(banner.get('[data-action="download-region"]').attributes('href')).toBe(
       '/settings/maps/offline'
     )
@@ -102,74 +117,56 @@ describe('PlacePicker', () => {
   })
 
   it('shows downloading status when the matching region is in progress', async () => {
-    mockSuggestAndBatch()
+    mockPicker({ regions: [downloadingRegion()], catalog: [JAPAN_CATALOG_ENTRY] })
     setActivePinia(createPinia())
-    const session = useSessionStore()
-    session.user = { id: '1', username: 'a', display_name: 'A', email: null, role: 'admin', locale: null }
+    adminSession()
 
     const wrapper = mount(PlacePicker, {
-      props: {
-        assetIds: ['asset-1'],
-        availableRegionIds: [],
-        allRegions: [downloadingRegion()]
-      },
+      props: { assetIds: ['asset-1'] },
       global: { plugins: [i18n] }
     })
-
+    await flushPromises()
     await selectKyoto(wrapper)
+
     expect(wrapper.find('[data-testid="region-downloading"]').exists()).toBe(true)
+    // Already downloading: no point offering to start another download —
+    // only the Settings fallback link remains, not a `<button>`.
+    expect(wrapper.get('[data-action="download-region"]').element.tagName).toBe('A')
   })
 
-  it('retries a failed region download directly via downloadRegion', async () => {
-    mockSuggestAndBatch()
+  it('downloads a catalog region inline, whether or not it was ever tried before', async () => {
+    mockPicker({ regions: [errorRegion()], catalog: [JAPAN_CATALOG_ENTRY] })
     setActivePinia(createPinia())
-    const session = useSessionStore()
-    session.user = { id: '1', username: 'a', display_name: 'A', email: null, role: 'admin', locale: null }
+    adminSession()
 
     const wrapper = mount(PlacePicker, {
-      props: {
-        assetIds: ['asset-1'],
-        availableRegionIds: [],
-        allRegions: [errorRegion()]
-      },
+      props: { assetIds: ['asset-1'] },
       global: { plugins: [i18n] }
     })
-
+    await flushPromises()
     await selectKyoto(wrapper)
+
     const downloadBtn = wrapper.get('[data-action="download-region"]')
     expect(downloadBtn.text()).toContain('Japan')
     await downloadBtn.trigger('click')
     await flushPromises()
 
-    expect(apiFetch).toHaveBeenCalledWith('/api/v1/map/regions', {
-      method: 'POST',
-      body: JSON.stringify({
-        id: 'JP',
-        label: 'Japan',
-        size_bytes: 100_000_000,
-        version: '2024-01',
-        source_url: 'https://example.com/jp.pmtiles',
-        checksum_sha256: 'a'.repeat(64)
-      })
-    })
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/map/regions/catalog/JP', { method: 'POST' })
   })
 
   it('hides download button for non-admin users', async () => {
-    mockSuggestAndBatch()
+    mockPicker({ regions: [errorRegion()], catalog: [JAPAN_CATALOG_ENTRY] })
     setActivePinia(createPinia())
     const session = useSessionStore()
     session.user = { id: '2', username: 'b', display_name: 'B', email: null, role: 'user', locale: null }
 
     const wrapper = mount(PlacePicker, {
-      props: {
-        assetIds: ['asset-1'],
-        availableRegionIds: [],
-        allRegions: [errorRegion()]
-      },
+      props: { assetIds: ['asset-1'] },
       global: { plugins: [i18n] }
     })
-
+    await flushPromises()
     await selectKyoto(wrapper)
+
     expect(wrapper.find('[data-action="download-region"]').exists()).toBe(false)
   })
 
@@ -178,13 +175,13 @@ describe('PlacePicker', () => {
       new ApiProblem('keeppix/service-unavailable', 'Service temporarily unavailable', 503)
     )
     setActivePinia(createPinia())
-    const session = useSessionStore()
-    session.user = { id: '1', username: 'a', display_name: 'A', email: null, role: 'admin', locale: null }
+    adminSession()
 
     const wrapper = mount(PlacePicker, {
-      props: { assetIds: ['asset-1'], availableRegionIds: [] },
+      props: { assetIds: ['asset-1'] },
       global: { plugins: [i18n] }
     })
+    await flushPromises()
     await wrapper.get('input[type="search"]').setValue('ky')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
