@@ -36,7 +36,7 @@ import { classifyError } from '@/errors/classify'
 import { activeFilterCount } from '@/design/quickFilter'
 import { TimelineGeometry } from '@/timeline/geometry'
 import { LruPageCache } from '@/timeline/pageCache'
-import { monthAbbrev, monthAtOffset, monthFull } from '@/timeline/scrubber'
+import { monthAtOffset, monthFull, yearLabel } from '@/timeline/scrubber'
 import { planStream, STREAM_OVERSCAN, type GridCell, type GridRow, type StreamRow } from '@/timeline/stream'
 import { thumbhashToDataURL } from '@/timeline/thumbhash'
 import { RowVirtualizer } from '@/timeline/virtualize'
@@ -461,6 +461,16 @@ const monthTop = computed(() => {
   return map
 })
 
+/** Every bucket still gets its own tick (unlabeled) for drag precision
+ * — [`monthAtOffset`] indexes into the full `buckets` array regardless
+ * of which ticks carry text — only the first bucket of each calendar
+ * year is labeled, so the strip reads as a year axis instead of one
+ * label per month. */
+function isYearStart(index: number): boolean {
+  if (index === 0) return true
+  return buckets.value[index].month.slice(0, 4) !== buckets.value[index - 1].month.slice(0, 4)
+}
+
 function jumpToMonth(month: string) {
   const top = monthTop.value.get(month)
   if (top === undefined || !gridEl.value) return
@@ -757,7 +767,7 @@ function selectAllVisible() {
     >
       <div
         ref="gridEl"
-        class="relative min-h-0 flex-1 overflow-auto"
+        class="no-native-scrollbar relative min-h-0 flex-1 overflow-auto"
         tabindex="-1"
       >
         <div class="px-4 py-3">
@@ -814,12 +824,22 @@ function selectAllVisible() {
         @keydown="onScrubberKeydown"
       >
         <div
-          v-for="bucket in buckets"
+          v-for="(bucket, index) in buckets"
           :key="bucket.month"
-          class="px-1 text-center text-[10px] text-content-muted"
-          style="writing-mode: vertical-rl"
         >
-          {{ monthAbbrev(bucket.month, locale) }}
+          <div
+            v-if="isYearStart(index)"
+            class="px-1 py-1.5 text-center text-[10px] font-medium text-content-muted"
+            style="writing-mode: vertical-rl"
+          >
+            {{ yearLabel(bucket.month, locale) }}
+          </div>
+          <div
+            v-else
+            class="flex h-2.5 items-center justify-center"
+          >
+            <div class="h-px w-1.5 bg-border" />
+          </div>
         </div>
         <div
           class="absolute right-0.5 h-6 w-2.5 rounded-full bg-accent"
@@ -846,3 +866,18 @@ function selectAllVisible() {
     />
   </div>
 </template>
+
+<style scoped>
+/* The grid's own scroll affordance is the month scrubber (`<aside>`,
+   right next to it) — the browser's native scrollbar rendered a second,
+   visually near-identical bar right against it. Wheel/trackpad/keyboard
+   scrolling and programmatic `scrollTop` (jumpToMonth, restoration) are
+   untouched: this only hides the drawn bar, not overflow scrolling
+   itself. */
+.no-native-scrollbar {
+  scrollbar-width: none;
+}
+.no-native-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+</style>

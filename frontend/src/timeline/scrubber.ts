@@ -46,3 +46,11 @@ export function monthFull(month: string, locale: string): string {
     monthDate(month)
   )
 }
+
+/** "2026" — the scrubber's resting label. Every month still gets its own
+ * tick (unlabeled) for drag precision; only the first bucket of each
+ * year is labeled with text, so a 15-year library reads as a spaced-out
+ * year axis instead of ~180 crowded month labels. */
+export function yearLabel(month: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { year: 'numeric', timeZone: 'UTC' }).format(monthDate(month))
+}

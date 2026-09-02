@@ -659,6 +659,48 @@ describe('TimelineView scrubber', () => {
     expect(slider.attributes('aria-valuenow')).toBe('2')
     expect(slider.attributes('aria-valuetext')).toContain('2024')
   })
+
+  it('labels only the first bucket of each year — every other month is an unlabeled tick', async () => {
+    const buckets = [
+      { month: '2025-02', count: 1 },
+      { month: '2025-01', count: 1 },
+      { month: '2024-12', count: 1 },
+      { month: '2024-11', count: 1 }
+    ]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [] })
+
+    const { wrapper } = await mountTimeline()
+    const slider = wrapper.get('[role="slider"]')
+
+    // Newest-first: 2025-02 is index 0 (always a year start), 2025-01
+    // stays unlabeled (same year as its predecessor), 2024-12 starts the
+    // next year, 2024-11 stays unlabeled.
+    const labels = slider.findAll('[style*="writing-mode"]').map((el) => el.text())
+    expect(labels).toEqual(['2025', '2024'])
+  })
+
+  it('a tick between year labels still resolves to its own month on drag — labeling is cosmetic, not a coarser step', async () => {
+    const buckets = [
+      { month: '2025-02', count: 1 },
+      { month: '2025-01', count: 1 },
+      { month: '2024-12', count: 1 }
+    ]
+    vi.mocked(fetchBuckets).mockResolvedValue(buckets)
+    vi.mocked(fetchGeometry).mockResolvedValue({ buffer: geometryFor(buckets), etag: null, nextCursor: null })
+    vi.mocked(fetchPage).mockResolvedValue({ assets: [] })
+
+    const { wrapper } = await mountTimeline()
+    const slider = wrapper.get('[role="slider"]')
+
+    // Middle index (1 of 0..2) is 2025-01 — an unlabeled tick — yet Home
+    // twice from End still lands squarely on it via aria-valuetext.
+    await slider.trigger('keydown', { key: 'End' })
+    await slider.trigger('keydown', { key: 'ArrowUp' })
+    expect(slider.attributes('aria-valuenow')).toBe('1')
+    expect(slider.attributes('aria-valuetext')).toContain('January')
+  })
 })
 
 describe('TimelineView error state', () => {
