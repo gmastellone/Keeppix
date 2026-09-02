@@ -189,6 +189,13 @@ const titleDraft = ref('')
  * already available from the prop without a fetch) — needed to map each
  * person chip to its matching face(s) on the image. */
 const faces = ref<Face[]>([])
+/** "Aggiungi persona" — shows every detected face's box at once (not just
+ * the one being hovered), including faces the detector found but nobody
+ * has confirmed yet (`person_id: null`), so any of them can be clicked
+ * to assign a person. Off by default: fetching/rendering every box for
+ * every photo, always, is the overhead a per-photo toggle avoids — only
+ * on when someone actually asks for it. */
+const showAllFaces = ref(false)
 const personDialogOpen = ref(false)
 const assetTags = ref<AssetTagDetail[]>([])
 /** Only `kind === 'category'` from `GET /tags` (the combined tag+category
@@ -343,7 +350,12 @@ async function loadPanelData() {
   // tells us whether the photo has confirmed faces before even asking for
   // the boxes. In culling, tags/albums/faces aren't needed at all — a
   // lot's "raw" photo never has them.
-  const needsFaces = !props.isCulling && props.asset.faces.length > 0
+  // `showAllFaces` (the "Aggiungi persona" toggle, below) needs the raw
+  // detected faces too — a photo can have faces the detector found but
+  // nobody has ever confirmed (person_id null), which never show up in
+  // `asset.faces` (confirmed only) and so would otherwise never trigger
+  // this fetch at all.
+  const needsFaces = !props.isCulling && (props.asset.faces.length > 0 || showAllFaces.value)
   const needsStack = props.asset.raw_kind === 'raw' || props.asset.raw_kind === 'raw+jpeg'
   const [
     metadataResult,
@@ -455,7 +467,28 @@ function scheduleHideBoxes() {
   }, 200)
 }
 
-const visibleFaces = computed(() => faces.value.filter((face) => face.person_id === hoveredPersonId.value))
+const visibleFaces = computed(() =>
+  showAllFaces.value ? faces.value : faces.value.filter((face) => face.person_id === hoveredPersonId.value)
+)
+
+async function toggleShowAllFaces() {
+  showAllFaces.value = !showAllFaces.value
+  // The one exception to loadPanelData()'s usual "asset.faces.length > 0"
+  // gate (see needsFaces above): turning this on is the explicit ask for
+  // exactly the faces that gate would otherwise skip.
+  if (showAllFaces.value && faces.value.length === 0) void loadPanelData()
+}
+
+/** Clicking a box in "Aggiungi persona" mode: reuses the same
+ * `personDialogOpen`/`onPersonPicked` flow "Correct person…" already
+ * uses (`assignFace`, unchanged whether the face already had someone or
+ * not) — the only difference is going by `face.id` directly instead of
+ * looking it up from a `person_id` that might not exist yet. */
+function pickPersonForFace(faceId: string) {
+  openFaceMenuPersonId.value = null
+  correctingFaceId.value = faceId
+  personDialogOpen.value = true
+}
 
 // "Go to person": closes the menu, closes the lightbox, switches to the
 // People view and opens the detail — real now that the `/persons/:id`
@@ -644,6 +677,7 @@ watch(
     flags.value = undefined
     faces.value = []
     hoveredPersonId.value = null
+    showAllFaces.value = false
     assetTags.value = []
     assetAlbums.value = []
     stackMembers.value = []
@@ -967,10 +1001,20 @@ const coordsLabel = computed(() => {
           <div
             v-for="face in visibleFaces"
             :key="face.id"
-            class="absolute rounded-sm border-2 border-accent transition-[opacity,border-color]"
+            class="absolute rounded-sm border-2 transition-[opacity,border-color]"
+            :class="[
+              face.person_id ? 'border-accent' : 'border-dashed border-white',
+              showAllFaces && 'cursor-pointer hover:border-accent'
+            ]"
             :style="{ ...boxStyle(face), transitionDuration: 'var(--duration-fast, .12s)' }"
+            :role="showAllFaces ? 'button' : undefined"
+            :tabindex="showAllFaces ? 0 : undefined"
+            :aria-label="showAllFaces ? t('viewer.panel.addPersonToFace') : undefined"
             @mouseenter="cancelHideBoxes"
             @mouseleave="scheduleHideBoxes"
+            @click="showAllFaces && pickPersonForFace(face.id)"
+            @keydown.enter="showAllFaces && pickPersonForFace(face.id)"
+            @keydown.space.prevent="showAllFaces && pickPersonForFace(face.id)"
           />
         </div>
         <button
@@ -1169,13 +1213,32 @@ const coordsLabel = computed(() => {
         </section>
 
         <section
-          v-if="!isCulling && asset.faces.length > 0"
+          v-if="!isCulling"
           class="mt-4"
         >
-          <h2 class="mb-2 text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
-            {{ t('viewer.panel.people') }}
-          </h2>
-          <div class="flex flex-wrap gap-1.5">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <h2 class="text-[10.5px] tracking-[.06em] text-[#7a7a7d] uppercase">
+              {{ t('viewer.panel.people') }}
+            </h2>
+            <button
+              type="button"
+              class="text-[11px] font-semibold"
+              :class="showAllFaces ? 'text-accent' : 'text-content-muted hover:text-content'"
+              @click="toggleShowAllFaces"
+            >
+              {{ showAllFaces ? t('viewer.panel.addPersonDone') : t('viewer.panel.addPerson') }}
+            </button>
+          </div>
+          <p
+            v-if="showAllFaces"
+            class="mb-2 text-[12px] text-content-muted"
+          >
+            {{ t('viewer.panel.addPersonHint') }}
+          </p>
+          <div
+            v-if="asset.faces.length > 0"
+            class="flex flex-wrap gap-1.5"
+          >
             <Popover
               v-for="person in asset.faces"
               :key="person.person_id"

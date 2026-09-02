@@ -702,6 +702,10 @@
       "editPosition": "Modifica posizione…",
       "setPosition": "Imposta posizione…",
       "people": "Persone",
+      "addPerson": "+ aggiungi persona",
+      "addPersonDone": "Fatto",
+      "addPersonHint": "Clicca su un riquadro per assegnare o correggere la persona.",
+      "addPersonToFace": "Assegna persona a questo volto",
       "faceMenu": {
         "goToPerson": "Vai alla persona",
         "goToPersonHint": "Apre tutte le sue foto",

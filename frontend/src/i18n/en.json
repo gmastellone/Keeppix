@@ -702,6 +702,10 @@
       "editPosition": "Edit location…",
       "setPosition": "Set location…",
       "people": "People",
+      "addPerson": "+ add person",
+      "addPersonDone": "Done",
+      "addPersonHint": "Click a box to assign or correct the person.",
+      "addPersonToFace": "Assign a person to this face",
       "faceMenu": {
         "goToPerson": "Go to person",
         "goToPersonHint": "Opens all their photos",

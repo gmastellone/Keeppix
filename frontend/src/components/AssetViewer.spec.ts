@@ -831,6 +831,86 @@ describe('AssetViewer — PEOPLE section and face boxes', () => {
     expect(toast.toasts.at(-1)?.message).toBe('Persona corretta.')
   })
 
+  it('the PERSONE section, and its "+ aggiungi persona" toggle, show even with zero confirmed faces', async () => {
+    mockPanelFetch({ faces: [] })
+    wrapper = mount(AssetViewer, {
+      props: { asset: personWithFaces([]), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Persone')
+    expect(wrapper.findAll('button').find((b) => b.text() === '+ aggiungi persona')).toBeTruthy()
+  })
+
+  it('"+ aggiungi persona" fetches faces even when asset.faces is empty (needsFaces\' usual gate) and boxes every one of them, including unconfirmed', async () => {
+    const unconfirmed: Face = {
+      id: 'f1',
+      asset_id: 'a',
+      bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+      person_id: null,
+      proposed_person_id: null,
+      proposed_score: null,
+      assigned_by_human: false
+    }
+    mockPanelFetch({ faces: [unconfirmed, face('f2', 'p1')] })
+    wrapper = mount(AssetViewer, {
+      props: { asset: personWithFaces([]), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    await flushPromises()
+    expect(apiFetch).not.toHaveBeenCalledWith('/api/v1/assets/a/faces')
+
+    const toggle = wrapper.findAll('button').find((b) => b.text() === '+ aggiungi persona')!
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/assets/a/faces')
+    expect(wrapper.findAll('[role="button"].absolute.rounded-sm')).toHaveLength(2)
+    expect(wrapper.findAll('button').find((b) => b.text() === 'Fatto')).toBeTruthy()
+  })
+
+  it('clicking an unconfirmed face\'s box in "+ aggiungi persona" mode opens the picker and assigns that exact face', async () => {
+    const unconfirmed: Face = {
+      id: 'f1',
+      asset_id: 'a',
+      bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+      person_id: null,
+      proposed_person_id: null,
+      proposed_score: null,
+      assigned_by_human: false
+    }
+    mockPanelFetch({
+      faces: [unconfirmed],
+      persons: [{ id: 'p9', name: 'Marco', hidden: false, face_count: 3 }]
+    })
+    wrapper = mount(AssetViewer, {
+      props: { asset: personWithFaces([]), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await wrapper.findAll('button').find((b) => b.text() === '+ aggiungi persona')!.trigger('click')
+    await flushPromises()
+
+    const box = wrapper.find('[role="button"].absolute.rounded-sm')
+    expect(box.exists()).toBe(true)
+    await box.trigger('click')
+    await flushPromises()
+
+    const marcoButton = Array.from(document.body.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Marco')
+    )
+    expect(marcoButton).toBeTruthy()
+    marcoButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/faces/f1/assign',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ person_id: 'p9' }) })
+    )
+  })
+
   it('"Vai alla persona" closes the lightbox and navigates to the person detail route', async () => {
     const { createMemoryHistory, createRouter } = await import('vue-router')
     const router = createRouter({
