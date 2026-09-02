@@ -53,8 +53,12 @@
 // - "Share" opens `ShareSelectionDialog.vue` for this single asset — the
 //   same mechanism (auto-generated album) already used by the selection
 //   bar, see there for why.
-// - "Rotate" stays a toast (no real rotation pipeline exists yet:
-//   `orientation` is writable but never consumed by `keeppix-media`).
+// - "Rotate" is a plain CSS transform on the stage `<img>`
+//   (`stageTransform`), not a re-encode of the derived thumb/preview/full
+//   files: `orientation` (`patchMetadata`) was already writable and
+//   already read back by `metadata.value`, it just had no reader on the
+//   display side until now — same non-destructive, override-not-rewrite
+//   principle as everything else here (XMP sidecars, location overrides).
 // - The link to the source folder/lot in the date/time row is omitted:
 //   there's no route to resolve a folder's name from just `folder_id`
 //   (`GET /folders/{id}` doesn't exist, only `tree`/`{id}/children`) —
@@ -696,9 +700,45 @@ function closeMoreThen(fn: () => void) {
   void nextTick(fn)
 }
 
-function rotateStub() {
-  toast.show(t('viewer.menu.rotateToast'))
+/** A degrees-clockwise override (`asset_overrides.orientation`,
+ * previously written but never read anywhere — `patchMetadata` and
+ * `metadata.value.orientation` already existed end-to-end, only this
+ * button and `stageTransform` below were missing). Deliberately just a
+ * plain CSS rotation of the already-derived thumb/preview/full images,
+ * not a re-encode of them and never a write to the original file on
+ * disk — the same "non-destructive, sidecar/override, never touch the
+ * original" principle already used everywhere else in this app (XMP
+ * sidecars, location overrides, ...). */
+async function rotate() {
+  if (!metadata.value) return
+  const next = ((metadata.value.orientation ?? 0) + 90) % 360
+  const previous = metadata.value.orientation
+  metadata.value.orientation = next
+  try {
+    await patchMetadata(props.asset.id, { orientation: next })
+  } catch {
+    metadata.value.orientation = previous
+    toast.showError(t('viewer.menu.rotateError'))
+  }
 }
+
+/** Compensates for `object-contain`'s own (unrotated) fit: without this,
+ * rotating a landscape photo 90°/270° inside a box still shaped for
+ * landscape would overflow it on two sides. `naturalSize`/`containerSize`
+ * are the exact inputs `imageRect` (face box positioning) already
+ * computes from — reused, not re-measured. */
+const stageTransform = computed(() => {
+  const rotation = metadata.value?.orientation ?? 0
+  if (rotation === 0) return {}
+  const { w: cw, h: ch } = containerSize.value
+  const { w: nw, h: nh } = naturalSize.value
+  if (!cw || !ch || !nw || !nh) return { transform: `rotate(${rotation}deg)` }
+  const swapped = rotation === 90 || rotation === 270
+  const unrotatedScale = Math.min(cw / nw, ch / nh)
+  const rotatedScale = swapped ? Math.min(cw / nh, ch / nw) : unrotatedScale
+  const compensate = rotatedScale / unrotatedScale
+  return { transform: `rotate(${rotation}deg) scale(${compensate})` }
+})
 
 const DISK_ACTION: Record<DeleteChoice, DiskAction> = {
   index: 'kept',
@@ -923,7 +963,7 @@ const coordsLabel = computed(() => {
             <button
               type="button"
               class="rounded-md px-2.5 py-2 text-left hover:bg-[var(--color-chip-bg)]"
-              @click="closeMoreThen(rotateStub)"
+              @click="closeMoreThen(rotate)"
             >
               {{ t('viewer.menu.rotate') }}
             </button>
@@ -995,6 +1035,7 @@ const coordsLabel = computed(() => {
             :src="src"
             :alt="asset.filename"
             class="m-auto h-full max-h-full w-full max-w-full rounded-md object-contain"
+            :style="stageTransform"
             @load="onStageImgLoad"
             @error="onMainImageError"
           >
@@ -1413,7 +1454,7 @@ const coordsLabel = computed(() => {
             <button
               type="button"
               class="rounded-md border border-[#262626] bg-[#161616] px-2.5 py-1.5 text-xs hover:bg-[#1f1f1f]"
-              @click="rotateStub"
+              @click="rotate"
             >
               {{ t('viewer.menu.rotate') }}
             </button>

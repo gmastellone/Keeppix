@@ -676,7 +676,7 @@
     "menu": {
       "download": "Download original",
       "rotate": "Rotate",
-      "rotateToast": "Demo only — this would rotate the file (the original on disk is never modified).",
+      "rotateError": "Couldn't rotate the photo. Try again.",
       "share": "Share…",
       "addToAlbum": "Add to album",
       "rename": "Rename…",

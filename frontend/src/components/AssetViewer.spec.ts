@@ -313,20 +313,22 @@ describe('AssetViewer — ⋯ menu', () => {
     expect(link.getAttribute('download')).toBe('a.jpg')
   })
 
-  it('"Ruota" is still a demo toast (declared debt — no rotation pipeline yet)', async () => {
+  it('"Ruota" patches the real orientation override — 90° clockwise', async () => {
     wrapper = mount(AssetViewer, {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n] },
       attachTo: document.body
     })
-    const toast = useToastStore()
     await wrapper.get('[aria-label="Altre azioni"]').trigger('click')
     await flushPromises()
 
     menuItemWithText('Ruota')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
 
-    expect(toast.toasts.at(-1)?.message).toContain('Solo demo')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/assets/a/metadata',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ orientation: 90 }) })
+    )
   })
 
   it('"Elimina…" opens the 3-way delete dialog; choosing an option deletes and closes the lightbox', async () => {
@@ -1137,7 +1139,6 @@ describe('AssetViewer — ALBUM and ACTIONS sections', () => {
       props: { asset: photo('a'), isFavorite: false },
       global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
     })
-    const toast = useToastStore()
     await flushPromises()
 
     const downloadLink = wrapper.findAll('a').find((a) => a.text() === 'Scarica originale')!
@@ -1145,10 +1146,56 @@ describe('AssetViewer — ALBUM and ACTIONS sections', () => {
     expect(downloadLink.attributes('download')).toBe('a.jpg')
 
     await wrapper.findAll('button').find((b) => b.text() === 'Ruota')!.trigger('click')
-    expect(toast.toasts.at(-1)?.message).toContain('Solo demo')
+    await flushPromises()
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/v1/assets/a/metadata',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ orientation: 90 }) })
+    )
 
     await wrapper.findAll('button').find((b) => b.text() === 'Rinomina…')!.trigger('click')
     expect(document.body.textContent).toContain('1 foto — a.jpg')
+  })
+
+  it('"Ruota" wraps back to 0° after four clicks — a full turn, not an ever-growing value', async () => {
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    await flushPromises()
+    const rotateBtn = wrapper.findAll('button').find((b) => b.text() === 'Ruota')!
+
+    for (const expected of [90, 180, 270, 0]) {
+      await rotateBtn.trigger('click')
+      await flushPromises()
+      expect(apiFetch).toHaveBeenLastCalledWith(
+        '/api/v1/assets/a/metadata',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ orientation: expected }) })
+      )
+    }
+  })
+
+  it('a failed rotate reverts the optimistic orientation change and shows an error toast', async () => {
+    wrapper = mount(AssetViewer, {
+      props: { asset: photo('a'), isFavorite: false },
+      global: { plugins: [i18n], stubs: { MapClusterLayer: true } }
+    })
+    const toast = useToastStore()
+    await flushPromises()
+    apiFetch.mockImplementationOnce(() => Promise.reject(new Error('network error')))
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Ruota')!.trigger('click')
+    await flushPromises()
+    // Reverted: the *next* rotate still starts from 0°, not 90° (which it
+    // would if the optimistic write to metadata.value.orientation had
+    // stuck around after the request failed).
+    await wrapper.findAll('button').find((b) => b.text() === 'Ruota')!.trigger('click')
+    await flushPromises()
+
+    expect(apiFetch).toHaveBeenLastCalledWith(
+      '/api/v1/assets/a/metadata',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ orientation: 90 }) })
+    )
+    expect(toast.toasts.some((t) => t.kind === 'error')).toBe(true)
   })
 
   it('"Condividi…" opens ShareSelectionDialog for this single asset', async () => {
