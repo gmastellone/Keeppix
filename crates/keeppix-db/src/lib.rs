@@ -89,7 +89,9 @@ pub use permissions::{
 };
 pub use person_groups::{NewPersonGroup, PersonGroupRepo};
 pub use persons::{PersonRepo, PersonSummary};
-pub use pgvector::{ENABLE_VECTOR_SQL, PgVectorStatus, persist_pgvector_status, probe_pgvector};
+pub use pgvector::{
+    ENABLE_VECTOR_SQL, PgVectorStatus, ai_schema_available, persist_pgvector_status, probe_pgvector,
+};
 pub use places::PlaceRepo;
 pub use preferences::{
     GridDensity, NotificationPreferences, PreferencesPatchError, PreferencesRepo, UserPreferences,

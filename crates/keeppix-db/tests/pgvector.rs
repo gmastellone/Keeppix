@@ -112,3 +112,29 @@ async fn persist_pgvector_status_survives_a_reload() {
         Some(keeppix_db::PgVectorStatus::ENABLE_SQL)
     );
 }
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn ai_schema_available_reflects_the_persisted_status_once_written() {
+    let test = TestDb::start().await;
+    // Nothing persisted yet: falls back to a live probe, same true answer
+    // the bundled image always gives.
+    assert!(keeppix_db::ai_schema_available(test.db()).await.unwrap());
+
+    keeppix_db::persist_pgvector_status(test.db())
+        .await
+        .unwrap();
+    assert!(keeppix_db::ai_schema_available(test.db()).await.unwrap());
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn ai_schema_available_is_false_without_pgvector_persisted_or_not() {
+    let test = TestDb::start_postgis_only().await;
+    assert!(!keeppix_db::ai_schema_available(test.db()).await.unwrap());
+
+    keeppix_db::persist_pgvector_status(test.db())
+        .await
+        .unwrap();
+    assert!(!keeppix_db::ai_schema_available(test.db()).await.unwrap());
+}

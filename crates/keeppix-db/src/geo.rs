@@ -312,7 +312,7 @@ impl<'a> GeoRepo<'a> {
         let mut next_param = 11_usize;
         let (search_clause, search_binds) = match search {
             Some(search) => {
-                let ai_available = crate::pgvector::probe_pgvector(self.db).await?.available;
+                let ai_available = crate::pgvector::ai_schema_available(self.db).await?;
                 compile_for_sql(
                     &search,
                     &mut next_param,

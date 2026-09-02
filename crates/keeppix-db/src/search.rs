@@ -216,7 +216,7 @@ impl<'a> SearchRepo<'a> {
         // Same $1,$2,$3 reused in the Semantic subquery: we want the top K
         // among visible assets, not K globally and then filtered.
         let semantic_vis = scope.filter("vf.path", "vf.library_id", "va.id", 1);
-        let ai_available = crate::pgvector::probe_pgvector(self.db).await?.available;
+        let ai_available = crate::pgvector::ai_schema_available(self.db).await?;
         let mut param = 4_usize;
         let (clause, binds) = compile_for_sql(
             ast,
@@ -302,7 +302,7 @@ impl<'a> SearchRepo<'a> {
         // Reached only with a `Semantic` node present, which already needs
         // pgvector — but probed explicitly rather than assumed, since that
         // implication isn't enforced anywhere it would break loudly if wrong.
-        let ai_available = crate::pgvector::probe_pgvector(self.db).await?.available;
+        let ai_available = crate::pgvector::ai_schema_available(self.db).await?;
         let mut param = 4_usize;
         let (mv_p, vec_p, k_p, cte_binds) =
             semantic_query_params(*k_limit, embedding.as_ref(), &mut param)?;

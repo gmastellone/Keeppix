@@ -119,3 +119,33 @@ pub async fn persist_pgvector_status(db: &Db) -> Result<PgVectorStatus, DbError>
     SettingsRepo::new(db).put_json("pgvector", &value).await?;
     Ok(status)
 }
+
+/// Whether the AI schema (`faces`/`persons`/`tags`) can be assumed to
+/// exist — for a hot per-request path (every plain-text search, every
+/// album rule evaluation, every map cluster query) that only needs a
+/// yes/no answer, not the full status object with its message/command.
+///
+/// Reads the value [`persist_pgvector_status`] already wrote at startup,
+/// through [`SettingsRepo::get_json`]'s in-memory cache (`Db::
+/// settings_cache`) — no query in the common case, unlike calling
+/// [`probe_pgvector`] directly, which was the actual bug here: a live
+/// `pg_available_extensions`/`pg_extension` catalog probe on every single
+/// search request, multiplied by however many searches a page fires at
+/// once (`PeopleView`'s one-search-per-card cover lookup, tens to
+/// hundreds on a real library) — enough concurrent extra round trips
+/// against a 10-connection pool to make the whole app feel slow, not just
+/// search. Falls back to a live probe only if the cache is genuinely
+/// empty (a fresh install racing its own startup write, or a manually
+/// cleared `system_settings` row) — correct either way, just not the fast
+/// path.
+///
+/// # Errors
+/// Database, only on the (rare) fallback.
+pub async fn ai_schema_available(db: &Db) -> Result<bool, DbError> {
+    if let Some(value) = SettingsRepo::new(db).get_json("pgvector").await? {
+        if let Ok(status) = serde_json::from_value::<PgVectorStatus>(value) {
+            return Ok(status.available);
+        }
+    }
+    Ok(probe_pgvector(db).await?.available)
+}
