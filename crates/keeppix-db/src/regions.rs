@@ -125,6 +125,34 @@ impl<'a> RegionRepo<'a> {
         ctx: &AuthContext,
         region: NewMapRegion,
     ) -> Result<MapRegion, DbError> {
+        self.begin(ctx, region, "download").await
+    }
+
+    /// Same as [`Self::begin_download`], for `keeppix_jobs::map_extract`'s
+    /// `pmtiles extract` flow: marks the row's `acquisition` as `'extract'`
+    /// so a crash-recovery re-enqueue
+    /// (`JobRepo::enqueue_missing_region_downloads`) resumes it
+    /// with `ExtractMapRegion`, not `DownloadMapRegion` — the placeholder
+    /// `source_url`/`checksum_sha256` a `NewMapRegion` carries here isn't a
+    /// downloadable file, so re-queuing it as a byte-for-byte HTTP fetch
+    /// would always fail.
+    ///
+    /// # Errors
+    /// `Forbidden` for non-admins, `Conflict` if the region is already downloading.
+    pub async fn begin_extraction(
+        &self,
+        ctx: &AuthContext,
+        region: NewMapRegion,
+    ) -> Result<MapRegion, DbError> {
+        self.begin(ctx, region, "extract").await
+    }
+
+    async fn begin(
+        &self,
+        ctx: &AuthContext,
+        region: NewMapRegion,
+        acquisition: &str,
+    ) -> Result<MapRegion, DbError> {
         if !ctx.is_admin() {
             return Err(DbError::Forbidden);
         }
@@ -134,15 +162,16 @@ impl<'a> RegionRepo<'a> {
             "INSERT INTO map_regions \
                  (id, label, file_path, size_bytes, version, status, source_url, \
                   checksum_sha256, downloaded_bytes, last_error, downloaded_at, \
-                  cancel_requested, download_generation) \
-             VALUES ($1, $2, $3, $4, $5, 'downloading', $6, $7, 0, NULL, NULL, false, $8) \
+                  cancel_requested, download_generation, acquisition) \
+             VALUES ($1, $2, $3, $4, $5, 'downloading', $6, $7, 0, NULL, NULL, false, $8, $9) \
              ON CONFLICT (id) DO UPDATE SET \
                  label = EXCLUDED.label, file_path = EXCLUDED.file_path, \
                  size_bytes = EXCLUDED.size_bytes, version = EXCLUDED.version, \
                  status = 'downloading', source_url = EXCLUDED.source_url, \
                  checksum_sha256 = EXCLUDED.checksum_sha256, \
                  downloaded_bytes = 0, last_error = NULL, downloaded_at = NULL, \
-                 cancel_requested = false, download_generation = EXCLUDED.download_generation \
+                 cancel_requested = false, download_generation = EXCLUDED.download_generation, \
+                 acquisition = EXCLUDED.acquisition \
              WHERE map_regions.status <> 'downloading' \
              RETURNING {COLUMNS}"
         ))
@@ -154,6 +183,7 @@ impl<'a> RegionRepo<'a> {
         .bind(&region.source_url)
         .bind(&region.checksum_sha256)
         .bind(download_generation)
+        .bind(acquisition)
         .fetch_optional(self.db.pool())
         .await?;
         row.ok_or_else(|| DbError::Conflict("region download already in progress".to_owned()))?
@@ -368,6 +398,44 @@ impl<'a> RegionRepo<'a> {
         )
         .bind(id)
         .bind(generation)
+        .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    /// Same as [`Self::mark_available`], for [`crate::map_extract`]'s
+    /// pipeline: `pmtiles extract` only produces a real `size_bytes`/
+    /// checksum/`source_url` (the resolved dated build actually used)
+    /// *after* it finishes — [`Self::begin_download`] was called with
+    /// placeholders for all three (the catalog's rough estimate, an
+    /// all-zero checksum), and this is what corrects them once the truth
+    /// is known.
+    ///
+    /// Does not take an `AuthContext`: internal pipeline method.
+    ///
+    /// # Errors
+    /// `Connection` on DB error.
+    pub async fn mark_available_with_actuals(
+        &self,
+        id: &str,
+        generation: Uuid,
+        size_bytes: i64,
+        checksum_sha256: &str,
+        source_url: &str,
+    ) -> Result<bool, DbError> {
+        let result = sqlx::query(
+            "UPDATE map_regions \
+                SET status = 'available', size_bytes = $3, downloaded_bytes = $3, \
+                    checksum_sha256 = $4, source_url = $5, \
+                    downloaded_at = now(), last_error = NULL, cancel_requested = false \
+              WHERE id = $1 AND download_generation = $2 \
+                AND status = 'downloading' AND NOT cancel_requested",
+        )
+        .bind(id)
+        .bind(generation)
+        .bind(size_bytes)
+        .bind(checksum_sha256)
+        .bind(source_url)
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected() == 1)

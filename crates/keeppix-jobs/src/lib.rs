@@ -11,6 +11,8 @@ pub mod error;
 pub mod geotag;
 pub mod hash;
 pub mod maintenance;
+pub mod map_catalog;
+pub mod map_extract;
 pub mod metadata;
 pub mod moves;
 pub mod pool;

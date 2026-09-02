@@ -115,15 +115,23 @@ pub async fn repair_interrupted_downloads(db: &Db) -> Result<RepairResult, keepp
 }
 
 /// Recovers downloads at boot, when every job still `running` necessarily
-/// belongs to the dead process.
+/// belongs to the dead process. Resets both region job kinds — a manual
+/// URL download and a catalog `pmtiles extract` are the same `map_regions`
+/// status machine, just different acquisition mechanisms
+/// (`RegionRepo::begin_download` vs `begin_extraction`), and either can be
+/// the one a dead process left `running`.
 ///
 /// # Errors
 /// `DbError` if the reset or the queue rebuild fails.
 pub async fn recover_interrupted_downloads(db: &Db) -> Result<RepairResult, keeppix_db::DbError> {
     let jobs = JobRepo::new(db);
-    let reaped = jobs.reset_running(JobKind::DownloadMapRegion).await?;
+    let reaped_download = jobs.reset_running(JobKind::DownloadMapRegion).await?;
+    let reaped_extract = jobs.reset_running(JobKind::ExtractMapRegion).await?;
     let reenqueued = jobs.enqueue_missing_region_downloads().await?;
-    Ok(RepairResult { reaped, reenqueued })
+    Ok(RepairResult {
+        reaped: reaped_download + reaped_extract,
+        reenqueued,
+    })
 }
 
 /// Enqueues the periodic run that reaps genuinely stale leases.

@@ -367,6 +367,14 @@ impl<'a> JobRepo<'a> {
 
     /// Recreates missing jobs for regions left `downloading` after a crash.
     ///
+    /// Branches on `map_regions.acquisition`: a row created by the manual
+    /// URL flow (`RegionRepo::begin_download`) resumes as
+    /// `download_map_region`, one created by the catalog/`pmtiles extract`
+    /// flow (`RegionRepo::begin_extraction`) resumes as
+    /// `extract_map_region` — re-queuing an extraction row as a raw HTTP
+    /// download would fetch its placeholder `source_url` byte-for-byte and
+    /// always fail, since that URL was never a downloadable file.
+    ///
     /// Does not take an `AuthContext`: this is an internal pipeline repair.
     ///
     /// # Errors
@@ -374,13 +382,19 @@ impl<'a> JobRepo<'a> {
     pub async fn enqueue_missing_region_downloads(&self) -> Result<u64, DbError> {
         let result = sqlx::query(
             "INSERT INTO jobs (kind, payload, priority, dedup_key) \
-             SELECT 'download_map_region', \
+             SELECT CASE r.acquisition \
+                        WHEN 'extract' THEN 'extract_map_region' \
+                        ELSE 'download_map_region' \
+                    END, \
                     jsonb_build_object( \
                         'region_id', r.id, \
                         'download_generation', r.download_generation::text, \
                         'file_path', r.file_path \
                     ), 1, \
-                    'map-region:' || r.id || ':' || r.download_generation::text \
+                    CASE r.acquisition \
+                        WHEN 'extract' THEN 'map-region-extract:' \
+                        ELSE 'map-region:' \
+                    END || r.id || ':' || r.download_generation::text \
                FROM map_regions r \
               WHERE r.status = 'downloading' AND NOT r.cancel_requested \
              ON CONFLICT (dedup_key) \

@@ -16,6 +16,11 @@ pub enum JobKind {
     CleanupTrash,
     RetryErrorAssets,
     DownloadMapRegion,
+    /// Server-side `pmtiles extract`: a bounded bbox/zoom subset pulled
+    /// from the remote Protomaps daily build, not the raw URL a client
+    /// hands over (`DownloadMapRegion`) — the mechanism behind picking a
+    /// country from the map region search instead of pasting a URL.
+    ExtractMapRegion,
     TmpCleanup,
     TranscodeVideo,
     BackupDump,
@@ -58,6 +63,7 @@ impl JobKind {
             Self::CleanupTrash => "cleanup_trash",
             Self::RetryErrorAssets => "retry_error_assets",
             Self::DownloadMapRegion => "download_map_region",
+            Self::ExtractMapRegion => "extract_map_region",
             Self::TmpCleanup => "tmp_cleanup",
             Self::TranscodeVideo => "transcode_video",
             Self::BackupDump => "backup_dump",
@@ -89,6 +95,7 @@ impl JobKind {
             "cleanup_trash" => Ok(Self::CleanupTrash),
             "retry_error_assets" => Ok(Self::RetryErrorAssets),
             "download_map_region" => Ok(Self::DownloadMapRegion),
+            "extract_map_region" => Ok(Self::ExtractMapRegion),
             "tmp_cleanup" => Ok(Self::TmpCleanup),
             "transcode_video" => Ok(Self::TranscodeVideo),
             "backup_dump" => Ok(Self::BackupDump),

@@ -107,6 +107,18 @@ RUN set -eu; \
       | xargs -r -I{} cp -L {} /staging/lib/; \
     ls -1 /staging/lib
 
+# A single static Go binary ("no external dependencies" — pmtiles' own
+# docs), pinned to the official image's exact digest-addressed tag rather
+# than `:latest`, matching this file's pattern of pinned versions
+# everywhere else. `extract` reads a remote PMTiles archive's own internal
+# tile directory (small, targeted HTTP range requests against
+# build.protomaps.com) and writes a new, smaller archive containing only
+# the requested bbox/zoom range — the actual mechanism behind "download
+# just France, not the 120 GB planet" (crates/keeppix-jobs/src/
+# map_extract.rs). No `ldd`/staging needed: a static binary, straight
+# copy.
+FROM docker.io/protomaps/go-pmtiles:v1.30.3 AS pmtiles
+
 # ── Runtime ───────────────────────────────────────────────────────────────
 # distroless: no shell, no package manager, ~6 packages to keep an eye on.
 # debian13 aligned with the trixie builder (ort prebuilt needs glibc ≥ 2.38).
@@ -117,6 +129,7 @@ COPY --from=libraw /staging/bin/dcraw_emu /usr/bin/dcraw_emu
 COPY --from=libraw /staging/lib/ /usr/local/lib/keeppix/
 COPY --from=heif /staging/bin/heif-convert /usr/bin/heif-convert
 COPY --from=heif /staging/lib/ /usr/local/lib/keeppix/
+COPY --from=pmtiles /go-pmtiles /usr/bin/pmtiles
 COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/places.csv /usr/share/keeppix/places.csv
 COPY --from=geonames --chown=nonroot:nonroot /usr/share/keeppix/tz_boundaries.csv /usr/share/keeppix/tz_boundaries.csv
 # `models/README.md` already promises this: "get baked into the Docker

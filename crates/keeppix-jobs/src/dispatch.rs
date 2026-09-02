@@ -86,6 +86,7 @@ impl crate::JobHandler for IngestHandler {
                 crate::transcode::run(&self.db, &self.data_dir, id, save).await
             }
             JobKind::DownloadMapRegion => crate::regions::run(&self.db, &self.data_dir, job).await,
+            JobKind::ExtractMapRegion => crate::map_extract::run(&self.db, &self.data_dir, job).await,
             JobKind::ReapStale => {
                 crate::regions::repair_interrupted_downloads(&self.db).await?;
                 Ok(())

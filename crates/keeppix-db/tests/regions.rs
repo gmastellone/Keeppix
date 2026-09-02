@@ -89,6 +89,53 @@ async fn mark_error_requires_the_current_uncancelled_download() {
 
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
+async fn begin_extraction_records_actuals_only_on_completion() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let repo = RegionRepo::new(test.db());
+
+    let created = repo
+        .begin_extraction(
+            &ctx,
+            NewMapRegion {
+                id: "france".to_owned(),
+                label: "Francia".to_owned(),
+                size_bytes: 480_000_000,
+                version: "pending".to_owned(),
+                source_url: "https://build.protomaps.com/pending".to_owned(),
+                checksum_sha256: "0".repeat(64),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status, RegionStatus::Downloading);
+
+    let updated = repo
+        .mark_available_with_actuals(
+            "france",
+            created.download_generation,
+            123_456,
+            &"cd".repeat(32),
+            "https://build.protomaps.com/20260901.pmtiles",
+        )
+        .await
+        .unwrap();
+    assert!(updated);
+
+    let region = repo.find(&ctx, "france").await.unwrap();
+    assert_eq!(region.status, RegionStatus::Available);
+    assert_eq!(region.size_bytes, 123_456);
+    assert_eq!(region.downloaded_bytes, 123_456);
+    assert_eq!(region.checksum_sha256, "cd".repeat(32));
+    assert_eq!(
+        region.source_url,
+        "https://build.protomaps.com/20260901.pmtiles"
+    );
+}
+
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn non_admin_cannot_mutate_global_regions() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
