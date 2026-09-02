@@ -231,7 +231,33 @@ const selectedStackMember = computed(() =>
   stackMembers.value.find((m) => m.id === selectedStackMemberId.value)
 )
 
-const src = computed(() => previewSrc(selectedStackMember.value ?? props.asset))
+/** `/media/preview/{hash}` 404s outright for an asset whose original is
+ * already at or under `SKIP_PREVIEW_PX` (keeppix-media's `derive.rs`
+ * deliberately skips generating a separate — and, for a small original,
+ * strictly *larger* — preview file): a small WhatsApp export, a
+ * screenshot, anything already close to preview size. Without this, the
+ * stage silently shows nothing at all for exactly those assets — the
+ * filmstrip thumbnail still works (`thumb.webp` is never skipped), so it
+ * reads as "this one photo is broken" rather than what it is, a missing
+ * derivative tier. Reset per asset/stack-member so switching away and
+ * back retries the real preview instead of getting stuck on the
+ * fallback. */
+const mainImageErrored = ref(false)
+watch(
+  () => (selectedStackMember.value ?? props.asset).id,
+  () => {
+    mainImageErrored.value = false
+  }
+)
+
+function onMainImageError() {
+  mainImageErrored.value = true
+}
+
+const src = computed(() => {
+  const target = selectedStackMember.value ?? props.asset
+  return mainImageErrored.value ? originalSrc(target.id) : previewSrc(target)
+})
 const downloadTarget = computed(() => selectedStackMember.value ?? props.asset)
 
 const currentIndex = computed(() => props.neighbors.findIndex((n) => n.id === props.asset.id))
@@ -936,6 +962,7 @@ const coordsLabel = computed(() => {
             :alt="asset.filename"
             class="m-auto h-full max-h-full w-full max-w-full rounded-md object-contain"
             @load="onStageImgLoad"
+            @error="onMainImageError"
           >
           <div
             v-for="face in visibleFaces"

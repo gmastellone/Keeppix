@@ -9,7 +9,7 @@ import { i18n } from '@/i18n'
 import { useToastStore } from '@/stores/toast'
 
 import AssetViewer from './AssetViewer.vue'
-import { previewSrc } from '@/api/media'
+import { originalSrc, previewSrc } from '@/api/media'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -202,6 +202,35 @@ describe('AssetViewer — stage, arrows, filmstrip', () => {
     expect(wrapper.get('img[alt="aaaa.jpg"]').attributes('src')).toBe(previewSrc(first.content_hash!))
 
     await wrapper.setProps({ asset: second })
+    expect(wrapper.get('img[alt="bbbb.jpg"]').attributes('src')).toBe(previewSrc(second.content_hash!))
+  })
+
+  it('falls back to the original when the preview 404s (e.g. an already-small original, whose separate preview derivative is deliberately never generated)', async () => {
+    const asset = photo('aaaa')
+    wrapper = mount(AssetViewer, {
+      props: { asset, isFavorite: false },
+      global: { plugins: [i18n] }
+    })
+    const img = wrapper.get('img[alt="aaaa.jpg"]')
+    expect(img.attributes('src')).toBe(previewSrc(asset.content_hash!))
+
+    await img.trigger('error')
+
+    expect(wrapper.get('img[alt="aaaa.jpg"]').attributes('src')).toBe(originalSrc(asset.id))
+  })
+
+  it('retries the real preview on the next asset, instead of getting stuck on the fallback', async () => {
+    const first = photo('aaaa')
+    const second = photo('bbbb')
+    wrapper = mount(AssetViewer, {
+      props: { asset: first, isFavorite: false },
+      global: { plugins: [i18n] }
+    })
+    await wrapper.get('img[alt="aaaa.jpg"]').trigger('error')
+    expect(wrapper.get('img[alt="aaaa.jpg"]').attributes('src')).toBe(originalSrc(first.id))
+
+    await wrapper.setProps({ asset: second })
+
     expect(wrapper.get('img[alt="bbbb.jpg"]').attributes('src')).toBe(previewSrc(second.content_hash!))
   })
 })
