@@ -3,10 +3,8 @@
 # can't fix it either (exFAT/FAT32 external drives have no concept of Unix
 # permissions at all — macOS silently no-ops any chmod on them).
 #
-# Running as root lets the container read the library regardless of on-disk
-# ownership. The mount stays read-only (see compose.yaml) either way, so
-# this doesn't change what the app can do to the photos themselves — only
-# who's allowed to read them.
+# Running as root lets the container read (and write — the mount is `rw`,
+# see compose.yaml) the library regardless of on-disk ownership.
 #
 # Deliberately NOT named compose.override.yaml: Compose auto-loads that
 # filename, which would make this the default for everyone. It's applied

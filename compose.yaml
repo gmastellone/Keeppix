@@ -23,9 +23,14 @@ services:
       - "5673:5673"
     volumes:
       - ./data:/data
-      # Originals are read-only: no bug can delete them.
-      # Switch to `rw` only once upload needs it.
-      - ${PHOTOS_PATH:-./photos}:/photos:ro
+      # Writable: "delete from disk" (routes::trash::batch_delete,
+      # DiskAction::Purged) needs to actually remove the original file, not
+      # just the DB row — under `:ro` that action always fails with a
+      # filesystem permission error (the DB side still commits first, so
+      # the asset silently drops out of the index while the file survives
+      # untouched on disk, only to reappear at the next scan). Upload and
+      # move/rename also write here.
+      - ${PHOTOS_PATH:-./photos}:/photos
     read_only: true
     tmpfs:
       - /tmp

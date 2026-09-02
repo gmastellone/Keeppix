@@ -178,11 +178,11 @@ addition to the nightly run).
 | Path | Mode | Content |
 |---|---|---|
 | `./data` → `/data` | rw | derivatives, maps, backups, configuration |
-| `$PHOTOS_PATH` → `/photos` | **ro** | your originals |
+| `$PHOTOS_PATH` → `/photos` | rw | your originals |
 
-In Phase 0 indexing doesn't exist yet: `/photos` is mounted read-only and
-nothing touches it. It will become `rw` in Phase 1, only for libraries on
-which you enable upload or sidecar writes.
+Writable so upload, move/rename, and "delete from disk" can actually write
+to your originals — see the comment on this mount in `compose.yaml` for
+why it isn't `ro`.
 
 ## Updating
 
