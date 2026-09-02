@@ -364,7 +364,7 @@ async fn catalog_requires_a_session_and_then_lists_thirty_five_countries() {
     assert!(
         entries
             .iter()
-            .any(|entry| entry["id"] == "france" && entry["label"] == "Francia")
+            .any(|entry| entry["id"] == "FR" && entry["label"] == "Francia")
     );
     assert!(entries.iter().all(|entry| entry["approx_size_bytes"]
         .as_i64()
@@ -399,17 +399,17 @@ async fn downloading_a_catalog_entry_queues_an_extraction() {
 
     let response = server
         .client
-        .post(server.url("/api/v1/map/regions/catalog/france"))
+        .post(server.url("/api/v1/map/regions/catalog/FR"))
         .send()
         .await
         .unwrap();
 
     assert_eq!(response.status(), 202);
     let body: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(body["id"], "france");
+    assert_eq!(body["id"], "FR");
     assert_eq!(body["status"], "downloading");
 
-    let kind: String = sqlx::query_scalar("SELECT kind FROM jobs WHERE payload->>'region_id' = 'france'")
+    let kind: String = sqlx::query_scalar("SELECT kind FROM jobs WHERE payload->>'region_id' = 'FR'")
         .fetch_one(server.db.pool())
         .await
         .unwrap();
@@ -427,20 +427,20 @@ async fn cancelling_a_catalog_download_retires_the_extraction_job_not_a_download
     setup(&server).await;
     server
         .client
-        .post(server.url("/api/v1/map/regions/catalog/france"))
+        .post(server.url("/api/v1/map/regions/catalog/FR"))
         .send()
         .await
         .unwrap();
 
     let response = server
         .client
-        .post(server.url("/api/v1/map/regions/france/cancel"))
+        .post(server.url("/api/v1/map/regions/FR/cancel"))
         .send()
         .await
         .unwrap();
     assert_eq!(response.status(), 204);
 
-    let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE payload->>'region_id' = 'france'")
+    let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE payload->>'region_id' = 'FR'")
         .fetch_one(server.db.pool())
         .await
         .unwrap();

@@ -26,7 +26,7 @@ async fn enqueue_extraction_creates_an_extract_job_with_its_own_dedup_lane() {
     let admin = harness::seed_admin(&test).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
 
-    let job = keeppix_jobs::map_extract::enqueue_extraction(test.db(), &ctx, "france")
+    let job = keeppix_jobs::map_extract::enqueue_extraction(test.db(), &ctx, "FR")
         .await
         .unwrap();
 
@@ -34,17 +34,17 @@ async fn enqueue_extraction_creates_an_extract_job_with_its_own_dedup_lane() {
     let generation = job.payload["download_generation"].as_str().unwrap();
     assert_eq!(
         job.dedup_key.as_deref(),
-        Some(format!("map-region-extract:france:{generation}").as_str())
+        Some(format!("map-region-extract:FR:{generation}").as_str())
     );
 
     let region = RegionRepo::new(test.db())
-        .find(&ctx, "france")
+        .find(&ctx, "FR")
         .await
         .unwrap();
     assert_eq!(region.status, keeppix_db::RegionStatus::Downloading);
 
     // A second call for the same country must not create a competing writer.
-    let second = keeppix_jobs::map_extract::enqueue_extraction(test.db(), &ctx, "france").await;
+    let second = keeppix_jobs::map_extract::enqueue_extraction(test.db(), &ctx, "FR").await;
     assert!(second.is_err());
 }
 
@@ -61,7 +61,7 @@ async fn repair_reenqueues_an_extraction_row_as_extract_not_download() {
         .begin_extraction(
             &ctx,
             keeppix_db::NewMapRegion {
-                id: "germany".to_owned(),
+                id: "DE".to_owned(),
                 label: "Germania".to_owned(),
                 size_bytes: 520_000_000,
                 version: "pending".to_owned(),
@@ -84,7 +84,7 @@ async fn repair_reenqueues_an_extraction_row_as_extract_not_download() {
         .unwrap();
     assert_eq!(job.status, JobStatus::Running);
     assert_eq!(job.kind, JobKind::ExtractMapRegion);
-    assert_eq!(job.payload["region_id"], "germany");
+    assert_eq!(job.payload["region_id"], "DE");
 }
 
 #[tokio::test]
@@ -93,7 +93,7 @@ async fn startup_recovery_resets_a_running_extraction_job_too() {
     let test = TestDb::start().await;
     let admin = harness::seed_admin(&test).await;
     let ctx = AuthContext::user(admin, SystemRole::Admin);
-    let queued = keeppix_jobs::map_extract::enqueue_extraction(test.db(), &ctx, "france")
+    let queued = keeppix_jobs::map_extract::enqueue_extraction(test.db(), &ctx, "FR")
         .await
         .unwrap();
     let jobs = keeppix_db::JobRepo::new(test.db());
