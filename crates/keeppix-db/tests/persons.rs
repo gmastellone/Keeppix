@@ -340,3 +340,84 @@ async fn centroid_is_the_average_of_confirmed_embeddings() {
         "centroid should average to the shared axis: {centroid_text}"
     );
 }
+
+async fn max_change_log_seq(test: &TestDb) -> i64 {
+    sqlx::query_scalar("SELECT COALESCE(MAX(seq), 0) FROM change_log")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap()
+}
+
+async fn changed_asset_ids_since(test: &TestDb, since_seq: i64) -> Vec<AssetId> {
+    let rows: Vec<(uuid::Uuid,)> = sqlx::query_as(
+        "SELECT DISTINCT entity_id FROM change_log WHERE entity = 'asset' AND seq > $1",
+    )
+    .bind(since_seq)
+    .fetch_all(test.db().pool())
+    .await
+    .unwrap();
+    rows.into_iter()
+        .map(|(id,)| AssetId::from_uuid(id))
+        .collect()
+}
+
+#[tokio::test]
+async fn renaming_a_person_logs_a_change_for_every_asset_with_their_confirmed_face() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset_a = seed_asset_in_new_library(&test, admin, "rename-a").await;
+    let asset_b = seed_asset_in_new_library(&test, admin, "rename-b").await;
+    let other_asset = seed_asset_in_new_library(&test, admin, "rename-other").await;
+
+    let person = PersonRepo::new(test.db()).create(None).await.unwrap();
+    confirmed_face(&test, &ctx, asset_a, person.id, unit_axis(0)).await;
+    confirmed_face(&test, &ctx, asset_b, person.id, unit_axis(0)).await;
+
+    let since = max_change_log_seq(&test).await;
+    PersonRepo::new(test.db())
+        .rename(&ctx, person.id, Some(PersonName::parse("Rosanna").unwrap()))
+        .await
+        .unwrap();
+
+    let changed = changed_asset_ids_since(&test, since).await;
+    assert!(changed.contains(&asset_a));
+    assert!(changed.contains(&asset_b));
+    assert!(
+        !changed.contains(&other_asset),
+        "an asset with no confirmed face of this person must not be touched"
+    );
+}
+
+#[tokio::test]
+async fn merging_people_logs_a_change_only_for_the_absorbed_persons_assets() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let survivor_asset = seed_asset_in_new_library(&test, admin, "merge-survivor").await;
+    let absorbed_asset = seed_asset_in_new_library(&test, admin, "merge-absorbed").await;
+
+    let survivor = PersonRepo::new(test.db())
+        .create(Some(PersonName::parse("Rosanna").unwrap()))
+        .await
+        .unwrap();
+    let absorbed = PersonRepo::new(test.db()).create(None).await.unwrap();
+    confirmed_face(&test, &ctx, survivor_asset, survivor.id, unit_axis(0)).await;
+    confirmed_face(&test, &ctx, absorbed_asset, absorbed.id, unit_axis(1)).await;
+
+    let since = max_change_log_seq(&test).await;
+    PersonRepo::new(test.db())
+        .merge(&ctx, survivor.id, &[absorbed.id])
+        .await
+        .unwrap();
+
+    let changed = changed_asset_ids_since(&test, since).await;
+    assert!(
+        changed.contains(&absorbed_asset),
+        "the absorbed person's photo now shows the survivor's name — must be logged"
+    );
+    assert!(
+        !changed.contains(&survivor_asset),
+        "the survivor's own photo already showed the right name — nothing changed on it"
+    );
+}

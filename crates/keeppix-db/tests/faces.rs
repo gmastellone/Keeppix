@@ -637,3 +637,63 @@ async fn confirmed_among_is_empty_for_an_empty_id_list() {
     let map = FaceRepo::new(test.db()).confirmed_among(&[]).await.unwrap();
     assert!(map.is_empty());
 }
+
+async fn max_change_log_seq(test: &TestDb) -> i64 {
+    sqlx::query_scalar("SELECT COALESCE(MAX(seq), 0) FROM change_log")
+        .fetch_one(test.db().pool())
+        .await
+        .unwrap()
+}
+
+async fn asset_changed_since(test: &TestDb, asset: AssetId, since_seq: i64) -> bool {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM change_log WHERE entity = 'asset' AND entity_id = $1 AND seq > $2",
+    )
+    .bind(asset.as_uuid())
+    .bind(since_seq)
+    .fetch_one(test.db().pool())
+    .await
+    .unwrap();
+    count > 0
+}
+
+#[tokio::test]
+async fn assigning_a_face_logs_a_change_for_its_asset() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_asset_in_new_library(&test, admin, "assign-log").await;
+    let face = detect_face(&test, asset, None).await;
+    let person = seed_person(&test).await;
+
+    let since = max_change_log_seq(&test).await;
+    FaceRepo::new(test.db())
+        .assign(&ctx, face.id, person)
+        .await
+        .unwrap();
+
+    assert!(
+        asset_changed_since(&test, asset, since).await,
+        "the asset's face badge just changed (a new confirmed person) — live clients must be told"
+    );
+}
+
+#[tokio::test]
+async fn rejecting_a_face_logs_a_change_for_its_asset() {
+    let test = TestDb::start().await;
+    let admin = harness::seed_admin(&test).await;
+    let ctx = AuthContext::user(admin, SystemRole::Admin);
+    let asset = seed_asset_in_new_library(&test, admin, "reject-log").await;
+    let face = detect_face(&test, asset, None).await;
+
+    let since = max_change_log_seq(&test).await;
+    FaceRepo::new(test.db())
+        .reject(&ctx, face.id)
+        .await
+        .unwrap();
+
+    assert!(
+        asset_changed_since(&test, asset, since).await,
+        "rejecting a proposed face also changes what the asset's badges show"
+    );
+}

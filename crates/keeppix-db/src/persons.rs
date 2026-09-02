@@ -209,6 +209,7 @@ impl<'a> PersonRepo<'a> {
         .fetch_one(self.db.pool())
         .await
         .map_err(map_name_conflict)?;
+        touch_assets_of_person(self.db, id).await?;
         Ok(row.into_domain())
     }
 
@@ -302,6 +303,11 @@ impl<'a> PersonRepo<'a> {
         }
 
         let absorbed_uuids: Vec<uuid::Uuid> = absorbed.iter().map(PersonId::as_uuid).collect();
+        // Before reassignment: every asset with a confirmed face still
+        // pointing at an absorbed person is about to show `survivor`'s
+        // name instead — the survivor's own pre-existing assets don't
+        // change what they display, so they're not touched here.
+        touch_assets_with_person_in(self.db, &absorbed_uuids).await?;
         sqlx::query("UPDATE faces SET person_id = $1 WHERE person_id = ANY($2)")
             .bind(survivor.as_uuid())
             .bind(&absorbed_uuids)
@@ -472,6 +478,39 @@ impl<'a> PersonRepo<'a> {
             .await?;
         Ok(())
     }
+}
+
+/// Fires `assets_change_log` for every asset with a confirmed face of
+/// `person_id` — a name change is visible on every one of those tiles/
+/// lightboxes (`FaceRepo::confirmed_among`), but nothing about `persons`
+/// itself feeds the live-update mechanism, which only watches `assets`
+/// rows. Same reasoning as [`crate::faces::FaceRepo`]'s private
+/// `touch_asset_for_face`, at the scale a rename actually needs: one
+/// person can be confirmed on hundreds of assets.
+async fn touch_assets_of_person(db: &Db, person_id: PersonId) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE assets SET updated_at = now() \
+          WHERE id IN (SELECT asset_id FROM faces \
+                        WHERE person_id = $1 AND rejected_at IS NULL)",
+    )
+    .bind(person_id.as_uuid())
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
+/// Same as [`touch_assets_of_person`], for a batch of people at once —
+/// [`PersonRepo::merge`]'s absorbed side.
+async fn touch_assets_with_person_in(db: &Db, person_ids: &[uuid::Uuid]) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE assets SET updated_at = now() \
+          WHERE id IN (SELECT asset_id FROM faces \
+                        WHERE person_id = ANY($1) AND rejected_at IS NULL)",
+    )
+    .bind(person_ids)
+    .execute(db.pool())
+    .await?;
+    Ok(())
 }
 
 fn map_name_conflict(err: sqlx::Error) -> DbError {

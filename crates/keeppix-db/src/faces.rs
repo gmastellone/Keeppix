@@ -197,6 +197,27 @@ impl<'a> FaceRepo<'a> {
             .await
     }
 
+    /// Fires `assets_change_log` (the `AFTER UPDATE` trigger on `assets`
+    /// itself — see `0006_change_log.sql`) for the asset this face
+    /// belongs to, without changing anything a caller could observe: a
+    /// confirmed/rejected face changes what `GET /assets/{id}` and the
+    /// timeline's per-tile badges show for that asset (`FaceRepo::
+    /// confirmed_among`), but nothing about `faces`/`persons` feeds the
+    /// live-update mechanism, which only watches `assets` rows. Without
+    /// this, an already-cached tile or an open lightbox never learns a
+    /// face on it was just confirmed/rejected — only a hard reload would
+    /// show it.
+    async fn touch_asset_for_face(&self, face_id: FaceId) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE assets SET updated_at = now() \
+              WHERE id = (SELECT asset_id FROM faces WHERE id = $1)",
+        )
+        .bind(face_id.as_uuid())
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
     async fn person_of(&self, face_id: FaceId) -> Result<Option<PersonId>, DbError> {
         let row: Option<(Option<uuid::Uuid>,)> =
             sqlx::query_as("SELECT person_id FROM faces WHERE id = $1")
@@ -285,6 +306,7 @@ impl<'a> FaceRepo<'a> {
         if result.rows_affected() == 0 {
             return Err(DbError::NotFound);
         }
+        self.touch_asset_for_face(face_id).await?;
         self.recompute_affected_centroids(old_person, Some(person_id))
             .await
     }
@@ -313,6 +335,7 @@ impl<'a> FaceRepo<'a> {
         if result.rows_affected() == 0 {
             return Err(DbError::NotFound);
         }
+        self.touch_asset_for_face(face_id).await?;
         self.recompute_affected_centroids(old_person, None).await
     }
 
