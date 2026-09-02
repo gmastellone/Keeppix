@@ -558,7 +558,8 @@
       "regionSourceNotAllowed": "Questa sorgente di download non è consentita.",
       "invalidRegion": "I metadati della regione non sono validi.",
       "downloadAlreadyActive": "Questa regione è già in scaricamento.",
-      "regionUnavailable": "Regione non più disponibile"
+      "regionUnavailable": "Regione non più disponibile",
+      "unknownCatalogId": "Regione non trovata nel catalogo."
     },
     "continents": {
       "europe": "Europa",
@@ -573,7 +574,7 @@
     },
     "offline": {
       "title": "Mappe offline",
-      "subtitle": "I dati della mappa restano su questo server e non rivelano a terzi le zone visualizzate.",
+      "subtitle": "Le tile sono servite da questo server Keeppix, mai da provider esterni — nessuna richiesta lascia la tua rete.",
       "downloaded": "Regioni scaricate",
       "catalog": "Aggiungi una regione",
       "download": "Scarica",
@@ -585,6 +586,19 @@
         "available": "Disponibile",
         "downloading": "Scaricamento",
         "error": "Errore"
+      },
+      "search": {
+        "open": "Aggiungi regione",
+        "srLabel": "Cerca un paese o una regione da aggiungere",
+        "placeholder": "Cerca un paese o una regione…",
+        "close": "Chiudi ricerca regioni, senza aggiungere nulla",
+        "resultsLabel": "Risultati ricerca regioni",
+        "emptyPrompt": "Digita per cercare tra le regioni disponibili — ce ne sono troppe per un elenco unico.",
+        "noResults": "Nessuna regione trovata.",
+        "added": "{name} aggiunta — scaricamento avviato."
+      },
+      "manual": {
+        "toggle": "Aggiungi manualmente (avanzato)"
       },
       "fields": {
         "id": "ID regione",

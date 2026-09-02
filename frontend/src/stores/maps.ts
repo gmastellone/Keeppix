@@ -50,6 +50,12 @@ export interface RegionDownloadRequest {
   checksum_sha256: string
 }
 
+export interface RegionCatalogEntry {
+  id: string
+  label: string
+  approx_size_bytes: number
+}
+
 export interface Place {
   id: number
   name: string
@@ -73,6 +79,7 @@ export function mapErrorKey(error: unknown, context?: 'tile'): string {
     'keeppix/forbidden': 'maps.errors.forbidden',
     'keeppix/region-source-not-allowed': 'maps.errors.regionSourceNotAllowed',
     'keeppix/invalid-region': 'maps.errors.invalidRegion',
+    'keeppix/unknown-region-catalog-id': 'maps.errors.unknownCatalogId',
     'keeppix/conflict': 'maps.errors.downloadAlreadyActive'
   }
   return keys[error.type] ?? 'common.unexpectedError'
@@ -87,6 +94,8 @@ export const useMapsStore = defineStore('maps', () => {
   const loading = ref(false)
   const loaded = ref(false)
   const error = ref<unknown>()
+  const catalog = ref<RegionCatalogEntry[]>([])
+  const catalogLoaded = ref(false)
 
   const availableRegionIds = computed(() =>
     regions.value.filter((region) => region.status === 'available').map((region) => region.id)
@@ -106,6 +115,15 @@ export const useMapsStore = defineStore('maps', () => {
     }
   }
 
+  /** The 35-country search catalog (`docs/ui/documento-funzionale-ui.md`,
+   * "B — Ricerca di regione") — fetched once and cached: it's a fixed,
+   * small server-side list, not per-user state. */
+  async function loadCatalog(): Promise<void> {
+    if (catalogLoaded.value) return
+    catalog.value = await apiFetch<RegionCatalogEntry[]>('/api/v1/map/regions/catalog')
+    catalogLoaded.value = true
+  }
+
   async function downloadRegion(entry: RegionDownloadRequest): Promise<void> {
     const region = await apiFetch<MapRegion>('/api/v1/map/regions', {
       method: 'POST',
@@ -119,6 +137,18 @@ export const useMapsStore = defineStore('maps', () => {
       })
     })
     regions.value = replaceRegion(regions.value, region)
+  }
+
+  /** The search-box counterpart to `downloadRegion`: a catalog id instead
+   * of a hand-typed URL/checksum. Returns the queued region so callers
+   * can show its name without a second lookup. */
+  async function downloadFromCatalog(id: string): Promise<MapRegion> {
+    const region = await apiFetch<MapRegion>(
+      `/api/v1/map/regions/catalog/${encodeURIComponent(id)}`,
+      { method: 'POST' }
+    )
+    regions.value = replaceRegion(regions.value, region)
+    return region
   }
 
   async function cancelRegion(id: string): Promise<void> {
@@ -183,9 +213,13 @@ export const useMapsStore = defineStore('maps', () => {
     loading,
     loaded,
     error,
+    catalog,
+    catalogLoaded,
     availableRegionIds,
     loadRegions,
+    loadCatalog,
     downloadRegion,
+    downloadFromCatalog,
     cancelRegion,
     deleteRegion,
     fetchClusters,

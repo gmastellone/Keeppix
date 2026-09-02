@@ -558,7 +558,8 @@
       "regionSourceNotAllowed": "This region download source is not allowed.",
       "invalidRegion": "The region metadata is invalid.",
       "downloadAlreadyActive": "This region is already downloading.",
-      "regionUnavailable": "Region no longer available"
+      "regionUnavailable": "Region no longer available",
+      "unknownCatalogId": "Region not found in the catalog."
     },
     "continents": {
       "europe": "Europe",
@@ -573,7 +574,7 @@
     },
     "offline": {
       "title": "Offline maps",
-      "subtitle": "Map data stays on this server and never reveals viewed areas to third parties.",
+      "subtitle": "Tiles are served by this Keeppix server, never by external providers — no request ever leaves your network.",
       "downloaded": "Downloaded regions",
       "catalog": "Add a region",
       "download": "Download",
@@ -585,6 +586,19 @@
         "available": "Available",
         "downloading": "Downloading",
         "error": "Error"
+      },
+      "search": {
+        "open": "Add region",
+        "srLabel": "Search for a country or region to add",
+        "placeholder": "Search for a country or region…",
+        "close": "Close region search, without adding anything",
+        "resultsLabel": "Region search results",
+        "emptyPrompt": "Type to search available regions — there are too many for a single list.",
+        "noResults": "No region found.",
+        "added": "{name} added — download started."
+      },
+      "manual": {
+        "toggle": "Add manually (advanced)"
       },
       "fields": {
         "id": "Region ID",
