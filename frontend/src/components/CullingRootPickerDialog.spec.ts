@@ -165,6 +165,21 @@ describe('CullingRootPickerDialog', () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 
+  it('the scrim is absent before ever being opened — a plain div has no data-state of its own to hide behind', () => {
+    mountHost([root])
+    expect(document.body.querySelector('.fixed.inset-0.z-40')).toBeNull()
+  })
+
+  it('the scrim disappears again after closing, not just DialogContent', async () => {
+    const w = mountHost([root])
+    await openViaTrigger(w)
+    expect(document.body.querySelector('.fixed.inset-0.z-40')).not.toBeNull()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(document.body.querySelector('.fixed.inset-0.z-40')).toBeNull()
+  })
+
   it('nothing receives focus automatically on open (no auto-focus, deviates from the shared Dialog.vue pattern)', async () => {
     const w = mountHost([root])
     const trigger = await openViaTrigger(w)

@@ -9,7 +9,12 @@
 // to `true` while the dialog is open (`DialogContentModal`, not
 // overridable via a prop). The scrim is a decorative `div` with no
 // handler, not `DialogOverlay`: that component doesn't mount at all when
-// `modal="false"`.
+// `modal="false"`. It needs its own `v-if="open"`, though — under
+// `modal="false"`, `DialogPortal` keeps its children mounted even while
+// closed (`DialogContent` hides itself via reka-ui's own `data-state`
+// styling, invisible in the DOM tree unless you look for it) — a plain
+// `div` with no such internal state stayed fully visible and click-
+// blocking behind a "closed" dialog until this was added.
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { DialogContent, DialogDescription, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
@@ -74,7 +79,10 @@ function confirm() {
     :modal="false"
   >
     <DialogPortal>
-      <div class="fixed inset-0 z-40 bg-black/50" />
+      <div
+        v-if="open"
+        class="fixed inset-0 z-40 bg-black/50"
+      />
       <DialogContent
         aria-modal="true"
         class="fixed top-1/2 left-1/2 z-50 w-[420px] max-w-[86%] -translate-x-1/2 -translate-y-1/2

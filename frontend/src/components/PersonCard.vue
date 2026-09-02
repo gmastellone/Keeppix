@@ -55,7 +55,7 @@ function onKeydown(event: KeyboardEvent) {
   >
     <span class="relative">
       <span
-        class="h-[78px] w-[78px] rounded-full border border-border bg-cover bg-center bg-surface-elevated"
+        class="block h-[78px] w-[78px] rounded-full border border-border bg-cover bg-center bg-surface-elevated"
         :class="selected && 'ring-[3px] ring-accent'"
         :style="coverStyle"
         aria-hidden="true"
