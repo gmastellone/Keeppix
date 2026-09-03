@@ -221,6 +221,60 @@ async fn deleted_region_returns_clean_404_after_range_serving() {
     );
 }
 
+/// `tile_archive` (`/{region}/archive`) is the same byte-range stream as
+/// `tiles` (`/{region}/{z}/{x}/{y}`), just addressed without path segments
+/// that would collide with a real z/x/y once the frontend's pmtiles
+/// protocol handler appends one — see the doc comment on `tile_archive`.
+#[tokio::test]
+#[allow(clippy::unwrap_used)]
+async fn archive_route_serves_the_same_byte_ranges_as_the_zxy_route() {
+    let server = TestServer::start().await;
+    let user = setup(&server).await;
+    let ctx = AuthContext::user(user, SystemRole::Admin);
+    let region = RegionRepo::new(&server.db)
+        .begin_download(
+            &ctx,
+            NewMapRegion {
+                id: "IT".to_owned(),
+                label: "Italia".to_owned(),
+                size_bytes: 10,
+                version: "2026-08".to_owned(),
+                source_url: "https://build.protomaps.com/IT.pmtiles".to_owned(),
+                checksum_sha256: "ab".repeat(32),
+            },
+        )
+        .await
+        .unwrap();
+    RegionRepo::new(&server.db)
+        .mark_available("IT", region.download_generation)
+        .await
+        .unwrap();
+    tokio::fs::create_dir_all(server.data_dir.join("maps"))
+        .await
+        .unwrap();
+    tokio::fs::write(server.data_dir.join(&region.file_path), b"0123456789")
+        .await
+        .unwrap();
+
+    let ranged = server
+        .client
+        .get(server.url("/api/v1/map/tiles/IT/archive"))
+        .header(reqwest::header::RANGE, "bytes=2-5")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ranged.status(), 206);
+    assert_eq!(ranged.headers()["content-range"], "bytes 2-5/10");
+    assert_eq!(ranged.bytes().await.unwrap().as_ref(), b"2345");
+
+    let unauthenticated = reqwest::Client::new()
+        .get(server.url("/api/v1/map/tiles/IT/archive"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), 401);
+}
+
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
 async fn region_enqueue_rejects_a_non_allowlisted_source() {

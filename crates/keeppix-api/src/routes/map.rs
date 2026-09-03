@@ -159,6 +159,62 @@ pub async fn tiles(
     .await
 }
 
+/// Same byte-range archive stream as [`tiles`], addressed without the
+/// (unused) z/x/y path segments.
+///
+/// Exists because the frontend's `pmtiles` protocol handler needs one
+/// fixed URL per region to both register a `Source` under *and* build a
+/// `tiles: ["pmtiles://<this>/{z}/{x}/{y}"]` template from — reusing
+/// [`tiles`] itself for that (with a placeholder like `0/0/0`) makes the
+/// resulting request URL end in six consecutive numeric segments once a
+/// real z/x/y is appended, which the client-side pmtiles library can't
+/// reliably split back into "archive part" vs "z/x/y part". A URL that
+/// ends in a non-numeric segment has no such ambiguity.
+///
+/// # Errors
+/// `401` without a session; `404` if the region is missing or has been
+/// deleted; `416` for an invalid range.
+#[utoipa::path(
+    get,
+    path = "/api/v1/map/tiles/{region}/archive",
+    tag = "map",
+    operation_id = "map_tile_archive_raw",
+    summary = "Serve a map region's raw archive by byte range",
+    security(("session_cookie" = [])),
+    params(("region" = String, Path, description = "Local region id")),
+    responses(
+        (status = 200, description = "PMTiles archive"),
+        (status = 206, description = "PMTiles byte range"),
+        (status = 401, description = "Not authenticated", body = Problem),
+        (status = 404, description = "Region not available", body = Problem),
+        (status = 416, description = "Invalid range", body = Problem)
+    )
+)]
+pub async fn tile_archive(
+    State(state): State<AppState>,
+    Auth(ctx): Auth,
+    path: Result<AxumPath<String>, PathRejection>,
+    headers: HeaderMap,
+) -> Result<Response, Problem> {
+    let AxumPath(region_id) = path.map_err(|rejection| {
+        Problem::bad_request("invalid-map-tile-path", "Invalid map tile path")
+            .with_detail(rejection.body_text())
+    })?;
+    let region = RegionRepo::new(&state.db)
+        .find_available(&ctx, &region_id)
+        .await?;
+    let path = state.data_dir.join(region.file_path);
+    super::media::stream_file(
+        &path,
+        headers
+            .get(header::RANGE)
+            .and_then(|value| value.to_str().ok()),
+        "application/vnd.pmtiles",
+        false,
+    )
+    .await
+}
+
 pub(crate) fn parse_bounds(raw: &str) -> Result<MapBounds, Problem> {
     let values = raw
         .split(',')

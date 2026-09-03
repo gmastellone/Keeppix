@@ -176,6 +176,7 @@ fn api_routes(state: AppState) -> Router<AppState> {
         .route("/places/suggest", get(routes::places::suggest))
         .route("/map/clusters", get(routes::map::clusters))
         .route("/map/tiles/{region}/{z}/{x}/{y}", get(routes::map::tiles))
+        .route("/map/tiles/{region}/archive", get(routes::map::tile_archive))
         .route(
             "/map/regions",
             get(routes::regions::list).post(routes::regions::download),

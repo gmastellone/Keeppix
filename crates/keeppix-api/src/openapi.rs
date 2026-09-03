@@ -84,6 +84,7 @@ impl utoipa::Modify for SecurityAddon {
         places::suggest,
         map::clusters,
         map::tiles,
+        map::tile_archive,
         regions::list,
         regions::download,
         regions::catalog,

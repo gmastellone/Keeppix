@@ -136,8 +136,16 @@ function colors(dark: boolean) {
       }
 }
 
+// Ends in a non-numeric segment on purpose — see `tile_archive` in
+// `crates/keeppix-api/src/routes/map.rs` for why: once a real `{z}/{x}/{y}`
+// is appended below to build the `tiles:` template, a URL ending in
+// digits (the old `/{region}/0/0/0` shape, reusing `tiles`' own route)
+// would leave six consecutive numeric path segments — un-splittable back
+// into "archive part" vs "z/x/y part" by the pmtiles protocol handler,
+// which silently gave up after fetching the header once and never
+// resolved an actual tile.
 function archiveUrl(regionId: string): string {
-  return `${window.location.origin}/api/v1/map/tiles/${encodeURIComponent(regionId)}/0/0/0`
+  return `${window.location.origin}/api/v1/map/tiles/${encodeURIComponent(regionId)}/archive`
 }
 
 async function registerRegionSources() {
