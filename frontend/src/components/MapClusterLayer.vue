@@ -70,6 +70,15 @@ let maplibreModule: typeof import('maplibre-gl') | undefined
 let pmtilesModule: typeof import('pmtiles') | undefined
 let pmtilesProtocol: import('pmtiles').Protocol | undefined
 const coverHashes = new Map<string, string>()
+// A vector source built from a bare `pmtiles://<url>` alone never
+// resolves its tiles/bounds/zoom range in this maplibre+pmtiles version
+// (confirmed live: the source falls back to maxzoom 22 with no `tiles`
+// array, and never issues a single tile request — MapLibre expects a
+// TileJSON-shaped source, not a protocol that silently synthesizes one
+// from the archive header). Reading the header ourselves, once per
+// region, and building an explicit source below is the documented,
+// reliable way to use pmtiles with MapLibre.
+const regionHeaders = new Map<string, Awaited<ReturnType<import('pmtiles').PMTiles['getHeader']>>>()
 
 class ProblemRangeSource implements Source {
   readonly url: string
@@ -131,13 +140,17 @@ function archiveUrl(regionId: string): string {
   return `${window.location.origin}/api/v1/map/tiles/${encodeURIComponent(regionId)}/0/0/0`
 }
 
-function registerRegionSources() {
+async function registerRegionSources() {
   if (!pmtilesModule || !pmtilesProtocol) return
-  for (const regionId of props.regionIds) {
-    pmtilesProtocol.add(
-      new pmtilesModule.PMTiles(new ProblemRangeSource(archiveUrl(regionId)))
-    )
-  }
+  await Promise.all(
+    props.regionIds
+      .filter((regionId) => !regionHeaders.has(regionId))
+      .map(async (regionId) => {
+        const instance = new pmtilesModule!.PMTiles(new ProblemRangeSource(archiveUrl(regionId)))
+        pmtilesProtocol!.add(instance)
+        regionHeaders.set(regionId, await instance.getHeader())
+      })
+  )
 }
 
 function mapStyle(dark: boolean): StyleSpecification {
@@ -152,8 +165,16 @@ function mapStyle(dark: boolean): StyleSpecification {
   ]
 
   for (const regionId of props.regionIds) {
+    const header = regionHeaders.get(regionId)
+    if (!header) continue
     const source = `region-${regionId}`
-    sources[source] = { type: 'vector', url: `pmtiles://${archiveUrl(regionId)}` }
+    sources[source] = {
+      type: 'vector',
+      tiles: [`pmtiles://${archiveUrl(regionId)}/{z}/{x}/{y}`],
+      minzoom: header.minZoom,
+      maxzoom: header.maxZoom,
+      bounds: [header.minLon, header.minLat, header.maxLon, header.maxLat]
+    }
     layers.push(
       {
         id: `${source}-earth`,
@@ -402,7 +423,8 @@ onMounted(async () => {
     pmtilesProtocol = new pmtiles.Protocol()
     maplibre.addProtocol('pmtiles', pmtilesProtocol.tile)
   }
-  registerRegionSources()
+  await registerRegionSources()
+  if (!container.value) return
 
   themeQuery = window.matchMedia('(prefers-color-scheme: dark)')
   themeQuery.addEventListener('change', switchTheme)
@@ -441,8 +463,8 @@ onBeforeUnmount(() => {
 
 watch(
   () => props.regionIds,
-  () => {
-    registerRegionSources()
+  async () => {
+    await registerRegionSources()
     if (map && themeQuery) map.setStyle(mapStyle(themeQuery.matches))
   }
 )

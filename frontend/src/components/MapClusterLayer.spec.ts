@@ -81,7 +81,11 @@ vi.mock('pmtiles', () => ({
     tile = vi.fn()
     add = vi.fn()
   },
-  PMTiles: class {}
+  PMTiles: class {
+    async getHeader() {
+      return { minZoom: 0, maxZoom: 14, minLon: 6.6, minLat: 35.3, maxLon: 18.8, maxLat: 47.1 }
+    }
+  }
 }))
 
 afterEach(() => {
