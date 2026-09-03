@@ -267,7 +267,15 @@ async fn apply_batch_reports_a_collision_without_blocking_the_rest() {
     let folder = ensure_folder(&server, admin, &root).await;
     let a = seed_indexed_asset(&server, folder, &root, "a.jpg").await;
     let b = seed_indexed_asset(&server, folder, &root, "b.jpg").await;
-    let _target = seed_indexed_asset(&server, folder, &root, "TARGET.JPG").await;
+    // Named "OTHER", not a same-word different-case "TARGET": on a
+    // case-insensitive filesystem (the default on macOS/Windows, and
+    // common for external/cloud-synced storage), "target.JPG" and
+    // "TARGET.JPG" are the same path — move_asset's on-disk collision
+    // check (assets.rs) correctly refuses to rename into that, since
+    // doing so would silently overwrite the pre-existing file. This decoy
+    // only needs to prove that an unrelated existing asset doesn't
+    // interfere with the batch, so its name must not collide by case.
+    let _other = seed_indexed_asset(&server, folder, &root, "OTHER.JPG").await;
 
     let response = server
         .client
@@ -308,7 +316,7 @@ async fn apply_batch_reports_a_collision_without_blocking_the_rest() {
     assert_eq!(operation.succeeded.len(), 1);
 
     assert!(root.join("2024").join("target.JPG").is_file());
-    assert!(root.join("2024").join("TARGET.JPG").is_file());
+    assert!(root.join("2024").join("OTHER.JPG").is_file());
 
     let _ = fs::remove_dir_all(&root);
 }
